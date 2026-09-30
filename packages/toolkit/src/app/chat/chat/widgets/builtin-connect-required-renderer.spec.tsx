@@ -2,19 +2,35 @@
 
 import { ACTION_CHAT_UI_DATA_TABLE_RENDERER } from "@agent-native/core/action-ui";
 import {
+  AgentNativeI18nProvider as CoreAgentNativeI18nProvider,
+  type AgentNativeI18nProviderProps,
+} from "@agent-native/core/client/i18n";
+import {
   BUILDER_CONNECT_PROVIDER,
   BUILDER_CONNECT_PROVIDER_LABEL,
   connectRequiredResult,
 } from "@agent-native/core/shared";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../../../i18n.js";
 import { resolveToolRenderer } from "../tool-render-registry.js";
 import {
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
 } from "./builtin-tool-renderers.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+
+function AgentNativeI18nProvider(props: AgentNativeI18nProviderProps) {
+  return (
+    <CoreAgentNativeI18nProvider
+      {...props}
+      catalog={props.catalog ?? toolkitI18nCatalog}
+    />
+  );
+}
 
 describe("built-in connect-required renderer", () => {
   let container: HTMLDivElement;
@@ -29,6 +45,13 @@ describe("built-in connect-required renderer", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    const render = root.render.bind(root);
+    root.render = (children: ReactNode) =>
+      render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          {children}
+        </AgentNativeI18nProvider>,
+      );
   });
 
   afterEach(() => {

@@ -74,10 +74,14 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/auth/two-factor", () => twoFactor);
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { PASSWORD_MIN_LENGTH } from "@agent-native/core/shared/password-policy";
 
+import { createToolkitI18nCatalog } from "../../i18n.js";
 import { SECURITY_SEARCH_ENTRIES } from "./search-entries.js";
 import { SecuritySettings } from "./SecuritySettings.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("SecuritySettings", () => {
   let container: HTMLDivElement;
@@ -106,7 +110,14 @@ describe("SecuritySettings", () => {
 
   async function render() {
     await act(async () => {
-      root.render(<SecuritySettings />);
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={toolkitI18nCatalog}
+          persistPreference={false}
+        >
+          <SecuritySettings />
+        </AgentNativeI18nProvider>,
+      );
     });
     await act(async () => {
       await Promise.resolve();

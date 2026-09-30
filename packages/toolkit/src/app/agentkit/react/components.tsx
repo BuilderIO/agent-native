@@ -3438,7 +3438,10 @@ export function AgentKitComposer({
       onLocalSubmit,
     };
     if (payload.intent === "queued") {
-      await control.queueMessage(message);
+      await control.queueMessage({
+        ...message,
+        queuedWhileRunActive: activeAtSubmit,
+      });
     } else {
       await control.sendMessage(message);
     }

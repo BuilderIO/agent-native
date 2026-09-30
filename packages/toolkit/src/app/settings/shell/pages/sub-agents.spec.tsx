@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -34,9 +35,12 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 
+import { createToolkitI18nCatalog } from "../../../i18n.js";
 import type { RemoteAgentInfo } from "../../AgentsSection.js";
 import { SettingsShellProvider, type SettingsPageHeader } from "../context.js";
 import SubAgentsSettingsPage, { groupSubAgents } from "./sub-agents.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 // Seeded first-party apps and a connected external agent. `mail` also keeps
 // its pre-migration `agents/` row, which must not list it twice.
@@ -123,21 +127,26 @@ async function renderPage() {
   header = null;
   await act(async () => {
     root.render(
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <SettingsShellProvider
-            value={{
-              route: { page: "sub-agents", sub: null },
-              navigate: () => {},
-              setHeader: (next) => {
-                header = next;
-              },
-            }}
-          >
-            <SubAgentsSettingsPage />
-          </SettingsShellProvider>
-        </TooltipProvider>
-      </QueryClientProvider>,
+      <AgentNativeI18nProvider
+        catalog={toolkitI18nCatalog}
+        persistPreference={false}
+      >
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <SettingsShellProvider
+              value={{
+                route: { page: "sub-agents", sub: null },
+                navigate: () => {},
+                setHeader: (next) => {
+                  header = next;
+                },
+              }}
+            >
+              <SubAgentsSettingsPage />
+            </SettingsShellProvider>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </AgentNativeI18nProvider>,
     );
   });
   await settle();

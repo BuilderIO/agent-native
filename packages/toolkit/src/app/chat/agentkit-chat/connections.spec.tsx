@@ -3,7 +3,7 @@
 import {
   notifyMcpConnectionComplete,
   saveMcpConnectionResume,
-} from "@agent-native/core/client/resources";
+} from "@agent-native/core/client/resources/mcp-connection-resume";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";

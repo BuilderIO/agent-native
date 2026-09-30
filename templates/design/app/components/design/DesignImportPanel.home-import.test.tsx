@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: () => "tab-1",
   useActionMutation: () => ({
     mutate: vi.fn(),
     mutateAsync: vi.fn(),
@@ -45,7 +46,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@agent-native/core/client/uploads", () => ({
   useFileUploadStatus: () => mocks.fileStorageStatus,
 }));
-vi.mock("@agent-native/toolkit/app/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
   FileStorageSetupPopover: ({ open }: { open: boolean }) =>
     open ? <div data-testid="file-storage-setup" /> : null,
 }));
