@@ -7,6 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Recording saved notifications keep the Copy link action available.
 - Clips desktop confirms copied links with a check mark.
 
 ## 2026-09-29
