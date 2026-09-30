@@ -129,25 +129,32 @@ describe("connected composer menus", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
-  const open = () =>
+  const openRoot = () =>
     key(
       container.querySelector('button[aria-label="Add context"]')!,
       "ArrowDown",
     );
+  const open = async () => {
+    await openRoot();
+    if (document.querySelector('[role="menuitem"][aria-haspopup="menu"]'))
+      await key(row("Add context"), "ArrowRight");
+  };
   async function click(label: string) {
     await act(async () => row(label).click());
   }
-  it("shows every context choice at the root without menu icons", async () => {
+  it("keeps the root menu compact and puts context choices in nested menus", async () => {
     await render(items, { addAttachment: vi.fn() });
-    await open();
-    expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(1);
-    expect(row("Upload File").querySelector("svg")).toBeNull();
-    expect(row("Project brief").querySelector("svg")).toBeNull();
-    expect(row("Meeting notes")).toBeDefined();
-    expect(row("Launch reference")).toBeDefined();
-    expect(menus()[0].textContent).toContain("Documents");
+    await openRoot();
+    expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
+    expect(row("Upload File").querySelector("svg")).not.toBeNull();
+    expect(row("Add context").getAttribute("aria-haspopup")).toBe("menu");
     expect(menus()).toHaveLength(1);
-    expect(menus()[0].style.width).toBe("320px");
+    expect(menus()[0].classList.contains("w-64")).toBe(true);
+    await key(row("Add context"), "ArrowRight");
+    expect(row("Documents")).toBeDefined();
+    expect(row("Library")).toBeDefined();
+    expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
+    expect(menus()).toHaveLength(2);
   });
   it("hides the Add context tooltip while the host storage popover is open", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -164,7 +171,7 @@ describe("connected composer menus", () => {
       ),
     );
   });
-  it("searches descriptions and categories without adding another navigation level", async () => {
+  it("navigates nested category menus without a root search field", async () => {
     await render([
       {
         id: "apps",
@@ -180,23 +187,16 @@ describe("connected composer menus", () => {
       },
     ]);
     await open();
-    const search =
-      document.querySelector<HTMLInputElement>('[role="searchbox"]')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )!.set!.call(search, "prototypes");
-      search.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    expect(document.querySelector('[role="searchbox"]')).toBeNull();
+    expect(row("Workspace apps")).toBeDefined();
+    await key(row("Workspace apps"), "ArrowRight");
     expect(row("DesignInteractive prototypes")).toBeDefined();
-    expect(menus()[0].textContent).toContain("Workspace apps");
-    expect(menus()).toHaveLength(1);
-    await key(search, "Enter");
+    expect(menus()).toHaveLength(3);
+    await key(row("DesignInteractive prototypes"), "Enter");
     expect(menus()).toHaveLength(0);
   });
   it.each([280, 324, 348, 700])(
-    "sizes the shared panel to its %ipx composer frame",
+    "keeps the shared menu compact in a %ipx composer frame",
     async (width) => {
       container.dataset.agentComposerSlot = "root";
       await render();
@@ -225,8 +225,9 @@ describe("connected composer menus", () => {
         height: 28,
         toJSON() {},
       });
-      await open();
-      expect(menus()[0].style.width).toBe(`${width}px`);
+      await openRoot();
+      expect(menus()[0].classList.contains("w-64")).toBe(true);
+      expect(menus()[0].style.width).toBe("");
       expect(menus()[0].style.maxHeight).toBe("276px");
     },
   );
@@ -258,7 +259,7 @@ describe("connected composer menus", () => {
         DOMRect.fromRect({ x: 24, y: top + 60, width: 28, height: 28 }),
       );
       try {
-        await open();
+        await openRoot();
         expect(menus()[0].style.maxHeight).toBe(`${maxHeight}px`);
         expect(menus()[0].getAttribute("data-side")).toBe(side);
         expect(menus()[0].querySelector('[role="menuitem"]')).not.toBeNull();
@@ -297,9 +298,7 @@ describe("connected composer menus", () => {
       DOMRect.fromRect({ x: 24, y: 150, width: 28, height: 28 }),
     );
     try {
-      await open();
-      const search =
-        menus()[0].querySelector<HTMLInputElement>('[role="searchbox"]')!;
+      await openRoot();
       expect(menus()[0].style.maxHeight).toBe("226px");
       await act(async () => {
         viewport.offsetTop = 0;
@@ -307,13 +306,12 @@ describe("connected composer menus", () => {
         viewport.dispatchEvent(new Event("resize"));
       });
       expect(menus()[0].style.maxHeight).toBe("66px");
-      expect(menus()[0].querySelector('[role="searchbox"]')).toBe(search);
       await act(async () => {
         viewport.offsetTop = 80;
         viewport.dispatchEvent(new Event("scroll"));
       });
       expect(menus()[0].style.maxHeight).toBe("106px");
-      await key(search, "Escape");
+      await key(row("Add context"), "Escape");
       expect(removeListener).toHaveBeenCalledWith(
         "resize",
         expect.any(Function),
@@ -345,13 +343,14 @@ describe("connected composer menus", () => {
         },
       },
     ]);
-    await open();
+    await openRoot();
+    await key(row("Add context"), "ArrowLeft");
     expect(menus()[0].getAttribute("dir")).toBe("rtl");
     await key(row("Source"), "ArrowLeft");
     expect(row("One")).toBeDefined();
     expect(menus()[1].getAttribute("dir")).toBe("rtl");
   });
-  it("follows host resizing while keeping the context search open", async () => {
+  it("follows host resizing while keeping nested context menus open", async () => {
     const observations: {
       target: Element;
       resize: () => void;
@@ -379,27 +378,20 @@ describe("connected composer menus", () => {
     );
     await render();
     await open();
-    const search =
-      document.querySelector<HTMLInputElement>('[role="searchbox"]')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )!.set!.call(search, "brief");
-      search.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await key(row("Documents"), "ArrowRight");
     const observation = observations.find(
       ({ target }) => target === container,
     )!;
     expect(observation).toBeDefined();
     for (width of [348, 280, 700]) {
       await act(async () => observation.resize());
-      expect(menus()[0].style.width).toBe(`${width}px`);
-      expect(document.querySelector('[role="searchbox"]')).toBe(search);
-      expect(search.value).toBe("brief");
+      expect(menus()[0].style.width).toBe("");
+      expect(menus()[0].classList.contains("w-64")).toBe(true);
       expect(row("Project brief")).toBeDefined();
     }
-    await key(search, "Escape");
+    await key(row("Project brief"), "Escape");
+    await key(row("Documents"), "Escape");
+    await key(row("Add context"), "Escape");
     expect(observation.disconnect).toHaveBeenCalled();
   });
   it("closes a context picker when its composer becomes disabled", async () => {
@@ -443,7 +435,7 @@ describe("connected composer menus", () => {
     expect(onDisabledFocus).toHaveBeenCalledOnce();
     expect(document.activeElement).toBe(draft);
   });
-  it("flattens nested categories into one root menu", async () => {
+  it("preserves nested category levels through selection", async () => {
     const select = vi.fn();
     await render(
       [
@@ -461,22 +453,38 @@ describe("connected composer menus", () => {
       { addAttachment: vi.fn() },
     );
     await open();
+    expect(row("Documents")).toBeDefined();
+    expect(row("Library")).toBeDefined();
+    expect(
+      menus().some((menu) => menu.textContent?.includes("Project brief")),
+    ).toBe(false);
+    expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
+    await key(row("Documents"), "ArrowRight");
     expect(row("Project brief")).toBeDefined();
     expect(row("Notes")).toBeDefined();
-    expect(row("Launch reference")).toBeDefined();
-    expect(menus()[0].textContent).toMatch(/Documents.*Library/);
-    expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(1);
+    expect(menus()).toHaveLength(3);
     await click("Project brief");
     expect(select).toHaveBeenCalledOnce();
     expect(menus()).toHaveLength(0);
   });
-  it("keeps native keyboard navigation within the root menu", async () => {
+  it("supports native keyboard navigation across nested context menus", async () => {
     await render();
-    await open();
-    expect(menus()).toHaveLength(1);
+    await openRoot();
+    await key(row("Add context"), "ArrowRight");
+    await key(row("Documents"), "ArrowRight");
+    expect(menus()).toHaveLength(3);
     await key(row("Project brief"), "ArrowDown");
-    expect(document.activeElement).toBe(row("Meeting notes"));
+    expect(document.activeElement).toBe(row("Archive"));
+    await key(row("Archive"), "ArrowRight");
+    expect(row("Meeting notes")).toBeDefined();
+    expect(menus()).toHaveLength(4);
     await key(row("Meeting notes"), "Escape");
+    expect(menus()).toHaveLength(3);
+    await key(row("Archive"), "Escape");
+    expect(menus()).toHaveLength(2);
+    await key(row("Documents"), "Escape");
+    expect(menus()).toHaveLength(1);
+    await key(row("Add context"), "Escape");
     expect(menus()).toHaveLength(0);
   });
   it("preserves native upload accepts, cancellation, multiple files and errors", async () => {
@@ -495,7 +503,7 @@ describe("connected composer menus", () => {
     const picker = vi.spyOn(input, "click");
     expect(input.multiple).toBe(true);
     expect(input.accept).toBe("text/plain");
-    await open();
+    await openRoot();
     await click("Upload File");
     expect(picker).toHaveBeenCalledOnce();
     await act(async () =>
@@ -513,7 +521,7 @@ describe("connected composer menus", () => {
   it("requests gated upload after the menu closes", async () => {
     const onAttachmentRequest = vi.fn();
     await render([], { onAttachmentRequest });
-    await open();
+    await openRoot();
     await click("Upload File");
     await act(
       async () =>
@@ -555,7 +563,7 @@ describe("connected composer menus", () => {
     expect(select).toHaveBeenCalledOnce();
     expect(container.querySelector('[aria-label="Prompt draft"]')).toBe(draft);
     await act(async () => controls.onBack());
-    expect(menus()).toHaveLength(1);
+    expect(menus()).toHaveLength(2);
     expect(dismiss).toHaveBeenCalledTimes(2);
   });
   it("ignores stale legacy close and reports resume of a removed source", async () => {
@@ -578,7 +586,7 @@ describe("connected composer menus", () => {
     const old = controls;
     await act(async () => controls.onBack());
     await act(async () => old.onClose());
-    expect(menus()).toHaveLength(1);
+    expect(menus()).toHaveLength(2);
     await render([]);
     await act(async () => old.onResume());
     expect(document.querySelector('[role="alert"]')?.textContent).toBe(
@@ -602,7 +610,7 @@ describe("connected composer menus", () => {
       ]);
       await open();
       await click("Reference");
-      expect(menus()).toHaveLength(2);
+      expect(menus()).toHaveLength(3);
       expect(document.querySelector('[role="alert"]')?.textContent).toBe(
         "Reference unavailable",
       );

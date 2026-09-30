@@ -1,8 +1,7 @@
 import { useLayoutEffect, useState, type RefObject } from "react";
 
-// Leave room for the search field, group label, and at least one action.
+// Keep the compact menu's actions reachable in short viewports.
 const MIN_USABLE_PANEL_HEIGHT = 120;
-// ponytail: 280px ceiling keeps recent output visible; raise it if long menus need more items shown.
 const MAX_COMPOSER_PANEL_HEIGHT = 280;
 
 export function useComposerPanelPlacement(
@@ -10,7 +9,6 @@ export function useComposerPanelPlacement(
   open: boolean,
 ) {
   const [placement, setPlacement] = useState({
-    width: 320,
     maxHeight: MAX_COMPOSER_PANEL_HEIGHT,
     side: "top" as "top" | "bottom",
     sideOffset: 8,
@@ -39,7 +37,6 @@ export function useComposerPanelPlacement(
           ? "bottom"
           : "top";
       setPlacement({
-        width: bounds.width,
         direction: rtl ? "rtl" : "ltr",
         side,
         maxHeight: Math.min(

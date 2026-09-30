@@ -6,7 +6,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../ui/tooltip.js";
-import { ASSET_PICKER_HANDOFF_PARAM } from "./asset-picker-url.js";
 import { mergeComposerMenuItems } from "./ComposerPlusMenu.js";
 import { PromptComposer, type PromptComposerProps } from "./PromptComposer.js";
 import type { PromptComposerSubmitOptions } from "./PromptComposer.js";
@@ -97,7 +96,7 @@ async function mount(props: Partial<PromptComposerProps> = {}) {
   });
   return { composerRef, onSubmit };
 }
-async function open(trigger: "+" | "@") {
+async function open(trigger: "+" | "@", enterAddContext = false) {
   const target =
     trigger === "+"
       ? container.querySelector<HTMLElement>('button[aria-label="Add context"]')
@@ -114,6 +113,8 @@ async function open(trigger: "+" | "@") {
     );
     await settle();
   });
+  if (enterAddContext && labels().includes("Add context"))
+    await choose("Add context");
 }
 function item(label: string) {
   const row = Array.from(
@@ -210,12 +211,11 @@ describe("shared default action preservation", () => {
             expect(document.querySelector('[role="menu"]')).toBeNull();
           }
         } else {
-          await open(trigger);
+          await open(trigger, false);
           const expected =
             mode === "full"
               ? [
                   "Upload File",
-                  "Generate Image",
                   "Schedule Task",
                   "Create Automation",
                   "Integrations",
@@ -255,8 +255,8 @@ describe("shared default action preservation", () => {
           ],
           extensionTools: true,
         });
-        await open(trigger);
-        expect(labels()).toContain("Host source");
+        await open(trigger, false);
+        expect(labels()).not.toContain("Host source");
         if (action === "Create new skill") await choose("Create Skill");
         await choose(action);
         expect(
@@ -283,7 +283,7 @@ describe("shared default action preservation", () => {
 
     it(`${trigger} clears automation mode through its accessible Cancel button`, async () => {
       const { composerRef, onSubmit } = await mount();
-      await open(trigger);
+      await open(trigger, false);
       await choose("Create Automation");
       const cancel = container.querySelector<HTMLButtonElement>(
         '[data-agent-composer-slot="mode-row"] button[aria-label="Cancel"]',
@@ -325,12 +325,11 @@ describe("shared default action preservation", () => {
           },
         ],
       });
-      await open(trigger);
-      expect(
-        document
-          .querySelector('[role="menu"]')
-          ?.textContent?.match(/Integrations/g),
-      ).toHaveLength(1);
+      await open(trigger, false);
+      expect(labels().filter((label) => label === "Integrations")).toHaveLength(
+        1,
+      );
+      await choose("Integrations");
       await choose("Connect / Manage");
       expect(configure).toHaveBeenCalledOnce();
       expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -339,7 +338,7 @@ describe("shared default action preservation", () => {
     it(`${trigger} preserves native upload and storage-setup handoff`, async () => {
       const onAttachmentRequest = vi.fn();
       await mount({ attachmentsEnabled: false, onAttachmentRequest });
-      await open(trigger);
+      await open(trigger, false);
       expect(onAttachmentRequest).not.toHaveBeenCalled();
       await choose("Upload File");
       await act(async () => {
@@ -347,7 +346,7 @@ describe("shared default action preservation", () => {
       });
       expect(onAttachmentRequest).toHaveBeenCalledOnce();
       await mount({ attachmentsEnabled: false });
-      await open(trigger);
+      await open(trigger, false);
       expect(labels()).not.toContain("Upload File");
       await close();
       await mount();
@@ -355,7 +354,7 @@ describe("shared default action preservation", () => {
         'input[type="file"][multiple]',
       )!;
       const click = vi.spyOn(input, "click").mockImplementation(() => {});
-      await open(trigger);
+      await open(trigger, false);
       await choose("Upload File");
       expect(click).toHaveBeenCalledOnce();
     });
@@ -367,7 +366,7 @@ describe("shared default action preservation", () => {
         plusMenuMode: "terminal",
         terminalModeControl: { enabled: false, onChange, onNewTerminal },
       });
-      await open(trigger);
+      await open(trigger, false);
       await choose("New terminal");
       expect(onChange).toHaveBeenCalledExactlyOnceWith(true);
       expect(onNewTerminal).not.toHaveBeenCalled();
@@ -375,13 +374,13 @@ describe("shared default action preservation", () => {
         plusMenuMode: "terminal",
         terminalModeControl: { enabled: true, onChange, onNewTerminal },
       });
-      await open(trigger);
+      await open(trigger, false);
       expect(item("CLI terminal mode").getAttribute("aria-checked")).toBe(
         "true",
       );
       await choose("New terminal");
       expect(onNewTerminal).toHaveBeenCalledOnce();
-      await open(trigger);
+      await open(trigger, false);
       await choose("CLI terminal mode");
       expect(onChange).toHaveBeenLastCalledWith(false);
       expect(useOrg).not.toHaveBeenCalled();
@@ -397,7 +396,7 @@ describe("shared default action preservation", () => {
       );
       vi.stubGlobal("fetch", fetch);
       await mount();
-      await open(trigger);
+      await open(trigger, false);
       const form = await uploadSkill();
       expect(form).not.toBeNull();
       expect(form.textContent).toContain(
@@ -445,8 +444,8 @@ describe("shared default action preservation", () => {
       plusMenuMode: "hidden",
       contextMenuItems: [{ id: "host", label: "Host source", onSelect }],
     });
-    await open("@");
-    expect(labels()).toEqual(["Upload File", "Host source"]);
+    await open("@", true);
+    expect(labels()).toEqual(["Upload File", "Add context", "Host source"]);
     await choose("Host source");
     expect(onSelect).toHaveBeenCalledOnce();
     expect(useOrg).not.toHaveBeenCalled();
@@ -573,7 +572,7 @@ describe("shared default action preservation", () => {
         root.render(<Host />);
         await settle();
       });
-      await open("@");
+      await open("@", true);
       await choose("Attach integration");
       await open("+");
       await choose("Schedule Task");
@@ -671,58 +670,21 @@ describe("shared default action preservation", () => {
     );
   });
 
-  it("preserves the Assets window handoff and rejects mismatched messages", async () => {
-    const pickerWindow = {} as Window;
-    const windowOpen = vi.spyOn(window, "open").mockReturnValue(pickerWindow);
-    await mount();
-    await open("@");
-    await choose("Generate Image");
-    const link =
-      document.querySelector<HTMLAnchorElement>('[role="dialog"] a')!;
-    expect(link).not.toBeNull();
-    const url = new URL(link.href);
-    const handoffId = url.searchParams.get(ASSET_PICKER_HANDOFF_PARAM);
-    expect(handoffId).toBeTruthy();
-    await act(async () => {
-      link.click();
-      await settle();
+  it("keeps chat actions at the root, nests context sources, and omits Generate Image", async () => {
+    await mount({
+      contextMenuItems: [
+        { id: "host-source", label: "Host source", onSelect: vi.fn() },
+      ],
     });
-    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(
-      url.toString(),
-      "_blank",
-    );
-    const message = (id: string | null) =>
-      new MessageEvent("message", {
-        origin: url.origin,
-        source: pickerWindow,
-        data: {
-          protocol: "agent-native.embed",
-          version: 1,
-          type: "message",
-          name: "chooseAsset",
-          payload: {
-            handoffId: id,
-            assetId: "test-image",
-            url: "https://assets.example.test/image.png",
-            title: "Test image",
-          },
-        },
-      });
-    await act(async () => {
-      window.dispatchEvent(message("wrong-handoff"));
-      await settle();
-    });
-    expect(setContextItem).not.toHaveBeenCalled();
-    await act(async () => {
-      window.dispatchEvent(message(handoffId));
-      await settle();
-    });
-    expect(setContextItem).toHaveBeenCalledExactlyOnceWith({
-      key: "asset-image:test-image",
-      title: "Image: Test image",
-      context:
-        "Image URL: https://assets.example.test/image.png\nAsset ID: test-image",
-    });
+    await open("+");
+    expect(labels()).toContain("Schedule Task");
+    expect(labels()).toContain("Create Automation");
+    expect(labels()).toContain("Create Skill");
+    expect(labels()).not.toContain("Generate Image");
+    expect(labels()).not.toContain("Host source");
+    await choose("Add context");
+    expect(labels()).toContain("Host source");
+    expect(labels()).toContain("Schedule Task");
   });
 
   it("cancels a skill save when its submenu closes and retains retry after errors", async () => {
@@ -738,7 +700,7 @@ describe("shared default action preservation", () => {
       );
     vi.stubGlobal("fetch", fetch);
     await mount();
-    await open("+");
+    await open("+", false);
     const form = await uploadSkill();
     await act(async () => {
       form.dispatchEvent(
