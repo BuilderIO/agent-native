@@ -3,6 +3,7 @@
 import type { AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Index from "./Index";
@@ -915,6 +916,14 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
+  });
+
+  it("does not server-render the home library before restoring its saved tab", () => {
+    localStorage.setItem("design:home-library-tab", "recent");
+
+    expect(renderToString(<Index />)).not.toContain(
+      "agent-prompt-home-library",
+    );
   });
 
   it("preserves an explicit Templates choice made while the summary is pending", async () => {
