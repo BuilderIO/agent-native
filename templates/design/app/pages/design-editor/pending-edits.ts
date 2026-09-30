@@ -902,15 +902,16 @@ export interface VisualEditHandoffPublicationState {
   designId: string;
   publicationRevision: number;
   serverRevision: number | null;
+  localBridgeConfirmed: boolean;
 }
 
 export function isVisualEditHandoffPublicationUnconfirmed(
   state: VisualEditHandoffPublicationState | null,
   designId: string | null | undefined,
 ): boolean {
-  return Boolean(
-    designId && state?.designId === designId && state.serverRevision === null,
-  );
+  if (!designId) return false;
+  if (!state || state.designId !== designId) return true;
+  return state.serverRevision === null && !state.localBridgeConfirmed;
 }
 
 export function shouldFinalizePendingLiveEditReload(args: {
@@ -940,6 +941,11 @@ type VisualEditHandoffPublicationEvent =
       serverRevision: number;
     }
   | {
+      status: "local-ready";
+      designId: string;
+      publicationRevision: number;
+    }
+  | {
       status: "empty" | "failed";
       designId: string;
       publicationRevision: number;
@@ -957,6 +963,7 @@ export function updateVisualEditHandoffPublication(
           designId: event.designId,
           publicationRevision: event.publicationRevision,
           serverRevision: null,
+          localBridgeConfirmed: false,
         };
   }
   if (!current || current.designId !== event.designId) {
@@ -971,6 +978,9 @@ export function updateVisualEditHandoffPublication(
   if (event.status === "ready") {
     return { ...current, serverRevision: event.serverRevision };
   }
+  if (event.status === "local-ready") {
+    return { ...current, localBridgeConfirmed: true };
+  }
   return current;
 }
 
@@ -978,6 +988,7 @@ export function updateReloadedVisualEditHandoff(
   current: VisualEditHandoffPublicationState | null,
   event: Exclude<VisualEditHandoffPublicationEvent, { status: "queued" }>,
 ): VisualEditHandoffPublicationState | null {
+  if (event.status === "local-ready") return current;
   if (
     !current ||
     current.designId !== event.designId ||

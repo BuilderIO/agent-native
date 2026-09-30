@@ -1822,7 +1822,7 @@ function DesignEditor() {
   );
   const pendingVisualEditClearRequestedRef = useRef<string | null>(null);
   const pendingVisualEditHadPendingRef = useRef<string | null>(null);
-  const pendingVisualEditDurableHandoffPublishedRef =
+  const pendingVisualEditHandoffPublicationRef =
     useRef<VisualEditHandoffPublicationState | null>(null);
   const pendingVisualEditReloadedHandoffRef =
     useRef<VisualEditHandoffPublicationState | null>(null);
@@ -1831,7 +1831,7 @@ function DesignEditor() {
     pendingVisualEditPublisherIdRef.current = crypto.randomUUID();
     pendingVisualEditClearRequestedRef.current = null;
     pendingVisualEditHadPendingRef.current = null;
-    pendingVisualEditDurableHandoffPublishedRef.current = null;
+    pendingVisualEditHandoffPublicationRef.current = null;
     pendingVisualEditReloadedHandoffRef.current = null;
     setPendingVisualEditPublicationFailed(false);
     setPendingVisualEditRecoveryVisible(false);
@@ -2062,10 +2062,10 @@ function DesignEditor() {
       ) {
         if (
           options.preserveDurableHandoff &&
-          pendingVisualEditDurableHandoffPublishedRef.current?.designId === id
+          pendingVisualEditHandoffPublicationRef.current?.designId === id
         ) {
           pendingVisualEditReloadedHandoffRef.current = {
-            ...pendingVisualEditDurableHandoffPublishedRef.current,
+            ...pendingVisualEditHandoffPublicationRef.current,
           };
           pendingVisualEditClearRequestedRef.current = null;
           pendingVisualEditHadPendingRef.current = null;
@@ -2115,7 +2115,7 @@ function DesignEditor() {
       pendingLiveNonStyleEditsRef.current,
     );
     const reloadedTargets = pendingLiveEditReloadedTargetsRef.current;
-    const handoff = pendingVisualEditDurableHandoffPublishedRef.current;
+    const handoff = pendingVisualEditHandoffPublicationRef.current;
     if (
       !shouldFinalizePendingLiveEditReload({
         pendingTargets,
@@ -5570,12 +5570,12 @@ function DesignEditor() {
     pendingVisualEditReloadedHandoffRef.current = null;
     if (
       marker &&
-      pendingVisualEditDurableHandoffPublishedRef.current
-        ?.publicationRevision === marker.publicationRevision &&
-      pendingVisualEditDurableHandoffPublishedRef.current.serverRevision ===
+      pendingVisualEditHandoffPublicationRef.current?.publicationRevision ===
+        marker.publicationRevision &&
+      pendingVisualEditHandoffPublicationRef.current.serverRevision ===
         marker.serverRevision
     ) {
-      pendingVisualEditDurableHandoffPublishedRef.current = null;
+      pendingVisualEditHandoffPublicationRef.current = null;
     }
   }, [
     id,
@@ -19109,10 +19109,10 @@ function DesignEditor() {
             revision,
             pending: null,
           };
-    if (pending.pending && canEditDesign) {
-      pendingVisualEditDurableHandoffPublishedRef.current =
+    if (pending.pending) {
+      pendingVisualEditHandoffPublicationRef.current =
         updateVisualEditHandoffPublication(
-          pendingVisualEditDurableHandoffPublishedRef.current,
+          pendingVisualEditHandoffPublicationRef.current,
           { status: "queued", designId: id, publicationRevision: revision },
         );
     }
@@ -19132,26 +19132,36 @@ function DesignEditor() {
         pending,
         pendingVisualEditClearRequestedRef,
         pendingVisualEditHadPendingRef,
-        onDurableHandoffStatusChange: (
+        onHandoffPublicationStatusChange: (
           status,
           publicationRevision,
           serverRevision,
         ) => {
-          const event =
-            status === "ready"
-              ? typeof serverRevision === "number"
-                ? {
-                    status,
-                    designId: id,
-                    publicationRevision,
-                    serverRevision,
-                  }
-                : null
-              : { status, designId: id, publicationRevision };
-          if (!event) return;
-          pendingVisualEditDurableHandoffPublishedRef.current =
+          if (status === "ready") {
+            if (typeof serverRevision !== "number") return;
+            const event = {
+              status,
+              designId: id,
+              publicationRevision,
+              serverRevision,
+            };
+            pendingVisualEditHandoffPublicationRef.current =
+              updateVisualEditHandoffPublication(
+                pendingVisualEditHandoffPublicationRef.current,
+                event,
+              );
+            pendingVisualEditReloadedHandoffRef.current =
+              updateReloadedVisualEditHandoff(
+                pendingVisualEditReloadedHandoffRef.current,
+                event,
+              );
+            clearReloadedPendingLiveEdits();
+            return;
+          }
+          const event = { status, designId: id, publicationRevision };
+          pendingVisualEditHandoffPublicationRef.current =
             updateVisualEditHandoffPublication(
-              pendingVisualEditDurableHandoffPublishedRef.current,
+              pendingVisualEditHandoffPublicationRef.current,
               event,
             );
           pendingVisualEditReloadedHandoffRef.current =
@@ -19159,9 +19169,7 @@ function DesignEditor() {
               pendingVisualEditReloadedHandoffRef.current,
               event,
             );
-          if (status === "ready" && typeof serverRevision === "number") {
-            clearReloadedPendingLiveEdits();
-          }
+          if (status === "local-ready") clearReloadedPendingLiveEdits();
         },
         setPendingVisualEditPublicationFailed,
         showHandoffErrorToast: (error) => {

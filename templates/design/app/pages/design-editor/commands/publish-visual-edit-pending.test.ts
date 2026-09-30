@@ -34,7 +34,7 @@ function makeArgs(
     },
     pendingVisualEditClearRequestedRef: { current: null },
     pendingVisualEditHadPendingRef: { current: null },
-    onDurableHandoffStatusChange: vi.fn(),
+    onHandoffPublicationStatusChange: vi.fn(),
     setPendingVisualEditPublicationFailed: vi.fn(),
     showHandoffErrorToast: vi.fn(),
     ...overrides,
@@ -74,6 +74,10 @@ describe("runPublishVisualEditPending", () => {
     expect(args.callAction).not.toHaveBeenCalled();
     expect(args.setPendingVisualEditPublicationFailed).not.toHaveBeenCalled();
     expect(args.showHandoffErrorToast).not.toHaveBeenCalled();
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "local-ready",
+      1,
+    );
     expect(args.fetchImpl).toHaveBeenCalledWith(
       "http://127.0.0.1:7331/live-edit-pending",
       expect.objectContaining({
@@ -102,7 +106,7 @@ describe("runPublishVisualEditPending", () => {
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       false,
     );
-    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith(
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
       "ready",
       1,
       1,
@@ -126,7 +130,14 @@ describe("runPublishVisualEditPending", () => {
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       true,
     );
-    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith("failed", 1);
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "failed",
+      1,
+    );
+    expect(args.onHandoffPublicationStatusChange).not.toHaveBeenCalledWith(
+      "local-ready",
+      1,
+    );
     expect(args.showHandoffErrorToast).toHaveBeenCalledWith(error);
     expect(args.fetchImpl).toHaveBeenCalled();
   });
@@ -148,7 +159,10 @@ describe("runPublishVisualEditPending", () => {
 
     expect(args.pendingVisualEditClearRequestedRef.current).toBe("design-1");
     expect(args.pendingVisualEditHadPendingRef.current).toBe("design-1");
-    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith("failed", 1);
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "failed",
+      1,
+    );
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       true,
     );
@@ -209,7 +223,7 @@ describe("runPublishVisualEditPending", () => {
 
     await runPublishVisualEditPending(args);
 
-    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith(
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
       "empty",
       1,
       1,

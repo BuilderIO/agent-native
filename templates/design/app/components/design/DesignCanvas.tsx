@@ -1010,6 +1010,7 @@ function classifyLiveEditHealthProbe(
 }
 
 const LIVE_EDIT_READY_TIMEOUT_MS = 4000;
+const LIVE_EDIT_HEALTH_PROBE_TIMEOUT_MS = 8_000;
 const MAX_LIVE_EDIT_RESTART_ATTEMPTS = 3;
 const LIVE_EDIT_SAME_INSTANCE_MAX_REARM_DELAY_MS = 16_000;
 const LIVE_EDIT_SAME_INSTANCE_ERROR_CEILING_MS = 48_000;
@@ -2875,8 +2876,15 @@ export function DesignCanvas({
     const isHealthProbeCurrent = () =>
       liveEditHealthProbeGenerationRef.current === healthProbeGeneration &&
       bridgeRegistrationAttemptGenerationRef.current === registrationGeneration;
+    const healthProbeAbortController = new AbortController();
+    const healthProbeTimeoutId = window.setTimeout(
+      () => healthProbeAbortController.abort(),
+      LIVE_EDIT_HEALTH_PROBE_TIMEOUT_MS,
+    );
     try {
-      const response = await fetch(healthEndpointUrl(bridgeUrl));
+      const response = await fetch(healthEndpointUrl(bridgeUrl), {
+        signal: healthProbeAbortController.signal,
+      });
       const payload = (await response.json().catch(() => null)) as {
         bridgeInstanceId?: string;
       } | null;
@@ -2988,9 +2996,14 @@ export function DesignCanvas({
       setRegisteredLiveEditBridgeKey(null);
       setBridgeConnectionLostError({
         bridgeKey: liveEditBridgeKey,
-        message: error instanceof Error ? error.message : String(error),
+        message: healthProbeAbortController.signal.aborted
+          ? t("designCanvas.localBridge.connectionNotConfirmed")
+          : error instanceof Error
+            ? error.message
+            : String(error),
       });
     } finally {
+      window.clearTimeout(healthProbeTimeoutId);
       if (liveEditHealthProbeGenerationRef.current === healthProbeGeneration) {
         liveEditRestartInFlightRef.current = false;
       }

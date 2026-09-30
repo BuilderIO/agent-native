@@ -33,8 +33,8 @@ export interface PublishVisualEditPendingArgs {
   pending: PendingVisualEditHandoff;
   pendingVisualEditClearRequestedRef: RefObject<string | null>;
   pendingVisualEditHadPendingRef: RefObject<string | null>;
-  onDurableHandoffStatusChange: (
-    status: "empty" | "failed" | "ready",
+  onHandoffPublicationStatusChange: (
+    status: "empty" | "failed" | "ready" | "local-ready",
     publicationRevision: number,
     serverRevision?: number,
   ) => void;
@@ -66,7 +66,7 @@ export async function runPublishVisualEditPending(
     pending,
     pendingVisualEditClearRequestedRef,
     pendingVisualEditHadPendingRef,
-    onDurableHandoffStatusChange,
+    onHandoffPublicationStatusChange,
     setPendingVisualEditPublicationFailed,
     showHandoffErrorToast,
   } = args;
@@ -87,7 +87,7 @@ export async function runPublishVisualEditPending(
         throw { errorCode: "visual_edit_handoff_unconfirmed" };
       }
       setPendingVisualEditPublicationFailed(false);
-      onDurableHandoffStatusChange(
+      onHandoffPublicationStatusChange(
         expectedStatus,
         pending.revision,
         result.revision ?? undefined,
@@ -100,7 +100,7 @@ export async function runPublishVisualEditPending(
         pendingVisualEditHadPendingRef.current = null;
       }
     } catch (error) {
-      onDurableHandoffStatusChange("failed", pending.revision);
+      onHandoffPublicationStatusChange("failed", pending.revision);
       console.error(
         "[design:visual-edit] durable handoff publication failed",
         error,
@@ -135,6 +135,19 @@ export async function runPublishVisualEditPending(
     );
     if (!response.ok) {
       throw new Error(`Bridge returned HTTP ${response.status}`);
+    }
+    if (!clearRequested && !canPublishDurableHandoff) {
+      onHandoffPublicationStatusChange("local-ready", pending.revision);
+    } else if (!canPublishDurableHandoff) {
+      onHandoffPublicationStatusChange("empty", pending.revision);
+    }
+    if (
+      clearRequested &&
+      !canPublishDurableHandoff &&
+      pendingVisualEditClearRequestedRef.current === designId
+    ) {
+      pendingVisualEditClearRequestedRef.current = null;
+      pendingVisualEditHadPendingRef.current = null;
     }
   } catch (error) {
     console.warn(

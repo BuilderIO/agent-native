@@ -129,6 +129,7 @@ describe("pending live edits after runtime reload", () => {
       designId: "design-1",
       publicationRevision: 4,
       serverRevision: null,
+      localBridgeConfirmed: false,
     });
     expect(
       shouldSuppressReloadedVisualEditHandoff({
@@ -237,6 +238,52 @@ describe("pending live edits after runtime reload", () => {
     ).toBe(true);
   });
 
+  it("does not clear reloaded edits before publication has been queued", () => {
+    const targets = pendingLiveEditFrameTargets([styleEdit("library")], []);
+    const reloaded = new Set(["library\0primary"]);
+
+    expect(
+      shouldFinalizePendingLiveEditReload({
+        pendingTargets: targets,
+        reloadedTargets: reloaded,
+        handoff: null,
+        designId: "design-1",
+      }),
+    ).toBe(false);
+  });
+
+  it("allows reloaded viewer edits to clear after the local bridge accepts the handoff", () => {
+    const targets = pendingLiveEditFrameTargets([styleEdit("library")], []);
+    const reloaded = new Set(["library\0primary"]);
+    const queued = updateVisualEditHandoffPublication(null, {
+      status: "queued",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+    const publishedLocally = updateVisualEditHandoffPublication(queued, {
+      status: "local-ready",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+
+    expect(
+      shouldFinalizePendingLiveEditReload({
+        pendingTargets: targets,
+        reloadedTargets: reloaded,
+        handoff: queued,
+        designId: "design-1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldFinalizePendingLiveEditReload({
+        pendingTargets: targets,
+        reloadedTargets: reloaded,
+        handoff: publishedLocally,
+        designId: "design-1",
+      }),
+    ).toBe(true);
+  });
+
   it("does not queue an empty handoff after a retained reload", () => {
     expect(
       shouldPublishVisualEditHandoff({
@@ -277,6 +324,7 @@ describe("pending live edits after runtime reload", () => {
       designId: "design-1",
       publicationRevision: 4,
       serverRevision: 5,
+      localBridgeConfirmed: false,
     };
 
     expect(
