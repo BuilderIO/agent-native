@@ -31,6 +31,14 @@ import {
   inspectSourceCredentialAvailability,
   resolveSourceCredential,
 } from "./source-credentials.js";
+import {
+  ZoomHttpError,
+  downloadZoomTranscript,
+  fetchZoomAccessToken,
+  listZoomRecordings,
+  listZoomUserIds,
+  normalizeZoomRecording,
+} from "./zoom.js";
 
 export interface ConnectorSyncResult {
   runId: string;
@@ -181,6 +189,12 @@ interface SlackSyncCursor {
 interface GranolaSyncCursor {
   cursor?: string | null;
   updatedAfter?: string;
+  retry?: RetryCursor;
+  lastRunAt?: string;
+}
+
+interface ZoomSyncCursor {
+  from?: string;
   retry?: RetryCursor;
   lastRunAt?: string;
 }
@@ -3138,6 +3152,231 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
   }
 }
 
+const ZOOM_MAX_LOOKBACK_DAYS = 30;
+const ZOOM_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function utcDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+async function zoomCall<T>(endpoint: string, call: () => Promise<T>) {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof ZoomHttpError && error.status === 429) {
+      throw new ConnectorRateLimitError(
+        "zoom",
+        endpoint,
+        error.retryAfterSeconds ?? 60,
+      );
+    }
+    throw error;
+  }
+}
+
+function zoomUserIdsFromConfig(config: Record<string, unknown>): string[] {
+  const raw = objectValue(config.zoom).userIds;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
+  const config = parseJson<Record<string, unknown>>(source.configJson, {});
+  if (isFixtureConfig(config) || transcriptItems(config).length > 0) {
+    return syncFromConfiguredItems(
+      source,
+      "Zoom fixture source has no configured transcripts.",
+    );
+  }
+
+  const run = await createRun(source);
+  const { runId } = run;
+  const db = getDb();
+  const runStartedAt = Date.now();
+  const cursor = parseJson<ZoomSyncCursor>(source.cursorJson, {});
+  const lookbackDays = configuredNumber(config, ["lookbackDays"], 7, {
+    min: 1,
+    max: ZOOM_MAX_LOOKBACK_DAYS,
+    nestedKey: "zoom",
+  });
+  const dayMs = 24 * 60 * 60 * 1000;
+  const to = utcDate(runStartedAt);
+  const earliest = utcDate(runStartedAt - ZOOM_MAX_LOOKBACK_DAYS * dayMs);
+  const requestedFrom =
+    cursor.from && ZOOM_DATE.test(cursor.from)
+      ? cursor.from
+      : utcDate(runStartedAt - lookbackDays * dayMs);
+  const from = requestedFrom < earliest ? earliest : requestedFrom;
+
+  const captures = [];
+  const stats: Record<string, unknown> = {
+    from,
+    to,
+    usersScanned: 0,
+    meetingsSeen: 0,
+    transcriptsDownloaded: 0,
+    emptyTranscripts: 0,
+    sensitivityBlocked: 0,
+    capturesCreated: 0,
+    rateLimited: false,
+  };
+
+  try {
+    const accountId = await requireConnectorCredential(
+      "ZOOM_ACCOUNT_ID",
+      "Zoom",
+      "zoom",
+      config,
+    );
+    const clientId = await requireConnectorCredential(
+      "ZOOM_CLIENT_ID",
+      "Zoom",
+      "zoom",
+      config,
+    );
+    const clientSecret = await requireConnectorCredential(
+      "ZOOM_CLIENT_SECRET",
+      "Zoom",
+      "zoom",
+      config,
+    );
+    const token = await zoomCall("/oauth/token", () =>
+      fetchZoomAccessToken({ accountId, clientId, clientSecret }),
+    );
+    const configuredUserIds = zoomUserIdsFromConfig(config);
+    const userIds = configuredUserIds.length
+      ? configuredUserIds
+      : await zoomCall("/users", () => listZoomUserIds(token));
+
+    for (const userId of userIds) {
+      const meetings = await zoomCall("/users/{userId}/recordings", () =>
+        listZoomRecordings(token, userId, from, to),
+      );
+      stats.usersScanned = Number(stats.usersScanned) + 1;
+      for (const meeting of meetings) {
+        stats.meetingsSeen = Number(stats.meetingsSeen) + 1;
+        const transcripts = (meeting.recording_files ?? []).filter(
+          (file): file is typeof file & { download_url: string } =>
+            file.file_type === "TRANSCRIPT" &&
+            file.status !== "processing" &&
+            Boolean(file.download_url),
+        );
+        for (const file of transcripts) {
+          const vtt = await zoomCall("recording transcript download", () =>
+            downloadZoomTranscript(token, file.download_url),
+          );
+          stats.transcriptsDownloaded = Number(stats.transcriptsDownloaded) + 1;
+          const normalized = normalizeZoomRecording(meeting, vtt);
+          if (!normalized) {
+            stats.emptyTranscripts = Number(stats.emptyTranscripts) + 1;
+            continue;
+          }
+          const captureResult = await createConnectorCapture({
+            sourceId: source.id,
+            externalId: normalized.externalId,
+            title: normalized.title,
+            kind: "transcript",
+            content: normalized.content,
+            capturedAt: normalized.capturedAt,
+            metadata: { ...normalized.metadata, syncRunId: runId },
+            audience: { kind: "org", upstreamRefHash: meeting.uuid },
+          });
+          if (captureResult.capture) {
+            captures.push(serializeCapture(captureResult.capture));
+          }
+          if (captureResult.blocked) {
+            stats.sensitivityBlocked = Number(stats.sensitivityBlocked) + 1;
+          }
+        }
+        await renewRunLease(run);
+      }
+    }
+
+    // One day of overlap re-reads transcripts Zoom finished processing after
+    // the previous run; createCapture dedupes them by externalId.
+    const nextCursor: ZoomSyncCursor = {
+      from: utcDate(runStartedAt - dayMs),
+      retry: undefined,
+      lastRunAt: nowIso(),
+    };
+
+    stats.capturesCreated = captures.length;
+    await renewRunLease(run);
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(nextCursor),
+        lastSyncedAt: nowIso(),
+        lastError: null,
+        status: "active",
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
+    await finishRun(run, "success", stats);
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "zoom",
+      status: "success",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message: captures.length
+        ? `Imported ${captures.length} Zoom transcripts`
+        : "Zoom sync completed with no new transcripts",
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isRateLimit = err instanceof ConnectorRateLimitError;
+    const nextCursor: ZoomSyncCursor = {
+      ...cursor,
+      retry: isRateLimit ? retryCursor(err, "zoom") : cursor.retry,
+      lastRunAt: nowIso(),
+    };
+    stats.capturesCreated = captures.length;
+    stats.rateLimited = isRateLimit;
+    await renewRunLease(run);
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(nextCursor),
+        lastError: message,
+        status: isRateLimit ? "active" : "error",
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
+    await finishRun(
+      run,
+      isRateLimit ? "success" : "error",
+      stats,
+      isRateLimit ? null : message,
+    );
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "zoom",
+      status: isRateLimit ? "success" : "error",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message,
+    };
+  }
+}
+
 async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
   const config = parseJson<Record<string, unknown>>(source.configJson, {});
   if (isFixtureConfig(config) || transcriptItems(config).length > 0) {
@@ -3526,6 +3765,10 @@ const granolaConnector: Connector = {
   sync: syncGranola,
 };
 
+const zoomConnector: Connector = {
+  sync: syncZoom,
+};
+
 const githubConnector: Connector = {
   sync: syncGitHub,
 };
@@ -3545,6 +3788,7 @@ const connectors: Record<BrainSourceProvider, Connector> = {
   slack: slackConnector,
   granola: granolaConnector,
   github: githubConnector,
+  zoom: zoomConnector,
 };
 
 export async function runConnectorSync(source: SourceRow) {

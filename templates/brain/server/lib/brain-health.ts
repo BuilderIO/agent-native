@@ -28,6 +28,7 @@ const SOURCE_PROVIDERS = [
   "slack",
   "granola",
   "github",
+  "zoom",
   "clips",
   "generic",
   "manual",
@@ -166,7 +167,8 @@ function sourceAutoSync(source: SourceRow) {
   return (
     source.provider === "slack" ||
     source.provider === "granola" ||
-    source.provider === "github"
+    source.provider === "github" ||
+    source.provider === "zoom"
   );
 }
 
@@ -289,6 +291,8 @@ function providerLabel(providerId: string) {
       return "Slack";
     case "granola":
       return "Granola";
+    case "zoom":
+      return "Zoom";
     case "github":
       return "GitHub";
     case "clips":
@@ -725,7 +729,9 @@ export async function readBrainHealth() {
   );
   const hasMeetingSource =
     realSources.some((source) =>
-      ["granola", "clips", "generic", "manual"].includes(source.provider),
+      ["granola", "zoom", "clips", "generic", "manual"].includes(
+        source.provider,
+      ),
     ) || captureRows.length > 0;
   const hasDemo = sourceRows.some(isDemoSource);
   const hasSyncedOrImported =

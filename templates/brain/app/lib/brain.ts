@@ -1154,6 +1154,8 @@ export function sourceDescription(source: BrainSource) {
       return "Granola Team-space notes and transcripts imported through the Enterprise API.";
     case "github":
       return "GitHub repository issues and pull requests imported as company context.";
+    case "zoom":
+      return "Zoom cloud-recording transcripts imported through a Server-to-Server OAuth app.";
     case "clips":
       return "Meeting recordings and transcripts exported from Clips into Brain.";
     case "generic":
@@ -1196,7 +1198,8 @@ export function sourceAutoSync(source: BrainSource) {
   return (
     source.provider === "slack" ||
     source.provider === "granola" ||
-    source.provider === "github"
+    source.provider === "github" ||
+    source.provider === "zoom"
   );
 }
 
