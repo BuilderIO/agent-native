@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import {
   AccountSettingsCard,
   SettingsTabsPage,

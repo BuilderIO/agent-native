@@ -37,10 +37,12 @@ aliases and type-only imports. It also rewrites simple CSS `@import` paths and
 adds a missing package dependency when a resolved rewrite crosses a package
 boundary.
 
-The diagnostics also detect CommonJS `require()` and dynamic `import()` forms,
-but the codemod does not rewrite those call expressions. Replace them using the
-reported new home, then rerun Vite or `agent-native doctor`. CSS `@import
-url(...)` paths are codemodded with or without quotes.
+The diagnostics also detect CommonJS `require()` and dynamic `import()` forms.
+The codemod rewrites literal `import()` calls when the old module has one new
+destination. It leaves `require()` and dynamic imports that need symbol-level
+splitting unchanged and reports a warning; replace those using the reported new
+home, then rerun Vite or `agent-native doctor`. CSS `@import url(...)` paths
+are codemodded with or without quotes.
 
 It does not change call sites or move your files. It leaves unresolved and
 planned moves alone with warnings. It cannot split default, namespace,
@@ -83,8 +85,8 @@ preview configuration yourself.
 | Server Sentry                          | @sentry/node                 | ^10.60.0 or ^11.0.0 | SENTRY_SERVER_DSN, SENTRY_DSN, or the Sentry key tuple                                         |
 | Browser Sentry                         | @sentry/browser              | ^10.60.0 or ^11.0.0 | Client Sentry DSN, SENTRY_DSN, or the Sentry key tuple                                         |
 | Sentry source-map upload at build time | @sentry/vite-plugin          | ^5.4.0              | SENTRY_AUTH_TOKEN, organization, and project are set                                           |
-| Auth SSO                               | @better-auth/sso             | 1.7.4               | AUTH_SSO is enabled                                                                            |
-| Auth SCIM                              | @better-auth/scim            | 1.7.4               | AUTH_SCIM is enabled                                                                           |
+| Auth SSO                               | @better-auth/sso             | 1.7.6               | AUTH_SSO is enabled                                                                            |
+| Auth SCIM                              | @better-auth/scim            | 1.7.6               | AUTH_SCIM is enabled                                                                           |
 | Amplitude                              | @amplitude/analytics-browser | ^2.45.8             | VITE_AMPLITUDE_API_KEY is set                                                                  |
 | Microsoft Teams                        | botframework-connector       | ^4.23.3             | MICROSOFT_TEAMS_APP_ID and MICROSOFT_TEAMS_APP_PASSWORD are set                                |
 
@@ -125,12 +127,19 @@ For first-party template source search, add the matching corpus package as a dev
 
 ## 3. Apply the upgrade
 
-After reviewing the preview and confirming feature packages, apply the plan:
+After reviewing the preview and confirming feature packages, apply the plan
+with the same versioned CLI. This matters when the app still has Core 0.196 or
+another older CLI installed: an older CLI carries an older migration manifest.
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+Once Core 0.198.0 is installed, the same command is available from the app's
+local CLI:
 
     npx agent-native upgrade --codemods
 
-This single command updates eligible @agent-native/\* dependency specs,
-aligns detected feature dependencies, runs the package manager, pins resolved
+Either invocation updates eligible @agent-native/\* dependency specs, aligns
+detected feature dependencies, runs the package manager, pins resolved
 Agent-Native versions, applies supported codemods, refreshes scaffold skills,
 and runs the root typecheck script when one exists. Do not run a second
 upgrade command just to apply the codemods. Resolve warnings and app-level
@@ -142,13 +151,19 @@ Review the complete diff, especially skipped codemod warnings and dependency
 versions, then run:
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-Use the equivalent typecheck command for npm or Yarn, and run the app's
-relevant tests and build. Confirm that local and deployed feature settings are
-covered by the optional-peer table. Search for old imports shown in the table
-below; remaining matches should be intentional, unsupported by the manifest,
-or called out by a warning.
+Doctor runs the `migration-manifest` and `feature-dependencies` checks by
+default. It reports stale imports and optional peers missing for features
+detected from local configuration. It cannot inspect remote deployment
+settings or database-backed feature settings, so confirm those separately.
+
+Use the equivalent typecheck command for npm or Yarn. Run the app's test and
+build scripts when present, usually `pnpm test` and `pnpm build`. Confirm that
+local and deployed feature settings are covered by the optional-peer table.
+Search for old imports shown in the table below; remaining matches should be
+intentional, unsupported by the manifest, or called out by a warning.
 
 ## Old paths and representative destinations
 

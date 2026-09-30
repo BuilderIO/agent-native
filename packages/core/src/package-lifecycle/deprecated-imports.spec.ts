@@ -37,8 +37,8 @@ const featureDependencies = [
     version: "^5.4.0",
     when: "sentry-source-map-upload",
   },
-  { name: "@better-auth/sso", version: "1.7.4", when: "sso" },
-  { name: "@better-auth/scim", version: "1.7.4", when: "scim" },
+  { name: "@better-auth/sso", version: "1.7.6", when: "sso" },
+  { name: "@better-auth/scim", version: "1.7.6", when: "scim" },
   {
     name: "@amplitude/analytics-browser",
     version: "^2.45.8",
@@ -1059,7 +1059,25 @@ describe("readMigrationManifest dependencies", () => {
     expect(readMigrationManifest(path.join(root, "missing.json"))).toBeNull();
   });
 
-  it("keeps the feature dependency records in the bundled Core manifest", () => {
+  it("keeps Better Auth peer versions aligned across Core and upgrades", () => {
+    const corePackage = JSON.parse(
+      fs.readFileSync(new URL("../../package.json", import.meta.url), "utf-8"),
+    ) as {
+      dependencies: Record<string, string>;
+      devDependencies: Record<string, string>;
+      peerDependencies: Record<string, string>;
+    };
+    const betterAuthVersion = corePackage.dependencies["better-auth"];
+    expect(betterAuthVersion).toBe("1.7.6");
+    for (const name of ["@better-auth/sso", "@better-auth/scim"]) {
+      expect(corePackage.devDependencies[name]).toBe(betterAuthVersion);
+      expect(corePackage.peerDependencies[name]).toBe(betterAuthVersion);
+      expect(
+        featureDependencies.find((dependency) => dependency.name === name)
+          ?.version,
+      ).toBe(betterAuthVersion);
+    }
+
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     expect(manifest?.dependencies).toEqual(featureDependencies);
   });

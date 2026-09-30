@@ -375,6 +375,39 @@ describe("embed auth client", () => {
     expect(headers.has(EMBED_TARGET_HEADER)).toBe(false);
   });
 
+  it("does not let an account-only 401 block later capability-scoped reads", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/visual-edit/design-1?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=capability-token`,
+    );
+    const originalFetch = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/_agent-native/org/me")
+        ? new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+          })
+        : new Response("design", { status: 200 }),
+    );
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    const { ensureEmbedAuthFetchInterceptor } = await loadEmbedAuth();
+    ensureEmbedAuthFetchInterceptor();
+
+    const accountOnly = await window.fetch("/_agent-native/org/me");
+    const capabilityRead = await window.fetch(
+      "/_agent-native/actions/get-design?id=design-1",
+    );
+
+    expect(accountOnly.status).toBe(401);
+    expect(capabilityRead.status).toBe(200);
+    expect(await capabilityRead.text()).toBe("design");
+    expect(originalFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("uses location.href as the app origin when the sandbox origin is opaque", async () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
     sessionStorage.setItem(STORAGE_KEY, "stored-token");

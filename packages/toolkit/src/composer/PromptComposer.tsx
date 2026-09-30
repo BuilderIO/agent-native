@@ -80,11 +80,15 @@ export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
+  /** Clear the submitted draft once the host owns the message and its failure recovery. */
+  onLocalSubmit?: () => void;
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
   attachments?: ReadonlyArray<unknown>;
   contextItems?: ComposerContextSnapshot;
+  /** Mode instructions; hosts append these after preparing provider-owned context. */
+  composerModeContext?: string;
 }
 
 export interface PromptComposerProps {
@@ -92,6 +96,7 @@ export interface PromptComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  /** When provided, both + and @ open this shared Add menu. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /** Called when the user submits the composer. */
   onSubmit: (
@@ -270,7 +275,7 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {
-      id: state.file.name,
+      id: crypto.randomUUID(),
       type: "document",
       name: state.file.name,
       contentType: state.file.type || "application/octet-stream",
@@ -296,6 +301,10 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 
 class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
   public accept = IMAGE_ATTACHMENT_ACCEPT;
+
+  public async add(state: { file: File }): Promise<PendingAttachment> {
+    return { ...(await super.add(state)), id: crypto.randomUUID() };
+  }
 }
 
 function isInlineableTextFile(file: File): boolean {
@@ -805,10 +814,14 @@ function PromptComposerInner({
       });
       await onSubmit(finalText, files, references, {
         intent: submitOptions?.intent ?? "immediate",
+        onLocalSubmit: submitOptions?.onLocalSubmit,
         model: composerModel,
         engine: composerEngine,
         effort: composerEffort,
         attachments,
+        ...(submitOptions?.composerModeContext === undefined
+          ? {}
+          : { composerModeContext: submitOptions.composerModeContext }),
         ...(submitOptions?.contextItems === undefined
           ? {}
           : { contextItems: submitOptions.contextItems }),
@@ -891,6 +904,7 @@ function PromptComposerInner({
           ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled}
+          contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled || engineSubmissionBlocked}
           submitting={submitting}
           willQueue={willQueue}

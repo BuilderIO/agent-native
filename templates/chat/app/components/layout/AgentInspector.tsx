@@ -22,9 +22,12 @@ export function AgentInspector({
   const navigate = useNavigate();
   const t = useT();
 
-  function openAskAgentFullscreen() {
+  function openAskAgentFullscreen(threadId?: string) {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/home");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home",
+    );
   }
 
   return (

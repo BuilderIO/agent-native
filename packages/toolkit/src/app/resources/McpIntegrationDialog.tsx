@@ -18,6 +18,7 @@ import {
   supportsMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
+import { isMcpIntegrationOAuthAvailable } from "@agent-native/core/client/resources/mcp-integration-setup";
 import {
   formatMcpServerError,
   formatMcpServersLoadError,
@@ -222,6 +223,14 @@ export function McpIntegrationDialog({
   const selectedRequiresSetup = Boolean(
     selected && requiresMcpIntegrationSetup(selected),
   );
+  const selectedApiFallback = selected
+    ? getMcpIntegrationApiFallback(selected)
+    : null;
+
+  const openApiFallback = (secretKey: string) => {
+    onOpenChange(false);
+    openAgentSettings(`secrets:${secretKey}`);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -328,6 +337,18 @@ export function McpIntegrationDialog({
       scope?: McpServerScope;
     },
   ) => {
+    const restricted = defaultIntegrations.find(
+      (integration) =>
+        integration.availability === "client-restricted" &&
+        !isMcpIntegrationOAuthAvailable(integration) &&
+        isMcpIntegrationUrl(integration, args.url),
+    );
+    if (restricted) {
+      const fallback = getMcpIntegrationApiFallback(restricted);
+      if (fallback) openApiFallback(fallback.secretKey);
+      else openForm(restricted);
+      return;
+    }
     if (!oauthReady) return;
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
@@ -515,7 +536,7 @@ export function McpIntegrationDialog({
     if (requiresMcpIntegrationSetup(integration)) {
       const apiFallback = getMcpIntegrationApiFallback(integration);
       if (apiFallback) {
-        openAgentSettings(`secrets:${apiFallback.secretKey}`);
+        openApiFallback(apiFallback.secretKey);
       } else {
         openForm(integration);
       }
@@ -543,7 +564,12 @@ export function McpIntegrationDialog({
       (candidate) => candidate.id === quickConnectIntegrationId,
     );
     if (!integration) return;
-    if (integration.authMode === "oauth" && !oauthReady) return;
+    if (
+      integration.authMode === "oauth" &&
+      !requiresMcpIntegrationSetup(integration) &&
+      !oauthReady
+    )
+      return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
     if (routeOrganizationOnlyIntegration(integration)) return;
     if (
@@ -572,7 +598,12 @@ export function McpIntegrationDialog({
       (candidate) => candidate.id === connectIntegrationId,
     );
     if (!integration) return;
-    if (integration.authMode === "oauth" && !oauthReady) return;
+    if (
+      integration.authMode === "oauth" &&
+      !requiresMcpIntegrationSetup(integration) &&
+      !oauthReady
+    )
+      return;
     const attemptKey = `connect:${connectIntegrationId}`;
     if (quickConnectAttemptedRef.current === attemptKey) return;
     quickConnectAttemptedRef.current = attemptKey;
@@ -606,7 +637,7 @@ export function McpIntegrationDialog({
     if (requiresMcpIntegrationSetup(integration)) {
       const apiFallback = getMcpIntegrationApiFallback(integration);
       if (apiFallback) {
-        openAgentSettings(`secrets:${apiFallback.secretKey}`);
+        openApiFallback(apiFallback.secretKey);
       } else {
         openForm(integration, { scope: "user" });
       }
@@ -746,13 +777,19 @@ export function McpIntegrationDialog({
   };
 
   const primaryAction = selectedRequiresSetup
-    ? selected?.authMode === "oauth"
+    ? selectedApiFallback
       ? {
-          run: () => connectWithOAuth(selected),
-          disabled: !oauthReady || busy,
-          label: t("mcpIntegrations.continueToConnect"),
+          run: () => openApiFallback(selectedApiFallback.secretKey),
+          disabled: busy,
+          label: t("mcpIntegrations.useApiToken"),
         }
-      : null
+      : selected && isMcpIntegrationOAuthAvailable(selected)
+        ? {
+            run: () => connectWithOAuth(selected),
+            disabled: !oauthReady || busy,
+            label: t("mcpIntegrations.continueToConnect"),
+          }
+        : null
     : selected?.authMode === "oauth" ||
         (!selected && customAuthMode === "oauth")
       ? {

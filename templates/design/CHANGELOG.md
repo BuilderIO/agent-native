@@ -9,15 +9,18 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Corner-radius handles only appear on shapes with a visible fill or stroke.
 - Local editing setup now points to Chrome's Allow prompt and includes a settings fallback.
+- The local editing guide now shows the local network Allow prompt and its Site settings fallback.
 - The browser permission guide points to Allow and the Connection is secure step.
 - The Chrome fallback guide shows the Local network Allow option.
 
 ### Fixed
 
 - Design warnings wait for the current preview to finish loading
+- Live editing now offers a retry when the local bridge does not respond.
 - Mixed padding and margin values across selected layers now open separate side controls
 - Sent chat prompts clear immediately, while reply progress appears in the conversation.
 - The source-location warning no longer appears while an app preview is loading.
+- Source location warnings wait until app previews finish loading
 - Clearing a prompt removes its final character
 - Design tweak controls stay intact when an edit contains invalid definitions
 - Live previews no longer stay stuck when the running app reloads.
@@ -29,6 +32,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Connected tools appear in the AgentKit Add menu only when they’re ready to use.
+- Design context sources are available from the same Add menu using either + or @.
+- The + and @ context launcher is searchable, grouped, and aligned above the prompt, with shared file and agent discovery.
 - The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
 - Center the home search field and keep prompt submission responsive while AI readiness is checked.
 - Corner radius handles stay with the drag and appear only on supported shapes
@@ -43,6 +49,11 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Signed-in editor chats keep selected references and integrations available for conversational follow-ups, separately from initial home suggestions.
+- Find existing designs in a searchable thumbnail gallery and add them as prompt references from the + and @ menus.
+- Chat suggestions stay hidden and prompt controls remain disabled until AI is connected and ready to use.
+- Sidebar and full-page chats share reference and integration choices, preserving each conversation's selections when switching views.
+- The context menu lists available integrations in a submenu with a clear connection setup link
 - Corner-radius handles appear as soon as a shape is selected under the pointer.
 - Design editor prompts stay visible while the composer loads
 - Existing designs open to Recent, and the home prompt stays interactive while AI readiness is checked.

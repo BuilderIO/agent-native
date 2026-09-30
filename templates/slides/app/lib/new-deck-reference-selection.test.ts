@@ -1,6 +1,41 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveNewDeckReferenceSelection } from "./new-deck-reference-selection";
+import {
+  findPromptReferenceDeckId,
+  resolveNewDeckReferenceSelection,
+} from "./new-deck-reference-selection";
+
+describe("findPromptReferenceDeckId", () => {
+  it("matches a same-origin accessible deck and ignores its slide query", () => {
+    expect(
+      findPromptReferenceDeckId(
+        "Use this style: (https://slides.example/deck/deck-picked?slide=7)",
+        "https://slides.example",
+        [{ id: "deck-picked" }],
+      ),
+    ).toBe("deck-picked");
+  });
+
+  it("ignores external and unknown deck URLs", () => {
+    expect(
+      findPromptReferenceDeckId(
+        "https://other.example/deck/deck-picked https://slides.example/deck/not-loaded",
+        "https://slides.example",
+        [{ id: "deck-picked" }],
+      ),
+    ).toBeNull();
+  });
+
+  it("does not guess when the prompt links multiple accessible decks", () => {
+    expect(
+      findPromptReferenceDeckId(
+        "https://slides.example/deck/first and https://slides.example/deck/second",
+        "https://slides.example",
+        [{ id: "first" }, { id: "second" }],
+      ),
+    ).toBeNull();
+  });
+});
 
 describe("resolveNewDeckReferenceSelection", () => {
   it("uses defaults while the picker is still auto-managed", () => {

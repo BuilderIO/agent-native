@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "연동" } },
   creativeContext: {
     title: "라이브러리",
     description:
@@ -1409,6 +1410,8 @@ export default {
         "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
       reactSourceAnchorsUnavailable:
         "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
+      sourceLocationSnapshotFailed:
+        "이 미리보기의 소스 위치를 확인할 수 없습니다.",
       screenSourceUpdated: "화면 소스가 업데이트됨",
       screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
       vectorEditUnsupported:
@@ -1471,7 +1474,7 @@ export default {
         "실시간 편집을 사용하려면 Chrome 프롬프트에서 ‘허용’을 선택하세요.",
       permissionPromptNoPrompt: "Chrome 프롬프트가 표시되지 않나요?",
       permissionPromptSettingsInstructions:
-        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 기기의 앱에 대한 액세스를 허용하세요.",
+        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크를 허용으로 설정하세요.",
       permissionPromptRetry: "연결 재시도",
     },
   },
@@ -1658,7 +1661,7 @@ export default {
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
   homeContext: {
-    websiteReference: "웹사이트 첨부",
+    websiteReference: "웹사이트 추가",
     websiteUrlLabel: "웹사이트 URL",
     websiteUrl: "웹사이트 URL 붙여넣기",
     figmaUrlLabel: "Figma 링크",
@@ -1686,7 +1689,7 @@ export default {
     design: "디자인",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
-    figmaReference: "Figma 첨부",
+    figmaReference: "Figma 추가",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",
