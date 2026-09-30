@@ -965,6 +965,15 @@ export interface ActionEntry {
   uiOnly?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
+  /** True when this entry's raw tool schema was authored by an external MCP
+   *  server (imported via the MCP client), not a local action. Distinct
+   *  from `mcpTool`, which controls whether a *local* action is exposed to
+   *  external agents — reusing that flag here would both misclassify local
+   *  actions that opt into external exposure and (via `declaredMcpToolNames`)
+   *  auto-add imported server tools to this app's own outbound MCP/A2A
+   *  catalog. Only used to pick the MCP protocol's default 2020-12 JSON
+   *  Schema dialect when the schema omits `$schema`. */
+  fromMcpServer?: boolean;
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
@@ -4541,7 +4550,10 @@ function validateRawToolInput(
   if (!parameters) return null;
   let validator: ValidateFunction;
   try {
-    validator = getRawToolInputValidator(parameters, entry.mcpTool === true);
+    validator = getRawToolInputValidator(
+      parameters,
+      entry.fromMcpServer === true,
+    );
   } catch (err) {
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }

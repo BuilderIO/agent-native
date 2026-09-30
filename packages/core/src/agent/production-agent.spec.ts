@@ -6364,7 +6364,7 @@ describe("runAgentLoop", () => {
               dependentRequired: { primary: ["secondary"] },
             } as any,
           },
-          mcpTool: true,
+          fromMcpServer: true,
           run,
         },
       },
@@ -6397,7 +6397,7 @@ describe("runAgentLoop", () => {
               dependentRequired: { primary: ["secondary"] },
             } as any,
           },
-          mcpTool: true,
+          fromMcpServer: true,
           run,
         },
       },
@@ -6442,7 +6442,7 @@ describe("runAgentLoop", () => {
       {
         "mcp-tool": {
           tool: { description: "Validate an MCP schema", parameters },
-          mcpTool: true,
+          fromMcpServer: true,
           run: mcpRun,
         },
       },
@@ -6454,6 +6454,42 @@ describe("runAgentLoop", () => {
         type: "tool_done",
         tool: "mcp-tool",
         result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("does not apply MCP's default dialect to a local action just because it is externally exposed", async () => {
+    const run = vi.fn(async () => "local ran");
+    const events = await runToolCallSequence(
+      [{ name: "local-tool", input: { primary: "value" } }],
+      {
+        "local-tool": {
+          tool: {
+            description: "A local action exposed to external MCP callers",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          // `mcpTool` only controls external exposure of a *local* action;
+          // it must not be treated as evidence the schema follows MCP's
+          // 2020-12 default dialect the way `fromMcpServer` does.
+          mcpTool: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "local-tool",
+        result: "local ran",
       }),
     );
   });
