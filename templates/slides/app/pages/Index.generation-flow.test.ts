@@ -102,6 +102,13 @@ describe("new deck generation flow", () => {
     expect(promptSubmit).toContain(
       "(!reusingRetryInputs || Boolean(promptReferenceDeckId))",
     );
+    const sourceClassification = promptSubmit.slice(
+      promptSubmit.indexOf("const referenceDeckIdSource ="),
+      promptSubmit.indexOf("const referenceSelection ="),
+    );
+    expect(sourceClassification).toMatch(
+      /:\s*promptReferenceDeckId\s*\?\s*"prompt"\s*:\s*\(?\s*retryReferenceSelection\?\.referenceDeckIdSource\s*\?\?/,
+    );
     expect(promptSubmit).toContain("promptReferenceDeckId ??");
     expect(promptSubmit).toContain("!reusingRetryInputs");
     expect(promptSubmit).toContain(

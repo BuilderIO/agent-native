@@ -1610,17 +1610,12 @@ export default function Index({ active = true }: { active?: boolean }) {
                   (generationComposerContext ? null : undefined));
       const referenceDeckIdSource = hasExplicitComposerDeckReference
         ? "selection"
-        : retryReferenceSelection?.referenceDeckIdSource === "automatic"
-          ? "automatic"
-          : retryReferenceSelection?.referenceDeckIdSource === "selection" ||
-              (retryReferenceSelection?.referenceDeckId !== undefined &&
-                retryReferenceSelection.referenceDeckIdSource !== "prompt" &&
-                retryReferenceSelection.referenceDeckIdSource !== "automatic")
-            ? "selection"
-            : retryReferenceSelection?.referenceDeckIdSource === "prompt" ||
-                promptReferenceDeckId
-              ? "prompt"
-              : undefined;
+        : promptReferenceDeckId
+          ? "prompt"
+          : (retryReferenceSelection?.referenceDeckIdSource ??
+            (retryReferenceSelection?.referenceDeckId !== undefined
+              ? "selection"
+              : undefined));
       const referenceSelection: NewDeckReferenceSelection = {
         ...(retryReferenceSelection ?? {}),
         ...(automaticReferenceDeckId ? { automaticReferenceDeckId } : {}),
