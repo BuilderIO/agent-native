@@ -2023,6 +2023,10 @@ export function startInPlaceTextSession(
     }
     const previous = previousTextBlock(block);
     if (!previous) return false;
+    if (previous.tagName === "HR") {
+      previous.remove();
+      return true;
+    }
     if (
       previous.hasAttribute("data-slide-plain-row") ||
       isBulletRow(previous)

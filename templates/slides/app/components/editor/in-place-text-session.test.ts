@@ -1067,6 +1067,23 @@ describe("in-place text session: deleting", () => {
     );
   });
 
+  it("removes a divider before merging the paragraph that follows it", () => {
+    const el = mount('<div id="t"><p>Before</p><hr><p>After</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "After"), 0);
+
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    expect(el.innerHTML).toBe("<p>Before</p><p>After</p>");
+    expect(el.textContent).toBe("BeforeAfter");
+
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    expect(el.innerHTML).toBe("<p>BeforeAfter</p>");
+  });
+
   it("demotes headings and quotes before merging them on a second Backspace", () => {
     for (const [tag, text] of [
       ["h2", "Title"],
