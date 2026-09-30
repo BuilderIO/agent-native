@@ -631,6 +631,26 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       "LEAST(DATE('2026-09-30'), CURRENT_DATE()) ELSE CURRENT_DATE()",
     );
 
+    const historicalSql = interpolateDashboardPanelSql(
+      panel.sql,
+      {
+        timeRange: "custom",
+        timeRangeStart: "2018-01-01",
+        timeRangeEnd: "2018-01-30",
+      },
+      panel,
+    );
+    const coverageDates = historicalSql
+      .split("coverage_dates AS (")[1]
+      ?.split("),\nperiods AS")[0];
+    expect(historicalSql).not.toContain("__invalid_custom_date_range__");
+    expect(coverageDates).toContain(
+      "event_date >= IF('custom' = 'custom', DATE_SUB(DATE('2018-01-01'), INTERVAL 5 DAY), DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY))",
+    );
+    expect(coverageDates).toContain(
+      "event_date <= IF('custom' = 'custom', LEAST(DATE_ADD(LEAST(DATE('2018-01-30'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE()), CURRENT_DATE())",
+    );
+
     const maxEndSql = interpolateDashboardPanelSql(
       panel.sql,
       {
