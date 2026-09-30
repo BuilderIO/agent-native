@@ -249,8 +249,12 @@ describe("AgentPanel sibling overlay handoff", () => {
         );
     });
 
+    expect(
+      document.body.querySelector('[data-testid="history-content"]'),
+    ).toBeNull();
+
     await act(async () => {
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
     });
 
     expect(focusRestorePrevented).toHaveBeenCalledWith(true);
@@ -296,9 +300,12 @@ describe("AgentPanel sibling overlay handoff", () => {
     });
 
     expect(frames).toHaveLength(0);
+    expect(
+      document.body.querySelector('[data-testid="share-content"]'),
+    ).toBeNull();
 
     await act(async () => {
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
     });
 
     expect(focusRestorePrevented).toHaveBeenCalledWith(true);
