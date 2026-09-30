@@ -13,6 +13,10 @@ import {
   IconArrowUp,
   IconLoader2,
   IconMessageCircle,
+  IconCode,
+  IconH1,
+  IconH2,
+  IconH3,
 } from "@tabler/icons-react";
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -318,6 +322,33 @@ export function BlockBubbleMenu({
         icon={IconStrikethrough}
         tooltip="Strikethrough"
         onClick={() => runCommand((commands) => commands.strike())}
+      />
+      <ToolbarButton
+        icon={IconCode}
+        tooltip={t("slideTextMenu.code")}
+        onClick={() => runCommand((commands) => commands.code())}
+      />
+      <div className="w-px h-4 bg-border mx-0.5" />
+      <ToolbarButton
+        icon={IconH1}
+        tooltip={t("slideTextMenu.heading1")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading1"))
+        }
+      />
+      <ToolbarButton
+        icon={IconH2}
+        tooltip={t("slideTextMenu.heading2")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading2"))
+        }
+      />
+      <ToolbarButton
+        icon={IconH3}
+        tooltip={t("slideTextMenu.heading3")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading3"))
+        }
       />
       <div className="w-px h-4 bg-border mx-0.5" />
       <div className="relative">

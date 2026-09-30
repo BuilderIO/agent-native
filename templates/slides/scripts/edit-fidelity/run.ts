@@ -137,6 +137,7 @@ const headed = argv.includes("--headed");
 const typingChatOnly = argv.includes("--typing-chat");
 const imeEscapeOnly = argv.includes("--ime-escape");
 const textSurfaceQaOnly = argv.includes("--text-surface-qa");
+const authoringOnly = argv.includes("--authoring");
 for (const s of scenarios) {
   if (!SCENARIOS.includes(s))
     fatal(`unknown scenario ${s}; expected ${SCENARIOS.join(",")}`);
@@ -1576,6 +1577,305 @@ async function runTextSurfaceQa(page: Page, base: string) {
   return problems;
 }
 
+async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
+  const problems: string[] = [];
+  const shortcuts = [
+    ["- ", "bullet"],
+    ["* ", "bullet"],
+    ["1. ", "ordered"],
+    ["# ", "H1"],
+    ["## ", "H2"],
+    ["### ", "H3"],
+    ["> ", "BLOCKQUOTE"],
+    ["**bold**", "bold"],
+  ] as const;
+  const slashCommands = [
+    ["paragraph", "paragraph", "H2", "P"],
+    ["heading1", "heading1", "P", "H1"],
+    ["heading2", "heading2", "P", "H2"],
+    ["heading3", "heading3", "P", "H3"],
+    ["bulletList", "bulletList", "P", "UL"],
+    ["orderedList", "orderedList", "P", "OL"],
+    ["quote", "quote", "P", "BLOCKQUOTE"],
+    ["divider", "divider", "P", "DIV"],
+  ] as const;
+  const allCases = [
+    ...shortcuts.flatMap(([shortcut, result], index) =>
+      (["start", "after-enter"] as const).map((position) => ({
+        id: `authoring-shortcut-${index}-${position}`,
+        kind: "shortcut" as const,
+        shortcut,
+        result,
+        position,
+      })),
+    ),
+    ...slashCommands.map(([kind, command, initialTag, resultTag]) => ({
+      id: `authoring-slash-${kind}`,
+      kind: "slash" as const,
+      command,
+      initialTag,
+      resultTag,
+    })),
+    { id: "authoring-list-ul", kind: "ul-flow" as const },
+    { id: "authoring-list-ol", kind: "ol-flow" as const },
+    { id: "authoring-list-styled", kind: "styled-flow" as const },
+  ];
+  const cases = allCases;
+
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  const created = await action(page, "create-deck", {
+    title: `[edit-fidelity] authoring parity ${Date.now()}`,
+    slides: cases.map((test) => {
+      if (test.kind === "ul-flow") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><ul style="list-style-type: disc"><li><p>Alpha</p></li></ul></div>',
+        };
+      }
+      if (test.kind === "ol-flow") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><ol style="list-style-type: decimal"><li><p>Alpha</p></li></ol></div>',
+        };
+      }
+      const tag = "initialTag" in test ? test.initialTag : "div";
+      return {
+        id: test.id,
+        content: `<div class="fmd-slide"><${tag}>Alpha</${tag}></div>`,
+      };
+    }),
+  });
+  const deckId = String(created.id ?? created.deckId);
+  const selectorFor = (slideId: string) =>
+    `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+  const getEditor = (slideId: string) => page.locator(selectorFor(slideId));
+
+  async function begin(index: number) {
+    const { id } = cases[index];
+    await openSlide(page, base, deckId, index, id);
+    const [target] = await listTargets(page, id);
+    if (!target) throw new Error(`${id}: no editable text target`);
+    if (!(await enterEdit(page, id, target.point, []))) {
+      throw new Error(`${id}: could not open in-place text editing`);
+    }
+    return getEditor(id);
+  }
+
+  async function finish(index: number, assertion: () => Promise<void>) {
+    const { id } = cases[index];
+    await assertion();
+    await exitEdit(page, id, "escape");
+    const stored = await settleSaved(page, deckId, id, () => 0, 1400);
+    if (!stored.includes("Alpha") && !stored.includes("bold")) {
+      problems.push(`${id}: authoring result was not saved`);
+    }
+  }
+
+  const assertTag = async (editor: any, tag: string) => {
+    const actual = await editor.evaluate(
+      (element: HTMLElement) => element.tagName,
+    );
+    if (actual !== tag) {
+      const html = await editor.evaluate(
+        (element: HTMLElement) => element.outerHTML,
+      );
+      throw new Error(`expected ${tag}, got ${actual} in ${html}`);
+    }
+  };
+  const assertBlock = async (editor: any, selector: string) => {
+    const found = await editor.evaluate(
+      (element: HTMLElement, query: string) => {
+        const rootQuery = query.replace(
+          new RegExp(`^${element.tagName.toLowerCase()}(?=\\s|>|$)`),
+          ":scope",
+        );
+        return (
+          element.matches(query) ||
+          element.querySelector(query) !== null ||
+          element.querySelector(rootQuery) !== null
+        );
+      },
+      selector,
+    );
+    if (!found) {
+      const html = await editor.evaluate(
+        (element: HTMLElement) => element.outerHTML,
+      );
+      throw new Error(`expected authoring markup ${selector} in ${html}`);
+    }
+  };
+  const assertPlainLine = async (editor: any) => {
+    const found = await editor.evaluate((element: HTMLElement) =>
+      Array.from(element.querySelectorAll("p, div")).some(
+        (line) =>
+          line.textContent?.replaceAll("\u200b", "").trim() === "Plain" &&
+          !line.querySelector("span"),
+      ),
+    );
+    if (!found) throw new Error("empty list Enter did not create a plain line");
+  };
+
+  try {
+    for (let index = 0; index < cases.length; index += 1) {
+      const test = cases[index];
+      const editor = await begin(index);
+      if (test.kind === "shortcut") {
+        if (test.position === "after-enter") {
+          await editor.press("End");
+          await editor.press("Enter");
+        } else {
+          await editor.press("Home");
+        }
+        await editor.pressSequentially(test.shortcut);
+        if (test.shortcut !== "**bold**")
+          await editor.pressSequentially("Tail");
+        await finish(index, async () => {
+          const result = test.result;
+          if (result === "bullet") {
+            await assertBlock(editor, 'div[style*="display: flex"] > span');
+          } else if (result === "ordered") {
+            await assertBlock(editor, "ol > li");
+          } else if (result === "bold") {
+            await assertBlock(editor, 'span[style*="font-weight"]');
+          } else if (test.position === "start") {
+            await assertTag(editor, result);
+          } else {
+            await assertBlock(editor, result.toLowerCase());
+          }
+        });
+      } else if (test.kind === "slash") {
+        await editor.press("Home");
+        if (test.command === "heading2") {
+          await editor.pressSequentially("/heading 2");
+          await page
+            .locator('[role="listbox"] [role="option"]')
+            .first()
+            .waitFor({ state: "visible" });
+          const active = await editor.getAttribute("aria-activedescendant");
+          if (active !== "slide-slash-heading2") {
+            throw new Error(
+              `/heading 2 did not select Heading 2 (active: ${active})`,
+            );
+          }
+          await page.screenshot({
+            path: path.join(outRoot, "slide-authoring-slash-menu.png"),
+            fullPage: true,
+          });
+        } else {
+          await editor.pressSequentially("/");
+          const options = page.locator('[role="listbox"] [role="option"]');
+          await options.first().waitFor({ state: "visible" });
+          if ((await options.count()) !== slashCommands.length) {
+            throw new Error(
+              `slash menu showed ${await options.count()} commands`,
+            );
+          }
+          const commandIndex = slashCommands.findIndex(
+            ([, kind]) => kind === test.command,
+          );
+          for (let step = 0; step < commandIndex; step += 1) {
+            await page.keyboard.press("ArrowDown");
+          }
+        }
+        await page.keyboard.press("Enter");
+        await finish(index, async () => {
+          if (test.command === "divider") await assertBlock(editor, "hr");
+          if (test.command === "bulletList")
+            await assertBlock(editor, "ul > li");
+          else if (test.command === "orderedList")
+            await assertBlock(editor, "ol > li");
+          else await assertTag(editor, test.resultTag);
+          const text = await editor.innerText();
+          if (text.includes("/"))
+            throw new Error("slash token remained in slide text");
+        });
+      } else if (test.kind === "ul-flow" || test.kind === "ol-flow") {
+        await editor.press("End");
+        await editor.press("Enter");
+        await editor.pressSequentially("Beta");
+        if (test.kind === "ul-flow") {
+          await editor.press("Tab");
+          await assertBlock(editor, "ul > li ul > li");
+          await editor.press("Shift+Tab");
+          await editor.press("Home");
+          await editor.press("Backspace");
+          const joined = await editor.innerText();
+          if (!joined.includes("AlphaBeta") && !joined.includes("Alpha Beta")) {
+            throw new Error(
+              `Backspace did not join list text: ${JSON.stringify(joined)}`,
+            );
+          }
+          await editor.press("End");
+          await editor.press("Enter");
+          await editor.press("Enter");
+          await editor.pressSequentially("Plain");
+          await assertPlainLine(editor);
+        } else {
+          await assertBlock(editor, "ol > li:nth-child(2)");
+          await editor.press("Tab");
+          await assertBlock(editor, "ol > li ol > li");
+          await editor.press("Shift+Tab");
+          await editor.press("Home");
+          await editor.press("Backspace");
+          const text = await editor.innerText();
+          if (!text.includes("AlphaBeta") && !text.includes("Alpha Beta")) {
+            throw new Error(
+              `ordered-list Backspace lost text: ${JSON.stringify(text)}`,
+            );
+          }
+          await editor.press("End");
+          await editor.press("Enter");
+          await editor.press("Enter");
+          await editor.pressSequentially("Plain");
+          await assertPlainLine(editor);
+        }
+        await finish(index, async () => {});
+      } else {
+        await editor.press("Home");
+        await editor.pressSequentially("- ");
+        await editor.press("End");
+        await editor.press("Enter");
+        await editor.pressSequentially("Beta");
+        await editor.press("Tab");
+        await editor.press("Shift+Tab");
+        await editor.press("Home");
+        await editor.press("Backspace");
+        const merged = await editor.innerText();
+        if (!merged.includes("AlphaBeta") && !merged.includes("Alpha Beta")) {
+          throw new Error(
+            `styled bullet Backspace lost text: ${JSON.stringify(merged)}`,
+          );
+        }
+        await editor.press("End");
+        await editor.press("Enter");
+        await editor.press("Enter");
+        await editor.pressSequentially("Plain");
+        await finish(index, async () => {
+          await assertBlock(editor, 'div[style*="display: flex"] > span');
+          const text = await editor.innerText();
+          if (!text.includes("Plain")) {
+            throw new Error("styled bullet list exit lost the plain line");
+          }
+        });
+      }
+    }
+  } catch (error) {
+    problems.push(`authoring parity: ${String(error)}`);
+  } finally {
+    try {
+      await action(page, "delete-deck", { id: deckId }, "DELETE");
+    } catch (error) {
+      problems.push(
+        `authoring parity could not delete its synthetic deck: ${String(error)}`,
+      );
+    }
+  }
+  return problems;
+}
+
 /**
  * Polls the stored slide until it stops changing and no write the page sent
  * is still in flight. Saves are debounced, so "no change yet" is only trusted
@@ -2922,6 +3222,22 @@ async function main() {
       }
       console.log(
         "[edit-fidelity] Slides text surfaces passed typing, composition, paste, undo/redo, and switching checks",
+      );
+      return 0;
+    }
+
+    if (authoringOnly) {
+      const page = await context.newPage();
+      const problems = await runAuthoringParityQa(page, base, outRoot);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] authoring parity: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        "[edit-fidelity] Slides slash commands, Markdown shortcuts, and list authoring passed in Chromium",
       );
       return 0;
     }

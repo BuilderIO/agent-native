@@ -33,7 +33,12 @@ export interface InlineTextStyleApplication {
   range?: Range;
 }
 
-export type InlineTextFormat = "bold" | "italic" | "underline" | "strike";
+export type InlineTextFormat =
+  | "bold"
+  | "italic"
+  | "underline"
+  | "strike"
+  | "code";
 
 const CSS_PROPERTY_NAMES: Record<InlineTextStyleKey, string> = {
   color: "color",
@@ -260,6 +265,7 @@ function isFormatActive(
   if (format === "italic") {
     return /italic|oblique/.test(window.getComputedStyle(element).fontStyle);
   }
+  if (format === "code") return !!element.closest("code");
   for (
     let current: Element | null = element;
     current && editable.contains(current);
@@ -369,6 +375,40 @@ export function toggleInlineTextFormat(
 ): InlineTextStyleApplication {
   return styleSelectedText(editable, selection, (texts) => {
     const on = !texts.every((text) => isFormatActive(text, format, editable));
+    if (format === "code") {
+      for (const text of texts) {
+        const code = text.parentElement?.closest("code");
+        if (on) {
+          if (code) continue;
+          const wrapper = document.createElement("code");
+          text.replaceWith(wrapper);
+          wrapper.append(text);
+          continue;
+        }
+        if (!code || !editable.contains(code) || text.parentNode !== code) {
+          continue;
+        }
+        const children = Array.from(code.childNodes);
+        const selectedIndex = children.indexOf(text);
+        if (selectedIndex < 0) continue;
+        const replacement = document.createDocumentFragment();
+        const before = children.slice(0, selectedIndex);
+        const after = children.slice(selectedIndex + 1);
+        if (before.length) {
+          const wrapper = code.cloneNode(false) as HTMLElement;
+          wrapper.append(...before);
+          replacement.append(wrapper);
+        }
+        replacement.append(text);
+        if (after.length) {
+          const wrapper = code.cloneNode(false) as HTMLElement;
+          wrapper.append(...after);
+          replacement.append(wrapper);
+        }
+        code.replaceWith(replacement);
+      }
+      return;
+    }
     if (format === "underline" || format === "strike") {
       if (!on) {
         removeDecorationLine(editable, texts, format);

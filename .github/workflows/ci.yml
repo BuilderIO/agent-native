@@ -564,6 +564,10 @@ jobs:
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
 
+      - name: Check rich-text authoring parity in Slides
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
+
   brain-evals:
     name: Brain evals
     needs: change-scope

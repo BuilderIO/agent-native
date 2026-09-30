@@ -400,6 +400,8 @@ const messages = {
     orderedList: "Liste ordonnée",
     quote: "Citation",
     blockquote: "Bloc de citation",
+    divider: "Séparateur",
+    horizontalRule: "Ligne horizontale",
   },
   comments: {
     deleteComment: "Supprimer le commentaire",

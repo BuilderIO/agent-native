@@ -261,6 +261,7 @@ import {
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
+import { SlideSlashCommandMenu } from "./SlideSlashCommandMenu";
 import {
   SlidesLayersPanel,
   type SlidesLayerKind,
@@ -9471,6 +9472,10 @@ export default function SlideEditor({
             : undefined;
           onComment?.(quotedText, anchor);
         }}
+      />
+      <SlideSlashCommandMenu
+        editingEl={editingEl}
+        textSession={textSessionRef.current?.text ?? null}
       />
 
       {pendingUpdateCount > 0 && (

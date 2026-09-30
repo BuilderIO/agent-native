@@ -391,6 +391,8 @@ const messages = {
     orderedList: "順序付きリスト",
     quote: "引用",
     blockquote: "ブロック引用",
+    divider: "区切り線",
+    horizontalRule: "水平線",
   },
   comments: {
     deleteComment: "コメントを削除",

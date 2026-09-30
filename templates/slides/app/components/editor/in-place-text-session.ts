@@ -11,7 +11,6 @@ import {
   convertMarkdownPrefixToBullet,
   extractWithoutCopiedIdentity,
   findEnclosingList,
-  hasMarkdownBulletPrefixAtCaret,
   insertBulletAfterCaret,
   isBulletMarker,
   isBulletRow,
@@ -52,11 +51,22 @@ export interface InPlaceTextSessionOptions {
 
 export type SlideTextAlign = "left" | "center" | "right" | "justify";
 
+export type InPlaceTextAuthoringCommand =
+  | "paragraph"
+  | "heading1"
+  | "heading2"
+  | "heading3"
+  | "bulletList"
+  | "orderedList"
+  | "quote"
+  | "divider";
+
 export interface InPlaceTextSessionCommands {
   bold: () => boolean;
   italic: () => boolean;
   underline: () => boolean;
   strike: () => boolean;
+  code: () => boolean;
   color: (value: string) => boolean;
   fontSize: (value: string) => boolean;
   fontFamily: (value: string) => boolean;
@@ -65,6 +75,10 @@ export interface InPlaceTextSessionCommands {
   link: (href: string | null) => boolean;
   align: (value: SlideTextAlign) => boolean;
   toggleList: (kind: SlideListKind) => boolean;
+  applyAuthoringCommand: (
+    command: InPlaceTextAuthoringCommand,
+    slashRange?: Range,
+  ) => boolean;
 }
 
 export interface InPlaceTextSession {
@@ -160,6 +174,7 @@ const PASTE_INLINE_TAGS = new Set([
   "A",
   "B",
   "BR",
+  "CODE",
   "EM",
   "I",
   "S",
@@ -255,6 +270,7 @@ interface PastedLine {
   fragment: DocumentFragment;
   lists: readonly HTMLElement[];
   sourceItem: HTMLElement | null;
+  blockTag: "BLOCKQUOTE" | "H1" | "H2" | "H3" | null;
 }
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -627,16 +643,25 @@ function pastedHtmlLines(html: string): PastedLine[] {
     parent: Node,
     lists: readonly HTMLElement[],
     sourceItem: HTMLElement | null = null,
+    blockTag: PastedLine["blockTag"] = null,
   ) => {
     let line: PastedLine | null = null;
     for (const child of Array.from(parent.childNodes)) {
       if (child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)) {
         line = null;
         const list = child.tagName === "UL" || child.tagName === "OL";
+        const childTag =
+          child.tagName === "BLOCKQUOTE" ||
+          child.tagName === "H1" ||
+          child.tagName === "H2" ||
+          child.tagName === "H3"
+            ? child.tagName
+            : blockTag;
         collect(
           child,
           list ? [...lists, child] : lists,
           child.tagName === "LI" ? child : sourceItem,
+          lists.length ? null : childTag,
         );
         continue;
       }
@@ -646,6 +671,7 @@ function pastedHtmlLines(html: string): PastedLine[] {
           fragment: document.createDocumentFragment(),
           lists,
           sourceItem,
+          blockTag,
         };
         lines.push(line);
       }
@@ -665,7 +691,7 @@ function plainTextLines(text: string): PastedLine[] {
   return text.split(/\r\n|\r|\n/).map((line) => {
     const fragment = document.createDocumentFragment();
     if (line) fragment.append(line);
-    return { fragment, lists: [], sourceItem: null };
+    return { fragment, lists: [], sourceItem: null, blockTag: null };
   });
 }
 
@@ -1298,6 +1324,128 @@ export function startInPlaceTextSession(
     placeCaret(...joinRows(into, from));
   }
 
+  function listItemContentRange(item: HTMLElement) {
+    const range = document.createRange();
+    range.selectNodeContents(item);
+    const nested = Array.from(item.children).find(
+      (child) => child.tagName === "OL" || child.tagName === "UL",
+    );
+    if (nested) range.setEndBefore(nested);
+    return range;
+  }
+
+  function listItemTextEnd(item: HTMLElement): [Text, number] {
+    const nested = Array.from(item.children).find(
+      (child) => child.tagName === "OL" || child.tagName === "UL",
+    );
+    const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+    let last: Text | null = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!nested?.contains(node)) last = node as Text;
+    }
+    if (last) return [last, last.length];
+    const placeholder = document.createTextNode(ZERO_WIDTH_SPACE);
+    item.insertBefore(placeholder, nested ?? null);
+    return [placeholder, placeholder.length];
+  }
+
+  function joinListItems(into: HTMLElement, from: HTMLElement) {
+    const caret = listItemTextEnd(into);
+    const intoNested = Array.from(into.children).find(
+      (child) => child.tagName === "OL" || child.tagName === "UL",
+    );
+    const fromNested = Array.from(from.children).find(
+      (child) => child.tagName === "OL" || child.tagName === "UL",
+    );
+    const intoContent = Array.from(into.childNodes).filter(
+      (child) => child !== intoNested,
+    );
+    const fromContent = Array.from(from.childNodes).filter(
+      (child) => child !== fromNested,
+    );
+    const lastInto = intoContent.at(-1);
+    const mergeable = (node: Node | undefined): node is HTMLElement =>
+      node instanceof HTMLElement &&
+      ["DIV", "P", "H1", "H2", "H3", "H4", "H5", "H6"].includes(node.tagName);
+    const mergedFrom = new Set<Node>();
+    if (mergeable(lastInto)) {
+      const firstBlockIndex = fromContent.findIndex(mergeable);
+      const firstBlock = fromContent[firstBlockIndex];
+      const inline =
+        firstBlockIndex === -1
+          ? fromContent
+          : fromContent.slice(0, firstBlockIndex);
+      if (inline.length > 0) {
+        lastInto.append(...inline);
+        inline.forEach((node) => mergedFrom.add(node));
+        if (
+          firstBlock instanceof HTMLElement &&
+          !hasRenderedContent(firstBlock)
+        ) {
+          mergedFrom.add(firstBlock);
+        }
+      } else if (
+        mergeable(firstBlock) &&
+        firstBlock.tagName === lastInto.tagName
+      ) {
+        lastInto.append(...Array.from(firstBlock.childNodes));
+        mergedFrom.add(firstBlock);
+      }
+    }
+    for (const child of Array.from(from.childNodes)) {
+      if (child !== fromNested && !mergedFrom.has(child)) {
+        into.insertBefore(child, intoNested ?? null);
+      }
+    }
+    if (fromNested instanceof HTMLElement) {
+      if (intoNested?.tagName === fromNested.tagName) {
+        intoNested.append(...Array.from(fromNested.childNodes));
+      } else if (intoNested) {
+        intoNested.after(fromNested);
+      } else {
+        into.append(fromNested);
+      }
+    }
+    from.remove();
+    placeCaret(...caret);
+  }
+
+  function deleteAtListItemEdge(caret: Range, direction: DeleteDirection) {
+    const item = listItemAt(caret.startContainer);
+    if (!item) return false;
+    const content = listItemContentRange(item);
+    const edge = document.createRange();
+    if (direction === "backward") {
+      edge.setStart(content.startContainer, content.startOffset);
+      edge.setEnd(caret.startContainer, caret.startOffset);
+    } else {
+      edge.setStart(caret.startContainer, caret.startOffset);
+      edge.setEnd(content.endContainer, content.endOffset);
+    }
+    if (hasRenderedContent(edge.cloneContents())) return false;
+
+    const sibling =
+      direction === "backward"
+        ? item.previousElementSibling
+        : item.nextElementSibling;
+    if (sibling instanceof HTMLElement && sibling.tagName === "LI") {
+      if (direction === "backward") joinListItems(sibling, item);
+      else joinListItems(item, sibling);
+      return true;
+    }
+    if (direction === "backward") {
+      const list = item.parentElement;
+      if (
+        list &&
+        (list.tagName === "OL" || list.tagName === "UL") &&
+        list.parentElement?.tagName === "LI"
+      ) {
+        keepingSelection(() => outdent(item));
+      }
+    }
+    return true;
+  }
+
   /**
    * Backspace at the start of a styled bullet row joins it to the previous
    * row, and Delete at its end pulls the next one in. Neither ever deletes a
@@ -1342,6 +1490,7 @@ export function startInPlaceTextSession(
     const step = DELETE_STEPS[type];
     if (!step) return;
     const [direction, granularity] = step;
+    if (deleteAtListItemEdge(range, direction)) return;
     if (deleteAtRowEdge(range, direction)) return;
     const selection = window.getSelection()!;
     if (typeof selection.modify !== "function") {
@@ -1556,35 +1705,46 @@ export function startInPlaceTextSession(
   function splitListItem(item: HTMLElement, caret: Range) {
     if (!hasRenderedContent(item) && !item.nextElementSibling) {
       // An empty last item ends the list: a nested one steps out a level, a
-      // top-level one is dropped because the list itself is the edited root.
+      // top-level one continues as a paragraph after the list.
       if (keepingSelection(() => outdent(item))) return;
-      const previous = item.previousElementSibling;
-      if (previous) {
-        item.remove();
-        placeCaret(...textPoint(previous, Infinity));
-        return;
-      }
-      const list = item.parentElement;
-      if (
-        list === el &&
-        item === list.firstElementChild &&
-        item === list.lastElementChild
-      ) {
-        const kind = list.tagName === "OL" ? "ordered" : "bullet";
-        if (
-          keepingSelection(() => {
-            const next = toggleSlideList(el, kind);
-            if (!next) return false;
-            if (next !== el) rebind(next);
-            return true;
-          })
-        ) {
-          placeCaret(...textPoint(el.firstElementChild ?? el, Infinity));
-          return;
-        }
-      }
+      exitListItem(item);
+      return;
     }
     splitBlock(item, caret);
+  }
+
+  function exitListItem(item: HTMLElement) {
+    const list = item.parentElement!;
+    const paragraph = document.createElement("p");
+    paragraph.style.margin = "0";
+    paragraph.append(ZERO_WIDTH_SPACE);
+    item.remove();
+
+    if (list === el) {
+      const nestedList = list.cloneNode(false) as HTMLElement;
+      stripCopiedIdentity(nestedList);
+      nestedList.removeAttribute("contenteditable");
+      nestedList.removeAttribute("data-editing-block");
+      const replacement = retag(el, "DIV");
+      rebind(replacement);
+      replacement.style.removeProperty("list-style-type");
+      replacement.style.removeProperty("list-style-position");
+      replacement.style.removeProperty("padding-left");
+      const remaining = Array.from(replacement.children).filter(
+        (child) => child.tagName === "LI",
+      );
+      if (remaining.length) {
+        nestedList.append(...remaining);
+        replacement.replaceChildren(nestedList, paragraph);
+      } else {
+        replacement.replaceChildren(paragraph);
+      }
+    } else if (list.children.length === 0) {
+      list.replaceWith(paragraph);
+    } else {
+      list.after(paragraph);
+    }
+    placeCaret(...textPoint(paragraph, 0));
   }
 
   /** Enter never changes the edited element's own tag, class, or style. */
@@ -1601,12 +1761,14 @@ export function startInPlaceTextSession(
     if (row) {
       const list = row.parentElement!;
       const rows = legacyRows(list);
-      if (
-        row === rows[rows.length - 1] &&
-        rows.length >= 2 &&
-        isEmptyRow(row) &&
-        removeEmptyBulletAtCaret(list)
-      ) {
+      if (row === rows[rows.length - 1] && isEmptyRow(row)) {
+        const paragraph = document.createElement("div");
+        paragraph.append(ZERO_WIDTH_SPACE);
+        row.remove();
+        if (list === el) el.append(paragraph);
+        else if (list.children.length === 0) list.replaceWith(paragraph);
+        else list.after(paragraph);
+        placeCaret(...textPoint(paragraph, 0));
         return;
       }
       if (insertBulletAfterCaret(list)) return;
@@ -1637,6 +1799,100 @@ export function startInPlaceTextSession(
     placeCaret(after.startContainer, after.startOffset);
   }
 
+  function insertBlockClipboard(lines: PastedLine[], at: Range) {
+    if (!at.collapsed) deleteRange(at);
+    let caret = selectionRange();
+    if (!caret) return false;
+
+    const blocks = document.createDocumentFragment();
+    for (let index = 0; index < lines.length; ) {
+      const line = lines[index];
+      if (line.lists.length) {
+        let end = index + 1;
+        while (end < lines.length && lines[end].lists.length) end += 1;
+        blocks.append(pastedLists(lines.slice(index, end)));
+        index = end;
+        continue;
+      }
+      const tag = line.blockTag?.toLowerCase() ?? "p";
+      const block = document.createElement(tag);
+      if (tag === "blockquote") {
+        const paragraph = document.createElement("p");
+        paragraph.append(line.fragment);
+        block.append(paragraph);
+      } else {
+        block.append(line.fragment);
+      }
+      blocks.append(block);
+      index += 1;
+    }
+    const last = blocks.lastChild;
+    if (!(last instanceof HTMLElement)) return false;
+
+    let block = commandBlock(caret.startContainer);
+    if (block === el && rootHasLineBreak(el)) {
+      block = promoteRootLines(caret);
+      caret = selectionRange()!;
+    }
+
+    if (block === el) {
+      if (caret.startContainer === el) {
+        caret.insertNode(blocks);
+        placeCaret(el, Array.from(el.childNodes).indexOf(last) + 1);
+        return true;
+      }
+
+      const rootTag = el.tagName.toLowerCase();
+      const look = headingTextLook(el);
+      if (el.tagName !== "DIV") retagRoot("DIV");
+      caret = selectionRange()!;
+      const suffixRange = document.createRange();
+      suffixRange.setStart(caret.startContainer, caret.startOffset);
+      suffixRange.setEnd(el, el.childNodes.length);
+      const suffix = extractWithoutCopiedIdentity(suffixRange);
+      const before = document.createElement(rootTag);
+      before.append(...Array.from(el.childNodes));
+      const after = document.createElement(rootTag);
+      after.append(suffix);
+      keepTextLook(before, look);
+      keepTextLook(after, look);
+      const continuation = hasRenderedContent(after) ? after : null;
+      el.replaceChildren(
+        ...(hasRenderedContent(before) ? [before] : []),
+        blocks,
+        ...(continuation ? [continuation] : []),
+      );
+      placeCaret(
+        ...(continuation
+          ? textPoint(continuation, 0)
+          : textPoint(last, Infinity)),
+      );
+      return true;
+    }
+
+    if (block.tagName === "LI") {
+      caret.insertNode(blocks);
+      placeCaret(...textPoint(last, Infinity));
+      return true;
+    }
+
+    splitBlock(block, caret);
+    const continuation = block.nextElementSibling;
+    if (!(continuation instanceof HTMLElement)) {
+      throw new Error(
+        "in-place text session: block paste lost its continuation",
+      );
+    }
+    continuation.before(blocks);
+    if (hasRenderedContent(continuation)) {
+      placeCaret(...textPoint(continuation, 0));
+    } else {
+      continuation.remove();
+      placeCaret(...textPoint(last, Infinity));
+    }
+    return true;
+  }
+
   /**
    * Pasted list items stay list items where the caret can hold them: in a
    * list item they become items at their own depth, and in a container that
@@ -1657,6 +1913,9 @@ export function startInPlaceTextSession(
         : !text
     ) {
       return false;
+    }
+    if (normalized !== null && lines.some(({ blockTag }) => blockTag)) {
+      return insertBlockClipboard(lines, at);
     }
     const start = at.startContainer;
     const link = (
@@ -1720,59 +1979,437 @@ export function startInPlaceTextSession(
     return true;
   }
 
+  function linePrefix(block: HTMLElement, caret: Range) {
+    let start: [Node, number] = [block, 0];
+    if (isBulletRow(block)) {
+      const marker =
+        block.firstElementChild instanceof HTMLElement &&
+        isBulletMarker(block.firstElementChild)
+          ? block.firstElementChild
+          : null;
+      const text = rowTextRange(block, marker);
+      start = [text.startContainer, text.startOffset];
+    }
+
+    for (const br of Array.from(block.querySelectorAll("br"))) {
+      const parent = br.parentNode!;
+      const after = Array.from(parent.childNodes).indexOf(br) + 1;
+      const breakEnd = document.createRange();
+      breakEnd.setStart(parent, after);
+      breakEnd.collapse(true);
+      if (breakEnd.comparePoint(caret.startContainer, caret.startOffset) >= 0) {
+        start = [parent, after];
+      }
+    }
+
+    const prefix = document.createRange();
+    prefix.setStart(...start);
+    prefix.setEnd(caret.startContainer, caret.startOffset);
+    return prefix;
+  }
+
+  function lineIndexAt(root: HTMLElement, caret: Range) {
+    return Array.from(root.querySelectorAll("br")).filter((br) => {
+      const parent = br.parentNode!;
+      const breakEnd = document.createRange();
+      breakEnd.setStart(parent, Array.from(parent.childNodes).indexOf(br) + 1);
+      breakEnd.collapse(true);
+      return (
+        breakEnd.comparePoint(caret.startContainer, caret.startOffset) >= 0
+      );
+    }).length;
+  }
+
+  function rootHasLineBreak(root: HTMLElement) {
+    return root.querySelector("br") !== null;
+  }
+
+  function splitRootLines(root: HTMLElement) {
+    const lines: Node[][] = [[]];
+    const copied = new WeakSet<Element>();
+    const splitNode = (node: Node): Node[][] => {
+      if (node instanceof HTMLBRElement) return [[], []];
+      if (node instanceof Text) return [[node.cloneNode(true)]];
+      if (!(node instanceof HTMLElement)) return [[]];
+      const childLines: Node[][] = [[]];
+      for (const child of Array.from(node.childNodes)) {
+        const parts = splitNode(child);
+        for (const [index, part] of parts.entries()) {
+          if (index > 0) childLines.push([]);
+          childLines.at(-1)!.push(...part);
+        }
+      }
+      return childLines.map((children) => {
+        const clone = node.cloneNode(false) as HTMLElement;
+        if (copied.has(node)) stripCopiedIdentity(clone);
+        else copied.add(node);
+        clone.append(...children);
+        return [clone];
+      });
+    };
+
+    for (const child of Array.from(root.childNodes)) {
+      const parts = splitNode(child);
+      for (const [index, part] of parts.entries()) {
+        if (index > 0) lines.push([]);
+        lines.at(-1)!.push(...part);
+      }
+    }
+    return lines;
+  }
+
+  /** Turn root-level BR lines into editable child blocks before changing one line. */
+  function promoteRootLines(caret: Range) {
+    const index = lineIndexAt(el, caret);
+    const offset = linePrefix(el, caret).toString().length;
+    const textLook = headingTextLook(el);
+    const lineTag = ["P", "H1", "H2", "H3", "BLOCKQUOTE"].includes(el.tagName)
+      ? el.tagName.toLowerCase()
+      : "div";
+    const lines = splitRootLines(el).map((children) => {
+      const block = document.createElement(lineTag);
+      block.append(...children);
+      if (block.childNodes.length === 0) block.append(ZERO_WIDTH_SPACE);
+      keepTextLook(block, textLook);
+      return block;
+    });
+    if (el.tagName !== "DIV") retagRoot("DIV");
+    el.replaceChildren(...lines);
+    const target = lines[Math.min(index, lines.length - 1)] ?? el;
+    placeCaret(...textPoint(target, offset));
+    return target;
+  }
+
+  function commandBlock(node: Node) {
+    const block = nearestBlock(node, el);
+    if (block.tagName !== "LI") return block;
+    return (
+      Array.from(block.children).find(
+        (child): child is HTMLElement =>
+          child instanceof HTMLElement &&
+          BLOCK_TAGS.has(child.tagName) &&
+          child.tagName !== "OL" &&
+          child.tagName !== "UL",
+      ) ?? block
+    );
+  }
+
+  function retagBlock(block: HTMLElement, tagName: string) {
+    if (block === el) {
+      if (block.tagName !== tagName) retagRoot(tagName);
+      return;
+    }
+    if (block.tagName === "LI") {
+      const list = Array.from(block.children).find(
+        (child) => child.tagName === "OL" || child.tagName === "UL",
+      );
+      const content = document.createElement(tagName);
+      const moved = Array.from(block.childNodes).filter(
+        (child) => child !== list,
+      );
+      content.append(...moved);
+      block.insertBefore(content, list ?? null);
+      return;
+    }
+    if (block.tagName !== tagName) retag(block, tagName);
+  }
+
+  function toggleListAtBlock(block: HTMLElement, kind: SlideListKind) {
+    return keepingSelection(() => {
+      if (block === el || isBulletRow(block)) {
+        if (!hasRenderedContent(el)) el.prepend(ZERO_WIDTH_SPACE);
+        const next = toggleSlideList(el, kind);
+        if (!next) return false;
+        if (next !== el) rebind(next);
+        return true;
+      }
+
+      const item = listItemAt(block);
+      if (item && item === block) {
+        const list = item.parentElement!;
+        const tagName = kind === "ordered" ? "OL" : "UL";
+        if (list.tagName === tagName) {
+          const next = toggleSlideList(list, kind);
+          if (list === el && next && next !== el) rebind(next);
+          return !!next;
+        }
+        const replacement = retag(list, tagName);
+        replacement.style.setProperty(
+          "list-style-type",
+          kind === "ordered" ? "decimal" : "disc",
+        );
+        if (list === el) rebind(replacement);
+        return true;
+      }
+
+      const list = createSlideList(document, kind);
+      const line = block.tagName === "LI" ? block : retag(block, "LI");
+      line.replaceWith(list);
+      list.append(line);
+      return true;
+    });
+  }
+
+  function insertDividerAtBlock(block: HTMLElement, caret: Range) {
+    if (block === el) {
+      const before = document.createRange();
+      before.setStart(el, 0);
+      before.setEnd(caret.startContainer, caret.startOffset);
+      const after = document.createRange();
+      after.setStart(caret.startContainer, caret.startOffset);
+      after.setEnd(el, el.childNodes.length);
+      const beforeContent = before.cloneContents();
+      const afterContent = after.cloneContents();
+      if (el.tagName !== "DIV") retagRoot("DIV");
+      const divider = document.createElement("hr");
+      const paragraph = document.createElement("p");
+      paragraph.style.margin = "0";
+      paragraph.append(afterContent);
+      if (!hasRenderedContent(paragraph)) paragraph.prepend(ZERO_WIDTH_SPACE);
+      el.replaceChildren(beforeContent, divider, paragraph);
+      placeCaret(...textPoint(paragraph, 0));
+      return;
+    }
+    if (block.tagName === "LI") {
+      const before = document.createRange();
+      before.setStart(block, 0);
+      before.setEnd(caret.startContainer, caret.startOffset);
+      const after = document.createRange();
+      after.setStart(caret.startContainer, caret.startOffset);
+      after.setEnd(block, block.childNodes.length);
+      const left = document.createElement("p");
+      const right = document.createElement("p");
+      left.append(before.cloneContents());
+      right.append(after.cloneContents());
+      if (!hasRenderedContent(right)) right.append(ZERO_WIDTH_SPACE);
+      const divider = document.createElement("hr");
+      block.replaceChildren(left, divider, right);
+      placeCaret(...textPoint(right, 0));
+      return;
+    }
+    splitBlock(block, caret);
+    block.after(document.createElement("hr"));
+  }
+
+  function applyAuthoringCommandAtBlock(
+    kind: InPlaceTextAuthoringCommand,
+    block: HTMLElement,
+    caret: Range,
+  ) {
+    switch (kind) {
+      case "paragraph":
+        retagBlock(block, "P");
+        break;
+      case "heading1":
+      case "heading2":
+      case "heading3": {
+        const tagName = `H${kind.slice(-1)}`;
+        retagBlock(block, block.tagName === tagName ? "P" : tagName);
+        break;
+      }
+      case "bulletList":
+        return toggleListAtBlock(block, "bullet");
+      case "orderedList":
+        return toggleListAtBlock(block, "ordered");
+      case "quote":
+        retagBlock(block, block.tagName === "BLOCKQUOTE" ? "P" : "BLOCKQUOTE");
+        break;
+      case "divider":
+        insertDividerAtBlock(block, caret);
+        break;
+    }
+    return true;
+  }
+
+  function selectedCommandBlocks(range: Range) {
+    const blocks = new Set<HTMLElement>();
+    for (const text of textNodesIn(el)) {
+      if (range.intersectsNode(text)) blocks.add(commandBlock(text));
+    }
+    return Array.from(blocks).sort((left, right) =>
+      left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING
+        ? -1
+        : 1,
+    );
+  }
+
+  function applyAuthoringCommandToBlocks(
+    kind: InPlaceTextAuthoringCommand,
+    blocks: HTMLElement[],
+  ) {
+    if (kind === "divider" || kind === "bulletList" || kind === "orderedList") {
+      return false;
+    }
+    const headingTag =
+      kind === "heading1" || kind === "heading2" || kind === "heading3"
+        ? `H${kind.slice(-1)}`
+        : null;
+    const tagName =
+      kind === "quote"
+        ? blocks.every((block) => block.tagName === "BLOCKQUOTE")
+          ? "P"
+          : "BLOCKQUOTE"
+        : headingTag
+          ? blocks.every((block) => block.tagName === headingTag)
+            ? "P"
+            : headingTag
+          : kind === "paragraph"
+            ? "P"
+            : null;
+    if (!tagName) return false;
+    return keepingSelection(() => {
+      for (const block of blocks) retagBlock(block, tagName);
+      return true;
+    });
+  }
+
+  function applyAuthoringCommand(
+    kind: InPlaceTextAuthoringCommand,
+    slashRange?: Range,
+  ) {
+    return command(() => {
+      if (
+        slashRange &&
+        (!el.contains(slashRange.startContainer) ||
+          !el.contains(slashRange.endContainer))
+      ) {
+        return false;
+      }
+      if (slashRange) deleteRange(slashRange);
+      const caret = selectionRange();
+      if (!caret) return false;
+      let block = commandBlock(caret.startContainer);
+      if (!caret.collapsed && commandBlock(caret.endContainer) !== block) {
+        if (slashRange) return false;
+        const blocks = selectedCommandBlocks(caret);
+        return blocks.length > 1
+          ? applyAuthoringCommandToBlocks(kind, blocks)
+          : false;
+      }
+      if (slashRange && !caret.collapsed) return false;
+      if (block === el && rootHasLineBreak(el)) {
+        if (!caret.collapsed) return false;
+        block = promoteRootLines(caret);
+      }
+      return applyAuthoringCommandAtBlock(
+        kind,
+        block,
+        selectionRange() ?? caret,
+      );
+    });
+  }
+
+  function visibleOffset(raw: string, offset: number) {
+    let visible = 0;
+    for (let index = 0; index < raw.length; index += 1) {
+      if (raw[index] === ZERO_WIDTH_SPACE) continue;
+      if (visible === offset) return index;
+      visible += 1;
+    }
+    return raw.length;
+  }
+
   function applyMarkdownShortcut() {
     const caret = selectionRange();
     if (!caret?.collapsed) return;
-    const block = nearestBlock(caret.startContainer, el);
-    const prefix = document.createRange();
-    prefix.setStart(block, 0);
-    prefix.setEnd(caret.startContainer, caret.startOffset);
-    const typed = prefix.toString().replaceAll(ZERO_WIDTH_SPACE, "");
-    if (block === el && hasMarkdownBulletPrefixAtCaret(el)) {
+    const block = commandBlock(caret.startContainer);
+    const prefix = linePrefix(block, caret);
+    const raw = prefix.toString();
+    const typed = raw
+      .replaceAll(ZERO_WIDTH_SPACE, "")
+      .replaceAll("\u00a0", " ");
+    const bullet = /^[-*] $/.test(typed);
+    const ordered = typed === "1. ";
+    const heading = /^(#{1,3}) $/.exec(typed);
+    const quote = typed === "> ";
+    const bold = /\*\*([^*\n]+)\*\*$/.exec(typed);
+    const kind = ordered
+      ? "orderedList"
+      : heading
+        ? (`heading${heading[1].length}` as InPlaceTextAuthoringCommand)
+        : quote
+          ? "quote"
+          : null;
+
+    if (bullet) {
       command(() => {
-        const tag = el.tagName;
-        const look = headingTextLook(el);
-        if (tag === "P" || look) retagRoot("DIV");
-        if (convertMarkdownPrefixToBullet(el)) {
-          keepTextLook(el, look);
+        let target = commandBlock(caret.startContainer);
+        if (target === el && rootHasLineBreak(el)) {
+          const tag = el.tagName;
+          const look = headingTextLook(el);
+          if (tag === "P" || look) retagRoot("DIV");
+          const converted = convertMarkdownPrefixToBullet(el);
+          if (converted) keepTextLook(el, look);
+          else if (el.tagName !== tag) retagRoot(tag);
+          return converted;
+        }
+        if (isBulletRow(target)) {
+          deleteRange(prefix);
           return true;
         }
-        if (el.tagName !== tag) retagRoot(tag);
-        return false;
+        const parentList =
+          target.tagName === "LI" ? target.parentElement : null;
+        if (parentList?.tagName === "UL") {
+          deleteRange(prefix);
+          return true;
+        }
+        const look = headingTextLook(target);
+        if (target === el && (target.tagName === "P" || look)) {
+          retagRoot("DIV");
+          target = el;
+        } else if (target !== el && (target.tagName === "P" || look)) {
+          target = retag(target, "DIV");
+        }
+        keepTextLook(target, look);
+        return convertMarkdownPrefixToBullet(target);
       });
       return;
     }
-    if (block === el && typed === "1. ") {
+
+    if (kind) {
       command(() => {
-        prefix.deleteContents();
-        if (!hasRenderedContent(el)) el.prepend(ZERO_WIDTH_SPACE);
-        const next = toggleSlideList(el, "ordered");
-        if (!next) return false;
-        if (next !== el) rebind(next);
-        const [node, offset] = textPoint(el, 0);
-        placeCaret(
-          node,
-          node instanceof Text && PLACEHOLDER_ONLY.test(node.data)
-            ? node.length
-            : offset,
+        deleteRange(prefix);
+        const current = selectionRange();
+        if (!current) return false;
+        let target = commandBlock(current.startContainer);
+        if (target === el && rootHasLineBreak(el)) {
+          target = promoteRootLines(current);
+        }
+        return applyAuthoringCommandAtBlock(
+          kind,
+          target,
+          selectionRange() ?? current,
         );
-        return true;
       });
       return;
     }
-    const heading = /^(#{1,3}) $/.exec(typed);
-    if (
-      heading &&
-      block !== el &&
-      block.tagName !== "LI" &&
-      !STRUCTURAL_BLOCK_TAGS.has(block.tagName)
-    ) {
+
+    if (bold) {
       command(() => {
-        prefix.deleteContents();
-        const next = retag(block, `H${heading[1].length}`);
-        if (hasRenderedContent(next)) placeCaret(...textPoint(next, 0));
-        else settleCaret(next, 0);
-        return true;
+        const base = textOffset(
+          block,
+          prefix.startContainer,
+          prefix.startOffset,
+        );
+        const openStart = visibleOffset(raw, bold.index);
+        const textStart = visibleOffset(raw, bold.index + 2);
+        const closeStart = visibleOffset(raw, bold.index + bold[0].length - 2);
+        const close = document.createRange();
+        close.setStart(...textPoint(block, base + closeStart));
+        close.setEnd(...textPoint(block, base + raw.length));
+        deleteRange(close);
+        const open = document.createRange();
+        open.setStart(...textPoint(block, base + openStart));
+        open.setEnd(...textPoint(block, base + textStart));
+        deleteRange(open);
+        const selection = window.getSelection();
+        if (!selection) return false;
+        const content = document.createRange();
+        content.setStart(...textPoint(block, base + openStart));
+        content.setEnd(...textPoint(block, base + openStart + bold[1].length));
+        selection.removeAllRanges();
+        selection.addRange(content);
+        return toggleInlineTextFormat(el, "bold").scope === "selection";
       });
     }
   }
@@ -1780,11 +2417,20 @@ export function startInPlaceTextSession(
   /** Retags the edited element, keeping the caret: a <p> or heading cannot hold a list row. */
   function retagRoot(tagName: string) {
     const range = selectionRange();
-    const caret = range
-      ? ([range.startContainer, range.startOffset] as const)
+    const points = range
+      ? ([
+          [range.startContainer, range.startOffset],
+          [range.endContainer, range.endOffset],
+        ] as const)
       : null;
+    const offsets = selectionOffsets();
     rebind(retag(el, tagName));
-    if (caret) placeCaret(...caret);
+    const intact = points?.every(
+      ([node, offset]) =>
+        node instanceof Text && el.contains(node) && offset <= node.length,
+    );
+    if (points && intact) select(points[0], points[1], offsets.backward);
+    else if (range) selectOffsets(offsets);
   }
 
   function styleCommand(apply: () => InlineTextStyleApplication) {
@@ -1825,6 +2471,7 @@ export function startInPlaceTextSession(
     underline: () =>
       styleCommand(() => toggleInlineTextFormat(el, "underline")),
     strike: () => styleCommand(() => toggleInlineTextFormat(el, "strike")),
+    code: () => styleCommand(() => toggleInlineTextFormat(el, "code")),
     color: (value) =>
       styleCommand(() => applyInlineTextStyle(el, { color: value })),
     fontSize: (value) =>
@@ -1878,6 +2525,7 @@ export function startInPlaceTextSession(
           return true;
         }),
       ),
+    applyAuthoringCommand,
   };
 
   function targetRange(event: InputEvent): Range | null {
@@ -1951,7 +2599,7 @@ export function startInPlaceTextSession(
         (type === "insertReplacementText" ? targetRange(event) : null) ?? range;
       if (!target) return;
       edit("typing", () => insertText(data, target));
-      if (data === " ") applyMarkdownShortcut();
+      if (data === " " || data === "*") applyMarkdownShortcut();
       return;
     }
     if (type.startsWith("delete")) {
@@ -2004,7 +2652,10 @@ export function startInPlaceTextSession(
 
   function onInput(event: Event) {
     const input = event as InputEvent;
-    if (input.inputType === "insertText" && input.data === " ") {
+    if (
+      input.inputType === "insertText" &&
+      (input.data === " " || input.data === "*")
+    ) {
       applyMarkdownShortcut();
     }
     // Replacing the node would cancel an IME composition, or move the live
@@ -2029,6 +2680,9 @@ export function startInPlaceTextSession(
     } else if (mod && key === "y" && !event.shiftKey) {
       event.preventDefault();
       redo();
+    } else if (mod && key === "e" && !event.shiftKey) {
+      event.preventDefault();
+      commands.code();
     } else if (mod && key === "a" && !event.shiftKey) {
       event.preventDefault();
       selectAllEditableText(el);

@@ -396,6 +396,8 @@ const messages = {
     orderedList: "Lista ordenada",
     quote: "Cita",
     blockquote: "Bloque de cita",
+    divider: "Separador",
+    horizontalRule: "Línea horizontal",
   },
   comments: {
     deleteComment: "Eliminar comentario",

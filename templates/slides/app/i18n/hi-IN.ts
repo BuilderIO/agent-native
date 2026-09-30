@@ -384,6 +384,8 @@ const messages = {
     orderedList: "क्रमबद्ध सूची",
     quote: "उद्धरण",
     blockquote: "ब्लॉक उद्धरण",
+    divider: "विभाजक",
+    horizontalRule: "क्षैतिज रेखा",
   },
   comments: {
     deleteComment: "टिप्पणी हटाएं",

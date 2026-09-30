@@ -381,6 +381,8 @@ const messages = {
     orderedList: "有序列表",
     quote: "引用",
     blockquote: "块引用",
+    divider: "分隔线",
+    horizontalRule: "水平线",
   },
   comments: {
     deleteComment: "删除评论",

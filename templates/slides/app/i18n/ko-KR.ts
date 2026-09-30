@@ -387,6 +387,8 @@ const messages = {
     orderedList: "순서 있는 목록",
     quote: "인용",
     blockquote: "인용 블록",
+    divider: "구분선",
+    horizontalRule: "가로줄",
   },
   comments: {
     deleteComment: "댓글 삭제",

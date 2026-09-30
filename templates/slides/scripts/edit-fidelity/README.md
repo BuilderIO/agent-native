@@ -38,6 +38,15 @@ and slide-switching round in Chromium:
 pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
 ```
 
+Run the in-place rich-text authoring parity round in Chromium. It types every
+Content Markdown shortcut at a block start and after Enter, runs all eight
+enabled slash commands, and exercises styled bullet rows plus semantic UL/OL
+Enter, indentation, Backspace, and list exit behavior:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
+```
+
 By default the harness starts its own scratch dev server with this command,
 run from the repo root:
 
@@ -73,6 +82,7 @@ because it creates and rewrites decks.
 | `--typing-chat`                | Check selection direction on edit entry and Agent chat typing with slide editing left open          |
 | `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                           |
 | `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic Chromium decks |
+| `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic Chromium decks |
 
 Exit codes:
 

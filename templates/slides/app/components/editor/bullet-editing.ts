@@ -197,12 +197,11 @@ function markdownBulletPrefixRange(
     }
   }
   if (previousBreak) range.setStartAfter(previousBreak);
-  const typed = range.toString().replaceAll(ZERO_WIDTH_SPACE, "");
+  const typed = range
+    .toString()
+    .replaceAll(ZERO_WIDTH_SPACE, "")
+    .replaceAll("\u00a0", " ");
   return MARKDOWN_BULLET_PREFIX.test(typed) ? { range, previousBreak } : null;
-}
-
-export function hasMarkdownBulletPrefixAtCaret(el: HTMLElement): boolean {
-  return markdownBulletPrefixRange(el) !== null;
 }
 
 /**

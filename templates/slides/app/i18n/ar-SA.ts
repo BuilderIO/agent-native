@@ -389,6 +389,8 @@ const messages = {
     orderedList: "قائمة مرتبة",
     quote: "اقتباس",
     blockquote: "اقتباس كتلي",
+    divider: "فاصل",
+    horizontalRule: "خط أفقي",
   },
   comments: {
     deleteComment: "حذف التعليق",

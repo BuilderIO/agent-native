@@ -54,6 +54,19 @@ describe("rich text selection", () => {
     expect(block.querySelector("span")?.style.color).toBe("#609ff8");
   });
 
+  it("toggles inline code around only the selected text", () => {
+    const block = editable("left right");
+    const text = block.firstChild as Text;
+    rangeFor(text, 5, text, 10);
+
+    toggleInlineTextFormat(block, "code");
+    expect(block.innerHTML).toBe("left <code>right</code>");
+    expect(window.getSelection()!.toString()).toBe("right");
+
+    toggleInlineTextFormat(block, "code");
+    expect(block.innerHTML).toBe("left right");
+  });
+
   it("styles each selected run inside its own markup without splitting it", () => {
     const block = editable("one <strong>two</strong> three");
     const [one, two] = [

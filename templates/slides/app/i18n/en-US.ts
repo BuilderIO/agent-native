@@ -387,6 +387,8 @@ const messages = {
     orderedList: "Ordered list",
     quote: "Quote",
     blockquote: "Blockquote",
+    divider: "Divider",
+    horizontalRule: "Horizontal rule",
   },
   comments: {
     deleteComment: "Delete comment",

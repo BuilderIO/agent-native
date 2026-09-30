@@ -377,6 +377,8 @@ const messages = {
     orderedList: "有序清單",
     quote: "引用",
     blockquote: "塊引用",
+    divider: "分隔線",
+    horizontalRule: "水平線",
   },
   comments: {
     deleteComment: "刪除評論",

@@ -394,6 +394,8 @@ const messages = {
     orderedList: "Geordnete Liste",
     quote: "Zitat",
     blockquote: "Blockzitat",
+    divider: "Trennlinie",
+    horizontalRule: "Horizontale Linie",
   },
   comments: {
     deleteComment: "Kommentar löschen",
