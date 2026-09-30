@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Intégrations" } },
   creativeContext: {
     title: "Bibliothèque",
     description:
@@ -167,12 +168,6 @@ export default {
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
     openAgentSettings: "Gérer l’agent",
-    languageTitle: "Langue",
-    languageDescription: "Choisissez la langue de l'interface de Design.",
-    languageLabel: "Langue de l'interface",
-    labs: "Labs",
-    labsIntro:
-      "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
     labTweaks: "Ajustements de design",
     labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
     mcpAbout:
@@ -193,8 +188,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "Vérification de la connexion à l’IA…",
-      providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+      providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
     },
     common: { retry: "Réessayer" },
   },
@@ -227,6 +221,7 @@ export default {
     },
   },
   common: {
+    loading: "Chargement...",
     genericError: "Quelque chose s'est mal passé",
   },
   editPanel: {
@@ -324,6 +319,8 @@ export default {
       bottomLeft: "BG",
       bottomRight: "BD",
       blend: "Fusion",
+      blendMode: "Mode de fusion",
+      removeBlendMode: "Supprimer le mode de fusion",
       border: "Bordure",
       outline: "Contour",
       inside: "Intérieur",
@@ -1442,6 +1439,8 @@ export default {
         "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
       reactSourceAnchorsUnavailable:
         "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
+      sourceLocationSnapshotFailed:
+        "Impossible de vérifier les emplacements du code source de cet aperçu.",
       screenSourceUpdated: "Source de l’écran mise à jour",
       screenSourceUpdateFailed:
         "Impossible de mettre à jour la source de l’écran",
@@ -1506,12 +1505,7 @@ export default {
         "Choisissez Autoriser dans l’invite de Chrome pour activer la modification en direct.",
       permissionPromptNoPrompt: "Aucune invite Chrome ?",
       permissionPromptSettingsInstructions:
-        "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis autorisez l’accès aux applications sur votre appareil.",
-      permissionCloseTitle: "Fermer la configuration ?",
-      permissionCloseDescription:
-        "La modification en direct ne fonctionnera pas tant que vous n’aurez pas autorisé l’accès dans Chrome.",
-      permissionCloseStay: "Garder la configuration ouverte",
-      permissionCloseAnyway: "Fermer quand même",
+        "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
       permissionPromptRetry: "Réessayer la connexion",
     },
   },
@@ -1703,7 +1697,7 @@ export default {
     staleAnchorDetail: "L’élément d’origine est introuvable sur le canevas.",
   },
   homeContext: {
-    websiteReference: "Joindre un site web",
+    websiteReference: "Ajouter un site web",
     websiteUrlLabel: "URL du site web",
     websiteUrl: "Collez l’URL d’un site web",
     figmaUrlLabel: "Lien Figma",
@@ -1732,7 +1726,7 @@ export default {
     design: "Design",
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
-    figmaReference: "Joindre Figma",
+    figmaReference: "Ajouter Figma",
     referenceDeck: "Utiliser une présentation comme référence",
     quickSaas: "Créer une page SaaS",
     quickDashboard: "Créer un tableau de bord",

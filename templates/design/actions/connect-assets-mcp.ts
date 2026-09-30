@@ -7,7 +7,7 @@ import {
   listRemoteServers,
   removeRemoteServer,
 } from "@agent-native/core/mcp-client";
-import { refreshGlobalMcpManager } from "@agent-native/core/server";
+import { refreshMcpManagerForPrincipal } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -83,7 +83,10 @@ export default defineAction({
         existing.url,
       );
       if (trust.ok && sameEndpoint(existing.url, currentUrl)) {
-        const managerRefreshed = await refreshGlobalMcpManager();
+        const managerRefreshed = await refreshMcpManagerForPrincipal({
+          userEmail,
+          orgId,
+        });
         return {
           ok: true,
           connected: true,
@@ -116,7 +119,10 @@ export default defineAction({
     if (result.ok !== true) {
       throw new Error(result.error);
     }
-    const managerRefreshed = await refreshGlobalMcpManager();
+    const managerRefreshed = await refreshMcpManagerForPrincipal({
+      userEmail,
+      orgId,
+    });
     return {
       ok: true,
       connected: true,

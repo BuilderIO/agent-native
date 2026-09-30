@@ -226,7 +226,8 @@ describe("document sidebar layout", () => {
 
     expect(sidebar).not.toContain("const documentsQuery = useDocuments();");
     expect(sidebar).toContain("useDocuments({ enabled: localFileMode })");
-    expect(sidebar).toContain('"get-content-navigation-context"');
+    expect(sidebar).toContain("useContentNavigationContext(activeDocumentId)");
+    expect(documentsHook).toContain('"get-content-navigation-context"');
     expect(sidebar).toContain("limit: 50");
     expect(sidebar).not.toContain("limit: Math.max(contentSpaces.length, 1)");
     expect(sidebar).toContain("useContentSpaces()");
@@ -385,7 +386,7 @@ describe("document sidebar layout", () => {
       "return handleSelectContentSpace(space, null, true)",
     );
     expect(sidebar).toContain(
-      'import { OrgSwitcher } from "@agent-native/core/client/org";',
+      'import { OrgSwitcher } from "@agent-native/toolkit/app/org";',
     );
     expect(sidebar).toContain("reserveSpace");
     expect(sidebar).toContain("<OrgSwitcher");

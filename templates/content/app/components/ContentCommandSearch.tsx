@@ -3,7 +3,7 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   CommandMenu,
   useCommandMenuNestedDialog,
-} from "@agent-native/core/client/navigation";
+} from "@agent-native/toolkit/app/shared";
 import { parseSearchQuery, searchQueryNeedles } from "@shared/search-query";
 import {
   buildTitleSearchIndex,

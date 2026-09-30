@@ -1,14 +1,4 @@
-import { createElement } from "react";
-import { renderToString } from "react-dom/server";
-
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
-import {
-  AuthPage,
-  isVerificationLinkInvalid,
-  type AuthPageProps,
-  type AuthView,
-} from "../client/auth/AuthPage.js";
-import { ResetPasswordPage } from "../client/auth/ResetPasswordPage.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
   DEFAULT_LOCALE,
@@ -19,6 +9,11 @@ import {
   type LocaleCode,
 } from "../localization/shared.js";
 import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
+import type {
+  AuthPageProps,
+  AuthView,
+  ResetPasswordPageProps,
+} from "../shared/auth-page-types.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
   BETA_FORCE_QUERY_PARAM,
@@ -32,7 +27,10 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from "../shared/password-policy.js";
-import { signInJourney } from "../shared/sign-in-journey.js";
+import {
+  isVerificationLinkInvalid,
+  signInJourney,
+} from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -225,6 +223,8 @@ const EN_AUTH_COPY = {
   passwordsMismatch: "Passwords do not match.",
   creatingAccount: "Creating account…",
   registrationFailed: "We couldn't create your account. Please try again.",
+  deploySettingsMissingError:
+    "Accounts are unavailable until this deployment is set up.",
   accountCreatedSigningIn: "Account created — signing you in…",
   emailVerifiedFinishing: "Email verified. Finishing sign-in...",
   emailVerifiedSignIn: "Email verified. Sign in to continue.",
@@ -305,6 +305,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "两次输入的密码不一致",
     creatingAccount: "正在创建账户…",
     registrationFailed: "注册失败",
+    deploySettingsMissingError: "此部署完成设置之前，账户不可用。",
     accountCreatedSigningIn: "账户已创建 — 正在登录…",
     emailVerifiedFinishing: "邮箱已验证。正在完成登录...",
     emailVerifiedSignIn: "邮箱已验证。请登录以继续。",
@@ -381,6 +382,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "兩次輸入的密碼不一致",
     creatingAccount: "正在建立帳號...",
     registrationFailed: "註冊失敗",
+    deploySettingsMissingError: "此部署完成設定之前，帳戶無法使用。",
     accountCreatedSigningIn: "帳號已建立，正在登入...",
     emailVerifiedFinishing: "電子郵件已驗證。正在完成登入...",
     emailVerifiedSignIn: "電子郵件已驗證。請登入以繼續。",
@@ -465,6 +467,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "Las contraseñas no coinciden",
     creatingAccount: "Creando cuenta…",
     registrationFailed: "Error al registrarse",
+    deploySettingsMissingError:
+      "Las cuentas no estarán disponibles hasta que este despliegue esté configurado.",
     accountCreatedSigningIn: "Cuenta creada — iniciando sesión…",
     emailVerifiedFinishing: "Email verificado. Terminando inicio de sesión...",
     emailVerifiedSignIn: "Email verificado. Inicia sesión para continuar.",
@@ -552,6 +556,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "Les mots de passe ne correspondent pas",
     creatingAccount: "Création du compte…",
     registrationFailed: "Échec de l'inscription",
+    deploySettingsMissingError:
+      "Les comptes sont indisponibles tant que ce déploiement n'est pas configuré.",
     accountCreatedSigningIn: "Compte créé — connexion en cours…",
     emailVerifiedFinishing: "E-mail vérifié. Connexion en cours...",
     emailVerifiedSignIn: "E-mail vérifié. Connectez-vous pour continuer.",
@@ -640,6 +646,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "Die Passwörter stimmen nicht überein",
     creatingAccount: "Konto wird erstellt…",
     registrationFailed: "Registrierung fehlgeschlagen",
+    deploySettingsMissingError:
+      "Konten sind nicht verfügbar, solange dieses Deployment nicht eingerichtet ist.",
     accountCreatedSigningIn: "Konto erstellt — Anmeldung läuft…",
     emailVerifiedFinishing: "E-Mail bestätigt. Anmeldung wird abgeschlossen...",
     emailVerifiedSignIn: "E-Mail bestätigt. Melde dich an, um fortzufahren.",
@@ -724,6 +732,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "パスワードが一致しません",
     creatingAccount: "アカウントを作成中…",
     registrationFailed: "登録に失敗しました",
+    deploySettingsMissingError:
+      "このデプロイの設定が完了するまで、アカウントは利用できません。",
     accountCreatedSigningIn: "アカウントを作成しました — サインイン中…",
     emailVerifiedFinishing: "メールを確認しました。サインインを完了中...",
     emailVerifiedSignIn:
@@ -807,6 +817,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "비밀번호가 일치하지 않습니다",
     creatingAccount: "계정 생성 중…",
     registrationFailed: "가입 실패",
+    deploySettingsMissingError:
+      "이 배포의 설정이 완료될 때까지 계정을 사용할 수 없습니다.",
     accountCreatedSigningIn: "계정 생성됨 — 로그인 중…",
     emailVerifiedFinishing: "이메일 확인됨. 로그인 완료 중...",
     emailVerifiedSignIn: "이메일 확인됨. 계속하려면 로그인하세요.",
@@ -891,6 +903,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "As senhas não conferem",
     creatingAccount: "Criando conta…",
     registrationFailed: "Falha no cadastro",
+    deploySettingsMissingError:
+      "As contas ficam indisponíveis até que esta implantação esteja configurada.",
     accountCreatedSigningIn: "Conta criada — entrando…",
     emailVerifiedFinishing: "Email verificado. Concluindo login...",
     emailVerifiedSignIn: "Email verificado. Entre para continuar.",
@@ -973,6 +987,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "पासवर्ड मेल नहीं खाते",
     creatingAccount: "खाता बनाया जा रहा है…",
     registrationFailed: "रजिस्ट्रेशन असफल",
+    deploySettingsMissingError:
+      "जब तक यह डिप्लॉयमेंट सेट अप नहीं होता, अकाउंट उपलब्ध नहीं हैं।",
     accountCreatedSigningIn: "खाता बन गया — साइन इन हो रहा है…",
     emailVerifiedFinishing: "ईमेल सत्यापित। साइन इन पूरा हो रहा है...",
     emailVerifiedSignIn: "ईमेल सत्यापित। जारी रखने के लिए साइन इन करें।",
@@ -1055,6 +1071,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "كلمتا المرور غير متطابقتين",
     creatingAccount: "جارٍ إنشاء الحساب…",
     registrationFailed: "فشل التسجيل",
+    deploySettingsMissingError:
+      "الحسابات غير متاحة إلى أن يكتمل إعداد عملية النشر هذه.",
     accountCreatedSigningIn: "تم إنشاء الحساب — جارٍ تسجيل الدخول…",
     emailVerifiedFinishing: "تم التحقق من البريد. جارٍ إكمال تسجيل الدخول...",
     emailVerifiedSignIn: "تم التحقق من البريد. سجّل الدخول للمتابعة.",
@@ -1098,13 +1116,15 @@ export interface OnboardingHtmlOptions {
   googleScopes?: string[];
   authMode?: "magic-link" | "password";
   initialPrompt?: boolean;
-  marketing?: {
-    appName: string;
-    tagline: string;
-    description?: string;
-    features?: string[];
-    learnMoreUrl?: string;
-  };
+  marketing?:
+    | false
+    | {
+        appName: string;
+        tagline: string;
+        description?: string;
+        features?: string[];
+        learnMoreUrl?: string;
+      };
   requestHost?: string;
   /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
   identitySsoRequestHost?: string;
@@ -1114,6 +1134,24 @@ export interface OnboardingHtmlOptions {
   requestOrigin?: string;
   signupLegalNotice?: SignupLegalNoticeOptions | false;
   googleAuthMode?: GoogleAuthMode;
+  renderSignInPage?: (props: AuthPageProps) => string;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
 }
 
 function initialAuthView(
@@ -1206,13 +1244,15 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 })();`;
 
   const marketing: AuthMarketingContent | undefined =
-    opts.marketing ??
-    resolveBuiltInAuthMarketing({
-      requestHost: opts.requestHost,
-      requestPath: opts.requestPath,
-    });
+    opts.marketing === false
+      ? undefined
+      : (opts.marketing ??
+        resolveBuiltInAuthMarketing({
+          requestHost: opts.requestHost,
+          requestPath: opts.requestPath,
+        }));
   const hasMarketing = !!marketing && !simplifiedAuth;
-  const marketingWasResolvedFromCatalog = !opts.marketing;
+  const marketingWasResolvedFromCatalog = opts.marketing === undefined;
   const configuredMarketingSlug = resolveBuiltInAuthMarketingSlugFromName(
     marketing?.appName,
   );
@@ -2040,6 +2080,22 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
+  .auth-fallback {
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+    gap: 0.5rem;
+    padding: 2rem;
+    text-align: center;
+  }
+  .auth-fallback p { opacity: 0.65; font-size: 0.8125rem; }
+  .auth-centered {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
   .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow: clip; }
   .auth-marketing-shell { padding: 0; }
   .auth-marketing-home .auth-marketing-shell-with-top-right {
@@ -2082,7 +2138,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     overflow: hidden;
     padding: 3rem 3.5rem;
   }
-  .auth-marketing-visual > [data-agent-native-starfield] {
+  .auth-marketing-visual > [data-agent-native-marketing-background] {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -2113,6 +2169,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .auth-marketing-home .form-panel > .card { margin-block: auto; }
   @media not all and (min-width: 901px) {
+    .auth-marketing-home .auth-marketing-screenshot-wrap { display: none; }
     body.has-marketing {
       align-items: flex-start;
       justify-content: flex-start;
@@ -2206,8 +2263,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     max-width: none;
     max-height: none;
     filter: none;
+    background:
+      radial-gradient(ellipse 82% 72% at 80% 64%, color-mix(in srgb, var(--auth-marketing-foreground) 16%, transparent), transparent 72%),
+      radial-gradient(ellipse 48% 36% at 24% 26%, color-mix(in srgb, var(--auth-marketing-foreground) 8%, transparent), transparent 82%);
   }
-  .auth-marketing-home [data-agent-native-starfield] {
+  .auth-marketing-home [data-agent-native-marketing-background] {
     position: fixed;
     inset: 0;
     width: 100%;
@@ -2343,6 +2403,17 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     text-decoration: underline;
     text-underline-offset: 0.125rem;
   }
+  .auth-marketing-home .auth-marketing-signup-wave {
+    height: clamp(10rem, 24vh, 15rem);
+    margin-top: 1.25rem;
+    opacity: 0.6;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .auth-marketing-home .auth-marketing-signup-wave-canvas {
+    width: 100%;
+    height: 100%;
+  }
   body.has-marketing .locale-picker {
     top: auto;
     bottom: max(1.25rem, env(safe-area-inset-bottom));
@@ -2419,6 +2490,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .auth-marketing-home .card h1 {
       font-size: clamp(1.625rem, 6vw, 2rem);
       line-height: 1.15;
+      margin-top: 1.875rem;
       margin-bottom: 0.5rem;
     }
     .auth-marketing-home .card .subtitle {
@@ -2443,173 +2515,48 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const title = hasMarketing
     ? `${marketing!.appName} — ${t("pageTitleSignIn")}`
     : t("pageTitleWelcome");
-  const authDocumentMarkup = renderToString(
-    createElement(
-      "html",
-      { lang: DEFAULT_LOCALE, dir: "ltr" },
-      createElement(
-        "head",
-        null,
-        createElement("meta", { charSet: "UTF-8" }),
-        createElement("script", {
-          "data-agent-native-locale-init": "",
-          dangerouslySetInnerHTML: { __html: localeInitScript },
-        }),
-        createElement("script", {
-          "data-agent-native-embedded-init": "",
-          dangerouslySetInnerHTML: { __html: embeddedAuthInitScript },
-        }),
-        createElement("meta", {
-          name: "viewport",
-          content:
-            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
-        }),
-        hasMarketing
-          ? [
-              createElement("link", {
-                key: "geist-preconnect",
-                rel: "preconnect",
-                href: "https://fonts.googleapis.com",
-              }),
-              createElement("link", {
-                key: "geist-preconnect-static",
-                rel: "preconnect",
-                href: "https://fonts.gstatic.com",
-                crossOrigin: "anonymous",
-              }),
-              createElement("link", {
-                key: "geist-stylesheet",
-                rel: "stylesheet",
-                href: "https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono:wght@400;600&display=swap",
-              }),
-            ]
-          : null,
-        createElement("title", null, title),
-        createElement("link", {
-          rel: "icon",
-          type: "image/svg+xml",
-          href: withAppBasePath("/favicon.svg", appBasePath),
-        }),
-        createElement("link", {
-          rel: "apple-touch-icon",
-          href: withAppBasePath("/icon-180.svg", appBasePath),
-        }),
-        hasMarketing
-          ? [
-              createElement("meta", {
-                key: "description",
-                name: "description",
-                content: marketing!.tagline,
-              }),
-              createElement("meta", {
-                key: "og-type",
-                property: "og:type",
-                content: "website",
-              }),
-              socialSiteName
-                ? createElement("meta", {
-                    key: "og-site-name",
-                    property: "og:site_name",
-                    content: socialSiteName,
-                  })
-                : null,
-              socialPageUrl
-                ? createElement("meta", {
-                    key: "og-url",
-                    property: "og:url",
-                    content: socialPageUrl,
-                  })
-                : null,
-              createElement("meta", {
-                key: "og-title",
-                property: "og:title",
-                content: socialAppName,
-              }),
-              createElement("meta", {
-                key: "og-description",
-                property: "og:description",
-                content: marketing!.tagline,
-              }),
-              createElement("meta", {
-                key: "og-image",
-                property: "og:image",
-                content: socialImageUrl,
-              }),
-              createElement("meta", {
-                key: "og-image-secure",
-                property: "og:image:secure_url",
-                content: socialImageUrl,
-              }),
-              createElement("meta", {
-                key: "og-image-type",
-                property: "og:image:type",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
-              }),
-              createElement("meta", {
-                key: "og-image-width",
-                property: "og:image:width",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
-              }),
-              createElement("meta", {
-                key: "og-image-height",
-                property: "og:image:height",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
-              }),
-              createElement("meta", {
-                key: "og-image-alt",
-                property: "og:image:alt",
-                content: socialImageAlt,
-              }),
-              createElement("meta", {
-                key: "twitter-card",
-                name: "twitter:card",
-                content: "summary_large_image",
-              }),
-              createElement("meta", {
-                key: "twitter-image",
-                name: "twitter:image",
-                content: socialImageUrl,
-              }),
-              createElement("meta", {
-                key: "twitter-image-alt",
-                name: "twitter:image:alt",
-                content: socialImageAlt,
-              }),
-            ]
-          : null,
-        createElement("style", {
-          dangerouslySetInnerHTML: {
-            __html: authDocumentStyles + authPageLayoutStyles,
-          },
-        }),
-        createElement("script", {
-          type: "module",
-          src: authClientScriptPath,
-        }),
-      ),
-      createElement(
-        "body",
-        {
-          className: simplifiedAuth
-            ? "simplified-auth"
-            : hasMarketing
-              ? "has-marketing"
-              : undefined,
-        },
-        createElement(
-          "div",
-          { id: "agent-native-auth-root", className: "auth-root" },
-          createElement(AuthPage, authPageProps),
-        ),
-        createElement("script", {
-          type: "application/json",
-          id: "agent-native-auth-data",
-          dangerouslySetInnerHTML: { __html: authPageData },
-        }),
-      ),
-    ),
-  );
-  return `<!DOCTYPE html>${authDocumentMarkup}`;
+  const authPageMarkup = opts.renderSignInPage?.(authPageProps);
+  const fallbackTitle = googleOnly
+    ? t("pageTitleSignIn")
+    : t("pageTitleWelcome");
+  const fallbackDescription = googleOnly
+    ? t("googleOnlySubtitle")
+    : t("createAccountSubtitle");
+  const pageMarkup =
+    authPageMarkup ??
+    `<main class="auth-fallback" aria-live="polite"><h1>${escapeHtml(fallbackTitle)}</h1><p>${escapeHtml(fallbackDescription)}</p></main>`;
+  const fontLinks = hasMarketing
+    ? '<link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono:wght@400;600&display=swap"/>'
+    : "";
+  const marketingMeta = hasMarketing
+    ? [
+        `<meta name="description" content="${escapeHtml(marketing!.tagline)}"/>`,
+        '<meta property="og:type" content="website"/>',
+        socialSiteName
+          ? `<meta property="og:site_name" content="${escapeHtml(socialSiteName)}"/>`
+          : "",
+        socialPageUrl
+          ? `<meta property="og:url" content="${escapeHtml(socialPageUrl)}"/>`
+          : "",
+        `<meta property="og:title" content="${escapeHtml(socialAppName ?? "")}"/>`,
+        `<meta property="og:description" content="${escapeHtml(marketing!.tagline)}"/>`,
+        `<meta property="og:image" content="${escapeHtml(socialImageUrl)}"/>`,
+        `<meta property="og:image:secure_url" content="${escapeHtml(socialImageUrl)}"/>`,
+        `<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}"/>`,
+        `<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}"/>`,
+        `<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}"/>`,
+        `<meta property="og:image:alt" content="${escapeHtml(socialImageAlt)}"/>`,
+        '<meta name="twitter:card" content="summary_large_image"/>',
+        `<meta name="twitter:image" content="${escapeHtml(socialImageUrl)}"/>`,
+        `<meta name="twitter:image:alt" content="${escapeHtml(socialImageAlt)}"/>`,
+      ].join("")
+    : "";
+  const bodyClass = simplifiedAuth
+    ? "simplified-auth"
+    : hasMarketing
+      ? "has-marketing"
+      : "";
+  return `<!DOCTYPE html><html lang="${DEFAULT_LOCALE}" dir="ltr"><head><meta charset="UTF-8"/><script data-agent-native-locale-init="">${localeInitScript}</script><script data-agent-native-embedded-init="">${embeddedAuthInitScript}</script><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>${fontLinks}<title>${escapeHtml(title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/>${marketingMeta}<style>${authDocumentStyles + authPageLayoutStyles}</style><script type="module" src="${escapeHtml(authClientScriptPath)}"></script></head><body${bodyClass ? ` class="${bodyClass}"` : ""}><div id="agent-native-auth-root" class="auth-root"${authPageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${pageMarkup}</div><script type="application/json" id="agent-native-auth-data">${authPageData}</script></body></html>`;
 }
 
 const RESET_PASSWORD_STYLES = `
@@ -2634,7 +2581,10 @@ const RESET_PASSWORD_STYLES = `
   .back:hover { color: #bbb; }
 `;
 
-export function getResetPasswordHtml(requestPath?: string): string {
+export function getResetPasswordHtml(
+  requestPath?: string,
+  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string,
+): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(requestPath);
@@ -2644,54 +2594,188 @@ export function getResetPasswordHtml(requestPath?: string): string {
     passwordMinLength: PASSWORD_MIN_LENGTH,
     passwordMaxLength: PASSWORD_MAX_LENGTH,
   };
-  const resetDocumentMarkup = renderToString(
-    createElement(
-      "html",
-      { lang: "en", dir: "ltr" },
-      createElement(
-        "head",
-        null,
-        createElement("meta", { charSet: "UTF-8" }),
-        createElement("meta", {
-          name: "viewport",
-          content:
-            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
-        }),
-        createElement("title", null, "Reset password"),
-        createElement("link", {
-          rel: "icon",
-          type: "image/svg+xml",
-          href: withAppBasePath("/favicon.svg", appBasePath),
-        }),
-        createElement("link", {
-          rel: "apple-touch-icon",
-          href: withAppBasePath("/icon-180.svg", appBasePath),
-        }),
-        createElement("style", {
-          dangerouslySetInnerHTML: { __html: RESET_PASSWORD_STYLES },
-        }),
-        createElement("script", {
-          type: "module",
-          src: authClientAssetPath(appBasePath),
-        }),
-      ),
-      createElement(
-        "body",
-        null,
-        createElement(
-          "div",
-          { id: "agent-native-auth-root" },
-          createElement(ResetPasswordPage, resetPageProps),
-        ),
-        createElement("script", {
-          type: "application/json",
-          id: "agent-native-auth-data",
-          dangerouslySetInnerHTML: {
-            __html: serializeAuthPageData(resetPageProps),
-          },
-        }),
-      ),
-    ),
-  );
-  return `<!DOCTYPE html>${resetDocumentMarkup}`;
+  const pageMarkup = renderResetPasswordPage?.(resetPageProps);
+  const resetMarkup =
+    pageMarkup ??
+    '<main class="card"><h1>Reset password</h1><p class="subtitle">Reset your password</p></main>';
+  return `<!DOCTYPE html><html lang="en" dir="ltr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><title>Reset password</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/><style>${RESET_PASSWORD_STYLES}</style><script type="module" src="${escapeHtml(authClientAssetPath(appBasePath))}"></script></head><body><div id="agent-native-auth-root"${pageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${resetMarkup}</div><script type="application/json" id="agent-native-auth-data">${serializeAuthPageData(resetPageProps)}</script></body></html>`;
+}
+
+// Read only by the server-rendered setup page, so it stays out of the auth
+// copy every sign-in page ships to the browser.
+const DEPLOY_SETTINGS_PAGE_COPY: Record<
+  LocaleCode,
+  { title: string; message: string; docsLink: string }
+> = {
+  "en-US": {
+    title: "Finish setting up this deployment",
+    message:
+      "Missing or invalid environment variables: {keys}. Add them in your hosting provider's production environment variable settings, then redeploy.",
+    docsLink: "Read the setup guide",
+  },
+  "zh-CN": {
+    title: "完成此部署的设置",
+    message:
+      "缺少环境变量或环境变量无效：{keys}。请在托管平台的生产环境变量设置中添加它们，然后重新部署。",
+    docsLink: "查看设置指南",
+  },
+  "zh-TW": {
+    title: "完成此部署的設定",
+    message:
+      "缺少環境變數或環境變數無效：{keys}。請在託管平台的正式環境變數設定中新增它們，然後重新部署。",
+    docsLink: "查看設定指南",
+  },
+  "es-ES": {
+    title: "Termina de configurar este despliegue",
+    message:
+      "Faltan variables de entorno o no son válidas: {keys}. Agrégalas en la configuración de variables de entorno de producción de tu proveedor de hosting y vuelve a desplegar.",
+    docsLink: "Ver la guía de configuración",
+  },
+  "fr-FR": {
+    title: "Terminez la configuration de ce déploiement",
+    message:
+      "Variables d'environnement manquantes ou invalides : {keys}. Ajoutez-les dans les paramètres des variables d'environnement de production de votre hébergeur, puis redéployez.",
+    docsLink: "Lire le guide de configuration",
+  },
+  "de-DE": {
+    title: "Schließe die Einrichtung dieses Deployments ab",
+    message:
+      "Fehlende oder ungültige Umgebungsvariablen: {keys}. Füge sie in den Produktions-Umgebungsvariablen deines Hosting-Anbieters hinzu und stelle dann neu bereit.",
+    docsLink: "Einrichtungsanleitung lesen",
+  },
+  "ja-JP": {
+    title: "このデプロイのセットアップを完了してください",
+    message:
+      "環境変数が不足しているか無効です: {keys}。ホスティングプロバイダーの本番環境変数設定で追加してから、再デプロイしてください。",
+    docsLink: "セットアップガイドを見る",
+  },
+  "ko-KR": {
+    title: "이 배포의 설정을 완료하세요",
+    message:
+      "환경 변수가 없거나 유효하지 않습니다: {keys}. 호스팅 제공업체의 프로덕션 환경 변수 설정에 추가한 다음 다시 배포하세요.",
+    docsLink: "설정 가이드 보기",
+  },
+  "pt-BR": {
+    title: "Conclua a configuração desta implantação",
+    message:
+      "Variáveis de ambiente ausentes ou inválidas: {keys}. Adicione-as nas configurações de variáveis de ambiente de produção do seu provedor de hospedagem e faça um novo deploy.",
+    docsLink: "Ver o guia de configuração",
+  },
+  "hi-IN": {
+    title: "इस डिप्लॉयमेंट का सेटअप पूरा करें",
+    message:
+      "एनवायरनमेंट वेरिएबल मौजूद नहीं हैं या अमान्य हैं: {keys}. इन्हें अपने होस्टिंग प्रोवाइडर की प्रोडक्शन एनवायरनमेंट वेरिएबल सेटिंग्स में जोड़ें, फिर दोबारा डिप्लॉय करें।",
+    docsLink: "सेटअप गाइड देखें",
+  },
+  "ar-SA": {
+    title: "أكمل إعداد عملية النشر هذه",
+    message:
+      "متغيرات البيئة مفقودة أو غير صالحة: {keys}. أضفها في إعدادات متغيرات بيئة الإنتاج لدى مزود الاستضافة، ثم أعد النشر.",
+    docsLink: "اقرأ دليل الإعداد",
+  },
+};
+
+// One docs section covers DATABASE_URL, BETTER_AUTH_SECRET, and A2A_SECRET.
+const DEPLOY_SETTINGS_DOCS_URL = docsUrl("deployment", {
+  hash: "persistent-database",
+});
+
+// System colors follow the visitor's light or dark preference without a theme
+// token layer, which this standalone page does not load.
+const DEPLOY_SETTINGS_STYLES = `
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { color-scheme: dark light; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: Canvas;
+    color: CanvasText;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    min-height: 100svh;
+    padding: 1rem;
+  }
+  .card {
+    width: 100%;
+    max-width: 28rem;
+    padding: 2rem;
+    background: color-mix(in srgb, CanvasText 4%, Canvas);
+    border: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+    border-radius: 12px;
+    text-align: start;
+  }
+  h1 {
+    margin-bottom: 0.75rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .message {
+    color: color-mix(in srgb, CanvasText 72%, transparent);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  .message code {
+    padding: 0.0625rem 0.3125rem;
+    border-radius: 4px;
+    background: color-mix(in srgb, CanvasText 9%, transparent);
+    color: CanvasText;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.8125rem;
+  }
+  .docs-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 1.25rem;
+    color: CanvasText;
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .docs-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .docs-link:focus-visible {
+    outline: 2px solid color-mix(in srgb, CanvasText 50%, transparent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  .docs-link svg { width: 0.875rem; height: 0.875rem; }
+  [dir="rtl"] .docs-link svg { transform: scaleX(-1); }
+`;
+
+export interface DeploySettingsRequiredHtmlOptions {
+  /** The env keys to name, from `getSignInBlockingSettingKeys()`. */
+  keys: readonly string[];
+  locale: LocaleCode;
+  dir: "ltr" | "rtl";
+  requestPath?: string;
+}
+
+/**
+ * The page served in place of sign-in while the deploy is missing a setting
+ * that accounts need. It has no form and no client script: nothing on it can
+ * work until the setting is added and the app redeployed.
+ */
+export function getDeploySettingsRequiredHtml({
+  keys,
+  locale,
+  dir,
+  requestPath,
+}: DeploySettingsRequiredHtmlOptions): string {
+  const copy =
+    DEPLOY_SETTINGS_PAGE_COPY[locale] ?? DEPLOY_SETTINGS_PAGE_COPY["en-US"]!;
+  const appBasePath =
+    getAppBasePathFromViteEnv() || workspaceBasePathFromRequest(requestPath);
+  const [before = "", after = ""] = copy.message.split("{keys}");
+  const keyList = keys
+    .map((key) => `<code>${escapeHtml(key)}</code>`)
+    .join(", ");
+  const arrowIcon =
+    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7l-10 10"/><path d="M8 7l9 0l0 9"/></svg>';
+  return `<!DOCTYPE html><html lang="${escapeHtml(locale)}" dir="${dir}"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex, nofollow"/><title>${escapeHtml(copy.title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><style>${DEPLOY_SETTINGS_STYLES}</style></head><body><main class="card" data-testid="deploy-settings-required"><h1>${escapeHtml(copy.title)}</h1><p class="message">${escapeHtml(before)}${keyList}${escapeHtml(after)}</p><a class="docs-link" href="${escapeHtml(DEPLOY_SETTINGS_DOCS_URL)}" target="_blank" rel="noreferrer">${escapeHtml(copy.docsLink)}${arrowIcon}</a></main></body></html>`;
 }

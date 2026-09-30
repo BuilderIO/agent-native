@@ -1,5 +1,5 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
-import { RunsTray } from "@agent-native/core/client/progress";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import { RunsTray } from "@agent-native/toolkit/app/progress";
 import { IconLayoutSidebar } from "@tabler/icons-react";
 import { useLocation, useNavigate } from "react-router";
 

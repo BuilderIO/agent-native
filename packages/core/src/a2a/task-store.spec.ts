@@ -72,15 +72,31 @@ function createMockDb() {
         return { rows, rowsAffected: 0 };
       }
 
-      if (rawSql.includes("WHERE context_id")) {
-        const rows = (tables["a2a_tasks"] || []).filter(
-          (r) => r.context_id === args[0],
+      if (rawSql.includes("FROM a2a_tasks") && rawSql.includes("LIMIT ?")) {
+        let rows = [...(tables["a2a_tasks"] || [])];
+        let argIndex = 0;
+        if (rawSql.includes("context_id = ?")) {
+          rows = rows.filter((row) => row.context_id === args[argIndex]);
+          argIndex += 1;
+        }
+        if (rawSql.includes("created_at < ?")) {
+          const createdAt = Number(args[argIndex]);
+          const id = String(args[argIndex + 2]);
+          rows = rows.filter(
+            (row) =>
+              row.created_at < createdAt ||
+              (row.created_at === createdAt && row.id < id),
+          );
+        }
+        rows.sort(
+          (a, b) =>
+            b.created_at - a.created_at ||
+            String(b.id).localeCompare(String(a.id)),
         );
-        return { rows, rowsAffected: 0 };
-      }
-
-      if (rawSql.includes("SELECT * FROM a2a_tasks ORDER BY")) {
-        return { rows: tables["a2a_tasks"] || [], rowsAffected: 0 };
+        return {
+          rows: rows.slice(0, Number(args.at(-1))),
+          rowsAffected: 0,
+        };
       }
 
       if (rawSql.includes("UPDATE a2a_tasks SET")) {
@@ -485,6 +501,74 @@ describe("task-store (SQL)", () => {
       const filtered = await listTasks("ctx-1");
       expect(filtered).toHaveLength(2);
       expect(filtered.every((t) => t.contextId === "ctx-1")).toBe(true);
+    });
+
+    it("paginates newest-first with a stable cursor", async () => {
+      const { createTask, listTasksPage } = await loadStore();
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      try {
+        const oldest = await createTask(makeMessage("A"));
+        vi.setSystemTime(2_000);
+        const middle = await createTask(makeMessage("B"));
+        vi.setSystemTime(3_000);
+        const newest = await createTask(makeMessage("C"));
+
+        const first = await listTasksPage(undefined, { limit: 2 });
+        expect(first.tasks.map((task) => task.id)).toEqual([
+          newest.id,
+          middle.id,
+        ]);
+        expect(first.nextCursor).toEqual({ createdAt: 2_000, id: middle.id });
+
+        const second = await listTasksPage(undefined, {
+          limit: 2,
+          before: first.nextCursor!,
+        });
+        expect(second.tasks.map((task) => task.id)).toEqual([oldest.id]);
+        expect(second.nextCursor).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("returns the full legacy list through bounded pages", async () => {
+      const { listTasks } = await loadStore();
+      tables["a2a_tasks"] = Array.from({ length: 205 }, (_, index) => ({
+        id: `task-${String(index).padStart(3, "0")}`,
+        context_id: null,
+        status_state: "submitted",
+        status_message: null,
+        status_timestamp: new Date(index).toISOString(),
+        history: "[]",
+        artifacts: "[]",
+        metadata: null,
+        owner_email: null,
+        owner_scope: "",
+        created_at: index,
+        updated_at: index,
+      }));
+
+      const tasks = await listTasks();
+      const listCalls = mockDb.execute.mock.calls.filter((call) => {
+        const sql = typeof call[0] === "string" ? call[0] : call[0].sql;
+        return sql.includes("FROM a2a_tasks") && sql.includes("LIMIT ?");
+      });
+
+      expect(tasks).toHaveLength(205);
+      expect(tasks[0]?.id).toBe("task-204");
+      expect(listCalls).toHaveLength(3);
+      expect(
+        listCalls.every(
+          (call) => typeof call[0] !== "string" && call[0].args.at(-1) === 101,
+        ),
+      ).toBe(true);
+      expect(listCalls[0]![0]).toMatchObject({
+        sql: expect.stringContaining("SELECT id, context_id"),
+      });
+      expect(listCalls[0]![0]).not.toMatchObject({
+        sql: expect.stringContaining("SELECT *"),
+      });
     });
 
     it("returns empty for non-matching contextId", async () => {

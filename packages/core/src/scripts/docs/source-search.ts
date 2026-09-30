@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +19,8 @@ const MAX_FILE_BYTES = 1_000_000;
 const MAX_READ_CHARS = 40_000;
 const MAX_RESULTS = 20;
 const MAX_SNIPPETS_PER_FILE = 3;
+const CORPUS_PACKAGE_NAME = "@agent-native/core-corpus";
+export const SOURCE_CORPUS_INSTALL_HINT = `Install ${CORPUS_PACKAGE_NAME} at the same version as @agent-native/core to search first-party template source.`;
 const TEXT_EXTENSIONS = new Set([
   ".bash",
   ".cjs",
@@ -51,15 +54,63 @@ const TEXT_EXTENSIONS = new Set([
   ".zsh",
 ]);
 
-function getCorpusRoot(): string {
-  return path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "../../../corpus",
-  );
+function getCorePackageRoot(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 }
 
-function getPackageRoot(): string {
-  return path.dirname(getCorpusRoot());
+function resolveInstalledCorpusRoot(): string | null {
+  const corePackageRoot = getCorePackageRoot();
+  const resolvers = [
+    createRequire(import.meta.url),
+    createRequire(path.join(corePackageRoot, "package.json")),
+    createRequire(path.join(process.cwd(), "package.json")),
+  ];
+  for (const resolve of resolvers) {
+    let manifestPath: string;
+    try {
+      manifestPath = resolve.resolve(`${CORPUS_PACKAGE_NAME}/package.json`);
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? error.code
+          : undefined;
+      if (
+        code === "MODULE_NOT_FOUND" &&
+        error instanceof Error &&
+        error.message.includes(CORPUS_PACKAGE_NAME)
+      ) {
+        continue;
+      }
+      throw error;
+    }
+
+    const corpusRoot = path.join(path.dirname(manifestPath), "corpus");
+    if (!fs.existsSync(path.join(corpusRoot, "README.md"))) {
+      throw new Error(
+        `Installed ${CORPUS_PACKAGE_NAME} package is missing its generated corpus.`,
+      );
+    }
+    return corpusRoot;
+  }
+  return null;
+}
+
+function getCorpusRoot(): string | null {
+  const installed = resolveInstalledCorpusRoot();
+  if (installed) return installed;
+
+  const localPackageCorpus = path.resolve(
+    getCorePackageRoot(),
+    "../core-corpus/corpus",
+  );
+  if (fs.existsSync(path.join(localPackageCorpus, "README.md"))) {
+    return localPackageCorpus;
+  }
+
+  const legacyCorpus = path.join(getCorePackageRoot(), "corpus");
+  return fs.existsSync(path.join(legacyCorpus, "README.md"))
+    ? legacyCorpus
+    : null;
 }
 
 interface SourceRoot {
@@ -70,7 +121,7 @@ interface SourceRoot {
 
 function getToolkitSourceRoot(): string | null {
   const candidates = [
-    path.resolve(getPackageRoot(), "../toolkit/src"),
+    path.resolve(getCorePackageRoot(), "../toolkit/src"),
     path.resolve(process.cwd(), "node_modules/@agent-native/toolkit/src"),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
@@ -78,19 +129,24 @@ function getToolkitSourceRoot(): string | null {
 
 function getSourceRoots(): SourceRoot[] {
   const corpusRoot = getCorpusRoot();
-  const roots: SourceRoot[] = [
-    {
-      prefix: "templates",
-      directory: path.join(corpusRoot, "templates"),
-      visibilityRoot: corpusRoot,
-    },
-  ];
+  const roots: SourceRoot[] = corpusRoot
+    ? [
+        {
+          prefix: "templates",
+          directory: path.join(corpusRoot, "templates"),
+          visibilityRoot: corpusRoot,
+        },
+      ]
+    : [];
 
-  const coreSourceRoot = path.join(getPackageRoot(), "src");
+  const coreSourceRoot = path.join(getCorePackageRoot(), "src");
   roots.push(
     fs.existsSync(path.join(coreSourceRoot, "server"))
       ? { prefix: "core/src", directory: coreSourceRoot }
-      : { prefix: "core/dist", directory: path.join(getPackageRoot(), "dist") },
+      : {
+          prefix: "core/dist",
+          directory: path.join(getCorePackageRoot(), "dist"),
+        },
   );
 
   const toolkitSourceRoot = getToolkitSourceRoot();
@@ -104,7 +160,7 @@ function getSourceRoots(): SourceRoot[] {
 }
 
 export function hasSourceCorpus(): boolean {
-  return fs.existsSync(getCorpusRoot());
+  return getCorpusRoot() !== null;
 }
 
 function isProbablyTextFile(filePath: string): boolean {
@@ -404,24 +460,27 @@ Options:
     return;
   }
 
-  if (!hasSourceCorpus()) {
-    console.log(
-      "Version-matched source is not available. Build or reinstall @agent-native/core so its source corpus and readable package sources are present.",
-    );
-    return;
-  }
-
   if (parsed.list === "true") {
+    if (!hasSourceCorpus()) console.log(SOURCE_CORPUS_INSTALL_HINT);
     console.log(JSON.stringify(listSourceRoots(), null, 2));
     return;
   }
 
   if (parsed.path) {
+    if (
+      !hasSourceCorpus() &&
+      (parsed.path === "templates" || parsed.path.startsWith("templates/"))
+    ) {
+      console.log(SOURCE_CORPUS_INSTALL_HINT);
+      return;
+    }
+    if (!hasSourceCorpus()) console.log(SOURCE_CORPUS_INSTALL_HINT);
     console.log(readSourcePath(parsed.path));
     return;
   }
 
   if (parsed.query) {
+    if (!hasSourceCorpus()) console.log(SOURCE_CORPUS_INSTALL_HINT);
     const results = searchCorpus(parsed.query);
     if (results.length === 0) {
       console.log(`No source files found matching "${parsed.query}".`);

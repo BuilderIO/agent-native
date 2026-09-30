@@ -1,4 +1,4 @@
-import { StarfieldBackground } from "@agent-native/core/client/ui";
+import { StarfieldBackground } from "@agent-native/toolkit/app/shared";
 import { useCallback, useEffect, useState } from "react";
 
 import { HeroOceanBackground } from "./ocean/hero-ocean-background";

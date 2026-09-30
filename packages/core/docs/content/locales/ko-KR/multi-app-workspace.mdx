@@ -232,6 +232,29 @@ pnpm dev
 
 활성 조직은 `session.orgId` → `AGENT_ORG_ID` → SQL 행 범위 지정과 같이 자동으로 흐르므로 `org_id`로 태그가 지정된 데이터는 에이전트뿐 아니라 다른 조직에서도 볼 수 없습니다. 전체 모델을 보려면 [Security & Data Scoping](/docs/security)를 참조하세요.
 
+## 기본 제공 앱 {#builtin-apps}
+
+기본적으로 모든 워크스페이스는 호스팅된 자사 앱(Mail, Calendar, Content, Design, Clips 등)을 기본 제공 에이전트로 사용할 수 있습니다. 워크스페이스에서 제공할 앱은 루트 `package.json`의 `agent-native.builtinAgents`로 선택합니다.
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"]
+    }
+  }
+}
+```
+
+- `mode`: `"all"`(기본값, 공개된 모든 자사 앱), `"none"`(기본 제공 앱 없음), `"selected"`(`include`만).
+- `include`: `mode`가 `"selected"`일 때 이 워크스페이스가 제공하는 기본 제공 앱입니다. 나머지는 워크스페이스에 알려지지 않습니다.
+
+알 수 없는 ID는 경고를 남기고 무시됩니다. 독립 실행형 앱은 자체 `package.json`에서 같은 키를 사용할 수 있습니다. `agent-native dev`와 워크스페이스 배포는 이 값을 `AGENT_NATIVE_BUILTIN_AGENTS_JSON`으로 각 앱에 전달합니다.
+
+이 설정은 앱 목록, 에이전트 검색, 에이전트 간 호출을 제어합니다. 마운트된 워크스페이스 앱과 연결된 원격 에이전트는 영향을 받지 않으며, MCP 앱 액세스는 별도의 라우팅 권한으로 유지됩니다.
+
 ## 공유 MCP 서버 {#shared-mcp}
 
 작업 공간 앱 전체에서 MCP 서버를 공유하기 위한 권장 옵션(선호도 순):

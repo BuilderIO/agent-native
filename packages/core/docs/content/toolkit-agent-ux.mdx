@@ -37,7 +37,7 @@ outside the default sidebar: a standalone composer that posts into agent chat,
 plus a header trigger showing live run progress.
 
 Toolkit owns the portable Tiptap and composer UI implementation, while
-`@agent-native/core/client/composer` is the framework-wired wrapper used by
+`@agent-native/toolkit/app/chat/composer` is the framework-wired wrapper used by
 Agent-Native apps. Import `@agent-native/toolkit/composer` directly only for
 portable bare UI, and wrap it in `ComposerRuntimeAdaptersProvider` with the
 framework service adapters it needs.
@@ -47,7 +47,7 @@ import {
   AgentToggleButton,
   sendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { RunsTray } from "@agent-native/core/client/progress";
 
 export function AgentDock() {

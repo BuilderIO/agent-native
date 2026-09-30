@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integraciones" } },
   templatesPage: {
     actions: "Acciones de la plantilla {{title}}",
     previewAction: "Vista previa",
@@ -19,6 +20,9 @@ const messages = {
     slidePosition: "Diapositiva {{current}} de {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["es-ES"],
+  common: {
+    loading: "Cargando...",
+  },
   root: {
     commandPresentations: "Presentaciones",
     searchDecks: "Buscar decks",
@@ -44,14 +48,10 @@ const messages = {
   settings: {
     agentObservability: "Observabilidad del agente",
     title: "Ajustes",
-    description: "Preferencias de idioma y espacio de trabajo para esta app.",
     labs: "Labs",
     labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
     labLayoutOverflowWarningDescription:
       "Mostrar la advertencia de desbordamiento del diseño en el editor.",
-    emailNotifications: "Notificaciones por correo",
-    emailNotificationsDescription:
-      "Recibe un correo cuando alguien comente o responda en tu presentación.",
     saveFailed: "No se pudo guardar",
     notificationsEmail: "Correo electrónico",
     commentsAndReplies: "Comentarios y respuestas",
@@ -60,10 +60,6 @@ const messages = {
     retry: "Reintentar",
     mcpAbout:
       "Conecta Slides con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Slides por ti: crear presentaciones, añadir diapositivas y exportar a PowerPoint. Solo ve lo que tú puedes ver.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
     workspaceTitle: "Espacio de trabajo",
     workspaceDescription:
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
@@ -177,6 +173,15 @@ const messages = {
     saveReconnect: "Los cambios se guardarán al reconectar",
     saveFailedDescription:
       "Tus cambios más recientes solo están en este dispositivo. Descarga una copia de seguridad antes de salir.",
+    slideConflictReview: "Revisar",
+    slideConflictTitle: "Esta diapositiva cambió en otro lugar",
+    slideConflictDescription:
+      "Otra persona guardó una versión más reciente. Conservar tu borrador reemplazará el contenido guardado de esta diapositiva, o usa la última versión.",
+    slideConflictUseLatest: "Usar la última versión",
+    slideConflictKeepDraft: "Conservar mi borrador",
+    slideConflictKeepEditing: "Seguir editando",
+    slideConflictResolutionFailed:
+      "No se pudo resolver el conflicto. Tu borrador sigue aquí.",
     offline: "Sin conexión",
     selected: "seleccionado",
     chooseDesignSystem: "Elige un sistema de diseño",
@@ -253,6 +258,9 @@ const messages = {
     media: "Multimedia",
     generateImage: "Generar imagen",
     assetLibrary: "Biblioteca de recursos",
+    imageOptions: "Opciones de imagen",
+    cropImage: "Recortar imagen",
+    cropHandle: "Recortar imagen {{position}}",
     diagrams: "Diagramas",
     insertMermaidDiagram: "Insertar diagrama Mermaid",
     insertMermaidFailed: "No se pudo insertar el diagrama",
@@ -882,7 +890,7 @@ const messages = {
     },
     importDeck: "Importar presentación",
     context: {
-      websiteReference: "Adjuntar sitio web",
+      websiteReference: "Añadir sitio web",
       websiteUrlLabel: "URL del sitio web",
       websiteUrl: "Pega la URL de un sitio web",
       figmaUrlLabel: "Enlace de Figma",
@@ -897,7 +905,7 @@ const messages = {
       searchPresentations: "Buscar presentaciones…",
       menu: {
         system: "Usar un sistema de diseño",
-        figma: "Adjuntar Figma",
+        figma: "Añadir Figma",
         design: "Usar un diseño como referencia",
         deck: "Usar una presentación como referencia",
         searchDesign: "Buscar en diseño…",
@@ -1084,7 +1092,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+      providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
   },
 };

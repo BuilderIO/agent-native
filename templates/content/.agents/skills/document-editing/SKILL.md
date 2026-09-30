@@ -204,7 +204,7 @@ pnpm action update-comment --id c123 --resolved false
 
 `--authorName` sets the comment's display name; it defaults to a name derived from the author's email.
 
-A new comment emails the document owner, earlier authors in the thread, and anyone mentioned, unless they turned those emails off. The current user's own switch is `get-content-notification-prefs` and `update-content-notification-prefs --emailNotifications=false`, the same one Settings shows (Notifications, with the settings redesign on). Share invites always send.
+A new comment emails the document owner, earlier authors in the thread, and anyone mentioned, unless they turned those emails off. The current user's own switch is `get-content-notification-prefs` and `update-content-notification-prefs --emailNotifications=false`, the same one Settings shows on Notifications. Share invites always send.
 
 ### refresh-list
 

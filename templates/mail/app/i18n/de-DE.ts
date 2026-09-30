@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "Notiz an mich",
     },
     inbox: {
+      atLeastCount: "Mindestens {{count}}",
       syncing: "Posteingang wird synchronisiert…",
     },
     sort: {
@@ -341,6 +342,16 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Geplanten Versand abbrechen",
+      deliveryUnknownWarning:
+        "Zustellstatus unbekannt; prüfe vor der Klärung die Ansicht „Gesendet“ in Mail.",
+      markSentAfterChecking:
+        "Ich habe „Gesendet“ geprüft; als gesendet markieren",
+      sendNewCopy: "Neue Kopie senden",
+      sendingStatus:
+        "Geplanter Versand wird verarbeitet. Aktionen sind vorübergehend nicht verfügbar.",
+      confirmSendNewCopyTitle: "Eine weitere Kopie senden?",
+      confirmSendNewCopyDescription:
+        "Die ursprüngliche Nachricht wurde möglicherweise bereits zugestellt. Prüfe zuerst die Ansicht „Gesendet“ in Mail. Beim erneuten Senden kann eine doppelte E-Mail entstehen.",
       dateInput: "Datum und Uhrzeit",
       noDateMatch: "Keine passende zukünftige Zeit",
       inputPlaceholder: "Versuche: 8 Uhr, 3 Tage, 7. Aug.",
@@ -452,6 +463,11 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Geplante E-Mail gesendet.",
       scheduledSendFailed: "Geplante E-Mail konnte nicht gesendet werden",
+      uncertainScheduledMarkedSent: "Geplante E-Mail als gesendet markiert.",
+      uncertainScheduledResolveFailed:
+        "Geplante E-Mail konnte nicht geklärt werden.",
+      uncertainScheduledRetryStarted: "Eine neue Kopie wird gesendet.",
+      uncertainScheduledRetryFailed: "Neue Kopie konnte nicht gesendet werden.",
       scheduledCancelled: "Geplante E-Mail abgebrochen.",
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",
@@ -571,9 +587,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -670,6 +683,10 @@ const messages = {
         "Keine aktuellen Nachrichten passen zu dieser Regel.",
       ruleBackfillFailed:
         "Diese Regel konnte nicht auf aktuelle E-Mails angewendet werden.",
+      ruleBackfillRunFailed:
+        "Die Anwendung der Regeln auf aktuelle E-Mails konnte nicht abgeschlossen werden.",
+      backfillStatusLoadFailed:
+        "Der aktuelle Regelstatus konnte nicht geladen werden.",
       ruleBackfillPartialFailure:
         "{{count}} Nachrichten konnten nicht aktualisiert werden.",
       ruleBackfillUndoing: "Aktuelle E-Mails werden wiederhergestellt…",
@@ -807,8 +824,6 @@ const messages = {
     peoplePlural: "{{count}} Personen",
     deleteAliasDescription:
       "Alias „{{name}}“ löschen? Dies kann nicht rückgängig gemacht werden.",
-    aliasesDescription:
-      "Adressgruppen, die du beim Schreiben von E-Mails verwenden kannst.",
     newAlias: "Neuer Alias",
     noAliases: "Noch keine Aliasse. Erstelle einen, um loszulegen.",
     applyLabel: "Label anwenden",
@@ -827,16 +842,6 @@ const messages = {
     actions: "Aktionen",
     editRule: "Regel bearbeiten",
     deleteRule: "Regel löschen",
-    noEventAutomations:
-      "Noch keine ereignisgesteuerten Automatisierungen für Mail.",
-    eventAutomationsPrompt:
-      "Bitte den Agenten, eine Automatisierung zu erstellen, etwa „wenn ich eine E-Mail von meinem Chef erhalte, markiere sie und benachrichtige mich“.",
-    disabled: "deaktiviert",
-    on: "bei",
-    when: "wenn",
-    lastRun: "Letzter Lauf:",
-    automationsDescription:
-      "Regeln, die neue Posteingangs-E-Mails automatisch mit KI verarbeiten.",
     allowAutomationSends: "Automatisierungen dürfen E-Mails automatisch senden",
     allowAutomationSendsDescription:
       "Standardmäßig deaktiviert. Aktiviere diese Option, wenn Automatisierungen E-Mails ohne jede einzelne Genehmigung senden sollen.",
@@ -847,17 +852,12 @@ const messages = {
     noAutomationRules: "Noch keine Automatisierungsregeln.",
     noAutomationRulesDescription:
       "Erstelle Regeln zum automatischen Labeln, Archivieren von Newslettern, Markieren wichtiger Nachrichten und mehr. Du kannst auch den KI-Agenten damit beauftragen.",
-    eventTriggers: "Ereignisauslöser",
-    eventTriggersDescription:
-      "Automatisierungen, die bei Mail-Ereignissen ausgelöst werden (z. B. neue E-Mail empfangen). Vom Agenten verwaltet.",
     importedSignature: "Signatur von {{account}} importiert.",
     noGmailSignature: "Keine Gmail-Signatur für {{account}} gefunden.",
     importSignatureFailed: "Gmail-Signatur konnte nicht importiert werden.",
     draftingSettingsSaved: "Entwurfseinstellungen gespeichert.",
     draftingSettingsSaveFailed:
       "Entwurfseinstellungen konnten nicht gespeichert werden.",
-    draftingDescription:
-      "Einstellungen zum Schreiben und Generieren von E-Mail-Entwürfen.",
     signature: "Signatur",
     importFromGmail: "Aus Gmail importieren",
     signatureHelp:
@@ -874,42 +874,14 @@ const messages = {
       "Kurz, konkret, warm. Vermeide formelle Füllwörter.",
     saveDraftingSettings: "Entwurfseinstellungen speichern",
     reset: "Zurücksetzen",
-    trackingDescription:
-      "Erkenne, wann Empfänger deine gesendeten E-Mails öffnen und Links anklicken. Statistiken erscheinen unter jeder gesendeten Nachricht.",
     trackEmailOpens: "E-Mail-Öffnungen verfolgen",
     trackEmailOpensDescription:
       "Fügt ausgehenden E-Mails ein 1×1-Pixel hinzu, damit du Öffnungen sehen kannst.",
     trackLinkClicks: "Link-Klicks verfolgen",
     trackLinkClicksDescription:
       "Schreibt externe Links in ausgehenden E-Mails um, um Klicks zu zählen.",
-    slackLoadFailed: "Slack-Status konnte nicht geladen werden",
-    slackUpdateFailed: "Slack-Eingang konnte nicht aktualisiert werden",
-    slackConfigured: "Slack-Anmeldedaten sind konfiguriert.",
-    slackNeedsCredentials:
-      "Der alte benutzerdefinierte Eingang benötigt SLACK_BOT_TOKEN und SLACK_SIGNING_SECRET. Verbinde für neue Slack-Nachrichtenautomatisierungen einen Workspace unter Einstellungen > Messaging.",
-    slackIntake: "Slack-Eingang (veraltet)",
-    slackDescription:
-      "Veraltete benutzerdefinierte Integration, mit der Organisationsmitglieder E-Mail-Entwürfe aus Slack einreihen können.",
-    enabled: "Aktiviert",
-    disable: "Deaktivieren",
-    enable: "Aktivieren",
-    slackPostEndpoint: "Slack-POST-Endpunkt",
-    slackPostEndpointHelp:
-      "In Slack Event Subscriptions verwenden. Browser-GET kann Not Found anzeigen.",
-    title: "Einstellungen",
-    general: "Allgemein",
-    generalDescription: "Sprache und kontoweite Einstellungen fur Mail.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wahle die Sprache der Oberflache fur dieses Konto. Mail merkt sie sich gerateubergreifend.",
-    languageLabel: "Sprache der Oberflache",
-    whatsNew: "Neuigkeiten",
-    whatsNewDescription:
-      "Aktuelle nutzerseitige Anderungen in Agent-Native Mail.",
     drafting: "Entwurfe",
     snippets: "Textbausteine",
-    snippetsDescription:
-      "Gespeicherte Antworten, die du per / und dem Textbaustein-Namen in einen Entwurf einfugen kannst.",
     newSnippet: "Neuer Textbaustein",
     noSnippets: "Noch keine Textbausteine. Erstelle einen, um loszulegen.",
     snippetName: "Name des Textbausteins",
@@ -921,7 +893,6 @@ const messages = {
     deleteSnippet: "Textbaustein loschen",
     deleteSnippetDescription:
       'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
-    automations: "Automatisierungen",
     rules: "Regeln",
     rulesModel: "Modell für Regeln",
     rulesModelDescription: "Gleicht eingehende E-Mails mit deinen Regeln ab.",
@@ -934,7 +905,6 @@ const messages = {
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",
-    slack: "Slack",
     deleteAlias: "Alias löschen",
     editAlias: "Alias bearbeiten",
   },

@@ -30,6 +30,10 @@ function KeyedStaleIndexBoundary({
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("", { status: 200 })),
+  );
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -92,8 +96,8 @@ describe("controlled composer context", () => {
       ),
     );
     const menu = document.querySelector('[role="menu"]')!;
-    expect(menu.querySelector('[role="searchbox"]')).toBeNull();
-    expect(menu.textContent).toBe("Upload File");
+    expect(menu.querySelector('[role="searchbox"]')).not.toBeNull();
+    expect(menu.textContent).toContain("Upload File");
     await act(async () =>
       document.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
@@ -104,6 +108,328 @@ describe("controlled composer context", () => {
       container.querySelector('button[aria-label="Add context"]'),
     ).toBeNull();
   });
+  it("opens the same shared Add menu from @ and + without inserting a mention", async () => {
+    const onSelect = vi.fn();
+    await mount({
+      initialText: "",
+      contextMenuItems: [{ id: "source", label: "Choose source", onSelect }],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+
+    await act(async () => {
+      editor.focus();
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "@",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    const mentionMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(mentionMenu?.textContent).toContain("Upload File");
+    expect(mentionMenu?.textContent).toContain("Choose source");
+    expect(editor.textContent).toBe("");
+    const mentionOptions = Array.from(
+      mentionMenu!.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).map((item) => item.textContent);
+
+    const plusButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    await act(async () =>
+      mentionMenu!
+        .querySelector<HTMLElement>('[role^="menuitem"]')!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+    );
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    await act(async () =>
+      plusButton.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+
+    const plusMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(
+      Array.from(
+        plusMenu!.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).map((item) => item.textContent),
+    ).toEqual(mentionOptions);
+    const sourceAction = Array.from(
+      plusMenu!.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Choose source")!;
+    await act(async () => sourceAction.click());
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
+  it.each(["@", "+"])(
+    "opens the integration submenu from %s without changing the draft",
+    async (trigger) => {
+      const onSelect = vi.fn();
+      await mount({
+        initialText: "Keep my draft ",
+        contextMenuItems: [
+          {
+            id: "integrations",
+            label: "Integrations",
+            picker: {
+              searchPlaceholder: "Search integrations",
+              items: [{ id: "github", title: "GitHub" }],
+              onSelect,
+            },
+          },
+        ],
+      });
+      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+      const button = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Add context"]',
+      )!;
+      await act(async () => {
+        const target = trigger === "@" ? editor : button;
+        target.focus();
+        target.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: trigger === "@" ? "@" : "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      const integrations = document.querySelector<HTMLElement>(
+        '[role="menuitem"][aria-haspopup="menu"]',
+      )!;
+      expect(integrations.textContent).toBe("Integrations");
+      await act(async () => {
+        integrations.focus();
+        integrations.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowRight",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      const github = document.querySelector<HTMLElement>(
+        '[role="menuitemcheckbox"]',
+      )!;
+      expect(github.textContent).toBe("GitHub");
+      await act(async () => github.click());
+      expect(onSelect).toHaveBeenCalledOnce();
+      expect(editor.textContent).toBe("Keep my draft ");
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+    },
+  );
+  it.each(["@", "+"])(
+    "adds discovered references from %s and restores draft focus without submitting",
+    async (trigger) => {
+      const onReferencesChange = vi.fn();
+      const { onSubmit } = await mount({
+        initialText: "My draft ",
+        contextMenuItems: [],
+        includeDefaultMentionSearch: false,
+        onReferencesChange,
+        mentionItems: [
+          {
+            id: "agent:slides",
+            label: "Slides",
+            description: "Presentations in this workspace",
+            section: "Connected Agents",
+            source: "agent",
+            refType: "agent",
+            refId: "slides",
+            refPath: "https://slides.example.test",
+          },
+        ],
+      });
+      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+      const target =
+        trigger === "@"
+          ? editor
+          : container.querySelector<HTMLButtonElement>(
+              'button[aria-label="Add context"]',
+            )!;
+      await act(async () => {
+        target.focus();
+        target.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: trigger === "@" ? "@" : "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      const row = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find(
+        (item) => item.textContent === "SlidesPresentations in this workspace",
+      )!;
+      expect(row).toBeDefined();
+      await act(async () => row.click());
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+      expect(editor.textContent).toContain("My draft");
+      expect(editor.textContent).toContain("Slides");
+      expect(editor.textContent).not.toContain("@");
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({
+          refType: "agent",
+          refId: "slides",
+          path: "https://slides.example.test",
+        }),
+      ]);
+      expect(document.activeElement).toBe(editor);
+      expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps regular @ references when the shared Add menu is explicitly hidden", async () => {
+    await mount({
+      plusMenuMode: "hidden",
+      initialText: "",
+      mentionItems: [
+        {
+          id: "brief",
+          label: "Project brief",
+          source: "resource:workspace",
+          refType: "file",
+          refPath: "brief.md",
+        },
+      ],
+      includeDefaultMentionSearch: false,
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+
+    await act(async () => {
+      editor.focus();
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "@",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(
+      document.querySelector('[data-mention-index="0"]')?.textContent,
+    ).toContain("Project brief");
+  });
+  it.each(["@", "/", "full", "terminal"] as const)(
+    "keeps the %s panel anchored to its own composer during host resize and scroll",
+    async (trigger) => {
+      const observations: {
+        target: Element;
+        resize: () => void;
+        disconnect: () => void;
+      }[] = [];
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          constructor(private resize: () => void) {}
+          observe(target: Element) {
+            observations.push({
+              target,
+              resize: this.resize,
+              disconnect: this.disconnect,
+            });
+          }
+          unobserve() {}
+          disconnect = vi.fn();
+        },
+      );
+      const plusMenu = trigger === "full" || trigger === "terminal";
+      await mount({
+        initialText: "",
+        includeDefaultMentionSearch: false,
+        plusMenuMode: plusMenu ? trigger : "hidden",
+        terminalModeControl: { enabled: false, onChange: vi.fn() },
+      });
+      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+      const frame = editor.closest<HTMLElement>(
+        '[data-agent-composer-slot="root"]',
+      )!;
+      let bounds = { x: 100, y: 300, width: 700, height: 150 };
+      vi.spyOn(frame, "getBoundingClientRect").mockImplementation(() =>
+        DOMRect.fromRect(bounds),
+      );
+      // A wider ancestor must not override the narrower composer that owns the panel.
+      container.dataset.agentComposerSlot = "root";
+      vi.spyOn(container, "getBoundingClientRect").mockReturnValue(
+        DOMRect.fromRect({ width: 1000 }),
+      );
+      await act(async () => {
+        if (plusMenu) {
+          container
+            .querySelector<HTMLButtonElement>(
+              'button[aria-label="Add context"]',
+            )!
+            .dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: "ArrowDown",
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+        } else {
+          editor.focus();
+          editor.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: trigger,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const panel = document.querySelector<HTMLElement>(
+        '[data-agent-native-composer-popover="true"]',
+      )!;
+      expect(panel).not.toBeNull();
+      expect(panel.style.width).toBe("700px");
+      const observation = observations.find(({ target }) => target === frame)!;
+      expect(observation).toBeDefined();
+      for (const width of [324, 280, 700]) {
+        bounds = { ...bounds, width };
+        await act(async () => observation.resize());
+        expect(panel.style.width).toBe(`${width}px`);
+        if (!plusMenu) expect(panel.style.left).toBe("100px");
+      }
+      bounds = { ...bounds, x: 120, y: 160 };
+      await act(async () => window.dispatchEvent(new Event("scroll")));
+      if (!plusMenu) {
+        expect(panel.style.left).toBe("120px");
+        expect(panel.style.bottom).toContain("160px");
+      }
+      expect(panel.style.maxHeight).toBe("136px");
+      await act(async () =>
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+      expect(
+        document.querySelector('[data-agent-native-composer-popover="true"]'),
+      ).toBeNull();
+      expect(observation.disconnect).toHaveBeenCalled();
+      vi.restoreAllMocks();
+    },
+  );
   it("requests storage setup only after choosing Upload File", async () => {
     const onAttachmentRequest = vi.fn();
     await mount({
@@ -118,10 +444,16 @@ describe("controlled composer context", () => {
         .querySelector<HTMLButtonElement>(
           'button[data-agent-composer-slot="plus-button"]',
         )!
-        .click();
+        .dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
     });
     const uploadFile = Array.from(
-      document.querySelectorAll<HTMLButtonElement>("button"),
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ).find((button) => button.textContent?.includes("Upload File"));
     expect(uploadFile).toBeDefined();
     await act(async () => uploadFile!.click());
@@ -173,8 +505,8 @@ describe("controlled composer context", () => {
     return { composerRef, onSubmit };
   }
 
-  async function attachFile() {
-    const file = new File(["example"], "reference.pdf", {
+  async function attachFile(name = "reference.pdf") {
+    const file = new File([`example ${name}`], name, {
       type: "application/pdf",
     });
     const input =
@@ -208,6 +540,131 @@ describe("controlled composer context", () => {
     const strip = container.querySelector(".agent-composer-attachment-strip");
     expect(strip?.className).toContain("max-h-24");
     expect(strip?.className).toContain("overflow-y-auto");
+  });
+
+  it.each([
+    ["reference.pdf", "application/pdf"],
+    ["reference.png", "image/png"],
+    ["reference.txt", "text/plain"],
+  ])(
+    "keeps two different uploads named %s independently removable",
+    async (name, type) => {
+      let files: PromptComposerFile[] = [];
+      const { composerRef } = await mount({
+        onAttachmentsChange: (next) => {
+          files = next;
+        },
+      });
+      const first = new File(["first"], name, { type });
+      const second = new File(["second"], name, { type });
+      await act(async () => {
+        await composerRef.current!.addAttachment(first);
+        await composerRef.current!.addAttachment(second);
+      });
+      expect(files).toEqual([first, second]);
+      const remove = container.querySelectorAll<HTMLElement>(
+        `[aria-label="Remove ${name}"]`,
+      );
+      expect(remove).toHaveLength(2);
+      await act(async () => remove[0].click());
+      expect(files).toEqual([second]);
+    },
+  );
+
+  it.each(["@", "/"])(
+    "closes an open %s panel when the editor is disabled",
+    async (key) => {
+      const props = {
+        initialText: "",
+        includeDefaultMentionSearch: false,
+        plusMenuMode: "hidden" as const,
+      };
+      await mount(props);
+      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+      await act(async () => {
+        editor.focus();
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        document.querySelector('[data-agent-native-composer-popover="true"]'),
+      ).not.toBeNull();
+      await mount({ ...props, disabled: true });
+      expect(
+        document.querySelector('[data-agent-native-composer-popover="true"]'),
+      ).toBeNull();
+    },
+  );
+
+  it("reclamps mention panels when only the viewport width changes", async () => {
+    const previousWidth = window.innerWidth;
+    await mount({
+      initialText: "",
+      includeDefaultMentionSearch: false,
+      plusMenuMode: "hidden",
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    const frame = editor.closest<HTMLElement>(
+      '[data-agent-composer-slot="root"]',
+    )!;
+    const measure = vi
+      .spyOn(frame, "getBoundingClientRect")
+      .mockReturnValue(
+        DOMRect.fromRect({ x: 100, y: 300, width: 700, height: 150 }),
+      );
+    try {
+      await act(async () => {
+        editor.focus();
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "@",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const panel = document.querySelector<HTMLElement>(
+        '[data-agent-native-composer-popover="true"]',
+      )!;
+      await act(async () => {
+        window.innerWidth = 324;
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(panel.style.width).toBe("292px");
+      expect(panel.style.left).toBe("16px");
+    } finally {
+      window.innerWidth = previousWidth;
+      measure.mockRestore();
+    }
+  });
+
+  it("reports a rejected submit preparation and retains the draft for retry", async () => {
+    const onBeforeSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Preparation failed"))
+      .mockResolvedValueOnce(true);
+    const { composerRef, onSubmit } = await mount({ onBeforeSubmit });
+    await act(async () =>
+      expect(await composerRef.current!.submitWithText("Ready")).toBe(false),
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Preparation failed",
+    );
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+      "Keep the editable draft",
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+    await act(async () =>
+      expect(await composerRef.current!.submitWithText("Ready")).toBe(true),
+    );
+    expect(onSubmit).toHaveBeenCalledOnce();
   });
 
   it.each(["host", "provider"] as const)(
@@ -276,23 +733,26 @@ describe("controlled composer context", () => {
         expect(
           container.querySelector('[data-testid="provider-setup"]'),
         ).not.toBeNull();
-        expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+        expect(
+          container.querySelector('[contenteditable="true"]'),
+        ).not.toBeNull();
         const uploadTrigger = container.querySelector<HTMLButtonElement>(
           'button[aria-label="Add context"]',
         )!;
         expect(uploadTrigger).not.toBeNull();
-        expect(uploadTrigger.disabled).toBe(false);
+        expect(uploadTrigger.disabled).toBe(true);
+        expect(
+          container
+            .querySelector('[role="textbox"]')
+            ?.getAttribute("aria-disabled"),
+        ).toBe("true");
         await act(async () =>
           uploadTrigger.dispatchEvent(
             new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
           ),
         );
-        const uploadItem = Array.from(
-          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-        ).find((element) => element.textContent === "Upload File")!;
-        expect(uploadItem).toBeDefined();
-        await act(async () => uploadItem.click());
-        expect(onAttachmentRequest).toHaveBeenCalledOnce();
+        expect(document.querySelector('[role="menu"]')).toBeNull();
+        expect(onAttachmentRequest).not.toHaveBeenCalled();
         expect(
           container.querySelector<HTMLButtonElement>(
             'button[aria-label="Send message"]',
@@ -312,6 +772,7 @@ describe("controlled composer context", () => {
         '[contenteditable="true"]',
       )!;
       expect(editor).not.toBeNull();
+      expect(editor.getAttribute("aria-disabled")).toBe("false");
       await act(async () => composerRef.current!.setText("Staged draft"));
       const file = await attachFile();
       expect(files).toEqual([file]);
@@ -324,10 +785,6 @@ describe("controlled composer context", () => {
           new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
         ),
       );
-      const contextGroup = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).find((element) => element.textContent === "Add context")!;
-      await act(async () => contextGroup.click());
       const option = Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).find((element) => element.textContent?.includes("Choose brief"))!;
@@ -397,13 +854,20 @@ describe("controlled composer context", () => {
   );
 
   it("preserves full-surface disabled semantics independently of the submit-only gate", async () => {
+    const onAttachmentRequest = vi.fn();
     const { composerRef, onSubmit } = await mount({
       disabled: true,
+      onAttachmentRequest,
       contextMenuItems: [
         { id: "brief", label: "Choose brief", onSelect: vi.fn() },
       ],
     });
     expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(
+      container
+        .querySelector('[role="textbox"]')
+        ?.getAttribute("aria-disabled"),
+    ).toBe("true");
     expect(
       container.querySelector<HTMLButtonElement>(
         'button[aria-label="Add context"]',
@@ -415,7 +879,40 @@ describe("controlled composer context", () => {
       ),
     );
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
   });
+
+  it.each(["disabled", "submissionDisabled", "submitting"] as const)(
+    "rechecks %s after async submit preparation and rejects duplicate submissions",
+    async (gate) => {
+      let release!: (allowed: boolean) => void;
+      const pending = new Promise<boolean>((resolve) => {
+        release = resolve;
+      });
+      const onBeforeSubmit = vi.fn(() => pending);
+      const onSubmit = vi.fn();
+      const composerRef = React.createRef<TiptapComposerHandle>();
+      const props = { onBeforeSubmit, onSubmit, composerRef };
+      await mount(props);
+      let submission!: Promise<boolean>;
+      await act(async () => {
+        submission = composerRef.current!.submitWithText("Ready to send");
+        expect(await composerRef.current!.submitWithText("Duplicate")).toBe(
+          false,
+        );
+      });
+      expect(onBeforeSubmit).toHaveBeenCalledOnce();
+      await mount({ ...props, [gate]: true });
+      await act(async () => {
+        release(true);
+        expect(await submission).toBe(false);
+      });
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+        "Keep the editable draft",
+      );
+    },
+  );
 
   it("quick starts use the current files, model and immutable context without replacing the draft first", async () => {
     const contextItems = [
@@ -538,7 +1035,7 @@ describe("controlled composer context", () => {
     ).toBe("Keep the editable draft");
   });
 
-  it("keeps chat locked while provider status is unresolved", async () => {
+  it("keeps the draft editable and blocks submission while provider status is unresolved", async () => {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();
     await act(async () =>
@@ -570,11 +1067,334 @@ describe("controlled composer context", () => {
       ),
     );
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(container.querySelector('[contenteditable="true"]')).toBeNull();
-    expect(container.querySelector('[role="status"]')).not.toBeNull();
     expect(
-      container.querySelector('[contenteditable="false"]')?.textContent,
-    ).toContain("Keep my draft");
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe("Keep my draft");
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.textContent).not.toContain("checkingProvider");
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    );
+    expect(sendButton?.disabled).toBe(true);
+    expect(sendButton?.getAttribute("aria-busy")).toBeNull();
+    expect(sendButton?.getAttribute("aria-label")).not.toBe("common.loading");
+    expect(sendButton?.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("lets a host queue submissions while provider status is unresolved", async () => {
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onBeforeSubmit = vi.fn(async () => true);
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={{
+            models: {
+              useAgentEngineConfigured: () => ({
+                state: "unknown",
+                missing: false,
+              }),
+            },
+          }}
+        >
+          <PromptComposer
+            composerRef={composerRef}
+            onBeforeSubmit={onBeforeSubmit}
+            onSubmit={onSubmit}
+            initialText="Queue this message"
+            initialTextKey="queued-provider-submit"
+            requireAgentEngine={false}
+            showModelSelector={false}
+            includeDefaultSlashSkills={false}
+          />
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+
+    await act(async () =>
+      expect(
+        await composerRef.current!.submitWithText("Queue this message"),
+      ).toBe(true),
+    );
+
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it("submits edits made while an async readiness check is pending", async () => {
+    let resolveReadiness!: (ready: boolean) => void;
+    const readiness = new Promise<boolean>((resolve) => {
+      resolveReadiness = resolve;
+    });
+    let resolveSubmit!: () => void;
+    const submission = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    const onBeforeSubmit = vi.fn(() => readiness);
+    const { composerRef, onSubmit } = await mount({ onBeforeSubmit });
+    onSubmit.mockReturnValue(submission);
+    const editor = container.querySelector<HTMLElement>(
+      '[contenteditable="true"]',
+    )!;
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+    });
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+
+    await act(async () =>
+      composerRef.current!.setText("Updated while checking readiness"),
+    );
+    await act(async () => {
+      resolveReadiness(true);
+      await readiness;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][0]).toBe("Updated while checking readiness");
+    await act(async () => composerRef.current!.setText("Next draft"));
+    await act(async () => {
+      resolveSubmit();
+      await submission;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(editor.textContent).toBe("Next draft");
+  });
+
+  it("uses context items updated during the readiness check", async () => {
+    let resolveReadiness!: (ready: boolean) => void;
+    const readiness = new Promise<boolean>((resolve) => {
+      resolveReadiness = resolve;
+    });
+    const initialContext: AgentChatContextItem = {
+      key: "source:initial",
+      title: "Initial source",
+      context: "initial source",
+    };
+    const updatedContext: AgentChatContextItem = {
+      key: "source:updated",
+      title: "Updated source",
+      context: "updated source",
+    };
+    let updateContextItems!: React.Dispatch<
+      React.SetStateAction<AgentChatContextItem[]>
+    >;
+    const onBeforeSubmit = vi.fn(() => readiness);
+    const onSubmit = vi.fn();
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    function ContextPrompt() {
+      const [contextItems, setContextItems] = React.useState([initialContext]);
+      updateContextItems = setContextItems;
+      return (
+        <PromptComposer
+          composerRef={composerRef}
+          onSubmit={onSubmit}
+          onBeforeSubmit={onBeforeSubmit}
+          contextItems={contextItems}
+          initialText="Submit with current context"
+          initialTextKey="context-refresh"
+          showModelSelector={false}
+          modelStatusChecksEnabled={false}
+          includeDefaultSlashSkills={false}
+          voiceEnabled={false}
+        />
+      );
+    }
+
+    await act(async () => root.render(<ContextPrompt />));
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+
+    await act(async () => updateContextItems([updatedContext]));
+    await act(async () => {
+      resolveReadiness(true);
+      await readiness;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][3].contextItems).toEqual([updatedContext]);
+  });
+
+  it("uses the latest host submit callback after readiness resolves", async () => {
+    let resolveReadiness!: (ready: boolean) => void;
+    const readiness = new Promise<boolean>((resolve) => {
+      resolveReadiness = resolve;
+    });
+    let updateSelection!: React.Dispatch<React.SetStateAction<string>>;
+    const initialSubmit = vi.fn();
+    const updatedSubmit = vi.fn();
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onBeforeSubmit = vi.fn(() => readiness);
+    function SelectionPrompt() {
+      const [selection, setSelection] = React.useState("initial");
+      updateSelection = setSelection;
+      return (
+        <PromptComposer
+          composerRef={composerRef}
+          onSubmit={(text) =>
+            (selection === "initial" ? initialSubmit : updatedSubmit)(text)
+          }
+          onBeforeSubmit={onBeforeSubmit}
+          initialText="Submit after selection changes"
+          initialTextKey="selection-refresh"
+          showModelSelector={false}
+          modelStatusChecksEnabled={false}
+          includeDefaultSlashSkills={false}
+          voiceEnabled={false}
+        />
+      );
+    }
+
+    await act(async () => root.render(<SelectionPrompt />));
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+
+    await act(async () => updateSelection("updated"));
+    await act(async () => {
+      resolveReadiness(true);
+      await readiness;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(initialSubmit).not.toHaveBeenCalled();
+    expect(updatedSubmit).toHaveBeenCalledOnce();
+    expect(updatedSubmit).toHaveBeenCalledWith(
+      "Submit after selection changes",
+    );
+  });
+
+  it.each([
+    ["in the same paragraph", " "],
+    ["in a new paragraph", "\n"],
+  ])(
+    "removes an appended submitted prompt and keeps a follow-up $0",
+    async (_placement, separator) => {
+      let resolveSubmit!: () => void;
+      const submission = new Promise<void>((resolve) => {
+        resolveSubmit = resolve;
+      });
+      const { composerRef, onSubmit } = await mount({
+        initialText: "Submitted prompt",
+        initialTextKey: "submitted-prefix-follow-up",
+      });
+      onSubmit.mockReturnValue(submission);
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          )!
+          .click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(onSubmit).toHaveBeenCalledOnce();
+
+      await act(async () =>
+        composerRef.current!.setText(`Submitted prompt${separator}Follow-up`),
+      );
+      expect(
+        container.querySelector('[contenteditable="true"]')?.textContent,
+      ).toBe(`Submitted prompt${separator === "\n" ? "" : " "}Follow-up`);
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      )!;
+      await act(async () => {
+        resolveSubmit();
+        await submission;
+        for (
+          let attempt = 0;
+          attempt < 10 && editor.textContent !== "Follow-up";
+          attempt++
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      });
+
+      expect(editor.textContent?.trim()).toBe("Follow-up");
+    },
+  );
+
+  it("cleans submitted attachments and keeps later attachment and reference edits", async () => {
+    let resolveSubmit!: () => void;
+    const submission = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    let currentFiles: File[] = [];
+    const { composerRef, onSubmit } = await mount({
+      onAttachmentsChange: (files) => {
+        currentFiles = files;
+      },
+    });
+    onSubmit.mockReturnValue(submission);
+    const submittedFile = await attachFile("reference.pdf");
+    const otherSubmittedFile = await attachFile("submitted.pdf");
+    await act(async () =>
+      composerRef.current!.insertReference({
+        label: "Submitted reference",
+        refType: "file",
+        refId: "submitted-reference",
+        slotKey: "document",
+      }),
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][2]).toContainEqual(
+      expect.objectContaining({
+        refId: "submitted-reference",
+        slotKey: "document",
+      }),
+    );
+    expect(onSubmit.mock.calls[0][3].attachments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ file: submittedFile }),
+        expect.objectContaining({ file: otherSubmittedFile }),
+      ]),
+    );
+
+    const replacementFile = await attachFile("reference.pdf");
+    const laterFile = await attachFile("later-reference.pdf");
+    await act(async () => {
+      composerRef.current!.setText("Next draft");
+      composerRef.current!.insertReference({
+        label: "Later reference",
+        refType: "file",
+        refId: "later-reference",
+        slotKey: "document",
+      });
+    });
+
+    await act(async () => {
+      resolveSubmit();
+      await submission;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(currentFiles).toEqual([replacementFile, laterFile]);
+    expect(
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe("Next draft");
+    expect(container.textContent).toContain("Later reference");
+    expect(container.textContent).not.toContain("Submitted reference");
   });
 
   it.each(["click", "enter"])(

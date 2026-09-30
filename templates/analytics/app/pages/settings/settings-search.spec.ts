@@ -1,13 +1,10 @@
 import {
   CORE_SETTINGS_PAGES,
   type SettingsPageContext,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { describe, expect, it } from "vitest";
 
-import {
-  buildAnalyticsGeneralSettingsSearchEntries,
-  buildAnalyticsSettingsCommandItems,
-} from "./settings-search";
+import { buildAnalyticsSettingsCommandItems } from "./settings-search";
 
 const translations: Record<string, string> = {
   "settings.account": "Account",
@@ -44,72 +41,8 @@ const corePageIds = new Set(CORE_SETTINGS_PAGES.map((page) => page.id));
 const t = (key: string) => translations[key] ?? key;
 
 describe("Analytics settings command items", () => {
-  it("reuses general and agent setting metadata with deep links", () => {
-    const items = buildAnalyticsSettingsCommandItems(
-      t,
-      buildAnalyticsGeneralSettingsSearchEntries(t, true),
-    );
-
-    expect(items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          label: "Integrations",
-          href: "/settings/integrations",
-        }),
-        expect.objectContaining({
-          label: "Voice Transcription",
-          keywords: expect.stringContaining("microphone"),
-          href: "/settings/agent/voice",
-        }),
-      ]),
-    );
-    expect(items.some((item) => item.href === "/settings/general/about")).toBe(
-      false,
-    );
-  });
-
-  it("merges duplicate destinations without dropping shared search metadata", () => {
-    const items = buildAnalyticsSettingsCommandItems(
-      t,
-      buildAnalyticsGeneralSettingsSearchEntries(t, false),
-    );
-    const labels = items.map((item) => item.label);
-    const account = items.find((item) => item.label === "Account");
-
-    expect(labels.filter((label) => label === "Account")).toHaveLength(1);
-    expect(account).toMatchObject({
-      href: "/settings/account",
-      keywords: expect.stringContaining("profile photo avatar"),
-    });
-    expect(account?.keywords).toContain("General settings");
-    expect(account?.keywords).not.toContain("Workspace settings");
-    expect(labels).not.toContain("Language");
-    expect(labels).not.toContain("Replay storage");
-  });
-
-  it("keeps duplicate labels when they point to different destinations", () => {
-    const generalEntries = buildAnalyticsGeneralSettingsSearchEntries(t, false);
-    const items = buildAnalyticsSettingsCommandItems(t, [
-      ...generalEntries,
-      {
-        id: "analytics-account-security",
-        label: "Account",
-        keywords: "account security",
-        hash: "account-security",
-      },
-    ]);
-
-    expect(items.filter((item) => item.label === "Account")).toEqual([
-      expect.objectContaining({ href: "/settings/account" }),
-      expect.objectContaining({ href: "/settings/general/account-security" }),
-    ]);
-  });
-  it("links to the redesigned pages when the settings redesign is on", () => {
-    const items = buildAnalyticsSettingsCommandItems(
-      t,
-      buildAnalyticsGeneralSettingsSearchEntries(t, true),
-      { redesign: true },
-    );
+  it("links to the Settings pages and Analytics' own rows", () => {
+    const items = buildAnalyticsSettingsCommandItems(t);
     const hrefs = items.map((item) => item.href);
 
     expect(hrefs).toEqual(
@@ -131,13 +64,9 @@ describe("Analytics settings command items", () => {
     expect(items.map((item) => item.label)).not.toContain("Language");
   });
 
-  it("names only the redesigned pages, under their new labels", () => {
+  it("names only the Settings pages, under their nav labels", () => {
     for (const pageContext of [undefined, adminContext]) {
-      const items = buildAnalyticsSettingsCommandItems(
-        t,
-        buildAnalyticsGeneralSettingsSearchEntries(t, true),
-        { redesign: true, pageContext },
-      );
+      const items = buildAnalyticsSettingsCommandItems(t, pageContext);
       const labels = items.map((item) => item.label);
 
       expect(labels).toEqual(
@@ -160,11 +89,9 @@ describe("Analytics settings command items", () => {
 
   it("shows organization admin pages only to admins", () => {
     const hrefs = (pageContext?: SettingsPageContext) =>
-      buildAnalyticsSettingsCommandItems(
-        t,
-        buildAnalyticsGeneralSettingsSearchEntries(t, true),
-        { redesign: true, pageContext },
-      ).map((item) => item.href);
+      buildAnalyticsSettingsCommandItems(t, pageContext).map(
+        (item) => item.href,
+      );
 
     expect(hrefs()).not.toContain("/settings/infra");
     expect(hrefs(adminContext)).toEqual(

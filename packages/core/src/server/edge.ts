@@ -14,7 +14,6 @@ export { runFrameworkReleaseMigrations } from "./release-migrations.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
-  refreshGlobalMcpManager,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 export {

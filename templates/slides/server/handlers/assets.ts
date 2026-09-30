@@ -1,7 +1,10 @@
 import path from "path";
 
 import { uploadFile } from "@agent-native/core/file-upload";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { and, desc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -235,6 +238,7 @@ export function canSaveAsUploadedAsset(args: {
 
 export async function uploadImageAsset(args: {
   email: string;
+  orgId?: string | null;
   originalName: string;
   data: Uint8Array;
   type?: string;
@@ -259,13 +263,17 @@ export async function uploadImageAsset(args: {
 
   const mimeType = ext === ".svg" ? "image/svg+xml" : args.type;
 
-  const result = await runWithRequestContext({ userEmail: args.email }, () =>
-    uploadFile({
-      data: args.data,
-      filename: args.originalName,
-      mimeType,
-      ownerEmail: args.email,
-    }),
+  const orgId =
+    args.orgId === undefined ? getRequestOrgId() : (args.orgId ?? undefined);
+  const result = await runWithRequestContext(
+    { userEmail: args.email, ...(orgId === undefined ? {} : { orgId }) },
+    () =>
+      uploadFile({
+        data: args.data,
+        filename: args.originalName,
+        mimeType,
+        ownerEmail: args.email,
+      }),
   );
 
   if (!result) {
@@ -320,6 +328,7 @@ export const uploadAsset = defineEventHandler(async (event) => {
   try {
     return await uploadImageAsset({
       email: session.email,
+      orgId: session.orgId,
       originalName: filePart.filename || "upload",
       data: filePart.data,
       type: filePart.type,

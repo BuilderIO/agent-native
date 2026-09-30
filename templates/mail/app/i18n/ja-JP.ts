@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "自分へのメモ",
     },
     inbox: {
+      atLeastCount: "少なくとも{{count}}",
       syncing: "受信トレイを同期中…",
     },
     sort: {
@@ -329,6 +330,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "予約送信をキャンセル",
+      deliveryUnknownWarning:
+        "配信状況を確認できません。解決する前に Mail の送信済みビューを確認してください。",
+      markSentAfterChecking: "送信済みを確認しました。送信済みとしてマーク",
+      sendNewCopy: "新しいコピーを送信",
+      sendingStatus:
+        "予約したメールを処理中です。操作は一時的に利用できません。",
+      confirmSendNewCopyTitle: "もう一通送信しますか？",
+      confirmSendNewCopyDescription:
+        "元のメールはすでに配信されている可能性があります。先に Mail の送信済みビューを確認してください。もう一通送ると重複する可能性があります。",
       dateInput: "日時",
       noDateMatch: "一致する未来の時間がありません",
       inputPlaceholder: "例: 午前8時、3日後、8月7日",
@@ -439,6 +449,12 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "予約メールを送信しました。",
       scheduledSendFailed: "予約メールの送信に失敗しました",
+      uncertainScheduledMarkedSent:
+        "予約メールを送信済みとしてマークしました。",
+      uncertainScheduledResolveFailed:
+        "予約メールの状態を解決できませんでした。",
+      uncertainScheduledRetryStarted: "新しいコピーを送信しています。",
+      uncertainScheduledRetryFailed: "新しいコピーを送信できませんでした。",
       scheduledCancelled: "予約メールをキャンセルしました。",
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",
@@ -557,9 +573,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -650,6 +663,9 @@ const messages = {
       ruleBackfillNoMatches:
         "最近のメールにこのルールと一致するものはありません。",
       ruleBackfillFailed: "最近のメールにこのルールを適用できませんでした。",
+      ruleBackfillRunFailed:
+        "最近のメールへのルール適用を完了できませんでした。",
+      backfillStatusLoadFailed: "最近のルールの状態を読み込めませんでした。",
       ruleBackfillPartialFailure:
         "{{count}} 件のメッセージを更新できませんでした。",
       ruleBackfillUndoing: "最近のメールを復元しています…",
@@ -780,7 +796,6 @@ const messages = {
     peoplePlural: "{{count}} 人",
     deleteAliasDescription:
       "エイリアス「{{name}}」を削除しますか？この操作は元に戻せません。",
-    aliasesDescription: "メール作成時に使えるアドレスグループです。",
     newAlias: "新しいエイリアス",
     noAliases: "エイリアスはまだありません。作成して始めましょう。",
     applyLabel: "ラベルを適用",
@@ -799,15 +814,6 @@ const messages = {
     actions: "操作",
     editRule: "ルールを編集",
     deleteRule: "ルールを削除",
-    noEventAutomations: "メールのイベントトリガー自動化はまだありません。",
-    eventAutomationsPrompt:
-      "「上司からメールを受け取ったらスターを付けて通知して」などの自動化をエージェントに作成してもらいましょう。",
-    disabled: "無効",
-    on: "対象",
-    when: "条件",
-    lastRun: "前回の実行:",
-    automationsDescription:
-      "AI を使って新しい受信メールを自動処理するルールです。",
     allowAutomationSends: "自動化によるメールの自動送信を許可する",
     allowAutomationSendsDescription:
       "デフォルトではオフです。毎回承認を求めずに自動化でメールを送信する場合にオンにしてください。",
@@ -818,15 +824,11 @@ const messages = {
     noAutomationRules: "自動化ルールはまだありません。",
     noAutomationRulesDescription:
       "メールの自動ラベル付け、ニュースレターのアーカイブ、重要メールのスター付けなどのルールを作成できます。AI エージェントに設定を依頼することもできます。",
-    eventTriggers: "イベントトリガー",
-    eventTriggersDescription:
-      "メールイベント（例: 新着メール受信）で実行される自動化です。エージェントが管理します。",
     importedSignature: "{{account}} から署名をインポートしました。",
     noGmailSignature: "{{account}} の Gmail 署名が見つかりませんでした。",
     importSignatureFailed: "Gmail 署名のインポートに失敗しました。",
     draftingSettingsSaved: "下書き設定を保存しました。",
     draftingSettingsSaveFailed: "下書き設定を保存できませんでした。",
-    draftingDescription: "メールの下書き作成と生成に使う設定です。",
     signature: "署名",
     importFromGmail: "Gmail からインポート",
     signatureHelp:
@@ -840,41 +842,14 @@ const messages = {
     writingStylePlaceholder: "短く、具体的に、温かく。形式的な埋め草は避ける。",
     saveDraftingSettings: "下書き設定を保存",
     reset: "リセット",
-    trackingDescription:
-      "送信メールが開かれた時刻やリンククリックを確認できます。統計は各送信済みメッセージの下に表示されます。",
     trackEmailOpens: "メール開封を追跡",
     trackEmailOpensDescription:
       "送信メールに 1×1 ピクセルを挿入して開封を確認します。",
     trackLinkClicks: "リンククリックを追跡",
     trackLinkClicksDescription:
       "送信メール内の外部リンクを書き換えてクリックを集計します。",
-    slackLoadFailed: "Slack 状態を読み込めませんでした",
-    slackUpdateFailed: "Slack 取り込みを更新できませんでした",
-    slackConfigured: "Slack 認証情報は設定済みです。",
-    slackNeedsCredentials:
-      "従来のカスタム取り込みには SLACK_BOT_TOKEN と SLACK_SIGNING_SECRET が必要です。新しい Slack メッセージ自動化では、設定 > メッセージングでワークスペースを接続してください。",
-    slackIntake: "Slack 取り込み（レガシー）",
-    slackDescription:
-      "組織メンバーが Slack からメール下書きをキューに入れられる従来のカスタム連携です。",
-    enabled: "有効",
-    disable: "無効化",
-    enable: "有効化",
-    slackPostEndpoint: "Slack POST エンドポイント",
-    slackPostEndpointHelp:
-      "Slack Event Subscriptions で使用します。ブラウザ GET では Not Found が表示される場合があります。",
-    title: "設定",
-    general: "一般",
-    generalDescription: "Mail の言語とアカウント全体の設定です。",
-    languageTitle: "言語",
-    languageDescription:
-      "このアカウントの表示言語を選択します。Mail はデバイス間で設定を記憶します。",
-    languageLabel: "表示言語",
-    whatsNew: "新着情報",
-    whatsNewDescription: "Agent-Native Mail の最近のユーザー向け変更です。",
     drafting: "下書き",
     snippets: "スニペット",
-    snippetsDescription:
-      "/ とスニペット名を入力して作成中のメールに挿入できる、保存済みの定型文です。",
     newSnippet: "新しいスニペット",
     noSnippets: "スニペットはまだありません。作成して始めましょう。",
     snippetName: "スニペット名",
@@ -886,7 +861,6 @@ const messages = {
     deleteSnippet: "スニペットを削除",
     deleteSnippetDescription:
       "スニペット「{{name}}」を削除しますか？元に戻せません。",
-    automations: "自動化",
     rules: "ルール",
     rulesModel: "ルールのモデル",
     rulesModelDescription: "受信メールをルールと照合します。",
@@ -899,7 +873,6 @@ const messages = {
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",
     tracking: "トラッキング",
-    slack: "Slack",
     deleteAlias: "エイリアスを削除",
     editAlias: "エイリアスを編集",
   },

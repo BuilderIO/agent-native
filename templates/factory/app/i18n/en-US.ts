@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",

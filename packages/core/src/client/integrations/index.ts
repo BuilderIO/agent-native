@@ -1,21 +1,4 @@
 export {
-  IntegrationsPanel,
-  McpIntegrationsLanding,
-  McpIntegrationsSection,
-  type McpIntegrationsLandingProps,
-  type McpIntegrationsSectionProps,
-} from "./IntegrationsPanel.js";
-export {
-  IntegrationGrid,
-  type IntegrationGridItem,
-  type IntegrationGridProps,
-} from "./IntegrationGrid.js";
-export {
-  IntegrationConnectionChoice,
-  type IntegrationConnectionChoiceProps,
-} from "./IntegrationConnectionChoice.js";
-export { GoogleProductLogo, type GoogleProduct } from "./GoogleProductLogo.js";
-export {
   startWorkspaceProviderOAuth,
   workspaceProviderOAuthUrl,
   type WorkspaceProviderOAuthOptions,
@@ -23,20 +6,11 @@ export {
 } from "./workspace-provider-oauth.js";
 export {
   channelConnectionState,
-  channelIcon,
   hasMissingRequiredCredentials,
   listChannelsForSettings,
   type ChannelConnectionState,
   type ChannelCredential,
-  type ChannelIcon,
 } from "./channel-setup.js";
-export {
-  getChannelSettingsExtensions,
-  registerChannelSettingsExtensions,
-  useChannelSettingsExtensions,
-  type ChannelSettingsExtension,
-  type ChannelSettingsExtensionProps,
-} from "./channel-extensions.js";
 export { useIntegrationStatus } from "./useIntegrationStatus.js";
 export type { IntegrationStatus } from "./useIntegrationStatus.js";
 export {

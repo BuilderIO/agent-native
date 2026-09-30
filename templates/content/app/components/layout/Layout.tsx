@@ -1,17 +1,15 @@
-import type {
-  AssistantChatHistoryConfig,
-  AssistantChatHistoryVersion,
-} from "@agent-native/core/client/agent-chat";
-import { AgentSidebar } from "@agent-native/core/client/AgentSidebar";
+import type { AssistantChatHistoryVersion } from "@agent-native/core/client/agent-chat";
 import { isAssistantChatHistoryVersion } from "@agent-native/core/client/assistant-chat-history-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import {
   HeaderActionsProvider,
   usePersistentSidebarCollapsed,
 } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat/AgentSidebar";
+import type { AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import type { Document } from "@shared/api";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
@@ -33,7 +31,6 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useOptimisticDocumentTitle } from "@/hooks/use-optimistic-document-title";
-import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   applyRegisteredDocumentHistoryRestore,
@@ -41,7 +38,7 @@ import {
 } from "@/lib/document-history-restore-controller";
 
 import { Header } from "./Header";
-import { isContentFullWidthSettingsRoute } from "./settings-route-policy";
+import { isContentSettingsRoute } from "./settings-route-policy";
 import { SidebarTriggerContext } from "./sidebar-trigger";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -95,10 +92,7 @@ export function Layout({ children }: LayoutProps) {
   const chromePathname = pendingPathname ?? location.pathname;
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
-  const fullWidthSettings = isContentFullWidthSettingsRoute(
-    chromePathname,
-    useSettingsRedesign(),
-  );
+  const fullWidthSettings = isContentSettingsRoute(chromePathname);
   const currentDocumentId = documentPageIdFromPathname(location.pathname);
   const pendingDocumentId = pendingPathname
     ? documentPageIdFromPathname(pendingPathname)

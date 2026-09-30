@@ -371,6 +371,36 @@ describe("notification delivery receipts", () => {
     }
   });
 
+  it("reclaims an expired notification event dispatch for stable-ID replay", async () => {
+    const initialTime = 1_700_000_000_000;
+    const now = vi.spyOn(Date, "now").mockReturnValue(initialTime);
+    try {
+      const first = await claimNotificationDelivery(
+        "n-1",
+        "notification.sent",
+        "event",
+      );
+      await markNotificationDeliveryDispatching(
+        "n-1",
+        "notification.sent",
+        first!,
+        "event",
+      );
+
+      now.mockReturnValue(initialTime + 2 * 60 * 1000 + 1);
+      const replay = await claimNotificationDelivery(
+        "n-1",
+        "notification.sent",
+        "event",
+      );
+
+      expect(replay).toBeTruthy();
+      expect(replay).not.toBe(first);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("keeps an uncertain delivery suppressed on later retries", async () => {
     const claim = await claimNotificationDelivery("n-1", "ambiguous-webhook");
     await markNotificationDeliveryDispatching(

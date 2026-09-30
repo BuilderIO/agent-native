@@ -73,7 +73,7 @@ describe("Design editor mobile layout", () => {
     );
     expect(layoutSource).toContain("input.embedChromeRequested");
     expect(layoutSource).toContain(
-      "const showAppNav = !standaloneEditor && !isRedesignedSettingsRoute;",
+      "const showAppNav = !standaloneEditor && !isSettingsRoute;",
     );
     expect(layoutSource).toContain("{showAppNav && (\n");
   });

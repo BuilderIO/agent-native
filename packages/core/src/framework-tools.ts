@@ -240,6 +240,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-usage-alerts": "automation",
   "manage-usage-alert": "automation",
   "get-usage-metrics": "automation",
+  "get-usage-insights": "automation",
+  "get-usage-run": "automation",
   "get-builder-credit-usage": "automation",
   "get-builder-credit-status": "automation",
   "get-builder-referral-info": "automation",
@@ -269,6 +271,9 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   // A new FRAMEWORK_TOOL_GROUPS member is filtered at thirteen composition
   // sites; do not add `observability` in the same change as this action.
   "promote-trace-eval": "labs",
+
+  "export-resource-pack": "resources",
+  "import-resource-pack": "resources",
 
   "create-resource-version": "history",
   "list-resource-versions": "history",

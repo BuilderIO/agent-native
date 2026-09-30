@@ -1,16 +1,9 @@
 import {
-  BuilderSetupCard,
   fetchAgentEngineConfiguredState,
   type AgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
-import {
-  PromptComposer,
-  snapshotComposerContextItems,
-  type PromptComposerSubmitOptions,
-  type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
@@ -38,6 +31,13 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import {
+  PromptComposer,
+  snapshotComposerContextItems,
+  type PromptComposerSubmitOptions,
+  type TiptapComposerHandle,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
@@ -282,8 +282,10 @@ export default function Index() {
   const preflightRequestIdRef = useRef(0);
   const effectiveAgentEngineState =
     preflightAgentEngineState ?? agentEngine.state;
-  const agentEngineConfigured = effectiveAgentEngineState === "configured";
-  const agentEngineMissing = effectiveAgentEngineState === "missing";
+  const agentEngineConfigured =
+    effectiveAgentEngineState === "configured" && !agentEngine.missing;
+  const agentEngineMissing =
+    effectiveAgentEngineState === "missing" || agentEngine.missing;
   const canChatRef = useRef(agentEngineConfigured);
   canChatRef.current = agentEngineConfigured;
   useEffect(() => {
@@ -1206,40 +1208,42 @@ export default function Index() {
           </div>
         }
         quickActions={
-          <AgentSuggestionBar
-            suggestions={homeSuggestions.map((suggestion, index) => ({
-              ...suggestion,
-              id: suggestion.id ?? `design-home-${index}`,
-              disabled:
-                !quickActionsEnabled ||
-                newDesignHandoffPending ||
-                quickStartPending,
-            }))}
-            ariaLabel={t("home.suggestedPrompts")}
-            className="px-0 py-0"
-            onSelect={async (suggestion) => {
-              if (
-                !quickActionsEnabled ||
-                quickStartRef.current ||
-                !composerRef.current
-              )
-                return;
-              quickStartRef.current = true;
-              submissionErrorRef.current = false;
-              setQuickStartPending(true);
-              try {
-                const accepted = await composerRef.current.submitWithText(
-                  agentSuggestionPrompt(suggestion),
-                );
-                if (!accepted && !submissionErrorRef.current) {
-                  toast.error(t("homeContext.notReady"));
+          quickActionsEnabled ? (
+            <AgentSuggestionBar
+              suggestions={homeSuggestions.map((suggestion, index) => ({
+                ...suggestion,
+                id: suggestion.id ?? `design-home-${index}`,
+                disabled:
+                  !quickActionsEnabled ||
+                  newDesignHandoffPending ||
+                  quickStartPending,
+              }))}
+              ariaLabel={t("home.suggestedPrompts")}
+              className="px-0 py-0"
+              onSelect={async (suggestion) => {
+                if (
+                  !quickActionsEnabled ||
+                  quickStartRef.current ||
+                  !composerRef.current
+                )
+                  return;
+                quickStartRef.current = true;
+                submissionErrorRef.current = false;
+                setQuickStartPending(true);
+                try {
+                  const accepted = await composerRef.current.submitWithText(
+                    agentSuggestionPrompt(suggestion),
+                  );
+                  if (!accepted && !submissionErrorRef.current) {
+                    toast.error(t("homeContext.notReady"));
+                  }
+                } finally {
+                  quickStartRef.current = false;
+                  setQuickStartPending(false);
                 }
-              } finally {
-                quickStartRef.current = false;
-                setQuickStartPending(false);
-              }
-            }}
-          />
+              }}
+            />
+          ) : null
         }
       >
         {accessibleDesignsSummary.isError ? (

@@ -16,11 +16,34 @@ import {
 } from "../guards/index.js";
 import type { GuardFinding, GuardResult } from "../guards/index.js";
 import {
+  AGENT_NATIVE_MIGRATION_GUIDE_URL,
   AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+  loadMigrationManifestsForProject,
+  resolveMigrationSymbolMove,
   scanDeprecatedImports,
   type MigrationManifest,
 } from "../package-lifecycle/index.js";
 import { formatBytes, scanCleanTargets } from "./clean.js";
+import {
+  loadActiveMigrationDependencies,
+  readCliCoreVersion,
+  readUpgradeEnvironment,
+  resolveInstalledPackageVersion,
+  selectMigrationDependencies,
+} from "./upgrade.js";
+
+const AGENTKIT_CHAT_MIGRATION_GUIDE_URL = new URL(
+  "../../docs/migrations/agentkit-chat.md",
+  import.meta.url,
+).href;
+const AGENTKIT_CHAT_MIGRATION_GUIDE_SOURCE_URL =
+  "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md";
+
+function resolveRemovedExportMigrationGuide(guide?: string): string {
+  return !guide || guide === AGENTKIT_CHAT_MIGRATION_GUIDE_SOURCE_URL
+    ? AGENTKIT_CHAT_MIGRATION_GUIDE_URL
+    : guide;
+}
 
 export type GuardName =
   | "no-drizzle-push"
@@ -34,6 +57,7 @@ export type GuardName =
   | "explicit-collab-access"
   | "identity-columns-registered"
   | "resource-action-access"
+  | "feature-dependencies"
   | "migration-manifest";
 
 export const ALL_GUARD_NAMES: GuardName[] = [
@@ -48,6 +72,7 @@ export const ALL_GUARD_NAMES: GuardName[] = [
   "explicit-collab-access",
   "identity-columns-registered",
   "resource-action-access",
+  "feature-dependencies",
   "migration-manifest",
 ];
 
@@ -122,6 +147,7 @@ function runGuard(
   root: string,
   config: DoctorConfig,
   migrationManifests?: MigrationManifest[],
+  shellEnvironment: NodeJS.ProcessEnv = process.env,
 ): DoctorGuardResult {
   switch (name) {
     case "no-drizzle-push":
@@ -149,20 +175,67 @@ function runGuard(
       return scanIdentityColumnsRegistered({ root });
     case "resource-action-access":
       return scanResourceActionAccess({ root });
+    case "feature-dependencies": {
+      const dependencies = selectMigrationDependencies(
+        loadActiveMigrationDependencies(
+          root,
+          readCliCoreVersion(),
+          migrationManifests,
+        ),
+        readUpgradeEnvironment(root, root, shellEnvironment),
+      );
+      return {
+        name,
+        findings: dependencies.flatMap((dependency) =>
+          resolveInstalledPackageVersion(root, dependency.name)
+            ? []
+            : [
+                {
+                  file: "package.json",
+                  line: 1,
+                  message: `Configured ${dependency.when} feature requires optional peer ${dependency.name}@${dependency.version}, which is not resolvable. Run \`agent-native upgrade\` to add it. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
+                },
+              ],
+        ),
+      };
+    }
     case "migration-manifest": {
+      const manifests =
+        migrationManifests ?? loadMigrationManifestsForProject(root);
       const imports = scanDeprecatedImports({
         root,
-        manifests: migrationManifests,
+        manifests,
       });
       return {
         name,
         findings: imports
-          .filter((finding) => finding.status === "active")
-          .map((finding) => ({
-            file: path.relative(root, finding.file),
-            line: finding.line,
-            message: `${finding.from} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
-          })),
+          .filter(
+            (finding) =>
+              finding.status === "active" || finding.status === "removed",
+          )
+          .map((finding) => {
+            const move = manifests
+              .map((manifest) => manifest.moves[finding.from])
+              .find(Boolean);
+            const destinations = finding.symbols.length
+              ? finding.symbols
+                  .map((symbol) => {
+                    const destination = move
+                      ? resolveMigrationSymbolMove(move, symbol)?.to
+                      : undefined;
+                    return `${symbol} → ${destination ?? finding.to.join(", ")}`;
+                  })
+                  .join(", ")
+              : finding.to.join(", ");
+            return {
+              file: path.relative(root, finding.file),
+              line: finding.line,
+              message:
+                finding.status === "removed"
+                  ? `${finding.symbols.join(", ")} was removed from ${finding.from}. See the migration guide: ${resolveRemovedExportMigrationGuide(finding.migrationGuide)}`
+                  : `${finding.from}${finding.symbols.length > 0 ? ` (${finding.symbols.join(", ")})` : ""} moves to ${destinations}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
+            };
+          }),
         warnings: imports
           .filter((finding) => finding.status === "planned")
           .map((finding) => ({
@@ -179,6 +252,7 @@ export interface RunDoctorScanOptions {
   root: string;
   only?: string[];
   migrationManifests?: MigrationManifest[];
+  shellEnvironment?: NodeJS.ProcessEnv;
 }
 
 export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
@@ -192,13 +266,21 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
     );
     names = knownOnly;
   } else {
-    names = ALL_GUARD_NAMES.filter((n) => !config.disabledGuards.includes(n));
+    names = ALL_GUARD_NAMES.filter(
+      (n) => n === "migration-manifest" || !config.disabledGuards.includes(n),
+    );
   }
 
   const findings: DoctorFinding[] = [];
   const warnings: DoctorFinding[] = [];
   for (const name of names) {
-    const result = runGuard(name, root, config, options.migrationManifests);
+    const result = runGuard(
+      name,
+      root,
+      config,
+      options.migrationManifests,
+      options.shellEnvironment,
+    );
     for (const f of result.findings) {
       findings.push({
         guard: name,

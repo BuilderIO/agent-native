@@ -3,7 +3,7 @@ import {
   SettingsGroup,
   SettingsLoadingRow,
   SettingsRow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { IconPhoto } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { toast } from "sonner";

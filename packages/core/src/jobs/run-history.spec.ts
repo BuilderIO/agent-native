@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import type { DbExec, DbExecStatement } from "../db/client.js";
 
 const executeMock = vi.hoisted(() => vi.fn());
@@ -440,6 +441,27 @@ describe("automation run history", () => {
     expect(recovery.sql).toContain("failure_alert_attempts < ?");
     expect(recovery.args[0]).toBe(12);
     expect(recovery.args[2]).toBe(12);
+  });
+
+  it("recovers failure-alert leases when the runs table is empty", async () => {
+    await processPendingAutomationFailureAlerts();
+
+    const recovery = executeMock.mock.calls[0]?.[0] as DbExecStatement;
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        failure_alert_state TEXT NOT NULL,
+        failure_alert_attempts BIGINT NOT NULL,
+        failure_alert_provider TEXT,
+        failure_alert_first_attempt_at BIGINT,
+        failure_alert_next_attempt_at BIGINT,
+        failure_alert_claimed_at BIGINT
+      )`);
+      const result = await pglite.query(recovery.sql, recovery.args);
+      expect(result.rowCount).toBe(0);
+    } finally {
+      await pglite.close();
+    }
   });
 
   it("keeps a failed first delivery queued for a later sweep", async () => {

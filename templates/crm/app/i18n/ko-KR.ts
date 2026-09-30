@@ -64,21 +64,11 @@ const messages = {
     showHelp: "이 도움말 표시",
   },
   settings: {
-    title: "CRM 설정",
-    description:
-      "네이티브 SQL은 CRM 소유 레코드를 Postgres에 보관합니다. HubSpot과 Salesforce는 작업 공간 연결을 사용하며, 그 미러에는 허용된 필드, 범위가 제한된 메타데이터, 한정된 증거 참조만 저장됩니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-    languageLabel: "인터페이스 언어",
     mcpAbout:
       "CRM을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 CRM에서 레코드를 찾고, 필드를 업데이트하고, 작업을 관리할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
   connection: {
     tab: "연결",
-    title: "CRM 연결",
-    description:
-      "이 CRM의 레코드가 어디에서 오는지, 각 레코드의 어디까지를 CRM이 소유하는지 보여 줍니다.",
     modesTitle: "사용 가능한 모드",
     modeNative: "네이티브 SQL",
     modeNativeHelp:
@@ -108,9 +98,6 @@ const messages = {
   },
   fields: {
     tab: "필드",
-    title: "필드",
-    description:
-      "모든 레코드와 목록을 떠받치는 형식이 정해진 속성입니다. 필드의 API 슬러그와 형식은 만들 때 고정되고, 나머지는 나중에 바꿀 수 있습니다.",
     target: "객체 또는 목록",
     targetPlaceholder: "객체 유형이나 목록을 선택하세요",
     listsGroup: "목록",
@@ -254,8 +241,6 @@ const messages = {
   },
   advanced: {
     tab: "고급",
-    title: "고급",
-    description: "재구성 및 데이터 보존 동작입니다.",
     reconfigure: "CRM 재구성",
     reconfigureHelp:
       "네이티브 SQL과 HubSpot 또는 Salesforce 동반 모드를 전환하거나 초기 동기화를 다시 실행합니다.",
@@ -571,9 +556,6 @@ const messages = {
   },
   intelligence: {
     tab: "인텔리전스",
-    title: "인텔리전스",
-    description:
-      "제한된 통화 증거에서 CRM이 알아차려야 할 순간을 선택하세요. 스마트 추적기는 Ask CRM을 통해 평가되며 이 설정 화면에서 직접 실행되지 않습니다.",
     loading: "추적기를 불러오는 중…",
     kindKeyword: "키워드",
     kindSmart: "스마트",

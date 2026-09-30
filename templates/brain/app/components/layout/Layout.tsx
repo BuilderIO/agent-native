@@ -1,14 +1,11 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -42,14 +39,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
   const isAskRoute = location.pathname === "/home";
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  // The redesigned Settings brings its own navigation and agent toggle, so
-  // Brain's sidebar and mobile bar would double them. While the flag loads,
-  // Settings shows the shell's skeleton, which is full-width too.
+  // Settings brings its own navigation and agent toggle, so Brain's sidebar
+  // and mobile bar would double them.
   const isFullWidthSettings =
-    (location.pathname === "/settings" ||
-      location.pathname.startsWith("/settings/")) &&
-    (settingsRedesign.status === "loading" || settingsRedesign.enabled);
+    location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "brain",
     activePath: location.pathname,

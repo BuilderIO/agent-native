@@ -232,6 +232,29 @@ Para reglas específicas de la empresa (dominios de lista permitida, aplicación
 
 La organización activa fluye automáticamente: `session.orgId` → `AGENT_ORG_ID` → SQL alcance de fila, por lo que los datos etiquetados con `org_id` son invisibles para otras organizaciones, incluso para el agente. Consulte [Security & Data Scoping](/docs/security) para ver el modelo completo.
 
+## Aplicaciones integradas {#builtin-apps}
+
+De forma predeterminada, cada espacio de trabajo puede acceder a las aplicaciones propias alojadas (Mail, Calendar, Content, Design, Clips y el resto) como agentes integrados. Elija cuáles ofrece su espacio de trabajo con `agent-native.builtinAgents` en el `package.json` raíz:
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"]
+    }
+  }
+}
+```
+
+- `mode`: `"all"` (predeterminado, todas las aplicaciones propias públicas), `"none"` (ninguna) o `"selected"` (solo `include`).
+- `include`: las aplicaciones integradas que ofrece este espacio de trabajo cuando `mode` es `"selected"`. Las demás siguen siendo desconocidas para el espacio de trabajo.
+
+Los ids desconocidos registran una advertencia y se ignoran. Una aplicación independiente puede usar la misma clave en su propio `package.json`. `agent-native dev` y los despliegues del espacio de trabajo pasan el valor a cada aplicación como `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
+
+Esta configuración controla la lista de aplicaciones, el descubrimiento de agentes y las llamadas entre agentes. Las aplicaciones montadas en el workspace y los agentes remotos conectados no se ven afectados, y el acceso de aplicaciones MCP sigue siendo un permiso de enrutamiento independiente.
+
 ## Servidores MCP compartidos {#shared-mcp}
 
 Las opciones recomendadas para compartir servidores MCP entre aplicaciones de espacio de trabajo, en orden de preferencia:

@@ -294,6 +294,7 @@ npx @agent-native/recap-cli@latest recap setup
 | `VISUAL_RECAP_MODEL`           | Claude では `claude-sonnet-5`。互換バックエンドでは必須 | 変数。OpenAI 互換バックエンドではプロバイダーのモデル ID です (そこでは必須)。Claude では、未設定の場合は現在 `claude-sonnet-5` がデフォルトになります — 上書きするには設定してください。例えば最も安価なティアには `claude-haiku-4-5` を使います。Codex では、未設定だと Codex CLI 自身のデフォルトが使われます。 |
 | `VISUAL_RECAP_REASONING`       | 各モデルのデフォルト                                    | 変数。推論の深さ: `none`、`minimal`、`low`、`medium`、`high`、`xhigh` のいずれかです。Codex バックエンドに適用されます。                                                                                                                                                                                           |
 | `VISUAL_RECAP_REQUIRED_LABELS` | —                                                       | 変数。カンマ区切りの PR ラベルです。設定すると、PR に掲載されたラベルのうち少なくとも 1 つが付くまで、ゲートはスキップされます。例: `visual recap`。                                                                                                                                                               |
+| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                                  | 変数。コピー版のみ（再利用可能な呼び出し側は無視します）。`false` に設定すると、プッシュごとのリキャップを停止します。以後は PR のオープン、再オープン、レビュー準備完了、マージ時と、`recap` ラベルが付いたときにだけリキャップします。必須ラベルを付けただけでは開始しません。                                   |
 | `RECAP_CLI_VERSION`            | `latest`                                                | 変数。ワークフローがインストールする `@agent-native/recap-cli` のバージョンを固定します — 例: `1.5.0`。[バージョンの固定](#version-pinning-copy-variant) を参照してください。                                                                                                                                      |
 | `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                         | シークレット。Plans アプリを別のオリジンでセルフホストしている場合のみ必要です。                                                                                                                                                                                                                                   |
 
@@ -409,9 +410,9 @@ Plan をライトモードとダークモードの両方でスクリーンショ
 ### ラベルゲートの仕組み
 
 1. フォークの貢献者が PR を開きます。GitHub がフォークの実行にシークレットを渡さないため、通常の `pull_request` ワークフローはスキップされます。
-2. フォークワークフローは、PR の作成者関連付けを確認します。信頼された作成者 (`OWNER`、`MEMBER`、`COLLABORATOR`) は、open、synchronize、reopen、ready-for-review の各イベントで自動的に実行されます。
+2. フォークワークフローは、PR の作成者関連付けを確認します。信頼された作成者 (`OWNER`、`MEMBER`、`COLLABORATOR`) は、open、reopen、ready-for-review の各イベントで自動的に実行されます。
 3. それ以外の貢献者の場合は、メンテナーが現在の diff をレビューし (特にプロンプトインジェクションのような内容がないか — 下記参照)、その後 PR に `recap` ラベルを付ける必要があります。
-4. それ以外の貢献者向けのラベルゲートはヘッド SHA ごとに機能します。貢献者がさらにコミットをプッシュすると、次の synchronize イベントは、メンテナーが新しい diff をレビューした上で `recap` を外して再度付けるまでスキップされます。
+4. 新しいコミットではフォークワークフローは起動しません。新しいコミット後にリキャップを更新するには、メンテナーが新しい diff をレビューしてから `recap` を外して再度付けます。
 
 ### フォークワークフローが行うこと・行わないこと
 

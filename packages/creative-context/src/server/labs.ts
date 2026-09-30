@@ -31,9 +31,18 @@ export async function assertCreativeContextLabEnabled(
   }
 }
 
+const creativeContextActionAvailable: NonNullable<
+  ActionEntry["agentDiscoveryAvailable"]
+> = (context) =>
+  isCreativeContextLabAvailable(
+    context?.userEmail ?? getRequestUserEmail(),
+    getCreativeContext().labKey,
+  );
+
 function gateCreativeContextAction(action: ActionEntry): ActionEntry {
   return {
     ...action,
+    agentDiscoveryAvailable: creativeContextActionAvailable,
     async run(args, context) {
       await assertCreativeContextLabEnabled(
         context?.userEmail ?? getRequestUserEmail(),

@@ -7,6 +7,7 @@ import {
   listTransactionalEmails,
   replaceTransactionalEmails,
   renderTransactionalEmailPreview,
+  renderTransactionalEmailPreviewAsync,
   resetTransactionalEmailRegistry,
 } from "./registry.js";
 
@@ -204,5 +205,32 @@ describe("transactional email registry", () => {
     expect(() => renderTransactionalEmailPreview("test.missing")).toThrow(
       /Unknown transactional email/,
     );
+  });
+
+  it("uses previewAsync for the async preview and preview otherwise", async () => {
+    define("test.sync-only");
+    define("test.async-preview", {
+      previewAsync: async () => ({
+        subject: "async",
+        html: "<p>a</p>",
+        text: "a",
+      }),
+    });
+    expect(renderTransactionalEmailPreview("test.async-preview").subject).toBe(
+      "subject:test.async-preview",
+    );
+    expect(
+      (await renderTransactionalEmailPreviewAsync("test.async-preview"))
+        .subject,
+    ).toBe("async");
+    expect(
+      (await renderTransactionalEmailPreviewAsync("test.sync-only")).subject,
+    ).toBe("subject:test.sync-only");
+  });
+
+  it("rejects an unknown id in the async preview", async () => {
+    await expect(
+      renderTransactionalEmailPreviewAsync("test.missing"),
+    ).rejects.toThrow(/Unknown transactional email/);
   });
 });

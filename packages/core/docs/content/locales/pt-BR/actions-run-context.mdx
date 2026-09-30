@@ -98,6 +98,13 @@ A maioria das actions só lê `ctx?.userEmail` e `ctx?.orgId`, o [escopo de cont
             "A chave de registro da action sendo chamada (ex.: `delete-recording`), definida em cada ponto de despacho para que preocupações transversais como o log de auditoria possam atribuir a chamada. `undefined` para chamadas `run()` programáticas diretas que ignoram o dispatcher.",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "O ID da chamada de ferramenta do modelo (`toolCall.id`) para esta invocação. Definido pelo loop do agente, inclusive por meio dos wrappers de `defineAction()`. Permite correlacionar eventos quando a mesma action é executada mais de uma vez. Não é uma entrada da action e fica `undefined` para chamadores sem uma chamada de ferramenta do modelo.",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

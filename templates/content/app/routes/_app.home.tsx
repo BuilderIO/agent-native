@@ -5,6 +5,7 @@ import type {
   ContentSpaceLandingResult,
 } from "@shared/content-landing";
 import { contentRecentHref } from "@shared/content-personal-navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -12,7 +13,9 @@ import { toast } from "sonner";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { invalidateContentDatabaseNavigationQueries } from "@/hooks/use-content-database";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
+import { LIST_DOCUMENTS_QUERY_KEY } from "@/hooks/use-documents";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
 import { readContentLandingRecovery } from "@/lib/content-landing";
 import {
@@ -114,10 +117,27 @@ export default function HomeRoute() {
   lastLocationHintRef.current = lastLocationHint;
   const recoveredDocumentId =
     readContentLandingRecovery(location.state)?.unavailableDocumentId ?? null;
+  const queryClient = useQueryClient();
   const resolveLanding = useActionMutation<
     ContentLandingResult | ContentSpaceLandingResult,
     { spaceId?: string }
-  >("resolve-content-landing");
+  >("resolve-content-landing", {
+    // Refreshing every read here aborts and restarts the startup reads; only
+    // a newly created Welcome page changes what other queries show.
+    skipActionQueryInvalidation: true,
+    onSuccess: (result) => {
+      if (!("welcomeCreated" in result) || !result.welcomeCreated) return;
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        parentId: null,
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-recent"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: LIST_DOCUMENTS_QUERY_KEY,
+      });
+    },
+  });
 
   const openLanding = useCallback(async () => {
     const requestKey = spaceId ?? "personal";

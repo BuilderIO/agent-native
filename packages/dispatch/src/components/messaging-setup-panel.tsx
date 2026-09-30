@@ -1,6 +1,5 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
-  channelIcon,
   disconnectManagedIntegrationInstallation,
   hasMissingRequiredCredentials,
   listManagedIntegrationBudgets,
@@ -26,6 +25,7 @@ import {
   listBuiltInChannelIntegrations,
   type IntegrationCatalogEntry,
 } from "@agent-native/core/integrations";
+import { channelIcon } from "@agent-native/toolkit/app/integrations";
 import {
   IconBrandSlack,
   IconCheck,

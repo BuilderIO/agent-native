@@ -55,20 +55,28 @@ export const CONNECT_APPS_FLAG = defineFeatureFlag({
 
 export const BUILDER_CREDIT_USAGE_REPORTING_FLAG = defineFeatureFlag({
   key: "billing.builder-credit-usage-reporting",
-  displayName: "Builder credit usage reporting",
-  description: "Use Builder-reported credit usage and account limits in Usage.",
+  displayName: "Builder credit referrals",
+  description: "Show connected Builder workspace referral details in Usage.",
 });
 
-/**
- * Presentation-only rollout of the redesigned Settings shell. Server actions
- * never read it; hiding a page is not the permission check.
- */
+/** @deprecated The redesigned Settings is always on; nothing reads this flag. Kept one release so apps generated from older templates still build. */
 export const SETTINGS_REDESIGN_FLAG = defineFeatureFlag({
   key: "settings-redesign",
   displayName: "Settings redesign",
   description:
     "Show the redesigned Settings page with Account, Connections, Agent, Organization, and app groups.",
 });
+
+/**
+ * Flags whose feature shipped to everyone. Apps generated from older templates
+ * still read them to pick their layout, and an unregistered key reads false,
+ * which would put them back on the removed path. `useFeatureFlag` and
+ * `useFeatureFlagState` answer "on" for these; delete an entry when its
+ * deprecated constant goes.
+ */
+export const RETIRED_ENABLED_FLAG_KEYS: ReadonlySet<string> = new Set([
+  SETTINGS_REDESIGN_FLAG.key,
+]);
 
 export function defineFeatureFlags(
   definitions: readonly FeatureFlagDefinition[],

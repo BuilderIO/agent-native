@@ -101,6 +101,36 @@ describe("isCreativeContextLabAvailable", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("filters action discovery using each requesting user's configured Lab", async () => {
+    const actions = gateCreativeContextActions({
+      "manage-creative-context": {
+        tool: {} as ActionEntry["tool"],
+        run: vi.fn(),
+      },
+    });
+    const action = actions["manage-creative-context"];
+    mocks.getUserLabs.mockImplementation(async (email: string) => ({
+      "content.creative-context": email === "enabled@example.test",
+    }));
+
+    await expect(
+      action.agentDiscoveryAvailable?.({
+        caller: "tool",
+        userEmail: "disabled@example.test",
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      action.agentDiscoveryAvailable?.({
+        caller: "tool",
+        userEmail: "enabled@example.test",
+      }),
+    ).resolves.toBe(true);
+    expect(mocks.getUserLabs.mock.calls.map(([email]) => email)).toEqual([
+      "disabled@example.test",
+      "enabled@example.test",
+    ]);
+  });
+
   it("keeps approved purge cleanup runnable after disabling the Lab", async () => {
     const run = vi.fn().mockResolvedValue({ ok: true });
     const actions = gateCreativeContextActions({

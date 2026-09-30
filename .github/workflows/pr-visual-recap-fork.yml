@@ -22,22 +22,27 @@ name: PR Visual Recap (fork, trusted + label-gated)
 #   - The diff is attacker-controlled text fed as INPUT to the LLM; it is
 #     never executed. Mitigations: secret-scan (fail-closed), sensitive-path
 #     gate, and the prompt explicitly marks diff content as untrusted data.
-#   - To refresh after new fork commits, a maintainer must review the updated
-#     diff, then remove/reapply the `recap` label, unless the PR author has a
-#     trusted author association. A rerun only reuses the original event
-#     payload/SHA and is appropriate for transient failures on the same reviewed
-#     commit.
+#   - New fork commits do not trigger a recap. To refresh, a maintainer
+#     reviews the updated diff, then removes and reapplies the `recap` label.
+#     A rerun only reuses the original event payload/SHA and is appropriate
+#     for transient failures on the same reviewed commit.
 #   - Concurrency: per-PR, cancel-in-progress (mirror of main workflow).
+#     Ignored events (non-fork PRs, other labels) get a throwaway group so
+#     they never cancel an in-progress recap.
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, reopened, ready_for_review, labeled]
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-visual-recap-fork-${{ github.event.pull_request.number }}
+  group: >-
+    ${{ (github.event.pull_request.head.repo.full_name == github.repository
+        || (github.event.action == 'labeled' && github.event.label.name != 'recap'))
+        && format('pr-visual-recap-fork-ignored-{0}', github.run_id)
+        || format('pr-visual-recap-fork-{0}', github.event.pull_request.number) }}
   cancel-in-progress: true
 
 env:
@@ -49,7 +54,9 @@ env:
 jobs:
   gate:
     name: Gate (fork label check)
-    if: github.event.pull_request.head.repo.full_name != github.repository
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.repository
+      && (github.event.action != 'labeled' || github.event.label.name == 'recap')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

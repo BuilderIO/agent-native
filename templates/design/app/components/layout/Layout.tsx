@@ -1,26 +1,23 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useGuidedQuestionFlow,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   createContext,
@@ -42,6 +39,7 @@ import {
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import { cn } from "@/lib/utils";
 
+import { DesignComposerContextProvider } from "../editor/DesignComposerContextProvider";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -110,14 +108,10 @@ export function Layout({ children }: LayoutProps) {
     isDesignEditor,
   });
   const standaloneEditor = layoutMode === "standalone-editor";
-  // The redesigned Settings brings its own navigation, header, and agent
-  // toggle, so it renders full width. While the flag loads it shows the
-  // shell's skeleton, which needs the same frame.
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  const isRedesignedSettingsRoute =
-    isSettingsPathname(location.pathname) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
-  const showAppNav = !standaloneEditor && !isRedesignedSettingsRoute;
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(location.pathname);
+  const showAppNav = !standaloneEditor && !isSettingsRoute;
   const showMobileTopBar = showAppNav;
   const browserTabId = getBrowserTabId();
   const {
@@ -216,15 +210,18 @@ export function Layout({ children }: LayoutProps) {
 
   const hideHeader =
     isChatRoute ||
-    isRedesignedSettingsRoute ||
+    isSettingsRoute ||
     (!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p)));
 
-  function openAgentChatFullscreen() {
+  function openAgentChatFullscreen(threadId?: string) {
     focusAgentChat();
     const designQuery = designScope
       ? `?designId=${encodeURIComponent(designScope.id)}`
       : "";
-    navigateWithAgentChatViewTransition(navigate, `/chat${designQuery}`);
+    const chatPath = threadId
+      ? `/chat/${encodeURIComponent(threadId)}`
+      : "/chat";
+    navigateWithAgentChatViewTransition(navigate, `${chatPath}${designQuery}`);
   }
 
   if (layoutMode === "host-bare") {
@@ -307,7 +304,7 @@ export function Layout({ children }: LayoutProps) {
         <main
           className={cn(
             "agent-native-app-main min-h-0 flex-1",
-            isDesignEditor || isChatRoute || isRedesignedSettingsRoute
+            isDesignEditor || isChatRoute || isSettingsRoute
               ? "overflow-hidden"
               : "overflow-y-auto",
           )}
@@ -327,6 +324,7 @@ export function Layout({ children }: LayoutProps) {
           shell
         ) : (
           <AgentSidebar
+            composerContextProvider={DesignComposerContextProvider}
             position="right"
             chatViewTransition
             chatViewTransitionHandoff={chatHomeHandoffPending}
