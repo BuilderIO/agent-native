@@ -621,6 +621,7 @@ const VARIABLE_AXIS_GOOGLE_FONTS = [
   "DM Sans",
   "Epilogue",
   "Exo 2",
+  "Fraunces",
   "Geist",
   "Geist Mono",
   "Heebo",
