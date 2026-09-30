@@ -197,6 +197,27 @@ export function localVisualEditWorkspacePrincipal(
   return `workspace+${workspaceId}@${LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN}`;
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function startBridgeCommand(args: {
+  bridgeToken: string;
+  bridgeUrl?: string | null;
+  rootPath?: string | null;
+  devServerUrl: string;
+}): string {
+  const port = new URL(args.bridgeUrl ?? DEFAULT_BRIDGE_URL).port;
+  return [
+    `AGENT_NATIVE_BRIDGE_TOKEN=${shellQuote(args.bridgeToken)}`,
+    "npx @agent-native/core@latest design connect",
+    `--url ${shellQuote(args.devServerUrl)}`,
+    `--root ${shellQuote(args.rootPath ?? ".")}`,
+    ...(port ? [`--port ${port}`] : []),
+    "--daemon",
+  ].join(" ");
+}
+
 export function localVisualEditBridgePrincipal(bridgeToken: string): string {
   const capabilityId = crypto
     .createHash("sha256")
@@ -696,13 +717,18 @@ export default defineAction({
       const embedStartUrl = isLoopbackUrl(devServerUrl)
         ? await createCallerHandoff(urlPath, ownerEmail, designId)
         : undefined;
-      const startBridgeCommand = connection.bridgeToken
-        ? `AGENT_NATIVE_BRIDGE_TOKEN=${connection.bridgeToken} npx @agent-native/core@latest design connect --url ${devServerUrl} --root "${connection.rootPath ?? "."}" --daemon`
+      const bridgeCommand = connection.bridgeToken
+        ? startBridgeCommand({
+            bridgeToken: connection.bridgeToken,
+            bridgeUrl: connection.bridgeUrl,
+            rootPath: connection.rootPath,
+            devServerUrl,
+          })
         : null;
 
       const result = {
-        message: startBridgeCommand
-          ? `Design ${designId} uses connection ${connection.id}. Start its bridge with \`${startBridgeCommand}\`, then open the design.`
+        message: bridgeCommand
+          ? `Design ${designId} uses connection ${connection.id}. Start its bridge with \`${bridgeCommand}\`, then open the design.`
           : `Design ${designId} uses connection ${connection.id}.`,
         designId,
         connectionId: connection.id,
