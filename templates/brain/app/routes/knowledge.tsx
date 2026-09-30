@@ -280,7 +280,7 @@ export default function KnowledgeRoute() {
                         : t("knowledge.notApplicable")}
                     </TableCell>
                     <TableCell className="text-end">
-                      {row.citations ?? 0}
+                      {row.evidence?.length ?? 0}
                     </TableCell>
                   </TableRow>
                 ))}

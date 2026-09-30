@@ -332,6 +332,8 @@ export function buildBrainAgentGuidance(
       instructions: distillationInstructions,
       rules: [
         "Extract durable, reusable institutional knowledge only.",
+        "Treat explicit company or product launch announcements as retainable dated facts, even when a capture is a single short message. Distinguish announced plans from confirmed launches; never claim a launch happened solely because someone said it would happen today.",
+        "When a company-relevant announcement is uncertain, use write-knowledge with proposalMode=always to seek review rather than ignoring it. Preserve source review requirements and ignore only captures with no company-relevant fact after privacy filtering.",
         settings.captureSanitizationEnabled === false
           ? "Captures may contain raw provider text; avoid personal or out-of-scope material."
           : "Transcript captures are pre-sanitized before storage; treat capture text as the durable company-relevant source.",
