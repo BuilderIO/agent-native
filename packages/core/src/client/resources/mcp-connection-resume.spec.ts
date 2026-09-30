@@ -75,6 +75,35 @@ describe("MCP connection resume", () => {
     expect(getPendingMcpConnectionResume()).toBeNull();
   });
 
+  it("keeps the completion marker when the pending request cannot be removed", () => {
+    const completionId = "8d1bd7cf-419e-4ff0-8545-19dedb819154";
+    saveMcpConnectionResume(
+      "Continue the run",
+      { threadId: "thread-1", runId: "run-1", requestId: "connection-1" },
+      completionId,
+    );
+    notifyMcpConnectionComplete(completionId);
+    const removeItem = vi
+      .spyOn(window.sessionStorage, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("storage unavailable");
+      });
+
+    try {
+      clearMcpConnectionResume(completionId);
+      expect(
+        window.localStorage.getItem(
+          `agent-native:mcp-connection-completion:${completionId}`,
+        ),
+      ).toBe("1");
+      expect(
+        window.sessionStorage.getItem("agent-native:mcp-connection-resume"),
+      ).not.toBeNull();
+    } finally {
+      removeItem.mockRestore();
+    }
+  });
+
   it("drops malformed and expired requests", () => {
     window.sessionStorage.setItem(
       "agent-native:mcp-connection-resume",

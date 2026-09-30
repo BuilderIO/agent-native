@@ -132,7 +132,10 @@ describe("McpAgentKitConnectionResume", () => {
       root?.unmount();
     });
     root = undefined;
-    notifyMcpConnectionComplete(completionId);
+    window.localStorage.setItem(
+      `agent-native:mcp-connection-completion:${completionId}`,
+      "1",
+    );
 
     const remountedContainer = document.createElement("div");
     root = createRoot(remountedContainer);
@@ -157,5 +160,59 @@ describe("McpAgentKitConnectionResume", () => {
     );
     expect(getPendingMcpConnectionResume()).toBeNull();
     clearMcpConnectionResume();
+  });
+
+  it("keeps the saved request when the fallback chat submission fails", async () => {
+    const target = { threadId: "thread-1", runId: "run-1", requestId: "req-1" };
+    saveMcpConnectionResume("Restore the request.", target);
+    const onResume = vi
+      .fn()
+      .mockRejectedValue(new Error(`Unknown AgentKit run: ${target.runId}`));
+    const onMessageResume = vi.fn().mockRejectedValue(new Error("offline"));
+    const container = document.createElement("div");
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <McpAgentKitConnectionResume
+          onResume={onResume}
+          onMessageResume={onMessageResume}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onMessageResume).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(getPendingMcpConnectionResume()).toMatchObject({
+      message: "Restore the request.",
+      agentKit: target,
+    });
+  });
+
+  it("clears a stale failure alert after a later successful retry", async () => {
+    const target = { threadId: "thread-1", runId: "run-1", requestId: "req-1" };
+    saveMcpConnectionResume("Restore the request.", target);
+    const onResume = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(undefined);
+    const container = document.createElement("div");
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<McpAgentKitConnectionResume onResume={onResume} />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+
+    await act(async () => {
+      notifyMcpConnectionComplete();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onResume).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(getPendingMcpConnectionResume()).toBeNull();
   });
 });

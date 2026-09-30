@@ -111,7 +111,8 @@ function removeStoredMcpConnectionResume(completionId?: string): void {
   try {
     storage.removeItem(MCP_CONNECTION_RESUME_STORAGE_KEY);
   } catch {
-    // Ignore storage-denied browsers; the pending request is best effort.
+    // Keep its completion marker so a readable request can still be retried.
+    return;
   }
   const completedId = completionId ?? storedCompletionId;
   if (completedId) clearCompletionMarker(completedId);

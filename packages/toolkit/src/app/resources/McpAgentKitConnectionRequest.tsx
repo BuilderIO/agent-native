@@ -234,6 +234,7 @@ export function McpAgentKitConnectionResume({
           await onMessageResumeRef.current(pending);
         }
         clearMcpConnectionResume(pending);
+        setFailed(false);
       } finally {
         processingRef.current = false;
       }

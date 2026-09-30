@@ -2552,11 +2552,19 @@ const AgentKitAssistantChatBody = forwardRef<
     [isThreadRunning, submit],
   );
   const resumeIntegrationPrompt = useCallback(
-    (message: string) => {
-      if (props.isActiveComposer === false) return;
-      void send(message).catch((error) => {
+    async (message: string) => {
+      if (props.isActiveComposer === false) {
+        throw new Error("Cannot resume a request in an inactive chat.");
+      }
+      try {
+        const result = await send(message);
+        if (result.status === "rejected") {
+          throw new Error(`Chat resume was rejected: ${result.reason}.`);
+        }
+      } catch (error) {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
-      });
+        throw error;
+      }
     },
     [props.isActiveComposer, props.tabId, send, threadId],
   );
