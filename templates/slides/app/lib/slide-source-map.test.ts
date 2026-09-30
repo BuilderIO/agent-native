@@ -130,13 +130,14 @@ describe("mergeRenderedEdits", () => {
     paragraph.setAttribute("aria-controls", "slide-slash-command-list");
     paragraph.setAttribute("aria-activedescendant", "slide-slash-heading1");
     paragraph.setAttribute("aria-haspopup", "listbox");
+    paragraph.setAttribute("role", "combobox");
 
     expect(save()).toEqual({ html: source, changed: false });
   });
 
   it("preserves authored accessibility attributes when a block is retagged", () => {
     const source =
-      '<div class="fmd-slide"><p aria-expanded="false" aria-autocomplete="inline" aria-controls="details-panel" aria-activedescendant="details-heading" aria-haspopup="grid" aria-label="Details">Text</p></div>';
+      '<div class="fmd-slide"><p role="textbox" aria-expanded="false" aria-autocomplete="inline" aria-controls="details-panel" aria-activedescendant="details-heading" aria-haspopup="grid" aria-label="Details">Text</p></div>';
     const { root, save } = mount(source);
     const paragraph = q(root, "p");
     const heading = document.createElement("h2");
@@ -147,7 +148,7 @@ describe("mergeRenderedEdits", () => {
     paragraph.replaceWith(heading);
 
     expect(save().html).toContain(
-      '<h2 aria-expanded="false" aria-autocomplete="inline" aria-controls="details-panel" aria-activedescendant="details-heading" aria-haspopup="grid" aria-label="Details">Text</h2>',
+      '<h2 role="textbox" aria-expanded="false" aria-autocomplete="inline" aria-controls="details-panel" aria-activedescendant="details-heading" aria-haspopup="grid" aria-label="Details">Text</h2>',
     );
   });
 

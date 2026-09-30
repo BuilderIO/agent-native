@@ -61,6 +61,7 @@ const TRANSIENT_ATTRS = new Set([
   "contenteditable",
   "data-editing-block",
   "spellcheck",
+  "role",
   "aria-expanded",
   "aria-autocomplete",
   "aria-controls",
@@ -68,6 +69,7 @@ const TRANSIENT_ATTRS = new Set([
   "aria-haspopup",
 ]);
 const SOURCE_ACCESSIBILITY_ATTRS = new Set([
+  "role",
   "aria-expanded",
   "aria-autocomplete",
   "aria-controls",

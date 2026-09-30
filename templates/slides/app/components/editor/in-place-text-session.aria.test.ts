@@ -16,6 +16,7 @@ afterEach(() => {
 
 it("does not persist slash-menu ARIA through root retag, undo, and session end", () => {
   const element = document.createElement("p");
+  element.setAttribute("role", "textbox");
   element.setAttribute("aria-haspopup", "grid");
   element.setAttribute("aria-label", "Details");
   element.textContent = "Alpha";
@@ -30,6 +31,7 @@ it("does not persist slash-menu ARIA through root retag, undo, and session end",
   window.getSelection()!.removeAllRanges();
   window.getSelection()!.addRange(range);
   for (const [name, value] of Object.entries({
+    role: "combobox",
     "aria-haspopup": "listbox",
     "aria-autocomplete": "list",
     "aria-expanded": "true",
@@ -41,9 +43,22 @@ it("does not persist slash-menu ARIA through root retag, undo, and session end",
 
   expect(textSession.commands.applyAuthoringCommand("heading1")).toBe(true);
   expect(textSession.undo()).toBe(true);
+  expect(textSession.element.getAttribute("role")).toBe("textbox");
+
+  for (const [name, value] of Object.entries({
+    role: "combobox",
+    "aria-haspopup": "listbox",
+    "aria-autocomplete": "list",
+    "aria-expanded": "true",
+    "aria-controls": "slide-slash-command-list",
+    "aria-activedescendant": "slide-slash-heading1",
+  })) {
+    textSession.element.setAttribute(name, value);
+  }
   textSession.end();
 
   expect(textSession.element.tagName).toBe("P");
+  expect(textSession.element.getAttribute("role")).toBe("textbox");
   expect(textSession.element.getAttribute("aria-haspopup")).toBe("grid");
   expect(textSession.element.getAttribute("aria-label")).toBe("Details");
   expect(

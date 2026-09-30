@@ -87,7 +87,10 @@ vi.mock("@/components/ui/popover", async () => {
   };
 });
 
-import type { InPlaceTextAuthoringCommand } from "./in-place-text-session";
+import type {
+  InPlaceTextAuthoringCommand,
+  InPlaceTextSession,
+} from "./in-place-text-session";
 import { startInPlaceTextSession } from "./in-place-text-session";
 import { SlideSlashCommandMenu } from "./SlideSlashCommandMenu";
 
@@ -455,6 +458,68 @@ describe("slide slash command menu", () => {
     expect(range.toString()).toBe("/heading\u00a02");
   });
 
+  it("applies a command after a hard break without merging the preceding line", () => {
+    const editingEl = document.createElement("div");
+    const block = document.createElement("p");
+    const firstLine = document.createTextNode("Before");
+    const secondLine = document.createTextNode("");
+    block.append(firstLine, document.createElement("br"), secondLine);
+    editingEl.append(block, document.createElement("p"));
+    editingEl.lastElementChild!.textContent = "Untouched";
+    document.body.append(editingEl);
+    let textSession: InPlaceTextSession | null = null;
+    const menuSession = {
+      isActive: true,
+      commands: {
+        applyAuthoringCommand: (
+          kind: InPlaceTextAuthoringCommand,
+          range: Range,
+        ) => textSession?.commands.applyAuthoringCommand(kind, range),
+      },
+    } as InPlaceTextSession;
+    setCaret(secondLine, 0);
+    editingEl.focus();
+    render(
+      <SlideSlashCommandMenu editingEl={editingEl} textSession={menuSession} />,
+    );
+
+    try {
+      typeSlash(editingEl, secondLine, 0);
+      secondLine.insertData(1, "heading 2 After");
+      setCaret(secondLine, 10);
+      fireInput(editingEl, "insertText", "heading 2");
+      expect(
+        screen
+          .getByRole("option", { name: /Heading 2/ })
+          .getAttribute("aria-selected"),
+      ).toBe("true");
+
+      for (const name of [
+        "role",
+        "aria-haspopup",
+        "aria-autocomplete",
+        "aria-expanded",
+        "aria-controls",
+        "aria-activedescendant",
+      ]) {
+        editingEl.removeAttribute(name);
+      }
+      textSession = startInPlaceTextSession(editingEl);
+      keyDown(editingEl, "Enter");
+
+      expect(Array.from(editingEl.children, (child) => child.tagName)).toEqual([
+        "P",
+        "H2",
+        "P",
+      ]);
+      expect(editingEl.children[0]?.textContent).toBe("Before");
+      expect(editingEl.children[1]?.textContent).toBe(" After");
+      expect(editingEl.children[2]?.textContent).toBe("Untouched");
+    } finally {
+      textSession?.end();
+    }
+  });
+
   it("closes when a whitespace query makes the slash literal", async () => {
     const { editingEl, textNode, applyAuthoringCommand } =
       renderWithTypedSlash("Step 1 ");
@@ -687,6 +752,29 @@ describe("slide slash command menu", () => {
     for (const [name, value] of Object.entries(authored)) {
       expect(editingEl.getAttribute(name)).toBe(value);
     }
+  });
+
+  it("restores the original role when the text session ends with the menu open", () => {
+    const editingEl = document.createElement("div");
+    editingEl.setAttribute("role", "textbox");
+    const textNode = document.createTextNode("");
+    editingEl.append(textNode);
+    document.body.append(editingEl);
+    const textSession = startInPlaceTextSession(editingEl);
+    const view = render(
+      <SlideSlashCommandMenu editingEl={editingEl} textSession={textSession} />,
+    );
+
+    typeSlash(editingEl, textNode, 0);
+    expect(editingEl.getAttribute("role")).toBe("combobox");
+
+    textSession.end();
+    view.rerender(
+      <SlideSlashCommandMenu editingEl={null} textSession={null} />,
+    );
+
+    expect(editingEl.getAttribute("role")).toBe("textbox");
+    expect(editingEl.hasAttribute("aria-controls")).toBe(false);
   });
 
   it("restores authored accessibility attributes before applying a retagging command", () => {

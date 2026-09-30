@@ -212,13 +212,15 @@ const TEXT_LOOK_PROPERTIES = [
 const SESSION_ROOT_ATTRIBUTES = new Set([
   "contenteditable",
   "data-editing-block",
+  "role",
   "aria-haspopup",
   "aria-autocomplete",
   "aria-expanded",
   "aria-controls",
   "aria-activedescendant",
 ]);
-const SESSION_MENU_ARIA_ATTRIBUTES = new Set([
+const SESSION_MENU_ATTRIBUTES = new Set([
+  "role",
   "aria-haspopup",
   "aria-autocomplete",
   "aria-expanded",
@@ -1031,7 +1033,7 @@ export function startInPlaceTextSession(
     ]),
   );
   const restoreSessionMenuAria = () => {
-    for (const name of SESSION_MENU_ARIA_ATTRIBUTES) {
+    for (const name of SESSION_MENU_ATTRIBUTES) {
       const value = startAttributes.get(name);
       if (value === undefined) el.removeAttribute(name);
       else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
@@ -1325,14 +1327,14 @@ export function startInPlaceTextSession(
     const attributes = Array.from(
       el.attributes,
       (attribute): [string, string] | null => {
-        if (!SESSION_MENU_ARIA_ATTRIBUTES.has(attribute.name)) {
+        if (!SESSION_MENU_ATTRIBUTES.has(attribute.name)) {
           return [attribute.name, attribute.value];
         }
         const initial = startAttributes.get(attribute.name);
         return initial === undefined ? null : [attribute.name, initial];
       },
     ).filter((attribute): attribute is [string, string] => attribute !== null);
-    for (const name of SESSION_MENU_ARIA_ATTRIBUTES) {
+    for (const name of SESSION_MENU_ATTRIBUTES) {
       const initial = startAttributes.get(name);
       if (initial !== undefined && !attributes.some(([key]) => key === name)) {
         attributes.push([name, initial]);
@@ -3171,14 +3173,17 @@ export function startInPlaceTextSession(
   function commandBlock(node: Node) {
     const block = nearestBlock(node, el);
     if (block.tagName !== "LI") return block;
+    const childBlocks = Array.from(block.children).filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement &&
+        BLOCK_TAGS.has(child.tagName) &&
+        child.tagName !== "OL" &&
+        child.tagName !== "UL",
+    );
     return (
-      Array.from(block.children).find(
-        (child): child is HTMLElement =>
-          child instanceof HTMLElement &&
-          BLOCK_TAGS.has(child.tagName) &&
-          child.tagName !== "OL" &&
-          child.tagName !== "UL",
-      ) ?? block
+      childBlocks.find((child) => child.contains(node)) ??
+      childBlocks[0] ??
+      block
     );
   }
 

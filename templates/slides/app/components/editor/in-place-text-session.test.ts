@@ -2524,11 +2524,11 @@ describe("in-place text session: clipboard and drag", () => {
     caret(el.firstChild!, 1);
     paste(el, {
       "text/html":
-        '<b style="color: red; font-size: 20px; background-color: rgb(255, 255, 255); display: inline !important; --tw-font-weight: 700; orphans: 2">x</b>',
-      "text/plain": "x",
+        '<b style="color: red; font-size: 20px; background-color: rgb(255, 255, 255); display: inline !important; --tw-font-weight: 700; orphans: 2">x<em style="color: blue; font-style: italic">y</em></b>',
+      "text/plain": "xy",
     });
     session.end();
-    expect(el.innerHTML).toBe("A<b>x</b>");
+    expect(el.innerHTML).toBe("A<b>x<em>y</em></b>");
   });
 
   it("strips foreign spacing, transform, and shorthand font styles", () => {
@@ -3414,7 +3414,15 @@ describe("in-place text session: Content authoring parity", () => {
       session = startInPlaceTextSession(el);
       caret(textOf(el, "Start "), 6);
 
-      type(el, `${shortcut} next`);
+      type(el, shortcut);
+
+      const selection = window.getSelection()!;
+      const formatted = el.querySelector(selector);
+      expect(selection.isCollapsed).toBe(true);
+      expect(formatted).not.toBeNull();
+      expect(formatted!.contains(selection.anchorNode)).toBe(false);
+
+      type(el, " next");
 
       expect(session.element.textContent).toBe(`Start ${word} next`);
       expect(session.element.querySelector(selector)?.textContent).toBe(word);
@@ -3793,6 +3801,25 @@ describe("in-place text session: Content authoring parity", () => {
       "After",
     );
     expect(session.element.textContent).toBe("FirstSecondAfter");
+  });
+
+  it("targets the caret paragraph in an inline multi-paragraph list item", () => {
+    const el = mount(
+      '<ul id="t"><li><p style="display:inline">First</p><p style="display:inline">Second</p></li></ul>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Second"), 2);
+
+    expect(session.commands.applyAuthoringCommand("heading2")).toBe(true);
+
+    expect(
+      Array.from(
+        el.querySelector(":scope > li")!.children,
+        (child) => child.tagName,
+      ),
+    ).toEqual(["P", "H2"]);
+    expect(el.querySelector(":scope > li > p")?.textContent).toBe("First");
+    expect(el.querySelector(":scope > li > h2")?.textContent).toBe("Second");
   });
 
   it("keeps every direct nested list outside a retagged list item", () => {
@@ -4581,7 +4608,7 @@ describe("in-place text session: Content authoring parity", () => {
     expect(el.children[2].textContent).toBe("Third");
   });
 
-  it("keeps a styled OL intact when its middle item starts with an ordered prefix", () => {
+  it("keeps a styled OL intact when `2. ` is typed at an item start", () => {
     const el = mount(
       '<div id="t"><ol style="padding-left:1.2em"><li>One</li><li>Two</li><li>Three</li></ol></div>',
     );
