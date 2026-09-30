@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { describe, expect, it } from "vitest";
 
 import { resolveDocumentTextEdits } from "./document-text-edits";
@@ -17,7 +15,8 @@ import {
   SuggestionFormattingMappingError,
 } from "./suggestion-formatting";
 
-// Byte-exact body from page zX4TjUz60f47, revision body:0:sha256:a3aea9bdfef2b84fe3b4ce6b8538259ab1f3b8b20696e3fcad10ee718759a3f7.
+// Synthetic demo copy, stored as MCP create-document wrote it: blank lines
+// between blocks and an unescaped dollar, where canonical NFM differs.
 const source =
   "We are very excited to finally be able to share with all of you something that we have been quietly working on for quite a long time here at Lantern Type, which is a brand new typeface family that we have decided to call Wrenfield, and which we really think you are going to love.\n\nWrenfield is a variable serif with two axes, weight and optical size. At display sizes it tightens up, with sharp wedge serifs and a tall, narrow f. At text sizes it opens up, with sturdier hairlines and looser spacing, so one file can set a magazine cover and the story underneath it.\n\nWe drew it over three winters, starting from the captions in a 1920s bird guide we found in a secondhand shop. The wren on the cover gave it its name.\n\n## Details\n\n- **Release:** Wrenfield goes on sale Thursday, October 3.\n- **Styles:** Light to Black, with matching italics.\n- **Licensing:** Desktop, web, and app licenses, starting at $60.";
 
@@ -55,12 +54,6 @@ function suggestDocumentEdit(
 }
 
 describe("suggestions on an MCP-created Markdown page", () => {
-  it("preserves the captured revision's exact source bytes", () => {
-    expect(createHash("sha256").update(source).digest("hex")).toBe(
-      "a3aea9bdfef2b84fe3b4ce6b8538259ab1f3b8b20696e3fcad10ee718759a3f7",
-    );
-  });
-
   it("normalizes four blank separators and the literal currency dollar", () => {
     expect(docToNfm(nfmToDoc(source))).toBe(
       source.replace(/\n\n/g, "\n").replace("$60", "\\$60"),
