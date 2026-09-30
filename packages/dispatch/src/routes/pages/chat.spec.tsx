@@ -41,7 +41,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: vi.fn(),
 }));
 
-vi.mock("@agent-native/toolkit/app/chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat/AgentChatHome", () => ({
   AgentChatHome: (props: Record<string, unknown>) => {
     clientState.surfaceProps = { mode: "page", ...props };
     return (

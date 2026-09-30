@@ -132,8 +132,9 @@ describe("AgentKit capability lifecycle", () => {
       await settle();
       expect(result.data).toBeUndefined();
       next.resolve(empty);
-      await settle();
-      expect(result.data).toEqual(empty);
+      await act(async () => {
+        await vi.waitFor(() => expect(result.data).toEqual(empty));
+      });
     },
   );
 

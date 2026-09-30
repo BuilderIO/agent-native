@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { AppOpenActions } from "@agent-native/toolkit/app/chat/chat-first";
+import { AppOpenActions } from "@agent-native/toolkit/app/chat/chat-first/app-open-actions";
 import { IconArrowUpRight, IconPlus } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";

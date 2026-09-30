@@ -1,4 +1,4 @@
-import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat/AgentSidebar";
 import { RunsTray } from "@agent-native/toolkit/app/progress";
 import { IconLayoutSidebar } from "@tabler/icons-react";
 import { useLocation, useNavigate } from "react-router";

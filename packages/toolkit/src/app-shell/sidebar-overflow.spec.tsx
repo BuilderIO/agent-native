@@ -32,7 +32,10 @@ describe("AppSidebar overflow affordances", () => {
     root = createRoot(container);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
