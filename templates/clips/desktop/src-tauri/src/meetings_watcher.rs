@@ -76,6 +76,11 @@ const PRE_ALERT_FRESH_SECS: i64 = 30;
 
 const ALERT_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 
+/// A scheduled fetch this far past due means the Mac slept through it, so the
+/// cache may predate moves or cancellations and the tick fetches before it
+/// alerts.
+const OVERDUE_FETCH_SECS: i64 = 30;
+
 const NOTIFY_LEAD_SECS: i64 = 60;
 
 const NOTIFY_HOLD_AFTER_START_SECS: i64 = 5 * 60;
@@ -230,6 +235,12 @@ impl MeetingsWatcherState {
     pub fn invalidate_cache(&self) {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         g.invalidate_cache();
+    }
+
+    fn fetch_overdue(&self, now_ts: i64) -> bool {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.next_fetch_at
+            .is_some_and(|at| now_ts - at > OVERDUE_FETCH_SECS)
     }
 
     fn fetch_due(&self, now_ts: i64) -> Option<u64> {
@@ -624,9 +635,13 @@ async fn tick_once(
         return Ok(());
     }
 
-    // Alert from the cache before fetching: a fetch can take up to the 10s
-    // request timeout, and the banner must not wait on it.
-    notify_due_meetings(app, &state, state.due_alerts(now_utc)).await;
+    // Normally alert from the cache before fetching: a fetch can take up to the
+    // 10s request timeout, and the banner must not wait on it. After sleep the
+    // cache is stale, so fetch first; a failed fetch still alerts from it.
+    let fetch_first = state.fetch_overdue(now_utc.timestamp());
+    if !fetch_first {
+        notify_due_meetings(app, &state, state.due_alerts(now_utc)).await;
+    }
 
     let mut fetch_error = None;
     if let Some(generation) = state.fetch_due(now_utc.timestamp()) {
@@ -641,6 +656,9 @@ async fn tick_once(
         }
     }
 
+    if fetch_first {
+        notify_due_meetings(app, &state, state.due_alerts(now_utc)).await;
+    }
     fetch_error.map_or(Ok(()), Err)
 }
 
@@ -852,8 +870,8 @@ mod tests {
     use super::{
         find_matching_calendar_meeting, is_calendar_reminder_candidate, parse_meetings,
         should_poll, FetchOutcome, MeetingItem, MeetingsWatcherState, Poller, UnauthorizedRetry,
-        FETCH_INTERVAL_SECS, FETCH_RETRY_SECS, PRE_ALERT_FRESH_SECS, PRE_ALERT_REFRESH_SECS,
-        RESUME_REFRESH_MIN_AGE_SECS,
+        FETCH_INTERVAL_SECS, FETCH_RETRY_SECS, OVERDUE_FETCH_SECS, PRE_ALERT_FRESH_SECS,
+        PRE_ALERT_REFRESH_SECS, RESUME_REFRESH_MIN_AGE_SECS,
     };
 
     #[test]
@@ -1256,6 +1274,18 @@ mod tests {
         state.invalidate_cache();
 
         assert!(state.mark_notified(due, now.timestamp()).is_empty());
+    }
+
+    #[test]
+    fn a_fetch_slept_through_is_overdue_but_one_just_due_is_not() {
+        let now_ts = 1_000_000;
+        let state = state_with_cache(vec![meeting("a", None)], now_ts);
+        let due_at = now_ts + FETCH_INTERVAL_SECS;
+
+        assert!(!state.fetch_overdue(due_at));
+        assert!(!state.fetch_overdue(due_at + OVERDUE_FETCH_SECS));
+        assert!(state.fetch_overdue(due_at + OVERDUE_FETCH_SECS + 1));
+        assert!(!MeetingsWatcherState::default().fetch_overdue(now_ts));
     }
 
     #[test]
