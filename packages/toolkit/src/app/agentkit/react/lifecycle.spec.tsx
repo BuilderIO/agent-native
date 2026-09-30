@@ -1165,6 +1165,61 @@ describe("AgentChat lifecycle", () => {
 
     expect(tree.container.textContent).toContain("result.csv");
     expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    const dataResponse = {
+      id: response.id,
+      role: "assistant" as const,
+      parts: [{ type: "data" as const, data: { value: "hidden" } }],
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [dataResponse],
+          events: [{ ...responseEvent, message: dataResponse }],
+        },
+      },
+      revision: 3,
+    });
+    await flush();
+
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        slots={{ data: () => <span>Visible data</span> }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    expect(tree.container.textContent).toContain("Visible data");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{
+          messageParts: {
+            data: () => <span>Registered data</span>,
+          },
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    expect(tree.container.textContent).toContain("Registered data");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
     await tree.unmount();
   });
 
@@ -1248,7 +1303,7 @@ describe("AgentChat lifecycle", () => {
     expect(tree.container.querySelectorAll("article")).toHaveLength(0);
     expect(
       work.querySelectorAll('[data-activity-bucket="thinking"] [data-thought]'),
-    ).toHaveLength(2);
+    ).toHaveLength(0);
     expect(tree.container.textContent).not.toContain("Hidden thought");
     expect(
       work.querySelector("[data-agentkit-current-activity]")?.textContent,
@@ -1258,11 +1313,7 @@ describe("AgentChat lifecycle", () => {
         ".agentkit-activities-summary > .agentkit-summary-chevron",
       ),
     ).not.toBeNull();
-    expect(
-      work
-        .querySelector('[data-thought="thread-reasoning-work:assistant-2:0"]')
-        ?.getAttribute("data-active"),
-    ).toBe("false");
+    expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
 
     thread = reduceAgentEvent(thread, {
       ...base(5, 18),

@@ -123,8 +123,10 @@ import {
   useAgentThread,
   type AgentConnectionErrorRenderProps,
   type AgentKitQueueRenderProps,
+  type AgentKitRegistry,
   type AgentKitRenderProps,
   type AgentKitRenderSurface,
+  type AgentKitSlots,
   type AgentKitSuggestionsRenderProps,
   type AgentRunFailureRenderProps,
 } from "./context.js";
@@ -898,12 +900,22 @@ function firstWorkEvents(events: AgentEvent[]): AgentEvent[] {
   });
 }
 
-function messageHasVisibleAssistantOutput(message: AgentMessage): boolean {
+function messageHasVisibleAssistantOutput(
+  message: AgentMessage,
+  slots: AgentKitSlots,
+  registry: AgentKitRegistry,
+): boolean {
   return (
     message.role === "assistant" &&
     message.parts.some((part) => {
       if (part.type === "reasoning") return false;
       if (part.type === "text") return part.text.trim().length > 0;
+      if (part.type === "data") {
+        return Boolean(slots.data || registry.messageParts?.data);
+      }
+      if (part.type.startsWith("x-")) {
+        return Boolean(registry.messageParts?.[part.type]);
+      }
       return true;
     })
   );
@@ -912,6 +924,8 @@ function messageHasVisibleAssistantOutput(message: AgentMessage): boolean {
 function messageEventHasVisibleAssistantOutput(
   event: AgentEvent,
   assistantMessageIds: ReadonlySet<string>,
+  slots: AgentKitSlots,
+  registry: AgentKitRegistry,
 ): boolean {
   if (event.type === "message.delta") {
     return (
@@ -921,7 +935,7 @@ function messageEventHasVisibleAssistantOutput(
   if (event.type !== "message.created" && event.type !== "message.completed") {
     return false;
   }
-  return messageHasVisibleAssistantOutput(event.message);
+  return messageHasVisibleAssistantOutput(event.message, slots, registry);
 }
 
 export function AgentActivityGroup({
@@ -1140,9 +1154,7 @@ export function AgentActivityGroup({
     }
   }
   const hasExpandableActivity = ACTIVITY_BUCKET_ORDER.some(
-    (bucket) =>
-      (!completedRunSummary || bucket !== "thinking") &&
-      displayGroups.get(bucket)!.length > 0,
+    (bucket) => bucket !== "thinking" && displayGroups.get(bucket)!.length > 0,
   );
   const activityBucketLabels = {
     thinking: "Thinking",
@@ -1201,7 +1213,7 @@ export function AgentActivityGroup({
         >
           <div className="agentkit-activities-list">
             {ACTIVITY_BUCKET_ORDER.map((bucket) => {
-              if (completedRunSummary && bucket === "thinking") return null;
+              if (bucket === "thinking") return null;
               const groups = displayGroups.get(bucket)!;
               if (groups.length === 0) return null;
               return (
@@ -3831,7 +3843,7 @@ export function AgentKitChat({
   autoScroll = true,
   className,
 }: AgentKitChatProps) {
-  const { threadId, slots, labels, onThreadForked } = useAgentKit();
+  const { threadId, slots, registry, labels, onThreadForked } = useAgentKit();
   const connection = useAgentConnection();
   const uploadsCapability = useAgentCapability("uploads");
   const control = useAgentKitControl(threadId);
@@ -4135,7 +4147,14 @@ export function AgentKitChat({
         .map((message) => message.id),
     );
     for (const event of thread.events) {
-      if (!messageEventHasVisibleAssistantOutput(event, assistantMessageIds)) {
+      if (
+        !messageEventHasVisibleAssistantOutput(
+          event,
+          assistantMessageIds,
+          slots,
+          registry,
+        )
+      ) {
         continue;
       }
       const messageId =
@@ -4204,7 +4223,7 @@ export function AgentKitChat({
       !thread.messages.some(
         (message) =>
           messageRunIds.get(message.id) === runId &&
-          messageHasVisibleAssistantOutput(message),
+          messageHasVisibleAssistantOutput(message, slots, registry),
       ),
   );
   const pendingRunIds = Array.from(
