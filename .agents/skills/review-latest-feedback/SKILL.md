@@ -51,15 +51,22 @@ its owning boundary; do not reject it because the suggestion is unsuitable.
 
 For a parent with multiple symptoms, record a disposition for each symptom
 before claiming it. A subjective or out-of-scope suggestion does not close a
-separate defect. Keep `👀` on the parent once claimed, and add `✅` only after
-every actionable defect in that parent has a verified fix.
+separate defect. Reactions summarize the outcomes on each claimed thread:
+`✅` for verified fixes and `🎫` for anything left unfixed.
 
-### Checkmark gate
+### Reaction gate
 
-`✅` is for verified **Fixed** only, after Phase 2's four bars. For a shared
-fix, add it to every claimed report it resolves. **Shipped** and **Live
-verified** alone do not qualify. Never remove reactions; newer evidence
-controls status.
+Keep `👀` permanently on every claimed thread. Add `✅` only when a report has
+at least one verified **Fixed** item after Phase 2's four bars; add it to every
+claimed thread the shared fix resolves. Add `🎫` when any investigated item in
+the thread remains unfixed, including deferred or subjective items; this means
+it needs a ticket or follow-up, not that a ticket already exists. A mixed
+thread gets both reactions. **Shipped** and **Live verified** alone do not
+qualify for `✅`.
+
+Never remove reactions. Add status reactions as evidence changes; newer thread
+updates and the item-by-item ledger determine the current disposition when
+older reactions remain.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -81,8 +88,9 @@ state; reply in a non-owner only for a distinct question or update.
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
   **Clustered**, or **Abandoned - no answer in 4 days**. Record an unstated
-  terminal disposition in the thread or linked work; add `✅` only for verified
-  fixes.
+  terminal disposition in the thread or linked work. Apply `✅` and `🎫` from
+  the per-item reaction gate above; a thread with both fixed and unfixed items
+  keeps both.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
   **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
@@ -473,12 +481,33 @@ remaining Slack reply voice and wording. Every reply ends with
 Reply with a new status or useful information; do not repeat a status already
 in the thread.
 
+### After a PR merges
+
+After confirming that a PR fixing a Slack report merged, return to every
+affected source thread, including each thread in a cluster. Re-read the full
+thread and post the new outcome unless that same post-merge update is already
+there. Thank the reporter, name what was fixed, and say it should be live on
+beta in the next few hours; do not say it is live without runtime proof. If
+that window has already passed, check the publisher and report the current
+status instead of repeating the stale estimate.
+
+For mixed reports, summarize both the fixed items and every item left
+unaddressed, including subjective or out-of-scope items, with the reason. If
+more information is needed, ask one targeted question. If the remaining work
+is clear but deferred, say it will be ticketed; do not claim a ticket exists
+unless it has been created or linked. Keep both
+`✅` and `🎫` on mixed threads. Use the Slack identity, exact-thread, and
+read-back rules below. If merge happens after this run, carry every source
+permalink and the outstanding reply into the PR/feedback ledger, then complete
+the reply after merge.
+
 - **Fixed** / **Shipped** / **Live verified** - meet the applicable bars above.
-  A live-verified row may be silent if its observation is recorded. For
-  packages, name the published version when available; otherwise name the
-  merged fix and list publication plus the upgrade/re-scaffold follow-up without
-  claiming the published package is fixed. Name beta URL/runtime only when
-  exercised; never substitute a future beta promise for release or live proof.
+  A live-verified row may otherwise be silent if its observation is recorded,
+  but merged Slack fixes still get the post-merge reply above. For packages,
+  name the published version when available; otherwise name the merged fix and
+  list publication plus the upgrade/re-scaffold follow-up without claiming the
+  published package is fixed. Name beta URL/runtime only when exercised; never
+  substitute a future beta promise for release or live proof.
   Use **Shipped** for upvoted improvements.
 - **In progress** — name the active work when it will continue beyond this run;
   acknowledge existing concrete ownership. Ask nothing.

@@ -41,20 +41,20 @@ questions per run across all threads, ranked by which answer would unblock a
 safe fix.
 
 If this workflow earlier added `👀` before recognizing an item was out of
-scope, keep our eye and add no other reaction. Record **Skipped** with one
-brief status reply if the thread lacks it, not a question. If this workflow
-already posted a mistaken reply, edit it to that disposition.
+scope, keep our eye and mark the unfixed item with `🎫`. Record **Skipped**
+with one brief status reply if the thread lacks it, not a question. If this
+workflow already posted a mistaken reply, edit it to that disposition.
 New messages must pass the clear-bug gate before any external write.
 
 Use the disposition-specific reaction contract from `review-latest-feedback`:
-add `👀` when claiming and `✅` only after a verified fix. Reactions are never
-removed; newer thread evidence determines the current disposition.
+add `👀` when claiming, `✅` for verified fixes, and `🎫` for items left
+unfixed. Mixed threads get both status reactions. Reactions are never removed;
+newer thread evidence determines the current disposition.
 
 Every claimed report keeps its `👀`. Follow `review-latest-feedback` for
-ownership and cluster status; add `✅` to each report a verified fix resolves.
-Never remove reactions. An eye without a terminal status is unresolved, not
-available to another workflow; check its thread and linked work before taking
-it over.
+ownership and cluster status. Never remove reactions. An eye without a
+terminal status is unresolved, not available to another workflow; check its
+thread and linked work before taking it over.
 
 ## Prerequisites
 
@@ -134,10 +134,10 @@ disposition per run. **Verified locally**, **Built - live unverified**,
 progress** retain `👀` after the report has been claimed.
 **Asked**, **Clarification needed**, and **Blocked on reporter** retain `👀`
 after the report has been claimed.
-Terminal dispositions: **Fixed**, **Shipped**,
-**Live verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
-**Clustered**, and **Abandoned - no answer in 4 days**, each with required
-evidence and `👀`; add `✅` only for verified fixes. An already-eyed
+Terminal dispositions: **Fixed**, **Shipped**, **Live verified**,
+**Open - no question**, **Resolved elsewhere**, **Skipped**, **Clustered**, and
+**Abandoned - no answer in 4 days**, each with required evidence and `👀`; add
+`✅` only for verified fixes and `🎫` for unfixed items. An already-eyed
 out-of-scope item keeps its eye and gets one concise **Skipped** reply if the
 thread lacks that status.
 **Fixed** closes the issue after a verified
@@ -169,8 +169,9 @@ before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
 That obligation expires after four days, standalone runs included: keep our
-`👀`, add no reaction, and post **Abandoned - no answer in 4 days** once if the
-thread lacks that status. Ask nothing further; carry any active bug forward.
+`👀`, add `🎫` for the unfixed item, and post **Abandoned - no answer in 4
+days** once if the thread lacks that status. Ask nothing further; carry any
+active bug forward.
 
 **In progress** is also an open state. It records that the thread already has
 real ownership or an active fix, so the invoking identity must not ask the
@@ -333,9 +334,8 @@ identity:
   accessible source, and never write “not fixed yet” without a real question
   that unblocks the fix. If a linked source is inaccessible, ask for access or
   a fresh/replacement link instead of requesting its contents again. If no
-  reporter detail would unblock the work, keep our `👀`, add no reaction,
-  record **Open - no question**, and post that status once if the thread lacks
-  it.
+  reporter detail would unblock the work, keep our `👀`, add `🎫`, record
+  **Open - no question**, and post that status once if the thread lacks it.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
   available.” Pair it with the useful surface link when one exists, such as a
@@ -345,7 +345,8 @@ identity:
   vague unresolved wording and edit or remove it. Re-read the affected threads
   after each edit. Unclaimed subjective/product/policy items get no reply. If
   an item was claimed before being skipped, preserve its eye and ensure one
-  concise **Skipped** status reply. Add `✅` only for a verified fix.
+  concise **Skipped** status reply. Add `✅` only for verified fixes and `🎫`
+  to items left unfixed.
 
 A useful reply shape is:
 
