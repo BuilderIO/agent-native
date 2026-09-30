@@ -393,6 +393,45 @@ async function runSmoke(page: Page, baseUrl: string) {
   assert.equal(enabled.enabled, true);
 
   assert.deepEqual(consoleErrors, [], "overview must not log console errors");
+
+  const moduleRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.resourceType() === "script") moduleRequests.push(request.url());
+  });
+  await page.evaluate(() =>
+    localStorage.setItem("agent-native:chat-first-mode:v1", "true"),
+  );
+  await page.reload({ waitUntil: "commit", timeout: 60_000 });
+  await waitVisible(
+    page.locator("[data-chat-first-apps-rail]"),
+    "chat-first apps rail",
+  );
+  await waitVisible(
+    page.getByRole("tablist", { name: "Primary navigation" }),
+    "chat-first primary navigation",
+  );
+
+  assert.ok(
+    moduleRequests.some((url) =>
+      /chat-first\/apps-rail(?:\.(?:tsx?|mjs|js))?(?:[?]|$)/.test(url),
+    ),
+    `expected apps-rail module import; requested: ${moduleRequests.join(", ")}`,
+  );
+  assert.ok(
+    moduleRequests.some((url) =>
+      /chat-first\/primary-nav(?:\.(?:tsx?|mjs|js))?(?:[?]|$)/.test(url),
+    ),
+    `expected primary-nav module import; requested: ${moduleRequests.join(", ")}`,
+  );
+  assert.deepEqual(
+    moduleRequests.filter((url) =>
+      /chat-first(?:\/index|\/(?:agents-pane|app-pane|browser-pane|chat-history|session-watch-pane|surface-tabs|surface-panel|ChatFirstAgentActivityPanel|ChatFirstSurfacePanelToggle))(?:\.(?:tsx?|mjs|js))?(?:[/?]|$)/.test(
+        url,
+      ),
+    ),
+    [],
+    "overview must not request chat-first pane or barrel modules",
+  );
 }
 
 async function main() {

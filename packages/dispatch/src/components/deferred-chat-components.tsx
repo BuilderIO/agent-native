@@ -5,6 +5,10 @@ import {
 import { lazy, Suspense, type ComponentProps, type ComponentType } from "react";
 
 const loadChatFirst = () => import("@agent-native/toolkit/app/chat/chat-first");
+const loadChatFirstAppsRail = () =>
+  import("@agent-native/toolkit/app/chat/chat-first/apps-rail");
+const loadChatFirstPrimaryNavigation = () =>
+  import("@agent-native/toolkit/app/chat/chat-first/primary-nav");
 const loadChat = () => import("@agent-native/toolkit/app/chat");
 
 function defer<T extends ComponentType<any>>(
@@ -35,7 +39,9 @@ export const ChatFirstAppPane = defer(() =>
 );
 
 export const ChatFirstAppsRail = defer(() =>
-  loadChatFirst().then((module) => ({ default: module.ChatFirstAppsRail })),
+  loadChatFirstAppsRail().then((module) => ({
+    default: module.ChatFirstAppsRail,
+  })),
 );
 
 export const ChatFirstBrowserPane = defer(() =>
@@ -47,7 +53,7 @@ export const ChatFirstChatHistory = defer(() =>
 );
 
 export const ChatFirstPrimaryNavigation = defer(() =>
-  loadChatFirst().then((module) => ({
+  loadChatFirstPrimaryNavigation().then((module) => ({
     default: module.ChatFirstPrimaryNavigation,
   })),
 );
