@@ -20,6 +20,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Chat stays ready for your next draft while a message is being sent.
+- Slides reports when saved history cannot load and lets you retry
 - Choosing the latest slide version preserves other pending slide edits.
 - Generation retries keep the original files and references.
 - List commands now change only the selected text rows, leaving other rows untouched.

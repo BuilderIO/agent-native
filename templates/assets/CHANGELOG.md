@@ -11,6 +11,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat stays ready for your next draft while a message is being sent.
 - Sent chat prompts clear immediately, while reply progress appears in the conversation.
 
 ## 2026-09-28

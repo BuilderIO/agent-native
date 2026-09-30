@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-30
+
+### Fixed
+
+- Chat stays ready for your next draft while a message is being sent.
+
 ## 2026-09-29
 
 ### Improved

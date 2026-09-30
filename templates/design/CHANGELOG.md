@@ -12,6 +12,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Copied visual edit prompts include the edits and explain how to apply them without Design MCP.
+- Design previews wait for the editor connection before becoming ready.
+- New local screens open beside existing canvas content.
+- Returning from Interact keeps the active screen selected
 - Live editing recovers clearly when a local bridge stops responding, and visual changes stay pending until handoff is confirmed
 - Live previews accept localhost and 127.0.0.1 for the same connected app.
 
@@ -32,6 +36,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat stays ready for your next draft while a message is being sent.
 - Avoid signed-out source-write errors during visual editing
 - Blur and shadow values typed in Effects now save when you press Enter or close the popover with Escape
 - Drop shadows on screens that contain scripts or shaders now show on the screen
@@ -65,6 +70,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Full app building and design review tools can now be chosen in Labs.
 - Connected tools appear in the AgentKit Add menu only when they’re ready to use.
 - Design context sources are available from the same Add menu using either + or @.
 - The + and @ context launcher is searchable, grouped, and aligned above the prompt, with shared file and agent discovery.
