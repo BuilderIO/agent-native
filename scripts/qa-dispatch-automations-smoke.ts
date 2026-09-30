@@ -425,7 +425,7 @@ async function runSmoke(page: Page, baseUrl: string) {
   );
   assert.deepEqual(
     moduleRequests.filter((url) =>
-      /chat-first(?:\/index|\/(?:agents-pane|app-pane|browser-pane|chat-history|session-watch-pane|surface-tabs|surface-panel|ChatFirstAgentActivityPanel|ChatFirstSurfacePanelToggle))(?:\.(?:tsx?|mjs|js))?(?:[/?]|$)/.test(
+      /(?:app\/chat\/index|chat-first(?:\/index|\/(?:agents-pane|app-pane|browser-pane|session-watch-pane|surface-tabs|surface-panel|ChatFirstAgentActivityPanel|ChatFirstSurfacePanelToggle)))(?:\.(?:tsx?|mjs|js))?(?:[/?]|$)/.test(
         url,
       ),
     ),

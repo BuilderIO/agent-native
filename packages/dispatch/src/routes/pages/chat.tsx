@@ -9,7 +9,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   AgentChatHome,
   type AgentChatHomeProps,
-} from "@agent-native/toolkit/app/chat";
+} from "@agent-native/toolkit/app/chat/AgentChatHome";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 

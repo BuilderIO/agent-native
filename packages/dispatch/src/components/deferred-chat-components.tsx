@@ -4,13 +4,6 @@ import {
 } from "@agent-native/toolkit/app/shared";
 import { lazy, Suspense, type ComponentProps, type ComponentType } from "react";
 
-const loadChatFirst = () => import("@agent-native/toolkit/app/chat/chat-first");
-const loadChatFirstAppsRail = () =>
-  import("@agent-native/toolkit/app/chat/chat-first/apps-rail");
-const loadChatFirstPrimaryNavigation = () =>
-  import("@agent-native/toolkit/app/chat/chat-first/primary-nav");
-const loadChat = () => import("@agent-native/toolkit/app/chat");
-
 function defer<T extends ComponentType<any>>(
   loader: () => Promise<{ default: T }>,
 ): ComponentType<ComponentProps<T>> {
@@ -27,59 +20,77 @@ function defer<T extends ComponentType<any>>(
 }
 
 export const AgentChatSurface = defer(() =>
-  loadChat().then((module) => ({ default: module.AgentChatSurface })),
+  import("@agent-native/toolkit/app/chat/AgentPanel").then((module) => ({
+    default: module.AgentChatSurface,
+  })),
 );
 
 export const ChatFirstAgentsPane = defer(() =>
-  loadChatFirst().then((module) => ({ default: module.ChatFirstAgentsPane })),
+  import("@agent-native/toolkit/app/chat/chat-first/agents-pane").then(
+    (module) => ({ default: module.ChatFirstAgentsPane }),
+  ),
 );
 
 export const ChatFirstAppPane = defer(() =>
-  loadChatFirst().then((module) => ({ default: module.ChatFirstAppPane })),
+  import("@agent-native/toolkit/app/chat/chat-first/app-pane").then(
+    (module) => ({ default: module.ChatFirstAppPane }),
+  ),
 );
 
 export const ChatFirstAppsRail = defer(() =>
-  loadChatFirstAppsRail().then((module) => ({
-    default: module.ChatFirstAppsRail,
-  })),
+  import("@agent-native/toolkit/app/chat/chat-first/apps-rail").then(
+    (module) => ({
+      default: module.ChatFirstAppsRail,
+    }),
+  ),
 );
 
 export const ChatFirstBrowserPane = defer(() =>
-  loadChatFirst().then((module) => ({ default: module.ChatFirstBrowserPane })),
+  import("@agent-native/toolkit/app/chat/chat-first/browser-pane").then(
+    (module) => ({ default: module.ChatFirstBrowserPane }),
+  ),
 );
 
 export const ChatFirstChatHistory = defer(() =>
-  loadChatFirst().then((module) => ({ default: module.ChatFirstChatHistory })),
+  import("@agent-native/toolkit/app/chat/chat-first/chat-history").then(
+    (module) => ({ default: module.ChatFirstChatHistory }),
+  ),
 );
 
 export const ChatFirstPrimaryNavigation = defer(() =>
-  loadChatFirstPrimaryNavigation().then((module) => ({
-    default: module.ChatFirstPrimaryNavigation,
-  })),
+  import("@agent-native/toolkit/app/chat/chat-first/primary-nav").then(
+    (module) => ({
+      default: module.ChatFirstPrimaryNavigation,
+    }),
+  ),
 );
 
 export const ChatFirstSessionWatchPane = defer(() =>
-  loadChatFirst().then((module) => ({
-    default: module.ChatFirstSessionWatchPane,
-  })),
+  import("@agent-native/toolkit/app/chat/chat-first/session-watch-pane").then(
+    (module) => ({ default: module.ChatFirstSessionWatchPane }),
+  ),
 );
 
 export const ChatFirstSurfaceContent = defer(() =>
-  loadChatFirst().then((module) => ({
-    default: module.ChatFirstSurfaceContent,
-  })),
+  import("@agent-native/toolkit/app/chat/chat-first/surface-tabs").then(
+    (module) => ({ default: module.ChatFirstSurfaceContent }),
+  ),
 );
 
 export const ChatFirstSurfacePanel = defer(() =>
-  loadChatFirst().then((module) => ({ default: module.ChatFirstSurfacePanel })),
+  import("@agent-native/toolkit/app/chat/chat-first/surface-panel").then(
+    (module) => ({ default: module.ChatFirstSurfacePanel }),
+  ),
 );
 
 export const ChatFirstSurfacePanelToggle = defer(() =>
-  loadChatFirst().then((module) => ({
-    default: module.ChatFirstSurfacePanelToggle,
-  })),
+  import("@agent-native/toolkit/app/chat/chat-first/ChatFirstSurfacePanelToggle").then(
+    (module) => ({ default: module.ChatFirstSurfacePanelToggle }),
+  ),
 );
 
 export const ChatFirstSurfaceTabs = defer(() =>
-  loadChatFirst().then((module) => ({ default: module.ChatFirstSurfaceTabs })),
+  import("@agent-native/toolkit/app/chat/chat-first/surface-tabs").then(
+    (module) => ({ default: module.ChatFirstSurfaceTabs }),
+  ),
 );

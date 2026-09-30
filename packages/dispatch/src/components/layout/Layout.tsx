@@ -45,15 +45,15 @@ import {
   AgentToggleButton,
   AgentSidebar,
   focusAgentChat,
-} from "@agent-native/toolkit/app/chat";
+} from "@agent-native/toolkit/app/chat/AgentSidebar";
+import { defaultChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first-copy";
+import type { ChatFirstPrimaryTab } from "@agent-native/toolkit/app/chat/chat-first/primary-nav";
 import type {
   ChatFirstAgentActivity,
   ChatFirstAppItem,
   ChatFirstCopy,
   ChatFirstEmbedTarget,
-  ChatFirstPrimaryTab,
-} from "@agent-native/toolkit/app/chat/chat-first";
-import { defaultChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first-copy";
+} from "@agent-native/toolkit/app/chat/chat-first/types";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { RunsTray } from "@agent-native/toolkit/app/progress";

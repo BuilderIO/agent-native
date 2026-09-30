@@ -7,9 +7,9 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
-import { AgentSidebar } from "@agent-native/toolkit/app/chat";
-import type { ChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat/AgentSidebar";
 import { defaultChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first-copy";
+import type { ChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first/types";
 import {
   IconAlertTriangle,
   IconArrowLeft,
