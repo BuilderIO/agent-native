@@ -1782,16 +1782,11 @@ function collapseKeepaliveSlidePatches(ops: GranularOp[]): GranularOp[] {
     { index: number; op: Extract<GranularOp, { op: "patch-slide" }> }
   >();
   const firstContentHashBySlide = new Map<string, string | undefined>();
-  const contentWritesBySlide = new Map<string, number>();
 
   for (const [index, op] of ops.entries()) {
     if (op.op !== "patch-slide") continue;
     const previous = latestBySlide.get(op.slideId)?.op;
     if (typeof op.fields.content === "string") {
-      contentWritesBySlide.set(
-        op.slideId,
-        (contentWritesBySlide.get(op.slideId) ?? 0) + 1,
-      );
       if (!firstContentHashBySlide.has(op.slideId)) {
         firstContentHashBySlide.set(op.slideId, op.baseContentHash);
       }
@@ -1818,16 +1813,6 @@ function collapseKeepaliveSlidePatches(ops: GranularOp[]): GranularOp[] {
     }
     const latest = latestBySlide.get(op.slideId);
     if (latest?.index !== index) continue;
-    if (
-      typeof latest.op.fields.content === "string" &&
-      (contentWritesBySlide.get(op.slideId) ?? 0) > 1
-    ) {
-      // A newer write from this tab is safe only while its server revision is current.
-      const replay = { ...latest.op };
-      delete replay.baseContentHash;
-      collapsed.push(replay);
-      continue;
-    }
     collapsed.push(latest.op);
   }
   return collapsed;
@@ -1862,6 +1847,10 @@ async function flushDeckSave(
       staleContentConflicts.has(deckId) &&
       !options?.allowStaleContentConflicts
     ) {
+      if (pendingOpsQueue.has(deckId) || pendingSaves.has(deckId)) {
+        await drainPendingDeckOps(deckId);
+        continue;
+      }
       throw new Error(
         `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
       );

@@ -1064,7 +1064,9 @@ describe("DeckContext deck creation persistence", () => {
       slideId: "slide-1",
       fields: { content: "<h1>Latest</h1>" },
     });
-    expect(keepaliveOperation).not.toHaveProperty("baseContentHash");
+    expect(keepaliveOperation).toMatchObject({
+      baseContentHash: hashSlideContent("<h1>Before</h1>"),
+    });
 
     resolveDeferredPatch();
     await act(async () => {
@@ -1081,7 +1083,16 @@ describe("DeckContext deck creation persistence", () => {
       await Promise.resolve();
     });
 
-    expect(patchCalls()).toHaveLength(2);
+    expect(patchCalls()).toHaveLength(3);
+    expect(patchCalls()[2]?.[1]?.keepalive).toBe(true);
+    expect(actionCallBody(patchCalls()[2]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "<h1>Latest</h1>" },
+        baseContentHash: hashSlideContent("<h1>First</h1>"),
+      },
+    ]);
 
     await result.current.flushDeckSave("flush-order-deck");
     expect(getAccessibleDeck()?.slides[0]?.content).toBe("<h1>Latest</h1>");
@@ -1169,9 +1180,9 @@ describe("DeckContext deck creation persistence", () => {
     expect(operations.find((op) => op.slideId === "slide-1")).toMatchObject({
       fields: { content: "Latest one" },
     });
-    expect(
-      operations.find((op) => op.slideId === "slide-1"),
-    ).not.toHaveProperty("baseContentHash");
+    expect(operations.find((op) => op.slideId === "slide-1")).toMatchObject({
+      baseContentHash: hashSlideContent("Before one"),
+    });
     expect(operations.find((op) => op.slideId === "slide-2")).toMatchObject({
       fields: { content: "Latest two", notes: "Latest note" },
       baseContentHash: hashSlideContent("Before two"),
@@ -1322,7 +1333,9 @@ describe("DeckContext deck creation persistence", () => {
     const keepaliveBody = actionCallBody(keepaliveCall?.[1]) as {
       operations: Record<string, unknown>[];
     };
-    expect(keepaliveBody.operations[0]).not.toHaveProperty("baseContentHash");
+    expect(keepaliveBody.operations[0]).toMatchObject({
+      baseContentHash: hashSlideContent("Before"),
+    });
 
     setAccessibleDeck({
       ...initial,
@@ -1420,7 +1433,9 @@ describe("DeckContext deck creation persistence", () => {
         content: "Newest complete snapshot with every final word intact",
       },
     });
-    expect(keepaliveOperation).not.toHaveProperty("baseContentHash");
+    expect(keepaliveOperation).toMatchObject({
+      baseContentHash: hashSlideContent("Before"),
+    });
 
     resolveDeferredKeepalivePatch();
     await act(async () => {
@@ -2341,6 +2356,7 @@ describe("DeckContext deck creation persistence", () => {
       setAccessibleDeck,
       resolveDeferredPatch,
       getPutAttempts,
+      getAccessibleDeck,
     } = setupFetch({ deferredPatch: true });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -2384,6 +2400,12 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { background: "bg-[#123456]" },
+        { persistence: "immediate" },
+      );
       result.current.updateSlide(initial.id, "slide-1", {
         content: "Newest held draft",
       });
@@ -2402,6 +2424,9 @@ describe("DeckContext deck creation persistence", () => {
     expect(getStaleContentDraft(initial.id, "slide-1")).toBe(
       "Newest held draft",
     );
+    expect(getStaleContentConflictSlideId(initial.id)).toBe("slide-1");
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Remote edit");
+    expect(getAccessibleDeck()?.slides[0]?.background).toBe("bg-[#123456]");
     expect(hasFailedDeckSave(initial.id)).toBe(true);
     expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
   });
@@ -2472,11 +2497,6 @@ describe("DeckContext deck creation persistence", () => {
       await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
         "unresolved slide content conflict",
       );
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(500);
-      await Promise.resolve();
-      await Promise.resolve();
     });
 
     expect(getPatchAttempts(initial.id)).toBe(2);
