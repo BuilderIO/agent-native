@@ -681,6 +681,41 @@ export function ownConfirmedContentBase(args: {
   return null;
 }
 
+// A browser save attempt ID names one exact payload. A hidden tab sends a
+// keepalive copy of the pending save under its ID before the ordinary flush,
+// so a flush moved onto this editor's newer base is a different payload and
+// needs its own ID. The server then accepts both deliveries as the same edit
+// generation instead of rejecting the second as a reused attempt.
+export function adoptOwnConfirmedBases(
+  options: DocumentSaveOptions,
+  ownBase: (captured: DocumentContentBase) => ContentSaveWatermark | null,
+): DocumentSaveOptions {
+  const ownContentBase = options.contentBase && ownBase(options.contentBase);
+  const intent = options.authoredContentIntent;
+  const ownIntentBase =
+    intent &&
+    ownBase({
+      content: intent.baseContent,
+      updatedAt: null,
+      revision: intent.baseRevision,
+    });
+  if (!ownContentBase && !ownIntentBase) return options;
+  return {
+    ...options,
+    ...(ownContentBase ? { contentBase: { ...ownContentBase } } : {}),
+    ...(intent && ownIntentBase
+      ? {
+          authoredContentIntent: {
+            ...intent,
+            baseRevision: ownIntentBase.revision,
+            baseContent: ownIntentBase.content,
+          },
+        }
+      : {}),
+    ...(options.saveAttemptId ? { saveAttemptId: crypto.randomUUID() } : {}),
+  };
+}
+
 function adoptConfirmedSaveWatermarks({
   saved,
   savedAt,
@@ -3184,36 +3219,14 @@ function PageEditorSessionBody({
         serverUpdatedAt: documentUpdatedAtRef.current,
         lastSaved: lastSavedContentRef.current,
       });
-      const ownBase = (captured: DocumentContentBase) =>
+      options = adoptOwnConfirmedBases(options, (captured) =>
         ownConfirmedContentBase({
           captured,
           latest: lastSavedContentRef.current,
           lineage: ownContentSaveLineageRef.current,
           editGeneration: editorEditGeneration,
-        });
-      const ownContentBase =
-        options.contentBase && ownBase(options.contentBase);
-      const intent = options.authoredContentIntent;
-      const ownIntentBase =
-        intent &&
-        ownBase({
-          content: intent.baseContent,
-          updatedAt: null,
-          revision: intent.baseRevision,
-        });
-      options = {
-        ...options,
-        ...(ownContentBase ? { contentBase: { ...ownContentBase } } : {}),
-        ...(intent && ownIntentBase
-          ? {
-              authoredContentIntent: {
-                ...intent,
-                baseRevision: ownIntentBase.revision,
-                baseContent: ownIntentBase.content,
-              },
-            }
-          : {}),
-      };
+        }),
+      );
       const titleIsStale =
         !isLinkedLocalSourceDocument &&
         options.titleBase === undefined &&

@@ -5,6 +5,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  adoptOwnConfirmedBases,
   databaseConversionRequest,
   databaseMembershipDatabaseTitle,
   documentCanonicalMutationsEnabled,
@@ -1424,6 +1425,54 @@ describe("document editor layout", () => {
         priorIntents: [ownSave],
       }),
     ).toMatchObject({ status: "resolved", content: "Intro\ntmp2" });
+  });
+
+  it("gives a save moved onto this editor's newer base its own attempt ID", () => {
+    const lineage: OwnContentSaveLineage = new Map();
+    recordOwnContentSave(lineage, "body:48", {
+      baseRevision: "body:47",
+      editGeneration: 3,
+    });
+    const latest = {
+      content: "Intro first",
+      updatedAt: "2026-09-30T23:00:39.264Z",
+      revision: "body:48",
+    };
+    const ownBase = (captured: { content: string; revision?: string }) =>
+      ownConfirmedContentBase({
+        captured: { ...captured, updatedAt: null },
+        latest,
+        lineage,
+        editGeneration: 4,
+      });
+    // The hidden tab already sent this payload as a keepalive copy.
+    const pending = {
+      contentBase: {
+        content: "Intro",
+        updatedAt: "2026-09-30T22:59:32.852Z",
+        revision: "body:47",
+      },
+      authoredContentIntent: {
+        editGeneration: 4,
+        baseRevision: "body:47",
+        baseContent: "Intro",
+        candidateContent: "Intro first second",
+      },
+      saveAttemptId: "keepalive-attempt",
+    };
+
+    const moved = adoptOwnConfirmedBases(pending, ownBase);
+
+    expect(moved.contentBase).toEqual(latest);
+    expect(moved.authoredContentIntent).toEqual({
+      editGeneration: 4,
+      baseRevision: "body:48",
+      baseContent: "Intro first",
+      candidateContent: "Intro first second",
+    });
+    expect(moved.saveAttemptId).toEqual(expect.any(String));
+    expect(moved.saveAttemptId).not.toBe("keepalive-attempt");
+    expect(adoptOwnConfirmedBases(pending, () => null)).toBe(pending);
   });
 
   it("rebases across a chain of this editor's earlier saves", () => {
