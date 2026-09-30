@@ -1315,6 +1315,9 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       problems.push(`${label}: undo did not restore the pre-paste text`);
     }
 
+    await locator.evaluate((element: HTMLInputElement | HTMLTextAreaElement) =>
+      element.setSelectionRange(element.value.length, element.value.length),
+    );
     expected = start;
     await locator.pressSequentially(" fast");
     await sleep(600);
@@ -1322,7 +1325,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     expected = `${start} fast pause`;
     if (!(await waitForText(locator, expected))) {
       problems.push(
-        `${label}: rapid typing and debounce pause changed the text`,
+        `${label}: rapid typing produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(expected)}`,
       );
     }
     if (multiline) {
@@ -1333,7 +1336,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       expected += "\nline2";
       if (!(await waitForText(locator, expected))) {
         problems.push(
-          `${label}: Enter or Backspace changed the text unexpectedly`,
+          `${label}: Enter or Backspace produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(expected)}`,
         );
       }
     } else {
@@ -1342,7 +1345,9 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       await locator.pressSequentially("e");
       expected += "e";
       if (!(await waitForText(locator, expected))) {
-        problems.push(`${label}: Backspace changed the text unexpectedly`);
+        problems.push(
+          `${label}: Backspace sequence produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(expected)}`,
+        );
       }
     }
 
