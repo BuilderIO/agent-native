@@ -1635,7 +1635,7 @@ describe("document editor layout", () => {
       },
     );
 
-    expect(source).toContain("const documentQuery = useDocument(documentId, {");
+    expect(source).toContain("usePageOpenDocument(");
     expect(source).toContain("databaseId,");
     expect(source).toContain("databaseDocumentId,");
     expect(source).toContain("isFetchedAfterMount");

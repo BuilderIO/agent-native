@@ -10,19 +10,37 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: content-product-conformance-${{ github.event.pull_request.number }}
+  # An edit the check job skips gets a group of its own. Sharing the PR's
+  # group would cancel a real run that is still in progress.
+  group: >-
+    ${{ (github.event.action == 'edited'
+    && !github.event.changes.base
+    && !(github.event.changes.body
+    && (contains(github.event.pull_request.body, 'content_product_impact')
+    || contains(github.event.changes.body.from, 'content_product_impact'))))
+    && format('content-product-conformance-skip-{0}', github.run_id)
+    || format('content-product-conformance-{0}', github.event.pull_request.number) }}
   cancel-in-progress: true
 
 jobs:
   check:
     name: Advisory Content product impact
+    # The checker reads the PR body only for a content_product_impact block,
+    # so an edit that changes neither the base nor such a block cannot change
+    # the result.
+    if: >-
+      github.event.action != 'edited'
+      || github.event.changes.base
+      || (github.event.changes.body
+      && (contains(github.event.pull_request.body, 'content_product_impact')
+      || contains(github.event.changes.body.from, 'content_product_impact')))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Check out immutable conformance controller
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: 03caa13fd5bf6176ee01ab223452db9932b7ca8c
+          ref: 72715043afb74b9e4ab82bdb763f812ce180becd
           path: controller
           fetch-depth: 1
           persist-credentials: false

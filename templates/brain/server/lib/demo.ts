@@ -1,5 +1,5 @@
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
@@ -12,7 +12,6 @@ import {
   sanitizeEvidenceCitationUrls,
   serializeCapture,
   serializeKnowledge,
-  serializeProposal,
   serializeSource,
   writeKnowledgeRecord,
   type WriteKnowledgeInput,
@@ -27,6 +26,8 @@ import {
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
 const RETRIEVAL_EVAL_SEED_ID = "brain-real-channel-retrieval-eval-v1";
+const RETENTION_QUESTION_TITLE =
+  "Transcript retention policy still needs legal review";
 
 type EvalMode = "product-demo" | "retrieval";
 type RetrievalEvalKind = "answer" | "not-found";
@@ -186,7 +187,7 @@ const demoCaptures: DemoCaptureSpec[] = [
     key: "import-review-policy",
     sourceKey: "webhook-policy",
     externalId: `${DEMO_SEED_ID}:webhook:import-review-policy`,
-    title: "Brain import review policy",
+    title: "Brain import publishing policy",
     kind: "document",
     capturedAt: "2026-05-04T19:00:00.000Z",
     metadata: {
@@ -195,7 +196,7 @@ const demoCaptures: DemoCaptureSpec[] = [
       sourceUrl: "https://docs.example.com/brain/import-review-policy",
     },
     content:
-      "Policy: raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable knowledge. Low-confidence policy items stay pending proposals and out of published search.",
+      "Policy: raw imports may become captures immediately, and cited company-tier knowledge publishes directly as durable knowledge with no review step. Low-confidence policy items publish with their confidence score and stay in published search.",
   },
   {
     key: "retrieval-architecture",
@@ -334,7 +335,7 @@ const retrievalEvalCaptures: DemoCaptureSpec[] = [
     key: "import-review-policy",
     sourceKey: "slack-dev-fusion",
     externalId: `${RETRIEVAL_EVAL_SEED_ID}:slack:import-review-policy`,
-    title: "#dev-fusion Brain import review policy",
+    title: "#dev-fusion Brain import publishing policy",
     kind: "message",
     capturedAt: "2026-05-08T18:50:00.000Z",
     metadata: {
@@ -349,8 +350,8 @@ const retrievalEvalCaptures: DemoCaptureSpec[] = [
     },
     content: [
       "Slack #dev-fusion at 2026-05-08T18:50:00.000Z",
-      "Priya: Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable knowledge.",
-      "Sam: Low-confidence policy items stay pending proposals and out of published search until review.",
+      "Priya: Process policy: raw imports become captures; cited company-tier knowledge publishes directly as durable knowledge with no review step.",
+      "Sam: Low-confidence policy items publish with their confidence score and stay in published search.",
     ].join("\n"),
     status: "distilled",
   },
@@ -519,14 +520,15 @@ const retrievalEvalCases: RetrievalEvalCase[] = [
     id: "import-review-policy",
     kind: "answer",
     label: "Process and policy knowledge is retrievable",
-    question: "What process policy governs Brain imports and proposals?",
-    expectedTitle: "Brain import policy keeps company knowledge review-gated",
+    question: "What process policy governs Brain imports and publishing?",
+    expectedTitle:
+      "Brain import policy allows direct publishing of company knowledge",
     requiredTerms: [
       "raw imports",
       "company-tier knowledge",
-      ["reviewed", "review"],
+      ["publishes directly", "direct publishing"],
       "low-confidence policy items",
-      "pending proposals",
+      "no review step",
     ],
     requireCitation: true,
     requireSlackProvider: true,
@@ -641,6 +643,7 @@ async function ensureDemoCapture(sourceId: string, spec: DemoCaptureSpec) {
     capturedAt: spec.capturedAt,
     metadata: spec.metadata,
     status: spec.status,
+    privacyClassifier: "deterministic",
   });
 }
 
@@ -658,33 +661,13 @@ async function findKnowledgeByTitle(title: string) {
   return knowledge ?? null;
 }
 
-async function findPendingProposalByTitle(title: string) {
-  const [proposal] = await getDb()
-    .select()
-    .from(schema.brainProposals)
-    .where(
-      and(
-        accessFilter(schema.brainProposals, schema.brainProposalShares),
-        eq(schema.brainProposals.title, title),
-        eq(schema.brainProposals.status, "pending"),
-      ),
-    )
-    .orderBy(desc(schema.brainProposals.createdAt))
-    .limit(1);
-  return proposal ?? null;
-}
-
 async function upsertDemoKnowledge(input: WriteKnowledgeInput) {
   const existing = await findKnowledgeByTitle(input.title);
   const result = await writeKnowledgeRecord({
     ...input,
     knowledgeId: existing?.id,
-    proposalMode: "never",
     publishTier: input.publishTier ?? "company",
   });
-  if (result.mode !== "knowledge") {
-    throw new Error(`Expected ${input.title} to write directly to knowledge.`);
-  }
   return result.knowledge;
 }
 
@@ -873,22 +856,22 @@ export async function seedBrainDemoData(
   });
 
   const importReviewPolicy = await upsertDemoKnowledge({
-    title: "Brain import policy keeps company knowledge review-gated",
+    title: "Brain import policy allows direct publishing of company knowledge",
     kind: "policy",
-    body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable knowledge. Low-confidence policy items stay pending proposals and out of published search.",
+    body: "Raw imports may become captures immediately, and cited company-tier knowledge publishes directly as durable knowledge with no review step. Low-confidence policy items publish with their confidence score and stay in published search.",
     summary:
-      "Raw imports become captures first; company-tier knowledge stays reviewed, cited, or proposed before durable publication.",
-    topic: "Review policy",
-    tags: ["process", "policy", "review-queue"],
-    entities: [{ type: "policy", name: "Brain import review" }],
+      "Raw imports become captures first; cited company-tier knowledge publishes directly with no review step.",
+    topic: "Publishing policy",
+    tags: ["process", "policy", "direct-publishing"],
+    entities: [{ type: "policy", name: "Brain import publishing" }],
     evidence: [
       evidence(
         captureByKey.get("import-review-policy")!,
-        "Policy: raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable knowledge.",
+        "Policy: raw imports may become captures immediately, and cited company-tier knowledge publishes directly as durable knowledge with no review step.",
       ),
       evidence(
         captureByKey.get("import-review-policy")!,
-        "Low-confidence policy items stay pending proposals and out of published search.",
+        "Low-confidence policy items publish with their confidence score and stay in published search.",
       ),
     ],
     confidence: 95,
@@ -945,34 +928,23 @@ export async function seedBrainDemoData(
     publishCanonical: false,
   });
 
-  const proposalTitle = "Transcript retention policy still needs legal review";
-  const existingProposal = await findPendingProposalByTitle(proposalTitle);
-  let proposal = existingProposal ? serializeProposal(existingProposal) : null;
-  if (!proposal) {
-    const result = await writeKnowledgeRecord({
-      title: proposalTitle,
-      kind: "open-question",
-      body: "Legal has not confirmed retention settings for meeting transcripts beyond 180 days.",
-      summary: "Transcript retention beyond 180 days needs legal review.",
-      topic: "Compliance",
-      tags: ["retention", "meetings", "legal-review"],
-      entities: [{ type: "policy", name: "Transcript retention" }],
-      evidence: [
-        evidence(
-          captureByKey.get("retention-open-question")!,
-          "Open question: Legal has not confirmed retention settings for meeting transcripts beyond 180 days.",
-        ),
-      ],
-      confidence: 62,
-      proposalMode: "always",
-      publishTier: "company",
-      rationale: "Low confidence and policy-sensitive topic require review.",
-    });
-    if (result.mode !== "proposal") {
-      throw new Error("Expected retention item to enter the review queue.");
-    }
-    proposal = result.proposal;
-  }
+  const retentionQuestion = await upsertDemoKnowledge({
+    title: RETENTION_QUESTION_TITLE,
+    kind: "open-question",
+    body: "Legal has not confirmed retention settings for meeting transcripts beyond 180 days.",
+    summary: "Transcript retention beyond 180 days needs legal review.",
+    topic: "Compliance",
+    tags: ["retention", "meetings", "legal-review"],
+    entities: [{ type: "policy", name: "Transcript retention" }],
+    evidence: [
+      evidence(
+        captureByKey.get("retention-open-question")!,
+        "Open question: Legal has not confirmed retention settings for meeting transcripts beyond 180 days.",
+      ),
+    ],
+    confidence: 62,
+    publishTier: "company",
+  });
 
   return {
     seedId: DEMO_SEED_ID,
@@ -988,8 +960,8 @@ export async function seedBrainDemoData(
       importReviewPolicy,
       retrievalArchitecture,
       redacted,
+      retentionQuestion,
     ],
-    proposal,
     suggestedQuestions: [
       "Why did we retire freemium?",
       "How does Decision Digest work and why?",
@@ -1083,22 +1055,22 @@ export async function seedBrainRetrievalEvalData(
   });
 
   const importReviewPolicy = await upsertDemoKnowledge({
-    title: "Brain import policy keeps company knowledge review-gated",
+    title: "Brain import policy allows direct publishing of company knowledge",
     kind: "policy",
-    body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable knowledge. Low-confidence policy items stay pending proposals and out of published search until review.",
+    body: "Raw imports may become captures immediately, and cited company-tier knowledge publishes directly as durable knowledge with no review step. Low-confidence policy items publish with their confidence score and stay in published search.",
     summary:
-      "Raw imports become captures first; company-tier knowledge stays reviewed, cited, or proposed, and low-confidence policy items stay pending proposals.",
+      "Raw imports become captures first; cited company-tier knowledge publishes directly with no review step, and low-confidence policy items stay in published search.",
     topic: "Brain process",
-    tags: ["process", "policy", "review-queue", "retrieval-eval"],
-    entities: [{ type: "policy", name: "Brain import review" }],
+    tags: ["process", "policy", "direct-publishing", "retrieval-eval"],
+    entities: [{ type: "policy", name: "Brain import publishing" }],
     evidence: [
       evidence(
         captureByKey.get("import-review-policy")!,
-        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable knowledge.",
+        "Process policy: raw imports become captures; cited company-tier knowledge publishes directly as durable knowledge with no review step.",
       ),
       evidence(
         captureByKey.get("import-review-policy")!,
-        "Low-confidence policy items stay pending proposals and out of published search until review.",
+        "Low-confidence policy items publish with their confidence score and stay in published search.",
       ),
     ],
     confidence: 95,
@@ -1562,7 +1534,7 @@ export async function runBrainDemoEval(
   );
 
   const importPolicy = await findKnowledgeByTitle(
-    "Brain import policy keeps company knowledge review-gated",
+    "Brain import policy allows direct publishing of company knowledge",
   );
   const importPolicyEvidence = importPolicy
     ? knowledgeEvidence(importPolicy)
@@ -1576,8 +1548,8 @@ export async function runBrainDemoEval(
       importPolicy.kind === "policy" &&
       importPolicyEvidence.length >= 2,
     importPolicy
-      ? `Found import review policy with ${importPolicyEvidence.length} citation(s).`
-      : "Brain import review policy was not found.",
+      ? `Found import publishing policy with ${importPolicyEvidence.length} citation(s).`
+      : "Brain import publishing policy was not found.",
     importPolicy ? serializeKnowledge(importPolicy) : null,
   );
 
@@ -1606,18 +1578,16 @@ export async function runBrainDemoEval(
     architectureSearch,
   );
 
-  const proposal = await findPendingProposalByTitle(
-    "Transcript retention policy still needs legal review",
-  );
+  const retention = await findKnowledgeByTitle(RETENTION_QUESTION_TITLE);
   check(
     checks,
-    "proposal-gate",
-    "Sensitive low-confidence retention item stays in review",
-    !!proposal,
-    proposal
-      ? `Proposal ${proposal.id} is pending and not queryable as knowledge.`
-      : "Pending retention proposal was not found.",
-    proposal ? serializeProposal(proposal) : null,
+    "direct-publish",
+    "Low-confidence company-tier retention item publishes without review",
+    retention?.status === "published" && retention.publishTier === "company",
+    retention
+      ? `Retention knowledge ${retention.id} is ${retention.status} at confidence ${retention.confidence}.`
+      : "Published retention knowledge was not found.",
+    retention ? serializeKnowledge(retention) : null,
   );
   const retentionKnowledgeSearch = await searchEverythingRows({
     query: "transcript retention policy legal review",
@@ -1626,15 +1596,14 @@ export async function runBrainDemoEval(
   });
   check(
     checks,
-    "proposal-not-queryable",
-    "Pending retention proposal is not returned as published knowledge",
-    !retentionKnowledgeSearch.some(
-      (item) =>
-        item.title === "Transcript retention policy still needs legal review",
+    "direct-publish-queryable",
+    "Directly published retention item is returned by knowledge search",
+    retentionKnowledgeSearch.some(
+      (item) => item.title === RETENTION_QUESTION_TITLE,
     ),
     retentionKnowledgeSearch.length
-      ? `Knowledge search returned ${retentionKnowledgeSearch.length} other result(s).`
-      : "Knowledge search returned no published retention proposal.",
+      ? `Knowledge search returned ${retentionKnowledgeSearch.length} result(s).`
+      : "Knowledge search returned no retention knowledge.",
     retentionKnowledgeSearch,
   );
 

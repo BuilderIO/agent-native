@@ -288,7 +288,9 @@ export function ImageFillControls({
   }, [focused, value.url]);
 
   const commitUrl = () => {
-    onChange({ ...value, url: urlDraftRef.current.trim() });
+    const url = urlDraftRef.current.trim();
+    if (url === value.url) return;
+    onChange({ ...value, url });
   };
 
   const requestImageUpload = () => {

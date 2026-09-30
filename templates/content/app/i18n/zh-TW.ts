@@ -190,7 +190,9 @@ const history = {
 
 const overrides = {
   close: "關閉",
-  setup: { checkingProvider: "正在檢查 AI 連線…" },
+  setup: {
+    providerStatusUnavailable: "無法確認 AI 是否已就緒。",
+  },
   onboarding: {
     fileStorage: {
       title: "連接儲存空間以上傳檔案",

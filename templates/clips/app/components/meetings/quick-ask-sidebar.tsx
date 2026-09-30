@@ -201,16 +201,12 @@ export function QuickAskSidebar({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {readiness === "missing" ? (
             <BuilderSetupCard layout="sidebar" />
-          ) : readiness === "unknown" || readiness === "unavailable" ? (
+          ) : readiness === "unavailable" ? (
             <div
               className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
               role="status"
             >
-              <span>
-                {readiness === "unknown"
-                  ? t("agentChat.setup.checkingProvider")
-                  : t("agentChat.setup.providerStatusUnavailable")}
-              </span>
+              <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
               {readiness === "unavailable" ? (
                 <button
                   type="button"
@@ -291,7 +287,7 @@ export function QuickAskSidebar({
             onChange={(e) => setDraft(e.target.value)}
             placeholder={t("quickAsk.placeholder")}
             className="min-h-[44px] max-h-32 resize-none text-sm"
-            disabled={!chatReady}
+            disabled={!chatReady && readiness !== "unknown"}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

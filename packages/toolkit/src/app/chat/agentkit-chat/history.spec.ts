@@ -6,9 +6,19 @@ import {
   findAgentKitHistoryVersion,
   getAgentKitHistoryMessages,
   runAgentKitHistoryBeforeStart,
+  updateAgentKitSubmissionCounts,
 } from "./history.js";
 
 describe("AgentKit chat history", () => {
+  it("keeps pending submissions scoped to their thread", () => {
+    const threadA = updateAgentKitSubmissionCounts(new Map(), "thread-a", 1);
+    const both = updateAgentKitSubmissionCounts(threadA, "thread-b", 1);
+    const threadBOnly = updateAgentKitSubmissionCounts(both, "thread-a", -1);
+
+    expect(threadBOnly.get("thread-a") ?? 0).toBe(0);
+    expect(threadBOnly.get("thread-b")).toBe(1);
+  });
+
   it("matches a completed side-effecting turn and finds its beginning version", () => {
     const threadId = "thread-1";
     const runId = "run-1";

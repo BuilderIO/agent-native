@@ -55,6 +55,7 @@ export default function AskPage() {
   return (
     <AgentChatHome
       className="analytics-ask-page h-full min-h-0"
+      contentClassName="max-w-none"
       surfaceClassName="analytics-chat-panel"
       chatViewTransition
       defaultMode="chat"

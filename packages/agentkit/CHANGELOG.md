@@ -1,5 +1,18 @@
 # @agent-native/agentkit
 
+## 0.198.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.1
+
+### Patch Changes
+
+- 0b127e9: Clear chat input immediately on submit and show the pending response status in the transcript.
+- Release all public npm packages with a patch version bump.
+
 ## 0.198.0
 
 ### Minor Changes

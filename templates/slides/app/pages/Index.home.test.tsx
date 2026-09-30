@@ -133,8 +133,41 @@ vi.mock("@agent-native/core/client/notifications", () => ({
   NotificationsBell: () => null,
 }));
 vi.mock("@agent-native/core/client/progress", () => ({ RunsTray: () => null }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentToggleButton: () => null,
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/client/agent-chat")
+    >();
+  return {
+    ...actual,
+    sendToAgentChat: vi.fn(),
+    AgentToggleButton: () => null,
+    BuilderSetupCard: ({
+      bouncePulse = 0,
+      onConnected,
+    }: {
+      bouncePulse?: number;
+      onConnected?: () => void;
+    }) => (
+      <div data-testid="builder-setup-card" data-bounce-pulse={bouncePulse}>
+        <h3>Connect AI</h3>
+        <button type="button" onClick={onConnected}>
+          Connect Builder.io
+        </button>
+        <a href="/settings/keys">Custom keys</a>
+      </div>
+    ),
+    useAgentEngineConfigured: () => agentEngine,
+    useChatModels: () => ({
+      selectedEngine: "builder",
+      selectedModel: "gpt-5.6-terra",
+      availableModels: [],
+      isLoading: false,
+    }),
+    fetchAgentEngineConfiguredState,
+  };
+});
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
   BuilderSetupCard: ({
     bouncePulse = 0,
     onConnected,
@@ -151,7 +184,16 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     </div>
   ),
   useAgentEngineConfigured: () => agentEngine,
+  useChatModels: () => ({ models: [], isLoading: false, isError: false }),
   fetchAgentEngineConfiguredState,
+  useVoiceProviderStatus: () => ({ status: "unavailable" }),
+  SIDEBAR_STATE_CHANGE_EVENT: "sidebar-state-change",
+  sendToAgentChat: vi.fn(),
+  setAgentChatContextItem: vi.fn(),
+  requestAgentChatThreadOpen: vi.fn(),
+  formatAgentChatContextItemsForPrompt: () => "",
+  normalizeAgentComposerReference: vi.fn(),
+  BuilderSetupContent: () => null,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
@@ -238,6 +280,7 @@ vi.mock("@/hooks/use-design-systems", () => ({
     systemFlag.query(enabled),
     { designSystems: [], refetch: refetchSystems }
   ),
+  BuilderSetupContent: () => null,
 }));
 vi.mock("@/hooks/use-workspace-defaults", () => ({
   useWorkspaceDefaults: (enabled = true) => {
@@ -318,9 +361,29 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     );
   },
 }));
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: ({
+    bouncePulse = 0,
+    onConnected,
+  }: {
+    bouncePulse?: number;
+    onConnected?: () => void;
+  }) => (
+    <div data-testid="builder-setup-card" data-bounce-pulse={bouncePulse}>
+      <h3>Connect AI</h3>
+      <button type="button" onClick={onConnected}>
+        Connect Builder.io
+      </button>
+      <a href="/settings/keys">Custom keys</a>
+    </div>
+  ),
+  BuilderSetupContent: () => null,
+}));
 
 import { Header } from "@/components/layout/Header";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { deckIdFromPathname } from "@/context/DeckContext";
+import { IMPORT_ACTION_TIMEOUT_MS } from "@/lib/import-uploaded-deck";
 
 import Index from "./Index";
 
@@ -372,6 +435,7 @@ function renderHome(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(deckIdFromPathname).mockReset();
   agentSubmit.mockReset().mockResolvedValue({ delivered: true });
   systemFlag.enabled = true;
   suggestionQuery.enabled = undefined;
@@ -599,6 +663,73 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(commit).toHaveBeenCalledOnce();
+  });
+
+  it("keeps composer references through a setup failure and retry", async () => {
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        {
+          source: "slides" as const,
+          id: "reference-deck",
+          title: "Reference deck",
+        },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "slides:reference-deck:",
+        title: "Reference deck",
+        context: "A restrained visual style",
+        status: "ready" as const,
+      },
+    ];
+    const ensureDeckPersisted = vi
+      .fn()
+      .mockResolvedValueOnce({ persisted: false })
+      .mockResolvedValue({ persisted: true });
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck: vi.fn() });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Create a reference deck",
+        [],
+        attachments,
+        { slidesContext: composerContext, contextItems },
+      );
+    });
+    await waitFor(() => expect(promptProps.mock.lastCall![0].open).toBe(true));
+    expect(screen.queryByTestId("new-deck-loading")).toBeNull();
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Create a reference deck",
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+
+    expect(agentSubmit.mock.calls[0][1]).toContain("A restrained visual style");
+    expect(callAction).toHaveBeenCalledWith(
+      "patch-deck",
+      expect.objectContaining({
+        operations: [
+          expect.objectContaining({
+            fields: {
+              generationContext: expect.objectContaining({
+                composerContext,
+                contextItems,
+              }),
+            },
+          }),
+        ],
+      }),
+    );
   });
 
   it("preselects a prompt deck link and keeps composer references on Continue", async () => {
@@ -970,9 +1101,7 @@ describe("Slides prompt-led home", () => {
     agentEngine.state = "unknown";
     agentEngine.missing = false;
     renderHome();
-    expect(screen.getByRole("status").getAttribute("aria-label")).toBe(
-      "common.loading",
-    );
+    expect(screen.queryByRole("status")).toBeNull();
     expect(
       (
         screen.getByRole("textbox", {
@@ -1298,18 +1427,19 @@ describe("Slides prompt-led home", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "gates home composer and suggestions for $state (missing=$missing)",
+    "gates model controls and suggestions while keeping the prompt path available for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       agentEngine.state = state;
       agentEngine.missing = missing;
       renderHome();
       await screen.findByRole("textbox", { name: "Presentation prompt" });
       expect(promptProps.mock.lastCall![0]).toMatchObject({
-        disabled: !ready,
-        submissionDisabled: !ready,
+        disabled: false,
         showModelSelector: ready,
         modelStatusChecksEnabled: ready,
+        onBeforeSubmit: expect.any(Function),
       });
+      expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
       expect(Boolean(screen.queryByLabelText("home.suggestedPrompts"))).toBe(
         ready,
       );
@@ -1532,9 +1662,58 @@ describe("Slides prompt-led home", () => {
       ).importFile(new File(["pptx"], "direct.pptx"), "pptx");
     });
 
+    expect(callAction).toHaveBeenCalledWith(
+      "import-pptx",
+      expect.objectContaining({ filePath: uploaded.path }),
+      { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+    );
     expect(promptUploads.cleanupUploadedPromptFiles).toHaveBeenCalledWith([
       uploaded,
     ]);
+  });
+
+  it("uses the extended action timeout for direct PDF imports", async () => {
+    const uploaded = {
+      path: "/uploads/direct.pdf",
+      originalName: "direct.pdf",
+      filename: "direct.pdf",
+      type: "application/pdf",
+      size: 4,
+    };
+    createDeck.mockReturnValue({ id: "direct-deck" });
+    promptUploads.uploadPromptFiles.mockResolvedValue([uploaded]);
+    callAction.mockResolvedValueOnce({
+      imported: true,
+      deckId: "direct-deck",
+      pageCount: 1,
+    });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await (
+        homeImport.current as {
+          importFile: (file: File, scope: "pdf") => Promise<boolean>;
+        }
+      ).importFile(
+        new File(["pdf"], "direct.pdf", { type: "application/pdf" }),
+        "pdf",
+      );
+    });
+
+    expect(callAction).toHaveBeenCalledWith(
+      "import-file",
+      expect.objectContaining({
+        filePath: uploaded.path,
+        format: "pdf",
+        deckId: "direct-deck",
+        importIntoDeck: true,
+      }),
+      { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+    );
   });
 
   it("preserves the filename when a direct-import upload needs sign-in", async () => {

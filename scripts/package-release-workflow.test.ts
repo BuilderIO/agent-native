@@ -155,7 +155,7 @@ describe("npm package release workflow", () => {
   it("keeps the release changeset package list aligned with the publisher", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
-    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 9);
+    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 10);
   });
 
   it("allows npm propagation to settle before failing a publish", () => {
@@ -270,6 +270,18 @@ describe("npm package release workflow", () => {
   it("consumes concurrent public changesets after stable publication", () => {
     const release = jobs.release as Workflow;
     const releaseSteps = release.steps as Workflow[];
+    const build = releaseSteps.find(
+      (step) => step.name === "Build publishable packages",
+    );
+    assert(build);
+    const buildFilters = [
+      ...String(build.run).matchAll(/--filter\s+([^\s]+)/g),
+    ].map((match) => match[1].replace(/^['"]|['"]$/g, ""));
+    assert.deepEqual(
+      buildFilters,
+      NPM_PUBLISH_PACKAGE_NAMES.map((name) => `${name}...`),
+    );
+
     const hold = releaseSteps.find(
       (step) => step.name === "Hold pending changesets for stable publication",
     );

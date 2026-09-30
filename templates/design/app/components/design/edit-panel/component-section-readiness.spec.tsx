@@ -38,6 +38,7 @@ const detailsData = {
 };
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: () => "tab-1",
   useActionQuery: (
     name: string,
     _params: unknown,

@@ -169,6 +169,14 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "توجد أحدث تعديلاتك على هذا الجهاز فقط. نزّل نسخة احتياطية قبل المغادرة.",
+    slideConflictReview: "مراجعة",
+    slideConflictTitle: "تم تغيير هذه الشريحة في مكان آخر",
+    slideConflictDescription:
+      "حفظ محرر آخر نسخة أحدث. سيؤدي الاحتفاظ بمسودتك إلى استبدال محتوى الشريحة المحفوظ، أو يمكنك استخدام أحدث نسخة.",
+    slideConflictUseLatest: "استخدام الأحدث",
+    slideConflictKeepDraft: "الاحتفاظ بمسودتي",
+    slideConflictKeepEditing: "متابعة التحرير",
+    slideConflictResolutionFailed: "تعذر حل التعارض. لا تزال مسودتك هنا.",
     offline: "غير متصل",
     selected: "محدد",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -245,6 +253,9 @@ const messages = {
     media: "الوسائط",
     generateImage: "إنشاء صورة",
     assetLibrary: "مكتبة الأصول",
+    imageOptions: "خيارات الصورة",
+    cropImage: "اقتصاص الصورة",
+    cropHandle: "اقتصاص الصورة {{position}}",
     diagrams: "المخططات",
     insertMermaidDiagram: "إدراج مخطط Mermaid",
     insertMermaidFailed: "فشل إدراج المخطط",
@@ -1076,7 +1087,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
   },
 };

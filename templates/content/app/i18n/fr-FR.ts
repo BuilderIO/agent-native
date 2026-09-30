@@ -1228,7 +1228,9 @@ const history = {
 
 const overrides = {
   close: "Fermer",
-  setup: { checkingProvider: "Vérification de la connexion à l’IA…" },
+  setup: {
+    providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
+  },
   onboarding: {
     fileStorage: {
       title: "Connecter un stockage pour envoyer des fichiers",

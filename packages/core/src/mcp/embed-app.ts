@@ -1431,7 +1431,7 @@ export function embedApp(
         const audience = objectValue(part.annotations).audience;
         if (
           Array.isArray(audience) &&
-          audience.includes("assistant")
+          (!audience.includes("assistant") || !audience.includes("user"))
         ) return null;
         const text = part.text.trim();
         if (text && text !== message && !extraText.includes(text)) extraText.push(text);
@@ -1556,6 +1556,7 @@ export function embedApp(
         chat && chat.structuredContent !== undefined
           ? chat.structuredContent
           : undefined;
+      let fallbackAttempted = false;
       try {
         const contextContent = context
           ? [{ type: "text", text: context, annotations: { audience: ["assistant"] } }, ...content.filter((part) => part && part.type !== "text")]
@@ -1565,7 +1566,8 @@ export function embedApp(
             ...part,
             annotations: { ...(objectValue(part.annotations)), audience: ["assistant"] }
           })),
-          ...(structuredContent !== undefined ? { structuredContent } : {})
+          ...(structuredContent !== undefined ? { structuredContent } : {}),
+          ...requestModePayload
         };
         const contextResult = await updateHostModelContext(modelContext);
         if (contextResult && (contextResult.isError === true || contextResult.ok === false)) {
@@ -1588,11 +1590,17 @@ export function embedApp(
         acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
         return;
       }
-      if (hostChatRequest) hostChatRequest.state = "sending";
       try {
         let result = null;
         if (app && typeof app.sendMessage === "function") {
           await ensureHostAppConnected();
+        }
+        if (hostChatRequest && hostChatRequest.cancelled) {
+          acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
+          return;
+        }
+        if (hostChatRequest) hostChatRequest.state = "sending";
+        if (app && typeof app.sendMessage === "function") {
           result = await app.sendMessage({
             role: "user",
             content,
@@ -1614,25 +1622,52 @@ export function embedApp(
       } catch (err) {
         const methodNotFound = err && Number(err.code) === -32601;
         if (hostChatRequest && hostChatRequest.cancelled) {
-          if (methodNotFound) {
+          if (methodNotFound || hostChatRequest.state !== "sending") {
             acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
           }
           return;
         }
-        if (methodNotFound && openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
-          try {
-            const fallbackPrompt = openAiFollowUpPrompt(chat);
-            if (!fallbackPrompt) throw err;
-            await openAiBridge.sendFollowUpMessage({
-              prompt: fallbackPrompt,
-              scrollToBottom: true,
-              ...requestModePayload
+        if (methodNotFound) {
+          const fallbackPrompt = openAiFollowUpPrompt(chat);
+          if (
+            openAiBridge &&
+            typeof openAiBridge.sendFollowUpMessage === "function" &&
+            fallbackPrompt
+          ) {
+            fallbackAttempted = true;
+            try {
+              await openAiBridge.sendFollowUpMessage({
+                prompt: fallbackPrompt,
+                scrollToBottom: true,
+                ...requestModePayload
+              });
+              respondToWrapperRequest(requestId, { ok: true });
+              return;
+            } catch (fallbackError) {
+              err = fallbackError;
+            }
+          } else {
+            console.warn("[agent-native] MCP Apps host cannot relay chat", err);
+            respondToWrapperRequest(requestId, {
+              ok: false,
+              notSubmitted: true,
+              error: err && err.message ? err.message : String(err)
             });
-            respondToWrapperRequest(requestId, { ok: true });
             return;
-          } catch (fallbackError) {
-            err = fallbackError;
           }
+        }
+        if (
+          hostChatRequest &&
+          hostChatRequest.state !== "sending" &&
+          !fallbackAttempted
+        ) {
+          console.warn("[agent-native] MCP Apps host connection failed", err);
+          respondToWrapperRequest(requestId, {
+            ok: false,
+            notSubmitted: true,
+            error: err && err.message ? err.message : String(err)
+          });
+          return;
         }
         console.warn("[agent-native] MCP host chat bridge failed", err);
         respondToWrapperRequest(requestId, { ok: false, error: err && err.message ? err.message : String(err) });

@@ -1106,6 +1106,29 @@ export function SlideContextToolbar({
           </Popover>
         </>
       )}
+      {!snapshot &&
+        hasSelectedElement &&
+        objectSelectionCount === 0 &&
+        onEnablePositioning && (
+          <>
+            <div className={TOOLBAR_DIVIDER} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={MENU_BUTTON_CLASS}
+                  onClick={onEnablePositioning}
+                  aria-label={t("styleInspector.position")}
+                >
+                  <IconLayoutAlignLeft className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.position")}</TooltipContent>
+            </Tooltip>
+          </>
+        )}
       {zoomControls && (
         <>
           <div className={cn(TOOLBAR_DIVIDER, "ml-auto")} />

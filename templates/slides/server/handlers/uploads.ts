@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 
 import { isPrivateBlobConfiguredForRequest } from "@agent-native/core/private-blob";
+import { getRequestOrgId } from "@agent-native/core/server";
 import {
   defineEventHandler,
   readBody,
@@ -174,6 +175,7 @@ export async function saveUploadedReferenceFile(args: {
   data: Uint8Array;
   type?: string;
 }): Promise<UploadedReferenceFile> {
+  const orgId = args.orgId === undefined ? getRequestOrgId() : args.orgId;
   const declaredExt = path.extname(args.originalName).toLowerCase();
   if (!isSlidesReferenceFileExtension(declaredExt)) {
     throw new Error(
@@ -221,7 +223,7 @@ export async function saveUploadedReferenceFile(args: {
     try {
       reference = await storeUploadedReferenceBlob({
         email: args.email,
-        orgId: args.orgId,
+        orgId,
         data: args.data,
         filename,
         mimeType: resolvedType,
@@ -259,6 +261,7 @@ export async function saveUploadedReferenceFile(args: {
       url = (
         await uploadImageAsset({
           email: args.email,
+          orgId,
           originalName: assetOriginalName,
           data: args.data,
           type: resolvedType,

@@ -1070,15 +1070,55 @@ describe("controlled composer context", () => {
     expect(
       container.querySelector('[contenteditable="true"]')?.textContent,
     ).toBe("Keep my draft");
-    expect(
-      container.querySelector('[role="status"]')?.getAttribute("aria-label"),
-    ).toBe("common.loading");
+    expect(container.querySelector('[role="status"]')).toBeNull();
     expect(container.textContent).not.toContain("checkingProvider");
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        '[data-agent-composer-slot="send-button"]',
-      )?.disabled,
-    ).toBe(true);
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    );
+    expect(sendButton?.disabled).toBe(true);
+    expect(sendButton?.getAttribute("aria-busy")).toBeNull();
+    expect(sendButton?.getAttribute("aria-label")).not.toBe("common.loading");
+    expect(sendButton?.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("lets a host queue submissions while provider status is unresolved", async () => {
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onBeforeSubmit = vi.fn(async () => true);
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={{
+            models: {
+              useAgentEngineConfigured: () => ({
+                state: "unknown",
+                missing: false,
+              }),
+            },
+          }}
+        >
+          <PromptComposer
+            composerRef={composerRef}
+            onBeforeSubmit={onBeforeSubmit}
+            onSubmit={onSubmit}
+            initialText="Queue this message"
+            initialTextKey="queued-provider-submit"
+            requireAgentEngine={false}
+            showModelSelector={false}
+            includeDefaultSlashSkills={false}
+          />
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+
+    await act(async () =>
+      expect(
+        await composerRef.current!.submitWithText("Queue this message"),
+      ).toBe(true),
+    );
+
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledOnce();
   });
 
   it("submits edits made while an async readiness check is pending", async () => {

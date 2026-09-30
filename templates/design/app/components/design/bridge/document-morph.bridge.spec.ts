@@ -1896,3 +1896,54 @@ describe("a same-parent reorder without forceFullDocument", () => {
     },
   );
 });
+
+describe("replace-document-content keeps shader runtime canvases", () => {
+  it(
+    "keeps a shader canvas the runtime inserted before the bridge loaded through a source style edit",
+    { timeout: 30_000 },
+    async () => {
+      const shaderCanvas =
+        '<canvas data-an-shader-canvas="an-shader-test" aria-hidden="true"></canvas>';
+      await withBridgedPage(shaderCanvas + BASE_BODY, async (page) => {
+        await page.evaluate(() => {
+          (
+            document.querySelector("canvas") as HTMLCanvasElement & {
+              __identity?: string;
+            }
+          ).__identity = "runtime-canvas";
+        });
+
+        await replaceDocument(
+          page,
+          documentHtml(BASE_BODY).replace(
+            '<main data-agent-native-node-id="an-main">',
+            '<main data-agent-native-node-id="an-main" style="border-radius: 16px">',
+          ),
+        );
+
+        expect(
+          await page.evaluate(() => {
+            const canvas = document.querySelector(
+              "canvas[data-an-shader-canvas]",
+            ) as (HTMLCanvasElement & { __identity?: string }) | null;
+            return {
+              identity: canvas?.__identity ?? null,
+              parent: canvas?.parentElement?.getAttribute(
+                "data-agent-native-node-id",
+              ),
+              radius: (
+                document.querySelector(
+                  '[data-agent-native-node-id="an-main"]',
+                ) as HTMLElement
+              ).style.borderRadius,
+            };
+          }),
+        ).toEqual({
+          identity: "runtime-canvas",
+          parent: "an-main",
+          radius: "16px",
+        });
+      });
+    },
+  );
+});

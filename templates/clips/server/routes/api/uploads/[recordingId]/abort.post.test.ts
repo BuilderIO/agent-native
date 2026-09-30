@@ -525,34 +525,58 @@ describe("/api/uploads/:recordingId/abort route", () => {
   });
 
   it("addresses the active generation-scoped session on abort", async () => {
+    // A reset moved the row on to generation-2, but the cancel still carries
+    // the pre-reset generation. Cleanup must follow the row's generation, so
+    // the request's value and the row's value are deliberately different.
     mockSelectRows.rows = [
       {
         id: "rec-1",
         status: "uploading",
         videoUrl: null,
         failureReason: null,
-        uploadAttemptId: null,
-        uploadGenerationId: "generation-1",
+        failureCode: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-2",
       },
     ];
+    mockUpdateRows.rows = [{ id: "rec-1", uploadGenerationId: "generation-2" }];
     mockReadBody.mockResolvedValue({
-      reason: "Cancelled",
+      reason: "Recording cancelled by user",
+      failureCode: "user_cancelled",
+      attemptId: "attempt-1",
       uploadGenerationId: "generation-1",
     });
-    mockGetResumableSession.mockResolvedValue({
-      providerId: "s3",
-      sessionId: "upload-example",
-      meta: {},
-      bytesUploaded: 123,
-    });
+    mockGetResumableSession.mockImplementation(
+      async (_recordingId: string, generationId: string) =>
+        generationId === "generation-2"
+          ? {
+              providerId: "s3",
+              sessionId: "upload-example",
+              meta: {},
+              bytesUploaded: 123,
+            }
+          : null,
+    );
 
     await handler({} as any);
 
     expect(mockGetResumableSession).toHaveBeenCalledWith(
       "rec-1",
+      "generation-2",
+    );
+    expect(mockGetResumableSession).not.toHaveBeenCalledWith(
+      "rec-1",
       "generation-1",
     );
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "upload-example",
+      meta: {},
+    });
     expect(mockDeleteResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-2",
+    );
+    expect(mockDeleteResumableSession).not.toHaveBeenCalledWith(
       "rec-1",
       "generation-1",
     );

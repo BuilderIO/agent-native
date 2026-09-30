@@ -641,8 +641,8 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
   }),
   defineSettingsPage({
     id: "labs",
-    group: "footer",
-    order: 10,
+    group: "app",
+    order: 70,
     labelKey: label("labs"),
     icon: IconFlask,
     component: lazy(() => import("./pages/labs.js")),
@@ -651,8 +651,8 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
   }),
   defineSettingsPage({
     id: "whats-new",
-    group: "footer",
-    order: 20,
+    group: "app",
+    order: 80,
     labelKey: label("whatsNew"),
     icon: IconNews,
     visible: (_context, bridge) =>

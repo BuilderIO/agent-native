@@ -13,12 +13,19 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Large PDF and PowerPoint imports have more time to finish
+- The Position control stays available while a selected object's style details initialize.
+- Conflicting edits to one slide no longer block unrelated slide changes.
+- The home composer stays put as the app opens.
+- Slide conflict resolution keeps drafts available until saves succeed and retries independent edits against the current deck version.
+- Turning bullets on or off keeps neighboring text rows unchanged.
 - Dragging an object out of a layout preserves its original space.
 - Fixed deck edits failing to save during simultaneous collaboration
 - Pasted text no longer blocks deck creation
 - Position controls are available before you manually move an object
 - Pressing Escape after editing text closes the selection outline.
 - Slides opens reference selection after sign-in when no design or reference context is selected.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 - Slide undo preserves concurrent edits from other people
 - Editing a bullet no longer changes neighboring lines, and Markdown bullets work after a line break.
 - Slides no longer overwrites a newer edit to the same slide, and Undo and Redo stay with the deck you are editing.

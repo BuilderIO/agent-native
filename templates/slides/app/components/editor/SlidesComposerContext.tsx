@@ -57,6 +57,7 @@ function figmaPickerId(reference: ComposerSource) {
 
 export function useSlidesComposerContext({
   active = true,
+  initialSelection,
   defaultDesignSystemId,
   defaultReferenceDeck,
   systems,
@@ -69,6 +70,7 @@ export function useSlidesComposerContext({
   draftScope,
 }: {
   active?: boolean;
+  initialSelection?: SlidesComposerContext;
   defaultDesignSystemId: string | null;
   defaultReferenceDeck?: { id: string; title: string };
   systems: Array<{ id: string; title: string }>;
@@ -117,6 +119,7 @@ export function useSlidesComposerContext({
   const [inspectedKey, setInspectedKey] = useState<string>();
   const version = useRef(0);
   const edited = useRef(false);
+  const initialSelectionKey = useRef<string | undefined>(undefined);
   const activeIdentity = useRef(identity);
   activeIdentity.current = identity;
   const selectionRef = useRef(selection);
@@ -147,6 +150,7 @@ export function useSlidesComposerContext({
 
   useEffect(() => {
     edited.current = false;
+    initialSelectionKey.current = undefined;
     setError(undefined);
     version.current++;
     systemVersion.current++;
@@ -205,6 +209,32 @@ export function useSlidesComposerContext({
     defaultDeckTitle,
     t,
     systemsEnabled,
+  ]);
+  useEffect(() => {
+    if (!initialSelection) {
+      initialSelectionKey.current = undefined;
+      return;
+    }
+    const key = JSON.stringify(initialSelection);
+    if (initialSelectionKey.current === key) return;
+    initialSelectionKey.current = key;
+    const next = systemsEnabled
+      ? initialSelection
+      : { ...initialSelection, designSystemId: storedSelection.designSystemId };
+    edited.current = true;
+    selectionRef.current = next;
+    setSelection(next);
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      setError(t("home.context.saveFailed"));
+    }
+  }, [
+    initialSelection,
+    storageKey,
+    storedSelection.designSystemId,
+    systemsEnabled,
+    t,
   ]);
 
   useEffect(() => {

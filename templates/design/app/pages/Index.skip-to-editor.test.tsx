@@ -66,6 +66,28 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   useAgentEngineConfigured: () => mocks.agentEngine,
   fetchAgentEngineConfiguredState: mocks.fetchAgentEngineConfiguredState,
 }));
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: ({
+    bouncePulse = 0,
+    onConnected,
+  }: {
+    bouncePulse?: number;
+    onConnected?: () => void;
+  }) => (
+    <div
+      data-setup-card
+      data-testid="ai-setup-card"
+      data-bounce-pulse={bouncePulse}
+    >
+      Connect AI
+      <button type="button" onClick={onConnected}>
+        Connect Builder.io
+      </button>
+      <a href="/settings/keys">Custom keys</a>
+    </div>
+  ),
+  BuilderSetupContent: () => null,
+}));
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
 }));
@@ -280,6 +302,19 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@agent-native/toolkit/app/chat/composer/index")
     >()),
+    useAgentKitIntegrationMenu: () => ({
+      id: "integrations",
+      label: "Integrations",
+      intent: "invoke-integration",
+      picker: {
+        scopeKey: "test",
+        searchPlaceholder: "Search integrations",
+        items: [],
+        loading: false,
+        emptyMessage: "No integrations",
+        onSelect: () => {},
+      },
+    }),
     useAgentKitCapabilities: () => ({
       data: { sources: { figma: { available: true } }, integrations: [] },
     }),
@@ -554,7 +589,7 @@ describe("Index skip to editor", () => {
     );
     expect(
       container
-        .querySelector("[data-setup-card]")
+        .querySelector("[data-setup-card][data-bounce-pulse]")
         ?.getAttribute("data-bounce-pulse"),
     ).toBe("1");
 
@@ -577,7 +612,7 @@ describe("Index skip to editor", () => {
     );
     expect(
       container.querySelector('[role="status"][aria-label="common.loading"]'),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps).toMatchObject({
       onBeforeSubmit: expect.any(Function),
@@ -629,12 +664,6 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Connect AI");
   });
 
-  it("shows generic home suggestions while provider setup is pending", async () => {
-    mocks.agentEngine = { state: "missing", missing: true };
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).not.toContain("Generated dashboard");
-    expect(container.textContent).toContain("chat.suggestionLandingPage");
-  });
   it.each([
     { state: "missing", missing: true, ready: false },
     { state: "unknown", missing: false, ready: false },
@@ -646,12 +675,15 @@ describe("Index skip to editor", () => {
     async ({ state, missing, ready }) => {
       mocks.agentEngine = { state, missing };
       await act(async () => root.render(<Index />));
+      expect(mocks.promptProps?.disabled).not.toBe(true);
       expect(mocks.promptProps).toMatchObject({
-        disabled: !ready,
-        submissionDisabled: !ready,
         showModelSelector: ready,
         modelStatusChecksEnabled: ready,
       });
+      expect(container.textContent).not.toContain(
+        "agentChat.setup.checkingProvider",
+      );
+      expect(container.textContent).not.toContain("Checking AI connection");
       expect(
         Boolean(
           container.querySelector('[aria-label="home.suggestedPrompts"]'),

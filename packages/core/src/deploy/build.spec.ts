@@ -1246,7 +1246,7 @@ export function createRequestHandler() {
     .default;
 }
 
-describe("generateWorkerEntry", { timeout: 15_000 }, () => {
+describe("generateWorkerEntry", () => {
   beforeEach(() => {
     resetAppConfigForTests();
     defineAppConfig({ app: { homePath: "/home" } });

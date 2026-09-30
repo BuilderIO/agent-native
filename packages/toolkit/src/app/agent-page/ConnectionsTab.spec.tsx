@@ -13,9 +13,6 @@ const mcpMocks = vi.hoisted(() => ({
 
 vi.mock("../resources/index.js", () => ({
   McpIntegrationDialog: () => null,
-}));
-
-vi.mock("../resources/index.js", () => ({
   McpServerDetail: () => null,
 }));
 

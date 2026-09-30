@@ -25,7 +25,8 @@ vi.mock("../labs/index.js", () => ({
   ),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) =>
     key === "agentChat.auth.logOut" ? "Cerrar sesión" : key,
   useOptionalLocale: () => ({ locale: "en" }),
@@ -530,6 +531,7 @@ describe("SettingsTabsPage", () => {
       "#settings-tab-whats-new",
     );
     expect(whatsNewTab).not.toBeNull();
+    await import("../changelog/Changelog.js");
 
     await act(async () => {
       whatsNewTab!.click();
@@ -609,6 +611,7 @@ describe("SettingsTabsPage", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
+          general={<div>General content</div>}
           generalGroups={<div>App groups</div>}
           notifications={<div>Email settings</div>}
           notificationsLabel="Notifications"

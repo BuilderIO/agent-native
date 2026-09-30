@@ -845,9 +845,8 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "Conecte a IA para começar a conversar...",
   "setup.connectToChat": "Conectar a IA ao chat",
   "setup.connectToStart": "Conecte a IA para começar a conversar",
-  "setup.checkingProvider": "Verificando a conexão com a IA…",
   "setup.providerStatusUnavailable":
-    "Não foi possível verificar a conexão com a IA.",
+    "Não foi possível confirmar se a IA está pronta.",
   "agentNativeClips.meetingAsk.placeholder": "Pergunte o que quiser",
   "agentNativeClips.meetingAsk.ariaLabel":
     "Pergunte o que quiser sobre esta reunião",
@@ -1406,6 +1405,224 @@ const messages: ToolkitAgentChatTranslation = {
   "usage.providerSpendToday":
     "Uso adicional ou não classificado hoje: {{amount}}",
   "usage.driverCreditsAndUsd": "Créditos do Builder / USD",
+  "observability.insights.verdictSmooth": "Funcionando sem problemas",
+  "observability.insights.verdictLook_one":
+    "{{count}} coisa que vale a pena olhar",
+  "observability.insights.verdictLook_other":
+    "{{count}} coisas que valem a pena olhar",
+  "observability.insights.verdictProblems_one": "{{count}} problema",
+  "observability.insights.verdictProblems_other": "{{count}} problemas",
+  "observability.insights.spentSummary_one":
+    "{{amount}} gasto em {{count}} prompt nos últimos {{days}} dias.",
+  "observability.insights.spentSummary_other":
+    "{{amount}} gasto em {{count}} prompts nos últimos {{days}} dias.",
+  "observability.insights.handledLabel": "Resolvido pelo Agent-Native:",
+  "observability.insights.handledHeading": "Resolvido pelo Agent-Native",
+  "observability.insights.handledParallel":
+    "Executou {{count}} chamadas de ferramentas ao mesmo tempo, cerca de {{duration}} mais rápido do que uma por uma.",
+  "observability.insights.handledRecovered_one":
+    "Recuperou de {{count}} erro de ferramenta sem parar.",
+  "observability.insights.handledRecovered_other":
+    "Recuperou de {{count}} erros de ferramenta sem parar.",
+  "observability.insights.avgPerPrompt": "Média por prompt",
+  "observability.insights.completed": "Concluído",
+  "observability.insights.completedDetail": "{{done}} dos últimos {{total}}",
+  "observability.insights.completedRecovered_one":
+    "{{done}} dos últimos {{total}}, após se recuperar de {{count}} erro de ferramenta",
+  "observability.insights.completedRecovered_other":
+    "{{done}} dos últimos {{total}}, após se recuperar de {{count}} erros de ferramenta",
+  "observability.insights.typicalTime": "Tempo típico",
+  "observability.insights.median": "mediana",
+  "observability.insights.sampleNote":
+    "A conclusão, o tempo típico, o que o Agent-Native resolveu e os achados usam os últimos {{shown}} de {{total}} prompts.",
+  "observability.insights.changeSame": "igual ao período anterior",
+  "observability.insights.changeUp":
+    "↑ {{percent}}% em relação ao período anterior",
+  "observability.insights.changeDown":
+    "↓ {{percent}}% em relação ao período anterior",
+  "observability.insights.kindProblem": "Problema",
+  "observability.insights.kindSaving": "Pode economizar",
+  "observability.insights.kindInfo": "Bom saber",
+  "observability.insights.fixLabel": "Correção:",
+  "observability.insights.openPrompt": "Abrir o prompt",
+  "observability.insights.seePrompts_one": "Ver o {{count}} prompt",
+  "observability.insights.seePrompts_other": "Ver os {{count}} prompts",
+  "observability.insights.erroredTitle_one":
+    "{{count}} prompt terminou com erro",
+  "observability.insights.erroredTitle_other":
+    "{{count}} prompts terminaram com erro",
+  "observability.insights.erroredBody": "O agente parou antes de terminar.",
+  "observability.insights.erroredFix":
+    "Abra um prompt para ver a última coisa que ele fez antes de parar.",
+  "observability.insights.toolFailedTitle_one":
+    "A ferramenta {{tool}} falhou em {{count}} prompt",
+  "observability.insights.toolFailedTitle_other":
+    "A ferramenta {{tool}} falhou em {{count}} prompts",
+  "observability.insights.toolFailedSaid": "Disse: “{{error}}”",
+  "observability.insights.toolFailedGeneric": "A ferramenta retornou um erro.",
+  "observability.insights.toolRecoveredAll":
+    "O agente se recuperou e terminou todas as vezes.",
+  "observability.insights.toolRecoveredSome":
+    "O agente se recuperou e terminou em {{count}} delas.",
+  "observability.insights.restartTitle":
+    "Recomeçar custou cerca de {{amount}} ({{percent}}% do gasto)",
+  "observability.insights.restartBody":
+    "Em {{count}} dos últimos {{total}} prompts, o agente reenviou toda a conversa depois de {{reason}}, em vez de reaproveitar o que já tinha enviado.",
+  "observability.insights.reasonToolLookup": "buscar novas ferramentas",
+  "observability.insights.reasonPrefixChanged":
+    "algo no início das instruções mudou",
+  "observability.insights.fixToolLookup":
+    "Pré-carregue as ferramentas que este app usa com initialToolNames para que a lista de ferramentas não mude durante todo o prompt.",
+  "observability.insights.fixPrefixChanged":
+    "Mantenha conteúdo que muda, como horários ou estado de cada etapa, fora do prompt do sistema.",
+  "observability.insights.priciestTitle":
+    "Um prompt usou {{percent}}% do gasto recente",
+  "observability.insights.priciestBody_one":
+    "“{{prompt}}” custou {{amount}} em {{count}} etapa.",
+  "observability.insights.priciestBody_other":
+    "“{{prompt}}” custou {{amount}} em {{count}} etapas.",
+  "observability.insights.untitledPrompt": "Prompt sem título",
+  "observability.insights.promptsHeading": "Prompts",
+  "observability.insights.showing": "Mostrando {{count}}",
+  "observability.insights.sortNewest": "Mais recentes",
+  "observability.insights.sortCost": "Mais caros",
+  "observability.insights.emptyPrompts":
+    "Ainda não há prompts neste período. Eles aparecem aqui poucos segundos depois de terminar.",
+  "observability.insights.promptNotSaved": "O texto do prompt não foi salvo",
+  "observability.insights.ratedHelpful": "Avaliado como útil",
+  "observability.insights.ratedUnhelpful": "Avaliado como não útil",
+  "observability.insights.notRated": "Sem avaliação",
+  "observability.insights.stoppedWithError": "Parou com erro",
+  "observability.insights.detailsUnavailable":
+    "Os detalhes das etapas não estão mais disponíveis",
+  "observability.insights.answered": "Respondido",
+  "observability.insights.finished": "Terminado",
+  "observability.insights.startedOverShort": "recomeçou {{count}}×",
+  "observability.insights.recoveredShort_one":
+    "recuperou de {{count}} erro de ferramenta",
+  "observability.insights.recoveredShort_other":
+    "recuperou de {{count}} erros de ferramenta",
+  "observability.insights.toolsFailedShort_one": "{{count}} ferramenta falhou",
+  "observability.insights.toolsFailedShort_other":
+    "{{count}} ferramentas falharam",
+  "observability.insights.headerDuration": "em {{duration}}",
+  "observability.insights.stepsCount_one": "{{count}} etapa",
+  "observability.insights.stepsCount_other": "{{count}} etapas",
+  "observability.insights.whatItDid": "O que ele fez:",
+  "observability.insights.replyNotSaved":
+    "O texto da resposta não foi salvo para este prompt.",
+  "observability.insights.showAll": "Mostrar tudo",
+  "observability.insights.showLess": "Mostrar menos",
+  "observability.insights.moreTools": "+{{count}} mais",
+  "observability.insights.failedSuffix": "falhou",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.startedOverNote_one":
+    "Recomeçou {{count}} vez depois de {{reason}}. Isso custou cerca de {{amount}} de {{total}}.",
+  "observability.insights.startedOverNote_other":
+    "Recomeçou {{count}} vezes depois de {{reason}}. Isso custou cerca de {{amount}} de {{total}}.",
+  "observability.insights.toolFailedNote_one":
+    "A ferramenta {{tool}} falhou {{count}} vez.",
+  "observability.insights.toolFailedNote_other":
+    "A ferramenta {{tool}} falhou {{count}} vezes.",
+  "observability.insights.toolFailedRecoveredNote_one":
+    "A ferramenta {{tool}} falhou {{count}} vez, mas o agente continuou e terminou.",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "A ferramenta {{tool}} falhou {{count}} vezes, mas o agente continuou e terminou.",
+  "observability.insights.showSteps_one": "Mostrar a {{count}} etapa",
+  "observability.insights.showSteps_other": "Mostrar as {{count}} etapas",
+  "observability.insights.hideSteps": "Ocultar etapas",
+  "observability.insights.costDetails": "Detalhes de custo e verificações",
+  "observability.insights.turnReply": "Escreveu a resposta",
+  "observability.insights.turnThought": "Raciocinou",
+  "observability.insights.startedOverTag": "recomeçou",
+  "observability.insights.toolFailedTag": "ferramenta falhou",
+  "observability.insights.turnContext":
+    "Enviou {{tokens}} tokens de contexto, {{percent}}% reaproveitado de antes.",
+  "observability.insights.turnExpired":
+    "O contexto salvo tinha expirado após uma pausa, o que é esperado.",
+  "observability.insights.turnOutput": "Escreveu {{tokens}} tokens.",
+  "observability.insights.turnRestart":
+    "Recomeçou depois de {{reason}}, cerca de {{amount}} mais do que reaproveitar.",
+  "observability.insights.noCacheCompare":
+    "A preços de tabela, reaproveitar o contexto anterior reduziu este prompt de {{noCache}} para {{estimated}}.",
+  "observability.insights.partReused": "Contexto reaproveitado",
+  "observability.insights.partSaved": "Salvo em cache",
+  "observability.insights.partNew": "Contexto novo",
+  "observability.insights.partOutput": "Escrito pelo modelo",
+  "observability.insights.checksHeading": "Verificações automáticas",
+  "observability.insights.checksNone": "Nenhuma foi registrada.",
+  "observability.insights.checksGraded": "(avaliado por um modelo)",
+  "observability.insights.checksNote":
+    "As verificações do framework observam como a execução foi (erros, etapas, velocidade), não se o resultado foi bom.",
+  "observability.insights.lookedForTools": "Buscou mais ferramentas",
+  "observability.insights.prevPrompt": "Prompt anterior (K)",
+  "observability.insights.nextPrompt": "Próximo prompt (J)",
+  "observability.insights.toolVerb.add": "Adicionou {{object}}",
+  "observability.insights.toolVerb.analyze": "Analisou {{object}}",
+  "observability.insights.toolVerb.apply": "Aplicou {{object}}",
+  "observability.insights.toolVerb.capture": "Capturou {{object}}",
+  "observability.insights.toolVerb.check": "Verificou {{object}}",
+  "observability.insights.toolVerb.connect": "Conectou {{object}}",
+  "observability.insights.toolVerb.create": "Criou {{object}}",
+  "observability.insights.toolVerb.delete": "Excluiu {{object}}",
+  "observability.insights.toolVerb.duplicate": "Duplicou {{object}}",
+  "observability.insights.toolVerb.edit": "Editou {{object}}",
+  "observability.insights.toolVerb.export": "Exportou {{object}}",
+  "observability.insights.toolVerb.fetch": "Obteve {{object}}",
+  "observability.insights.toolVerb.find": "Encontrou {{object}}",
+  "observability.insights.toolVerb.generate": "Gerou {{object}}",
+  "observability.insights.toolVerb.index": "Indexou {{object}}",
+  "observability.insights.toolVerb.insert": "Inseriu {{object}}",
+  "observability.insights.toolVerb.list": "Listou {{object}}",
+  "observability.insights.toolVerb.move": "Moveu {{object}}",
+  "observability.insights.toolVerb.navigate": "Navegou {{object}}",
+  "observability.insights.toolVerb.open": "Abriu {{object}}",
+  "observability.insights.toolVerb.present": "Apresentou {{object}}",
+  "observability.insights.toolVerb.propose": "Propôs {{object}}",
+  "observability.insights.toolVerb.query": "Consultou {{object}}",
+  "observability.insights.toolVerb.read": "Leu {{object}}",
+  "observability.insights.toolVerb.remove": "Removeu {{object}}",
+  "observability.insights.toolVerb.rename": "Renomeou {{object}}",
+  "observability.insights.toolVerb.reply": "Respondeu a {{object}}",
+  "observability.insights.toolVerb.resolve": "Resolveu {{object}}",
+  "observability.insights.toolVerb.run": "Executou {{object}}",
+  "observability.insights.toolVerb.save": "Salvou {{object}}",
+  "observability.insights.toolVerb.search": "Pesquisou {{object}}",
+  "observability.insights.toolVerb.send": "Enviou {{object}}",
+  "observability.insights.toolVerb.set": "Definiu {{object}}",
+  "observability.insights.toolVerb.take": "Tirou {{object}}",
+  "observability.insights.toolVerb.update": "Atualizou {{object}}",
+  "observability.insights.toolVerb.upload": "Carregou {{object}}",
+  "observability.insights.toolVerb.view": "Visualizou {{object}}",
+  "observability.insights.toolVerb.write": "Escreveu {{object}}",
+  "observability.insights.verdictLook_many":
+    "{{count}} coisas que valem a pena olhar",
+  "observability.insights.verdictProblems_many": "{{count}} problemas",
+  "observability.insights.spentSummary_many":
+    "{{amount}} gasto em {{count}} prompts nos últimos {{days}} dias.",
+  "observability.insights.handledRecovered_many":
+    "Recuperou de {{count}} erros de ferramenta sem parar.",
+  "observability.insights.completedRecovered_many":
+    "{{done}} dos últimos {{total}}, após se recuperar de {{count}} erros de ferramenta",
+  "observability.insights.seePrompts_many": "Ver os {{count}} prompts",
+  "observability.insights.erroredTitle_many":
+    "{{count}} prompts terminaram com erro",
+  "observability.insights.toolFailedTitle_many":
+    "A ferramenta {{tool}} falhou em {{count}} prompts",
+  "observability.insights.priciestBody_many":
+    "“{{prompt}}” custou {{amount}} em {{count}} etapas.",
+  "observability.insights.recoveredShort_many":
+    "recuperou de {{count}} erros de ferramenta",
+  "observability.insights.toolsFailedShort_many":
+    "{{count}} ferramentas falharam",
+  "observability.insights.stepsCount_many": "{{count}} etapas",
+  "observability.insights.startedOverNote_many":
+    "Recomeçou {{count}} vezes depois de {{reason}}. Isso custou cerca de {{amount}} de {{total}}.",
+  "observability.insights.toolFailedNote_many":
+    "A ferramenta {{tool}} falhou {{count}} vezes.",
+  "observability.insights.toolFailedRecoveredNote_many":
+    "A ferramenta {{tool}} falhou {{count}} vezes, mas o agente continuou e terminou.",
+  "observability.insights.showSteps_many": "Mostrar as {{count}} etapas",
   "billing.builderCreditLimitTitle": "Seus créditos do Builder acabaram",
   "billing.builderCreditLimitEmailBody":
     "Uma solicitação de IA foi interrompida porque a conta conectada do Builder ficou sem créditos. Faça upgrade do seu plano do Builder para continuar.",
@@ -2833,6 +3050,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "Explorar o Global A2A Registry",
   "settingsSubAgents.connectTitle": "Conectar {{name}}",
   "settingsSubAgents.close": "Fechar",
+  "observability.insights.rawTrace":
+    "Trace bruto (todos os spans, com entradas e saídas)",
 };
 
 export default messages;

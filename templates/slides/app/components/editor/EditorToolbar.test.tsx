@@ -40,12 +40,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         : key,
 }));
 
-vi.mock("@agent-native/core/client/progress", () => ({
+vi.mock("@agent-native/toolkit/app/progress", () => ({
   RunsTray: () => null,
-}));
-
-vi.mock("@agent-native/core/client/sharing", () => ({
-  ShareButton: mocks.shareButton,
 }));
 
 vi.mock("@agent-native/toolkit/app/sharing", () => ({
@@ -66,10 +62,12 @@ vi.mock("@/components/visual-editor", () => ({
 }));
 
 vi.mock("@/context/DeckContext", () => ({
+  getStaleContentConflictSlideId: () => undefined,
   hasFailedDeckSave: () => false,
   hasUnsavedDeckChanges: () => false,
   useDeckContentConflicts: () => mocks.deckContentConflicts,
   useDecks: () => ({
+    resolveContentConflict: vi.fn(),
     resolveDeckContentConflict: mocks.resolveDeckContentConflict,
   }),
   useSaveState: () => ({ saving: false }),

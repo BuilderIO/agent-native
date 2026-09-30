@@ -24,6 +24,7 @@ import {
   headingTextLook,
   keepTextLook,
   type TextLook,
+  slideListRows,
   type SlideListKind,
   toggleSlideList,
 } from "./list-editing";
@@ -3965,10 +3966,7 @@ export function startInPlaceTextSession(
       command(() =>
         keepingSelection(() => {
           const range = selectionRange();
-          const rows = Array.from(el.children).filter(
-            (child): child is HTMLElement =>
-              child instanceof HTMLElement && isBulletRow(child),
-          );
+          const rows = slideListRows(el, range);
           const selectedRows = range
             ? rows.filter((row) =>
                 range.collapsed
@@ -3976,15 +3974,37 @@ export function startInPlaceTextSession(
                   : range.intersectsNode(row),
               )
             : [];
+          const selectedUnmarkedRows = range
+            ? Array.from(el.children).filter(
+                (child): child is HTMLElement =>
+                  child instanceof HTMLElement &&
+                  !isBulletRow(child) &&
+                  ["DIV", "LI", "P"].includes(child.tagName) &&
+                  (range.collapsed
+                    ? child.contains(range.startContainer)
+                    : range.intersectsNode(child)),
+              )
+            : [];
           if (
             kind === "bullet" &&
-            selectedRows.length !== 0 &&
-            selectedRows.length < rows.length
+            rows.length > 0 &&
+            selectedRows.length === 0 &&
+            selectedUnmarkedRows.length > 0
           ) {
-            for (const row of selectedRows) {
-              const marker = row.firstElementChild;
-              if (marker && isBulletMarker(marker)) marker.remove();
+            const marker = rows[0].firstElementChild;
+            if (marker && isBulletMarker(marker)) {
+              for (const row of selectedUnmarkedRows) {
+                const copy = marker.cloneNode(true) as HTMLElement;
+                stripCopiedIdentity(copy);
+                row.prepend(copy);
+              }
+              return true;
             }
+          }
+          if (selectedRows.length > 0) {
+            const next = toggleSlideList(el, kind, selectedRows);
+            if (!next) return false;
+            if (next !== el) rebind(next);
             return true;
           }
           if (range?.collapsed) {

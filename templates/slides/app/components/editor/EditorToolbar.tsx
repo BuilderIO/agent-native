@@ -69,6 +69,7 @@ import {
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import {
+  getStaleContentConflictSlideId,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
   useDeckContentConflicts,
@@ -231,6 +232,7 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
+  const { resolveContentConflict, resolveDeckContentConflict } = useDecks();
   const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   const editorUrl =
@@ -258,8 +260,8 @@ export default function EditorToolbar({
   const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
 
   const { saving } = useSaveState();
-  const { resolveDeckContentConflict } = useDecks();
   const conflict = useDeckContentConflicts(deckId)[0];
+  const contentConflictSlideId = getStaleContentConflictSlideId(deckId);
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
   const resolveConflict = useCallback(
@@ -815,6 +817,17 @@ export default function EditorToolbar({
           saving={saving}
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
+          contentConflict={contentConflictSlideId !== undefined}
+          onResolveContentConflict={
+            contentConflictSlideId === undefined
+              ? undefined
+              : (resolution) =>
+                  resolveContentConflict(
+                    deckId,
+                    contentConflictSlideId,
+                    resolution,
+                  )
+          }
           offline={offline}
           conflict={
             conflict

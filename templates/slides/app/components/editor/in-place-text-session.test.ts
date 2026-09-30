@@ -1919,7 +1919,7 @@ describe("in-place text session: commands", () => {
     expect(el.style.textAlign).toBe("");
   });
 
-  it("removes bullets only from the selected styled row", () => {
+  it("toggles bullets only on the selected styled row", () => {
     const el = mount(
       '<div id="t">' +
         "<div><span>●</span><span>First</span></div>" +
@@ -1935,6 +1935,143 @@ describe("in-place text session: commands", () => {
     expect(el.children[0].firstElementChild?.textContent).toBe("●");
     expect(el.children[1].firstElementChild?.textContent).toBe("Second");
     expect(el.children[2].firstElementChild?.textContent).toBe("●");
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(el.children[0].firstElementChild?.textContent).toBe("●");
+    expect(el.children[1].firstElementChild?.textContent).toBe("●");
+    expect(el.children[2].firstElementChild?.textContent).toBe("●");
+  });
+
+  it("restores a bullet only on the selected styled row", () => {
+    const el = mount(
+      '<div id="t">' +
+        "<div><span>●</span><span>First</span></div>" +
+        "<div><span>●</span><span>Second</span></div>" +
+        "<div><span>●</span><span>Third</span></div>" +
+        "</div>",
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.children[1].children[1].firstChild!, 0);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+    expect(el.children[1].firstElementChild?.textContent).toBe("Second");
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(el.children[0].firstElementChild?.textContent).toBe("●");
+    expect(el.children[1].firstElementChild?.textContent).toBe("●");
+    expect(el.children[2].firstElementChild?.textContent).toBe("●");
+  });
+
+  it("adds a bullet to a selected plain row across mixed block tags", () => {
+    const el = mount(
+      '<div id="t">' +
+        "<div><span>●</span><span>First</span></div>" +
+        "<p>Plain</p>" +
+        "<div><span>●</span><span>Third</span></div>" +
+        "</div>",
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.children[1].firstChild!, 0);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(el.children[0].firstElementChild?.textContent).toBe("●");
+    expect(el.children[1].tagName).toBe("P");
+    expect(el.children[1].firstElementChild?.textContent).toBe("●");
+    expect(el.children[2].firstElementChild?.textContent).toBe("●");
+  });
+
+  it("converts only the selected styled row to an ordered list", () => {
+    const el = mount(
+      '<div id="t">' +
+        "<div><span>●</span><span>First</span></div>" +
+        "<div><span>●</span><span>Second</span></div>" +
+        "<div><span>●</span><span>Third</span></div>" +
+        "</div>",
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.children[1].children[1].firstChild!, 0);
+
+    expect(session.commands.toggleList("ordered")).toBe(true);
+
+    expect(el.children[0].tagName).toBe("DIV");
+    expect(el.children[0].firstElementChild?.textContent).toBe("●");
+    expect(el.children[1].tagName).toBe("OL");
+    expect(el.children[1].textContent).toBe("Second");
+    expect(el.children[2].tagName).toBe("DIV");
+    expect(el.children[2].firstElementChild?.textContent).toBe("●");
+  });
+
+  it("removes bullets from only the selected semantic list row", () => {
+    const el = mount(
+      '<div id="t"><ul><li>First</li><li>Second</li><li>Third</li></ul></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const text = textOf(el.querySelectorAll("li")[1]!, "Second");
+    select(text, 0, text, text.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(
+      Array.from(el.querySelectorAll("ul > li"), (row) => row.textContent),
+    ).toEqual(["First", "Third"]);
+    expect(el.children[1]?.tagName).toBe("DIV");
+    expect(el.children[1]?.textContent).toBe("Second");
+  });
+
+  it("toggles a fully selected nested list without changing sibling content", () => {
+    const el = mount(
+      '<div id="t"><p>Intro</p><ul><li>First</li><li>Second</li></ul><p>Outro</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const first = textOf(el, "First");
+    const second = textOf(el, "Second");
+    select(first, 0, second, second.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(Array.from(el.children, (child) => child.tagName)).toEqual([
+      "P",
+      "DIV",
+      "DIV",
+      "P",
+    ]);
+    expect(Array.from(el.children, (child) => child.textContent)).toEqual([
+      "Intro",
+      "First",
+      "Second",
+      "Outro",
+    ]);
+  });
+
+  it("toggles selected rows across both sibling semantic lists", () => {
+    const el = mount(
+      '<div id="t"><ul><li>First</li><li>Second</li></ul><ul><li>Third</li><li>Fourth</li></ul></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const second = textOf(el, "Second");
+    const third = textOf(el, "Third");
+    select(second, 0, third, third.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(Array.from(el.children, (child) => child.tagName)).toEqual([
+      "UL",
+      "DIV",
+      "DIV",
+      "UL",
+    ]);
+    expect(
+      Array.from(el.querySelectorAll("ul > li"), (row) => row.textContent),
+    ).toEqual(["First", "Fourth"]);
+    expect(Array.from(el.children, (child) => child.textContent)).toEqual([
+      "First",
+      "Second",
+      "Third",
+      "Fourth",
+    ]);
   });
 
   it("selects the element's text for Mod-A", () => {
