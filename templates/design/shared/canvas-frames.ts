@@ -69,6 +69,19 @@ export function parseCanvasFrameGeometryById(
   );
 }
 
+export function nextCanvasFramePosition(
+  framesById: CanvasFrameGeometryById,
+  gap = 160,
+): { x: number; y: number } {
+  const frames = Object.values(framesById);
+  if (frames.length === 0) return { x: 0, y: 0 };
+  const maxRight = Math.max(
+    ...frames.map((frame) => (frame.x ?? 0) + (frame.width ?? 0)),
+  );
+  const minTop = Math.min(...frames.map((frame) => frame.y ?? 0));
+  return { x: maxRight + gap, y: minTop };
+}
+
 const NUMERIC_DESIGN_DATA_ENTRY_KEYS: Record<string, ReadonlySet<string>> = {
   canvasFrames: new Set(CANVAS_FRAME_GEOMETRY_KEYS),
   screenMetadata: new Set(["width", "height"]),

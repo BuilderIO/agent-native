@@ -20,6 +20,7 @@ import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connect
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
+  nextCanvasFramePosition,
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
   type CanvasFramePlacement,
@@ -427,8 +428,18 @@ export default defineAction({
       .positive()
       .optional()
       .describe("Default iframe viewport height. Defaults to 900."),
-    startX: z.number().optional().default(0),
-    startY: z.number().optional().default(0),
+    startX: z
+      .number()
+      .optional()
+      .describe(
+        "Left edge for new screens. Defaults to the right of existing frames.",
+      ),
+    startY: z
+      .number()
+      .optional()
+      .describe(
+        "Top edge for new screens. Defaults to the topmost existing frame.",
+      ),
     gap: z.number().optional().default(160),
   }),
   mcpApp: {
@@ -667,9 +678,14 @@ export default defineAction({
     );
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const now = new Date().toISOString();
-    const layoutStartX = startX ?? 0;
-    const layoutStartY = startY ?? 0;
     const layoutGap = gap ?? 160;
+    const defaultPosition = nextCanvasFramePosition(
+      existingCanvasFrames,
+      layoutGap,
+    );
+    const layoutStartX = startX ?? defaultPosition.x;
+    const layoutStartY = startY ?? defaultPosition.y;
+    let layoutCursorX = layoutStartX;
     const savedScreens: Array<{
       id: string;
       filename: string;
@@ -1100,18 +1116,19 @@ export default defineAction({
         width,
         height,
       });
+      const frameX = input.x ?? existingFrame?.x ?? layoutCursorX;
       const fallbackPlacement: CanvasFramePlacement = {
         fileId,
         filename,
-        x:
-          input.x ??
-          existingFrame?.x ??
-          layoutStartX + placementIndex * (width + layoutGap),
+        x: frameX,
         y: input.y ?? existingFrame?.y ?? layoutStartY,
         width,
         height,
         z: input.z ?? existingFrame?.z ?? placementIndex,
       };
+      if (!existingFrame) {
+        layoutCursorX = Math.max(layoutCursorX, frameX + width + layoutGap);
+      }
       placementIndex += 1;
       placementIntents.push({
         fileId,

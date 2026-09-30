@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addLocalhostScreensRun: vi.fn(),
+  assertAccess: vi.fn(),
   createEmbedSessionTicket: vi.fn(),
   connectLocalhostRun: vi.fn(),
   createDesignRun: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   navigateRun: vi.fn(),
   runWithRequestContext: vi.fn(),
   writeAppState: vi.fn(),
+  designData: null as string | null,
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -48,6 +50,30 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
   runWithRequestContext: mocks.runWithRequestContext,
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: mocks.assertAccess,
+}));
+
+vi.mock("drizzle-orm", () => ({
+  eq: (left: unknown, right: unknown) => ({ left, right }),
+}));
+
+vi.mock("../server/db/index.js", () => ({
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () => Promise.resolve([{ data: mocks.designData }]),
+        }),
+      }),
+    }),
+    update: () => ({
+      set: () => ({ where: () => Promise.resolve() }),
+    }),
+  }),
+  schema: { designs: { id: "designs.id", data: "designs.data" } },
 }));
 
 vi.mock("./connect-localhost.js", () => ({
@@ -101,6 +127,7 @@ describe("open-visual-edit", () => {
 
   beforeEach(() => {
     mocks.addLocalhostScreensRun.mockReset();
+    mocks.assertAccess.mockReset().mockResolvedValue(undefined);
     mocks.createEmbedSessionTicket.mockReset();
     mocks.createEmbedSessionTicket.mockResolvedValue({
       ticket: "visual-edit-example-ticket",
@@ -142,6 +169,7 @@ describe("open-visual-edit", () => {
       },
     );
     mocks.writeAppState.mockReset();
+    mocks.designData = null;
 
     mocks.connectLocalhostRun.mockResolvedValue({
       id: "localhost_canonical",
@@ -301,6 +329,31 @@ describe("open-visual-edit", () => {
     expect(
       mocks.addLocalhostScreensRun.mock.calls[0]![0].paths,
     ).toBeUndefined();
+  });
+
+  it("starts a viewport grid beside existing frames when no origin is passed", async () => {
+    mocks.designData = JSON.stringify({
+      canvasFrames: {
+        existing: { x: 100, y: -20, width: 1280, height: 900 },
+      },
+    });
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/new"],
+      viewports: ["desktop", "mobile"],
+      navigate: false,
+    });
+
+    const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(
+      routes.map(({ x, y }: { x: number; y: number }) => ({ x, y })),
+    ).toEqual([
+      { x: 1540, y: -20 },
+      { x: 2980, y: -20 },
+    ]);
   });
 
   it("accepts explicit viewport sizes and leaves a single viewport's titles alone", async () => {

@@ -244,6 +244,24 @@ describe("add-localhost-screens refresh behavior", () => {
     mocks.state.files = [];
   });
 
+  it("places separately added screens beside existing frames by default", async () => {
+    const placements: Array<{ x?: number; y?: number }> = [];
+    for (const path of ["/registration", "/schedule", "/instructions"]) {
+      const result = await action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        paths: [path],
+      });
+      placements.push(result.placedFrames[0]!.frame);
+    }
+
+    expect(placements.map(({ x, y }) => ({ x, y }))).toEqual([
+      { x: 0, y: 0 },
+      { x: 1440, y: 0 },
+      { x: 2880, y: 0 },
+    ]);
+  });
+
   it("refreshes a URL without moving/resizing its arranged frame or dropping metadata", async () => {
     mocks.state.files = [
       {

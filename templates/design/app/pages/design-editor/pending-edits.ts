@@ -1586,9 +1586,15 @@ export function formatVisualEditClipboardPrompt(
       prompt,
     ].join("\n");
   }
-  const mcpHandoff = `Use the Agent-Native Design MCP tool get-visual-edit-pending with${design} to pull the latest edits. Apply its instructions to the connected app source, verify the running app, then call acknowledge-visual-edit-pending with the returned revision and pull again to confirm the handoff cleared.`;
+  const mcpHandoff = [
+    `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : ""}`,
+    `Use the Agent-Native Design MCP tool get-visual-edit-pending with${design} to pull the latest revision, then verify the running app and call acknowledge-visual-edit-pending with that revision.`,
+    `If Design MCP is unavailable, apply the included edit details directly. This Visual Edit page has no "Apply design updates in Design" button.`,
+    "",
+    prompt,
+  ].join("\n");
   return host === "webmcp"
-    ? `${mcpHandoff} If you cannot access the Design MCP server but can use this open Design tab, use its page-local get-visual-edit-prompt WebMCP tool instead.`
+    ? `${mcpHandoff}\n\nIf you cannot access the Design MCP server but can use this open Design tab, use its page-local get-visual-edit-prompt WebMCP tool instead.`
     : mcpHandoff;
 }
 

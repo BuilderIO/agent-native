@@ -451,6 +451,9 @@ describe("formatVisualEditClipboardPrompt", () => {
       expect(copied).toContain("get-visual-edit-pending");
       expect(copied).toContain('{ designId: "design-1" }');
       expect(copied).toContain("acknowledge-visual-edit-pending");
+      expect(copied).toContain(prompt);
+      expect(copied).toContain("apply the included edit details directly");
+      expect(copied).toContain('no "Apply design updates in Design" button');
       const browserToolIndex = copied.indexOf("get-visual-edit-prompt");
       if (browserToolIndex !== -1) {
         expect(copied.indexOf("get-visual-edit-pending")).toBeLessThan(
@@ -471,6 +474,7 @@ describe("formatVisualEditClipboardPrompt", () => {
     expect(copied).toContain('{ designId: "design-1" }');
     expect(copied).toContain("get-visual-edit-prompt");
     expect(copied).toContain("If you cannot access the Design MCP server");
+    expect(copied).toContain("Apply edits.");
   });
 
   it("uses the design id from the URL when it is not passed", () => {

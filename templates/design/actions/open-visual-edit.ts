@@ -15,10 +15,15 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  nextCanvasFramePosition,
+  parseCanvasFrameGeometryById,
+} from "../shared/canvas-frames.js";
 import {
   DESIGN_BRIDGE_OPERATIONS,
   makeLocalhostRouteId,
@@ -506,8 +511,18 @@ export default defineAction({
       .positive()
       .optional()
       .describe("Default screen height. Defaults to 900 when omitted."),
-    startX: z.number().optional().default(0),
-    startY: z.number().optional().default(0),
+    startX: z
+      .number()
+      .optional()
+      .describe(
+        "Left edge for new screens. Defaults to the right of existing frames.",
+      ),
+    startY: z
+      .number()
+      .optional()
+      .describe(
+        "Top edge for new screens. Defaults to the topmost existing frame.",
+      ),
     gap: z.number().optional().default(160),
     navigate: z
       .boolean()
@@ -643,6 +658,34 @@ export default defineAction({
         );
       }
 
+      let viewportStartX = args.startX;
+      let viewportStartY = args.startY;
+      if (
+        viewports &&
+        (viewportStartX === undefined || viewportStartY === undefined)
+      ) {
+        await assertAccess("design", designId, "editor");
+        const [design] = await getDb()
+          .select({ data: schema.designs.data })
+          .from(schema.designs)
+          .where(eq(schema.designs.id, designId))
+          .limit(1);
+        if (!design) throw new Error(`Design "${designId}" not found.`);
+        const designData: unknown = design.data ? JSON.parse(design.data) : {};
+        const frameData =
+          designData &&
+          typeof designData === "object" &&
+          !Array.isArray(designData)
+            ? (designData as Record<string, unknown>).canvasFrames
+            : undefined;
+        const defaultPosition = nextCanvasFramePosition(
+          parseCanvasFrameGeometryById(frameData),
+          args.gap ?? 160,
+        );
+        viewportStartX ??= defaultPosition.x;
+        viewportStartY ??= defaultPosition.y;
+      }
+
       const screens = await addLocalhostScreensAction.run(
         {
           designId,
@@ -652,8 +695,8 @@ export default defineAction({
               ? expandRoutesAcrossViewports({
                   routes: requestedRoutes,
                   viewports,
-                  startX: args.startX ?? 0,
-                  startY: args.startY ?? 0,
+                  startX: viewportStartX ?? 0,
+                  startY: viewportStartY ?? 0,
                   gap: args.gap ?? 160,
                 })
               : args.routes,
