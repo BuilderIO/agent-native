@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -44,13 +45,16 @@ async function authenticate(ctx, base, creds, register) {
 const REQUEST_TIMEOUT_MS = 120000;
 const SESSIONS = join(homedir(), ".cache", "design-clip-repro", "sessions");
 
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
 /**
  * A logged-in REST context. The session is cached and reused while valid, so a
- * run signs in once: production rate-limits sign-in. Only the branch's own
- * server may register the account.
+ * run signs in once: production rate-limits sign-in. Only a server on this
+ * machine may register the account.
  */
 export async function api(base = BASE, creds = CREDS) {
-  const file = join(SESSIONS, `${new URL(base).host}-${creds.email}.json`.replace(/[^\w.@-]/g, "_"));
+  const key = createHash("sha1").update(`${new URL(base).host}\n${creds.email}`).digest("hex").slice(0, 16);
+  const file = join(SESSIONS, `${key}.json`);
   if (existsSync(file)) {
     const ctx = await request.newContext({ baseURL: base, storageState: file, timeout: REQUEST_TIMEOUT_MS });
     const session = await ctx.get("/_agent-native/auth/session").then((r) => r.json()).catch(() => null);
@@ -61,7 +65,7 @@ export async function api(base = BASE, creds = CREDS) {
     await request.newContext({ baseURL: base, timeout: REQUEST_TIMEOUT_MS }),
     base,
     creds,
-    base === BASE,
+    LOOPBACK.has(new URL(base).hostname),
   );
   mkdirSync(SESSIONS, { recursive: true, mode: 0o700 });
   await ctx.storageState({ path: file });

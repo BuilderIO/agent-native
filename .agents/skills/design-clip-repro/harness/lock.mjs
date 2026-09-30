@@ -5,23 +5,21 @@ import { closeSync, openSync, readFileSync, rmSync, writeFileSync } from "node:f
  * cursor (osmouse) and the single logged-in Figma session. Headless design-app
  * work never needs this.
  */
-const STALE_MS = 10 * 60 * 1000;
-
 function acquire(path) {
   try {
     const fd = openSync(path, "wx");
-    writeFileSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
+    writeFileSync(fd, JSON.stringify({ pid: process.pid }));
     closeSync(fd);
     return true;
   } catch (err) {
     if (err.code !== "EEXIST") throw err;
-    // A crashed holder must not wedge the machine forever.
+    // A crashed holder must not wedge the machine forever; a live one keeps the lock however long it runs.
     try {
       const held = JSON.parse(readFileSync(path, "utf8"));
       const dead = (() => {
-        try { process.kill(held.pid, 0); return false; } catch { return true; }
+        try { process.kill(held.pid, 0); return false; } catch (e) { return e.code === "ESRCH"; }
       })();
-      if (dead || Date.now() - held.at > STALE_MS) {
+      if (dead) {
         rmSync(path, { force: true });
         return acquire(path);
       }

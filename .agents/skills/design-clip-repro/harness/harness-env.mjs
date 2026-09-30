@@ -87,10 +87,13 @@ export const SCREEN_Y_OFFSET = Number(process.env.SCREEN_Y_OFFSET ?? (FUSION ? 8
 
 // Locally Playwright's own Chromium is used; the container has the system one.
 const CHROME_BIN = process.env.CHROME_BIN ?? (FUSION ? "/usr/bin/chromium" : undefined);
+// Chromium refuses to sandbox as root, which is how a Fusion container runs.
+// Copied designs run their own scripts, so keep the sandbox everywhere else.
+const AS_ROOT = process.getuid?.() === 0;
 export const LAUNCH = {
   headless: true,
   ...(CHROME_BIN ? { executablePath: CHROME_BIN } : {}),
-  args: process.platform === "linux" ? ["--no-sandbox", "--disable-dev-shm-usage"] : [],
+  args: AS_ROOT ? ["--no-sandbox", "--disable-dev-shm-usage"] : [],
 };
 
 // The skill folder has no node_modules of its own; the Design app pins Playwright.

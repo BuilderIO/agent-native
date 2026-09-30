@@ -43,13 +43,19 @@ writeFileSync(`${dir}/context.json`, JSON.stringify(context, null, 2));
 const segments = context.transcript?.segments ?? [];
 writeFileSync(`${dir}/transcript.txt`, segments.map((s) => `[${s.timestamp}] ${s.text}`).join("\n"));
 
+const frameTemplate = context.apis.frame.urlTemplate;
+const frameOrigin = new URL(frameTemplate, url).origin;
+if (frameOrigin !== url.origin) {
+  throw new Error(`clip frames are served from ${frameOrigin}, not ${url.origin}; refusing to fetch them`);
+}
+
 const wanted = times
   ? times.split(",").map((t) => ({ atMs: Number(t) }))
   : (context.recommendedFrames ?? []);
 const frames = [];
 const failed = [];
 for (const f of wanted) {
-  const res = await get(context.apis.frame.urlTemplate.replace("{timestampMs}", String(f.atMs)));
+  const res = await get(frameTemplate.replace("{timestampMs}", String(f.atMs)));
   if (!res.ok) {
     failed.push(`${f.atMs}ms: HTTP ${res.status}`);
     continue;

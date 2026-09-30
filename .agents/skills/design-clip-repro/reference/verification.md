@@ -15,8 +15,8 @@ reading had stalled:
 That one line identified the classifier as the culprit after four
 permissive-looking gates had been read and cleared.
 
-Remove the instrumentation with `git checkout --` the moment you have the
-answer.
+Delete only the lines you added the moment you have the answer, and check
+`git diff` shows nothing else changed in that file.
 
 ## Verification discipline (each rule = one retracted claim)
 

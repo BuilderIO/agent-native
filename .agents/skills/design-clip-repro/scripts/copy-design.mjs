@@ -28,6 +28,7 @@ const flag = (name) => {
   return i === -1 ? undefined : args.splice(i, 2)[1];
 };
 const DB_URL = process.env.CLIP_REPRO_PROD_DESIGN_DB_URL;
+const COPY_PREFIX = "Clip repro: ";
 
 const toDelete = flag("--delete-prod-copy");
 if (toDelete) {
@@ -35,7 +36,13 @@ if (toDelete) {
     console.error("DESIGN_TEST_EMAIL / DESIGN_TEST_PASSWORD are not set.");
     process.exit(3);
   }
-  await action(await api(PROD_BASE, TEST_ACCOUNT), "delete-design", { id: toDelete });
+  const prod = await api(PROD_BASE, TEST_ACCOUNT);
+  const target = await action(prod, "get-design", { id: toDelete }, "GET");
+  if (!target?.title?.startsWith(COPY_PREFIX)) {
+    console.error(`${toDelete} is not a copy made by this script (its title does not start with "${COPY_PREFIX}"); not deleting it.`);
+    process.exit(4);
+  }
+  await action(prod, "delete-design", { id: toDelete });
   console.log(`deleted production copy ${toDelete}`);
   process.exit(0);
 }
@@ -63,7 +70,7 @@ const parseData = (data) => (typeof data === "string" ? JSON.parse(data || "{}")
 /** Recreates `design` through Design's API as whoever `ctx` is logged in as, with the original screen geometry. */
 async function importDesign(ctx, design) {
   const created = await action(ctx, "create-design", {
-    title: `Clip repro: ${design.title}`,
+    title: `${COPY_PREFIX}${design.title}`,
     projectType: design.projectType ?? "prototype",
     designSystemId: null,
   });
@@ -129,7 +136,7 @@ if (prod && from !== "db") {
     via = "test-account";
     ({ id: prodCopyId } = await action(prod, "duplicate-design", {
       id: sourceId,
-      title: `Clip repro: ${design.title}`,
+      title: `${COPY_PREFIX}${design.title}`,
     }));
   }
 }

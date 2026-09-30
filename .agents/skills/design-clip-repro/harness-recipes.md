@@ -58,8 +58,8 @@ import { withLock } from "./lock.mjs";
 await withLock("osmouse", async () => { /* figma / osmouse work */ });
 ```
 
-O_EXCL lockfile at `/tmp/an-harness-<name>.lock` holding a PID; a dead holder or
-one older than 10 minutes is reclaimed, so a crash cannot wedge the machine.
+O_EXCL lockfile at `/tmp/an-harness-<name>.lock` holding a PID; a dead holder
+is reclaimed, so a crash cannot wedge the machine.
 Verified serialising: A held 4s, B waited and entered at +4004ms.
 
 ## Label derivation — the dumper and the clicker MUST match
