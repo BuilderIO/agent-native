@@ -2320,6 +2320,13 @@ export default function SlideEditor({
     const onCropKeyDown = (event: KeyboardEvent) => {
       const crop = imageCropRef.current;
       if (!crop || event.key === "Escape") return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-crop-handle]") &&
+        ["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp"].includes(event.key)
+      ) {
+        return;
+      }
       if (event.key === "Tab") {
         const handles = Array.from(
           crop.frame.querySelectorAll<HTMLButtonElement>("[data-crop-handle]"),

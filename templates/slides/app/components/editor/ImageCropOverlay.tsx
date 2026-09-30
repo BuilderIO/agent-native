@@ -555,7 +555,12 @@ export default function ImageCropOverlay({
       finishRef.current(commit, changed);
     };
 
-    const onPointerMove = (event: PointerEvent) => {
+    const onPointerMove = (
+      event: Pick<
+        PointerEvent,
+        "pointerId" | "clientX" | "clientY" | "preventDefault"
+      >,
+    ) => {
       const gesture = activeGestureRef.current;
       if (!gesture || gesture.pointerId !== event.pointerId) return;
       event.preventDefault();
@@ -645,6 +650,50 @@ export default function ImageCropOverlay({
       updateOutsideImageMasks(cropMaskRefs.current, viewport, image);
     };
 
+    const onHandleKeyDown = (event: KeyboardEvent) => {
+      const target =
+        event.target instanceof HTMLButtonElement ? event.target : null;
+      const handle = target?.dataset.cropHandle as ResizeHandle | undefined;
+      const direction = {
+        ArrowDown: [0, 1],
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+        ArrowUp: [0, -1],
+      }[event.key];
+      if (!target || !handle || !CROP_HANDLES.includes(handle) || !direction) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const bounds = target.getBoundingClientRect();
+      const pointer = {
+        x: bounds.left + bounds.width / 2,
+        y: bounds.top + bounds.height / 2,
+      };
+      const pointerId = -1;
+      startGesture(
+        {
+          button: 0,
+          pointerId,
+          clientX: pointer.x,
+          clientY: pointer.y,
+          preventDefault: () => {},
+          stopPropagation: () => {},
+        },
+        "resize-frame",
+        handle,
+      );
+      const step = event.shiftKey ? 10 : 1;
+      onPointerMove({
+        pointerId,
+        clientX: pointer.x + direction[0] * step,
+        clientY: pointer.y + direction[1] * step,
+        preventDefault: () => {},
+      });
+      activeGestureRef.current = null;
+    };
+
     const onPointerUp = (event: PointerEvent) => {
       if (activeGestureRef.current?.pointerId === event.pointerId) {
         activeGestureRef.current = null;
@@ -682,11 +731,13 @@ export default function ImageCropOverlay({
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("keydown", onHandleKeyDown, true);
     document.addEventListener("pointerdown", onOutsidePointerDown, true);
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerCancel);
+      window.removeEventListener("keydown", onHandleKeyDown, true);
       document.removeEventListener("pointerdown", onOutsidePointerDown, true);
     };
   }, [canvas, frame, image, startGesture, viewport]);

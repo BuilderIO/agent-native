@@ -268,6 +268,17 @@ describe("<ImageCropOverlay>", () => {
     expect(nodes.image.getAttribute("style")).toBe(originalImageStyle);
   });
 
+  it("resizes the focused crop handle with arrow keys", () => {
+    const nodes = createCropCanvas();
+    render(<ImageCropOverlay {...nodes} onFinish={vi.fn()} />);
+    const eastHandle = screen.getByRole("button", { name: "Crop Right" });
+    eastHandle.focus();
+
+    fireEvent.keyDown(eastHandle, { key: "ArrowRight" });
+
+    expect(Number.parseFloat(nodes.frame.style.width)).toBeGreaterThan(200);
+  });
+
   it("commits when the user clicks outside the crop frame", () => {
     const nodes = createCropCanvas();
     const onFinish = vi.fn();
