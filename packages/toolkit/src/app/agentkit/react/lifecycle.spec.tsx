@@ -1389,6 +1389,84 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
+  it("anchors whitespace text deltas with a custom text renderer", async () => {
+    const threadId = "thread-whitespace-text-delta";
+    const runId = "run-whitespace-text-delta";
+    const response = {
+      id: "assistant-whitespace-delta",
+      role: "assistant" as const,
+      status: "streaming" as const,
+      parts: [{ type: "text" as const, text: " " }],
+    };
+    const events: AgentEvent[] = [
+      {
+        id: "event-before-whitespace-delta",
+        threadId,
+        runId,
+        sequence: 1,
+        occurredAt: "2026-09-30T00:00:00.000Z",
+        type: "activity.started",
+        activity: {
+          id: "activity-before-whitespace-delta",
+          kind: "model",
+          label: "Contacting model",
+          status: "running",
+        },
+      },
+      {
+        id: "event-whitespace-delta",
+        threadId,
+        runId,
+        sequence: 2,
+        occurredAt: "2026-09-30T00:00:01.000Z",
+        type: "message.delta",
+        messageId: response.id,
+        text: " ",
+      },
+    ];
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [response],
+      events,
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 2,
+          startedAt: "2026-09-30T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        slots={{
+          text: () => <span data-whitespace-delta>Custom text output</span>,
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector(".agentkit-activities")!;
+    const output = tree.container.querySelector("[data-whitespace-delta]")!;
+    expect(output.textContent).toBe("Custom text output");
+    expect(
+      work.compareDocumentPosition(output) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await tree.unmount();
+  });
+
   it("preserves visible reasoning without a Thinking history row", async () => {
     const threadId = "thread-reasoning-work";
     const runId = "run-reasoning-work";

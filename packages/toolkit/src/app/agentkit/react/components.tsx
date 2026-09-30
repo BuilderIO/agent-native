@@ -937,7 +937,9 @@ function messageEventHasVisibleAssistantOutput(
 ): boolean {
   if (event.type === "message.delta") {
     return (
-      event.text.trim().length > 0 && assistantMessageIds.has(event.messageId)
+      assistantMessageIds.has(event.messageId) &&
+      (event.text.trim().length > 0 ||
+        Boolean(messageRenderer || textRenderer || messagePartRenderers?.text))
     );
   }
   if (event.type !== "message.created" && event.type !== "message.completed") {
@@ -1424,6 +1426,9 @@ function AgentReasoningParts({
     }
     return (
       <div key={index} className="agentkit-reasoning-content">
+        {part.label ? (
+          <p className="agentkit-reasoning-label">{part.label}</p>
+        ) : null}
         <p>
           <AgentStreamingText
             text={part.text}
