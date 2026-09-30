@@ -22,7 +22,8 @@ vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ isPending: false, mutateAsync }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({

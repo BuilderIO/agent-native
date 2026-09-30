@@ -233,7 +233,7 @@ interface PendingProviderSubmission {
   text: string;
   fileParts: FilePart[];
   references: Reference[];
-  composerOptions: PromptComposerSubmitOptions;
+  composerOptions: AgentKitSuggestionSubmitOptions;
   options: AgentKitInternalSendOptions;
   attempts?: number;
   failed?: true;
@@ -333,7 +333,7 @@ function parseDeferredProviderSubmissions(
       text: submission.text,
       fileParts: fileParts as FilePart[],
       references: submission.references as Reference[],
-      composerOptions: composerOptions as PromptComposerSubmitOptions,
+      composerOptions: composerOptions as AgentKitSuggestionSubmitOptions,
       options: options as AgentKitInternalSendOptions,
       ...(typeof submission.attempts === "number"
         ? { attempts: submission.attempts }
@@ -457,7 +457,20 @@ type AgentKitComposerSubmit = (
 type AgentKitSuggestionSubmitOptions = PromptComposerSubmitOptions & {
   suggestion?: Exclude<AgentSuggestionInput, string>;
   validateSubmission?: () => void;
+  queuedWhileRunActive?: boolean;
 };
+
+function captureQueuedRunState(
+  options: PromptComposerSubmitOptions,
+  runWasActive: boolean,
+): AgentKitSuggestionSubmitOptions {
+  return {
+    ...options,
+    ...(options.intent === "queued" && runWasActive
+      ? { queuedWhileRunActive: true }
+      : {}),
+  };
+}
 
 type AgentKitSuggestionSubmitRef = React.MutableRefObject<{
   threadId: string;
@@ -1950,6 +1963,7 @@ const AgentKitAssistantChatBody = forwardRef<
             text: message,
             attachments: fileParts,
             metadata,
+            queuedWhileRunActive: composerOptions.queuedWhileRunActive,
             onLocalSubmit: composerOptions.onLocalSubmit,
           });
         } else {
@@ -2016,6 +2030,10 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       options: AgentKitInternalSendOptions = {},
     ): Promise<AssistantChatSubmitResult> => {
+      const submittedComposerOptions = captureQueuedRunState(
+        composerOptions,
+        isThreadRunning(),
+      );
       const release = await acquireSubmission();
       if (!release) {
         if (
@@ -2051,9 +2069,9 @@ const AgentKitAssistantChatBody = forwardRef<
             const context = options.recoveryAction
               ? ""
               : [
-                  composerOptions.composerModeContext,
+                  submittedComposerOptions.composerModeContext,
                   formatAgentChatContextItemsForPrompt(
-                    composerOptions.contextItems ?? contextItems,
+                    submittedComposerOptions.contextItems ?? contextItems,
                   ),
                   pendingSelectionPromptContext(currentPendingSelection),
                 ]
@@ -2080,7 +2098,7 @@ const AgentKitAssistantChatBody = forwardRef<
               props.contextScope === undefined ? null : props.contextScope;
             deferredOptions.requestMode ??=
               props.execMode === "plan" ? "plan" : "act";
-            const deferredComposerOptions = { ...composerOptions };
+            const deferredComposerOptions = { ...submittedComposerOptions };
             delete deferredComposerOptions.attachments;
             delete deferredComposerOptions.onLocalSubmit;
             delete deferredComposerOptions.validateSubmission;
@@ -2124,7 +2142,13 @@ const AgentKitAssistantChatBody = forwardRef<
         return { status: "rejected", reason };
       }
       try {
-        await dispatch(text, files, references, composerOptions, options);
+        await dispatch(
+          text,
+          files,
+          references,
+          submittedComposerOptions,
+          options,
+        );
         return { status: "submitted" };
       } catch (error) {
         reportAgentChatSubmitResult(
@@ -2151,6 +2175,7 @@ const AgentKitAssistantChatBody = forwardRef<
       props.selectedEngine,
       props.selectedModel,
       isRestoring,
+      isThreadRunning,
       props.tabId,
       providerChecksEnabled,
       readiness.state,
@@ -2168,6 +2193,7 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       prepare?: () => Promise<PromptComposerSubmitOptions>,
     ) => {
+      const runWasActiveAtSubmit = isThreadRunning();
       const release = await acquireSubmission();
       if (!release) {
         if (
@@ -2177,11 +2203,15 @@ const AgentKitAssistantChatBody = forwardRef<
         ) {
           try {
             const preparedOptions = prepare ? await prepare() : composerOptions;
+            const submittedOptions = captureQueuedRunState(
+              preparedOptions,
+              runWasActiveAtSubmit,
+            );
             const result = await submit(
               text,
               files,
               references,
-              preparedOptions,
+              submittedOptions,
             );
             if (result.status === "rejected") {
               throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
@@ -2197,7 +2227,12 @@ const AgentKitAssistantChatBody = forwardRef<
       }
       try {
         const preparedOptions = prepare ? await prepare() : composerOptions;
-        await dispatch(text, files, references, preparedOptions);
+        await dispatch(
+          text,
+          files,
+          references,
+          captureQueuedRunState(preparedOptions, runWasActiveAtSubmit),
+        );
       } catch (error) {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
@@ -2208,6 +2243,7 @@ const AgentKitAssistantChatBody = forwardRef<
     [
       acquireSubmission,
       dispatch,
+      isThreadRunning,
       props.composerDisabled,
       props.composerSubmissionDisabled,
       props.tabId,

@@ -16,10 +16,11 @@ import type { BrainSourceProvider } from "../../shared/types.js";
 
 const APP_ID = "brain";
 
-const SOURCE_CREDENTIAL_KEYS: Record<string, string> = {
-  slack: "SLACK_BOT_TOKEN",
-  granola: "GRANOLA_API_KEY",
-  github: "GITHUB_TOKEN",
+const SOURCE_CREDENTIAL_KEYS: Record<string, readonly string[]> = {
+  slack: ["SLACK_BOT_TOKEN"],
+  granola: ["GRANOLA_API_KEY"],
+  github: ["GITHUB_TOKEN"],
+  zoom: ["ZOOM_ACCOUNT_ID", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET"],
 };
 
 interface ResolveSourceCredentialOptions {
@@ -625,24 +626,26 @@ export async function assertSourceCredentialAvailable({
   workspaceConnectionId: string;
   ctx: CredentialContext | null;
 }) {
-  const key = SOURCE_CREDENTIAL_KEYS[provider.trim().toLowerCase()];
-  if (!key) return;
+  const keys = SOURCE_CREDENTIAL_KEYS[provider.trim().toLowerCase()];
+  if (!keys) return;
   if (!ctx) {
     throw new Error(
       "Source workspace connection setup requires an authenticated credential context.",
     );
   }
 
-  const availability = await inspectSourceCredentialAvailability({
-    provider,
-    key,
-    ctx,
-    workspaceConnectionId,
-  });
-  if (!availability.available) {
-    throw new Error(
-      availability.missingMessage ??
-        `The selected ${provider} workspace connection cannot provide ${key}.`,
-    );
+  for (const key of keys) {
+    const availability = await inspectSourceCredentialAvailability({
+      provider,
+      key,
+      ctx,
+      workspaceConnectionId,
+    });
+    if (!availability.available) {
+      throw new Error(
+        availability.missingMessage ??
+          `The selected ${provider} workspace connection cannot provide ${key}.`,
+      );
+    }
   }
 }

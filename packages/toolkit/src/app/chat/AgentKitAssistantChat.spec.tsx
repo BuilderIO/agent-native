@@ -1585,6 +1585,63 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.appState.has(stateKey!)).toBe(false);
   });
 
+  it("keeps a queued follow-up queued if its run finishes during provider discovery", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unknown",
+    };
+    chatMocks.thread.activeRunIds = ["analytics-run"];
+    chatMocks.thread.runs = {
+      "analytics-run": {
+        id: "analytics-run",
+        status: "running",
+        lastSequence: 1,
+      },
+    };
+    await mount(baseProps({ providerStatusChecksEnabled: true }));
+    await flush();
+
+    await act(async () => {
+      await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(
+        true,
+      );
+      await chatMocks.composerProps.onSubmit(
+        "Follow up after Analytics Add Panel",
+        [],
+        [],
+        { intent: "queued" },
+      );
+    });
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
+
+    chatMocks.thread.activeRunIds = [];
+    chatMocks.thread.runs["analytics-run"].status = "completed";
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ providerStatusChecksEnabled: true })}
+        />,
+      );
+    });
+    await flush();
+
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        text: "Follow up after Analytics Add Panel",
+        queuedWhileRunActive: true,
+      }),
+    );
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("keeps the draft rejected if provider status becomes missing before submit", async () => {
     chatMocks.readiness = {
       canChat: false,

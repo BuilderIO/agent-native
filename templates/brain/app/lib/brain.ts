@@ -63,7 +63,6 @@ export interface KnowledgeRow {
   topic?: string;
   status: KnowledgeStatus | "published" | "redacted" | "archived";
   confidence?: number;
-  citations?: number;
   evidence?: Array<{
     captureId?: string | null;
     captureTitle?: string | null;
@@ -133,7 +132,6 @@ export interface BrainSource {
   lastSyncAt?: string | null;
   lastSyncedAt?: string | null;
   nextSyncAt?: string | null;
-  reviewRequired?: boolean;
   visibility?: "private" | "org" | "public";
   config?: Record<string, unknown>;
   cursor?: Record<string, unknown>;
@@ -305,7 +303,6 @@ export interface BrainHealthResponse {
       health: BrainSourceHealthState;
       demo?: boolean;
       autoSync?: boolean;
-      reviewRequired?: boolean;
       hasChannelAllowList?: boolean | null;
       lastSyncedAt?: string | null;
       nextSyncAt?: string | null;
@@ -1155,6 +1152,8 @@ export function sourceDescription(source: BrainSource) {
       return "Granola Team-space notes and transcripts imported through the Enterprise API.";
     case "github":
       return "GitHub repository issues and pull requests imported as company context.";
+    case "zoom":
+      return "Zoom cloud-recording transcripts imported through a Server-to-Server OAuth app.";
     case "clips":
       return "Meeting recordings and transcripts exported from Clips into Brain.";
     case "generic":
@@ -1185,19 +1184,14 @@ export function sourceEnabled(source: BrainSource) {
   return source.status !== "paused" && source.status !== "archived";
 }
 
-export function sourceReviewRequired(source: BrainSource) {
-  if (typeof source.reviewRequired === "boolean") return source.reviewRequired;
-  const value = source.config?.reviewRequired;
-  return typeof value === "boolean" ? value : true;
-}
-
 export function sourceAutoSync(source: BrainSource) {
   const value = source.config?.autoSync;
   if (typeof value === "boolean") return value;
   return (
     source.provider === "slack" ||
     source.provider === "granola" ||
-    source.provider === "github"
+    source.provider === "github" ||
+    source.provider === "zoom"
   );
 }
 

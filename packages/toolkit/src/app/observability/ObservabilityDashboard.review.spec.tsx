@@ -12,7 +12,6 @@ const {
   mockSubmitFeedback,
   mockSaveInstructionUpdate,
   mockSendToAgentChat,
-  mockTraces,
   mockTraceDetail,
   mockOpenThread,
   mockUseActionQuery,
@@ -24,7 +23,6 @@ const {
   mockSubmitFeedback: vi.fn(),
   mockSaveInstructionUpdate: vi.fn(),
   mockSendToAgentChat: vi.fn(),
-  mockTraces: vi.fn(),
   mockTraceDetail: vi.fn(),
   mockOpenThread: vi.fn(),
   mockUseActionQuery: vi.fn(),
@@ -76,7 +74,6 @@ vi.mock("./useObservability.js", () => ({
     },
     isLoading: false,
   }),
-  useTraces: (...args: unknown[]) => mockTraces(...args),
   useTraceDetail: (...args: unknown[]) => mockTraceDetail(...args),
   usePromoteTraceEval: () => ({
     mutate: vi.fn(),
@@ -125,11 +122,14 @@ vi.mock("./useObservability.js", () => ({
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import {
   ObservabilityDashboard,
   resolveReviewArtifactHref,
   resolveReviewArtifactOpenHref,
 } from "./ObservabilityDashboard.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("human review artifact links", () => {
   it("keeps artifact links on the matching first-party app and environment", () => {
@@ -442,50 +442,84 @@ describe("ObservabilityDashboard human review", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens span details, the full conversation, and tab documentation", async () => {
-    mockTraces.mockReturnValue({
-      isLoading: false,
-      data: [
+  it("explains a prompt in plain language and still exposes its raw spans and conversation", async () => {
+    const run = {
+      runId: "run-1",
+      threadId: "thread-1",
+      createdAt: Date.now(),
+      ownerEmail: "owner@example.com",
+      label: "chat",
+      model: "test-model",
+      prompt: "Find the latest releases",
+      status: "success",
+      tokens: {
+        inputTokens: 2,
+        outputTokens: 3,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      cost: {
+        cacheReadCents: 0,
+        cacheWriteCents: 0,
+        uncachedInputCents: 1,
+        outputCents: 1,
+        totalCents: 2,
+        estimatedCents: 2,
+        noCacheCents: 2,
+      },
+      modelCalls: 1,
+      tools: [
+        { name: "search", calls: 1, failed: 0, error: null },
         {
-          runId: "run-1",
-          threadId: "thread-1",
-          totalSpans: 2,
-          llmCalls: 1,
-          toolCalls: 1,
-          successfulTools: 1,
-          failedTools: 0,
-          totalDurationMs: 100,
-          totalCostCentsX100: 0,
-          totalInputTokens: 2,
-          totalOutputTokens: 3,
-          model: "test-model",
-          createdAt: Date.now(),
+          name: "broken-search",
+          calls: 1,
+          failed: 1,
+          error: "Search provider returned 503",
         },
       ],
-    });
+      restarts: {
+        count: 0,
+        cents: 0,
+        byCause: {
+          "tool-lookup": { count: 0, cents: 0 },
+          "prefix-changed": { count: 0, cents: 0 },
+        },
+      },
+      parallel: { calls: 0, savedMs: 0 },
+      recoveredErrors: 1,
+      durationMs: 100,
+      feedback: null,
+    };
+    mockUseActionQuery.mockImplementation((actionName) =>
+      actionName === "get-usage-insights"
+        ? {
+            data: {
+              sinceDays: 7,
+              current: { runs: 1, tokens: run.tokens, cost: run.cost },
+              previous: { runs: 0, tokens: run.tokens, cost: run.cost },
+              runs: [run],
+            },
+          }
+        : actionName === "get-usage-run"
+          ? {
+              isLoading: false,
+              data: {
+                ...run,
+                reply: "Here are the three latest releases.",
+                turns: [],
+                scores: [],
+              },
+            }
+          : { data: undefined, isError: false, isSuccess: false },
+    );
     mockTraceDetail.mockReturnValue({
       isLoading: false,
       data: {
-        summary: {
-          runId: "run-1",
-          threadId: "thread-1",
-          totalSpans: 2,
-          llmCalls: 1,
-          toolCalls: 1,
-          successfulTools: 1,
-          failedTools: 0,
-          totalDurationMs: 100,
-          totalCostCentsX100: 0,
-          totalInputTokens: 2,
-          totalOutputTokens: 3,
-          model: "test-model",
-          createdAt: Date.now(),
-        },
+        summary: { runId: "run-1", threadId: "thread-1" },
         spans: [
           {
             id: "span-success",
             runId: "run-1",
-            orgId: "org-a",
             threadId: "thread-1",
             parentSpanId: null,
             spanType: "tool_call",
@@ -529,12 +563,20 @@ describe("ObservabilityDashboard human review", () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider
+            catalog={toolkitI18nCatalog}
+            persistPreference={false}
+          >
             <ObservabilityDashboard />
           </AgentNativeI18nProvider>
         </QueryClientProvider>,
       );
     });
+
+    const buttonWithText = (text: string) =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent?.includes(text),
+      );
 
     const experimentsTab = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
@@ -552,33 +594,150 @@ describe("ObservabilityDashboard human review", () => {
       container.querySelector<HTMLAnchorElement>('a[href*="#conversations"]'),
     ).toBeTruthy();
 
-    const runRow = Array.from(container.querySelectorAll("tr")).find((row) =>
-      row.textContent?.includes("run-1"),
+    await act(async () => buttonWithText("Find the latest releases")?.click());
+    expect(document.body.textContent).toContain(
+      "Here are the three latest releases.",
     );
-    await act(async () => (runRow as HTMLTableRowElement | undefined)?.click());
+    expect(document.body.textContent).toContain(
+      "but the agent kept going and finished",
+    );
 
+    await act(async () => buttonWithText("Raw trace")?.click());
     const detailsButton = (spanName: string) =>
       Array.from(
-        container.querySelectorAll<HTMLButtonElement>(
+        document.querySelectorAll<HTMLButtonElement>(
           'button[aria-label="View details"]',
         ),
       ).find((button) => button.closest("tr")?.textContent?.includes(spanName));
 
     await act(async () => detailsButton("search")?.click());
-    expect(container.textContent).toContain('"latest releases"');
-    expect(container.textContent).toContain("Found 3 results");
+    expect(document.body.textContent).toContain('"latest releases"');
+    expect(document.body.textContent).toContain("Found 3 results");
 
     await act(async () => detailsButton("broken-search")?.click());
-    expect(container.textContent).toContain("Search provider returned 503");
+    expect(document.body.textContent).toContain("Search provider returned 503");
 
-    await act(async () =>
-      Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-        .find((button) =>
-          button.textContent?.includes("Open full conversation"),
-        )
-        ?.click(),
-    );
+    await act(async () => buttonWithText("Open full conversation")?.click());
     expect(mockOpenThread).toHaveBeenCalledWith({ threadId: "thread-1" });
+    expect(buttonWithText("Open full conversation")).toBeUndefined();
+  });
+
+  it("reports a failed insights load with a retry instead of loading forever", async () => {
+    const refetch = vi.fn();
+    mockUseActionQuery.mockImplementation((actionName) =>
+      actionName === "get-usage-insights"
+        ? {
+            data: undefined,
+            isError: true,
+            isSuccess: false,
+            isFetching: false,
+            refetch,
+          }
+        : { data: undefined, isError: false, isSuccess: false },
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider
+            catalog={toolkitI18nCatalog}
+            persistPreference={false}
+          >
+            <ObservabilityDashboard />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't load this. Please try again.",
+    );
+
+    const buttonWithText = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes(text),
+      );
+    await act(async () => buttonWithText("Retry")?.click());
+    expect(refetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => activateTab(buttonWithText("Conversations")));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't load this. Please try again.",
+    );
+    expect(buttonWithText("Retry")).toBeTruthy();
+  });
+
+  it("says the overview stats cover only the latest prompts when the period has more", async () => {
+    const tokens = {
+      inputTokens: 2,
+      outputTokens: 3,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    };
+    const cost = {
+      cacheReadCents: 0,
+      cacheWriteCents: 0,
+      uncachedInputCents: 1,
+      outputCents: 1,
+      totalCents: 2,
+      estimatedCents: 2,
+      noCacheCents: 2,
+    };
+    mockUseActionQuery.mockImplementation((actionName) =>
+      actionName === "get-usage-insights"
+        ? {
+            data: {
+              sinceDays: 7,
+              current: { runs: 30, tokens, cost },
+              previous: { runs: 0, tokens, cost },
+              runs: [
+                {
+                  runId: "run-1",
+                  threadId: "thread-1",
+                  createdAt: Date.now(),
+                  ownerEmail: "owner@example.com",
+                  label: "chat",
+                  model: "test-model",
+                  prompt: "Find the latest releases",
+                  status: "success",
+                  tokens,
+                  cost,
+                  modelCalls: 1,
+                  tools: [],
+                  restarts: {
+                    count: 0,
+                    cents: 0,
+                    byCause: {
+                      "tool-lookup": { count: 0, cents: 0 },
+                      "prefix-changed": { count: 0, cents: 0 },
+                    },
+                  },
+                  parallel: { calls: 0, savedMs: 0 },
+                  recoveredErrors: 0,
+                  durationMs: 100,
+                  feedback: null,
+                },
+              ],
+            },
+          }
+        : { data: undefined, isError: false, isSuccess: false },
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider
+            catalog={toolkitI18nCatalog}
+            persistPreference={false}
+          >
+            <ObservabilityDashboard />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Completion, typical time, what Agent-Native handled and the findings use the latest 1 of 30 prompts.",
+    );
   });
 
   it("hides organization human review outside the admin settings surface", async () => {

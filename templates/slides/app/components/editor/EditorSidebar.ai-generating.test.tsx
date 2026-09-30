@@ -39,7 +39,7 @@ vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   }),
 }));
 
-vi.mock("@agent-native/toolkit/app/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
   FileStorageSetupPopover: ({ open }: { open: boolean }) =>
     open ? <div role="dialog">Connect storage to upload files</div> : null,
 }));

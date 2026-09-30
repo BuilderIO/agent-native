@@ -41,6 +41,60 @@ import { AgentKitChat, AgentMessageActions } from "./components.js";
 import { AgentKitProvider } from "./context.js";
 
 describe("AgentKitChat interactions", () => {
+  it("preserves host submission disablement", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-host-disabled" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    const composerRef = createRef<TiptapComposerHandle>();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-host-disabled">
+            <AgentKitChat
+              composerProps={{
+                autoFocus: false,
+                composerRef,
+                modelStatusChecksEnabled: false,
+                submissionDisabled: true,
+              }}
+            />
+          </AgentKitProvider>,
+        );
+      });
+      await act(async () => composerRef.current!.setText("Blocked by host"));
+
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          '[data-agent-composer-slot="send-button"]',
+        )?.disabled,
+      ).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+      await client.shutdown();
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it.each(["default", "compact"] as const)(
     "clears the %s composer before startRun resolves and preserves the next draft",
     async (layoutVariant) => {
@@ -1155,6 +1209,35 @@ describe("AgentKitChat interactions", () => {
         ),
       ).find((button) => button.textContent?.trim() === "Steer");
       expect(steerButton?.disabled).toBe(false);
+
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-queue">
+            <AgentKitChat composerProps={{ submissionDisabled: true }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      const blockedSteerButton = Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          'section[data-agent-message-queue="true"] button',
+        ),
+      ).find((button) => button.textContent?.trim() === "Steer");
+      expect(blockedSteerButton).toBeUndefined();
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          'section[data-agent-message-queue="true"] button[aria-label="Remove queued message"]',
+        )?.disabled,
+      ).toBe(false);
+
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-queue">
+            <AgentKitChat />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
 
       const moreActions = container.querySelectorAll<HTMLButtonElement>(
         'section[data-agent-message-queue="true"] button[aria-label="More actions"]',

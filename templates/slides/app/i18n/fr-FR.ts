@@ -175,6 +175,15 @@ const messages = {
     saveReconnect: "Les changements seront enregistrés à la reconnexion",
     saveFailedDescription:
       "Vos dernières modifications sont uniquement sur cet appareil. Téléchargez une sauvegarde avant de partir.",
+    slideConflictReview: "Examiner",
+    slideConflictTitle: "Cette diapositive a été modifiée ailleurs",
+    slideConflictDescription:
+      "Une autre personne a enregistré une version plus récente. Garder votre brouillon remplacera le contenu enregistré de cette diapositive, ou utilisez la dernière version.",
+    slideConflictUseLatest: "Utiliser la dernière version",
+    slideConflictKeepDraft: "Garder mon brouillon",
+    slideConflictKeepEditing: "Continuer la modification",
+    slideConflictResolutionFailed:
+      "Impossible de résoudre le conflit. Votre brouillon est toujours ici.",
     offline: "Hors ligne",
     selected: "sélectionné",
     chooseDesignSystem: "Choisir un système de design",
@@ -252,6 +261,9 @@ const messages = {
     media: "Média",
     generateImage: "Générer une image",
     assetLibrary: "Bibliothèque de ressources",
+    imageOptions: "Options de l’image",
+    cropImage: "Recadrer l’image",
+    cropHandle: "Recadrer l’image {{position}}",
     diagrams: "Diagrammes",
     insertMermaidDiagram: "Insérer un diagramme Mermaid",
     insertMermaidFailed: "Échec de l'insertion du diagramme",

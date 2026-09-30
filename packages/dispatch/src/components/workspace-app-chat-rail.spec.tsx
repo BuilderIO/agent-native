@@ -10,7 +10,7 @@ const railState = vi.hoisted(() => ({
   mutateAsync: vi.fn().mockResolvedValue({ startUrl: "about:blank" }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentSidebar: (props: Record<string, unknown>) => {
     railState.sidebarProps.push(props);
     return (

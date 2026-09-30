@@ -7,7 +7,7 @@ export type CompletionCardActionResult =
 export function createCompletionCardActions(deps: {
   open: (url: string) => Promise<void>;
   copy: (url: string) => Promise<void>;
-  dismiss: () => Promise<void>;
+  dismiss: (action: CompletionCardAction) => Promise<void>;
 }) {
   let busy = false;
   const completed = new Set<string>();
@@ -27,7 +27,7 @@ export function createCompletionCardActions(deps: {
         }
       }
       stage = "dismiss";
-      await deps.dismiss();
+      await deps.dismiss(action);
       return { status: "dismissed" };
     } catch (error) {
       return { status: "failed", stage, error };
