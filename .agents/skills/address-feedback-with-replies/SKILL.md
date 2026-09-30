@@ -51,10 +51,8 @@ add `👀` when claiming, `✅` for verified fixes, and `🎫` for items left
 unfixed. Mixed threads get both status reactions. Reactions are never removed;
 newer thread evidence determines the current disposition.
 
-Every claimed report keeps its `👀`. Follow `review-latest-feedback` for
-ownership and cluster status. Never remove reactions. An eye without a
-terminal status is unresolved, not available to another workflow; check its
-thread and linked work before taking it over.
+Follow `review-latest-feedback` for ownership and cluster status; a claimed
+report keeps its `👀`, and an unresolved eye cannot be taken over.
 
 ## Prerequisites
 
@@ -237,9 +235,9 @@ non-repeating question only if one specific required detail still blocks it.
 5. Prepare one short status for each unclustered clear bug and owning parent
    marked `👀`. Record clustered source links and disposition in the owner
    thread or linked work; do not send duplicate replies:
-   - **Fixed** - say that the verified code change is complete and when it
-     should be live. For today's beta-bound fixes, say explicitly that it will
-     be on beta later today; never send a bare “Fixed”.
+   - **Fixed** - follow `review-latest-feedback` for the post-merge reply:
+     name the fix, say it merged, and give the correct beta or package timing.
+     Never claim it is live without runtime proof.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
    - **In progress** - only when work continues beyond this run; thank the
@@ -314,13 +312,12 @@ identity:
   missing detail that is required to fix and verify it.
 - A clear, valid, repo-owned request is an instruction to fix it. Do not reply
   `valid request` and stop, and do not say `no ship timing yet` as a dead end.
-  Implement the fix first; when code is complete, say it is fixed and should be
-  live after the final ship later today (roughly end of day) only when it is
-  confirmed to be included in that ship.
-- Never claim a fix, live behavior, deployment, or ownership that was not
-  verified. Say “this should be live after the final ship later today” only
-  when the code is complete, included in that ship, and the expected ship
-  window is actually known.
+  Implement the fix first. After its PR merges, follow
+  `review-latest-feedback` to report the fix and give the correct beta or
+  package timing. Do not promise beta timing before merge.
+- Never claim unverified fixes, deployments, live behavior, or ownership. For
+  merged Slack fixes, follow `review-latest-feedback`; a merge is not live
+  proof.
 - If it is not fixed, continue the work or post a concrete **In progress**
   status when it continues beyond this run. Ask one concrete question only when
   reporter or product information is
@@ -353,7 +350,10 @@ A useful reply shape is:
 ```text
 ty for the feedback - [short plain-language status].
 
-  [if fixed: this should be live after the final ship later today.]
+  [if a merged app fix uses the beta publisher: the fix merged and should be
+  live on beta in the next few hours.]
+  [if the report is mixed: name each unfixed item and why; ask one targeted
+  question if needed, or say clear deferred work will be ticketed.]
   [if in progress: we're already looking into this and will follow up once the
   fix is verified.]
   [if clarification is needed: if you can share the one missing detail, that
