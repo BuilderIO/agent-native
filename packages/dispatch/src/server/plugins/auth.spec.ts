@@ -42,7 +42,7 @@ describe("dispatchAuthPlugin", () => {
     expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         googleOnly: true,
-        publicPaths,
+        publicPaths: [...publicPaths, "/_agent-native/private-icons"],
         workspaceAppPublicPaths: ["/"],
       }),
     );

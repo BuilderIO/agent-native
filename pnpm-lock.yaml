@@ -138,6 +138,9 @@ catalogs:
     playwright:
       specifier: 1.63.0
       version: 1.63.0
+    react-router:
+      specifier: 8.1.0
+      version: 8.1.0
     recharts:
       specifier: ^3.9.2
       version: 3.9.2
@@ -194,7 +197,7 @@ overrides:
   node-forge: '>=1.4.0'
   path-to-regexp: '>=8.4.0'
   picomatch: '>=4.0.4'
-  fast-xml-parser: '>=5.5.6'
+  fast-xml-parser: 5.11.1
   glob: '>=10.5.0'
   '@anthropic-ai/sdk': '>=0.90.0'
   hono: '>=4.12.4'
@@ -2641,6 +2644,9 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
+      fast-xml-parser:
+        specifier: 5.11.1
+        version: 5.11.1
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.22(crossws@0.4.6(srvx@0.11.17))
@@ -2840,9 +2846,6 @@ importers:
       express:
         specifier: ^5.2.1
         version: 5.2.1
-      fast-xml-parser:
-        specifier: '>=5.5.6'
-        version: 5.11.1
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -2874,7 +2877,7 @@ importers:
         specifier: 19.2.7
         version: 19.2.7(react@19.2.7)
       react-router:
-        specifier: ^8.1.0
+        specifier: 'catalog:'
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sharp:
         specifier: ^0.35.3
@@ -4087,15 +4090,21 @@ importers:
       '@xterm/xterm':
         specifier: ^6.0.0
         version: 6.0.0
+      i18next:
+        specifier: 26.3.1
+        version: 26.3.1(typescript@6.0.3)
       mermaid:
         specifier: 11.15.0
         version: 11.15.0
       playwright:
         specifier: 'catalog:'
         version: 1.63.0
+      react-i18next:
+        specifier: 17.0.8
+        version: 17.0.8(i18next@26.3.1(typescript@6.0.3))(react-dom@19.2.7(react@19.2.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@6.0.3)
       react-router:
-        specifier: ^8.1.0
-        version: 8.3.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 'catalog:'
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       typescript-7:
         specifier: 'catalog:'
         version: typescript@7.0.2
@@ -7401,7 +7410,7 @@ importers:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.8)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
       fast-xml-parser:
-        specifier: '>=5.5.6'
+        specifier: 5.11.1
         version: 5.11.1
       h3:
         specifier: 'catalog:'

@@ -9,7 +9,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   AgentChatHome,
   type AgentChatHomeProps,
-} from "@agent-native/toolkit/app/chat";
+} from "@agent-native/toolkit/app/chat/AgentChatHome";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -183,6 +183,7 @@ export default function ChatRoute() {
         setPendingOverviewPrompt(prompt ?? null);
         submitOverviewPrompt(message, prompt?.selectedModel, {
           openSidebar: false,
+          reuseEmptyTab: true,
           selectedEngine: prompt?.selectedEngine,
           selectedEffort: prompt?.selectedEffort,
         });
@@ -273,7 +274,7 @@ export default function ChatRoute() {
         key={agent ? `agent-${agent.id}` : "dispatch"}
         className="flex-1 min-h-0"
         contentClassName="max-w-none"
-        surfaceClassName="dispatch-chat-panel px-4 sm:px-6"
+        surfaceClassName="dispatch-chat-panel"
         chatViewTransition
         defaultMode="chat"
         storageKey={agent ? `dispatch-agent-${agent.id}` : "dispatch"}

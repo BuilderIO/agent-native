@@ -168,6 +168,12 @@ export default {
     openAgentSettings: "Manage agent",
     labTweaks: "Design tweaks",
     labTweaksDescription: "Try AI-powered design tweaks.",
+    labFullAppBuilding: "Full app building",
+    labFullAppBuildingDescription:
+      "Try building working apps from your designs with Builder.",
+    labDesignReviewTools: "Design review tools",
+    labDesignReviewToolsDescription:
+      "Check your designs for accessibility issues and compare visual changes.",
     mcpAbout:
       "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
@@ -1260,6 +1266,7 @@ export default {
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
+      copyAgentPrompt: "Copy agent prompt",
       copyFullPrompt: "Copy full prompt",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",

@@ -745,7 +745,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "銷售通話、逐字稿、交易洞察、客戶摘要",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong 需要技術管理員建立 MCP 整合，並選擇個人或共用授權。連線前必須先設定產生的用戶端 ID 和密鑰。",
+    "Gong 技術管理員需要建立 MCP 整合並選擇個人或共用授權。使用手動註冊時，請將產生的用戶端 ID 和密鑰儲存為工作區密鑰 `GONG_MCP_CLIENT_ID` 和 `GONG_MCP_CLIENT_SECRET`；自動註冊不需要用戶端憑證。",
   "mcpIntegrations.catalog.semgrep.description": "掃描程式碼中的安全性問題。",
   "mcpIntegrations.catalog.semgrep.useCase": "安全性掃描、漏洞偵測、程式碼分析",
   "mcpIntegrations.catalog.linear.description": "讀取及撰寫 Linear 議題。",
@@ -937,6 +937,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "要還原到這裡嗎？",
   "message.revertQuestion": "要還原到這裡嗎？之後所做的變更將會遺失。",
   "message.restoreRequestFailed": "還原要求失敗。",
+  "message.historyUnavailable": "無法載入變更歷史。",
   "message.threadNotFound":
     "此聊天串已無法使用。請開始新的聊天；如果這是意外情況，也可以重試。",
   "message.restoring": "正在還原...",
@@ -1181,6 +1182,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "正在詢問 {{agent}}...",
   "tool.elapsed": "已耗時 {{duration}}",
   "tool.askingAgentFailed": "詢問 {{agent}} 時發生錯誤",
+  "tool.failedWithoutDetails": "沒有可用的錯誤詳細資料。",
   "tool.input": "輸入",
   "tool.inputWithLabel": "輸入 - {{label}}",
   "tool.interrupted":

@@ -184,3 +184,27 @@ it("fails selected export isolation when the clone lost the requested node", () 
     }),
   ).toThrow(PngCaptureError);
 });
+
+it("prefers runtime identity when source and runtime IDs point to different nodes", () => {
+  const doc = document.implementation.createHTMLDocument();
+  const source = doc.createElement("h1");
+  source.setAttribute("data-agent-native-node-id", "source-node");
+  const runtime = doc.createElement("h1");
+  runtime.setAttribute("data-agent-native-node-id", "runtime-node");
+  doc.body.append(source, runtime);
+
+  expect(
+    resolveSelectedExportElements(doc, {
+      tagName: "H1",
+      sourceId: "source-node",
+      selector: '[data-agent-native-node-id="source-node"]',
+      runtimeSourceId: "runtime-node",
+      runtimeSelector: '[data-agent-native-node-id="runtime-node"]',
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 100, height: 40 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    }),
+  ).toEqual([runtime]);
+});

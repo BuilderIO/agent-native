@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 // @vitest-environment happy-dom
 
-import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,8 +16,8 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
-  appPath: (path: string) => path,
   appBasePath: () => "",
+  appPath: (path: string) => path,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -58,20 +57,29 @@ afterEach(() => {
 });
 
 describe("create account dialog", () => {
-  it("keeps the viewer continuation while requesting the focused signup mode", () => {
-    const href = new URL(
-      buildCreateAccountHref("/share/clip-1?at=90"),
-      "http://localhost",
-    );
-
-    expect(href.pathname).toBe("/sign-in");
-    expect(decodeContinuation(href.searchParams.get("c"))).toBe(
-      "/share/clip-1?at=90",
-    );
-    expect(href.searchParams.get("tab")).toBe("signup");
-    expect(href.searchParams.get("initialPrompt")).toBe("1");
-    expect(href.searchParams.get("embedded")).toBe("1");
-  });
+  it.each(["/share/clip-1?at=90", "/share/clip-1?at=1%3A30&ref=clip_share"])(
+    "keeps the viewer continuation %s while requesting the focused signup mode",
+    (returnTo) => {
+      const url = new URL(
+        buildCreateAccountHref(returnTo),
+        "https://clips.example.test",
+      );
+      expect(url.pathname).toBe("/sign-in");
+      const continuation = url.searchParams.get("c");
+      expect(continuation).not.toBeNull();
+      expect(
+        decodeURIComponent(
+          atob(continuation!.replace(/-/g, "+").replace(/_/g, "/")),
+        ),
+      ).toBe(returnTo);
+      url.searchParams.delete("c");
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        tab: "signup",
+        initialPrompt: "1",
+        embedded: "1",
+      });
+    },
+  );
 
   it("composes the shared auth pattern inside the modal", () => {
     const source = readFileSync(

@@ -31,8 +31,11 @@ import {
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
-import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
-import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
+import {
+  ClientOnly,
+  LazyChunkErrorBoundary,
+  LazyChunkRetryFallback,
+} from "@agent-native/toolkit/app/shared";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
@@ -2516,54 +2519,56 @@ export default function Index({ active = true }: { active?: boolean }) {
           </div>
         </div>
       ) : null}
-      <PromptHomeLibrary
-        value={homeSection}
-        onValueChange={(value) => {
-          homeLibraryTabWasSelectedRef.current = true;
-          writeStoredHomeLibraryTab(value);
-          setHomeSection(value);
-        }}
-        labels={{
-          templates: t("templatesPage.title"),
-          recent: t("home.recent"),
-        }}
-        browseAll={
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/templates">
-              {t("templatesPage.browseAll")}
-              <IconArrowRight />
-            </Link>
-          </Button>
-        }
-        recentActions={
-          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-        }
-        templates={<DeckTemplateLibrary enabled={isHome} />}
-        recent={
-          <div className="agent-template-library-grid">
-            {visibleDecks.map((deck) => (
-              <DeckCard
-                key={deck.id}
-                deck={deck}
-                onDelete={(id) => setDeckToDelete(id)}
-                onRename={handleRename}
-                onDuplicate={handleDuplicate}
-                onToggleStar={handleToggleStar}
-                isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
-                canSetWorkspaceDefault={canManageWorkspaceDefaults}
-                onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
-              />
-            ))}
-            {visibleDecks.length === 0 && (
-              <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                {normalizedDeckSearch
-                  ? t("home.noDecksMatchSearch")
-                  : t("home.noMineDecks")}
-              </div>
-            )}
-          </div>
-        }
-      />
+      <ClientOnly>
+        <PromptHomeLibrary
+          value={homeSection}
+          onValueChange={(value) => {
+            homeLibraryTabWasSelectedRef.current = true;
+            writeStoredHomeLibraryTab(value);
+            setHomeSection(value);
+          }}
+          labels={{
+            templates: t("templatesPage.title"),
+            recent: t("home.recent"),
+          }}
+          browseAll={
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/templates">
+                {t("templatesPage.browseAll")}
+                <IconArrowRight />
+              </Link>
+            </Button>
+          }
+          recentActions={
+            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+          }
+          templates={<DeckTemplateLibrary enabled={isHome} />}
+          recent={
+            <div className="agent-template-library-grid">
+              {visibleDecks.map((deck) => (
+                <DeckCard
+                  key={deck.id}
+                  deck={deck}
+                  onDelete={(id) => setDeckToDelete(id)}
+                  onRename={handleRename}
+                  onDuplicate={handleDuplicate}
+                  onToggleStar={handleToggleStar}
+                  isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
+                  canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                  onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
+                />
+              ))}
+              {visibleDecks.length === 0 && (
+                <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                  {normalizedDeckSearch
+                    ? t("home.noDecksMatchSearch")
+                    : t("home.noMineDecks")}
+                </div>
+              )}
+            </div>
+          }
+        />
+      </ClientOnly>
 
       <AlertDialog
         open={isHome && !!workspaceDefaultCandidate}

@@ -1,13 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { sendFusionBranchMessage } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
 import "../server/db/index.js";
-import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
+import { readFusionApp } from "../shared/full-app.js";
 
 export default defineAction({
   description:
@@ -25,7 +25,7 @@ export default defineAction({
       .describe("The message to send to the app's coding agent."),
   }),
   run: async ({ designId, prompt }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

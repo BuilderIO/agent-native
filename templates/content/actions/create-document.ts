@@ -33,6 +33,11 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
@@ -343,6 +348,11 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const id = args.id || nanoid();
+    await verifyPrivateIconAssignment({
+      icon,
+      userEmail: currentUserEmail,
+      orgId,
+    });
 
     await withPositionLock(
       documentsPositionScope(ownerEmail, parentId),
@@ -383,6 +393,28 @@ export default defineAction({
             createdAt: now,
             updatedAt: now,
           });
+          await syncPrivateIconReference(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              elementType: "document",
+              elementId: id,
+              documentId: id,
+              icon,
+              ownerEmail,
+              orgId,
+            },
+          );
+          await syncPrivateCalloutReferences(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId: id,
+              before: "",
+              after: content,
+              userEmail: currentUserEmail,
+              ownerEmail,
+              orgId,
+            },
+          );
 
           if (inheritedShares.length > 0) {
             await tx.insert(schema.documentShares).values(

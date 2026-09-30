@@ -13,6 +13,10 @@ import {
   IconArrowUp,
   IconLoader2,
   IconMessageCircle,
+  IconCode,
+  IconH1,
+  IconH2,
+  IconH3,
 } from "@tabler/icons-react";
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -39,6 +43,7 @@ interface BlockBubbleMenuProps {
     editingEl: HTMLElement,
   ) => void;
   textSession?: InPlaceTextSession | null;
+  linkRequest?: { editingEl: HTMLElement; range: Range } | null;
 }
 
 interface Position {
@@ -111,6 +116,7 @@ export function BlockBubbleMenu({
   onCommitInlineEdit,
   onComment,
   textSession = null,
+  linkRequest = null,
 }: BlockBubbleMenuProps) {
   const t = useT();
   const [pos, setPos] = useState<Position | null>(null);
@@ -136,6 +142,23 @@ export function BlockBubbleMenu({
     setAiInstruction("");
     setAiTargetContentHash("");
   }, [editingEl]);
+
+  useEffect(() => {
+    if (!editingEl || linkRequest?.editingEl !== editingEl) return;
+    const { range } = linkRequest;
+    if (!editingEl.contains(range.commonAncestorContainer) || range.collapsed)
+      return;
+    savedRangeRef.current = range.cloneRange();
+    const rect = range.getBoundingClientRect();
+    if (rect.width || rect.height) {
+      setPos({ top: rect.top - 8, left: rect.left + rect.width / 2 });
+    }
+    interactingRef.current = true;
+    setLinkValue("");
+    setShowColors(false);
+    setShowAiInput(false);
+    setShowLinkInput(true);
+  }, [editingEl, linkRequest]);
 
   useEffect(() => {
     if (!editingEl) return;
@@ -318,6 +341,33 @@ export function BlockBubbleMenu({
         icon={IconStrikethrough}
         tooltip="Strikethrough"
         onClick={() => runCommand((commands) => commands.strike())}
+      />
+      <ToolbarButton
+        icon={IconCode}
+        tooltip={t("slideTextMenu.code")}
+        onClick={() => runCommand((commands) => commands.code())}
+      />
+      <div className="w-px h-4 bg-border mx-0.5" />
+      <ToolbarButton
+        icon={IconH1}
+        tooltip={t("slideTextMenu.heading1")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading1"))
+        }
+      />
+      <ToolbarButton
+        icon={IconH2}
+        tooltip={t("slideTextMenu.heading2")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading2"))
+        }
+      />
+      <ToolbarButton
+        icon={IconH3}
+        tooltip={t("slideTextMenu.heading3")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading3"))
+        }
       />
       <div className="w-px h-4 bg-border mx-0.5" />
       <div className="relative">

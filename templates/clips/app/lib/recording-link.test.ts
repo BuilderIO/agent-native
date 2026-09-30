@@ -67,6 +67,10 @@ describe("auto-copy call sites route through the attributed helper", () => {
       'import { copyFreshRecordingShareLink } from "@/lib/recording-link"',
     );
     expect(source).not.toContain("copyRecordingShareLink(");
+    expect(source).toContain(
+      '...(copied ? { description: t("recordRoute.linkCopied") } : {}),',
+    );
+    expect(source).toContain('label: t("recordRoute.copyLinkAction")');
     const calls = source.match(/copyFreshRecordingShareLink\(/g) ?? [];
     expect(calls.length).toBeGreaterThanOrEqual(4);
   });

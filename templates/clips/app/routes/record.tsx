@@ -946,13 +946,8 @@ export default function RecordRoute() {
   } = useSonnerLifecycleToast();
   const showSavedToast = useCallback(
     (message: string, copied: boolean, recordingId: string) => {
-      if (copied) {
-        completeUploadToast(message, {
-          description: t("recordRoute.linkCopied"),
-        });
-        return;
-      }
       completeUploadToast(message, {
+        ...(copied ? { description: t("recordRoute.linkCopied") } : {}),
         action: {
           label: t("recordRoute.copyLinkAction"),
           onClick: () => {

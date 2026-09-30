@@ -529,9 +529,16 @@ test.describe.serial("public visual edit", () => {
       SIGNED_OUT_BASE_URL,
     );
     const unauthorizedResponses: string[] = [];
+    const updateFileRequests: string[] = [];
     const bridgeResponses: string[] = [];
     const routeResponses: string[] = [];
     const pageErrors: string[] = [];
+    signedOut.page.on("request", (request) => {
+      const requestUrl = new URL(request.url());
+      if (requestUrl.pathname.endsWith("/_agent-native/actions/update-file")) {
+        updateFileRequests.push(`${request.method()} ${requestUrl.pathname}`);
+      }
+    });
     signedOut.page.on("response", (response) => {
       const responseUrl = new URL(response.url());
       if (
@@ -902,6 +909,10 @@ test.describe.serial("public visual edit", () => {
       await expect
         .poll(() => publicationStatuses, { timeout: 15_000 })
         .toContain(200);
+      expect(
+        updateFileRequests,
+        "signed-out capability edits must stay DOM-only",
+      ).toEqual([]);
       const pull = async () => {
         const response = await mcpRequest.post(
           appUrl("/mcp/tool/get-visual-edit-pending", SIGNED_OUT_BASE_URL),
@@ -917,6 +928,38 @@ test.describe.serial("public visual edit", () => {
       expect(pulled.status).toBe("ready");
       expect(pulled.pendingEditCount).toBeGreaterThan(0);
       expect(pulled.prompt).toMatch(/Local visual edit|height|resize/i);
+      const evidenceDirectory = path.resolve(
+        import.meta.dirname,
+        "../../../.tmp/visual-edit-evidence",
+      );
+      await mkdir(evidenceDirectory, { recursive: true });
+      await signedOut.page.screenshot({
+        path: path.join(evidenceDirectory, "pending-before-reload.png"),
+      });
+
+      await liveFrame.locator("body").evaluate(() => window.location.reload());
+      await expect(heading).toBeVisible({ timeout: 30_000 });
+      await expect
+        .poll(async () => (await heading.boundingBox())?.height ?? 0, {
+          timeout: 30_000,
+        })
+        .toBeCloseTo(before?.height ?? 0, 0);
+      await expect(
+        signedOut.page.getByRole("button", {
+          name: /copy prompt to your agent|apply design update/i,
+        }),
+      ).toHaveCount(0, { timeout: 30_000 });
+      const { response: reloadPullResponse, body: reloadPulled } = await pull();
+      expect(reloadPullResponse.status(), JSON.stringify(reloadPulled)).toBe(
+        200,
+      );
+      expect(reloadPulled).toMatchObject({
+        status: "ready",
+        revision: pulled.revision,
+      });
+      await signedOut.page.screenshot({
+        path: path.join(evidenceDirectory, "pending-cleared-after-reload.png"),
+      });
       const acknowledgeResponse = await mcpRequest.post(
         appUrl(
           "/mcp/tool/acknowledge-visual-edit-pending",
@@ -924,7 +967,10 @@ test.describe.serial("public visual edit", () => {
         ),
         {
           headers: capabilityHeaders,
-          data: { designId: capabilityDesignId, revision: pulled.revision },
+          data: {
+            designId: capabilityDesignId,
+            revision: reloadPulled.revision,
+          },
         },
       );
       const acknowledged = await acknowledgeResponse.json();
@@ -940,6 +986,80 @@ test.describe.serial("public visual edit", () => {
       expect(cleared).toMatchObject({
         status: "empty",
         pendingEditCount: 0,
+      });
+
+      const reloadedHeadingBox = await heading.boundingBox();
+      expect(reloadedHeadingBox).toBeTruthy();
+      await signedOut.page.mouse.click(
+        (reloadedHeadingBox?.x ?? 0) + (reloadedHeadingBox?.width ?? 0) / 2,
+        (reloadedHeadingBox?.y ?? 0) + (reloadedHeadingBox?.height ?? 0) / 2,
+      );
+      await expect(resizeHandle).toBeVisible({ timeout: 15_000 });
+      const nextResizeBox = await resizeHandle.boundingBox();
+      expect(nextResizeBox).toBeTruthy();
+      await signedOut.page.mouse.move(
+        (nextResizeBox?.x ?? 0) + (nextResizeBox?.width ?? 0) / 2,
+        (nextResizeBox?.y ?? 0) + (nextResizeBox?.height ?? 0) / 2,
+      );
+      await signedOut.page.mouse.down();
+      await signedOut.page.mouse.move(
+        (nextResizeBox?.x ?? 0) + (nextResizeBox?.width ?? 0) / 2,
+        (nextResizeBox?.y ?? 0) + (nextResizeBox?.height ?? 0) / 2 + 8,
+        { steps: 4 },
+      );
+      await signedOut.page.mouse.up();
+      await waitForBridge(signedOut.page, "visual-style-change");
+      await expect(
+        signedOut.page.getByRole("button", {
+          name: /copy prompt to your agent|apply design update/i,
+        }),
+      ).toBeVisible();
+
+      await signedOut.page
+        .locator("[data-screen-shell]")
+        .first()
+        .locator("[data-frame-title]")
+        .click();
+      const capabilityScreenUrl = signedOut.page.getByRole("textbox", {
+        name: "Screen URL",
+      });
+      await expect(capabilityScreenUrl).toBeEnabled();
+      await capabilityScreenUrl.fill(
+        `${visualEditTargetUrl}/?e2eRoute=account`,
+      );
+      const updateSourceResponse = signedOut.page.waitForResponse(
+        (response) =>
+          response.url().includes("/actions/update-screen-source") &&
+          response.request().method() === "POST",
+      );
+      await signedOut.page.getByRole("button", { name: "Update" }).click();
+      const updateSourceResult = await updateSourceResponse;
+      const updateSourceBody = await updateSourceResult.json();
+      expect(
+        updateSourceResult.status(),
+        JSON.stringify(updateSourceBody),
+      ).toBe(200);
+      expect(JSON.stringify(updateSourceBody)).toContain("e2eRoute=account");
+      const updatedPreview = signedOut.page
+        .locator("iframe[data-screen-iframe-id]")
+        .first();
+      await expect
+        .poll(async () => {
+          const src = await updatedPreview.getAttribute("src");
+          return src ? new URL(src).searchParams.get("url") : null;
+        })
+        .toContain("e2eRoute=account");
+      await expect
+        .poll(
+          () =>
+            signedOut.page
+              .frames()
+              .some((frame) => frame.url().includes("e2eRoute=account")),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await signedOut.page.screenshot({
+        path: test.info().outputPath("visual-edit-url-updated.png"),
       });
 
       const direct = await openSignedOutPage(

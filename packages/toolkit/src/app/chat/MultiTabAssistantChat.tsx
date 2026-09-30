@@ -989,9 +989,32 @@ export function MultiTabAssistantChat({
 
   const writeThreadUrl = useCallback(
     (threadId: string | null, options: { replace?: boolean } = {}): void => {
-      if (!threadUrlSyncEnabled || typeof window === "undefined") return;
+      if (typeof window === "undefined") return;
+      const normalizedThreadId = normalizeUrlThreadId(threadId);
+      if (!threadUrlSyncEnabled) {
+        if (
+          !activeDeepLinkedThreadId ||
+          normalizedThreadId === activeDeepLinkedThreadId
+        ) {
+          return;
+        }
+        setActiveDeepLinkedThreadId(null);
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete(DEFAULT_THREAD_URL_PARAM);
+          url.searchParams.delete("threadId");
+          window.history.replaceState(
+            window.history.state,
+            "",
+            `${url.pathname}${url.search}${url.hash}`,
+          );
+        } catch (error) {
+          console.error("Could not clear the stale thread URL:", error);
+        }
+        window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
+        return;
+      }
       try {
-        const normalizedThreadId = normalizeUrlThreadId(threadId);
         let next: string;
         if (getThreadPath) {
           next = getThreadPath(normalizedThreadId);
@@ -1035,6 +1058,7 @@ export function MultiTabAssistantChat({
     [
       getThreadPath,
       navigateThreadUrl,
+      activeDeepLinkedThreadId,
       threadUrlParamName,
       threadUrlSyncEnabled,
     ],
@@ -3090,7 +3114,7 @@ export function MultiTabAssistantChat({
       <div
         className={cn(
           "relative flex-1 flex flex-col min-h-0",
-          renderOverlay && "pt-14",
+          renderOverlay && "pt-12",
         )}
         data-agent-page-chat-topbar={renderOverlay ? "" : undefined}
         data-agent-page-chat-scrolled={

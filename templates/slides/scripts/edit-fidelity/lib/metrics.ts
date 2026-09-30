@@ -532,8 +532,15 @@ export function isSplicedOnce(
  * the run it continued, so it loses the run's color or weight. `diffSnapshots`
  * lists such records as added, which alone is no violation.
  */
-export function restyledAddedText(a: Snapshot, b: Snapshot): string[] {
+export function restyledAddedText(
+  a: Snapshot,
+  b: Snapshot,
+  allowHeadingToParagraph = false,
+): string[] {
   const added = new Set(diffSnapshots(a, b).added.map((r) => r.key));
+  const startsInHeading = a.records.some(
+    (r) => r.kind === "text" && r.inside && /^h[1-6]$/i.test(r.tag ?? ""),
+  );
   const known = new Set(
     a.records
       .filter((r) => r.kind === "text" && r.inside)
@@ -545,6 +552,12 @@ export function restyledAddedText(a: Snapshot, b: Snapshot): string[] {
         r.kind === "text" &&
         r.inside &&
         added.has(r.key) &&
+        !(
+          allowHeadingToParagraph &&
+          startsInHeading &&
+          r.tag === "p" &&
+          !r.inlineStyle?.trim()
+        ) &&
         !known.has(JSON.stringify(r.props)),
     )
     .map((r) => r.key);

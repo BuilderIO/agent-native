@@ -518,6 +518,7 @@ describe("SettingsTabsPage", () => {
   });
 
   it("renders What's new markdown in the legacy settings fallback", async () => {
+    await import("../changelog/Changelog.js");
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -607,11 +608,11 @@ describe("SettingsTabsPage", () => {
     ]);
   });
 
-  it("keeps shell-only app groups out of the tabbed page", () => {
+  it("keeps shell-only app groups out of the tabbed page with legacy General content", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
-          general={<div>General content</div>}
+          general={<div>Legacy General content</div>}
           generalGroups={<div>App groups</div>}
           notifications={<div>Email settings</div>}
           notificationsLabel="Notifications"
@@ -644,6 +645,7 @@ describe("SettingsTabsPage", () => {
     ]);
     // `generalGroups` may call useSettingsShell(), which throws here.
     expect(container.textContent).not.toContain("App groups");
+    expect(container.textContent).toContain("Legacy General content");
   });
 
   it("visually separates app, agent, and workspace tabs", () => {

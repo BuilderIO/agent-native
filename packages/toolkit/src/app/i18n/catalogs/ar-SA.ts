@@ -789,7 +789,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "مكالمات المبيعات، والنصوص المفرّغة، ورؤى الصفقات، وملخصات الحسابات",
   "mcpIntegrations.catalog.gong.setupNote":
-    "يتطلب Gong أن ينشئ مسؤول تقني تكامل MCP ويختار تفويضًا شخصيًا أو مشتركًا. يجب إعداد معرّف العميل والسر الناتجين قبل الربط.",
+    "يجب أن ينشئ المسؤول التقني في Gong تكامل MCP مع تفويض شخصي أو مشترك. للتسجيل اليدوي، احفظ معرّف العميل والسر الناتجين كسرّي مساحة العمل `GONG_MCP_CLIENT_ID` و`GONG_MCP_CLIENT_SECRET`؛ أما التسجيل التلقائي فلا يحتاج إلى بيانات اعتماد للعميل.",
   "mcpIntegrations.catalog.semgrep.description":
     "فحص التعليمات البرمجية بحثًا عن مشكلات أمنية.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -1007,6 +1007,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "هل تريد الرجوع إلى هذه النقطة؟ ستفقد التغييرات التي أُجريت بعدها.",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
+  "message.historyUnavailable": "تعذر تحميل سجل التغييرات.",
   "message.threadNotFound":
     "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
@@ -1259,6 +1260,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "جارٍ سؤال {{agent}}...",
   "tool.elapsed": "انقضت {{duration}}",
   "tool.askingAgentFailed": "حدث خطأ أثناء سؤال {{agent}}",
+  "tool.failedWithoutDetails": "لا تتوفر تفاصيل للخطأ.",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",
   "tool.interrupted":
