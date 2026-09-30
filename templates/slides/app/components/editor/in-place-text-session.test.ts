@@ -1444,6 +1444,39 @@ describe("in-place text session: undo", () => {
     expect(el.textContent).toBe("Head");
   });
 
+  it("does not snapshot the full block for each character in a typing burst", () => {
+    const el = mount('<p id="t">Head</p>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 4);
+    const original = el.innerHTML;
+    let reads = 0;
+    let prototype: object | null = el;
+    let descriptor: PropertyDescriptor | undefined;
+    while (prototype && !descriptor) {
+      descriptor = Object.getOwnPropertyDescriptor(prototype, "innerHTML");
+      prototype = Object.getPrototypeOf(prototype);
+    }
+    if (!descriptor?.get || !descriptor.set) {
+      throw new Error("the DOM does not expose innerHTML accessors");
+    }
+    Object.defineProperty(el, "innerHTML", {
+      configurable: true,
+      get() {
+        reads += 1;
+        return descriptor!.get!.call(this);
+      },
+      set(value: string) {
+        descriptor!.set!.call(this, value);
+      },
+    });
+
+    type(el, "burst");
+
+    expect(reads).toBe(1);
+    expect(session.undo()).toBe(true);
+    expect(el.innerHTML).toBe(original);
+  });
+
   it("groups typing by word and restores a Markdown shortcut to literal text", () => {
     const el = mount('<div id="t">Alpha</div>');
     session = startInPlaceTextSession(el);
@@ -3038,6 +3071,47 @@ describe("in-place text session: review fixes", () => {
     );
   });
 
+  it("keeps a Docs list after paragraphs when pasting rich blocks", () => {
+    const el = mount('<div id="t"><p>Intro</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Intro"), 5);
+    paste(el, {
+      "text/html":
+        '<p>Docs paragraph</p><p>Second paragraph</p><ul><li><span style="color: rgb(255, 0, 0); font-size: 48px">Docs list item</span></li></ul>',
+      "text/plain": "Docs paragraph\nSecond paragraph\nDocs list item",
+    });
+    session.end();
+
+    expect(Array.from(el.querySelectorAll("p"), (p) => p.textContent)).toEqual([
+      "Intro",
+      "Docs paragraph",
+      "Second paragraph",
+    ]);
+    expect(el.querySelector("ul > li")?.textContent).toBe("Docs list item");
+    expect(el.querySelector("ul > li > span")?.getAttribute("style")).toBe(
+      null,
+    );
+  });
+
+  it("strips pasted links from mixed rich blocks inside an existing link", () => {
+    const el = mount(
+      '<div id="t"><p><a href="https://example.com/original">Intro</a></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Intro"), 5);
+    paste(el, {
+      "text/html":
+        '<p>Docs paragraph</p><ul><li><a href="https://example.com/pasted">Docs list item</a></li></ul>',
+      "text/plain": "Docs paragraph\nDocs list item",
+    });
+    session.end();
+
+    expect(el.querySelectorAll("a")).toHaveLength(1);
+    expect(el.querySelector("a")?.textContent).toBe("Intro");
+    expect(el.querySelectorAll("a a")).toHaveLength(0);
+    expect(el.textContent).toContain("Docs list item");
+  });
+
   it("pastes a list into a paragraph as lines, since a paragraph cannot hold one", () => {
     const el = mount('<p id="t">Intro</p>');
     session = startInPlaceTextSession(el);
@@ -3399,6 +3473,74 @@ describe("in-place text session: Content authoring parity", () => {
       "bold",
     );
   });
+
+  it("keeps markdown bold on and following typing outside its mark in a styled list", () => {
+    const el = mount(
+      '<ol id="t"><li><strong style="font-weight: 700">Re-segment the book.</strong> <span style="color: #1684a7">Every account has a clear path.</span></li></ol>',
+    );
+    session = startInPlaceTextSession(el);
+    const existingBold = textOf(el, "Re-segment the book.");
+    caret(existingBold, 0);
+
+    let caretAfterBold: { collapsed: boolean; prefix: string } | null = null;
+    el.addEventListener(
+      "beforeinput",
+      (event) => {
+        if ((event as InputEvent).data !== " ") return;
+        const selection = window.getSelection()!;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.setEnd(selection.anchorNode!, selection.anchorOffset);
+        caretAfterBold = {
+          collapsed: selection.isCollapsed,
+          prefix: range.toString(),
+        };
+      },
+      { capture: true },
+    );
+
+    type(el, "**bold** next");
+
+    const marked = Array.from(el.querySelectorAll<HTMLElement>("span")).find(
+      (span) => span.textContent === "bold",
+    );
+    expect(marked).toBeDefined();
+    expect(marked!.style.fontWeight).toBe("700");
+    expect(window.getComputedStyle(marked!).fontWeight).toBe("700");
+    expect(caretAfterBold).toEqual({ collapsed: true, prefix: "bold" });
+
+    expect(el.querySelector("li")?.textContent).toBe(
+      "bold nextRe-segment the book. Every account has a clear path.",
+    );
+    expect(marked!.textContent).toBe("bold");
+    expect(marked!.contains(textOf(el, "next"))).toBe(false);
+    expect(window.getSelection()!.isCollapsed).toBe(true);
+  });
+
+  it.each([
+    [500, "700"],
+    [600, "600"],
+    [900, "900"],
+  ])(
+    "keeps markdown bold at least 600 for inherited weight %i",
+    (inheritedWeight, expectedWeight) => {
+      const el = mount(
+        `<h1 id="t" style="font-weight: ${inheritedWeight}">Title</h1>`,
+      );
+      session = startInPlaceTextSession(el);
+      caret(textOf(el, "Title"), 0);
+
+      type(el, "**bold**");
+
+      const marked = Array.from(el.querySelectorAll<HTMLElement>("span")).find(
+        (span) => span.textContent === "bold",
+      );
+      expect(marked?.style.fontWeight).toBe(expectedWeight.toString());
+      expect(window.getComputedStyle(marked!).fontWeight).toBe(
+        expectedWeight.toString(),
+      );
+    },
+  );
 
   it.each([
     ["**bold**", 'span[style*="font-weight"]', "bold"],
@@ -4166,7 +4308,7 @@ describe("in-place text session: Content authoring parity", () => {
       expect(list.className).toBe("");
       expect(list.style.position).toBe("");
       expect(list.style.fontSize).toBe("");
-      expect(list.style.paddingLeft).toBe("1.25em");
+      expect(list.style.paddingLeft).toBe("2em");
       expect(list.style.listStyleType).toBe("lower-alpha");
     }
   });
@@ -4607,6 +4749,21 @@ describe("in-place text session: Content authoring parity", () => {
     expect(el.children[2].textContent).toBe("Third");
   });
 
+  it("keeps a root OL intact when `2. ` is typed in its middle item", () => {
+    const el = mount('<ol id="t"><li>One</li><li>Two</li><li>Three</li></ol>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Two"), 0);
+
+    type(el, "2. ");
+
+    expect(session.element.tagName).toBe("OL");
+    expect(session.element.querySelectorAll(":scope > li")).toHaveLength(3);
+    expect(session.element.children[1]?.getAttribute("value")).toBe("2");
+    expect(
+      Array.from(session.element.children, (item) => item.textContent),
+    ).toEqual(["One", "Two", "Three"]);
+  });
+
   it("keeps a styled OL intact when `2. ` is typed at an item start", () => {
     const el = mount(
       '<div id="t"><ol style="padding-left:1.2em"><li>One</li><li>Two</li><li>Three</li></ol></div>',
@@ -4650,6 +4807,42 @@ describe("in-place text session: Content authoring parity", () => {
     expect(session.element.children[0]?.textContent).toBe("One");
     expect(session.element.children[1]?.textContent).toBe("Two");
     expect(session.element.children[2]?.textContent).toBe("Three");
+  });
+
+  it("splits a root OL around the middle item for a `- ` shortcut", () => {
+    const el = mount(
+      '<ol id="t" style="padding-left:1.2em;list-style-position:inside"><li>One</li><li>Two</li><li>Three</li></ol>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Two"), 0);
+
+    type(el, "- ");
+
+    expect(session.element.tagName).toBe("DIV");
+    expect(
+      Array.from(session.element.children, (list) => list.tagName),
+    ).toEqual(["OL", "UL", "OL"]);
+    expect(
+      Array.from(
+        session.element.children,
+        (list) => (list as HTMLElement).style.paddingLeft,
+      ),
+    ).toEqual(["1.2em", "1.2em", "1.2em"]);
+    expect(
+      Array.from(
+        session.element.children,
+        (list) => (list as HTMLElement).style.listStylePosition,
+      ),
+    ).toEqual(["inside", "inside", "inside"]);
+    expect(
+      (session.element.children[1] as HTMLOListElement).style.listStyleType,
+    ).toBe("disc");
+    expect(
+      Array.from(session.element.children, (list) => list.textContent),
+    ).toEqual(["One", "Two", "Three"]);
+    expect(
+      session.element.querySelector("ol ul, ul ol, ol ol, ul ul"),
+    ).toBeNull();
   });
 
   it("keeps an OL when a number prefix is typed after a soft break", () => {

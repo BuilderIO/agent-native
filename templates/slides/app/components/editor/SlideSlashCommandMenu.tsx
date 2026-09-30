@@ -124,8 +124,7 @@ const COMMANDS: {
 interface SlashMenuState {
   query: string;
   range: Range;
-  left: number;
-  top: number;
+  anchorRect: DOMRect;
 }
 
 interface SlideSlashCommandMenuProps {
@@ -272,8 +271,7 @@ function findMenu(editingEl: HTMLElement): SlashMenuState | null {
   return {
     query,
     range,
-    left: rect.left,
-    top: rect.bottom,
+    anchorRect: rect,
   };
 }
 
@@ -290,26 +288,21 @@ export function SlideSlashCommandMenu({
     `${menuId}-option-${kind}`;
   const menuRef = useRef(menu);
   menuRef.current = menu;
-  const editingElRef = useRef(editingEl);
-  editingElRef.current = editingEl;
   const pendingSlash = useRef(false);
   const [popoverContent, setPopoverContent] = useState<HTMLDivElement | null>(
     null,
   );
-  const virtualAnchor = useRef<{
-    contextElement: HTMLElement;
-    getBoundingClientRect: () => DOMRect;
-  }>({
-    get contextElement() {
-      return editingElRef.current ?? document.body;
-    },
-    getBoundingClientRect: () => {
-      const current = menuRef.current;
-      return current
-        ? new DOMRect(current.left, current.top, 1, 1)
-        : new DOMRect();
-    },
-  });
+  const virtualAnchor = useMemo(
+    () => ({
+      current: {
+        get contextElement() {
+          return editingEl ?? document.body;
+        },
+        getBoundingClientRect: () => menu?.anchorRect ?? new DOMRect(),
+      },
+    }),
+    [editingEl, menu?.anchorRect],
+  );
   const originalAttributes = useRef<{
     element: HTMLElement;
     values: Map<string, string | null>;
@@ -391,8 +384,10 @@ export function SlideSlashCommandMenu({
         current.query === next.query &&
         current.range.endContainer === next.range.endContainer &&
         current.range.endOffset === next.range.endOffset &&
-        current.left === next.left &&
-        current.top === next.top
+        current.anchorRect.left === next.anchorRect.left &&
+        current.anchorRect.top === next.anchorRect.top &&
+        current.anchorRect.right === next.anchorRect.right &&
+        current.anchorRect.bottom === next.anchorRect.bottom
       ) {
         return;
       }

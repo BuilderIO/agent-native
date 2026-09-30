@@ -1322,7 +1322,7 @@ export function startInPlaceTextSession(
     return true;
   }
 
-  function snapshot(): Snapshot {
+  function snapshot(selection = selectionOffsets(true)): Snapshot {
     const tag = el.tagName;
     const attributes = Array.from(
       el.attributes,
@@ -1355,7 +1355,7 @@ export function startInPlaceTextSession(
         ) +
         64,
       authorZwsp: Array.from(authorZwspOrdinals()),
-      ...selectionOffsets(true),
+      ...selection,
     };
   }
 
@@ -1410,10 +1410,10 @@ export function startInPlaceTextSession(
   }
 
   /** Records the pre-change state; a run of typing or deleting is one step. */
-  function checkpoint(kind: EditKind, boundary = false, before = snapshot()) {
+  function checkpoint(kind: EditKind, boundary = false, before?: Snapshot) {
     edited = true;
     const now = Date.now();
-    const selection = before;
+    const selection = before ?? selectionOffsets(true);
     const coalesce =
       kind !== "command" &&
       lastEdit?.kind === kind &&
@@ -1427,7 +1427,7 @@ export function startInPlaceTextSession(
     lastEdit = { kind, at: now, boundary, after: null };
     if (coalesce) return;
     redoStack.length = 0;
-    undoStack.push(before);
+    undoStack.push(before ?? snapshot(selection));
     trimHistory();
   }
 
@@ -2357,6 +2357,7 @@ export function startInPlaceTextSession(
         "list-style",
         "list-style-position",
         "list-style-type",
+        "padding-left",
       ]) {
         const value = list.style.getPropertyValue(property);
         if (value) slice.style.setProperty(property, value);
@@ -2438,6 +2439,12 @@ export function startInPlaceTextSession(
     let converted = rootList
       ? createSlideList(el.ownerDocument, kind)
       : document.createElement(targetTag);
+    if (rootList) {
+      for (const property of ["padding-left", "list-style-position"]) {
+        const value = template.style.getPropertyValue(property);
+        if (value) converted.style.setProperty(property, value);
+      }
+    }
     if (!rootList) {
       for (const attribute of Array.from(template.attributes)) {
         if (
@@ -2901,10 +2908,6 @@ export function startInPlaceTextSession(
         }
       }
     }
-    if (markdown) return insertBlockClipboard(lines, at);
-    if (normalized !== null && lines.some(({ blockTag }) => blockTag)) {
-      return insertBlockClipboard(lines, at);
-    }
     const start = at.startContainer;
     const link = (
       start instanceof Element ? start : start.parentElement
@@ -2916,6 +2919,15 @@ export function startInPlaceTextSession(
           anchor.replaceWith(...Array.from(anchor.childNodes));
         }
       }
+    }
+    if (markdown) return insertBlockClipboard(lines, at);
+    if (
+      normalized !== null &&
+      (lines.some(({ blockTag }) => blockTag) ||
+        (lines.some(({ lists }) => lists.length > 0) &&
+          lines.some(({ lists }) => lists.length === 0)))
+    ) {
+      return insertBlockClipboard(lines, at);
     }
     if (!at.collapsed) deleteRange(at);
     else placeCaret(at.startContainer, at.startOffset);
@@ -3889,8 +3901,24 @@ export function startInPlaceTextSession(
         );
         selection.removeAllRanges();
         selection.addRange(content);
-        const applied =
-          toggleInlineTextFormat(el, inline.format).scope === "selection";
+        let formatted: InlineTextStyleApplication;
+        if (inline.format === "bold") {
+          const context =
+            content.startContainer.nodeType === 1
+              ? (content.startContainer as HTMLElement)
+              : content.startContainer.parentElement;
+          const inheritedWeight = context
+            ? el.ownerDocument.defaultView?.getComputedStyle(context).fontWeight
+            : undefined;
+          const fontWeight =
+            inheritedWeight && Number.parseFloat(inheritedWeight) >= 600
+              ? inheritedWeight
+              : "700";
+          formatted = applyInlineTextStyle(el, { fontWeight });
+        } else {
+          formatted = toggleInlineTextFormat(el, inline.format);
+        }
+        const applied = formatted.scope === "selection";
         if (applied) {
           collapseAfterInlineFormat(
             block,

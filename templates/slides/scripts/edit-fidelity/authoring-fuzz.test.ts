@@ -56,6 +56,14 @@ it("requires corpus authoring output to be changed, saved, and reloaded", () => 
       reloadedHtml: "source",
     }),
   ).toThrow("reloaded slide HTML differed from the saved HTML");
+  expect(() =>
+    assertAuthoringPersistence({
+      originalHtml: "source",
+      liveHtml: '<p class="a b">edited</p>',
+      savedHtml: '<p class="b a">edited</p>',
+      reloadedHtml: '<p class="b a">edited</p>',
+    }),
+  ).toThrow("saved HTML differed from the post-edit live slide");
 });
 
 it("requires byte-identical HTML for undo and redo snapshots", () => {
