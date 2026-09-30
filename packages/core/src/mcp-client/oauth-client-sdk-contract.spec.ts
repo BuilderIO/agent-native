@@ -117,6 +117,25 @@ describe("MCP SDK registration contract", () => {
     expect(result.authorizationUrl.origin).toBe(origin);
   }, 30_000);
 
+  it("uses the OAuth metadata default when supported methods are omitted", async () => {
+    const origin = await startAuthorizationServer((issuer) => ({
+      registration_endpoint: `${issuer}/register`,
+    }));
+
+    const result = await startMcpOAuthAuthorization({
+      serverUrl: `${origin}/mcp`,
+      redirectUrl: REDIRECT_URL,
+      state: "<STATE>",
+    });
+
+    expect(lastRegistrationMetadata).toMatchObject({
+      token_endpoint_auth_method: "client_secret_basic",
+    });
+    expect(result.clientInformation).toMatchObject({
+      token_endpoint_auth_method: "client_secret_basic",
+    });
+  }, 30_000);
+
   it("cannot reach authorization via CIMD without a client metadata URL", async () => {
     const origin = await startAuthorizationServer({
       client_id_metadata_document_supported: true,

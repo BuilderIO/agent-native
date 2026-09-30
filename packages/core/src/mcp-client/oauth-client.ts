@@ -523,7 +523,8 @@ function dynamicClientAuthMethod(
   metadata: AuthorizationServerMetadata | undefined,
 ): OAuthClientMetadata["token_endpoint_auth_method"] {
   const methods = metadata?.token_endpoint_auth_methods_supported;
-  if (!Array.isArray(methods) || methods.includes("none")) return "none";
+  if (!Array.isArray(methods)) return "client_secret_basic";
+  if (methods.includes("none")) return "none";
   for (const method of ["client_secret_basic", "client_secret_post"] as const) {
     if (methods.includes(method)) return method;
   }
