@@ -455,6 +455,30 @@ describe("runDoctorScan", () => {
     ]);
   });
 
+  it("skips feature dependency checks when package.json is absent", () => {
+    const root = makeTempAppRoot({});
+    const report = runDoctorScan({
+      root,
+      only: ["feature-dependencies"],
+      shellEnvironment: { DATABASE_URL: "" },
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {},
+          dependencies: [
+            {
+              name: "@electric-sql/pglite",
+              version: "^0.5.8",
+              when: "pglite-database",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(report.findings).toEqual([]);
+  });
+
   it.each([
     {
       when: "pglite-database",

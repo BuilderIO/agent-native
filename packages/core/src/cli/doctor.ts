@@ -183,11 +183,12 @@ function runGuard(
       try {
         packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw new Error(
-            `Could not read ${packageJsonPath}: ${error instanceof Error ? error.message : String(error)}`,
-          );
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return { name, findings: [] };
         }
+        throw new Error(
+          `Could not read ${packageJsonPath}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       if (
         packageJson !== null &&
