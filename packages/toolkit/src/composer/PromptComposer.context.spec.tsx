@@ -1456,7 +1456,6 @@ describe("controlled composer context", () => {
   it("renders a noninteractive context chip with only removal and blocks submission until ready", async () => {
     const onSubmit = vi.fn();
     const onRemoveContextItem = vi.fn();
-    const onInspectContextItem = vi.fn();
     const onRetryContextItem = vi.fn();
     const composerRef = React.createRef<TiptapComposerHandle>();
     const item: AgentChatContextItem = {
@@ -1471,7 +1470,6 @@ describe("controlled composer context", () => {
           React.createElement(PromptComposer, {
             contextItems: [item],
             onRemoveContextItem,
-            onInspectContextItem,
             onRetryContextItem,
             composerRef,
             onSubmit,
@@ -1539,7 +1537,6 @@ describe("controlled composer context", () => {
         )!
         .click();
     });
-    expect(onInspectContextItem).not.toHaveBeenCalled();
     expect(onRetryContextItem).toHaveBeenCalledOnce();
     expect(onRemoveContextItem).toHaveBeenCalledWith("brief");
     expect(
@@ -1565,5 +1562,25 @@ describe("controlled composer context", () => {
     item.context = "Changed later";
     expect(options.contextItems[0].context).toBe("Original context");
     expect(Object.isFrozen(options.contextItems[0])).toBe(true);
+  });
+
+  it("keeps optional context inspection available without an underline", async () => {
+    const onInspectContextItem = vi.fn();
+    await mount({
+      contextItems: [
+        { key: "brief", title: "Brief", context: "Original context" },
+      ],
+      onInspectContextItem,
+    });
+
+    const inspectButton = container.querySelector<HTMLButtonElement>(
+      '[data-context-key="brief"] button',
+    )!;
+    const contextChip = container.querySelector('[data-context-key="brief"]')!;
+    expect(inspectButton.textContent).toBe("Brief");
+    expect(contextChip.className).toContain("py-0.5");
+    expect(inspectButton.className).not.toContain("hover:underline");
+    await act(async () => inspectButton.click());
+    expect(onInspectContextItem).toHaveBeenCalledWith("brief");
   });
 });

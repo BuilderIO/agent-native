@@ -4194,15 +4194,29 @@ export function AgentKitChat({
         event.runId === runId &&
         sequenceInRange(event.sequence, { afterSequence, throughSequence }),
     );
+  const activeRunsBeforeAssistantOutput = thread.activeRunIds.filter(
+    (runId) =>
+      thread.runs[runId]?.status === "running" &&
+      !thread.messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.status === "streaming" &&
+          messageRunIds.get(message.id) === runId &&
+          message.parts.some(
+            (part) => part.type === "text" && part.text.trim().length > 0,
+          ),
+      ),
+  );
   const pendingRunIds = Array.from(
-    new Set(
-      runWorkStarts
+    new Set([
+      ...runWorkStarts
         .filter((event) => {
           const boundary = lastAssistantMessagesByRun.get(event.runId);
           return boundary === undefined || event.sequence > boundary.sequence;
         })
         .map((event) => event.runId),
-    ),
+      ...activeRunsBeforeAssistantOutput,
+    ]),
   );
   const pendingRuns = new Set(pendingRunIds);
   const renderRunFailure = (runId: RunId) => {

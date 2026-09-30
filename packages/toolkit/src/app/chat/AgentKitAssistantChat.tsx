@@ -3265,12 +3265,18 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       ))}
       {showThinking ? (
         <div
-          className="agent-thinking-indicator"
+          className="agentkit-activities agentkit-activities-summary-content"
           role="status"
           aria-live="polite"
         >
-          <span className="agent-thinking-indicator__text">
-            {t("agentChat.status.thinking")}
+          <span
+            className="agentkit-activities-current"
+            data-running="true"
+            data-agentkit-current-activity="true"
+          >
+            <span className="agentkit-activities-current-label agent-running-shimmer">
+              {t("agentChat.status.thinking")}
+            </span>
           </span>
         </div>
       ) : null}
@@ -3785,7 +3791,6 @@ function AgentKitComposerSurface({
             else onRemoveContextItem(key);
           }}
           onRetryContextItem={composerContext?.onRetryContextItem}
-          onInspectContextItem={composerContext?.onInspectContextItem}
           interceptBuildRequestsForBuilder={isInBuilderFrame()}
           selectedModel={props.selectedModel ?? props.defaultModel}
           selectedEngine={props.selectedEngine}
@@ -4068,14 +4073,25 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
   const surface = useAgentKitSurface();
   const metadata = value.metadata ?? {};
   const input = asRecord(value.input) ?? {};
+  const errorOutput =
+    value.status === "failed"
+      ? Array.from(
+          new Set(
+            [
+              value.error?.message?.trim(),
+              formatErrorDetails(value.error?.details),
+              formatErrorDetails(value.output),
+            ].filter((detail): detail is string => Boolean(detail?.trim())),
+          ),
+        ).join("\n\n") || undefined
+      : undefined;
   const output =
-    value.status === "failed" && value.error?.message
-      ? value.error.message
-      : typeof value.output === "string"
-        ? value.output
-        : value.output === undefined
-          ? undefined
-          : JSON.stringify(value.output);
+    errorOutput ??
+    (typeof value.output === "string"
+      ? value.output
+      : value.output === undefined
+        ? undefined
+        : JSON.stringify(value.output));
   return (
     <ChatRunningContext.Provider
       value={active === true || value.status === "running"}
