@@ -1123,7 +1123,6 @@ export function useUpdateDocument() {
           ),
           ...queryClient.getQueriesData(contentSpacesFilter),
           ...queryClient.getQueriesData(personalViewFilter),
-          ...queryClient.getQueriesData(recentFilter),
           ...(sidebarStateKey
             ? [
                 [
@@ -1256,6 +1255,9 @@ export function useUpdateDocument() {
           | { previous?: Array<[readonly unknown[], unknown]> }
           | undefined;
         restoreQuerySnapshots(queryClient, rollback?.previous ?? []);
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-content-recent"],
+        });
       },
       onSettled: (_data, _error, variables) => {
         spoilPageOpenReads(queryClient, variables.id);
