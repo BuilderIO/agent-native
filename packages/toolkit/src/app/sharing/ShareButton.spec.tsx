@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createToolkitI18nCatalog } from "../i18n.js";
 import { ShareButton } from "./ShareButton.js";
 
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+
 const shareMutate = vi.hoisted(() => vi.fn());
 const otherMutate = vi.hoisted(() => vi.fn());
 const refetchShares = vi.hoisted(() => vi.fn(async () => undefined));
@@ -1212,7 +1214,7 @@ describe("ShareButton", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
-          catalog={createToolkitI18nCatalog({ messages: {} })}
+          catalog={toolkitI18nCatalog}
           initialLocale="de-DE"
           initialPreference="de-DE"
           persistPreference={false}

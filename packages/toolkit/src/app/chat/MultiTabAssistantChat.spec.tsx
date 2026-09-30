@@ -21,6 +21,7 @@ import type {
   ChatThreadScope,
   ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
+import { buildChatModelGroups } from "@agent-native/core/client/chat-model-groups";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { invalidateClientStatusRequests } from "@agent-native/core/client/status-requests";
 import React, { act } from "react";
@@ -34,6 +35,7 @@ import {
 
 afterEach(() => {
   invalidateClientStatusRequests();
+  modelCatalogMocks.load = null;
 });
 
 function clearBufferedAgentChatRequests(): void {
@@ -152,6 +154,8 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   return {
     ...actual,
     useChatThreads: chatThreadHookMocks.useChatThreads,
+    loadChatModelCatalog: () =>
+      modelCatalogMocks.load?.() ?? actual.loadChatModelCatalog(),
   };
 });
 vi.mock("./RunStuckBanner.js", () => ({
@@ -202,6 +206,9 @@ const ANTHROPIC_ENGINES = [
 ];
 
 const actionMocks = vi.hoisted(() => ({ callAction: vi.fn(async () => null) }));
+const modelCatalogMocks = vi.hoisted(() => ({
+  load: null as null | (() => Promise<unknown>),
+}));
 
 vi.mock("@agent-native/core/client/use-action", async (importOriginal) => {
   const actual =
@@ -217,6 +224,16 @@ function stubCatalog(
   builderConfigured = false,
 ) {
   invalidateClientStatusRequests();
+  modelCatalogMocks.load = async () => ({
+    state: "available",
+    groups: buildChatModelGroups({
+      engines: engines as Parameters<typeof buildChatModelGroups>[0]["engines"],
+      configuredKeys,
+      builderConnected: builderConfigured,
+    }),
+    defaultModel: "gpt-5-6-luna",
+    loadLiveGroups: async () => null,
+  });
   actionMocks.callAction.mockResolvedValue({ engines } as never);
   vi.stubGlobal(
     "fetch",
@@ -326,6 +343,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
             ?.map((group) => `${group.engine}:${group.configured}`)
             .join(",")}
           data-composer-disabled={props.composerDisabled ? "true" : "false"}
+          data-composer-submission-disabled={
+            props.composerSubmissionDisabled ? "true" : "false"
+          }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
           data-context-scope={
@@ -745,7 +765,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     await view.cleanup();
   });
 
-  it("blocks a fresh chat until the model catalog resolves", async () => {
+  it("keeps a fresh chat editable and preserves the host send gate", async () => {
     const engines = [
       {
         name: "builder",
@@ -756,27 +776,19 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ];
     stubCatalog(engines, [], true);
     let resolveEngineList!: (value: unknown) => void;
-    actionMocks.callAction.mockImplementation(
-      () => new Promise((resolve) => (resolveEngineList = resolve)) as never,
-    );
+    modelCatalogMocks.load = () =>
+      new Promise((resolve) => (resolveEngineList = resolve));
 
     const el = document.createElement("div");
     document.body.appendChild(el);
     const localRoot = createRoot(el);
     act(() => {
-      localRoot.render(<MultiTabAssistantChat storageKey="pending-catalog" />);
-    });
-
-    expect(
-      el
-        .querySelector("[data-testid='assistant-chat']")
-        ?.getAttribute("data-composer-disabled"),
-    ).toBe("true");
-
-    await act(async () => {
-      resolveEngineList({ engines });
-      await Promise.resolve();
-      await Promise.resolve();
+      localRoot.render(
+        <MultiTabAssistantChat
+          storageKey="pending-catalog"
+          composerSubmissionDisabled
+        />,
+      );
     });
 
     expect(
@@ -784,6 +796,34 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-composer-disabled"),
     ).toBe("false");
+    expect(
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-composer-submission-disabled"),
+    ).toBe("true");
+
+    await act(async () => {
+      resolveEngineList({
+        state: "available",
+        groups: [],
+        defaultModel: "gpt-5-6-luna",
+        loadLiveGroups: async () => null,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    modelCatalogMocks.load = null;
+
+    expect(
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-composer-disabled"),
+    ).toBe("false");
+    expect(
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-composer-submission-disabled"),
+    ).toBe("true");
 
     await act(async () => localRoot.unmount());
     el.remove();
@@ -3433,6 +3473,40 @@ describe("MultiTabAssistantChat history popover", () => {
       container.querySelectorAll(".an-chat-history-row__title"),
     ).map((el) => el.textContent);
     expect(titles).toEqual(["Pinned chat", "Active chat", "Other chat"]);
+  });
+
+  it("anchors page-overlay chat history to the left below the page header", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="history-test"
+          renderOverlay={({ toggleHistory }) => (
+            <button
+              type="button"
+              data-testid="page-history-trigger"
+              onClick={toggleHistory}
+            >
+              All chats
+            </button>
+          )}
+        />,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="page-history-trigger"]',
+        )
+        ?.click();
+    });
+
+    const anchor = Array.from(
+      container.querySelectorAll<HTMLElement>("span"),
+    ).find((span) => span.classList.contains("w-px"));
+    expect(anchor).toBeDefined();
+    expect(anchor?.className).toContain("start-2");
+    expect(anchor?.className).not.toContain("end-2");
   });
 
   it("does not expose an untitled prompt in history", async () => {

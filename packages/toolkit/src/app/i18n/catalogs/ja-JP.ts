@@ -1170,8 +1170,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "AI に接続してチャットを開始...",
   "setup.connectToChat": "AI に接続してチャット",
   "setup.connectToStart": "AI に接続してチャットを開始",
-  "setup.checkingProvider": "AI 接続を確認しています…",
-  "setup.providerStatusUnavailable": "AI 接続を確認できませんでした。",
+  "setup.providerStatusUnavailable": "AI が利用可能か確認できませんでした。",
   "agentNativeClips.meetingAsk.placeholder": "何でも聞いてください",
   "agentNativeClips.meetingAsk.ariaLabel": "この会議について質問する",
   "setup.connected": "接続済み",
@@ -1365,6 +1364,165 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder 請求対象外のプロバイダー利用または過去の呼び出し",
   "usage.providerSpendToday": "本日のその他または未分類の利用額: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder クレジット / USD",
+  "observability.insights.verdictSmooth": "順調に動作中",
+  "observability.insights.verdictLook_other": "気になる点が{{count}}件",
+  "observability.insights.verdictProblems_other": "問題が{{count}}件",
+  "observability.insights.spentSummary_other":
+    "過去{{days}}日間で{{count}}件のプロンプトに{{amount}}使用しました。",
+  "observability.insights.handledLabel": "Agent-Native が処理:",
+  "observability.insights.handledHeading": "Agent-Native が処理",
+  "observability.insights.handledParallel":
+    "{{count}}件のツール呼び出しを同時に実行し、1件ずつ実行するより約{{duration}}速く完了しました。",
+  "observability.insights.handledRecovered_other":
+    "{{count}}件のツールエラーから停止せずに復帰しました。",
+  "observability.insights.avgPerPrompt": "プロンプトあたりの平均",
+  "observability.insights.completed": "完了",
+  "observability.insights.completedDetail": "直近{{total}}件中{{done}}件",
+  "observability.insights.completedRecovered_other":
+    "直近{{total}}件中{{done}}件（ツールエラー{{count}}件から復帰後）",
+  "observability.insights.typicalTime": "所要時間の目安",
+  "observability.insights.median": "中央値",
+  "observability.insights.sampleNote":
+    "完了率、標準的な所要時間、Agent-Native が処理した内容、および指摘事項は、{{total}} 件中の最新 {{shown}} 件のプロンプトに基づいています。",
+  "observability.insights.changeSame": "前の期間と同じ",
+  "observability.insights.changeUp": "↑ {{percent}}%（前の期間比）",
+  "observability.insights.changeDown": "↓ {{percent}}%（前の期間比）",
+  "observability.insights.kindProblem": "問題",
+  "observability.insights.kindSaving": "節約",
+  "observability.insights.kindInfo": "参考情報",
+  "observability.insights.fixLabel": "対処法:",
+  "observability.insights.openPrompt": "プロンプトを開く",
+  "observability.insights.seePrompts_other": "{{count}}件のプロンプトを見る",
+  "observability.insights.erroredTitle_other":
+    "{{count}}件のプロンプトがエラーで終了しました",
+  "observability.insights.erroredBody": "エージェントは完了前に停止しました。",
+  "observability.insights.erroredFix":
+    "プロンプトを開くと、停止する直前に行った操作を確認できます。",
+  "observability.insights.toolFailedTitle_other":
+    "{{tool}}ツールが{{count}}件のプロンプトで失敗しました",
+  "observability.insights.toolFailedSaid": "表示されたエラー: 「{{error}}」",
+  "observability.insights.toolFailedGeneric": "ツールがエラーを報告しました。",
+  "observability.insights.toolRecoveredAll":
+    "エージェントは毎回復帰して完了しました。",
+  "observability.insights.toolRecoveredSome":
+    "エージェントはそのうち{{count}}件で復帰して完了しました。",
+  "observability.insights.restartTitle":
+    "最初からやり直したことで約{{amount}}かかりました（支出の{{percent}}%）",
+  "observability.insights.restartBody":
+    "直近{{total}}件のプロンプトのうち{{count}}件で、{{reason}}ため、送信済みの内容を再利用せずに会話全体を再送信しました。",
+  "observability.insights.reasonToolLookup": "新しいツールを取得した",
+  "observability.insights.reasonPrefixChanged": "指示の先頭部分が変わった",
+  "observability.insights.fixToolLookup":
+    "initialToolNames でこのアプリが使うツールを事前に読み込んでおくと、プロンプト全体でツール一覧が変わらなくなります。",
+  "observability.insights.fixPrefixChanged":
+    "タイムスタンプやステップごとの状態など、変化する内容はシステムプロンプトに含めないようにしましょう。",
+  "observability.insights.priciestTitle":
+    "1件のプロンプトが直近の支出の{{percent}}%を占めました",
+  "observability.insights.priciestBody_other":
+    "「{{prompt}}」は{{count}}ステップで{{amount}}かかりました。",
+  "observability.insights.untitledPrompt": "無題のプロンプト",
+  "observability.insights.promptsHeading": "プロンプト",
+  "observability.insights.showing": "{{count}}件を表示中",
+  "observability.insights.sortNewest": "新しい順",
+  "observability.insights.sortCost": "コストが高い順",
+  "observability.insights.emptyPrompts":
+    "この期間のプロンプトはまだありません。完了すると数秒後にここに表示されます。",
+  "observability.insights.promptNotSaved":
+    "プロンプトのテキストは保存されませんでした",
+  "observability.insights.ratedHelpful": "役立ったと評価",
+  "observability.insights.ratedUnhelpful": "役に立たなかったと評価",
+  "observability.insights.notRated": "未評価",
+  "observability.insights.stoppedWithError": "エラーで停止",
+  "observability.insights.detailsUnavailable":
+    "ステップの詳細はもう確認できません",
+  "observability.insights.answered": "回答済み",
+  "observability.insights.finished": "終了",
+  "observability.insights.startedOverShort": "{{count}}×やり直し",
+  "observability.insights.recoveredShort_other":
+    "{{count}}件のツールエラーから復帰",
+  "observability.insights.toolsFailedShort_other": "{{count}}件のツールが失敗",
+  "observability.insights.headerDuration": "{{duration}}で",
+  "observability.insights.stepsCount_other": "{{count}}ステップ",
+  "observability.insights.whatItDid": "実行内容:",
+  "observability.insights.replyNotSaved":
+    "このプロンプトの返信テキストは保存されませんでした。",
+  "observability.insights.showAll": "すべて表示",
+  "observability.insights.showLess": "表示を減らす",
+  "observability.insights.moreTools": "他{{count}}件",
+  "observability.insights.failedSuffix": "失敗",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.startedOverNote_other":
+    "{{reason}}ため、{{count}}回やり直しました。これにより{{total}}のうち約{{amount}}かかりました。",
+  "observability.insights.toolFailedNote_other":
+    "{{tool}}ツールが{{count}}回失敗しました。",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "{{tool}}ツールが{{count}}回失敗しましたが、エージェントは続行して完了しました。",
+  "observability.insights.showSteps_other": "{{count}}ステップを表示",
+  "observability.insights.hideSteps": "ステップを隠す",
+  "observability.insights.costDetails": "コストの詳細とチェック",
+  "observability.insights.turnReply": "返信を作成",
+  "observability.insights.turnThought": "じっくり検討",
+  "observability.insights.startedOverTag": "やり直し",
+  "observability.insights.toolFailedTag": "ツール失敗",
+  "observability.insights.turnContext":
+    "コンテキストとして{{tokens}}トークンを送信し、そのうち{{percent}}%は以前の内容を再利用しました。",
+  "observability.insights.turnExpired":
+    "一時停止後に保存済みのコンテキストが期限切れになりました。これは想定内の動作です。",
+  "observability.insights.turnOutput": "{{tokens}}トークンを出力しました。",
+  "observability.insights.turnRestart":
+    "{{reason}}ため最初からやり直し、再利用する場合より約{{amount}}多くかかりました。",
+  "observability.insights.noCacheCompare":
+    "定価で計算すると、以前のコンテキストを再利用することでこのプロンプトのコストは{{noCache}}から{{estimated}}に下がりました。",
+  "observability.insights.partReused": "再利用したコンテキスト",
+  "observability.insights.partSaved": "キャッシュに保存",
+  "observability.insights.partNew": "新しいコンテキスト",
+  "observability.insights.partOutput": "モデルによる出力",
+  "observability.insights.checksHeading": "自動チェック",
+  "observability.insights.checksNone": "記録はありません。",
+  "observability.insights.checksGraded": "（モデルによる採点）",
+  "observability.insights.checksNote":
+    "フレームワークのチェックは、結果の良し悪しではなく、実行の様子（エラー、ステップ数、速度）を見ています。",
+  "observability.insights.lookedForTools": "ツールを追加で検索",
+  "observability.insights.prevPrompt": "前のプロンプト (K)",
+  "observability.insights.nextPrompt": "次のプロンプト (J)",
+  "observability.insights.toolVerb.add": "{{object}}を追加",
+  "observability.insights.toolVerb.analyze": "{{object}}を分析",
+  "observability.insights.toolVerb.apply": "{{object}}を適用",
+  "observability.insights.toolVerb.capture": "{{object}}を撮影",
+  "observability.insights.toolVerb.check": "{{object}}を確認",
+  "observability.insights.toolVerb.connect": "{{object}}に接続",
+  "observability.insights.toolVerb.create": "{{object}}を作成",
+  "observability.insights.toolVerb.delete": "{{object}}を削除",
+  "observability.insights.toolVerb.duplicate": "{{object}}を複製",
+  "observability.insights.toolVerb.edit": "{{object}}を編集",
+  "observability.insights.toolVerb.export": "{{object}}を書き出し",
+  "observability.insights.toolVerb.fetch": "{{object}}を取得",
+  "observability.insights.toolVerb.find": "{{object}}を検出",
+  "observability.insights.toolVerb.generate": "{{object}}を生成",
+  "observability.insights.toolVerb.index": "{{object}}をインデックス化",
+  "observability.insights.toolVerb.insert": "{{object}}を挿入",
+  "observability.insights.toolVerb.list": "{{object}}を一覧表示",
+  "observability.insights.toolVerb.move": "{{object}}を移動",
+  "observability.insights.toolVerb.navigate": "{{object}}に移動",
+  "observability.insights.toolVerb.open": "{{object}}を開く",
+  "observability.insights.toolVerb.present": "{{object}}を提示",
+  "observability.insights.toolVerb.propose": "{{object}}を提案",
+  "observability.insights.toolVerb.query": "{{object}}を照会",
+  "observability.insights.toolVerb.read": "{{object}}を読み込み",
+  "observability.insights.toolVerb.remove": "{{object}}を削除",
+  "observability.insights.toolVerb.rename": "{{object}}の名前を変更",
+  "observability.insights.toolVerb.reply": "{{object}}に返信",
+  "observability.insights.toolVerb.resolve": "{{object}}を解決",
+  "observability.insights.toolVerb.run": "{{object}}を実行",
+  "observability.insights.toolVerb.save": "{{object}}を保存",
+  "observability.insights.toolVerb.search": "{{object}}を検索",
+  "observability.insights.toolVerb.send": "{{object}}を送信",
+  "observability.insights.toolVerb.set": "{{object}}を設定",
+  "observability.insights.toolVerb.take": "{{object}}を取得",
+  "observability.insights.toolVerb.update": "{{object}}を更新",
+  "observability.insights.toolVerb.upload": "{{object}}をアップロード",
+  "observability.insights.toolVerb.view": "{{object}}を表示",
+  "observability.insights.toolVerb.write": "{{object}}を書き込み",
   "billing.builderCreditLimitTitle": "Builder クレジットを使い切りました",
   "billing.builderCreditLimitEmailBody":
     "接続中の Builder アカウントのクレジットがなくなったため、AI リクエストが停止しました。Builder プランをアップグレードすると続けて利用できます。",
@@ -2732,6 +2890,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "Global A2A Registry を見る",
   "settingsSubAgents.connectTitle": "{{name}} を接続",
   "settingsSubAgents.close": "閉じる",
+  "observability.insights.rawTrace": "生のトレース（すべてのスパンと入出力）",
 };
 
 export default messages;

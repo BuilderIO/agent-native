@@ -173,6 +173,15 @@ const messages = {
     saveReconnect: "Los cambios se guardarán al reconectar",
     saveFailedDescription:
       "Tus cambios más recientes solo están en este dispositivo. Descarga una copia de seguridad antes de salir.",
+    slideConflictReview: "Revisar",
+    slideConflictTitle: "Esta diapositiva cambió en otro lugar",
+    slideConflictDescription:
+      "Otra persona guardó una versión más reciente. Conservar tu borrador reemplazará el contenido guardado de esta diapositiva, o usa la última versión.",
+    slideConflictUseLatest: "Usar la última versión",
+    slideConflictKeepDraft: "Conservar mi borrador",
+    slideConflictKeepEditing: "Seguir editando",
+    slideConflictResolutionFailed:
+      "No se pudo resolver el conflicto. Tu borrador sigue aquí.",
     offline: "Sin conexión",
     selected: "seleccionado",
     chooseDesignSystem: "Elige un sistema de diseño",
@@ -249,6 +258,9 @@ const messages = {
     media: "Multimedia",
     generateImage: "Generar imagen",
     assetLibrary: "Biblioteca de recursos",
+    imageOptions: "Opciones de imagen",
+    cropImage: "Recortar imagen",
+    cropHandle: "Recortar imagen {{position}}",
     diagrams: "Diagramas",
     insertMermaidDiagram: "Insertar diagrama Mermaid",
     insertMermaidFailed: "No se pudo insertar el diagrama",
@@ -1080,7 +1092,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+      providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
   },
 };

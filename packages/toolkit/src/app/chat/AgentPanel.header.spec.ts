@@ -51,7 +51,10 @@ import {
   preloadAgentChatSurface,
 } from "./AgentSidebar.js";
 
-function readSource(path: string, _options?: { encoding: "utf8" }): string {
+function readSource(
+  path: string,
+  _options?: "utf8" | { encoding: "utf8" },
+): string {
   return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 }
 

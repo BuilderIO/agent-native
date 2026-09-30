@@ -36,10 +36,65 @@ vi.mock("../../../design-system/index.js", async (importOriginal) => {
 import { AgentKitClient } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
 
+import { getComposerDraftKey } from "../../../composer/draft-key.js";
 import { AgentKitChat, AgentMessageActions } from "./components.js";
 import { AgentKitProvider } from "./context.js";
 
 describe("AgentKitChat interactions", () => {
+  it("preserves host submission disablement", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-host-disabled" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    const composerRef = createRef<TiptapComposerHandle>();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-host-disabled">
+            <AgentKitChat
+              composerProps={{
+                autoFocus: false,
+                composerRef,
+                modelStatusChecksEnabled: false,
+                submissionDisabled: true,
+              }}
+            />
+          </AgentKitProvider>,
+        );
+      });
+      await act(async () => composerRef.current!.setText("Blocked by host"));
+
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          '[data-agent-composer-slot="send-button"]',
+        )?.disabled,
+      ).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+      await client.shutdown();
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it.each(["default", "compact"] as const)(
     "clears the %s composer before startRun resolves and preserves the next draft",
     async (layoutVariant) => {
@@ -341,6 +396,115 @@ describe("AgentKitChat interactions", () => {
         await Promise.resolve();
       });
       container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
+  it("restores a failed edit in the forked thread draft", async () => {
+    const forkThread = vi.fn(async (input) => ({
+      id: `${input.threadId}-fork`,
+      createdAt: "2026-09-26T00:00:00.000Z",
+      updatedAt: "2026-09-26T00:00:00.000Z",
+    }));
+    const startRun = vi.fn(async () => {
+      throw new Error("Network unavailable");
+    });
+    const transport: AgentTransport = {
+      capabilities: { threadForking: true },
+      forkThread,
+      startRun,
+      async *subscribeToRun() {},
+      async cancelRun() {},
+      async getThreadSnapshot(threadId) {
+        return {
+          id: threadId,
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:00:00.000Z",
+          messages: [
+            {
+              id: "user-edit-failed",
+              role: "user",
+              parts: [{ type: "text", text: "Original prompt" }],
+            },
+          ],
+        };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-edit-failed");
+    const onThreadForked = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const forkDraftKey = getComposerDraftKey(
+      "agentkit:thread-edit-failed-fork",
+    );
+    localStorage.removeItem(forkDraftKey);
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-edit-failed"
+            onThreadForked={onThreadForked}
+          >
+            <AgentKitChat composerProps={{ modelStatusChecksEnabled: false }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('button[aria-label="Edit message"]')
+          ?.click();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-agent-composer-slot="send-button"]',
+          )
+          ?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(onThreadForked).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "thread-edit-failed-fork" }),
+      );
+      expect(localStorage.getItem(forkDraftKey)).toContain("Original prompt");
+
+      await client.loadThread("thread-edit-failed-fork");
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-edit-failed-fork"
+          >
+            <AgentKitChat composerProps={{ modelStatusChecksEnabled: false }} />
+          </AgentKitProvider>,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        container.querySelector('[contenteditable="true"]')?.textContent,
+      ).toBe("Original prompt");
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      localStorage.removeItem(forkDraftKey);
       if (previousActEnvironment === undefined) {
         delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
       } else {
@@ -1045,6 +1209,35 @@ describe("AgentKitChat interactions", () => {
         ),
       ).find((button) => button.textContent?.trim() === "Steer");
       expect(steerButton?.disabled).toBe(false);
+
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-queue">
+            <AgentKitChat composerProps={{ submissionDisabled: true }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      const blockedSteerButton = Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          'section[data-agent-message-queue="true"] button',
+        ),
+      ).find((button) => button.textContent?.trim() === "Steer");
+      expect(blockedSteerButton).toBeUndefined();
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          'section[data-agent-message-queue="true"] button[aria-label="Remove queued message"]',
+        )?.disabled,
+      ).toBe(false);
+
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-queue">
+            <AgentKitChat />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
 
       const moreActions = container.querySelectorAll<HTMLButtonElement>(
         'section[data-agent-message-queue="true"] button[aria-label="More actions"]',

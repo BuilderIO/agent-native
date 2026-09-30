@@ -1,20 +1,16 @@
 // @vitest-environment happy-dom
 
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DateSearchChoice, SearchEmptyOption } from "./ContentCommandSearch";
 import { Command, CommandList } from "./ui/command";
-import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal()),
   useT: () => (key: string) => key,
-}));
-vi.mock("@agent-native/toolkit/app/shared", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useCommandMenuNestedDialog: () => undefined,
 }));
 
 describe("DateSearchChoice in a command dialog", () => {
@@ -27,29 +23,35 @@ describe("DateSearchChoice in a command dialog", () => {
   });
 
   async function renderPicker() {
+    const focusInput = vi.fn(() =>
+      document
+        .querySelector<HTMLInputElement>('[aria-label="Search query"]')
+        ?.focus(),
+    );
     function Harness() {
-      const [dialogOpen, setDialogOpen] = useState(true);
+      const [menuOpen, setMenuOpen] = useState(true);
       return (
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent>
-            <DialogTitle>Search</DialogTitle>
-            <input aria-label="Search query" />
+        <CommandMenu
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          placeholder="Search query"
+          inputLabel="Search query"
+          showAgentFallback={false}
+          renderContent={() => (
             <DateSearchChoice
               label="Modified date"
               triggerLabel="Any date"
               presetValue="all"
               onSelectPreset={vi.fn()}
               onPickDay={vi.fn()}
-              focusInput={() =>
-                document
-                  .querySelector<HTMLInputElement>(
-                    '[aria-label="Search query"]',
-                  )
-                  ?.focus()
-              }
+              focusInput={focusInput}
             />
-          </DialogContent>
-        </Dialog>
+          )}
+        >
+          <CommandMenu.Group heading="Results">
+            <CommandMenu.Item onSelect={vi.fn()}>Document</CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>
       );
     }
 
@@ -63,7 +65,7 @@ describe("DateSearchChoice in a command dialog", () => {
     )!;
     await act(async () => trigger.click());
 
-    return { trigger };
+    return { trigger, focusInput };
   }
 
   it("keeps the calendar in the parent focus scope and labels its dialog", async () => {
@@ -87,7 +89,7 @@ describe("DateSearchChoice in a command dialog", () => {
   });
 
   it("uses the first Escape for the calendar and restores query focus", async () => {
-    await renderPicker();
+    const { focusInput } = await renderPicker();
 
     const calendarDialog = document.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="Modified date"]',
@@ -105,6 +107,7 @@ describe("DateSearchChoice in a command dialog", () => {
     expect(
       document.querySelector('[role="dialog"][aria-label="Modified date"]'),
     ).toBeNull();
+    expect(focusInput).toHaveBeenCalled();
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "Search query",

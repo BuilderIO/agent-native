@@ -164,10 +164,9 @@ export interface BridgedAppPages {
 }
 
 /**
- * Template tabs no core page claims become pages in the app's group, right
- * after its General page, in the order the template passed them. An id that
- * collides with a core page (Mail's inbox `automations`) gets an `app-`
- * prefix so it never shadows the core page.
+ * Agent tabs stay in the Agent group; other unclaimed tabs become app pages
+ * after General. An id that collides with a core page (Mail's inbox
+ * `automations`) gets an `app-` prefix so it never shadows the core page.
  */
 export function deriveBridgedAppPages(
   tabs: readonly SettingsTabItem[],
@@ -181,6 +180,7 @@ export function deriveBridgedAppPages(
   tabs.forEach((tab, index) => {
     if (claimed.has(tab.id) || tab.settingsPlacement === "app-area") return;
     const base = pageIdFromTabId(tab.id);
+    const agentPage = tab.group === "agent";
     let id = taken.has(base) ? `app-${base}` : base;
     for (let suffix = 2; taken.has(id); suffix += 1)
       id = `app-${base}-${suffix}`;
@@ -188,8 +188,8 @@ export function deriveBridgedAppPages(
     pageTabs.set(id, tab);
     pages.push({
       id,
-      group: "app",
-      order: 11 + index / 1000,
+      group: agentPage ? "agent" : "app",
+      order: (agentPage ? 100 : 11) + index / 1000,
       label: tab.label,
       icon: tab.icon ?? IconSettings,
       component,

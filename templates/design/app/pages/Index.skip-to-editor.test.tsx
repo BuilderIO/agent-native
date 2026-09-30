@@ -289,6 +289,19 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@agent-native/toolkit/app/chat/composer/index")
     >()),
+    useAgentKitIntegrationMenu: () => ({
+      id: "integrations",
+      label: "Integrations",
+      intent: "invoke-integration",
+      picker: {
+        scopeKey: "test",
+        searchPlaceholder: "Search integrations",
+        items: [],
+        loading: false,
+        emptyMessage: "No integrations",
+        onSelect: () => {},
+      },
+    }),
     useAgentKitCapabilities: () => ({
       data: { sources: { figma: { available: true } }, integrations: [] },
     }),
@@ -520,7 +533,7 @@ describe("Index skip to editor", () => {
           link.href.endsWith("/settings/keys"),
       ),
     ).toBe(true);
-    expect(mocks.promptProps?.disabled).toBe(true);
+    expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps).toMatchObject({
       showModelSelector: false,
       modelStatusChecksEnabled: false,
@@ -563,7 +576,7 @@ describe("Index skip to editor", () => {
     );
     expect(
       container
-        .querySelector("[data-setup-card]")
+        .querySelector("[data-setup-card][data-bounce-pulse]")
         ?.getAttribute("data-bounce-pulse"),
     ).toBe("1");
 
@@ -586,8 +599,8 @@ describe("Index skip to editor", () => {
     );
     expect(
       container.querySelector('[role="status"][aria-label="common.loading"]'),
-    ).not.toBeNull();
-    expect(mocks.promptProps?.disabled).toBe(true);
+    ).toBeNull();
+    expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps).toMatchObject({
       onBeforeSubmit: expect.any(Function),
     });
@@ -655,12 +668,15 @@ describe("Index skip to editor", () => {
     async ({ state, missing, ready }) => {
       mocks.agentEngine = { state, missing };
       await act(async () => root.render(<Index />));
+      expect(mocks.promptProps?.disabled).not.toBe(true);
       expect(mocks.promptProps).toMatchObject({
-        disabled: !ready,
-        submissionDisabled: !ready,
         showModelSelector: ready,
         modelStatusChecksEnabled: ready,
       });
+      expect(container.textContent).not.toContain(
+        "agentChat.setup.checkingProvider",
+      );
+      expect(container.textContent).not.toContain("Checking AI connection");
       expect(
         Boolean(
           container.querySelector('[aria-label="home.suggestedPrompts"]'),

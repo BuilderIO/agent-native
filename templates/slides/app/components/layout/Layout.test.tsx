@@ -22,12 +22,33 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/agent-chat")
   >()),
+  fetchAgentEngineConfiguredState: async () => "unavailable",
   isAgentChatHomeHandoffActive: vi.fn(() => false),
   navigateWithAgentChatViewTransition: navigateChatMock,
   useAgentChatHomeHandoff: vi.fn(() => false),
   useAgentChatHomeHandoffLinks: vi.fn(),
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: false,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
 }));
-vi.mock("@agent-native/toolkit/app/chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
   AgentSidebar: ({
     children,
     ...props
@@ -46,11 +67,13 @@ vi.mock("@agent-native/toolkit/app/chat", () => ({
   },
   focusAgentChat: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, values?: Record<string, unknown>) =>
     key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));
-vi.mock("@agent-native/toolkit/app/org", () => ({
+vi.mock("@agent-native/toolkit/app/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/org")>()),
   InvitationBanner: () => <div data-testid="invitation-banner" />,
 }));
 vi.mock("@agent-native/creative-context/client", () => ({
@@ -67,6 +90,7 @@ vi.mock("@shared/google-docs", () => ({
 }));
 vi.mock("@tabler/icons-react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tabler/icons-react")>()),
+  IconBulb: () => <span data-testid="bulb-icon" />,
   IconMenu2: () => <span data-testid="menu-icon" />,
 }));
 vi.mock("@/context/DeckContext", () => ({ useDecks: useDecksMock }));

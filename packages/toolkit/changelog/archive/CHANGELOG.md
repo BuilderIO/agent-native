@@ -1,3 +1,21 @@
+## 0.5.1
+
+### Patch Changes
+
+- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
+
+## 0.5.0
+
+### Minor Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+
+## 0.4.10
+
+### Patch Changes
+
+- 7effaba: Ignore malformed collaboration presence payloads and keep recoverable server chat timeout handoffs out of Sentry error issues.
+
 ## 0.4.9
 
 ### Patch Changes

@@ -1130,14 +1130,7 @@ export default function Index() {
                 {t("agentChat.common.retry")}
               </button>
             </div>
-          ) : (
-            <div className="mb-2 flex justify-center">
-              <Spinner
-                aria-label={t("common.loading")}
-                className="size-4 text-muted-foreground"
-              />
-            </div>
-          )
+          ) : null
         }
         composer={
           <div
@@ -1156,8 +1149,6 @@ export default function Index() {
               onOpenChange={() => {}}
               composerComponent={PromptComposer}
               composerRef={composerRef}
-              disabled={!agentEngineConfigured}
-              submissionDisabled={!agentEngineConfigured}
               onBeforeSubmit={ensureAgentEngineConfigured}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}

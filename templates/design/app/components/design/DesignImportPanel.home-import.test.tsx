@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: () => "tab-1",
   useActionMutation: () => ({
     mutate: vi.fn(),
     mutateAsync: vi.fn(),

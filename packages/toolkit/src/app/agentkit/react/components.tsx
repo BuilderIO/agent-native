@@ -2999,6 +2999,7 @@ export interface AgentKitComposerProps extends Omit<
     | "voiceEnabled"
     | "autoFocus"
     | "disabled"
+    | "submissionDisabled"
     | "onDisabledClick"
     | "initialText"
     | "initialTextKey"
@@ -3020,6 +3021,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAgentChange"
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
+    | "requireAgentEngine"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
@@ -3082,6 +3084,7 @@ export function AgentKitComposer({
   onModeChange,
   toolbarSlot,
   disabled,
+  submissionDisabled,
   onDisabledClick,
   placeholder,
   initialText,
@@ -3103,6 +3106,7 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
+  requireAgentEngine,
   attachmentsEnabled,
   onAttachmentRequest,
   contextButtonTooltipDisabled,
@@ -3136,6 +3140,12 @@ export function AgentKitComposer({
   const editContext = useContext(AgentMessageEditContext);
   const editingMessage = editContext?.message ?? null;
   const threadId = requestedThreadId ?? contextThreadId;
+  const submitFailureDraftScopeRef = useRef<string | null>(null);
+  const getSubmitFailureDraftScope = useCallback(() => {
+    const scope = submitFailureDraftScopeRef.current;
+    submitFailureDraftScopeRef.current = null;
+    return scope;
+  }, []);
   const queueCapability = useAgentCapability("messageQueue");
   const suggestionsCapability = useAgentCapability("suggestions");
   const uploadsCapability = useAgentCapability("uploads");
@@ -3264,6 +3274,7 @@ export function AgentKitComposer({
     options: Parameters<PromptComposerProps["onSubmit"]>[3],
     suggestion?: AgentKitSuggestionsRenderProps["suggestions"][number],
   ) => {
+    submitFailureDraftScopeRef.current = null;
     const assertSuggestionCurrent = () => {
       if (
         suggestion &&
@@ -3275,8 +3286,14 @@ export function AgentKitComposer({
         throw new Error(labels.error);
     };
     assertSuggestionCurrent();
+    const onLocalSubmit = () => {
+      options.onLocalSubmit?.();
+    };
     if (!editingMessage && onSubmitOverride) {
-      const submitOptions = suggestion ? { ...options, suggestion } : options;
+      const submitOptions = {
+        ...(suggestion ? { ...options, suggestion } : options),
+        onLocalSubmit,
+      };
       await onSubmitOverride(text, files, references, submitOptions);
       return;
     }
@@ -3335,6 +3352,7 @@ export function AgentKitComposer({
         threadId,
         previousMessage?.id,
       );
+      submitFailureDraftScopeRef.current = `agentkit:${forkedThread.id}`;
       onThreadForked(forkedThread);
       const uploadedAttachments = uploadFiles.length
         ? await controller.uploadFiles(forkedThread.id, uploadFiles)
@@ -3375,8 +3393,9 @@ export function AgentKitComposer({
         attachments: [...payload.attachments],
         options: payload.options,
         metadata: sendMetadata,
-        onLocalSubmit: options.onLocalSubmit,
+        onLocalSubmit,
       });
+      submitFailureDraftScopeRef.current = null;
       editContext?.setMessage(null);
       return;
     }
@@ -3416,10 +3435,13 @@ export function AgentKitComposer({
       attachments: [...payload.attachments],
       options: payload.options,
       metadata: sendMetadata,
-      onLocalSubmit: options.onLocalSubmit,
+      onLocalSubmit,
     };
     if (payload.intent === "queued") {
-      await control.queueMessage(message);
+      await control.queueMessage({
+        ...message,
+        queuedWhileRunActive: activeAtSubmit,
+      });
     } else {
       await control.sendMessage(message);
     }
@@ -3429,27 +3451,29 @@ export function AgentKitComposer({
       onDisabledClick?.();
       return false;
     }
+    if (submissionDisabled) return false;
     if (editingMessage) return true;
     return !onBeforeSubmit || (await onBeforeSubmit());
   };
-  const steerQueued: AgentKitQueueRenderProps["onSteer"] = !disabled
-    ? (item) =>
-        void command
-          .execute(async () => {
-            if (!(await prepareHostSubmit())) return;
-            if (onSubmitOverride) {
-              await submitMessage(item.text, [], [], {
-                intent: "immediate",
-                attachments: item.attachments,
-              });
-              await control.removeQueued(item.id);
-            } else {
-              await control.steerQueued(item.id);
-            }
-          })
-          .catch(() => undefined)
-          .finally(focusComposer)
-    : undefined;
+  const steerQueued: AgentKitQueueRenderProps["onSteer"] =
+    !disabled && !submissionDisabled
+      ? (item) =>
+          void command
+            .execute(async () => {
+              if (!(await prepareHostSubmit())) return;
+              if (onSubmitOverride) {
+                await submitMessage(item.text, [], [], {
+                  intent: "immediate",
+                  attachments: item.attachments,
+                });
+                await control.removeQueued(item.id);
+              } else {
+                await control.steerQueued(item.id);
+              }
+            })
+            .catch(() => undefined)
+            .finally(focusComposer)
+      : undefined;
   const supportsQueueReordering =
     controller.supportsQueuedMessageReordering?.() ?? false;
   const moveQueuedToTop = useAgentKitMutation(
@@ -3591,6 +3615,7 @@ export function AgentKitComposer({
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
         disabled={disabled}
+        submissionDisabled={submissionDisabled || command.pending}
         onDisabledClick={onDisabledClick}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
@@ -3613,6 +3638,7 @@ export function AgentKitComposer({
         onAgentChange={onAgentChange}
         onModelSelectorOpenChange={onModelSelectorOpenChange}
         modelStatusChecksEnabled={modelStatusChecksEnabled}
+        requireAgentEngine={requireAgentEngine}
         layoutVariant={layoutVariant}
         toolbarSlot={composerToolbarSlot}
         initialText={composerInitialText}
@@ -3620,6 +3646,7 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         onBeforeSubmit={onBeforeSubmit}
+        getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         onAttachmentError={reportAttachmentError}
         interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
         planModeDisabled={planModeDisabled}

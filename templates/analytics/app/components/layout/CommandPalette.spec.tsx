@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
+  useOrg: () => ({ data: undefined, isLoading: false }),
   useOrgRole: () => ({
     canManageOrg: false,
     isOwner: false,

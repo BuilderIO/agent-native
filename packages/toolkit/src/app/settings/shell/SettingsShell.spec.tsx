@@ -27,21 +27,6 @@ vi.mock("@agent-native/core/client/labs/use-lab", () => ({
 vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlags: () => ({}),
 }));
-vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  const english = (await import("../../i18n/catalogs/en-US.js"))
-    .default as Record<string, string>;
-  const translate = (key: string, options?: Record<string, unknown>) => {
-    let value =
-      english[key.replace(/^agentChat\./, "")] ??
-      (typeof options?.defaultValue === "string" ? options.defaultValue : key);
-    for (const [name, replacement] of Object.entries(options ?? {})) {
-      value = value.replaceAll(`{{${name}}}`, String(replacement));
-    }
-    return value;
-  };
-  return { ...actual, useT: () => translate };
-});
 vi.mock("../../chat/AgentSidebar.js", () => ({
   AgentToggleButton: () => <button type="button">agent</button>,
 }));
@@ -59,6 +44,9 @@ vi.mock(
   }),
 );
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+
+import { createToolkitI18nCatalog } from "../../i18n.js";
 import { useSettingsPageHeader, useSettingsShell } from "./context.js";
 import { CORE_SETTINGS_PAGES } from "./core-pages.js";
 import {
@@ -71,6 +59,19 @@ import {
   rememberSettingsReturnPath,
 } from "./return-path.js";
 import { SettingsShell, type SettingsShellProps } from "./SettingsShell.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+
+function renderWithToolkitI18n(children: React.ReactNode) {
+  return (
+    <AgentNativeI18nProvider
+      catalog={toolkitI18nCatalog}
+      persistPreference={false}
+    >
+      {children}
+    </AgentNativeI18nProvider>
+  );
+}
 
 function StubPage({ pageId, sub }: SettingsPageProps) {
   return (
@@ -132,7 +133,9 @@ describe("SettingsShell", () => {
 
   async function render(props: SettingsShellProps = {}) {
     await act(async () => {
-      root.render(<SettingsShell appName="Clips" {...props} />);
+      root.render(
+        renderWithToolkitI18n(<SettingsShell appName="Clips" {...props} />),
+      );
     });
     await flush();
   }
@@ -146,10 +149,7 @@ describe("SettingsShell", () => {
       ...rail().querySelectorAll<HTMLElement>("[data-settings-group]"),
     ].map((group) => ({
       id: group.dataset.settingsGroup,
-      label:
-        group.dataset.settingsGroup === "footer"
-          ? null
-          : group.firstElementChild?.textContent,
+      label: group.firstElementChild?.textContent,
       pages: [
         ...group.querySelectorAll<HTMLElement>("[data-settings-page]"),
       ].map((item) => item.dataset.settingsPage),
@@ -168,7 +168,7 @@ describe("SettingsShell", () => {
     });
   }
 
-  it("renders the five groups in spec order, named after the app", async () => {
+  it("renders the five groups in spec order with Labs in the app group", async () => {
     await render();
     expect(groupLabels()).toEqual([
       {
@@ -179,7 +179,7 @@ describe("SettingsShell", () => {
       {
         id: "app",
         label: "Clips",
-        pages: ["app", "automations", "channels", "mcp"],
+        pages: ["app", "automations", "channels", "mcp", "labs"],
       },
       {
         id: "connections",
@@ -204,7 +204,6 @@ describe("SettingsShell", () => {
         label: "Organization",
         pages: ["org", "members", "usage"],
       },
-      { id: "footer", label: null, pages: ["labs"] },
     ]);
     expect(container.textContent).toContain("Back to Clips");
   });
@@ -220,10 +219,10 @@ describe("SettingsShell", () => {
       "automations",
       "channels",
       "mcp",
+      "labs",
+      "whats-new",
     ]);
-    expect(groupLabels().find((group) => group.id === "footer")?.pages).toEqual(
-      ["labs", "whats-new"],
-    );
+    expect(rail().querySelector('[data-settings-group="footer"]')).toBeNull();
   });
 
   it("shows owners and admins the four extra Organization pages", async () => {
@@ -317,7 +316,7 @@ describe("SettingsShell", () => {
       },
     );
     await act(async () => {
-      root.render(<RouterProvider router={router} />);
+      root.render(renderWithToolkitI18n(<RouterProvider router={router} />));
     });
     await waitFor(() => location === "/settings/api-keys");
     expect(container.querySelector('[data-testid="page"]')?.textContent).toBe(
@@ -372,7 +371,7 @@ describe("SettingsShell", () => {
         { initialEntries: [`/settings?section=${section}`] },
       );
       await act(async () => {
-        root.render(<RouterProvider router={router} />);
+        root.render(renderWithToolkitI18n(<RouterProvider router={router} />));
       });
       await waitFor(
         () =>
@@ -518,7 +517,7 @@ describe("SettingsShell", () => {
         labs: [{ key: "clips.meetings", displayName: "Meetings lab" }],
       });
       expect(search("recordings")[0]).toBe("RecordingsClips › General");
-      expect(search("meetings lab")[0]).toBe("Meetings labLabs");
+      expect(search("meetings lab")[0]).toBe("Meetings labClips › Labs");
       search("playback speed");
       press("Enter");
       await flush();
@@ -556,10 +555,34 @@ describe("SettingsShell", () => {
       "automations",
       "channels",
       "mcp",
+      "labs",
     ]);
     clickPage("drafting");
     await waitFor(() =>
       Boolean(container.textContent?.includes("Drafting body")),
+    );
+  });
+
+  it("keeps Observability under Agent and opens its page", async () => {
+    await render({
+      extraTabs: [
+        {
+          id: "observability",
+          label: "Agent Observability",
+          group: "agent",
+          content: <p>Human review body</p>,
+        },
+      ],
+    });
+
+    expect(
+      groupLabels()
+        .find((group) => group.id === "agent")
+        ?.pages.at(-1),
+    ).toBe("observability");
+    clickPage("observability");
+    await waitFor(() =>
+      Boolean(container.textContent?.includes("Human review body")),
     );
   });
 
@@ -589,12 +612,14 @@ describe("SettingsShell", () => {
 
     await act(async () => {
       root.render(
-        <SettingsShell
-          appName="Clips"
-          extraTabs={tabs}
-          value="drafting"
-          onValueChange={onValueChange}
-        />,
+        renderWithToolkitI18n(
+          <SettingsShell
+            appName="Clips"
+            extraTabs={tabs}
+            value="drafting"
+            onValueChange={onValueChange}
+          />,
+        ),
       );
     });
     await flush();
@@ -691,7 +716,7 @@ describe("SettingsShell", () => {
       { initialEntries: ["/settings"] },
     );
     await act(async () => {
-      root.render(<RouterProvider router={router} />);
+      root.render(renderWithToolkitI18n(<RouterProvider router={router} />));
     });
     await flush();
     clickPage("model");
@@ -730,7 +755,7 @@ describe("SettingsShell", () => {
       { initialEntries: ["/settings/infra"] },
     );
     await act(async () => {
-      root.render(<RouterProvider router={router} />);
+      root.render(renderWithToolkitI18n(<RouterProvider router={router} />));
     });
     await waitFor(() => location === "/settings/profile", 400);
     clickPage("org");

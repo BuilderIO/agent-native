@@ -6,6 +6,10 @@
 
 - Settings pages now share the account layout, with dated updates that load in batches.
 
+### Fixed
+
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
 ## 2026-09-28
 
 ### Improved

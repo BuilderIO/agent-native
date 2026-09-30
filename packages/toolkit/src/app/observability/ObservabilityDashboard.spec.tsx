@@ -24,6 +24,46 @@ const TRACE = {
   createdAt: Date.now(),
 };
 
+const RUN = {
+  runId: TRACE.runId,
+  threadId: TRACE.threadId,
+  createdAt: TRACE.createdAt,
+  ownerEmail: "owner@example.com",
+  label: "chat",
+  model: TRACE.model,
+  prompt: "Say hello",
+  status: "success",
+  tokens: {
+    inputTokens: 8,
+    outputTokens: 4,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  },
+  cost: {
+    cacheReadCents: 0,
+    cacheWriteCents: 0,
+    uncachedInputCents: 0.05,
+    outputCents: 0.05,
+    totalCents: 0.1,
+    estimatedCents: 0.1,
+    noCacheCents: 0.1,
+  },
+  modelCalls: 1,
+  tools: [{ name: "search-docs", calls: 1, failed: 0, error: null }],
+  restarts: {
+    count: 0,
+    cents: 0,
+    byCause: {
+      "tool-lookup": { count: 0, cents: 0 },
+      "prefix-changed": { count: 0, cents: 0 },
+    },
+  },
+  parallel: { calls: 0, savedMs: 0 },
+  recoveredErrors: 0,
+  durationMs: TRACE.totalDurationMs,
+  feedback: null,
+};
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -42,6 +82,21 @@ beforeEach(() => {
     (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url.includes("/_agent-native/actions/get-usage-insights")) {
+        return Promise.resolve(
+          jsonResponse({
+            sinceDays: 7,
+            current: { runs: 1, tokens: RUN.tokens, cost: RUN.cost },
+            previous: { runs: 0, tokens: RUN.tokens, cost: RUN.cost },
+            runs: [RUN],
+          }),
+        );
+      }
+      if (url.includes("/_agent-native/actions/get-usage-run")) {
+        return Promise.resolve(
+          jsonResponse({ ...RUN, reply: "hello", turns: [], scores: [] }),
+        );
+      }
       if (url.includes("/traces/run-promote-1/promote") && method === "POST") {
         return Promise.resolve(
           jsonResponse({
@@ -119,6 +174,12 @@ afterEach(() => {
   queryClient.clear();
 });
 
+function bodyButton(text: string) {
+  return Array.from(document.body.querySelectorAll("button")).find((button) =>
+    button.textContent?.startsWith(text),
+  );
+}
+
 function renderDashboard() {
   act(() => {
     root.render(
@@ -147,41 +208,44 @@ describe("ObservabilityDashboard promote control", () => {
       (button) => button.textContent?.includes("Conversations"),
     );
     expect(conversations).toBeTruthy();
-    act(() => conversations!.click());
+    act(() =>
+      conversations!.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+      ),
+    );
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("run-prom");
+      expect(container.textContent).toContain("Say hello");
     });
 
-    const row = container.querySelector("tbody tr") as HTMLTableRowElement;
-    expect(row).toBeTruthy();
-    act(() => row.click());
+    const promptRow = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.startsWith("Say hello"),
+    );
+    act(() => promptRow!.click());
 
     await vi.waitFor(() => {
-      const promote = Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "Promote to eval",
-      );
+      expect(bodyButton("Raw trace")).toBeTruthy();
+    });
+    act(() => bodyButton("Raw trace")!.click());
+
+    await vi.waitFor(() => {
+      const promote = bodyButton("Promote to eval");
       expect(promote).toBeTruthy();
       expect(promote?.disabled).toBe(false);
     });
 
-    const promote = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Promote to eval",
+    const promote = bodyButton("Promote to eval");
+    const mustContain = document.body.querySelector<HTMLInputElement>(
+      'input[aria-label="Text to check for in the promoted eval reply"]',
     );
-    expect(promote).toBeTruthy();
-    expect(
-      container.querySelector<HTMLInputElement>("input")?.placeholder,
-    ).toBe("Optional text to check for in the reply…");
-    expect(
-      container
-        .querySelector<HTMLInputElement>("input")
-        ?.getAttribute("aria-label"),
-    ).toBe("Text to check for in the promoted eval reply");
+    expect(mustContain?.placeholder).toBe(
+      "Optional text to check for in the reply…",
+    );
     act(() => promote!.click());
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Eval dataset ds-99");
-      expect(container.textContent).toContain(
+      expect(document.body.textContent).toContain("Eval dataset ds-99");
+      expect(document.body.textContent).toContain(
         "agent-native eval promote run-promote-1 --write evals/from-trace.eval.ts",
       );
     });

@@ -12,7 +12,10 @@ const clientMocks = vi.hoisted(() => ({
   readClientAppState: vi.fn(async () => null as Record<string, unknown> | null),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   useAgentChatContext: () => ({
     items: clientMocks.contextItems,
     remove: clientMocks.remove,
@@ -45,7 +48,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: clientMocks.callAction,
 }));
 

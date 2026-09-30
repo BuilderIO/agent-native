@@ -3026,7 +3026,10 @@ async function assertAgentKitChatAcceptance(
   });
   provider.releaseIncompleteStream?.();
   provider.releaseIncompleteStream = null;
-  await page.locator(".agentkit-run-failure").waitFor({ state: "visible" });
+  await page
+    .locator(".agentkit-run-failure")
+    .last()
+    .waitFor({ state: "visible" });
   network.allowExpectedIncompleteStreamFailure = false;
   await approval.waitFor({ state: "detached" });
   await queue

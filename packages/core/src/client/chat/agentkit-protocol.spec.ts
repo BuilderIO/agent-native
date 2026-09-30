@@ -136,6 +136,57 @@ function createRuntime(
 }
 
 describe("createAgentKitProtocolAdapter", () => {
+  it("maps runtime suggestion IDs to the protocol run ID", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "suggestions",
+        suggestions: [
+          {
+            id: "suggestion-1",
+            label: "Continue",
+            prompt: "Continue the task",
+            runId: "runtime-run-1",
+          },
+        ],
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(events, {
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => ({
+              id: "turn-1",
+              runId: "protocol-run-1",
+              sessionId: "thread-1",
+              events: events(),
+            }),
+          };
+        },
+      }),
+    );
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Start")],
+    });
+    const received = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: "protocol-run-1",
+      }),
+    );
+
+    expect(
+      received.find((event) => event.type === "suggestions.updated"),
+    ).toMatchObject({
+      runId: "protocol-run-1",
+      suggestions: [{ id: "suggestion-1", runId: "protocol-run-1" }],
+    });
+  });
+
   it("forwards retry attachments as hidden internal continuations", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };

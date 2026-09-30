@@ -1,5 +1,37 @@
 # @agent-native/agentkit
 
+## 0.198.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.1
+
+### Patch Changes
+
+- 0b127e9: Clear chat input immediately on submit and show the pending response status in the transcript.
+- Release all public npm packages with a patch version bump.
+
+## 0.198.0
+
+### Minor Changes
+
+- afbee14: Move runtime-backed React surfaces and generated source corpus out of Core's default package path, and move AgentKit's React entrypoints to Toolkit in a breaking AgentKit release. Follow the [Core 0.198.0 upgrade guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx) when updating an existing app or consuming AgentKit directly.
+
+### Patch Changes
+
+- 8853f61: Keep reasoning inside collapsed work history, align disclosure chevrons with their labels, and tighten progress spacing. Show elapsed time once on the work summary instead of repeating the full run duration on each thought.
+- 8853f61: Render model-authored follow-up suggestions only for the latest successfully completed turn, retire stale suggestions across new turns and restores, and submit full suggestion prompts through normal context and permission checks. Keep initial empty-state starters separate from conversational follow-ups.
+
+  Pass the active thread ID to fullscreen callbacks instead of a menu selection event.
+
+- 8853f61: Clear shared chat composers when AgentKit owns the recoverable user message instead of waiting for the agent request to start. Preserve newer drafts, explicit send failures, and queued-message acknowledgement timing without sending local callbacks to transports or persisted submissions.
+- 8853f61: Show catalog integration badges throughout live and expanded agent activity, retaining provider identity while tools run and keeping activity from different providers in separate groups.
+- Release all public npm packages with a patch version bump.
+- 8853f61: Collapse run activity by default, keep the latest active step visible, and group expanded history by purpose.
+- 8853f61: Preserve completed runs when history refresh or stream closure fails, honor resolved approvals during hydration, keep connection continuations responsive, and expose tool, approval, and cancellation failures. Reject retained attachments if standalone upload access is withdrawn instead of silently dropping files. Reset chat disclosures across threads, preserve host composer gates, recognize streamed provider arguments, and contain long transcript content. Integrate thread- and account-scoped app composer context with exact revalidation, active-surface checks, and accepted-only cleanup while preserving ambient context, composer mode instructions, and full menu defaults.
+
 ## 0.5.1
 
 ### Patch Changes

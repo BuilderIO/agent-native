@@ -133,8 +133,45 @@ describe("SlideEditor render-phase safety", () => {
     expect(
       serializeBody.slice(serializeBody.lastIndexOf("if (", domAt), domAt),
     ).toContain('hasAttribute("data-slide-autofit-root")');
+    const markdownBranchStart = serializeBody.indexOf(
+      'if (slideContent.hasAttribute("data-slide-autofit-root"))',
+    );
+    const markdownBranchEnd = serializeBody.indexOf(
+      "return stripBuilderIds(clone.innerHTML)",
+      markdownBranchStart,
+    );
+    expect(
+      serializeBody.slice(markdownBranchStart, markdownBranchEnd),
+    ).toContain("prepareSerializationRoot(clone)");
     expect(serializeBody).toContain("return null;");
     expect(source).toContain("stampSource\n");
+  });
+
+  it("restores crop preview styles before saving the committed crop", () => {
+    const finishStart = source.indexOf("const finishImageCrop = useCallback");
+    const finishEnd = source.indexOf("const onCropKeyDown", finishStart);
+    const finishBody = source.slice(finishStart, finishEnd);
+
+    expect(finishBody.indexOf("crop.restorePreviewStyles();")).toBeLessThan(
+      finishBody.indexOf("writeImageCropPercentGeometry"),
+    );
+    expect(finishBody.indexOf("const cropChanged =")).toBeLessThan(
+      finishBody.indexOf("crop.restorePreviewStyles();"),
+    );
+    expect(finishBody.indexOf("crop.restorePreviewStyles();")).toBeLessThan(
+      finishBody.indexOf("readCurrentSlideContentHtmlRef.current()"),
+    );
+  });
+
+  it("keeps crop handles outside the original image mask visible", () => {
+    const previewStart = source.indexOf("const previewStyles = (");
+    const previewEnd = source.indexOf("const activeCrop:", previewStart);
+    const previewSetup = source.slice(previewStart, previewEnd);
+
+    expect(previewSetup).toContain('[frame, "clip-path"]');
+    expect(previewSetup).toContain('[frame, "border-radius"]');
+    expect(previewSetup).toContain('frame.style.clipPath = "none";');
+    expect(previewSetup).toContain('frame.style.borderRadius = "0";');
   });
 
   it("writes nothing for a click in and out", () => {
@@ -284,8 +321,9 @@ describe("SlideEditor render-phase safety", () => {
       'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
+    expect(doubleClickBody).toContain("showImageOverlay(imagePlaceholder);");
     expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
       doubleClickBody.indexOf("const imageTarget"),
     );
@@ -308,7 +346,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(helperBody).toContain("return underlying ?? target;");
   });
 
-  it("preserves wrapped images for double-click overlays", () => {
+  it("enters crop mode for wrapped images on double-click", () => {
     const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
     const doubleClickEnd = source.indexOf(
       "const slideElementSelected =",
@@ -323,7 +361,7 @@ describe("SlideEditor render-phase safety", () => {
       'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
   });
 

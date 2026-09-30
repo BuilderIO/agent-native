@@ -470,7 +470,7 @@ const RETENTION_OVER_TIME_SQL = `WITH ${RETENTION_DATE_SPINE_CTES}, base AS (
   SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id
   FROM analytics_events
   CROSS JOIN date_spine_bounds
-  WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}
+  WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER}
     AND date_spine_bounds.start_date <= date_spine_bounds.end_date
     AND (
       ('{{timeRange}}' = 'custom' AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD'))
@@ -482,7 +482,7 @@ const RETENTION_OVER_TIME_SQL = `WITH ${RETENTION_DATE_SPINE_CTES}, base AS (
   FROM analytics_events
   CROSS JOIN date_spine_bounds
   WHERE '{{timeRange}}' = 'custom'
-    AND ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}
+    AND ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER}
     AND date_spine_bounds.start_date <= date_spine_bounds.end_date
     AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '${OBSERVED_ACTIVITY_LOOKBACK_DAYS + RETENTION_ROLLING_DAYS - 1} days')::date, 'YYYY-MM-DD')
     AND event_date < to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD')

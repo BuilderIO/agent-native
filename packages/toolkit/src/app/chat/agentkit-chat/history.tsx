@@ -124,6 +124,18 @@ export interface AgentKitHistoryContextValue {
   restoreVersion: (version: AgentKitHistoryVersion) => Promise<void>;
 }
 
+export function updateAgentKitSubmissionCounts(
+  counts: ReadonlyMap<string, number>,
+  threadId: string,
+  change: number,
+): Map<string, number> {
+  const next = new Map(counts);
+  const count = Math.max(0, (next.get(threadId) ?? 0) + change);
+  if (count === 0) next.delete(threadId);
+  else next.set(threadId, count);
+  return next;
+}
+
 export interface AgentKitDevCheckpointContextValue {
   apiUrl: string;
   isDevMode: boolean;
@@ -690,6 +702,9 @@ export function AgentKitHistoryProvider<
   const restoreWaitersRef = useRef(new Set<() => void>());
   const submissionsInFlightRef = useRef(0);
   const [submissionsInFlight, setSubmissionsInFlight] = useState(0);
+  const [submissionCountsByThread, setSubmissionCountsByThread] = useState(
+    () => new Map<string, number>(),
+  );
   const observedRunsRef = useRef(new Set<string>());
   const processedRunsRef = useRef(new Set<string>());
   const seenEventIdsRef = useRef(new Set<string>());
@@ -725,10 +740,14 @@ export function AgentKitHistoryProvider<
     return runAgentKitHistoryBeforeStart(history.beforeStart);
   }, [history.beforeStart, waitForRestore]);
   const beginSubmission = useCallback(async () => {
+    const submissionThreadId = threadId;
     await waitForRestore();
     if (restoreInFlightRef.current) return null;
     submissionsInFlightRef.current += 1;
     setSubmissionsInFlight(submissionsInFlightRef.current);
+    setSubmissionCountsByThread((counts) =>
+      updateAgentKitSubmissionCounts(counts, submissionThreadId, 1),
+    );
     let released = false;
     const release = () => {
       if (released) return;
@@ -738,6 +757,9 @@ export function AgentKitHistoryProvider<
         submissionsInFlightRef.current - 1,
       );
       setSubmissionsInFlight(submissionsInFlightRef.current);
+      setSubmissionCountsByThread((counts) =>
+        updateAgentKitSubmissionCounts(counts, submissionThreadId, -1),
+      );
     };
     try {
       await history.beforeStart?.();
@@ -746,7 +768,7 @@ export function AgentKitHistoryProvider<
       release();
       throw error;
     }
-  }, [history.beforeStart, waitForRestore]);
+  }, [history.beforeStart, threadId, waitForRestore]);
 
   const restoreVersion = useCallback(
     async (version: AssistantChatHistoryVersion) => {
@@ -901,7 +923,7 @@ export function AgentKitHistoryProvider<
         isRestoring ||
         submissionsInFlight > 0,
       isRestoring,
-      isSubmissionInFlight: submissionsInFlight > 0,
+      isSubmissionInFlight: (submissionCountsByThread.get(threadId) ?? 0) > 0,
       beforeStart,
       beginSubmission,
       waitForRestore,
@@ -918,6 +940,7 @@ export function AgentKitHistoryProvider<
       isRestoring,
       restoreVersion,
       submissionsInFlight,
+      submissionCountsByThread,
       thread.activeRunIds.length,
       threadId,
       toHistoryMessage,

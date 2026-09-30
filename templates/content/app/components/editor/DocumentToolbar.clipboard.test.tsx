@@ -40,7 +40,10 @@ vi.mock("sonner", async (importOriginal) => ({
     success: mocks.success,
   },
 }));
-vi.mock("@agent-native/toolkit/app/sharing", () => ({
+vi.mock("@agent-native/toolkit/app/sharing", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/sharing")
+  >()),
   ShareButton: ({
     quickCopy,
     agentTabContent,

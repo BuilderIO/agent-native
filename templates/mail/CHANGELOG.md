@@ -7,11 +7,16 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Pin the Mail sidebar to keep folder navigation visible.
+- Mail triage settings separate status-fetch errors from rule failures and offer safe retries.
 - Mail loading screens match the current inbox layout.
 - Mail shows the first messages sooner and keeps them visible while background sync finishes.
 
 ### Fixed
 
+- Failed Mail rule runs now show their status once and keep Undo available after an interrupted update.
+- The open chat panel is separated from your inbox by a visible divider.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 - Existing compose drafts keep their attachments when revised
 - Scheduled email changes refresh the inbox and schedule list
 
@@ -146,6 +151,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Security
 
+- Mail session replays mask email text in the mailbox while keeping agent requests and replies readable, including email quotes
 - Mail automations no longer fall back to shared deployment LLM keys; connect a provider in Settings to enable them.
 
 ## 2026-09-23

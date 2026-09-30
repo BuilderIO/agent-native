@@ -1043,7 +1043,7 @@ const localFilesMessages = {
 const enUS = {
   close: "Close",
   setup: {
-    checkingProvider: "Checking AI connection…",
+    providerStatusUnavailable: "Couldn't confirm AI is ready.",
   },
   onboarding: {
     fileStorage: {

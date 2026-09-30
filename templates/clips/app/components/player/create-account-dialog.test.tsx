@@ -57,26 +57,29 @@ afterEach(() => {
 });
 
 describe("create account dialog", () => {
-  it("keeps the viewer continuation while requesting the focused signup mode", () => {
-    const url = new URL(
-      buildCreateAccountHref("/share/clip-1?at=90"),
-      "https://clips.example.test",
-    );
-    expect(url.pathname).toBe("/sign-in");
-    const continuation = url.searchParams.get("c");
-    expect(continuation).not.toBeNull();
-    expect(
-      decodeURIComponent(
-        atob(continuation!.replace(/-/g, "+").replace(/_/g, "/")),
-      ),
-    ).toBe("/share/clip-1?at=90");
-    url.searchParams.delete("c");
-    expect(Object.fromEntries(url.searchParams)).toEqual({
-      tab: "signup",
-      initialPrompt: "1",
-      embedded: "1",
-    });
-  });
+  it.each(["/share/clip-1?at=90", "/share/clip-1?at=1%3A30&ref=clip_share"])(
+    "keeps the viewer continuation %s while requesting the focused signup mode",
+    (returnTo) => {
+      const url = new URL(
+        buildCreateAccountHref(returnTo),
+        "https://clips.example.test",
+      );
+      expect(url.pathname).toBe("/sign-in");
+      const continuation = url.searchParams.get("c");
+      expect(continuation).not.toBeNull();
+      expect(
+        decodeURIComponent(
+          atob(continuation!.replace(/-/g, "+").replace(/_/g, "/")),
+        ),
+      ).toBe(returnTo);
+      url.searchParams.delete("c");
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        tab: "signup",
+        initialPrompt: "1",
+        embedded: "1",
+      });
+    },
+  );
 
   it("composes the shared auth pattern inside the modal", () => {
     const source = readFileSync(

@@ -858,9 +858,8 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "KI verbinden, um den Chat zu starten...",
   "setup.connectToChat": "KI für den Chat verbinden",
   "setup.connectToStart": "KI verbinden, um den Chat zu starten",
-  "setup.checkingProvider": "KI-Verbindung wird geprüft…",
   "setup.providerStatusUnavailable":
-    "KI-Verbindung konnte nicht geprüft werden.",
+    "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
   "agentNativeClips.meetingAsk.placeholder": "Frag einfach etwas",
   "agentNativeClips.meetingAsk.ariaLabel":
     "Stelle eine Frage zu diesem Meeting",
@@ -1414,6 +1413,202 @@ const messages: ToolkitAgentChatTranslation = {
   "usage.providerSpendToday":
     "Sonstige oder nicht zugeordnete Nutzung heute: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder-Credits / USD",
+  "observability.insights.verdictSmooth": "Läuft reibungslos",
+  "observability.insights.verdictLook_one":
+    "{{count}} Punkt, der einen Blick wert ist",
+  "observability.insights.verdictLook_other":
+    "{{count}} Punkte, die einen Blick wert sind",
+  "observability.insights.verdictProblems_one": "{{count}} Problem",
+  "observability.insights.verdictProblems_other": "{{count}} Probleme",
+  "observability.insights.spentSummary_one":
+    "{{amount}} ausgegeben für {{count}} Prompt in den letzten {{days}} Tagen.",
+  "observability.insights.spentSummary_other":
+    "{{amount}} ausgegeben für {{count}} Prompts in den letzten {{days}} Tagen.",
+  "observability.insights.handledLabel": "Erledigt von Agent-Native:",
+  "observability.insights.handledHeading": "Erledigt von Agent-Native",
+  "observability.insights.handledParallel":
+    "Hat {{count}} Tool-Aufrufe gleichzeitig ausgeführt, etwa {{duration}} schneller als einzeln nacheinander.",
+  "observability.insights.handledRecovered_one":
+    "Hat sich von {{count}} Tool-Fehler erholt, ohne anzuhalten.",
+  "observability.insights.handledRecovered_other":
+    "Hat sich von {{count}} Tool-Fehlern erholt, ohne anzuhalten.",
+  "observability.insights.avgPerPrompt": "Durchschnitt pro Prompt",
+  "observability.insights.completed": "Abgeschlossen",
+  "observability.insights.completedDetail":
+    "{{done}} von den letzten {{total}}",
+  "observability.insights.completedRecovered_one":
+    "{{done}} von den letzten {{total}}, nach Erholung von {{count}} Tool-Fehler",
+  "observability.insights.completedRecovered_other":
+    "{{done}} von den letzten {{total}}, nach Erholung von {{count}} Tool-Fehlern",
+  "observability.insights.typicalTime": "Typische Dauer",
+  "observability.insights.median": "Median",
+  "observability.insights.sampleNote":
+    "Abschlussrate, typische Dauer, was Agent-Native übernommen hat, und die Hinweise beruhen auf den letzten {{shown}} von {{total}} Prompts.",
+  "observability.insights.changeSame":
+    "unverändert gegenüber dem vorherigen Zeitraum",
+  "observability.insights.changeUp":
+    "↑ {{percent}} % gegenüber dem vorherigen Zeitraum",
+  "observability.insights.changeDown":
+    "↓ {{percent}} % gegenüber dem vorherigen Zeitraum",
+  "observability.insights.kindProblem": "Problem",
+  "observability.insights.kindSaving": "Einsparpotenzial",
+  "observability.insights.kindInfo": "Gut zu wissen",
+  "observability.insights.fixLabel": "Lösung:",
+  "observability.insights.openPrompt": "Prompt öffnen",
+  "observability.insights.seePrompts_one": "{{count}} Prompt ansehen",
+  "observability.insights.seePrompts_other": "{{count}} Prompts ansehen",
+  "observability.insights.erroredTitle_one":
+    "{{count}} Prompt endete mit einem Fehler",
+  "observability.insights.erroredTitle_other":
+    "{{count}} Prompts endeten mit einem Fehler",
+  "observability.insights.erroredBody":
+    "Der Agent hat gestoppt, bevor er fertig war.",
+  "observability.insights.erroredFix":
+    "Öffne einen Prompt, um zu sehen, was er zuletzt getan hat, bevor er gestoppt hat.",
+  "observability.insights.toolFailedTitle_one":
+    "Das Tool {{tool}} ist in {{count}} Prompt fehlgeschlagen",
+  "observability.insights.toolFailedTitle_other":
+    "Das Tool {{tool}} ist in {{count}} Prompts fehlgeschlagen",
+  "observability.insights.toolFailedSaid": "Es meldete: „{{error}}“",
+  "observability.insights.toolFailedGeneric":
+    "Das Tool hat einen Fehler gemeldet.",
+  "observability.insights.toolRecoveredAll":
+    "Der Agent hat sich jedes Mal erholt und die Aufgabe abgeschlossen.",
+  "observability.insights.toolRecoveredSome":
+    "Der Agent hat sich in {{count}} davon erholt und abgeschlossen.",
+  "observability.insights.restartTitle":
+    "Der Neustart hat etwa {{amount}} gekostet ({{percent}} % der Ausgaben)",
+  "observability.insights.restartBody":
+    "Bei {{count}} von {{total}} aktuellen Prompts hat der Agent nach {{reason}} die gesamte Konversation erneut gesendet, statt das bereits Gesendete wiederzuverwenden.",
+  "observability.insights.reasonToolLookup": "dem Abrufen neuer Tools",
+  "observability.insights.reasonPrefixChanged":
+    "einer Änderung am Anfang seiner Anweisungen",
+  "observability.insights.fixToolLookup":
+    "Lade die von dieser App verwendeten Tools vorab mit initialToolNames, damit die Tool-Liste während des gesamten Prompts gleich bleibt.",
+  "observability.insights.fixPrefixChanged":
+    "Halte sich ändernde Inhalte wie Zeitstempel oder Status pro Schritt aus dem System-Prompt heraus.",
+  "observability.insights.priciestTitle":
+    "Ein Prompt hat {{percent}} % der letzten Ausgaben verursacht",
+  "observability.insights.priciestBody_one":
+    "„{{prompt}}“ hat {{amount}} über {{count}} Schritt gekostet.",
+  "observability.insights.priciestBody_other":
+    "„{{prompt}}“ hat {{amount}} über {{count}} Schritte gekostet.",
+  "observability.insights.untitledPrompt": "Unbenannter Prompt",
+  "observability.insights.promptsHeading": "Prompts",
+  "observability.insights.showing": "Zeigt {{count}}",
+  "observability.insights.sortNewest": "Neueste",
+  "observability.insights.sortCost": "Teuerste",
+  "observability.insights.emptyPrompts":
+    "Noch keine Prompts in diesem Zeitraum. Sie erscheinen hier ein paar Sekunden nach Abschluss.",
+  "observability.insights.promptNotSaved":
+    "Prompt-Text wurde nicht gespeichert",
+  "observability.insights.ratedHelpful": "Als hilfreich bewertet",
+  "observability.insights.ratedUnhelpful": "Als nicht hilfreich bewertet",
+  "observability.insights.notRated": "Nicht bewertet",
+  "observability.insights.stoppedWithError": "Mit einem Fehler gestoppt",
+  "observability.insights.detailsUnavailable":
+    "Schrittdetails sind nicht mehr verfügbar",
+  "observability.insights.answered": "Beantwortet",
+  "observability.insights.finished": "Abgeschlossen",
+  "observability.insights.startedOverShort": "{{count}}× neu gestartet",
+  "observability.insights.recoveredShort_one":
+    "von {{count}} Tool-Fehler erholt",
+  "observability.insights.recoveredShort_other":
+    "von {{count}} Tool-Fehlern erholt",
+  "observability.insights.toolsFailedShort_one":
+    "{{count}} Tool fehlgeschlagen",
+  "observability.insights.toolsFailedShort_other":
+    "{{count}} Tools fehlgeschlagen",
+  "observability.insights.headerDuration": "in {{duration}}",
+  "observability.insights.stepsCount_one": "{{count}} Schritt",
+  "observability.insights.stepsCount_other": "{{count}} Schritte",
+  "observability.insights.whatItDid": "Was er getan hat:",
+  "observability.insights.replyNotSaved":
+    "Der Antworttext wurde für diesen Prompt nicht gespeichert.",
+  "observability.insights.showAll": "Alle anzeigen",
+  "observability.insights.showLess": "Weniger anzeigen",
+  "observability.insights.moreTools": "+{{count}} weitere",
+  "observability.insights.failedSuffix": "fehlgeschlagen",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.startedOverNote_one":
+    "{{count}} Mal neu gestartet nach {{reason}}. Das hat etwa {{amount}} von {{total}} gekostet.",
+  "observability.insights.startedOverNote_other":
+    "{{count}} Mal neu gestartet nach {{reason}}. Das hat etwa {{amount}} von {{total}} gekostet.",
+  "observability.insights.toolFailedNote_one":
+    "Das Tool {{tool}} ist {{count}} Mal fehlgeschlagen.",
+  "observability.insights.toolFailedNote_other":
+    "Das Tool {{tool}} ist {{count}} Mal fehlgeschlagen.",
+  "observability.insights.toolFailedRecoveredNote_one":
+    "Das Tool {{tool}} ist {{count}} Mal fehlgeschlagen, aber der Agent hat weitergemacht und abgeschlossen.",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "Das Tool {{tool}} ist {{count}} Mal fehlgeschlagen, aber der Agent hat weitergemacht und abgeschlossen.",
+  "observability.insights.showSteps_one": "{{count}} Schritt anzeigen",
+  "observability.insights.showSteps_other": "{{count}} Schritte anzeigen",
+  "observability.insights.hideSteps": "Schritte ausblenden",
+  "observability.insights.costDetails": "Kostendetails und Prüfungen",
+  "observability.insights.turnReply": "Antwort geschrieben",
+  "observability.insights.turnThought": "Durchdacht",
+  "observability.insights.startedOverTag": "neu gestartet",
+  "observability.insights.toolFailedTag": "Tool fehlgeschlagen",
+  "observability.insights.turnContext":
+    "Hat {{tokens}} Tokens Kontext gesendet, {{percent}} % davon aus früheren Anfragen wiederverwendet.",
+  "observability.insights.turnExpired":
+    "Der gespeicherte Kontext war nach einer Pause abgelaufen – das ist normal.",
+  "observability.insights.turnOutput": "Hat {{tokens}} Tokens geschrieben.",
+  "observability.insights.turnRestart":
+    "Neu gestartet nach {{reason}} – etwa {{amount}} mehr, als die Wiederverwendung gekostet hätte.",
+  "observability.insights.noCacheCompare":
+    "Zu Listenpreisen hat die Wiederverwendung früheren Kontexts diesen Prompt von {{noCache}} auf {{estimated}} gesenkt.",
+  "observability.insights.partReused": "Wiederverwendeter Kontext",
+  "observability.insights.partSaved": "Im Cache gespeichert",
+  "observability.insights.partNew": "Neuer Kontext",
+  "observability.insights.partOutput": "Vom Modell geschrieben",
+  "observability.insights.checksHeading": "Automatische Prüfungen",
+  "observability.insights.checksNone": "Es wurden keine erfasst.",
+  "observability.insights.checksGraded": "(von einem Modell bewertet)",
+  "observability.insights.checksNote":
+    "Framework-Prüfungen betrachten, wie der Lauf verlaufen ist (Fehler, Schritte, Geschwindigkeit), nicht, ob das Ergebnis gut war.",
+  "observability.insights.lookedForTools": "Hat nach weiteren Tools gesucht",
+  "observability.insights.prevPrompt": "Vorheriger Prompt (K)",
+  "observability.insights.nextPrompt": "Nächster Prompt (J)",
+  "observability.insights.toolVerb.add": "{{object}} hinzugefügt",
+  "observability.insights.toolVerb.analyze": "{{object}} analysiert",
+  "observability.insights.toolVerb.apply": "{{object}} angewendet",
+  "observability.insights.toolVerb.capture": "{{object}} erfasst",
+  "observability.insights.toolVerb.check": "{{object}} geprüft",
+  "observability.insights.toolVerb.connect": "{{object}} verbunden",
+  "observability.insights.toolVerb.create": "{{object}} erstellt",
+  "observability.insights.toolVerb.delete": "{{object}} gelöscht",
+  "observability.insights.toolVerb.duplicate": "{{object}} dupliziert",
+  "observability.insights.toolVerb.edit": "{{object}} bearbeitet",
+  "observability.insights.toolVerb.export": "{{object}} exportiert",
+  "observability.insights.toolVerb.fetch": "{{object}} abgerufen",
+  "observability.insights.toolVerb.find": "{{object}} gefunden",
+  "observability.insights.toolVerb.generate": "{{object}} generiert",
+  "observability.insights.toolVerb.index": "{{object}} indiziert",
+  "observability.insights.toolVerb.insert": "{{object}} eingefügt",
+  "observability.insights.toolVerb.list": "{{object}} aufgelistet",
+  "observability.insights.toolVerb.move": "{{object}} verschoben",
+  "observability.insights.toolVerb.navigate": "{{object}} navigiert",
+  "observability.insights.toolVerb.open": "{{object}} geöffnet",
+  "observability.insights.toolVerb.present": "{{object}} präsentiert",
+  "observability.insights.toolVerb.propose": "{{object}} vorgeschlagen",
+  "observability.insights.toolVerb.query": "{{object}} abgefragt",
+  "observability.insights.toolVerb.read": "{{object}} gelesen",
+  "observability.insights.toolVerb.remove": "{{object}} entfernt",
+  "observability.insights.toolVerb.rename": "{{object}} umbenannt",
+  "observability.insights.toolVerb.reply": "{{object}} beantwortet",
+  "observability.insights.toolVerb.resolve": "{{object}} gelöst",
+  "observability.insights.toolVerb.run": "{{object}} ausgeführt",
+  "observability.insights.toolVerb.save": "{{object}} gespeichert",
+  "observability.insights.toolVerb.search": "{{object}} durchsucht",
+  "observability.insights.toolVerb.send": "{{object}} gesendet",
+  "observability.insights.toolVerb.set": "{{object}} gesetzt",
+  "observability.insights.toolVerb.take": "{{object}} aufgenommen",
+  "observability.insights.toolVerb.update": "{{object}} aktualisiert",
+  "observability.insights.toolVerb.upload": "{{object}} hochgeladen",
+  "observability.insights.toolVerb.view": "{{object}} angesehen",
+  "observability.insights.toolVerb.write": "{{object}} geschrieben",
   "billing.builderCreditLimitTitle": "Deine Builder-Credits sind aufgebraucht",
   "billing.builderCreditLimitEmailBody":
     "Eine KI-Anfrage wurde gestoppt, weil dein verbundenes Builder-Konto keine Credits mehr hat. Führe ein Upgrade deines Builder-Tarifs durch, um fortzufahren.",
@@ -2837,6 +3032,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "Global A2A Registry durchsuchen",
   "settingsSubAgents.connectTitle": "{{name}} verbinden",
   "settingsSubAgents.close": "Schließen",
+  "observability.insights.rawTrace":
+    "Rohdaten-Trace (alle Spans mit Ein- und Ausgaben)",
 };
 
 export default messages;

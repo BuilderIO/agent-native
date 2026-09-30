@@ -175,6 +175,15 @@ const messages = {
     saveReconnect: "Änderungen werden nach Wiederverbindung gespeichert",
     saveFailedDescription:
       "Deine neuesten Änderungen sind nur auf diesem Gerät gespeichert. Lade vor dem Verlassen ein Backup herunter.",
+    slideConflictReview: "Prüfen",
+    slideConflictTitle: "Diese Folie wurde an anderer Stelle geändert",
+    slideConflictDescription:
+      "Eine andere Person hat eine neuere Version gespeichert. Wenn du deinen Entwurf behältst, wird der gespeicherte Folieninhalt ersetzt. Oder verwende die neueste Version.",
+    slideConflictUseLatest: "Neueste Version verwenden",
+    slideConflictKeepDraft: "Meinen Entwurf behalten",
+    slideConflictKeepEditing: "Weiter bearbeiten",
+    slideConflictResolutionFailed:
+      "Der Konflikt konnte nicht aufgelöst werden. Dein Entwurf ist weiterhin hier.",
     offline: "Offline",
     selected: "ausgewählt",
     chooseDesignSystem: "Designsystem auswählen",
@@ -248,6 +257,9 @@ const messages = {
     media: "Medien",
     generateImage: "Bild generieren",
     assetLibrary: "Asset-Bibliothek",
+    imageOptions: "Bildoptionen",
+    cropImage: "Bild zuschneiden",
+    cropHandle: "Bild {{position}} zuschneiden",
     diagrams: "Diagramme",
     insertMermaidDiagram: "Mermaid-Diagramm einfügen",
     insertMermaidFailed: "Diagramm konnte nicht eingefügt werden",
@@ -1075,7 +1087,8 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
   },
 };

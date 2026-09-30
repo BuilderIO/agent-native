@@ -19,7 +19,16 @@ import {
 } from "./session-replay-iframe.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXTENSION_CLIENT_DIR = join(HERE, "../../../toolkit/src/app/extensions");
+const EXTENSION_HOST_DIR = join(
+  HERE,
+  "..",
+  "..",
+  "..",
+  "toolkit",
+  "src",
+  "app",
+  "extensions",
+);
 
 describe("cooperative iframe session replay", () => {
   it("pins the installed rrweb recorder and waits for a trusted start message", () => {
@@ -145,7 +154,7 @@ describe("cooperative iframe session replay", () => {
     ];
 
     for (const file of hostFiles) {
-      const source = readFileSync(join(EXTENSION_CLIENT_DIR, file), "utf8");
+      const source = readFileSync(join(EXTENSION_HOST_DIR, file), "utf8");
       expect(source, file).toContain("SESSION_REPLAY_IFRAME_ATTRIBUTE");
     }
     expect(SESSION_REPLAY_IFRAME_ATTRIBUTE).toBe(

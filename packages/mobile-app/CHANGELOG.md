@@ -19,6 +19,70 @@
 - Improved native capture lifecycle tracking and session-token storage so
   uploads and companion actions recover cleanly across app restarts.
 
+## 0.1.156
+
+### Patch Changes
+
+- Updated dependencies
+  - @agent-native/agentkit@0.198.2
+  - @agent-native/core@0.198.2
+
+## 0.1.155
+
+### Patch Changes
+
+- Updated dependencies [0b127e9]
+- Updated dependencies [fc8fce1]
+- Updated dependencies
+- Updated dependencies [affa25c]
+- Updated dependencies [905b078]
+- Updated dependencies [bbd485b]
+  - @agent-native/agentkit@0.198.1
+  - @agent-native/core@0.198.1
+
+## 0.1.154
+
+### Patch Changes
+
+- Updated dependencies [9e370ee]
+- Updated dependencies [e6a53e1]
+- Updated dependencies [6392530]
+- Updated dependencies [8853f61]
+- Updated dependencies [033463d]
+- Updated dependencies [f580a07]
+- Updated dependencies [39ddf59]
+- Updated dependencies [20cd76f]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [0744fc1]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [2267b42]
+- Updated dependencies
+- Updated dependencies [d216480]
+- Updated dependencies [7552336]
+- Updated dependencies [8853f61]
+- Updated dependencies [77cde08]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [20cd76f]
+- Updated dependencies [8853f61]
+- Updated dependencies [fb7479a]
+- Updated dependencies [10287bf]
+- Updated dependencies [2512b44]
+  - @agent-native/core@0.198.0
+  - @agent-native/agentkit@0.198.0
+
 ## 0.1.153
 
 ### Patch Changes
@@ -1745,26 +1809,5 @@
 
 - Updated dependencies [5f4031b]
   - @agent-native/core@0.164.19
-
-## 0.1.57
-
-### Patch Changes
-
-- Updated dependencies [b34de4c]
-  - @agent-native/core@0.164.18
-
-## 0.1.56
-
-### Patch Changes
-
-- Updated dependencies [d492462]
-  - @agent-native/core@0.164.17
-
-## 0.1.55
-
-### Patch Changes
-
-- Updated dependencies [7d72340]
-  - @agent-native/core@0.164.16
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

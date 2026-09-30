@@ -59,6 +59,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: () => "test-tab",
   useActionMutation: () => ({
     isPending: false,
     mutateAsync: (payload: unknown) => mocks.save(payload),

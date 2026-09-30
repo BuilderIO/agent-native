@@ -4,8 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      checkingProvider: "AI 接続を確認しています…",
-      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
     common: { retry: "再試行" },
   },

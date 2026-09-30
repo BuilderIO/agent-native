@@ -39,6 +39,7 @@ export const aiFilterBackfillStatusSchema = z.object({
   restoredThreads: z.number().int().nonnegative().optional(),
   undoFailures: z.number().int().nonnegative().optional(),
   perRule: z.array(aiFilterBackfillRuleProgressSchema),
+  failedRuleId: z.string().min(1).max(64).optional(),
   undoToken: z.string().min(1).optional(),
   error: z.string().max(500).optional(),
 });

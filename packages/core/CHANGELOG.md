@@ -51,6 +51,90 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.2
+  - @agent-native/recap-cli@0.5.52
+
+## 0.198.1
+
+### Patch Changes
+
+- 0b127e9: Clear chat input immediately on submit and show the pending response status in the transcript.
+- fc8fce1: Make MCP App chat bridges preserve host results and reject unsafe fallbacks.
+- Release all public npm packages with a patch version bump.
+- affa25c: Keep provider readiness checks quiet around chat composers.
+- 905b078: Fix the `useSendToAgentChat` migration from Core's mixed chat subpath to Toolkit's composer UI. See the [Core UI migration guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).
+- bbd485b: The shared Vitest config (`@agent-native/core/vitest-config`) now allows 30 seconds per test instead of Vitest's 5-second default, so tests that boot PGlite or import a server bundle no longer time out when test workers use every core.
+- Updated dependencies [0b127e9]
+- Updated dependencies
+  - @agent-native/agentkit@0.198.1
+  - @agent-native/recap-cli@0.5.51
+
+## 0.198.0
+
+### Minor Changes
+
+- 6392530: Expose shared MCP Apps through OpenAI global and thread entrypoints, and route app chat buttons through standard MCP model-context and message methods.
+- afbee14: Move runtime-backed React surfaces and generated source corpus out of Core's default package path, and move AgentKit's React entrypoints to Toolkit in a breaking AgentKit release. Follow the [Core 0.198.0 upgrade guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx) when updating an existing app or consuming AgentKit directly.
+
+### Patch Changes
+
+- 9e370ee: Show app-specific settings immediately below Account in the settings navigation.
+- e6a53e1: Preserve retryable state when a session lookup fails.
+- 8853f61: Enable runtime skill discovery in the shared AgentKit composer so users can invoke exposed skills with `/`.
+- 033463d: Restore how Builder.io connections were stored and read before the Settings redesign. Account activation from a prompt that doesn't name the organization connection saves the new account personally for every role again, so an owner or admin can no longer replace the organization's Builder account by activating from it. Every role runs on their own Builder connection first and the organization's second, as before.
+- f580a07: Move the chat history revert control into the scrollable transcript.
+- 39ddf59: Style the server-rendered auth fallback so the signup page does not flash unstyled content before hydration.
+- 20cd76f: Fix Toolkit server builds when collaboration code imports `ySyncPluginKey`, and declare the docs app's optional database and source-map upload packages.
+- 8853f61: Keep reasoning inside collapsed work history, align disclosure chevrons with their labels, and tighten progress spacing. Show elapsed time once on the work summary instead of repeating the full run duration on each thought.
+- 8853f61: Render model-authored follow-up suggestions only for the latest successfully completed turn, retire stale suggestions across new turns and restores, and submit full suggestion prompts through normal context and permission checks. Keep initial empty-state starters separate from conversational follow-ups.
+
+  Pass the active thread ID to fullscreen callbacks instead of a menu selection event.
+
+- afbee14: Report moved stylesheet imports with Toolkit destinations and codemod guidance.
+- 0744fc1: Align Better Auth packages so npm can resolve the Core CLI without legacy peer dependency flags.
+- 8853f61: Let native chat agents author up to three contextual follow-up suggestions within the existing agent run, without a separate suggestion-generation service. Validate and publish quiet, run-scoped suggestion metadata only on successful completion; suppress it on interruption, pending approval, run-boundary continuation, or rejected responses. Independent harness runtimes without a structured follow-up contract do not synthesize suggestions.
+
+  Evaluate follow-ups in the interactive run's shared instructions. Save suggestions and canonical run status in the existing thread snapshot on server completion, including when the client is disconnected. Clear stale suggestions on new submissions and unsuccessful turns, and preserve completed results and richer client progress during snapshot merges.
+
+- 8853f61: Clear shared chat composers when AgentKit owns the recoverable user message instead of waiting for the agent request to start. Preserve newer drafts, explicit send failures, and queued-message acknowledgement timing without sending local callbacks to transports or persisted submissions.
+- 8853f61: Show catalog integration badges throughout live and expanded agent activity, retaining provider identity while tools run and keeping activity from different providers in separate groups.
+- 2267b42: Allow apps to redact additional URL query parameters from session replay at record time.
+- Release all public npm packages with a patch version bump.
+- d216480: Preserve MCP app chat delivery outcomes and prevent stale or duplicate submissions.
+- 7552336: Use the durable sync cursor directly for release-owned serverless polls instead of rescanning external change markers.
+- 8853f61: Collapse run activity by default, keep the latest active step visible, and group expanded history by purpose.
+- 77cde08: Treat contentless pasted-text descriptors as display-only and report rejected queued chat sends.
+- 8853f61: Keep fullscreen chat menu entries text-only without changing their current-thread handoff or navigation behavior.
+- 8853f61: Keep context launchers disabled with the composer, expose the disabled textbox state to assistive technology, and hide chat suggestions until AI is ready.
+- 8853f61: Complete omitted follow-up metadata once within the same agent run so contextual suggestions refresh after subsequent replies. Preserve deliberate empty decisions and completed answers, and report optional metadata failures without executing additional app actions.
+- 8853f61: Align the shared + and @ launcher above the composer with searchable categories and optional descriptions. Reuse scoped mention discovery for registered resource and agent references, report failed searches, and reserve discovery results for each source so files cannot crowd out connected agents.
+- 8853f61: Scope AgentKit capability caches and readiness checks to the current account, organization, and app; preserve visible cross-app MCP tools, invalidate changed integrations, and reject stale selections. Keep integration setup availability consistent across the legacy dialog and detail page, including app-scoped token fallbacks and supported managed OAuth flows.
+- 8853f61: Expose per-thread composer context providers so apps can share their reference and integration menus across home, sidebar, and full-page chat while revalidating captured context before submission. Preserve bounded, identity-scoped selection metadata across surface handoffs and re-read reference content on remount.
+- 8853f61: Connect AgentKit context menus to app-scoped provider credentials and currently available MCP tools.
+- 8853f61: Show available integrations in a shared composer submenu with explicit connection setup, loading, and recovery states.
+- 8853f61: Keep follow-up suggestion rendering owned by the Core chat host so completed turns show one row and hidden placement stays hidden, while standalone AgentKit retains its default suggestions.
+- 20cd76f: Fix `agent-native doctor` so mixed-subpath imports report each symbol's actual Toolkit destination and the migration guide. Rewrite literal dynamic imports for whole-module moves. The [Core UI upgrade guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx) documents the codemod workflow.
+- 8853f61: Preserve completed runs when history refresh or stream closure fails, honor resolved approvals during hydration, keep connection continuations responsive, and expose tool, approval, and cancellation failures. Reject retained attachments if standalone upload access is withdrawn instead of silently dropping files. Reset chat disclosures across threads, preserve host composer gates, recognize streamed provider arguments, and contain long transcript content. Integrate thread- and account-scoped app composer context with exact revalidation, active-surface checks, and accepted-only cleanup while preserving ambient context, composer mode instructions, and full menu defaults.
+- fb7479a: Keep capability-backed embed reads working after optional account requests fail.
+- 10287bf: Use the simple branded app format for default OG images instead of signup-page marketing copy.
+- 2512b44: Add the animated signup wave to branded auth pages and improve mobile heading spacing.
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+  - @agent-native/agentkit@0.198.0
+  - @agent-native/recap-cli@0.5.50
+
 ## 0.197.0
 
 ### Minor Changes
@@ -3547,23 +3631,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
-
-## 0.164.17
-
-### Patch Changes
-
-- d492462: Support TipTap mark rule helpers in generated SSR stubs.
-
-## 0.164.16
-
-### Patch Changes
-
-- 7d72340: Keep desktop Google exchanges alive through longer passkey ceremonies while retaining one-time verifier binding.
-
-## 0.164.15
-
-### Patch Changes
-
-- 3f1cf50: Send signed-out users directly to the shared sign-in journey after logout so private app data queries cannot flash before the session gate redirects.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

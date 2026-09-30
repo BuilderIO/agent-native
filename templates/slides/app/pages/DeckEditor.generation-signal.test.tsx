@@ -141,7 +141,27 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   >()),
   AGENT_CHAT_SUBMIT_TARGET_EVENT: "agentNative.chatSubmitTarget",
   AGENT_CHAT_SUBMIT_RESULT_EVENT: "agentNative.chatSubmitResult",
+  fetchAgentEngineConfiguredState: async () => "unavailable",
   sendToAgentChat: mocks.sendToAgentChat,
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: false,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
 }));
 vi.mock(
   "@agent-native/toolkit/app/chat/agentkit-chat",

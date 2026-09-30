@@ -1,5 +1,53 @@
 # @agent-native/dispatch
 
+## 0.40.3
+
+### Patch Changes
+
+- 181ca1d: Keep the package changelog in Dispatch's route wrapper so generated workspaces can render the shared Settings page during SSR.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [63c4c02]
+  - @agent-native/toolkit@0.198.2
+
+## 0.40.2
+
+### Patch Changes
+
+- d09fdb0: Keep full-page chat headers and history controls aligned with the conversation surface.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0b127e9]
+- Updated dependencies [4873d09]
+- Updated dependencies [d09fdb0]
+- Updated dependencies
+- Updated dependencies [d25ddc1]
+- Updated dependencies [affa25c]
+- Updated dependencies [b1bbe7e]
+- Updated dependencies [905b078]
+- Updated dependencies [6a627af]
+  - @agent-native/toolkit@0.198.1
+
+## 0.40.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- fb3eacd: Show only apps mounted in the active workspace in Dispatch app views.
+- Updated dependencies [20cd76f]
+- Updated dependencies [bbe8cbf]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [b6ffae6]
+- Updated dependencies [8853f61]
+  - @agent-native/toolkit@0.198.0
+
 ## 0.40.0
 
 ### Minor Changes
@@ -1039,24 +1087,5 @@
 - 89f194f: Provision cross-app SSO state and authorization-code tables during release migrations so production serverless requests never perform schema DDL.
 - Updated dependencies [89f194f]
   - @agent-native/toolkit@0.14.3
-
-## 0.24.6
-
-### Patch Changes
-
-- Updated dependencies [2db503b]
-  - @agent-native/toolkit@0.14.2
-
-## 0.24.5
-
-### Patch Changes
-
-- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
-
-## 0.24.4
-
-### Patch Changes
-
-- 47ba57a: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -1,5 +1,68 @@
 # @agent-native/toolkit
 
+## 0.198.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 63c4c02: Restore Agent Observability to Settings and align its dashboard with the redesigned Settings surface.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.2
+
+## 0.198.1
+
+### Patch Changes
+
+- 0b127e9: Clear chat input immediately on submit and show the pending response status in the transcript.
+- 4873d09: Preserve host composer submission guards while a message is pending.
+- d09fdb0: Keep full-page chat headers and history controls aligned with the conversation surface.
+- Release all public npm packages with a patch version bump.
+- d25ddc1: Preserve host and local submission gating in chat composers.
+- affa25c: Keep provider readiness checks quiet around chat composers.
+- b1bbe7e: Remove unused MCP chat display imports flagged by full-tree lint.
+- 905b078: Preserve both host and command submission gates in the AgentKit composer.
+- 6a627af: Declare copied radio-group dependencies and the protected integration setup import in Toolkit eject manifests.
+- Updated dependencies [0b127e9]
+- Updated dependencies
+  - @agent-native/agentkit@0.198.1
+
+## 0.198.0
+
+### Minor Changes
+
+- afbee14: Move runtime-backed React surfaces and generated source corpus out of Core's default package path, and move AgentKit's React entrypoints to Toolkit in a breaking AgentKit release. Follow the [Core 0.198.0 upgrade guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx) when updating an existing app or consuming AgentKit directly.
+
+### Patch Changes
+
+- 20cd76f: Fix Toolkit server builds when collaboration code imports `ySyncPluginKey`, and declare the docs app's optional database and source-map upload packages.
+- bbe8cbf: Align user-message copy, edit, and timestamp controls together beneath the message at the logical end. Keep assistant footer grouping unchanged, constrain long timestamps, and expose user actions on touch devices.
+- 8853f61: Show composer context sources at the root level, open the same Add menu from + or @, and support single-select dialogs.
+- 8853f61: Let chat hosts clear an accepted composer draft immediately while preserving standalone failure recovery and newer text, references, and attachments.
+- Release all public npm packages with a patch version bump.
+- 8853f61: Keep context launchers disabled with the composer, expose the disabled textbox state to assistive technology, and hide chat suggestions until AI is ready.
+- 8853f61: Add a searchable gallery layout to the shared context picker, reusing template-library cards for visual references with keyboard-accessible selection.
+- 8853f61: Keep composer panels aligned as their host resizes, and stack context descriptions within narrow agent sidebars without horizontal overflow.
+- 8853f61: Align the shared + and @ launcher above the composer with searchable categories and optional descriptions. Reuse scoped mention discovery for registered resource and agent references, report failed searches, and reserve discovery results for each source so files cannot crowd out connected agents.
+- 8853f61: Connect AgentKit context menus to app-scoped provider credentials and currently available MCP tools.
+- b6ffae6: Keep What's new available in the legacy settings fallback.
+- 8853f61: Recheck submission gates after asynchronous preparation, dismiss context pickers when their source is disabled, and cancel stale skill requests. Preserve same-named uploads as separate attachments, keep mention panels within resized viewports, and honor RTL navigation and long labels in context menus.
+
+  Share full-mode default actions across the + and @ launchers without losing uploads, image-picker handoff, scheduled tasks, automations, opt-in extensions, integration setup, skill creation/import, or terminal controls. Host actions override matching default IDs; lighter modes do not mount full-mode resource hooks. Keep skill review/save/cancel on the existing resource adapter, with duplicate-save protection and stale-request cleanup.
+
+  Route special-mode submissions through the normal host acceptance lifecycle, passing mode instructions separately as `composerModeContext` so hosts can revalidate captured integration context before dispatch. Retain the draft, mode, and attachments when preparation or submission fails.
+
+  Keep context actions reachable when a composer sits near the viewport top: use available space below the frame when the above-frame panel is too short, and recalculate placement as the visible viewport changes for mobile keyboards or zoom.
+
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+  - @agent-native/agentkit@0.198.0
+
 ## 0.23.1
 
 ### Patch Changes
@@ -906,23 +969,5 @@
 ### Minor Changes
 
 - 01a3f27: BREAKING: move the portable composer, rich editor, collaboration display, visual controls, and shared UI primitives to focused Toolkit entrypoints. Core's removed deep compatibility paths now throw an actionable migration error, and moved symbols are removed from the legacy `@agent-native/core/client` barrel. Run `npx @agent-native/core@latest upgrade --codemods --yes` to rewrite supported imports. Framework-wired composer APIs remain available from `@agent-native/core/client/composer`; bare reusable composer UI is available from `@agent-native/toolkit/composer`.
-
-## 0.5.1
-
-### Patch Changes
-
-- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
-
-## 0.5.0
-
-### Minor Changes
-
-- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
-
-## 0.4.10
-
-### Patch Changes
-
-- 7effaba: Ignore malformed collaboration presence payloads and keep recoverable server chat timeout handoffs out of Sentry error issues.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

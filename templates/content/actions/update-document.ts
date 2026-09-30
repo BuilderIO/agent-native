@@ -1085,8 +1085,11 @@ export default defineAction({
             operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
           });
           if (prior) {
+            // The base alone can differ on a resend: the editor rebases an
+            // unsent save onto its own confirmed saves, while the page's
+            // draft journal replays it from the base it first recorded. The
+            // same authored body is the same delivery.
             if (
-              prior.authoredBaseRevision !== authoredBase.revision ||
               prior.candidateHash !==
                 documentContentHash(authoredCandidateContent) ||
               prior.metadataHash !== authoredMetadataHash

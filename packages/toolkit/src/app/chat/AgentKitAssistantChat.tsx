@@ -233,7 +233,7 @@ interface PendingProviderSubmission {
   text: string;
   fileParts: FilePart[];
   references: Reference[];
-  composerOptions: PromptComposerSubmitOptions;
+  composerOptions: AgentKitSuggestionSubmitOptions;
   options: AgentKitInternalSendOptions;
   attempts?: number;
   failed?: true;
@@ -333,7 +333,7 @@ function parseDeferredProviderSubmissions(
       text: submission.text,
       fileParts: fileParts as FilePart[],
       references: submission.references as Reference[],
-      composerOptions: composerOptions as PromptComposerSubmitOptions,
+      composerOptions: composerOptions as AgentKitSuggestionSubmitOptions,
       options: options as AgentKitInternalSendOptions,
       ...(typeof submission.attempts === "number"
         ? { attempts: submission.attempts }
@@ -457,7 +457,20 @@ type AgentKitComposerSubmit = (
 type AgentKitSuggestionSubmitOptions = PromptComposerSubmitOptions & {
   suggestion?: Exclude<AgentSuggestionInput, string>;
   validateSubmission?: () => void;
+  queuedWhileRunActive?: boolean;
 };
+
+function captureQueuedRunState(
+  options: PromptComposerSubmitOptions,
+  runWasActive: boolean,
+): AgentKitSuggestionSubmitOptions {
+  return {
+    ...options,
+    ...(options.intent === "queued" && runWasActive
+      ? { queuedWhileRunActive: true }
+      : {}),
+  };
+}
 
 type AgentKitSuggestionSubmitRef = React.MutableRefObject<{
   threadId: string;
@@ -1092,6 +1105,10 @@ const AgentKitAssistantChatBody = forwardRef<
   const providerStatus: AgentEngineConfiguredState = providerChecksEnabled
     ? readiness.state
     : "configured";
+  const providerSubmissionPending =
+    !canChat &&
+    !setupMissing &&
+    (providerStatus === "unknown" || providerStatus === "unavailable");
   const retryProviderStatus = useCallback(() => {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
@@ -1748,8 +1765,13 @@ const AgentKitAssistantChatBody = forwardRef<
     return () => window.clearInterval(interval);
   }, [isRunning]);
 
-  const beforeSubmit = useCallback(async () => {
-    if (isRestoring || props.composerDisabled) return false;
+  const acquireSubmission = useCallback(async () => {
+    if (
+      isRestoring ||
+      props.composerDisabled ||
+      props.composerSubmissionDisabled
+    )
+      return null;
     if (!canChat) {
       if (setupMissing) {
         bounceSetupCard();
@@ -1759,7 +1781,43 @@ const AgentKitAssistantChatBody = forwardRef<
           }),
         );
       }
+      return null;
+    }
+    if (history) {
+      const release = await history.beginSubmission();
+      if (!release) return null;
+      return release;
+    }
+    return () => undefined;
+  }, [
+    bounceSetupCard,
+    canChat,
+    history,
+    isRestoring,
+    props.composerDisabled,
+    props.composerSubmissionDisabled,
+    props.tabId,
+    setupMissing,
+    threadId,
+  ]);
+
+  const beforeSubmit = useCallback(async () => {
+    if (
+      isRestoring ||
+      props.composerDisabled ||
+      props.composerSubmissionDisabled
+    )
       return false;
+    if (!canChat) {
+      if (setupMissing) {
+        bounceSetupCard();
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:missing-api-key", {
+            detail: { tabId: props.tabId, threadId },
+          }),
+        );
+      }
+      return providerSubmissionPending;
     }
     return true;
   }, [
@@ -1767,15 +1825,12 @@ const AgentKitAssistantChatBody = forwardRef<
     canChat,
     isRestoring,
     props.composerDisabled,
+    props.composerSubmissionDisabled,
     props.tabId,
+    providerSubmissionPending,
     setupMissing,
     threadId,
   ]);
-
-  const acquireSubmission = useCallback(async () => {
-    if (!(await beforeSubmit())) return null;
-    return history ? history.beginSubmission() : () => undefined;
-  }, [beforeSubmit, history]);
 
   const dispatch = useCallback(
     async (
@@ -1908,6 +1963,7 @@ const AgentKitAssistantChatBody = forwardRef<
             text: message,
             attachments: fileParts,
             metadata,
+            queuedWhileRunActive: composerOptions.queuedWhileRunActive,
             onLocalSubmit: composerOptions.onLocalSubmit,
           });
         } else {
@@ -1966,37 +2022,18 @@ const AgentKitAssistantChatBody = forwardRef<
     ],
   );
 
-  const submitPrepared = useCallback(
-    async (
-      text: string,
-      files: PromptComposerFile[],
-      references: Reference[],
-      composerOptions: AgentKitSuggestionSubmitOptions,
-      prepare?: () => Promise<PromptComposerSubmitOptions>,
-    ) => {
-      const release = await acquireSubmission();
-      if (!release) throw new Error(t("agentChat.error.failed"));
-      try {
-        const preparedOptions = prepare ? await prepare() : composerOptions;
-        await dispatch(text, files, references, preparedOptions);
-      } catch (error) {
-        dispatchSetupRequiredEvent(error, props.tabId, threadId);
-        throw error;
-      } finally {
-        release?.();
-      }
-    },
-    [acquireSubmission, dispatch, props.tabId, t, threadId],
-  );
-
   const submit = useCallback(
     async (
       text: string,
       files: PromptComposerFile[],
       references: Reference[],
-      composerOptions: PromptComposerSubmitOptions,
+      composerOptions: AgentKitSuggestionSubmitOptions,
       options: AgentKitInternalSendOptions = {},
     ): Promise<AssistantChatSubmitResult> => {
+      const submittedComposerOptions = captureQueuedRunState(
+        composerOptions,
+        isThreadRunning(),
+      );
       const release = await acquireSubmission();
       if (!release) {
         if (
@@ -2032,9 +2069,9 @@ const AgentKitAssistantChatBody = forwardRef<
             const context = options.recoveryAction
               ? ""
               : [
-                  composerOptions.composerModeContext,
+                  submittedComposerOptions.composerModeContext,
                   formatAgentChatContextItemsForPrompt(
-                    composerOptions.contextItems ?? contextItems,
+                    submittedComposerOptions.contextItems ?? contextItems,
                   ),
                   pendingSelectionPromptContext(currentPendingSelection),
                 ]
@@ -2061,9 +2098,10 @@ const AgentKitAssistantChatBody = forwardRef<
               props.contextScope === undefined ? null : props.contextScope;
             deferredOptions.requestMode ??=
               props.execMode === "plan" ? "plan" : "act";
-            const deferredComposerOptions = { ...composerOptions };
+            const deferredComposerOptions = { ...submittedComposerOptions };
             delete deferredComposerOptions.attachments;
             delete deferredComposerOptions.onLocalSubmit;
+            delete deferredComposerOptions.validateSubmission;
             deferredComposerOptions.model ??= props.selectedModel;
             deferredComposerOptions.engine ??= props.selectedEngine;
             deferredComposerOptions.effort ??= props.selectedEffort;
@@ -2104,7 +2142,13 @@ const AgentKitAssistantChatBody = forwardRef<
         return { status: "rejected", reason };
       }
       try {
-        await dispatch(text, files, references, composerOptions, options);
+        await dispatch(
+          text,
+          files,
+          references,
+          submittedComposerOptions,
+          options,
+        );
         return { status: "submitted" };
       } catch (error) {
         reportAgentChatSubmitResult(
@@ -2131,10 +2175,80 @@ const AgentKitAssistantChatBody = forwardRef<
       props.selectedEngine,
       props.selectedModel,
       isRestoring,
+      isThreadRunning,
       props.tabId,
       providerChecksEnabled,
       readiness.state,
       setupMissing,
+      t,
+      threadId,
+    ],
+  );
+
+  const submitPrepared = useCallback(
+    async (
+      text: string,
+      files: PromptComposerFile[],
+      references: Reference[],
+      composerOptions: AgentKitSuggestionSubmitOptions,
+      prepare?: () => Promise<PromptComposerSubmitOptions>,
+    ) => {
+      const runWasActiveAtSubmit = isThreadRunning();
+      const release = await acquireSubmission();
+      if (!release) {
+        if (
+          providerSubmissionPending &&
+          !props.composerDisabled &&
+          !props.composerSubmissionDisabled
+        ) {
+          try {
+            const preparedOptions = prepare ? await prepare() : composerOptions;
+            const submittedOptions = captureQueuedRunState(
+              preparedOptions,
+              runWasActiveAtSubmit,
+            );
+            const result = await submit(
+              text,
+              files,
+              references,
+              submittedOptions,
+            );
+            if (result.status === "rejected") {
+              throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+            }
+          } catch (error) {
+            dispatchSetupRequiredEvent(error, props.tabId, threadId);
+            throw error;
+          }
+        } else {
+          throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+        }
+        return;
+      }
+      try {
+        const preparedOptions = prepare ? await prepare() : composerOptions;
+        await dispatch(
+          text,
+          files,
+          references,
+          captureQueuedRunState(preparedOptions, runWasActiveAtSubmit),
+        );
+      } catch (error) {
+        dispatchSetupRequiredEvent(error, props.tabId, threadId);
+        throw error;
+      } finally {
+        release?.();
+      }
+    },
+    [
+      acquireSubmission,
+      dispatch,
+      isThreadRunning,
+      props.composerDisabled,
+      props.composerSubmissionDisabled,
+      props.tabId,
+      providerSubmissionPending,
+      submit,
       t,
       threadId,
     ],
@@ -2794,7 +2908,9 @@ function AgentKitEmptyState({ threadId }: { threadId: string }) {
                     }
                     type="button"
                     disabled={
-                      !surface.canChat || surface.props.composerDisabled
+                      !surface.canChat ||
+                      surface.props.composerDisabled ||
+                      surface.props.composerSubmissionDisabled
                     }
                     onClick={() => surface.submitSuggestion(suggestion)}
                     className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-left text-[13px] text-muted-foreground shadow-sm transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -2892,6 +3008,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  const lastMessage = thread.messages.at(-1);
+  const showThinking =
+    (surface.isRunning || surface.isSubmissionInFlight) &&
+    lastMessage?.role === "user" &&
+    lastMessage.metadata?.hideUserMessage !== true;
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
@@ -2911,6 +3032,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         disabled={
           !surface.canChat ||
           surface.props.composerDisabled ||
+          surface.props.composerSubmissionDisabled ||
           surface.isSubmissionInFlight
         }
         onSelect={surface.submitSuggestion}
@@ -3067,6 +3189,15 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           threadId={threadId}
         />
       ))}
+      {showThinking ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="px-3 py-2 text-sm text-muted-foreground"
+        >
+          {t("agentChat.status.thinking")}
+        </div>
+      ) : null}
       {guided.questions?.length ? (
         <div className="px-3 pb-3">
           <GuidedQuestionFlow
@@ -3108,6 +3239,7 @@ function renderThreadSlot(
 function composerPlaceholder({
   props,
   canChat,
+  providerStatus,
   setupMissing,
   isRunning,
   thread,
@@ -3115,6 +3247,7 @@ function composerPlaceholder({
 }: {
   props: AgentKitAssistantChatProps;
   canChat: boolean;
+  providerStatus: AgentEngineConfiguredState;
   setupMissing: boolean;
   isRunning: boolean;
   thread: ReturnType<typeof useAgentThread>;
@@ -3135,7 +3268,9 @@ function composerPlaceholder({
   }
   return (
     props.composerPlaceholder ??
-    (canChat ? "Ask the agent to explore, build, or explain…" : "")
+    (canChat || providerStatus === "unknown" || providerStatus === "unavailable"
+      ? "Ask the agent to explore, build, or explain…"
+      : "")
   );
 }
 
@@ -3264,8 +3399,8 @@ function AgentKitComposerSurface({
   const mounted = useRef(true);
   const submissionAllowed = useRef(false);
   submissionAllowed.current =
-    canChat &&
     !props.composerDisabled &&
+    !props.composerSubmissionDisabled &&
     !isRestoring &&
     props.isActiveComposer !== false;
   useEffect(() => {
@@ -3287,6 +3422,8 @@ function AgentKitComposerSurface({
   ]);
   const currentSubmissionScope = useRef(submissionScope);
   currentSubmissionScope.current = submissionScope;
+  const currentProviderStatus = useRef(providerStatus);
+  currentProviderStatus.current = providerStatus;
   const { controller } = useAgentKit();
   const composerRef = useRef<TiptapComposerHandle>(null);
   const selectedSuggestionRef = useRef<
@@ -3298,6 +3435,7 @@ function AgentKitComposerSurface({
     references: Reference[],
     options: AgentKitSuggestionSubmitOptions,
   ) => {
+    const submissionProviderStatus = currentProviderStatus.current;
     options = {
       ...options,
       ...(selectedSuggestionRef.current
@@ -3309,7 +3447,8 @@ function AgentKitComposerSurface({
       if (
         !submissionAllowed.current ||
         !mounted.current ||
-        currentSubmissionScope.current !== submissionScope
+        currentSubmissionScope.current !== submissionScope ||
+        currentProviderStatus.current !== submissionProviderStatus
       ) {
         throw new Error(t("agentChat.error.failed"));
       }
@@ -3407,6 +3546,10 @@ function AgentKitComposerSurface({
     setFileStoragePromptOpen(true);
   }, []);
   const thread = useAgentThread(threadId);
+  const providerSubmissionPending =
+    !canChat &&
+    !setupMissing &&
+    (providerStatus === "unknown" || providerStatus === "unavailable");
   const latestAssistant = [...thread.messages]
     .reverse()
     .find((message) => message.role === "assistant");
@@ -3471,7 +3614,12 @@ function AgentKitComposerSurface({
       {showHomeSuggestions ? (
         <AgentKitSuggestedPrompts
           suggestions={suggestions}
-          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          disabled={
+            !canChat ||
+            props.composerDisabled ||
+            props.composerSubmissionDisabled ||
+            isSubmissionInFlight
+          }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"
         />
@@ -3518,10 +3666,14 @@ function AgentKitComposerSurface({
         <AgentKitComposer
           threadId={threadId}
           disabled={
-            !canChat ||
+            (!canChat && !providerSubmissionPending) ||
             props.composerDisabled ||
             isRestoring ||
             isSubmissionInFlight
+          }
+          submissionDisabled={
+            (!canChat && !providerSubmissionPending) ||
+            props.composerSubmissionDisabled === true
           }
           onDisabledClick={
             props.composerDisabled || !setupMissing
@@ -3537,6 +3689,7 @@ function AgentKitComposerSurface({
           }
           initialText={text}
           initialTextKey={`${props.tabId ?? threadId}:${prefillRevision}`}
+          requireAgentEngine={false}
           onTextChange={onTextChange}
           onBeforeSubmit={onBeforeSubmit}
           contextItems={visibleContextItems}
@@ -3572,6 +3725,7 @@ function AgentKitComposerSurface({
           placeholder={composerPlaceholder({
             props,
             canChat,
+            providerStatus,
             setupMissing,
             isRunning,
             thread,
@@ -3677,7 +3831,12 @@ function AgentKitComposerSurface({
       {showAfterComposerSuggestions ? (
         <AgentKitSuggestedPrompts
           suggestions={suggestions}
-          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          disabled={
+            !canChat ||
+            props.composerDisabled ||
+            props.composerSubmissionDisabled ||
+            isSubmissionInFlight
+          }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"
         />

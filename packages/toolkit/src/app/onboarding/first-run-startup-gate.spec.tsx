@@ -17,7 +17,9 @@ vi.mock("@agent-native/core/client/onboarding/first-run-enabled", () => ({
 vi.mock(
   "@agent-native/core/client/onboarding/first-run-status",
   async (importOriginal) => ({
-    ...(await importOriginal<typeof import("./first-run-status.js")>()),
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/onboarding/first-run-status")
+    >()),
     fetchFirstRunOnboardingStatus: mocks.fetchStatus,
   }),
 );

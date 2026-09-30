@@ -9,6 +9,11 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Settings pages now share the account layout, with dated updates that load in batches.
 
+### Fixed
+
+- Events longer than 24 hours appear as compact bars at the top of Calendar.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
 ## 2026-09-28
 
 ### Improved

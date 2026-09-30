@@ -21,7 +21,7 @@ const sharesQuery = {
 
 vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: () => sharesQuery,
-  useActionMutation: () => ({ mutate: vi.fn() }),
+  useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string>) =>
