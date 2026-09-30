@@ -1,4 +1,4 @@
-import { DispatchSettingsPage } from "@agent-native/dispatch/routes/pages/settings";
+import { DispatchSettingsPage } from "@agent-native/dispatch/routes/pages/settings-page";
 
 import { messagesByLocale } from "@/i18n-data";
 
