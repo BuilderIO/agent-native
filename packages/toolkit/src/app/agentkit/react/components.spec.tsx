@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
 import type {
@@ -431,7 +432,7 @@ describe("AgentKitChat", () => {
     expect(props.onSlashCommand).toBe(onSlashCommand);
 
     const source = readFileSync(
-      new URL("./components.tsx", import.meta.url),
+      join(process.cwd(), "src/app/agentkit/react/components.tsx"),
       "utf8",
     );
     for (const prop of ["slashCommands", "slashSkills", "onSlashCommand"]) {
