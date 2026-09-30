@@ -1,7 +1,4 @@
-import { getMethod, setResponseHeader, setResponseStatus } from "h3";
-
-import { autoMountAuth } from "./auth.js";
-import { getSession } from "./auth.js";
+import { authSessionHandler, autoMountAuth } from "./auth.js";
 import type { AuthOptions } from "./auth.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
 import {
@@ -23,16 +20,7 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
 
     if (!isByoa) {
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [sessionPath]);
-      app.use(sessionPath, async (event: any) => {
-        setResponseHeader(event, "Cache-Control", "no-store");
-        const method = getMethod(event);
-        if (method !== "GET" && method !== "HEAD") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        const session = await getSession(event);
-        return session ?? { error: "Not authenticated" };
-      });
+      app.use(sessionPath, authSessionHandler);
     }
     const initPromise = (async () => {
       if (isByoa) {

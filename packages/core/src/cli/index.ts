@@ -93,6 +93,26 @@ function parseScaffoldArgs(argv: string[]): {
   return { name, template, standalone, headless };
 }
 
+const CREATE_HELP = `agent-native create — set up a project
+
+Usage:
+  agent-native create [name] [options]
+
+With a terminal, create opens a guided setup for a Chat workspace, standalone
+app, headless app, first-party templates, or a community template.
+
+Options:
+  --template <names>  Comma-separated first-party templates or a community GitHub URL
+  --standalone        Create one app without Dispatch
+  --headless          Create an actions-and-CLI app without a UI
+  --help, -h          Show this help
+
+Examples:
+  agent-native create
+  agent-native create my-platform --template chat,forms
+  agent-native create my-app --standalone --template chat
+  agent-native create my-app --headless`;
+
 function trackCli(event: string, props?: Record<string, unknown>): void {
   try {
     cliTelemetry.track(event, { command, ...props });
@@ -686,10 +706,14 @@ switch (command) {
   }
 
   case "create": {
+    if (args.includes("--help") || args.includes("-h")) {
+      console.log(CREATE_HELP);
+      break;
+    }
     const parsed = parseScaffoldArgs(args);
     import("./create.js")
       .then((m) =>
-        m.createApp(parsed.name, {
+        m.runCreateCommand(parsed.name, {
           template: parsed.headless ? "headless" : parsed.template,
           standalone: parsed.standalone,
         }),
@@ -1078,10 +1102,8 @@ Usage:
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
   agent-native doctor           Scan app/workspace source for guard violations
-  agent-native create [name]    Scaffold a new agent-native workspace with a
-                                multi-select template picker. Use --standalone
-                                for a single-app scaffold, or choose Community
-                                template to install a public GitHub repository.
+  agent-native create [name]    Set up a Chat workspace, standalone app,
+                                headless app, or first-party/community template.
   agent-native code             Launch Agent-Native Code workspace. Type a task or
                                 use goals like /migrate and /audit.
   agent-native code serve       Run the Agent-Native Code remote connector.

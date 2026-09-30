@@ -1,10 +1,7 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath, appApiPath } from "@agent-native/core/client/api-path";
 import { useDbSync } from "@agent-native/core/client/hooks";
-import {
-  AppProviders,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client/hooks";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   DEFAULT_LOCALE,
@@ -18,11 +15,10 @@ import {
   isDynamicImportFailureMessage,
   recoverFromStaleChunkError,
 } from "@agent-native/core/client/route-chunk-recovery";
-import {
-  DefaultSpinner,
-  ErrorReportActions,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -55,6 +51,11 @@ import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 configureTracking({
+  sessionReplay: {
+    console: false,
+    network: false,
+    sensitiveQueryParams: ["q"],
+  },
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-mail",

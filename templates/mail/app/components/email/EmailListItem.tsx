@@ -601,24 +601,20 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Sender name — fixed width column */}
         <span
+          data-an-mask
           className={cn(
             "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate me-3",
             isUnread
               ? "font-semibold text-foreground"
               : "font-normal text-foreground/90",
           )}
-          title={
-            isMultiAccount && email.accountEmail
-              ? `Account: ${email.accountEmail}`
-              : undefined
-          }
         >
           {senderName}
         </span>
 
         {/* Label badges */}
         {displayLabels.length > 0 && (
-          <div className="flex items-center gap-1 shrink-0 me-2">
+          <div data-an-mask className="flex items-center gap-1 shrink-0 me-2">
             {displayLabels.slice(0, 2).map((labelId) => {
               const labelName =
                 labelNames?.get(labelId) ??
@@ -662,7 +658,10 @@ export const EmailListItem = memo(function EmailListItem({
               "flex-col items-start justify-center gap-1 overflow-visible",
           )}
         >
-          <div className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden">
+          <div
+            data-an-mask
+            className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden"
+          >
             <span
               className={cn(
                 "text-sm sm:text-[13px] truncate shrink-0 max-w-[75%]",

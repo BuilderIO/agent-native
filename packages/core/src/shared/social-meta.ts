@@ -1,6 +1,3 @@
-import { APP_STATUS, DEFAULT_APP_STATUS } from "./app-status.js";
-import { AUTH_MARKETING_PRESENTATION } from "./auth-marketing-presentation.js";
-
 export type SocialMetaDescriptor =
   | { title: string }
   | { property: string; content: string }
@@ -10,7 +7,7 @@ export const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE =
   "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9ff332b274a147229544c2bf5877a10d";
 export const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE = "image/jpeg";
 export const AGENT_NATIVE_SOCIAL_IMAGE_PATH = "/_agent-native/og-image.png";
-const AGENT_NATIVE_SOCIAL_IMAGE_DESIGN_VERSION = "signin-brand-v2";
+const AGENT_NATIVE_SOCIAL_IMAGE_DESIGN_VERSION = "app-default-v3";
 
 function fnv1a(value: string): string {
   let hash = 0x811c9dc5;
@@ -26,11 +23,9 @@ export function agentNativeSocialImageCacheBusterFor(content: unknown): string {
 }
 
 export const AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER =
-  agentNativeSocialImageCacheBusterFor([
-    AUTH_MARKETING_PRESENTATION,
-    DEFAULT_APP_STATUS,
-    APP_STATUS,
-  ]);
+  agentNativeSocialImageCacheBusterFor(
+    AGENT_NATIVE_SOCIAL_IMAGE_DESIGN_VERSION,
+  );
 export const AGENT_NATIVE_SOCIAL_IMAGE_WIDTH = "1200";
 export const AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT = "630";
 export const AGENT_NATIVE_SOCIAL_IMAGE_TYPE = "image/png";

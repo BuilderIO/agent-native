@@ -3,29 +3,32 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const settingsSurfaces = [
-  "./settings/SettingsPanel.tsx",
-  "./settings/SecretsSection.tsx",
+  "../../../toolkit/src/app/settings/SettingsPanel.tsx",
+  "../../../toolkit/src/app/settings/SecretsSection.tsx",
 ];
 
 // The Team page is split across these modules. TeamPrimitives owns the Button
 // wrapper the others render through.
 const teamPageModules = [
-  "./org/TeamPage.tsx",
-  "./org/TeamPrimitives.tsx",
-  "./org/TeamOnboardingCards.tsx",
-  "./org/OrgGeneralSection.tsx",
-  "./org/MembersSection.tsx",
-  "./org/MemberAppRoles.tsx",
-  "./org/BulkInviteForm.tsx",
-  "./org/GroupsSection.tsx",
-  "./org/AuthenticationSection.tsx",
-  "./org/OrgIdentitySettings.tsx",
-  "./org/AppsAccessSection.tsx",
+  "../../../toolkit/src/app/org/TeamPage.tsx",
+  "../../../toolkit/src/app/org/TeamPrimitives.tsx",
+  "../../../toolkit/src/app/org/TeamOnboardingCards.tsx",
+  "../../../toolkit/src/app/org/OrgGeneralSection.tsx",
+  "../../../toolkit/src/app/org/MembersSection.tsx",
+  "../../../toolkit/src/app/org/MemberAppRoles.tsx",
+  "../../../toolkit/src/app/org/BulkInviteForm.tsx",
+  "../../../toolkit/src/app/org/GroupsSection.tsx",
+  "../../../toolkit/src/app/org/AuthenticationSection.tsx",
+  "../../../toolkit/src/app/org/OrgIdentitySettings.tsx",
+  "../../../toolkit/src/app/org/AppsAccessSection.tsx",
 ];
 
-const buttonWrapperSurfaces = [...settingsSurfaces, "./org/TeamPrimitives.tsx"];
+const buttonWrapperSurfaces = [
+  ...settingsSurfaces,
+  "../../../toolkit/src/app/org/TeamPrimitives.tsx",
+];
 
-describe("Core design-system primitive normalization", () => {
+describe("Toolkit design-system primitive normalization", () => {
   it.each([...settingsSurfaces, ...teamPageModules])(
     "%s routes buttons and pickers through Toolkit primitives",
     (sourcePath) => {
@@ -55,9 +58,9 @@ describe("Core design-system primitive normalization", () => {
     },
   );
 
-  it("ui/PrimitiveButton.tsx encapsulates Toolkit button and explicit icon dimensions", () => {
+  it("PrimitiveButton.tsx encapsulates Toolkit button and explicit icon dimensions", () => {
     const source = readFileSync(
-      new URL("./ui/PrimitiveButton.tsx", import.meta.url),
+      new URL("../../../toolkit/src/app/PrimitiveButton.tsx", import.meta.url),
       "utf8",
     );
 

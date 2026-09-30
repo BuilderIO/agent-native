@@ -22,7 +22,17 @@ import { readSSEStream } from "../client/sse-event-processor.js";
   assert.match(found[0]!, /owns two readers for one stream/u);
 });
 
-test("flags the React entry too, since it builds a client of its own", () => {
+test("flags the Toolkit React entry, since it builds a client of its own", () => {
+  assert.equal(
+    violations(`
+import { AgentKitRoot } from "@agent-native/toolkit/app/agentkit/react/root";
+import { readSSEStreamRaw } from "./sse-event-processor.js";
+`).length,
+    1,
+  );
+});
+
+test("flags legacy AgentKit React imports too", () => {
   assert.equal(
     violations(`
 import { AgentKitRoot } from "@agent-native/agentkit/react/root";
@@ -75,7 +85,7 @@ import { settleInterruptedToolCalls } from "../sse-event-processor.js";
 test("flags a bare AgentKit side-effect import beside the SSE reader", () => {
   assert.equal(
     violations(`
-import "@agent-native/agentkit/react/styles.css";
+import "@agent-native/toolkit/app/agentkit/react/styles.css";
 import { readSSEStream } from "./sse-event-processor.js";
 `).length,
     1,

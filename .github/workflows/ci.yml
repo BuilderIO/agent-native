@@ -32,9 +32,12 @@ jobs:
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
+      ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
+      query_budget_apps: ${{ steps.scope.outputs.query_budget_apps }}
+      neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       changeset: ${{ steps.scope.outputs.changeset }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
@@ -78,7 +81,7 @@ jobs:
         env:
           CI_FULL: ${{ steps.scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 5
+          LANES: 2
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -188,7 +191,10 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # One worker per core. The shared config's 25% default is for laptops.
+      VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
@@ -249,7 +255,10 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.change-scope.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # One worker per core. The shared config's 25% default is for laptops.
+      VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
@@ -615,6 +624,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
       AUTH_DISABLED: "true"
       BETTER_AUTH_SECRET: neon-query-budget-test-secret
       DATABASE_URL: pglite:memory
@@ -628,12 +638,31 @@ jobs:
         with:
           restore-dist-cache: "true"
 
-      - name: Build and measure every active first-party template
+      # change-scope owns the app list: every template when shared code
+      # changed, otherwise only the templates this change touched.
+      - name: Build and measure the affected first-party templates
+        env:
+          QUERY_BUDGET_APPS: ${{ needs.change-scope.outputs.query_budget_apps }}
         run: |
           set -euo pipefail
-          for app in analytics assets brain calendar chat clips content crm design dispatch factory forms mail plan slides tasks; do
+          mapfile -t apps < <(jq -r '.[]' <<< "$QUERY_BUDGET_APPS")
+          if [ "${#apps[@]}" -eq 0 ]; then
+            echo "::error::change-scope selected the query budget but no templates to measure."
+            exit 1
+          fi
+          echo "Measuring: ${apps[*]}"
+          for app in "${apps[@]}"; do
             app_dir="templates/$app"
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+            release_migrations=""
+            if [[ -f "$app_dir/netlify.toml" ]]; then
+              release_migrations="$(python3 -c 'import pathlib, sys, tomllib; print(tomllib.loads(pathlib.Path(sys.argv[1]).read_text()).get("context", {}).get("production", {}).get("environment", {}).get("AGENT_NATIVE_RELEASE_MIGRATIONS", ""))' "$app_dir/netlify.toml")"
+            fi
+            if [[ "$release_migrations" == "1" ]]; then
+              export AGENT_NATIVE_RELEASE_MIGRATIONS=1
+            else
+              unset AGENT_NATIVE_RELEASE_MIGRATIONS
+            fi
             NITRO_PRESET=netlify pnpm --filter "$app" build
             pnpm ops:neon-query-budget --app "$app" --mode check
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
@@ -642,7 +671,7 @@ jobs:
   neon-connection-budget:
     name: Serverless Postgres connection budget
     needs: change-scope
-    if: needs.change-scope.outputs.neon_query_budget == 'true'
+    if: needs.change-scope.outputs.neon_connection_budget == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -798,6 +827,8 @@ jobs:
     if: needs.change-scope.outputs.ssr_boot == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      SSR_BOOT_APPS: ${{ needs.change-scope.outputs.ssr_boot_apps }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -807,24 +838,32 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, toolkit, core, and creative context
+      - name: Build recap CLI, AgentKit, core, Toolkit, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
-          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
       - name: Build Content template (Cloudflare Workers preset)
+        if: contains(fromJSON(env.SSR_BOOT_APPS), 'content')
         run: NITRO_PRESET=cloudflare_module pnpm --filter content build
 
-      - name: Build Plan, Clips, and Assets templates (netlify preset)
-        run: NITRO_PRESET=netlify pnpm --filter plan --filter clips --filter assets build
-
-      - name: Import SSR handler — must not crash at cold-start
-        run: NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs plan clips assets
+      - name: Build and import the affected Netlify SSR handlers
+        if: >-
+          contains(fromJSON(env.SSR_BOOT_APPS), 'plan') ||
+          contains(fromJSON(env.SSR_BOOT_APPS), 'clips') ||
+          contains(fromJSON(env.SSR_BOOT_APPS), 'assets')
+        run: |
+          mapfile -t apps < <(jq -r '.[] | select(. != "content")' <<< "$SSR_BOOT_APPS")
+          filters=()
+          for app in "${apps[@]}"; do filters+=(--filter "$app"); done
+          NITRO_PRESET=netlify pnpm "${filters[@]}" build
+          NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs "${apps[@]}"
 
       - name: Build and import Plan SSR handlers (Vercel and AWS Lambda)
+        if: contains(fromJSON(env.SSR_BOOT_APPS), 'plan')
         run: |
           NITRO_PRESET=vercel pnpm --filter plan build
           VERCEL=true timeout 120 node scripts/ssr-boot-smoke.mjs --preset vercel plan
@@ -861,9 +900,9 @@ jobs:
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
-          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
       - name: Test unbounded read guards

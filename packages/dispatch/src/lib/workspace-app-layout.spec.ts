@@ -25,9 +25,10 @@ describe("workspace app layout", () => {
   });
 
   it("matches lowercase saved order preferences for mixed-case app ids", () => {
-    const apps = mergeChatFirstWorkspaceApps([
-      { id: "Calendar", name: "Calendar", path: "/calendar" },
-    ]);
+    const apps = mergeChatFirstWorkspaceApps(
+      [{ id: "Calendar", name: "Calendar", path: "/calendar" }],
+      ["mail"],
+    );
     const layout = normalizeWorkspaceAppLayout({
       pinnedIds: ["Calendar"],
       orderedIds: ["Calendar", "Mail"],

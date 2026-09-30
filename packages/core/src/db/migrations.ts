@@ -2,6 +2,7 @@ import {
   createDbExec,
   getDbExec,
   getMigrationDatabaseUrl,
+  HostedRuntimeLocalDatabaseError,
   isPgliteUrl,
   retryOnDdlRace,
   type DbExec,
@@ -408,6 +409,17 @@ export function runMigrations(
         if (!runOnlyPending) await releaseMigrationExec();
       }
     } catch (err) {
+      // A deployed server with no hosted database refuses every database
+      // open, and its sign-in page explains the fix, so exiting below would
+      // take that page down. Recognize the refusal here rather than predicting
+      // it before migrating: a Node server starts refusing once the first
+      // plugin calls getH3App(), which can happen after this plugin began.
+      if (err instanceof HostedRuntimeLocalDatabaseError) {
+        console.error(
+          `[migrations] Skipping "${table}" migrations. ${err.message}`,
+        );
+        return;
+      }
       console.error("[db] Migration failed:", (err as Error).message);
       if (isMigrationAuthorizedRuntime()) throw err;
       const isServerless =

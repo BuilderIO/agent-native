@@ -3,8 +3,6 @@ import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgMembers } from "@agent-native/core/client/org";
 import {
-  buildReviewThreads,
-  ReviewCommentComposer,
   useCreateReviewComment,
   useDeleteReviewComment,
   useReactToReviewComment,
@@ -13,8 +11,6 @@ import {
   useReviewComments,
   useSetReviewThreadUnread,
   useUpdateReviewComment,
-  isTrustedReviewAttachmentUrl,
-  type ReviewThread,
 } from "@agent-native/core/client/review";
 import { uploadEditorImage } from "@agent-native/core/client/uploads";
 import type {
@@ -23,6 +19,12 @@ import type {
   ReviewDiscussionState,
   ReviewMention,
 } from "@agent-native/core/review";
+import {
+  buildReviewThreads,
+  isTrustedReviewAttachmentUrl,
+  type ReviewThread,
+} from "@agent-native/toolkit/app/review";
+import { ReviewCommentComposer } from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {

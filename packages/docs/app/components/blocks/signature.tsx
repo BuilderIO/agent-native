@@ -1,8 +1,8 @@
-import { defineBlock } from "@agent-native/core/blocks";
+import { defineBlock } from "@agent-native/toolkit/app/blocks";
 import type {
   BlockReadProps,
   BlockRenderContext,
-} from "@agent-native/core/blocks";
+} from "@agent-native/toolkit/app/blocks";
 import { IconChevronRight } from "@tabler/icons-react";
 import { useState } from "react";
 

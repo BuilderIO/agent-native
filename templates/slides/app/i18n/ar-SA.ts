@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "التكاملات" } },
   templatesPage: {
     actions: "إجراءات القالب {{title}}",
     previewAction: "معاينة",
@@ -168,6 +169,14 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "توجد أحدث تعديلاتك على هذا الجهاز فقط. نزّل نسخة احتياطية قبل المغادرة.",
+    slideConflictReview: "مراجعة",
+    slideConflictTitle: "تم تغيير هذه الشريحة في مكان آخر",
+    slideConflictDescription:
+      "حفظ محرر آخر نسخة أحدث. سيؤدي الاحتفاظ بمسودتك إلى استبدال محتوى الشريحة المحفوظ، أو يمكنك استخدام أحدث نسخة.",
+    slideConflictUseLatest: "استخدام الأحدث",
+    slideConflictKeepDraft: "الاحتفاظ بمسودتي",
+    slideConflictKeepEditing: "متابعة التحرير",
+    slideConflictResolutionFailed: "تعذر حل التعارض. لا تزال مسودتك هنا.",
     offline: "غير متصل",
     selected: "محدد",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -867,7 +876,7 @@ const messages = {
     },
     importDeck: "استيراد عرض",
     context: {
-      websiteReference: "إرفاق موقع ويب",
+      websiteReference: "إضافة موقع ويب",
       websiteUrlLabel: "عنوان URL لموقع الويب",
       websiteUrl: "الصق عنوان URL لموقع ويب",
       figmaUrlLabel: "رابط Figma",
@@ -881,7 +890,7 @@ const messages = {
       searchPresentations: "البحث في العروض التقديمية…",
       menu: {
         system: "استخدام نظام تصميم",
-        figma: "إرفاق Figma",
+        figma: "إضافة Figma",
         design: "الاستعانة بتصميم",
         deck: "الاستعانة بعرض تقديمي",
         searchDesign: "البحث في التصميم…",
@@ -1060,7 +1069,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
   },
 };

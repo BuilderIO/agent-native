@@ -136,7 +136,7 @@ describe("useSession", () => {
     postMessage.mockClear();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ error: "signed out" })),
+      vi.fn(async () => jsonResponse({ error: "Not authenticated" })),
     );
 
     try {
@@ -188,6 +188,28 @@ describe("useSession", () => {
     expect(container.textContent).toBe("recovered@example.com");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledOnce();
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(true);
+  });
+
+  it("does not treat an unknown session error as signed out", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: "Session unavailable" })),
+    );
+
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toBe("loading");
+    expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(40_000);
+    });
+
+    expect(container.textContent).toBe("unavailable");
+    expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
   });
 
   it("keeps loading and retries after a thrown fetch", async () => {

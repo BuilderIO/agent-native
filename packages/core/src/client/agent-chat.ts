@@ -874,7 +874,18 @@ function parseSubmitChatAttachments(
       const name = typeof item.name === "string" ? item.name : "attachment";
       const attachment: AgentChatAttachment = { type, name };
       const metadata = normalizeMetadata(item.metadata);
-      if (item.displayOnly === true || metadata?.displayOnly === true) {
+      const contentlessPastedText =
+        name.startsWith("pasted-text-") &&
+        !item.data &&
+        !item.url &&
+        !item.text &&
+        item.storageRequired !== true &&
+        item.storageUploadFailed !== true;
+      if (
+        item.displayOnly === true ||
+        metadata?.displayOnly === true ||
+        contentlessPastedText
+      ) {
         attachment.displayOnly = true;
       }
       for (const key of [
@@ -1082,7 +1093,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     if (directHostMessage) {
       void Promise.resolve(directHostMessage)
         .then((ok) => {
-          if (!ok) {
+          if (ok === false) {
             window.parent.postMessage(
               payload,
               getFramePostMessageTargetOrigin() || "*",

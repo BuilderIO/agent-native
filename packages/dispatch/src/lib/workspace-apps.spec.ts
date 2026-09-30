@@ -9,6 +9,7 @@ import {
   isWorkspaceAppVisibleInDefaultLaunchers,
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
+  workspaceAppSourceFromConnected,
   workspaceAppIdFromRoute,
   workspaceAppInitialPathFromSplat,
   workspaceAppRouteForChildPath,
@@ -55,15 +56,18 @@ describe("workspace app routes", () => {
   });
 
   it("marks fallback app descriptions for localization but preserves custom copy", () => {
-    const calendar = mergeChatFirstWorkspaceApps([
-      {
-        id: "calendar",
-        name: "Calendar",
-        description:
-          "Agent-Native Google Calendar — manage events, sync, and public booking",
-        path: "/calendar",
-      },
-    ]).find((app) => app.id === "calendar");
+    const calendar = mergeChatFirstWorkspaceApps(
+      [
+        {
+          id: "calendar",
+          name: "Calendar",
+          description:
+            "Agent-Native Google Calendar — manage events, sync, and public booking",
+          path: "/calendar",
+        },
+      ],
+      [],
+    ).find((app) => app.id === "calendar");
     expect(calendar).toMatchObject({
       description:
         "Agent-Native Google Calendar — manage events, sync, and public booking",
@@ -71,22 +75,26 @@ describe("workspace app routes", () => {
         "dispatch.pages.chatFirstDefaultDescriptionCalendar",
     });
 
-    const mail = mergeChatFirstWorkspaceApps([
-      {
-        id: "mail",
-        name: "Mail",
-        description: "A workspace-specific description",
-        path: "/mail",
-      },
-    ]).find((app) => app.id === "mail");
+    const mail = mergeChatFirstWorkspaceApps(
+      [
+        {
+          id: "mail",
+          name: "Mail",
+          description: "A workspace-specific description",
+          path: "/mail",
+        },
+      ],
+      [],
+    ).find((app) => app.id === "mail");
     expect(mail).toMatchObject({
       description: "A workspace-specific description",
       defaultDescriptionKey: undefined,
     });
 
-    const emptyDescription = mergeChatFirstWorkspaceApps([
-      { id: "mail", name: "Mail", description: "", path: "/mail" },
-    ]).find((app) => app.id === "mail");
+    const emptyDescription = mergeChatFirstWorkspaceApps(
+      [{ id: "mail", name: "Mail", description: "", path: "/mail" }],
+      [],
+    ).find((app) => app.id === "mail");
     expect(emptyDescription).toMatchObject({
       description: "",
       defaultDescriptionKey: undefined,
@@ -96,6 +104,7 @@ describe("workspace app routes", () => {
   it("includes granted-only apps without replacing registered app summaries", () => {
     const apps = mergeChatFirstWorkspaceApps(
       [{ id: "Calendar", name: "Workspace Calendar", path: "/calendar" }],
+      [],
       [
         {
           id: "calendar",
@@ -278,8 +287,19 @@ describe("workspace app routes", () => {
     expect(isWorkspaceAppVisibleInDefaultLaunchers({ id: "mail" })).toBe(true);
   });
 
+  const ALL_CHAT_FIRST_DEFAULTS = [
+    "content",
+    "design",
+    "mail",
+    "calendar",
+    "clips",
+  ];
+
   it("maps default first-party apps to their canonical hosted origins", () => {
-    const apps = mergeChatFirstWorkspaceApps(undefined);
+    const apps = mergeChatFirstWorkspaceApps(
+      undefined,
+      ALL_CHAT_FIRST_DEFAULTS,
+    );
     expect(apps.find((app) => app.id === "content")?.description).toBeTruthy();
     expect(apps).toEqual(
       expect.arrayContaining([
@@ -320,7 +340,7 @@ describe("workspace app routes", () => {
     });
 
     try {
-      const apps = mergeChatFirstWorkspaceApps(undefined);
+      const apps = mergeChatFirstWorkspaceApps(undefined, ["mail"]);
       expect(apps.find((app) => app.id === "mail")?.url).toBe(
         "https://beta.mail.agent-native.com/",
       );
@@ -333,20 +353,51 @@ describe("workspace app routes", () => {
   });
 
   it("lets a mounted workspace app override a default row", () => {
-    const apps = mergeChatFirstWorkspaceApps([
-      {
-        id: "mail",
-        name: "Internal Mail",
-        path: "/internal-mail",
-        url: null,
-        status: "ready",
-      },
-    ]);
+    const apps = mergeChatFirstWorkspaceApps(
+      [
+        {
+          id: "mail",
+          name: "Internal Mail",
+          path: "/internal-mail",
+          url: null,
+          status: "ready",
+        },
+      ],
+      ALL_CHAT_FIRST_DEFAULTS,
+    );
     expect(apps.find((app) => app.id === "mail")).toMatchObject({
       name: "Internal Mail",
       path: "/internal-mail",
       url: null,
+      source: "workspace",
       description: expect.any(String),
     });
+  });
+
+  it("adds only the defaults in the server-resolved built-in list", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      [{ id: "crm", name: "CRM", path: "/crm" }],
+      ["Mail", "slides"],
+    );
+    expect(apps.map((app) => [app.id, app.source])).toEqual([
+      ["mail", "builtin"],
+      ["crm", "workspace"],
+    ]);
+  });
+
+  it("adds no defaults when built-ins are off or not yet resolved", () => {
+    const workspace = [{ id: "crm", name: "CRM", path: "/crm" }];
+    expect(
+      mergeChatFirstWorkspaceApps(workspace, []).map((app) => app.id),
+    ).toEqual(["crm"]);
+    expect(
+      mergeChatFirstWorkspaceApps(workspace, undefined).map((app) => app.id),
+    ).toEqual(["crm"]);
+  });
+
+  it("maps list-connected-agents sources onto sidebar groups", () => {
+    expect(workspaceAppSourceFromConnected("builtin")).toBe("builtin");
+    expect(workspaceAppSourceFromConnected("custom")).toBe("connected");
+    expect(workspaceAppSourceFromConnected("workspace")).toBe("workspace");
   });
 });

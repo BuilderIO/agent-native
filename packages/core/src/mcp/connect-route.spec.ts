@@ -12,7 +12,9 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 const getSessionMock = vi.fn();
-const getConfiguredLoginHtmlMock = vi.fn(() => null);
+const getConfiguredLoginHtmlMock = vi.fn(
+  (): { html: string; status: number } | null => null,
+);
 const isLoopbackRequestMock = vi.fn((event: any) =>
   /^(localhost|127\.|\[?::1\]?)(:|$)/i.test(String(event?.headers?.host ?? "")),
 );
@@ -195,10 +197,24 @@ describe("handleMcpConnect", () => {
   describe("connect page", () => {
     it("serves the configured login HTML when unauthenticated", async () => {
       getSessionMock.mockResolvedValue(null);
-      getConfiguredLoginHtmlMock.mockReturnValue("<html>login</html>");
+      getConfiguredLoginHtmlMock.mockReturnValue({
+        html: "<html>login</html>",
+        status: 200,
+      });
       const res = await handleMcpConnect(ev({}), "/");
       expect(res.status).toBe(200);
       expect(await res.text()).toBe("<html>login</html>");
+    });
+
+    it("passes through the setup page's 503 while sign-in cannot work", async () => {
+      getSessionMock.mockResolvedValue(null);
+      getConfiguredLoginHtmlMock.mockReturnValue({
+        html: "<html>setup</html>",
+        status: 503,
+      });
+      const res = await handleMcpConnect(ev({}), "/");
+      expect(res.status).toBe(503);
+      expect(await res.text()).toBe("<html>setup</html>");
     });
 
     it("renders the connect page for a logged-in user", async () => {

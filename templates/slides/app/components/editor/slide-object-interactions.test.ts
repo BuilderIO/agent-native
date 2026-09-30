@@ -424,17 +424,29 @@ describe("slide object interactions", () => {
     sheet.remove();
   });
 
-  it("re-homes an object dropped outside its box and closes the box's slot", () => {
+  it("keeps the source layout slot when re-homing a dragged object", () => {
     const layer = document.createElement("div");
-    layer.innerHTML = `
-      <div id="card">
-        <div class="fmd-layout-spacer" data-slide-layout-spacer-for="text-id"></div>
-        <div id="text" data-slide-object-id="text-id" style="position:absolute;left:40px;top:300px">Text</div>
-      </div>
-    `;
+    layer.classList.add("fmd-slide");
+    const card = document.createElement("div");
+    card.id = "card";
+    const text = document.createElement("div");
+    text.id = "text";
+    text.textContent = "Text";
+    card.append(text);
+    layer.append(card);
     document.body.append(layer);
-    const card = layer.querySelector<HTMLElement>("#card")!;
-    const text = layer.querySelector<HTMLElement>("#text")!;
+    const spacer = freezeSlideElementForFreeform(
+      text,
+      { x: 40, y: 300, width: 200, height: 20 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+    preserveSlideObjectLayoutSpacer(text);
     layer.getBoundingClientRect = () =>
       DOMRect.fromRect({ width: 960, height: 540 });
     card.getBoundingClientRect = () =>
@@ -444,9 +456,13 @@ describe("slide object interactions", () => {
 
     expect(releaseSlideObjectFromLeftBoxes(text, layer)).toBe(true);
     expect(text.parentElement).toBe(layer);
-    expect(layer.querySelector(".fmd-layout-spacer")).toBeNull();
+    expect(spacer.parentElement).toBe(card);
+    expect(spacer.getAttribute("data-slide-layout-preserved")).toBe("true");
     expect(text.style.left).toBe("40px");
     expect(text.style.top).toBe("300px");
+
+    removeSlideObjectAndLayoutSpacer(text);
+    expect(layer.querySelector(".fmd-layout-spacer")).toBeNull();
     layer.remove();
   });
 

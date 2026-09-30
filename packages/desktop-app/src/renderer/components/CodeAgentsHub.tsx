@@ -21,7 +21,6 @@ import {
   emitChatFirstSessionWatch,
   getChatFirstSurfaceTabsStore,
   orderChatFirstAppIds,
-  preloadAgentChatSurface,
   readChatFirstAppLayout,
   resolveChatFirstAppTarget,
   resolveChatFirstBrowserTarget,
@@ -42,6 +41,9 @@ import {
   type ChatFirstSurfaceKind,
   type ChatFirstSurfaceTab,
 } from "@agent-native/core/client/agent-chat";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { cn } from "@agent-native/toolkit";
+import { preloadAgentChatSurface } from "@agent-native/toolkit/app/chat/AgentSidebar";
 import {
   ChatFirstAgentsPane,
   ChatFirstAppPane,
@@ -56,10 +58,8 @@ import {
   type ChatFirstAppItem,
   type ChatFirstEmbedTarget,
   type ChatFirstPrimaryTab,
-} from "@agent-native/core/client/chat-first";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
-import { FeedbackButton } from "@agent-native/core/client/ui";
-import { cn } from "@agent-native/toolkit";
+} from "@agent-native/toolkit/app/chat/chat-first";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import {
   Tooltip,
   TooltipContent,

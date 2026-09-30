@@ -226,7 +226,7 @@ truthful data, it can call the framework `render-data-widget` action with the
 アクションについて:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/agent-chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -365,10 +365,8 @@ when: (args, result) => {
 SSE または NDJSON ランタイム イベントを返す POST エンドポイントを公開できます:
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",

@@ -9,6 +9,7 @@ import dotenv from "dotenv";
 import {
   isMigrationManifestActive,
   loadMigrationManifestsForProject,
+  type MigrationManifest,
   type MigrationDependency,
   type MigrationDependencyCondition,
 } from "../package-lifecycle/migration-manifest.js";
@@ -203,12 +204,13 @@ export function printUpgradeHelp(io: Pick<UpgradeIo, "log"> = defaultIo): void {
       "  agent-native upgrade              Bring this app/workspace to current @agent-native/*",
       "  agent-native upgrade check        Doctor only: overrides, patches, pending bumps",
       "  agent-native upgrade --dry-run    Show the plan without writing or installing",
-      "  agent-native upgrade --codemods   Preview manifest-driven import migrations",
+      "  agent-native upgrade --codemods   Apply manifest-driven import migrations",
       "",
       "Options:",
       "  --skip-install   Bump package.json only; do not run the package manager",
-      "  --codemods       Rewrite moved Agent-Native imports and exports (preview by default)",
-      "  --yes            Apply codemods; without this flag --codemods is a dry run",
+      "  --codemods       Rewrite moved Agent-Native imports and exports",
+      "  --dry-run        Preview the upgrade and codemods without writing files",
+      "  --yes            Accepted for compatibility; codemods apply by default",
       "  --skip-skills    Skip `skills update scaffold --project`",
       "  --skip-verify    Skip typecheck after upgrade",
       "  --force          Continue even when framework overrides/patches are present",
@@ -442,7 +444,7 @@ function findWorkspaceEnvironmentRoot(
   }
 }
 
-function readUpgradeEnvironment(
+export function readUpgradeEnvironment(
   projectRoot: string,
   packageDir: string,
   shellEnvironment: NodeJS.ProcessEnv,
@@ -481,11 +483,12 @@ function readUpgradeEnvironment(
   return environment;
 }
 
-function loadActiveMigrationDependencies(
+export function loadActiveMigrationDependencies(
   projectRoot: string,
   packageVersion: string | null,
+  manifests = loadMigrationManifestsForProject(projectRoot),
 ): MigrationDependency[] {
-  return loadMigrationManifestsForProject(projectRoot)
+  return manifests
     .filter((manifest) => isMigrationManifestActive(manifest, packageVersion))
     .flatMap((manifest) => manifest.dependencies ?? []);
 }
@@ -799,7 +802,7 @@ function isYarnPnpProject(projectRoot: string): boolean {
   }
 }
 
-function resolveInstalledPackageVersion(
+export function resolveInstalledPackageVersion(
   projectRoot: string,
   packageName: string,
 ): string | null {
@@ -862,7 +865,7 @@ function resolveInstalledPackageVersion(
   return null;
 }
 
-function readCliCoreVersion(): string | null {
+export function readCliCoreVersion(): string | null {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pkgPath = path.resolve(here, "../../package.json");
@@ -1029,7 +1032,7 @@ export async function runUpgrade(
     return doctorOk ? 0 : 1;
   }
 
-  const dryRun = Boolean(opts.dryRun || (opts.codemods && !opts.yes));
+  const dryRun = Boolean(opts.dryRun);
   const result: UpgradeRunResult = {
     ok: true,
     dryRun,
@@ -1472,8 +1475,8 @@ export async function runUpgrade(
   }
 
   result.message = dryRun
-    ? opts.codemods && !opts.yes
-      ? "Codemod preview complete. Re-run with --codemods --yes to apply."
+    ? opts.codemods
+      ? "Codemod preview complete. Re-run without --dry-run to apply."
       : "Dry run complete. Re-run without --dry-run to apply."
     : "Upgrade complete. If the app still fails to run, fix app-level code — do not patch @agent-native/*.";
   emitResult(io, opts, result);

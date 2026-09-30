@@ -4,6 +4,7 @@ import path from "path";
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import { isEmbeddedRuntimeAuthorized } from "./embedded-runtime.js";
 import {
   hasCloudflareRuntime,
@@ -21,7 +22,10 @@ import {
   recordDatabaseQueryResult,
   recordDatabaseRetry,
 } from "./request-telemetry.js";
-import { isServerRuntimeStarted } from "./server-runtime.js";
+import {
+  hasHostedInvocationMarker,
+  isDeployedServerRuntime,
+} from "./server-runtime.js";
 
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
@@ -993,28 +997,62 @@ export function isServerlessRuntime(): boolean {
   );
 }
 
+export { isDeployedServerRuntime } from "./server-runtime.js";
+
 export class HostedRuntimeLocalDatabaseError extends Error {
+  readonly code = DEPLOY_SETTINGS_REQUIRED_CODE;
+
   constructor(source: string) {
     super(
-      `Hosted function invocation resolved to local PGlite (source: ${source}). ` +
-        "DATABASE_URL, DATABASE_URL_UNPOOLED, NETLIFY_DATABASE_URL, NETLIFY_DATABASE_URL_UNPOOLED " +
-        "(and their <APP_NAME>_ prefixed variants) were all empty or masked — refusing to serve " +
-        "requests off an ephemeral per-instance file instead of the shared database.",
+      `This deployed server has no hosted database: it resolved to local PGlite (source: ${source}). ` +
+        "Set DATABASE_URL to a hosted Postgres URL in the host's environment, then redeploy. " +
+        "NETLIFY_DATABASE_URL and <APP_NAME>_DATABASE_URL also work; an _UNPOOLED URL alone does not, " +
+        "because requests use the pooled URL. For local development, use `pnpm dev`, which runs on PGlite.",
     );
     this.name = "HostedRuntimeLocalDatabaseError";
   }
 }
 
+/**
+ * The one decision behind the refusal: the database source this process must
+ * refuse (the env key that resolved to local PGlite, or `"default"` when none
+ * is set), or null when local PGlite is allowed. `assertHostedRuntimeDatabase()`
+ * throws on it, and the setup page that replaces sign-in and the
+ * `/_agent-native/ping?configuration=1` probe report it, so none of them can
+ * disagree with the refusal. Do not give any caller its own copy of these
+ * rules.
+ *
+ * The order is load-bearing:
+ *
+ * - `isMigrationAuthorizedRuntime()` comes first: release scripts and durable
+ *   background workers can be a real hosted invocation (a Netlify background
+ *   function still gets `NETLIFY_FUNCTION_NAME`) and may touch PGlite under
+ *   `withMigrationRuntime()`, which `assertReleaseMigrationTargetsRemoteDatabase()`
+ *   guards separately.
+ * - A hosted function invocation refuses before `isEmbeddedRuntimeAuthorized()`
+ *   is consulted: Netlify/Vercel/Lambda/Cloudflare are never a legitimate
+ *   home for an intentionally embedded desktop app, so an embedded host that
+ *   ends up running as one hits the same per-instance failure either way.
+ * - The embedded exemption covers only the bare Node/Docker rule below:
+ *   `createAgentNativeEmbeddedPlugin()` hosts (packaged/desktop installs)
+ *   deliberately pass a `pglite:` `databaseUrl`, and
+ *   `configureAgentNativeEmbeddedEnvironment()` claims the duty when they do.
+ * - Bare Node/Docker has no platform marker, so it refuses when a production
+ *   server bundle is actually serving. Never gate this on `NODE_ENV`: build
+ *   steps set `NODE_ENV=production` and `node .output/server/index.mjs` runs
+ *   without it (see db/server-runtime.ts).
+ */
+export function getRefusedLocalDatabaseSource(): string | null {
+  if (isMigrationAuthorizedRuntime()) return null;
+  if (!isLocalDatabase()) return null;
+  if (hasHostedInvocationMarker()) return getRuntimeDatabaseSource();
+  if (isEmbeddedRuntimeAuthorized()) return null;
+  return isDeployedServerRuntime() ? getRuntimeDatabaseSource() : null;
+}
+
 export function assertHostedRuntimeDatabase(): void {
-  if (isMigrationAuthorizedRuntime()) return;
-  if (!isLocalDatabase()) return;
-  if (isHostedFunctionInvocationRuntime() || hasCloudflareRuntime()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
-  if (isEmbeddedRuntimeAuthorized()) return;
-  if (process.env.NODE_ENV === "production" && isServerRuntimeStarted()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
+  const source = getRefusedLocalDatabaseSource();
+  if (source !== null) throw new HostedRuntimeLocalDatabaseError(source);
 }
 
 const SCHEMA_MUTATION_STATEMENT =

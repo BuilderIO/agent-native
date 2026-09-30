@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrationen" } },
   templatesPage: {
     actions: "Vorlagenaktionen für {{title}}",
     previewAction: "Vorschau",
@@ -174,6 +175,15 @@ const messages = {
     saveReconnect: "Änderungen werden nach Wiederverbindung gespeichert",
     saveFailedDescription:
       "Deine neuesten Änderungen sind nur auf diesem Gerät gespeichert. Lade vor dem Verlassen ein Backup herunter.",
+    slideConflictReview: "Prüfen",
+    slideConflictTitle: "Diese Folie wurde an anderer Stelle geändert",
+    slideConflictDescription:
+      "Eine andere Person hat eine neuere Version gespeichert. Wenn du deinen Entwurf behältst, wird der gespeicherte Folieninhalt ersetzt. Oder verwende die neueste Version.",
+    slideConflictUseLatest: "Neueste Version verwenden",
+    slideConflictKeepDraft: "Meinen Entwurf behalten",
+    slideConflictKeepEditing: "Weiter bearbeiten",
+    slideConflictResolutionFailed:
+      "Der Konflikt konnte nicht aufgelöst werden. Dein Entwurf ist weiterhin hier.",
     offline: "Offline",
     selected: "ausgewählt",
     chooseDesignSystem: "Designsystem auswählen",
@@ -875,7 +885,7 @@ const messages = {
     },
     importDeck: "Präsentation importieren",
     context: {
-      websiteReference: "Website anhängen",
+      websiteReference: "Website hinzufügen",
       websiteUrlLabel: "Website-URL",
       websiteUrl: "Website-URL einfügen",
       figmaUrlLabel: "Figma-Link",
@@ -890,7 +900,7 @@ const messages = {
       searchPresentations: "Präsentationen suchen…",
       menu: {
         system: "Ein Designsystem verwenden",
-        figma: "Figma anhängen",
+        figma: "Figma hinzufügen",
         design: "Ein Design als Referenz verwenden",
         deck: "Eine Präsentation als Referenz verwenden",
         searchDesign: "Design durchsuchen…",
@@ -1074,7 +1084,8 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
   },
 };

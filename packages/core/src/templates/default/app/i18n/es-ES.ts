@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "Desconectando…",
   },
   settings: {
+    backHome: "Volver al inicio",
+    title: "Ajustes",
+    description: "Administra los ajustes de la aplicación y del idioma.",
+    languageTitle: "Idioma de la interfaz",
+    languageDescription: "Elige el idioma que se usa en esta aplicación.",
+    languageLabel: "Idioma",
     agentTitle: "Ajustes del agente",
     agentDescription:
       "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
@@ -667,9 +673,10 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "volver a la lista",
     promoteMustContain: "La respuesta debe incluir…",
-    promoteMustContainOptional: "La respuesta debe incluir (opcional)",
+    promoteMustContainOptional:
+      "Texto opcional que se comprobará en la respuesta…",
     promoteMustContainLabel:
-      "Texto que debe incluir la respuesta de evaluación promovida",
+      "Texto que se comprobará en la respuesta de la evaluación promovida",
     promoteNeedsContains:
       "Esta ejecución no tiene ninguna llamada de herramienta exitosa. Introduce el texto que debe incluir la respuesta antes de promoverla a evaluación.",
     spans: "Spans",

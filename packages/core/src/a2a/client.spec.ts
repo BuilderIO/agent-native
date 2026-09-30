@@ -1525,6 +1525,9 @@ describe("A2AClient", () => {
     await expect(
       callAgent("https://slides.agent.test", "make a deck", {
         timeoutMs: 3,
+        // A 3 ms budget shared with submission can expire before the task
+        // exists, which fails with a request deadline instead of the timeout.
+        submissionTimeoutMs: 1_000,
         pollIntervalMs: 1,
         returnRecoverableArtifactsOnTimeout: false,
       }),

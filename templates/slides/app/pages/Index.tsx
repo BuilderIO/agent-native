@@ -1,11 +1,9 @@
 import {
-  BuilderSetupCard,
   fetchAgentEngineConfiguredState,
   type AgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
   deleteClientAppState,
@@ -13,14 +11,12 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import {
   FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
   fetchFirstRunOnboardingStatus,
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -33,6 +29,10 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
@@ -95,7 +95,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   describeDeckPersistenceFailure,
   type Deck,
@@ -111,6 +110,8 @@ import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import {
   formatSlidesComposerContext,
+  readSlidesComposerContext,
+  type SlidesComposerContext,
   type SlidesPromptSubmitOptions,
 } from "@/lib/composer-context";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
@@ -137,6 +138,7 @@ import {
   importUploadedDeckIntoDeck,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
+import { findPromptReferenceDeckId } from "@/lib/new-deck-reference-selection";
 import type { UploadedFile } from "@/lib/prompt-file-uploads";
 import {
   forgetRecentReference,
@@ -228,6 +230,8 @@ interface DeckGenerationRetryState {
   retryImportedReference?: ImportedReferenceSource;
   retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
+  retryComposerContext?: SlidesComposerContext;
+  retryContextItems?: SlidesPromptSubmitOptions["contextItems"];
   modelSelection?: DeckModelSelection;
 }
 
@@ -412,6 +416,8 @@ async function loadReferenceDeckGenerationContext(
 export default function Index({ active = true }: { active?: boolean }) {
   const t = useT();
   const location = useLocation();
+  const generationRetryState =
+    location.state as DeckGenerationRetryState | null;
   const routeIsHome = useMatch("/home") !== null;
   const isHome = active && routeIsHome;
   const {
@@ -447,8 +453,10 @@ export default function Index({ active = true }: { active?: boolean }) {
   const preflightRequestIdRef = useRef(0);
   const effectiveAgentEngineState =
     preflightAgentEngineState ?? agentEngine.state;
-  const agentEngineConfigured = effectiveAgentEngineState === "configured";
-  const agentEngineMissing = effectiveAgentEngineState === "missing";
+  const agentEngineConfigured =
+    effectiveAgentEngineState === "configured" && !agentEngine.missing;
+  const agentEngineMissing =
+    effectiveAgentEngineState === "missing" || agentEngine.missing;
   const canChatRef = useRef(agentEngineConfigured);
   canChatRef.current = agentEngineConfigured;
   useEffect(() => {
@@ -531,6 +539,10 @@ export default function Index({ active = true }: { active?: boolean }) {
   const [newDeckRetryAttachments, setNewDeckRetryAttachments] = useState<
     ReadonlyArray<PromptChatAttachment>
   >([]);
+  const [newDeckRetryComposerContext, setNewDeckRetryComposerContext] =
+    useState<SlidesComposerContext>();
+  const [newDeckRetryContextItems, setNewDeckRetryContextItems] =
+    useState<SlidesPromptSubmitOptions["contextItems"]>();
   const [newDeckRetryModelSelection, setNewDeckRetryModelSelection] = useState<
     DeckModelSelection | undefined
   >();
@@ -539,9 +551,12 @@ export default function Index({ active = true }: { active?: boolean }) {
     files: UploadedFile[];
     referenceFilePaths: string[];
     importedReference?: ImportedReferenceSource;
+    referenceDeckId?: string;
     context?: string;
     attachments: ReadonlyArray<PromptChatAttachment>;
     modelSelection?: DeckModelSelection;
+    composerContext?: SlidesComposerContext;
+    contextItems?: SlidesPromptSubmitOptions["contextItems"];
   } | null>(null);
   const pendingDeckAttachmentActionsRef =
     useRef<PromptAttachmentActions | null>(null);
@@ -615,6 +630,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const initialReferenceDeckId = lastUsedReferenceDeckId;
   const composerContext = useSlidesComposerContext({
     active,
+    initialSelection: generationRetryState?.retryComposerContext,
     defaultDesignSystemId: initialDesignSystemId,
     defaultReferenceDeck: decks.find(
       (deck) => deck.id === initialReferenceDeckId,
@@ -780,6 +796,8 @@ export default function Index({ active = true }: { active?: boolean }) {
           setNewDeckRetryContext(undefined);
           setNewDeckRetryPrompt(undefined);
           setNewDeckRetryAttachments([]);
+          setNewDeckRetryComposerContext(undefined);
+          setNewDeckRetryContextItems(undefined);
           setNewDeckRetryModelSelection(undefined);
         }
       }
@@ -812,6 +830,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckRetryReferenceFilePaths([]);
       setNewDeckRetryImportedReference(undefined);
       setNewDeckRetryAttachments(options.attachments ?? []);
+      setNewDeckRetryComposerContext(undefined);
+      setNewDeckRetryContextItems(undefined);
       setNewDeckRetryModelSelection(options.modelSelection);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
@@ -890,6 +910,8 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
+    setNewDeckRetryComposerContext(state.retryComposerContext);
+    setNewDeckRetryContextItems(state.retryContextItems);
     setNewDeckRetryModelSelection(state.modelSelection);
     setShowNewDeckPrompt(true);
     void navigate(".", { replace: true, state: null });
@@ -947,14 +969,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       return;
     }
 
-    const filesForGeneration = mergeUploadedFilesForRetry(
-      newDeckRetryFiles,
-      files,
-    );
-    const attachmentsForGeneration = [
-      ...newDeckRetryAttachments,
-      ...attachments,
-    ];
+    const filesForGeneration = files;
+    const attachmentsForGeneration = attachments;
     const designSystemId =
       referenceSelection.designSystemId !== undefined
         ? referenceSelection.designSystemId
@@ -1052,7 +1068,10 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckRetryReferenceFilePaths([...referenceFilePaths]);
       setNewDeckRetryImportedReference(importedReferenceSource);
       setNewDeckRetryAttachments(attachmentsForGeneration);
+      setNewDeckRetryComposerContext(referenceSelection.composerContext);
+      setNewDeckRetryContextItems(referenceSelection.contextItems);
       setNewDeckRetryModelSelection(modelSelection);
+      setIsStartingNewDeck(false);
       clearStartedGenerationAttempt(generationAttemptId, deckId);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
@@ -1069,6 +1088,8 @@ export default function Index({ active = true }: { active?: boolean }) {
             retryImportedReference: importedReferenceSource,
             retryContext: additionalContext || undefined,
             retryAttachments: attachmentsForGeneration,
+            retryComposerContext: referenceSelection.composerContext,
+            retryContextItems: referenceSelection.contextItems,
             modelSelection,
           } satisfies DeckGenerationRetryState,
           flushSync: true,
@@ -1133,6 +1154,8 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryContext(undefined);
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryAttachments([]);
+    setNewDeckRetryComposerContext(undefined);
+    setNewDeckRetryContextItems(undefined);
     setNewDeckRetryModelSelection(undefined);
     const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
@@ -1353,14 +1376,22 @@ export default function Index({ active = true }: { active?: boolean }) {
       attachments: ReadonlyArray<PromptChatAttachment> = [],
       modelSelection?: DeckModelSelection,
     ) => {
+      const filesForGeneration = mergeUploadedFilesForRetry(
+        newDeckRetryFiles,
+        files,
+      );
+      const attachmentsForGeneration = [
+        ...newDeckRetryAttachments,
+        ...attachments,
+      ];
       const generation = Promise.resolve().then(() =>
         handleCreateDeckWithPrompt(
           prompt,
-          files,
+          filesForGeneration,
           referenceSelection,
           context,
-          attachments,
-          modelSelection,
+          attachmentsForGeneration,
+          modelSelection ?? newDeckRetryModelSelection,
         ),
       );
       pendingDeckGenerationRef.current = generation;
@@ -1378,7 +1409,13 @@ export default function Index({ active = true }: { active?: boolean }) {
       );
       return generation;
     },
-    [handleCreateDeckWithPrompt, settlePendingDeckAttachments],
+    [
+      handleCreateDeckWithPrompt,
+      newDeckRetryFiles,
+      newDeckRetryAttachments,
+      newDeckRetryModelSelection,
+      settlePendingDeckAttachments,
+    ],
   );
 
   useEffect(() => {
@@ -1401,34 +1438,81 @@ export default function Index({ active = true }: { active?: boolean }) {
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
+      const retryComposerContext =
+        options?.slidesContext ??
+        (prompt === newDeckRetryPrompt
+          ? newDeckRetryComposerContext
+          : undefined);
+      const retryContextItems =
+        options?.contextItems ??
+        (prompt === newDeckRetryPrompt ? newDeckRetryContextItems : undefined);
+      const retryReferenceFilePaths =
+        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
+      const carriedImportedReference =
+        newDeckRetryFiles.length > 0
+          ? newDeckRetryImportedReference
+          : undefined;
+      const carriedDeckMissing =
+        carriedImportedReference !== undefined &&
+        !decks.some((deck) => deck.id === carriedImportedReference.deckId);
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-      if (options?.slidesContext) {
+      const promptReferenceDeckId = findPromptReferenceDeckId(
+        prompt,
+        window.location.origin,
+        decks,
+      );
+      const hasExplicitComposerDeckReference =
+        retryComposerContext?.references.some(
+          (reference) => reference.source === "slides",
+        ) ?? false;
+      if (
+        retryComposerContext &&
+        ((!promptReferenceDeckId &&
+          (retryComposerContext.designSystemId ||
+            retryComposerContext.references.length > 0)) ||
+          hasExplicitComposerDeckReference)
+      ) {
         void runPendingDeckGeneration(
           prompt,
           files,
           {
-            designSystemId: options.slidesContext.designSystemId,
-            referenceDeckId: null,
-            composerContext: options.slidesContext,
-            contextItems: options.contextItems,
+            designSystemId: retryComposerContext.designSystemId,
+            referenceDeckId: carriedDeckMissing
+              ? null
+              : (carriedImportedReference?.deckId ?? null),
+            referenceFilePaths: retryReferenceFilePaths,
+            ...(!carriedDeckMissing && carriedImportedReference
+              ? {
+                  importedReferenceFilePath: carriedImportedReference.filePath,
+                }
+              : {}),
+            composerContext: retryComposerContext,
+            contextItems: retryContextItems,
           },
           retryContext,
           attachments.attachments,
-          options,
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,
         );
         return "retain" as const;
       }
-      const retryReferenceFilePaths =
-        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
       setPendingDeck({
         prompt,
         files,
         referenceFilePaths: retryReferenceFilePaths,
         importedReference:
           retryReferenceFilePaths.length > 0
-            ? newDeckRetryImportedReference
+            ? carriedImportedReference
             : undefined,
         context: retryContext,
+        ...(promptReferenceDeckId
+          ? { referenceDeckId: promptReferenceDeckId }
+          : {}),
         attachments: [
           ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
           ...attachments.attachments,
@@ -1440,12 +1524,20 @@ export default function Index({ active = true }: { active?: boolean }) {
               effort: options.effort,
             }
           : newDeckRetryModelSelection,
+        ...(retryComposerContext
+          ? {
+              composerContext: retryComposerContext,
+              contextItems: retryContextItems,
+            }
+          : {}),
       });
       setNewDeckRetryPrompt(undefined);
       setNewDeckRetryReferenceFilePaths([]);
       setNewDeckRetryImportedReference(undefined);
       setNewDeckRetryContext(undefined);
       setNewDeckRetryAttachments([]);
+      setNewDeckRetryComposerContext(undefined);
+      setNewDeckRetryContextItems(undefined);
       setNewDeckRetryModelSelection(undefined);
       setShowNewDeckReferenceStep(true);
       return "retain" as const;
@@ -1456,8 +1548,11 @@ export default function Index({ active = true }: { active?: boolean }) {
       newDeckRetryReferenceFilePaths,
       newDeckRetryImportedReference,
       newDeckRetryContext,
+      newDeckRetryComposerContext,
+      newDeckRetryContextItems,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
+      decks,
       setNewDeckPromptOpen,
       runPendingDeckGeneration,
     ],
@@ -1472,6 +1567,8 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryImportedReference(undefined);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryAttachments([]);
+    setNewDeckRetryComposerContext(undefined);
+    setNewDeckRetryContextItems(undefined);
     setNewDeckRetryModelSelection(undefined);
     setPendingDeck({
       prompt: "",
@@ -1524,10 +1621,14 @@ export default function Index({ active = true }: { active?: boolean }) {
 
       try {
         if (selection.kind === "pptx") {
-          const imported = (await callAction("import-pptx", {
-            filePath: file.path,
-            designSystemId: initialDesignSystemId,
-          })) as {
+          const imported = (await callAction(
+            "import-pptx",
+            {
+              filePath: file.path,
+              designSystemId: initialDesignSystemId,
+            },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
             id?: unknown;
             imported?: unknown;
             slideCount?: unknown;
@@ -1569,12 +1670,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         }
 
         try {
-          const imported = (await callAction("import-file", {
-            filePath: file.path,
-            format: "pdf",
-            deckId: deck.id,
-            importIntoDeck: true,
-          })) as {
+          const imported = (await callAction(
+            "import-file",
+            {
+              filePath: file.path,
+              format: "pdf",
+              deckId: deck.id,
+              importIntoDeck: true,
+            },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
             imported?: unknown;
             deckId?: unknown;
             pageCount?: unknown;
@@ -1650,11 +1755,34 @@ export default function Index({ active = true }: { active?: boolean }) {
         (carriedDeckSelected && !carriedDeckMissing
           ? carriedImportedReference.filePath
           : undefined);
+      let composerContext = pending.composerContext;
+      let contextItems = pending.contextItems;
+      if (
+        composerContext &&
+        (composerContext.designSystemId !== selection.designSystemId ||
+          !contextItems)
+      ) {
+        const nextComposerContext = {
+          ...composerContext,
+          designSystemId:
+            selection.designSystemId === undefined
+              ? composerContext.designSystemId
+              : selection.designSystemId,
+        };
+        composerContext = nextComposerContext;
+        contextItems = await readSlidesComposerContext(
+          nextComposerContext,
+          t("home.context.emptySource"),
+          t("home.context.figmaReadFailed"),
+          t("home.context.websiteReadFailed"),
+        );
+      }
       const generation = runPendingDeckGeneration(
         pending.prompt,
         pending.files,
         {
           ...selection,
+          ...(composerContext ? { composerContext, contextItems } : {}),
           ...(referenceFilePaths.length > 0 ? { referenceFilePaths } : {}),
           ...(importedReferenceFilePath ? { importedReferenceFilePath } : {}),
           ...(carriedDeckMissing ? { referenceDeckId: null } : {}),
@@ -1673,6 +1801,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       pendingDeck,
       rememberReference,
       runPendingDeckGeneration,
+      t,
     ],
   );
 
@@ -1913,7 +2042,9 @@ export default function Index({ active = true }: { active?: boolean }) {
       setShowNewDeckReferenceStep(false);
       return;
     }
-    forgetReference("design-system");
+    if (!pending.composerContext?.designSystemId) {
+      forgetReference("design-system");
+    }
     forgetReference("deck");
     if (!pending.prompt.trim() && pending.files.length === 0) {
       setShowNewDeckReferenceStep(false);
@@ -1925,8 +2056,14 @@ export default function Index({ active = true }: { active?: boolean }) {
       pending.prompt,
       pending.files,
       {
-        designSystemId: null,
+        designSystemId: pending.composerContext?.designSystemId ?? null,
         referenceDeckId: null,
+        ...(pending.composerContext
+          ? {
+              composerContext: pending.composerContext,
+              contextItems: pending.contextItems,
+            }
+          : {}),
         ...(pending.referenceFilePaths.length > 0
           ? { referenceFilePaths: pending.referenceFilePaths }
           : {}),
@@ -2108,13 +2245,6 @@ export default function Index({ active = true }: { active?: boolean }) {
             bouncePulse={setupCardBouncePulse}
             onConnected={retryAgentEngineStatus}
           />
-        ) : effectiveAgentEngineState === "unknown" ? (
-          <div className="mb-2 flex justify-center">
-            <Spinner
-              aria-label={t("common.loading")}
-              className="size-4 text-muted-foreground"
-            />
-          </div>
         ) : null
       }
       composer={
@@ -2218,7 +2348,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome ? (
+        isHome && quickActionsEnabled ? (
           <AgentSuggestionBar
             suggestions={homeSuggestions.map((suggestion, index) => ({
               ...suggestion,
@@ -2372,6 +2502,8 @@ export default function Index({ active = true }: { active?: boolean }) {
               setNewDeckRetryImportedReference(pending.importedReference);
               setNewDeckRetryContext(pending.context);
               setNewDeckRetryAttachments(pending.attachments);
+              setNewDeckRetryComposerContext(pending.composerContext);
+              setNewDeckRetryContextItems(pending.contextItems);
               setNewDeckRetryModelSelection(pending.modelSelection);
               setNewDeckInitialPrompt({
                 text: pending.prompt,
@@ -2383,8 +2515,14 @@ export default function Index({ active = true }: { active?: boolean }) {
         }}
         designSystems={designSystems}
         decks={decks}
-        defaultDesignSystemId={initialDesignSystemId}
-        defaultReferenceDeckId={initialReferenceDeckId}
+        defaultDesignSystemId={
+          pendingDeck?.composerContext
+            ? pendingDeck.composerContext.designSystemId
+            : initialDesignSystemId
+        }
+        defaultReferenceDeckId={
+          pendingDeck?.referenceDeckId ?? initialReferenceDeckId
+        }
         onDesignSystemsChanged={() => void refetchDesignSystems()}
         onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}

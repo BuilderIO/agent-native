@@ -1050,6 +1050,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "कस्टम रेंज",
     untitledDashboard: "शीर्षक रहित डैशबोर्ड",
     dashboardFallback: "डैशबोर्ड",
     viewOnly: "आपके पास इस डैशबोर्ड तक केवल देखने की पहुंच है।",

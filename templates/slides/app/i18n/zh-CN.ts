@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "集成" } },
   templatesPage: {
     actions: "{{title}} 的模板操作",
     previewAction: "预览",
@@ -166,6 +167,14 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "你最近的编辑内容仅保存在此设备上。离开前请下载备份。",
+    slideConflictReview: "查看",
+    slideConflictTitle: "此幻灯片已在其他位置更改",
+    slideConflictDescription:
+      "其他编辑者保存了较新的版本。保留草稿会替换已保存的幻灯片内容，也可以使用最新版本。",
+    slideConflictUseLatest: "使用最新版本",
+    slideConflictKeepDraft: "保留我的草稿",
+    slideConflictKeepEditing: "继续编辑",
+    slideConflictResolutionFailed: "无法解决冲突。你的草稿仍保留在此。",
     offline: "离线",
     selected: "已选择",
     chooseDesignSystem: "デザインシステムを選択",
@@ -827,7 +836,7 @@ const messages = {
     },
     importDeck: "导入演示文稿",
     context: {
-      websiteReference: "附加网站",
+      websiteReference: "添加网站",
       websiteUrlLabel: "网站 URL",
       websiteUrl: "粘贴网站 URL",
       figmaUrlLabel: "Figma 链接",
@@ -840,7 +849,7 @@ const messages = {
       searchPresentations: "搜索演示文稿…",
       menu: {
         system: "使用设计系统",
-        figma: "附加 Figma",
+        figma: "添加 Figma",
         design: "参考设计",
         deck: "参考演示文稿",
         searchDesign: "搜索设计…",
@@ -1013,7 +1022,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "无法检查 AI 连接。",
+      providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
   },
 };

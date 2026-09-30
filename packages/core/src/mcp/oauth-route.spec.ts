@@ -23,7 +23,10 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 const getSessionMock = vi.fn();
-const getConfiguredLoginHtmlMock = vi.fn(() => "<form>Sign in</form>");
+const getConfiguredLoginHtmlMock = vi.fn(() => ({
+  html: "<form>Sign in</form>",
+  status: 200,
+}));
 vi.mock("../server/auth.js", () => ({
   getSession: (...a: any[]) => getSessionMock(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),

@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "इंटीग्रेशन" } },
   templatesPage: {
     actions: "{{title}} टेम्पलेट की कार्रवाइयाँ",
     previewAction: "पूर्वावलोकन",
@@ -168,6 +169,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "आपके नवीनतम बदलाव केवल इसी डिवाइस पर हैं। जाने से पहले बैकअप डाउनलोड करें।",
+    slideConflictReview: "समीक्षा करें",
+    slideConflictTitle: "यह स्लाइड कहीं और बदली गई है",
+    slideConflictDescription:
+      "किसी अन्य संपादक ने नया संस्करण सहेजा है। अपना ड्राफ़्ट रखने से सहेजी गई स्लाइड की सामग्री बदल जाएगी, या नवीनतम संस्करण का उपयोग करें।",
+    slideConflictUseLatest: "नवीनतम संस्करण उपयोग करें",
+    slideConflictKeepDraft: "मेरा ड्राफ़्ट रखें",
+    slideConflictKeepEditing: "संपादन जारी रखें",
+    slideConflictResolutionFailed:
+      "संघर्ष हल नहीं हो सका। आपका ड्राफ़्ट अभी भी यहाँ है।",
     offline: "ऑफ़लाइन",
     selected: "चयनित",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -857,7 +867,7 @@ const messages = {
       searchPresentations: "प्रस्तुतियाँ खोजें…",
       menu: {
         system: "डिज़ाइन सिस्टम का उपयोग करें",
-        figma: "Figma संलग्न करें",
+        figma: "Figma जोड़ें",
         design: "डिज़ाइन का संदर्भ लें",
         deck: "प्रस्तुति का संदर्भ लें",
         searchDesign: "डिज़ाइन खोजें…",
@@ -1036,7 +1046,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+      providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },
   },
 };

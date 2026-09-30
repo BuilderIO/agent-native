@@ -270,6 +270,7 @@ import {
   aiFilterBackfillRetryDelay,
   checkpointAppliedBackfillMutation,
   processMailAiFilterBackfills,
+  readMailAiFilterBackfill,
   requestMailAiFilterBackfillUndo,
   sanitizeBackfillError,
   startMailAiFilterBackfill,
@@ -691,6 +692,7 @@ describe("startMailAiFilterBackfill", () => {
     );
     expect(saved.error.length).toBeLessThanOrEqual(500);
     expect(saved.failedKeys).toEqual(["local:thread-a"]);
+    expect(saved.failedRuleId).toBe(activeRule.id);
   });
 
   it("reports terminal errors outside candidate processing alongside partial coverage", async () => {
@@ -789,6 +791,69 @@ describe("startMailAiFilterBackfill", () => {
       [],
     );
   });
+
+  it.each(["inbox sync", "post-mutation read"] as const)(
+    "checkpoints Gmail changes before a failing %s",
+    async (failurePoint) => {
+      mocks.gmailGetThread.mockReset();
+      mocks.gmailModifyThread.mockReset();
+      mocks.syncInboxLabelDelta.mockReset();
+      const activeRule = rule("rule-a");
+      const state: any = backfillState([activeRule]);
+      const candidate = state.candidates[0];
+      const key = "account@example.test:thread-gmail";
+      state.candidates = [
+        {
+          ...candidate,
+          key,
+          accountEmail: "account@example.test",
+          threadId: "thread-gmail",
+          email: {
+            ...candidate.email,
+            id: "thread-gmail",
+            threadId: "thread-gmail",
+            accountEmail: "account@example.test",
+          },
+          messageIds: ["message-gmail"],
+        },
+      ];
+      state.evaluations = {
+        [key]: [{ ruleId: activeRule.id, confidence: 0.95 }],
+      };
+      const row = runningRow([activeRule]);
+      row.stateJson = JSON.stringify(state);
+      database.rows.push(row);
+      mocks.rules = [activeRule];
+      mocks.getClientsWithErrors.mockResolvedValue({
+        clients: [
+          { email: "account@example.test", accessToken: "account-token" },
+        ],
+        errors: [],
+      });
+      mocks.gmailGetThread
+        .mockResolvedValueOnce({
+          messages: [{ id: "message-gmail", labelIds: ["INBOX"] }],
+        })
+        .mockRejectedValueOnce(new Error("Post-mutation read failed."));
+      mocks.gmailModifyThread.mockResolvedValue({ historyId: "history-1" });
+      if (failurePoint === "inbox sync") {
+        mocks.syncInboxLabelDelta.mockRejectedValue(
+          new Error("Inbox sync failed."),
+        );
+      } else {
+        mocks.syncInboxLabelDelta.mockResolvedValue(undefined);
+      }
+
+      await processMailAiFilterBackfills(ownerEmail);
+
+      const status = await readMailAiFilterBackfill(ownerEmail, row.id);
+      expect(row.status).toBe("failed");
+      expect(status.appliedThreads).toBe(1);
+      expect(status.failedRuleId).toBeUndefined();
+      expect(status.undoToken).toBe(row.undoToken);
+      expect(JSON.parse(row.stateJson).appliedThreadKeys).toEqual([key]);
+    },
+  );
 
   it("retries partial Gmail refresh failures before capturing candidates", async () => {
     const activeRule = rule("rule-a");
@@ -1134,6 +1199,41 @@ describe("startMailAiFilterBackfill", () => {
         ["rule-b", mocks.rules[1].updatedAt],
       ]),
     );
+  });
+
+  it("resumes a failed same-version run with saved undo snapshots", async () => {
+    mocks.rules = [rule("rule-a")];
+    const started = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
+    const row = database.rows[0];
+    const undoToken = row.undoToken;
+    const state = JSON.parse(row.stateJson);
+    state.snapshots["local:thread-a"] = {
+      key: "local:thread-a",
+      threadId: "thread-a",
+      local: true,
+      messages: [{ id: "saved-incoming", labels: {} }],
+    };
+    state.retryCount = 6;
+    state.retryAfterAt = Date.now() + 60_000;
+    state.error = "fetch failed";
+    row.status = "failed";
+    row.undoExpiresAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(state);
+
+    const resumed = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
+
+    expect(resumed).toEqual({ runId: started.runId, status: "queued" });
+    expect(database.rows).toHaveLength(1);
+    expect(row.status).toBe("queued");
+    expect(row.undoToken).toBe(undoToken);
+    expect(row.undoExpiresAt).toBeGreaterThan(Date.now());
+    expect(row.expiresAt).toBeGreaterThan(Date.now());
+    expect(JSON.parse(row.stateJson)).toMatchObject({
+      retryCount: 0,
+      snapshots: state.snapshots,
+    });
+    expect(JSON.parse(row.stateJson)).not.toHaveProperty("retryAfterAt");
+    expect(JSON.parse(row.stateJson)).not.toHaveProperty("error");
   });
 
   it("rejects concurrent starts whose rule sets overlap", async () => {

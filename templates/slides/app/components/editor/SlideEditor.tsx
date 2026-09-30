@@ -2123,7 +2123,10 @@ export default function SlideEditor({
   }, [onUpdateSlide]);
   const textSessionRef = useRef<TextEditSession | null>(null);
   const exitInlineEditRef = useRef<
-    (newer?: SlideContentReplaceDetail) => string | undefined
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit?: boolean,
+    ) => string | undefined
   >(() => undefined);
   /**
    * Every other content write commits an open text edit first. The write
@@ -2722,7 +2725,10 @@ export default function SlideEditor({
 
   /** Exit edit mode, saving changed content without changing its layout. */
   const exitInlineEdit = useCallback(
-    (newer?: SlideContentReplaceDetail): string | undefined => {
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit = false,
+    ): string | undefined => {
       const el = editingElRef.current;
       if (!el) return;
 
@@ -2765,11 +2771,15 @@ export default function SlideEditor({
         selectedObjectIds: resolveSelectedElement() ? ["selected"] : [],
       });
       setEditingEl(null);
-      if (escape.action === "select-object" && selectionTarget && selector) {
-        selectElementForStyling(selectionTarget, selector);
-      } else if (escape.action === "clear-selection") {
+      if (clearSelectionAfterExit || escape.action === "clear-selection") {
         clearSelectedElement();
         syncSelectionToAppState(null);
+      } else if (
+        escape.action === "select-object" &&
+        selectionTarget &&
+        selector
+      ) {
+        selectElementForStyling(selectionTarget, selector);
       } else {
         syncSelectionToAppState(null);
       }
@@ -3679,7 +3689,7 @@ export default function SlideEditor({
       e.preventDefault();
       e.stopImmediatePropagation();
       if (action === "edit") {
-        exitInlineEdit();
+        exitInlineEdit(undefined, true);
       } else if (action === "gesture") {
         activeGestureCancelRef.current?.();
       } else if (action === "mode") {
@@ -4505,6 +4515,58 @@ export default function SlideEditor({
     },
     [getRichTextEditorSurface, selectedElementSelector],
   );
+
+  const enableSelectedObjectPositioning = useCallback(() => {
+    const slideContent = getSlideContent();
+    const element =
+      resolveSelectedElement() ??
+      (selectedImg && slideContent
+        ? (findPersistedImageObject(selectedImg, slideContent) ?? selectedImg)
+        : selectedImg);
+    if (!element || isPersistedFreeformObject(element)) return;
+
+    const frozen = freezeElementForFreeformSelection(element);
+    if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+      frozen?.restoreDescendants?.();
+      frozen?.restoreMarkdownTree?.();
+      return;
+    }
+
+    preserveSlideObjectLayoutSpacer(element);
+    const positioningLayer = resolveSlidePositioningLayer(element);
+    if (!frozen.restoreMarkdownTree && positioningLayer) {
+      releaseSlideObjectFromLeftBoxes(element, positioningLayer);
+    }
+    const html = readCurrentSlideContentHtml();
+
+    if (frozen.restoreMarkdownTree) {
+      const objectId = element.getAttribute("data-slide-object-id");
+      if (objectId) {
+        const owner = element.parentElement ?? element.ownerDocument;
+        owner
+          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+          .forEach((spacer) => {
+            if (
+              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+            ) {
+              spacer.remove();
+            }
+          });
+      }
+      frozen.restoreMarkdownTree();
+    }
+    if (html !== null) onUpdateSlideRef.current({ content: html });
+
+    const selector = getBuilderSelector(element);
+    if (selector) selectElementForStyling(element, selector);
+  }, [
+    freezeElementForFreeformSelection,
+    getSlideContent,
+    readCurrentSlideContentHtml,
+    resolveSelectedElement,
+    selectedImg,
+    selectElementForStyling,
+  ]);
 
   const applyStylePatchToElement = useCallback(
     (
@@ -8950,6 +9012,7 @@ export default function SlideEditor({
             : undefined
         }
         onChange={applySelectedStylePatch}
+        onEnablePositioning={enableSelectedObjectPositioning}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
         onGroup={handleGroupSelected}
@@ -8990,6 +9053,7 @@ export default function SlideEditor({
             : undefined
         }
         onChange={applySelectedStylePatch}
+        onEnablePositioning={enableSelectedObjectPositioning}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
         onGroup={handleGroupSelected}
