@@ -10,6 +10,7 @@ import {
   AccountGateDialog,
   buildCreateAccountHref,
 } from "./create-account-dialog";
+import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 
 vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => path,
+  appBasePath: () => "",
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -34,11 +36,6 @@ vi.mock("@agent-native/core/shared", () => ({
 vi.mock("@agent-native/core/shared/auth-copy", () => ({
   resolveNativeAuthCopy: () =>
     new Proxy({}, { get: (_target, key) => String(key) }),
-}));
-
-vi.mock("@agent-native/core/client/ui", () => ({
-  buildSignInReturnHref: ({ returnTo }: { returnTo?: string } = {}) =>
-    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo ?? "/")}`,
 }));
 
 let mountPoint: HTMLDivElement;
@@ -62,9 +59,18 @@ afterEach(() => {
 
 describe("create account dialog", () => {
   it("keeps the viewer continuation while requesting the focused signup mode", () => {
-    expect(buildCreateAccountHref("/share/clip-1?at=90")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip-1%3Fat%3D90&tab=signup&initialPrompt=1&embedded=1",
+    const href = new URL(
+      buildCreateAccountHref("/share/clip-1?at=90"),
+      "http://localhost",
     );
+
+    expect(href.pathname).toBe("/sign-in");
+    expect(decodeContinuation(href.searchParams.get("c"))).toBe(
+      "/share/clip-1?at=90",
+    );
+    expect(href.searchParams.get("tab")).toBe("signup");
+    expect(href.searchParams.get("initialPrompt")).toBe("1");
+    expect(href.searchParams.get("embedded")).toBe("1");
   });
 
   it("composes the shared auth pattern inside the modal", () => {
