@@ -478,14 +478,28 @@ function logAppBuildStart(build: PreparedAppBuild): void {
 const INTERRUPT_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
 const activeBuildProcesses = new Set<ChildProcess>();
 
-// Each build runs in its own process group (see runAppBuildProcess), so the
-// signal reaches pnpm's Vite and Nitro children too; signalling pnpm alone
-// leaves them running and holding its output pipes open.
-function killBuildProcessTree(
-  child: ChildProcess,
+// Signalling pnpm alone leaves its Vite and Nitro children running and
+// holding its output pipes open. On POSIX each build runs in its own process
+// group (see runAppBuildProcess), so the group is signalled. Windows has no
+// groups and runs builds under cmd.exe, whose kill() stops only the shell, so
+// the tree is ended with taskkill instead.
+/** @internal Exported for tests. */
+export function killBuildProcessTree(
+  child: Pick<ChildProcess, "pid" | "kill">,
   signal: NodeJS.Signals,
+  platform: NodeJS.Platform = process.platform,
+  runTaskkill: (args: string[]) => void = (args) => {
+    spawn("taskkill", args, { stdio: "ignore", windowsHide: true }).on(
+      "error",
+      () => child.kill(signal),
+    );
+  },
 ): void {
-  if (process.platform !== "win32" && child.pid !== undefined) {
+  if (child.pid !== undefined) {
+    if (platform === "win32") {
+      runTaskkill(["/pid", String(child.pid), "/T", "/F"]);
+      return;
+    }
     try {
       process.kill(-child.pid, signal);
       return;

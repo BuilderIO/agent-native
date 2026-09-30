@@ -10,6 +10,7 @@ import { isAgentChatDurableBackgroundEnabled } from "../agent/durable-background
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
   isDurableBackgroundWorkspaceDeployEnabled,
+  killBuildProcessTree,
   runWorkspaceDeploy,
 } from "./workspace-deploy.js";
 
@@ -2077,6 +2078,24 @@ describe("workspace deploy build concurrency", () => {
         execFile: execFile as typeof execFileSync,
       }),
     ).rejects.toThrow('--concurrency must be a positive integer or "auto"');
+  });
+});
+
+describe("killBuildProcessTree", () => {
+  it("ends the whole Windows process tree with taskkill, not just cmd.exe", () => {
+    const child = { pid: 4242, kill: vi.fn() };
+    const runTaskkill = vi.fn();
+    killBuildProcessTree(child, "SIGTERM", "win32", runTaskkill);
+    expect(runTaskkill).toHaveBeenCalledWith(["/pid", "4242", "/T", "/F"]);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the direct child when it has no pid", () => {
+    const child = { pid: undefined, kill: vi.fn() };
+    const runTaskkill = vi.fn();
+    killBuildProcessTree(child, "SIGINT", "win32", runTaskkill);
+    expect(runTaskkill).not.toHaveBeenCalled();
+    expect(child.kill).toHaveBeenCalledWith("SIGINT");
   });
 });
 
