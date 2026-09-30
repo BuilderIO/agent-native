@@ -686,7 +686,7 @@ describe("<NewDeckReferenceStep>", () => {
   });
 
   it("shows the placeholder until the reference deck is touched", async () => {
-    const { onSelect } = await renderStep({
+    await renderStep({
       decks: [
         {
           id: "deck-1",
