@@ -350,23 +350,44 @@ export function installInPageHelpers(chromeSelector: string) {
     return n;
   }
 
-  /** Deepest-first match for text an edit may have extended. */
+  /** Deepest match also covers a source split across sibling text targets. */
   function findByText(root: Element, text: string): Element | null {
     const want = strip(text);
     if (!want) return null;
     const prefix = want.slice(0, 40);
     let best: Element | null = null;
     let bestScore = Infinity;
+    let bestDepth = -1;
     let bestCount = 0;
-    for (const el of textTargets(root)) {
+    const candidates = new Set<Element>();
+    for (const target of textTargets(root)) {
+      for (
+        let el: Element | null = target;
+        el && el !== root;
+        el = el.parentElement
+      ) {
+        candidates.add(el);
+      }
+    }
+    for (const el of candidates) {
+      if (!visible(el)) continue;
       const have = strip(el.textContent);
       if (!have.includes(prefix)) continue;
       const score = Math.abs(have.length - want.length);
-      if (score < bestScore) {
+      let depth = 0;
+      for (
+        let parent = el.parentElement;
+        parent && parent !== root;
+        parent = parent.parentElement
+      ) {
+        depth++;
+      }
+      if (score < bestScore || (score === bestScore && depth > bestDepth)) {
         best = el;
         bestScore = score;
+        bestDepth = depth;
         bestCount = 1;
-      } else if (score === bestScore) {
+      } else if (score === bestScore && depth === bestDepth) {
         bestCount += 1;
       }
     }

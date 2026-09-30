@@ -535,11 +535,14 @@ export function isSplicedOnce(
 export function restyledAddedText(
   a: Snapshot,
   b: Snapshot,
-  allowHeadingToParagraph = false,
+  allowPlainParagraphAfterBlockExit = false,
 ): string[] {
   const added = new Set(diffSnapshots(a, b).added.map((r) => r.key));
-  const startsInHeading = a.records.some(
-    (r) => r.kind === "text" && r.inside && /^h[1-6]$/i.test(r.tag ?? ""),
+  const startsInConvertibleBlock = a.records.some(
+    (r) =>
+      r.kind === "text" &&
+      r.inside &&
+      (/^h[1-6]$/i.test(r.tag ?? "") || r.tag?.toLowerCase() === "li"),
   );
   const known = new Set(
     a.records
@@ -553,8 +556,8 @@ export function restyledAddedText(
         r.inside &&
         added.has(r.key) &&
         !(
-          allowHeadingToParagraph &&
-          startsInHeading &&
+          allowPlainParagraphAfterBlockExit &&
+          startsInConvertibleBlock &&
           r.tag === "p" &&
           !r.inlineStyle?.trim()
         ) &&

@@ -28,6 +28,7 @@ import {
 } from "../export-fidelity/resolve-pkg.ts";
 import {
   assertAuthoringPersistence,
+  canonicalizeAuthoringFuzzPersistence,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
@@ -147,6 +148,8 @@ const headed = argv.includes("--headed");
 const typingChatOnly = argv.includes("--typing-chat");
 const imeEscapeOnly = argv.includes("--ime-escape");
 const textSurfaceQaOnly = argv.includes("--text-surface-qa");
+const lineStartKey = process.platform === "darwin" ? "Meta+ArrowLeft" : "Home";
+const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
 const authoringOnly = argv.includes("--authoring");
 const authoringCorpusOnly = argv.includes("--authoring-corpus");
 const authoringFuzzOnly = argv.includes("--authoring-fuzz");
@@ -285,7 +288,7 @@ function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
       content.matchAll(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi),
       (match) => match[1] ?? match[2] ?? "",
     );
-  const hasAbsoluteTextBox = (content: string) => {
+  const hasAbsoluteTextBox = (content: string, expectedClass: string) => {
     const visit = (node: P5.Node): boolean => {
       if (!("childNodes" in node)) return false;
       if ("tagName" in node) {
@@ -297,7 +300,7 @@ function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
           element.attrs.find((attribute) => attribute.name === "style")
             ?.value ?? "";
         if (
-          className.split(/\s+/).includes("fmd-text-box") &&
+          className.split(/\s+/).includes(expectedClass) &&
           /position\s*:\s*absolute\b/i.test(style) &&
           visibleTextOf(element).trim()
         ) {
@@ -308,7 +311,9 @@ function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
     };
     return parse(content).childNodes.some(visit);
   };
-  const absolute = find(hasAbsoluteTextBox);
+  const absolute =
+    find((content) => hasAbsoluteTextBox(content, "fmd-pptx-text")) ??
+    find((content) => hasAbsoluteTextBox(content, "fmd-text-box"));
   const flexGrid = find((content) => {
     if (/text-transform\s*:\s*uppercase\b/i.test(content)) return false;
     const styles = inlineStyles(content);
@@ -356,7 +361,7 @@ function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
             ) {
               rows.push({
                 tag: element.tagName.toLowerCase(),
-                glyph: glyphMarker,
+                glyph: glyphMarker || shapeMarker,
                 flex: /display\s*:\s*flex\b/i.test(
                   element.attrs.find((attribute) => attribute.name === "style")
                     ?.value ?? "",
@@ -1067,7 +1072,7 @@ async function runImeEscapeRegression(
     const selector = `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
     const editor = page.locator(selector);
     await editor.focus();
-    await page.keyboard.press("End");
+    await page.keyboard.press(lineEndKey);
     const cdp = await page.context().newCDPSession(page);
     detach = () => cdp.detach();
     await cdp.send("Input.imeSetComposition", {
@@ -1188,7 +1193,6 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
   const problems: string[] = [];
   const usesChromiumIme = browserName === "chromium";
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
-  const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
   const normalizeText = (text: string) =>
     text
       .replace(/\u200b/g, "")
@@ -2075,9 +2079,6 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
     { id: "authoring-soft-break-slash", kind: "soft-break-slash" as const },
   ];
   const cases = allCases;
-  const lineStartKey =
-    process.platform === "darwin" ? "Meta+ArrowLeft" : "Home";
-  const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
 
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
@@ -2531,9 +2532,6 @@ async function runAuthoringCorpusQa(
     `authoring-corpus-${source.id}`;
   const selectorFor = (slideId: string) =>
     `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
-  const lineStartKey =
-    process.platform === "darwin" ? "Meta+ArrowLeft" : "Home";
-  const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
   const editorHas = (editor: any, selector: string) =>
     editor.evaluate((element: HTMLElement, query: string) => {
       const rootQuery = query.replace(
@@ -3629,6 +3627,13 @@ async function runAuthoringFuzzQa(
 
   const selectorFor = (slideId: string) =>
     `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+  const canonicalMarkup = async (html: string) =>
+    JSON.stringify(
+      await page.evaluate(
+        (value: string) => window.__editFidelity.canonical(value),
+        html,
+      ),
+    );
   const profileFor = (round: number) =>
     round % 2 === 0 ? null : profiles[Math.floor(round / 2) % profiles.length];
   const sourceTarget = async (
@@ -3814,12 +3819,15 @@ async function runAuthoringFuzzQa(
           );
           await openSlide(page, base, deckId!, 0, slideId);
           const reloadedHtml = await slideHtml();
-          return {
-            originalHtml: originalSlideHtml,
-            liveHtml,
-            savedHtml: stored,
-            reloadedHtml,
-          };
+          return canonicalizeAuthoringFuzzPersistence(
+            {
+              originalHtml: originalSlideHtml,
+              liveHtml,
+              savedHtml: stored,
+              reloadedHtml,
+            },
+            canonicalMarkup,
+          );
         },
       });
       console.log(
@@ -4321,10 +4329,10 @@ async function runScenario(
       await page.keyboard.type("x");
       await page.keyboard.press("Backspace");
     } else if (scenario === "append") {
-      await page.keyboard.press("End");
+      await page.keyboard.press(lineEndKey);
       await page.keyboard.type(" ok");
     } else if (scenario === "enter3") {
-      await page.keyboard.press("End");
+      await page.keyboard.press(lineEndKey);
       let prevPng = editing;
       // End keeps the caret's line, but at a soft wrap a Range measures the
       // next line; read after End only when entry left no measurable caret.
@@ -4748,7 +4756,7 @@ async function runScenario(
         v.push(
           `no element on the reloaded slide has the typed text line for line (closest: ${JSON.stringify((snapReload.editedText ?? "none").slice(0, 160))})`,
         );
-      // Enter at the end of a heading intentionally creates a plain paragraph.
+      // Heading Enter and list exit intentionally create a plain paragraph.
       const restyled = restyledAddedText(
         snapView,
         snapReload,
