@@ -102,7 +102,11 @@ describe("runPublishVisualEditPending", () => {
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       false,
     );
-    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith("ready");
+    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith(
+      "ready",
+      1,
+      1,
+    );
     expect(args.showHandoffErrorToast).not.toHaveBeenCalled();
     expect(args.fetchImpl).toHaveBeenCalledWith(
       "http://127.0.0.1:7331/live-edit-pending",
@@ -122,6 +126,7 @@ describe("runPublishVisualEditPending", () => {
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       true,
     );
+    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith("failed", 1);
     expect(args.showHandoffErrorToast).toHaveBeenCalledWith(error);
     expect(args.fetchImpl).toHaveBeenCalled();
   });
@@ -143,7 +148,7 @@ describe("runPublishVisualEditPending", () => {
 
     expect(args.pendingVisualEditClearRequestedRef.current).toBe("design-1");
     expect(args.pendingVisualEditHadPendingRef.current).toBe("design-1");
-    expect(args.onDurableHandoffStatusChange).not.toHaveBeenCalled();
+    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith("failed", 1);
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       true,
     );
@@ -204,6 +209,10 @@ describe("runPublishVisualEditPending", () => {
 
     await runPublishVisualEditPending(args);
 
-    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith("empty");
+    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith(
+      "empty",
+      1,
+      1,
+    );
   });
 });

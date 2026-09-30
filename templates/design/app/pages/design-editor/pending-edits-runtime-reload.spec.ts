@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  activeRuntimeReloadFrameId,
   pendingLiveEditFrameTargets,
+  shouldClearReloadedVisualEditHandoff,
   shouldClearPendingLiveEditsAfterReload,
+  shouldPublishVisualEditHandoff,
+  shouldSuppressReloadedVisualEditHandoff,
+  updateVisualEditHandoffPublication,
   type PendingLiveStructureEdit,
   type PendingVisualStyleEdit,
 } from "./pending-edits";
@@ -36,6 +41,11 @@ const structureEdit = (screenId: string): PendingLiveStructureEdit => ({
 });
 
 describe("pending live edits after runtime reload", () => {
+  it("tracks a reload against the selected breakpoint frame", () => {
+    expect(activeRuntimeReloadFrameId(undefined)).toBe("primary");
+    expect(activeRuntimeReloadFrameId(960)).toBe("breakpoint:960");
+  });
+
   it("waits until every edited screen has reloaded before clearing the handoff", () => {
     const targets = pendingLiveEditFrameTargets(
       [styleEdit("library"), styleEdit("settings", 960)],
@@ -104,5 +114,127 @@ describe("pending live edits after runtime reload", () => {
         "primary",
       ),
     ).toBe(false);
+  });
+
+  it("retains a ready handoff that is queued when its frame reloads", () => {
+    const queued = updateVisualEditHandoffPublication(null, {
+      status: "queued",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+
+    expect(queued).toEqual({
+      designId: "design-1",
+      publicationRevision: 4,
+      serverRevision: null,
+    });
+    expect(
+      shouldSuppressReloadedVisualEditHandoff({
+        marker: queued,
+        designId: "design-1",
+        status: "ready",
+        revision: 3,
+      }),
+    ).toBe(true);
+
+    const published = updateVisualEditHandoffPublication(queued, {
+      status: "ready",
+      designId: "design-1",
+      publicationRevision: 4,
+      serverRevision: 5,
+    });
+    expect(published?.serverRevision).toBe(5);
+    expect(
+      shouldSuppressReloadedVisualEditHandoff({
+        marker: published,
+        designId: "design-1",
+        status: "ready",
+        revision: 5,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not queue an empty handoff after a retained reload", () => {
+    expect(
+      shouldPublishVisualEditHandoff({
+        designId: "design-1",
+        pendingEditCount: 0,
+        clearRequestedDesignId: null,
+        hadPendingDesignId: null,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPublishVisualEditHandoff({
+        designId: "design-1",
+        pendingEditCount: 0,
+        clearRequestedDesignId: "design-1",
+        hadPendingDesignId: "design-1",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not let stale publications replace a newer retained handoff", () => {
+    const latest = updateVisualEditHandoffPublication(null, {
+      status: "queued",
+      designId: "design-1",
+      publicationRevision: 8,
+    });
+    const result = updateVisualEditHandoffPublication(latest, {
+      status: "ready",
+      designId: "design-1",
+      publicationRevision: 7,
+      serverRevision: 12,
+    });
+
+    expect(result).toEqual(latest);
+  });
+
+  it("clears reload suppression only for the acknowledged revision or a newer handoff", () => {
+    const marker = {
+      designId: "design-1",
+      publicationRevision: 4,
+      serverRevision: 5,
+    };
+
+    expect(
+      shouldClearReloadedVisualEditHandoff({
+        marker,
+        designId: "design-1",
+        status: "empty",
+        revision: 4,
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearReloadedVisualEditHandoff({
+        marker,
+        designId: "design-1",
+        status: "empty",
+        revision: 5,
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearReloadedVisualEditHandoff({
+        marker,
+        designId: "design-1",
+        status: "ready",
+        revision: 6,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSuppressReloadedVisualEditHandoff({
+        marker,
+        designId: "design-1",
+        status: "ready",
+        revision: 6,
+      }),
+    ).toBe(false);
+    expect(
+      shouldSuppressReloadedVisualEditHandoff({
+        marker,
+        designId: "design-1",
+        status: "ready",
+        revision: 4,
+      }),
+    ).toBe(true);
   });
 });

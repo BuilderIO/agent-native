@@ -866,6 +866,121 @@ export function shouldClearPendingLiveEditsAfterReload(
   );
 }
 
+export function activeRuntimeReloadFrameId(
+  activeBreakpointWidthPx: number | undefined,
+): string {
+  return activeBreakpointWidthPx === undefined
+    ? "primary"
+    : `breakpoint:${activeBreakpointWidthPx}`;
+}
+
+export function shouldPublishVisualEditHandoff(args: {
+  designId: string | null | undefined;
+  pendingEditCount: number;
+  clearRequestedDesignId: string | null;
+  hadPendingDesignId: string | null;
+}): boolean {
+  return (
+    Boolean(args.designId) &&
+    (args.pendingEditCount > 0 ||
+      args.clearRequestedDesignId === args.designId ||
+      args.hadPendingDesignId === args.designId)
+  );
+}
+
+export interface VisualEditHandoffPublicationState {
+  designId: string;
+  publicationRevision: number;
+  serverRevision: number | null;
+}
+
+type VisualEditHandoffPublicationEvent =
+  | {
+      status: "queued";
+      designId: string;
+      publicationRevision: number;
+    }
+  | {
+      status: "ready";
+      designId: string;
+      publicationRevision: number;
+      serverRevision: number;
+    }
+  | {
+      status: "empty" | "failed";
+      designId: string;
+      publicationRevision: number;
+    };
+
+export function updateVisualEditHandoffPublication(
+  current: VisualEditHandoffPublicationState | null,
+  event: VisualEditHandoffPublicationEvent,
+): VisualEditHandoffPublicationState | null {
+  if (event.status === "queued") {
+    return current?.designId === event.designId &&
+      current.publicationRevision > event.publicationRevision
+      ? current
+      : {
+          designId: event.designId,
+          publicationRevision: event.publicationRevision,
+          serverRevision: null,
+        };
+  }
+  if (!current || current.designId !== event.designId) {
+    return current;
+  }
+  if (event.status === "empty") {
+    return current.publicationRevision <= event.publicationRevision
+      ? null
+      : current;
+  }
+  if (current.publicationRevision !== event.publicationRevision) return current;
+  if (event.status === "ready") {
+    return { ...current, serverRevision: event.serverRevision };
+  }
+  return null;
+}
+
+export function shouldSuppressReloadedVisualEditHandoff(args: {
+  marker: VisualEditHandoffPublicationState | null;
+  designId: string | null | undefined;
+  status: "empty" | "ready" | undefined;
+  revision: number | null | undefined;
+}): boolean {
+  if (!args.marker || args.marker.designId !== args.designId) return false;
+  if (args.status !== "ready") return false;
+  return (
+    args.marker.serverRevision === null ||
+    args.revision == null ||
+    args.revision <= args.marker.serverRevision
+  );
+}
+
+export function shouldClearReloadedVisualEditHandoff(args: {
+  marker: VisualEditHandoffPublicationState | null;
+  designId: string | null | undefined;
+  status: "empty" | "ready" | undefined;
+  revision: number | null | undefined;
+}): boolean {
+  if (
+    !args.marker ||
+    args.marker.designId !== args.designId ||
+    args.marker.serverRevision === null
+  ) {
+    return false;
+  }
+  return (
+    (args.status === "empty" &&
+      args.revision !== null &&
+      args.revision !== undefined &&
+      args.revision >= args.marker.serverRevision) ||
+    (args.status === "ready" &&
+      args.revision !== null &&
+      args.revision !== undefined &&
+      args.revision > args.marker.serverRevision)
+  );
+}
+
 export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {
