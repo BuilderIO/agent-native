@@ -320,6 +320,67 @@ describe("mutate-dashboard", () => {
     expect(renderedRows(saved)).toEqual([["a", "b", "new"], ["c"]]);
   });
 
+  it("allows a later operation to complete an inserted panel", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        { op: "insertPanel", panel: { id: "new-section" } },
+        {
+          op: "updatePanel",
+          panelId: "new-section",
+          patch: {
+            title: "New section",
+            chartType: "section",
+            width: 1,
+            columns: 2,
+          },
+        },
+      ],
+    });
+
+    expect(result.saved).toBe(true);
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      panels: Array<Record<string, unknown>>;
+    };
+    expect(saved.panels.at(-1)).toMatchObject({
+      id: "new-section",
+      title: "New section",
+      chartType: "section",
+      width: 1,
+      columns: 2,
+    });
+  });
+
+  it("rejects an inserted panel that still has no width before saving", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+
+    await expect(
+      mutateDashboard.run({
+        dashboardId: "traffic",
+        operations: [
+          {
+            op: "insertPanel",
+            panel: {
+              id: "incomplete-section",
+              title: "Incomplete section",
+              chartType: "section",
+            },
+          },
+        ],
+      }),
+    ).rejects.toThrow(/panel\[\d+\]\.width must be an integer between 1 and 6/);
+
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
   it("rejects an insert panel without a usable id at the action boundary", async () => {
     await expect(
       mutateDashboard.run({
@@ -337,7 +398,7 @@ describe("mutate-dashboard", () => {
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
   });
 
-  it("requires typed fields for structured panel inserts", () => {
+  it("requires numeric widths for structured panel inserts", () => {
     const base = {
       dashboardId: "traffic",
       operations: [
@@ -351,21 +412,6 @@ describe("mutate-dashboard", () => {
     expect(mutateDashboard.schema.parse(base).operations).toEqual(
       base.operations,
     );
-    expect(
-      mutateDashboard.schema.parse({
-        ...base,
-        operations: [
-          {
-            ...base.operations[0],
-            panel: {
-              id: "new-panel",
-              title: "new-panel",
-              chartType: "metric",
-            },
-          },
-        ],
-      }).operations,
-    ).toBeDefined();
     expect(() =>
       mutateDashboard.schema.parse({
         ...base,

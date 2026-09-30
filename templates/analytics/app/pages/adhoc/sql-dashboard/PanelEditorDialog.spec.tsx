@@ -160,5 +160,11 @@ describe("AddPanelPopover", () => {
     expect(mocks.send.mock.calls[0][0].context).toContain(
       "JSON integer from 1 to 6",
     );
+    expect(mocks.send.mock.calls[0][0].context).toContain(
+      'config:{timeScope:"dashboard"}',
+    );
+    expect(mocks.send.mock.calls[0][0].context).toContain(
+      "dashboard's matching date filter",
+    );
   });
 });

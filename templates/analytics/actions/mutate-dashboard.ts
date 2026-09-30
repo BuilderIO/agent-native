@@ -55,22 +55,27 @@ const insertPanelSchema = z
     id: z.string().refine((id) => id.trim().length > 0, {
       message: "panel.id must be a non-empty string",
     }),
-    title: z.string().refine((title) => title.trim().length > 0, {
-      message: "panel.title must be a non-empty string",
-    }),
-    chartType: z.enum([
-      "line",
-      "area",
-      "bar",
-      "metric",
-      "table",
-      "pie",
-      "section",
-      "funnel",
-      "heatmap",
-      "callout",
-      "extension",
-    ]),
+    title: z
+      .string()
+      .refine((title) => title.trim().length > 0, {
+        message: "panel.title must be a non-empty string",
+      })
+      .optional(),
+    chartType: z
+      .enum([
+        "line",
+        "area",
+        "bar",
+        "metric",
+        "table",
+        "pie",
+        "section",
+        "funnel",
+        "heatmap",
+        "callout",
+        "extension",
+      ])
+      .optional(),
     width: z
       .number()
       .int()
@@ -78,7 +83,7 @@ const insertPanelSchema = z
       .max(6)
       .optional()
       .describe(
-        "Optional integer panel width from 1 to 6; do not pass a string.",
+        "If supplied, an integer from 1 to 6; do not pass a string. The final saved panel must have a width, supplied here or by a later operation in this batch.",
       ),
     source: z
       .enum([
