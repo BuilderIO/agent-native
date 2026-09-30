@@ -6,7 +6,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,10 +28,20 @@ describe("SaveStatusIndicator conflict review", () => {
       />,
     );
 
+    expect(
+      screen.getAllByRole("button", {
+        name: "editorToolbar.reviewConflict",
+      }),
+    ).toHaveLength(1);
     fireEvent.click(
       screen.getByRole("button", { name: "editorToolbar.reviewConflict" }),
     );
     expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "editorToolbar.conflictUseLatest",
+      }),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", {
         name: "editorToolbar.conflictKeepMine",
@@ -79,22 +88,18 @@ describe("SaveStatusIndicator conflict review", () => {
       />,
     );
 
+    expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "editorToolbar.reviewConflict" }),
-    );
-    expect(
-      await screen.findByText("editorToolbar.conflictBackupDescription"),
-    ).toBeTruthy();
-    fireEvent.click(
-      within(screen.getByRole("dialog")).getByRole("button", {
-        name: "editorToolbar.downloadBackup",
-      }),
+      screen.getByRole("button", { name: "editorToolbar.downloadBackup" }),
     );
     expect(downloadBackup).toHaveBeenCalledOnce();
     expect(
       screen.queryByRole("button", {
         name: "editorToolbar.conflictKeepMine",
       }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "editorToolbar.reviewConflict" }),
     ).toBeNull();
   });
 });
