@@ -7086,6 +7086,8 @@ it(
   <div id="visible-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:300px;width:120px;height:80px;background-image:linear-gradient(transparent, rgba(20,40,60,0)), linear-gradient(#f00, #00f)"></div>
   <div id="stroke-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:240px;width:120px;height:80px;background:transparent;border:2px solid #222;box-sizing:border-box"></div>
   <div id="zero-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:340px;width:120px;height:80px;background:#ddd;opacity:0"></div>
+  <div id="filter-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:580px;width:80px;height:80px;background:#ddd;filter:opacity(0)"></div>
+  <div style="position:absolute;left:780px;top:580px;filter:blur(0) opacity(0)"><div id="filter-opacity-ancestor-rectangle" data-agent-native-primitive="rectangle" style="width:80px;height:80px;background:#ddd"></div></div>
   <svg id="stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
   <svg id="opacity-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:40px;width:80px;height:80px"><g opacity="0"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
   <svg id="visibility-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:140px;width:80px;height:80px"><g visibility="hidden"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
@@ -7095,6 +7097,12 @@ it(
   <svg id="visible-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:400px;width:80px;height:80px"><defs><pattern id="radius-visible-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-visible-pattern)"></path></svg>
   <svg id="inherited-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:400px;width:80px;height:80px"><defs><pattern id="radius-base-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern><pattern id="radius-inherited-pattern" href="#radius-base-pattern"></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-inherited-pattern)"></path></svg>
   <svg id="transparent-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:400px;width:80px;height:80px"><defs><pattern id="radius-transparent-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="transparent"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-transparent-pattern)"></path></svg>
+  <svg id="zero-width-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:500px;width:80px;height:80px"><defs><pattern id="radius-zero-width-pattern" patternUnits="userSpaceOnUse" width="0" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-zero-width-pattern)"></path></svg>
+  <svg id="zero-height-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:500px;width:80px;height:80px"><defs><pattern id="radius-zero-height-pattern" patternUnits="userSpaceOnUse" width="10" height="0"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-zero-height-pattern)"></path></svg>
+  <svg id="missing-size-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:500px;width:80px;height:80px"><defs><pattern id="radius-missing-size-pattern" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-missing-size-pattern)"></path></svg>
+  <svg id="zero-geometry-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:500px;width:80px;height:80px"><defs><pattern id="radius-zero-geometry-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="0" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-zero-geometry-pattern)"></path></svg>
+  <svg id="dynamic-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:600px;width:80px;height:80px"><defs><pattern id="radius-dynamic-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-dynamic-pattern)"></path></svg>
+  <svg id="stroke-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:600px;width:80px;height:80px"><defs><pattern id="radius-stroke-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><line x1="5" y1="0" x2="5" y2="10" stroke="#222" stroke-width="1"></line></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-stroke-pattern)"></path></svg>
   <div style="position:absolute;left:640px;top:560px;width:80px;height:80px;visibility:hidden"><svg id="visibility-override-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="width:80px;height:80px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222" visibility="visible"></path></svg></div>
   <div id="collapsed-paint-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:500px;width:120px;height:80px;background:#ddd;visibility:collapse"></div>
   <div id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:40px;width:100px;height:60px;background:transparent"></div>
@@ -7129,6 +7137,8 @@ it(
         "visible-gradient-rectangle",
         "stroke-rectangle",
         "zero-opacity-rectangle",
+        "filter-opacity-rectangle",
+        "filter-opacity-ancestor-rectangle",
         "stroke-polygon",
         "opacity-group-polygon",
         "visibility-group-polygon",
@@ -7138,6 +7148,12 @@ it(
         "visible-pattern-polygon",
         "inherited-pattern-polygon",
         "transparent-pattern-polygon",
+        "zero-width-pattern-polygon",
+        "zero-height-pattern-polygon",
+        "missing-size-pattern-polygon",
+        "zero-geometry-pattern-polygon",
+        "dynamic-pattern-polygon",
+        "stroke-pattern-polygon",
         "visibility-override-polygon",
         "collapsed-paint-rectangle",
       ]) {
@@ -7297,7 +7313,8 @@ it(
         if (
           id === "visible-pattern-polygon" ||
           id === "inherited-pattern-polygon" ||
-          id === "visibility-override-polygon"
+          id === "visibility-override-polygon" ||
+          id === "stroke-pattern-polygon"
         ) {
           const box = await page.locator(`#${id}`).boundingBox();
           if (!box) throw new Error(`${id} is not visible`);
@@ -7316,6 +7333,66 @@ it(
               ),
           );
           expect(visibleAtVertex, id).toEqual(["vertex-0"]);
+        }
+        if (
+          id === "zero-width-pattern-polygon" ||
+          id === "zero-height-pattern-polygon" ||
+          id === "missing-size-pattern-polygon" ||
+          id === "zero-geometry-pattern-polygon"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAtVertex = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtVertex, id).toEqual([]);
+        }
+        if (
+          id === "dynamic-pattern-polygon" ||
+          id === "stroke-pattern-polygon"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const waitForRadiusHandleVisibility = (expected: boolean) =>
+            page.waitForFunction(
+              (shouldBeVisible) => {
+                const handle = document.querySelector<HTMLElement>(
+                  '[data-agent-native-radius-handle="vertex-0"]',
+                );
+                const isVisible =
+                  !!handle && getComputedStyle(handle).visibility === "visible";
+                return isVisible === shouldBeVisible;
+              },
+              expected,
+              { timeout: 2_000 },
+            );
+          await waitForRadiusHandleVisibility(true);
+          if (id === "dynamic-pattern-polygon") {
+            await page
+              .locator("#radius-dynamic-pattern rect")
+              .evaluate((node) => {
+                node.setAttribute("fill", "transparent");
+              });
+            await waitForRadiusHandleVisibility(false);
+            await page
+              .locator("#radius-dynamic-pattern rect")
+              .evaluate((node) => {
+                node.setAttribute("fill", "#222");
+              });
+            await waitForRadiusHandleVisibility(true);
+          }
         }
         if (id === "stroke-rectangle") {
           await page.mouse.move(644, 244);
@@ -7360,8 +7437,14 @@ it(
           id === "transparent-oklch-gradient-rectangle" ||
           id === "transparent-hwb-gradient-rectangle" ||
           id === "transparent-radial-gradient-rectangle" ||
+          id === "filter-opacity-rectangle" ||
+          id === "filter-opacity-ancestor-rectangle" ||
           id === "transparent-paint-server-polygon" ||
           id === "transparent-pattern-polygon" ||
+          id === "zero-width-pattern-polygon" ||
+          id === "zero-height-pattern-polygon" ||
+          id === "missing-size-pattern-polygon" ||
+          id === "zero-geometry-pattern-polygon" ||
           id === "zero-opacity-rectangle" ||
           id === "collapsed-paint-rectangle"
         ) {

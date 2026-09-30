@@ -9399,6 +9399,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var cursor = node;
     while (cursor) {
       var style = window.getComputedStyle(cursor);
+      var filterOpacities = style.filter.matchAll(
+        /(?:^|\s)opacity\(\s*([^\s)]+)/g,
+      );
+      for (var filterOpacity of filterOpacities) {
+        if (parseFloat(filterOpacity[1]) === 0) return false;
+      }
       if (style.display === "none" || Number(style.opacity) === 0) return false;
       if (cursor === stopAt) return true;
       cursor = cursor.parentElement;
@@ -9440,6 +9446,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function cornerRadiusSvgPatternHasVisibleContent(pattern, visited) {
     if (visited.indexOf(pattern) >= 0) return false;
     var seen = visited.concat([pattern]);
+    var svgPattern = pattern as SVGPatternElement;
+    function patternDimensionIsPositive(name: "width" | "height") {
+      var current = svgPattern;
+      var visitedDimensions: SVGPatternElement[] = [];
+      while (current && visitedDimensions.indexOf(current) < 0) {
+        visitedDimensions.push(current);
+        if (current.hasAttribute(name)) {
+          var dimension = name === "width" ? current.width : current.height;
+          return Boolean(dimension && dimension.baseVal.value > 0);
+        }
+        var reference =
+          current.getAttribute("href") ||
+          current.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+          "";
+        if (reference.charAt(0) !== "#") return false;
+        var inherited = current.ownerDocument.getElementById(
+          reference.slice(1),
+        );
+        current =
+          inherited && /^pattern$/i.test(inherited.localName || "")
+            ? (inherited as SVGPatternElement)
+            : null;
+      }
+      return false;
+    }
+    if (
+      !patternDimensionIsPositive("width") ||
+      !patternDimensionIsPositive("height")
+    )
+      return false;
     if (!cornerRadiusNodeAndAncestorsAllowPaint(pattern, null)) return false;
     var graphics = pattern.querySelectorAll(
       "circle, ellipse, image, line, path, polygon, polyline, rect, text, use",
@@ -9452,8 +9488,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         continue;
       }
+      var bounds: DOMRect;
+      try {
+        bounds = graphic.getBBox();
+      } catch (_error) {
+        continue;
+      }
       var style = window.getComputedStyle(graphic);
       if (
+        bounds.width > 0 &&
+        bounds.height > 0 &&
         style.fill !== "none" &&
         Number(style.fillOpacity) > 0 &&
         cornerRadiusSvgPaintIsVisible(style.fill, graphic, seen)
@@ -9461,6 +9505,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return true;
       }
       if (
+        (bounds.width > 0 || bounds.height > 0) &&
         style.stroke !== "none" &&
         parseFloat(style.strokeWidth) > 0 &&
         Number(style.strokeOpacity) > 0 &&
@@ -10230,6 +10275,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "*",
         );
       }
+      syncOverlayObservers();
     } else {
       applyElementOverlayChrome(overlay, el);
     }
@@ -11103,6 +11149,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var overlayMutationObserver: MutationObserver | null = null;
   var observedResizeEls: Element[] = [];
   var observedMutationRoot: Element | null = null;
+  var observedMutationTarget: Element | null = null;
 
   function ensureOverlayObservers(): void {
     if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
@@ -11151,7 +11198,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         selectedEl && document.documentElement.contains(selectedEl)
           ? selectedEl.parentElement || selectedEl
           : null;
-      if (nextRoot !== observedMutationRoot) {
+      var nextTarget =
+        selectedEl && document.documentElement.contains(selectedEl)
+          ? selectedEl
+          : null;
+      if (
+        nextRoot !== observedMutationRoot ||
+        nextTarget !== observedMutationTarget
+      ) {
         overlayMutationObserver.disconnect();
         if (nextRoot) {
           overlayMutationObserver.observe(nextRoot, {
@@ -11163,11 +11217,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             overlayMutationObserver.observe(selectedEl, {
               attributes: true,
               childList: true,
-              subtree: false,
+              subtree: selectedEl.tagName.toLowerCase() === "svg",
             });
           }
         }
         observedMutationRoot = nextRoot;
+        observedMutationTarget = nextTarget;
       }
     }
   }
