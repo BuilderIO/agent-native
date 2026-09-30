@@ -8,10 +8,15 @@ import ChatRoute from "./chat";
 
 const clientState = vi.hoisted(() => ({
   surfaceProps: null as Record<string, unknown> | null,
-  activeRunId: null as string | null,
-  writeClipboardText: vi.fn(),
   openWorkspaceApp: vi.fn(),
-  workspaceApps: [{ id: "content", name: "Content" }],
+  workspaceApps: [
+    {
+      id: "content",
+      name: "Content",
+      description: "Create and edit content",
+      path: "/content",
+    },
+  ],
   workspaceAppsError: null as unknown,
   retryWorkspaceApps: vi.fn(),
   agents: [] as Array<{
@@ -26,6 +31,17 @@ const clientState = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  insertAgentComposerReference: vi.fn(),
+  markAgentChatHomeHandoff: vi.fn(),
+  readChatFirstMode: () => true,
+  navigateWithAgentChatViewTransition: (
+    navigate: (path: string) => void,
+    path: string,
+  ) => navigate(path),
+  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentChatHome: (props: Record<string, unknown>) => {
     clientState.surfaceProps = { mode: "page", ...props };
     return (
@@ -35,19 +51,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
       </>
     );
   },
-  insertAgentComposerReference: vi.fn(),
-  markAgentChatHomeHandoff: vi.fn(),
-  readChatFirstMode: () => true,
-  useActiveAgentChatRunId: () => clientState.activeRunId,
-  navigateWithAgentChatViewTransition: (
-    navigate: (path: string) => void,
-    path: string,
-  ) => navigate(path),
-  sendToAgentChat: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/clipboard", () => ({
-  writeClipboardText: clientState.writeClipboardText,
+vi.mock("../../components/create-app-popover", () => ({
+  CreateAppPopover: () => null,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -61,9 +68,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("../../components/layout/Layout", () => ({
+  dispatchNavLinkTarget: (path: string) => path,
   useDispatchExtensions: () => undefined,
   useDispatchWorkspaceAppLauncher: () => ({
     apps: clientState.workspaceApps,
+    workspaceApps: clientState.workspaceApps,
     isLoading: false,
     error: clientState.workspaceAppsError,
     openApp: clientState.openWorkspaceApp,
@@ -72,6 +81,10 @@ vi.mock("../../components/layout/Layout", () => ({
 }));
 
 vi.mock("../../lib/workspace-app-layout", () => ({
+  workspaceAppMatchesQuery: (
+    app: { name: string; description?: string },
+    query: string,
+  ) => `${app.name} ${app.description ?? ""}`.toLowerCase().includes(query),
   orderWorkspaceApps: (apps: unknown[]) => apps,
   useWorkspaceAppLayout: () => ({
     layout: { pinnedIds: [], orderedIds: [] },
@@ -87,9 +100,16 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string, values?: { defaultValue?: string }) =>
-    values?.defaultValue ??
-    (key === "dispatch.pages.chatFirstWorkspaceApps" ? "Workspace apps" : key),
+  useT:
+    () => (key: string, values?: { defaultValue?: string; name?: string }) =>
+      values?.defaultValue ??
+      (key === "dispatch.pages.chatFirstWorkspaceApps"
+        ? "Workspace apps"
+        : key === "dispatch.pages.chatFirstOpenApp"
+          ? `Open ${values?.name}`
+          : key === "extensions.optionsFor"
+            ? `Options for ${values?.name}`
+            : key),
 }));
 
 describe("Dispatch ChatRoute", () => {
@@ -100,12 +120,18 @@ describe("Dispatch ChatRoute", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.surfaceProps = null;
-    clientState.activeRunId = null;
     clientState.agents = [];
     clientState.openWorkspaceApp.mockReset();
     clientState.retryWorkspaceApps.mockReset();
     clientState.workspaceAppsError = null;
-    clientState.workspaceApps = [{ id: "content", name: "Content" }];
+    clientState.workspaceApps = [
+      {
+        id: "content",
+        name: "Content",
+        description: "Create and edit content",
+        path: "/content",
+      },
+    ];
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -135,7 +161,7 @@ describe("Dispatch ChatRoute", () => {
       composerPlaceholder: "Tell Dispatch what you’d like to make happen…",
       suppressInlineOpenApp: true,
     });
-    expect(container.textContent).toContain("What should we do?");
+    expect(container.textContent).toContain("What should we do today?");
     expect(clientState.surfaceProps?.suggestions).toEqual([
       "dispatch.pages.suggestionWorkspaceHealth",
       "dispatch.pages.suggestionOnboardingApp",
@@ -144,7 +170,7 @@ describe("Dispatch ChatRoute", () => {
     expect(clientState.surfaceProps?.afterComposerSlot).toBeTruthy();
   });
 
-  it("renders colored launcher tiles below the empty chat composer", async () => {
+  it("renders the colored app directory below the empty chat composer", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/chat"]}>
@@ -153,21 +179,20 @@ describe("Dispatch ChatRoute", () => {
       );
     });
 
-    const appButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Content",
+    const appButton = container.querySelector<HTMLButtonElement>(
+      "button[aria-label='Open Content']",
     );
     expect(appButton).toBeTruthy();
     expect(
-      appButton?.querySelector("span[style]")?.getAttribute("style"),
+      container.querySelector("article span[style]")?.getAttribute("style"),
     ).toContain("16 185 129");
 
     await act(async () => {
       appButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(clientState.openWorkspaceApp).toHaveBeenCalledWith({
-      id: "content",
-      name: "Content",
-    });
+    expect(clientState.openWorkspaceApp).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "content", name: "Content" }),
+    );
   });
 
   it("keeps loaded apps visible and offers retry after a partial list failure", async () => {
@@ -230,7 +255,14 @@ describe("Dispatch ChatRoute", () => {
       true,
     );
     expect(clientState.surfaceProps?.suggestions).toEqual([]);
-    expect(container.textContent).not.toContain("What should we do?");
+    expect(container.textContent).not.toContain("What should we do today?");
+
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("What should we do today?");
   });
 
   it("keeps an agent chat scoped and preserves the scope in thread URLs", async () => {
@@ -274,10 +306,7 @@ describe("Dispatch ChatRoute", () => {
     ).toBe("/chat/thread-1?agent=agents%2Fresearch-partner.md");
   });
 
-  it("exposes a copyable request ID affordance on threaded chats", async () => {
-    clientState.activeRunId = "run-456";
-    clientState.writeClipboardText.mockResolvedValue(true);
-
+  it("keeps threaded chats free of request ID chrome", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/chat/chat-123"]}>
@@ -287,33 +316,10 @@ describe("Dispatch ChatRoute", () => {
     });
 
     expect(clientState.surfaceProps?.suggestions).toEqual([]);
-
-    const button = Array.from(container.querySelectorAll("button")).find((el) =>
-      el.textContent?.includes("Copy request ID"),
+    expect(clientState.surfaceProps?.contentClassName).toBe("max-w-none");
+    expect(clientState.surfaceProps?.surfaceClassName).toBe(
+      "dispatch-chat-panel",
     );
-    expect(button).toBeTruthy();
-
-    await act(async () => {
-      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-
-    expect(clientState.writeClipboardText).toHaveBeenCalledWith("run-456");
-  });
-
-  it("keeps the request ID affordance unavailable before a run starts", async () => {
-    await act(async () => {
-      root.render(
-        <MemoryRouter initialEntries={["/chat/chat-123"]}>
-          <ChatRoute />
-        </MemoryRouter>,
-      );
-    });
-
-    const button = Array.from(container.querySelectorAll("button")).find((el) =>
-      el.textContent?.includes("Request ID unavailable"),
-    );
-    expect(button).toBeTruthy();
-    expect(button).toHaveProperty("disabled", true);
+    expect(container.textContent).not.toContain("Request ID");
   });
 });

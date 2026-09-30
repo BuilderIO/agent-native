@@ -1,18 +1,19 @@
 import { getAppConfig } from "../app-config/index.js";
+import {
+  isDeployedServerRuntime,
+  isLocalPlatformEmulator,
+} from "../db/server-runtime.js";
 
 export function isA2AProductionRuntime(): boolean {
+  // Emulators set deploy markers, and often NODE_ENV=production, on a
+  // developer's machine, so they must lose before any signal below wins.
+  if (isLocalPlatformEmulator()) return false;
   if (process.env.NODE_ENV === "production") return true;
-  if (process.env.NETLIFY === "true" && process.env.NETLIFY_LOCAL !== "true") {
-    return true;
-  }
-  if (
-    process.env.AWS_LAMBDA_FUNCTION_NAME &&
-    process.env.NETLIFY_LOCAL !== "true"
-  ) {
-    return true;
-  }
+  // Hosted invocations and started production server builds, the same answer
+  // the database and auth secret refusals use.
+  if (isDeployedServerRuntime()) return true;
+  if (process.env.NETLIFY === "true") return true;
   if (process.env.CF_PAGES === "1") return true;
-  if ("__cf_env" in globalThis || "__env__" in globalThis) return true;
   if (process.env.VERCEL || process.env.VERCEL_ENV) return true;
   if (process.env.RENDER || process.env.FLY_APP_NAME || process.env.K_SERVICE) {
     return true;

@@ -341,14 +341,15 @@ function marginValuesForStyles(
   return { value, mixed, textValues };
 }
 
-function marginStylesForSides(
-  margin: AutoLayoutMargin,
+function spacingStylesForSides(
+  kind: "margin" | "padding",
+  spacing: AutoLayoutMargin,
   sides: Array<keyof AutoLayoutMargin>,
 ): Record<string, string> {
   const styles: Record<string, string> = {};
   for (const side of sides) {
-    const property = `margin${side[0].toUpperCase()}${side.slice(1)}`;
-    styles[property] = `${margin[side]}px`;
+    const property = `${kind}${side[0].toUpperCase()}${side.slice(1)}`;
+    styles[property] = `${spacing[side]}px`;
   }
   return styles;
 }
@@ -448,12 +449,15 @@ function FlexContainerControls({
     bottom: parseNumericValue(styles.paddingBottom || "0"),
     left: parseNumericValue(styles.paddingLeft || "0"),
   };
-  const allPaddingEqual = fourValuesEqual([
-    padding.top,
-    padding.right,
-    padding.bottom,
-    padding.left,
-  ]);
+  const paddingMixed = {
+    top: isMixedValue(styles.paddingTop),
+    right: isMixedValue(styles.paddingRight),
+    bottom: isMixedValue(styles.paddingBottom),
+    left: isMixedValue(styles.paddingLeft),
+  };
+  const allPaddingEqual =
+    !Object.values(paddingMixed).some(Boolean) &&
+    fourValuesEqual([padding.top, padding.right, padding.bottom, padding.left]);
   const [paddingLinked, setPaddingLinked] = useState(allPaddingEqual);
 
   const autoLayoutValue: AutoLayoutMatrixValue = {
@@ -473,12 +477,7 @@ function FlexContainerControls({
     gapMixed: isMixedValue(styles.gap),
     gapModeMixed: isMixedValue(styles.justifyContent),
     padding,
-    paddingMixed: {
-      top: isMixedValue(styles.paddingTop),
-      right: isMixedValue(styles.paddingRight),
-      bottom: isMixedValue(styles.paddingBottom),
-      left: isMixedValue(styles.paddingLeft),
-    },
+    paddingMixed,
     paddingLinked,
     margin: marginProperties.value,
     marginMixed: marginProperties.mixed,
@@ -591,19 +590,23 @@ function FlexContainerControls({
           onStyleChange("alignItems", verticalToAlign(alignment.vertical));
         }}
         onGapChange={(gap, meta) => onStyleChange("gap", `${gap}px`, meta)}
-        onPaddingChange={(nextPadding, meta) => {
-          const patch = {
-            paddingTop: `${nextPadding.top}px`,
-            paddingRight: `${nextPadding.right}px`,
-            paddingBottom: `${nextPadding.bottom}px`,
-            paddingLeft: `${nextPadding.left}px`,
-          };
+        onPaddingChange={(nextPadding, meta, changedSides) => {
+          const patch = spacingStylesForSides(
+            "padding",
+            nextPadding,
+            changedSides,
+          );
+          const changeMeta =
+            meta &&
+            (meta.relativeDelta !== undefined || meta.relativeExpression)
+              ? { ...meta, relativeDeltaProperties: Object.keys(patch) }
+              : meta;
           if (onStylesChange) {
-            onStylesChange(patch, meta);
+            onStylesChange(patch, changeMeta);
             return;
           }
           Object.entries(patch).forEach(([property, value]) =>
-            onStyleChange(property, value, meta),
+            onStyleChange(property, value, changeMeta),
           );
         }}
         onPaddingLinkedChange={(linked) => {
@@ -618,7 +621,11 @@ function FlexContainerControls({
           // the next real field edit, so no style write belongs here.
         }}
         onMarginChange={(nextMargin, meta, changedSides) => {
-          const patch = marginStylesForSides(nextMargin, changedSides);
+          const patch = spacingStylesForSides(
+            "margin",
+            nextMargin,
+            changedSides,
+          );
           const changeMeta =
             meta &&
             (meta.relativeDelta !== undefined || meta.relativeExpression)
@@ -1094,7 +1101,7 @@ export function LayoutContextProperties({
           textValues={marginProperties.textValues}
           labels={marginLabels}
           onChange={(margin, meta, changedSides) => {
-            const patch = marginStylesForSides(margin, changedSides);
+            const patch = spacingStylesForSides("margin", margin, changedSides);
             const changeMeta =
               meta &&
               (meta.relativeDelta !== undefined || meta.relativeExpression)

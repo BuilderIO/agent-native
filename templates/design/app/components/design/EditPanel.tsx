@@ -97,6 +97,7 @@ import {
   elementHasComponentAnnotation,
   elementIsComponentSelection,
   inspectorObjectTitle,
+  isBoxlessText,
   isContainerElement,
   isTextElement,
   commitElementMinMax,
@@ -329,6 +330,7 @@ interface EditPanelProps {
   onScreenHeightModeChange?: (screenId: string, mode: ScreenHeightMode) => void;
   selectedScreenSource?: ScreenSourceSelection | null;
   sourceLocationUnavailable?: boolean;
+  sourceLocationSnapshotFailed?: boolean;
   localhostConnections?: LocalhostConnectionOption[];
   onScreenSourceChange?: (
     screenId: string,
@@ -686,25 +688,6 @@ function CreateComponentPopover({
 }
 
 function InspectCodePopover({ data }: { data: InspectCodeData }) {
-  const [copied, setCopied] = useState(false);
-  const html = data.html ?? "";
-  const source = data.sourceLocation ?? null;
-  const snippet =
-    elementHtmlPreview(data) ?? source?.snippet ?? (html.trim() || null);
-
-  const handleCopy = () => {
-    if (!snippet) return;
-    void navigator.clipboard
-      ?.writeText(snippet)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      })
-      .catch(() => {
-        /* clipboard may be unavailable; ignore */
-      });
-  };
-
   return (
     <Popover>
       <Tooltip>
@@ -728,62 +711,87 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
         </TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-80 space-y-2 p-2 !text-[11px]">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-            {"Inspect code" /* i18n-ignore design inspector label */}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-[10px]"
-            onClick={handleCopy}
-            disabled={!snippet}
-          >
-            {
-              copied
-                ? "Copied" /* i18n-ignore design inspector action */
-                : "Copy" /* i18n-ignore design inspector action */
-            }
-          </Button>
-        </div>
-
-        {source ? <SourceLocationSummary source={source} /> : null}
-
-        {snippet ? (
-          <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
-            <code>{highlightedHtml(snippet)}</code>
-          </pre>
-        ) : (
-          <p className="px-1 py-2 text-muted-foreground">
-            {
-              "No source available for this element." /* i18n-ignore design inspector empty */
-            }
-          </p>
-        )}
-
-        {source?.absolutePath ? (
-          <a
-            href={vscodeDeepLink(
-              source.absolutePath,
-              source.line,
-              source.column,
-            )}
-            className="block"
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 w-full gap-1.5 !text-[11px]"
-            >
-              <IconExternalLink className="size-3.5" />
-              {"Open in VS Code" /* i18n-ignore design inspector action */}
-            </Button>
-          </a>
-        ) : null}
+        <InspectCodePopoverBody data={data} />
       </PopoverContent>
     </Popover>
+  );
+}
+
+// Formatting a large element's markup costs hundreds of ms, so it runs only
+// while the popover is open (closed PopoverContent is unmounted).
+function InspectCodePopoverBody({ data }: { data: InspectCodeData }) {
+  const [copied, setCopied] = useState(false);
+  const html = data.html ?? "";
+  const source = data.sourceLocation ?? null;
+  const snippet =
+    elementHtmlPreview(data) ?? source?.snippet ?? (html.trim() || null);
+
+  const handleCopy = () => {
+    if (!snippet) return;
+    void navigator.clipboard
+      ?.writeText(snippet)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {
+        /* clipboard may be unavailable; ignore */
+      });
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+          {"Inspect code" /* i18n-ignore design inspector label */}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[10px]"
+          onClick={handleCopy}
+          disabled={!snippet}
+        >
+          {
+            copied
+              ? "Copied" /* i18n-ignore design inspector action */
+              : "Copy" /* i18n-ignore design inspector action */
+          }
+        </Button>
+      </div>
+
+      {source ? <SourceLocationSummary source={source} /> : null}
+
+      {snippet ? (
+        <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
+          <code>{highlightedHtml(snippet)}</code>
+        </pre>
+      ) : (
+        <p className="px-1 py-2 text-muted-foreground">
+          {
+            "No source available for this element." /* i18n-ignore design inspector empty */
+          }
+        </p>
+      )}
+
+      {source?.absolutePath ? (
+        <a
+          href={vscodeDeepLink(source.absolutePath, source.line, source.column)}
+          className="block"
+        >
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 w-full gap-1.5 !text-[11px]"
+          >
+            <IconExternalLink className="size-3.5" />
+            {"Open in VS Code" /* i18n-ignore design inspector action */}
+          </Button>
+        </a>
+      ) : null}
+    </>
   );
 }
 
@@ -2165,6 +2173,7 @@ export const EditPanel = memo(function EditPanel({
   onScreenHeightModeChange,
   selectedScreenSource,
   sourceLocationUnavailable = false,
+  sourceLocationSnapshotFailed = false,
   localhostConnections,
   onScreenSourceChange,
   onAddLocalhostScreen,
@@ -2329,6 +2338,9 @@ export const EditPanel = memo(function EditPanel({
     };
   }, [effectiveSelectedElements, textEditingState]);
   const selectedCount = effectiveSelectedElements.length;
+  const selectedElementsKey = JSON.stringify(
+    effectiveSelectedElements.map(elementStableKey),
+  );
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !fileId || selectedCount > 1) return undefined;
     const nodeId = inspectorElement?.sourceId;
@@ -2350,6 +2362,27 @@ export const EditPanel = memo(function EditPanel({
     onShaderSourceApplied,
     onEditCode,
   ]);
+  const screenGlslShaderContext: GlslShaderPanelContext | undefined =
+    useMemo(() => {
+      const screenFileId = selectedScreenGeometry?.id;
+      const nodeId = selectedScreenElement?.sourceId;
+      if (!designId || !screenFileId || !nodeId) return undefined;
+      return {
+        designId,
+        fileId: screenFileId,
+        nodeId,
+        selector: selectedScreenElement?.selector,
+        onApplied: onShaderSourceApplied,
+        onEditCode,
+      };
+    }, [
+      designId,
+      selectedScreenGeometry?.id,
+      selectedScreenElement?.sourceId,
+      selectedScreenElement?.selector,
+      onShaderSourceApplied,
+      onEditCode,
+    ]);
   const documentColorPalette = useDocumentColorPalette(files);
   const selectionAlreadyComponent =
     selectedCount === 1 &&
@@ -2384,6 +2417,9 @@ export const EditPanel = memo(function EditPanel({
   const selectionIsTextOnly =
     effectiveSelectedElements.length > 0 &&
     effectiveSelectedElements.every((element) => isTextElement(element));
+  const selectionIsBoxlessText =
+    effectiveSelectedElements.length > 0 &&
+    effectiveSelectedElements.every((element) => isBoxlessText(element));
   const selectionIsGroup =
     selectedCount === 1 && inspectorElement?.isGroup === true;
   const selectionHasContainerElement = effectiveSelectedElements.some(
@@ -2678,7 +2714,14 @@ export const EditPanel = memo(function EditPanel({
             {!inspectorElement && selectedScreenGeometry ? (
               <ScreenSelectionHeader screen={selectedScreenGeometry} />
             ) : null}
-            {sourceLocationUnavailable ? (
+            {sourceLocationSnapshotFailed ? (
+              <div
+                role="status"
+                className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
+              >
+                {t("designEditor.toasts.sourceLocationSnapshotFailed")}
+              </div>
+            ) : sourceLocationUnavailable ? (
               <div
                 role="status"
                 className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
@@ -2863,6 +2906,7 @@ export const EditPanel = memo(function EditPanel({
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                         documentColorPalette={documentColorPalette}
+                        glslShaderContext={screenGlslShaderContext}
                       />
                       <StrokeProperties
                         key={`stroke:${selectedScreenElementSectionKey}`}
@@ -2875,6 +2919,7 @@ export const EditPanel = memo(function EditPanel({
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
+                        glslShaderContext={screenGlslShaderContext}
                       />
                       <SelectionColorsProperties
                         elements={[selectedScreenElement]}
@@ -2961,7 +3006,7 @@ export const EditPanel = memo(function EditPanel({
                     />
                   ) : null}
                   <LayoutContextProperties
-                    key={`layout-context:${inspectorElementSectionKey}`}
+                    key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
@@ -2983,6 +3028,7 @@ export const EditPanel = memo(function EditPanel({
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                     vectorPointRadius={vectorPointRadius}
                     vectorPointSelected={vectorPointSelected}
+                    cornerRadiusDisabled={selectionIsBoxlessText}
                     onVectorPointRadiusChange={onVectorPointRadiusChange}
                   />
                   {selectionHasTextElement ? (

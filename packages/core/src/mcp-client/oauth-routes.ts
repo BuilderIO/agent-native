@@ -48,6 +48,7 @@ import {
   MCP_OAUTH_FLOW_COOKIE_MAX_CHUNKS as FLOW_COOKIE_MAX_CHUNKS,
   readMcpOAuthFlowCookiePayload,
 } from "./oauth-flow-cookie.js";
+import { normalizeMcpPrincipal, type McpPrincipal } from "./principal.js";
 import {
   addOAuthRemoteServer,
   listRemoteServers,
@@ -103,9 +104,12 @@ const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
   serverOrigins: ReadonlyArray<string>;
   credentialPairs: ReadonlyArray<readonly [string, string]>;
+  allowOrganizationScope?: boolean;
+  requireClientCredentials?: boolean;
 }> = [
   {
     serverOrigins: ["https://mcp.hubspot.com"],
+    requireClientCredentials: true,
     credentialPairs: [
       ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"],
       ["HUBSPOT_INTEGRATION_CLIENT_ID", "HUBSPOT_INTEGRATION_CLIENT_SECRET"],
@@ -123,11 +127,18 @@ const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
       "https://chatmcp.googleapis.com",
       "https://people.googleapis.com",
     ],
+    requireClientCredentials: true,
     credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
   },
   {
     serverOrigins: ["https://workspacemcp.googleapis.com"],
+    requireClientCredentials: true,
     credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+  },
+  {
+    serverOrigins: ["https://mcp.gong.io"],
+    allowOrganizationScope: true,
+    credentialPairs: [["GONG_MCP_CLIENT_ID", "GONG_MCP_CLIENT_SECRET"]],
   },
 ];
 
@@ -155,6 +166,7 @@ export interface McpOAuthRoutesOptions {
     scope: RemoteMcpScope;
     scopeId: string;
     server: StoredRemoteMcpServer;
+    principal: McpPrincipal;
   }) => Promise<boolean>;
 }
 
@@ -249,6 +261,8 @@ async function handleMcpOAuthStart(
   // coercion-ok: OAuth requests fail closed when session resolution is unavailable.
   const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const principal = normalizeMcpPrincipal({ userEmail: session?.email });
+  if (!principal) return unauthorized(event);
 
   const query = getQuery(event);
   const reconnectServerId = text(query.serverId);
@@ -390,7 +404,10 @@ async function handleMcpOAuthStart(
       const clientInformation = await resolveManagedMcpOAuthClient(
         urlCheck.url!,
       );
-      if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
+      if (
+        managedMcpOAuthClientFor(urlCheck.url!)?.requireClientCredentials &&
+        !clientInformation
+      ) {
         return null;
       }
       const storedCredentials =
@@ -559,7 +576,12 @@ export function wantsHtmlResponse(event: H3Event): boolean {
 }
 
 function isManagedMcpOAuthServer(serverUrl: URL): boolean {
-  return MANAGED_MCP_OAUTH_CLIENTS.some((client) =>
+  const client = managedMcpOAuthClientFor(serverUrl);
+  return Boolean(client && !client.allowOrganizationScope);
+}
+
+function managedMcpOAuthClientFor(serverUrl: URL) {
+  return MANAGED_MCP_OAUTH_CLIENTS.find((client) =>
     client.serverOrigins.includes(serverUrl.origin),
   );
 }
@@ -637,6 +659,10 @@ async function handleMcpOAuthCallback(
   // coercion-ok: OAuth callbacks fail closed when session resolution is unavailable.
   const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const authenticatedPrincipal = normalizeMcpPrincipal({
+    userEmail: session?.email,
+  });
+  if (!authenticatedPrincipal) return unauthorized(event);
 
   const query = getQuery(event);
   const code = text(query.code);
@@ -725,9 +751,13 @@ async function handleMcpOAuthCallback(
       scope: flow.scope,
       scopeId: flow.scopeId,
       server: persistedServer,
+      principal: {
+        userEmail: authenticatedPrincipal.userEmail,
+        orgId: org?.orgId ?? null,
+      },
     });
-  } catch {
-    // coercion-ok: the persisted remote is durable; false records reload failure.
+  } catch (error) {
+    console.warn("[mcp-client/oauth] saved server did not reconnect:", error);
   }
   const returnPath = resolveMcpOAuthReturnPath(connected, flow);
   return redirectWithStagedCookies(

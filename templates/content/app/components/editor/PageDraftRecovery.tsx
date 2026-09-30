@@ -1,6 +1,6 @@
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   documentQueryFilter,
+  ensurePreviewDocumentDraftRead,
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
   isDocumentUpdateSuperseded,
@@ -24,11 +25,11 @@ import { documentBodyHydrationIsPending } from "./body-hydration";
 import { saveDocumentWithRebase } from "./document-save-rebase";
 import { authoredCandidateMatchesContent } from "./document-save-retry";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
+import { LiveEditorSessionContext } from "./live-editor-session";
 import {
   clearPageDraftJournal,
-  hasRetainedPageDraftNotice,
-  markPageDraftJournalRetained,
   readPageDraftJournal,
+  sweepLegacyRetainedPageDraftMarkers,
   writePageDraftJournal,
 } from "./page-draft-journal";
 import { RecoveryComparison } from "./RecoveryComparison";
@@ -70,25 +71,39 @@ export function PageDraftRecovery({
     null,
   );
   const [journalState, setJournalState] = useState<
-    "checking" | "promoting" | "waiting_sql" | "ready" | "retained" | "failed"
+    "checking" | "promoting" | "waiting_sql" | "ready" | "failed"
   >("checking");
   const [journalRevision, setJournalRevision] = useState(0);
   const journalAttemptRef = useRef<string | null>(null);
   const automaticRecoveryRef = useRef<string | null>(null);
   const automaticLegacyRecoveryRef = useRef<string | null>(null);
-  const draft = drafts.data?.draft;
+  const [liveEditorSessionId, setLiveEditorSessionId] = useState<string | null>(
+    null,
+  );
+  // The live editor settles drafts it wrote itself; swapping it for a
+  // skeleton here would remount it and jump the page to the top.
+  const draft =
+    drafts.data?.draft &&
+    liveEditorSessionId &&
+    drafts.data.draft.editorSessionId === liveEditorSessionId
+      ? null
+      : drafts.data?.draft;
+  // No scope until the session read returns; the session cache expires, so a
+  // page opened later can mount before then. Unverified until it does.
+  const scopeVerified = scopeKey !== null && verifiedScopeKey === scopeKey;
+  const editorReleased =
+    scopeVerified && releasedScopeKey === scopeKey && !draft;
 
   useEffect(() => {
     setVerifiedScopeKey(null);
     setReleasedScopeKey(null);
     if (!scopeKey || creationPending) return;
     let cancelled = false;
-    void callAction(
-      "get-preview-document-draft",
-      { documentId: document.id },
-      { method: "GET" },
+    void ensurePreviewDocumentDraftRead(
+      queryClient,
+      document.id,
+      document.createdAt,
     )
-      .then(() => drafts.refetch())
       .then(() => {
         if (!cancelled) setVerifiedScopeKey(scopeKey);
       })
@@ -106,10 +121,13 @@ export function PageDraftRecovery({
   }, [document.id, session?.email, session?.orgId]);
 
   useEffect(() => {
-    if (journalState === "promoting") return;
+    // A mounted editor owns its journal entry until its save queue settles.
+    // Replaying it here would race that queue from a stale base and remount
+    // the editor mid-edit.
+    if (journalState === "promoting" || editorReleased) return;
     if (
       !drafts.data ||
-      verifiedScopeKey !== scopeKey ||
+      !scopeVerified ||
       creationPending ||
       documentBodyHydrationIsPending(document)
     )
@@ -129,13 +147,8 @@ export function PageDraftRecovery({
       return;
     }
     if (!entry) {
-      try {
-        setJournalState(
-          hasRetainedPageDraftNotice(scope) ? "retained" : "ready",
-        );
-      } catch {
-        setJournalState("failed");
-      }
+      sweepLegacyRetainedPageDraftMarkers();
+      setJournalState("ready");
       return;
     }
     const sameAsCanonical =
@@ -207,7 +220,7 @@ export function PageDraftRecovery({
       });
       if (preserved.status !== "resolved")
         throw new Error("The journal could not be preserved in history.");
-      if (!markPageDraftJournalRetained(entry.scope, journalSnapshot))
+      if (!clearPageDraftJournal(entry.scope, journalSnapshot))
         throw new Error("The journal changed during History preservation.");
       toast.success(t("editor.previewDraftSavedToHistory"));
       await queryClient.refetchQueries(documentQueryFilter(document.id));
@@ -231,8 +244,9 @@ export function PageDraftRecovery({
           { method: "GET" },
         );
         if (receipt.found && receipt.preservationRequired) {
-          if (!markPageDraftJournalRetained(entry.scope, journalSnapshot))
+          if (!clearPageDraftJournal(entry.scope, journalSnapshot))
             throw new Error("The journal changed during History preservation.");
+          toast.success(t("editor.previewDraftSavedToHistory"));
           setJournalState("checking");
           return;
         }
@@ -340,7 +354,7 @@ export function PageDraftRecovery({
         return;
       }
       if (outcome.status === "preservation") {
-        if (!markPageDraftJournalRetained(entry.scope, journalSnapshot))
+        if (!clearPageDraftJournal(entry.scope, journalSnapshot))
           throw new Error("The journal changed during History preservation.");
         toast.success(t("editor.previewDraftSavedToHistory"));
         await queryClient.refetchQueries(documentQueryFilter(document.id));
@@ -377,22 +391,22 @@ export function PageDraftRecovery({
     document,
     draft,
     drafts.data,
+    editorReleased,
     journalRevision,
     journalState,
-    scopeKey,
+    scopeVerified,
     session?.email,
     session?.orgId,
-    verifiedScopeKey,
   ]);
 
   useEffect(() => {
     if (
       drafts.data?.draft === null &&
-      verifiedScopeKey === scopeKey &&
-      (journalState === "ready" || journalState === "retained")
+      scopeVerified &&
+      journalState === "ready"
     )
       setReleasedScopeKey(scopeKey);
-  }, [drafts.data, journalState, scopeKey, verifiedScopeKey]);
+  }, [drafts.data, journalState, scopeKey, scopeVerified]);
 
   async function settleDraft(restore: boolean) {
     if (!draft || busy) return;
@@ -549,7 +563,7 @@ export function PageDraftRecovery({
       failure ||
       journalState === "checking" ||
       journalState === "promoting" ||
-      verifiedScopeKey !== scopeKey
+      !scopeVerified
     )
       return;
     const attempt = `${draft.version}:${document.updatedAt}`;
@@ -563,8 +577,7 @@ export function PageDraftRecovery({
     failure,
     hasEditIdentity,
     journalState,
-    scopeKey,
-    verifiedScopeKey,
+    scopeVerified,
   ]);
   useEffect(() => {
     if (
@@ -574,7 +587,7 @@ export function PageDraftRecovery({
       failure ||
       journalState === "checking" ||
       journalState === "promoting" ||
-      verifiedScopeKey !== scopeKey ||
+      !scopeVerified ||
       documentBodyHydrationIsPending(document)
     )
       return;
@@ -611,21 +624,19 @@ export function PageDraftRecovery({
     failure,
     hasEditIdentity,
     journalState,
-    scopeKey,
+    scopeVerified,
     session?.email,
     session?.orgId,
-    verifiedScopeKey,
   ]);
 
-  if (releasedScopeKey === scopeKey && verifiedScopeKey === scopeKey && !draft)
-    return journalState === "retained" ? (
-      <>
-        <div role="status">{t("editor.previewDraftSavedToHistory")}</div>
-        {children}
-      </>
-    ) : (
-      children
-    );
+  // Keep the editor at one tree position so a notice never remounts it.
+  const withNotice = (notice: ReactNode) => (
+    <LiveEditorSessionContext.Provider value={setLiveEditorSessionId}>
+      {notice}
+      {children}
+    </LiveEditorSessionContext.Provider>
+  );
+  if (editorReleased) return withNotice(null);
   if (drafts.isError)
     return (
       <QueryErrorState
@@ -650,23 +661,14 @@ export function PageDraftRecovery({
     );
   if (
     !drafts.data ||
-    verifiedScopeKey !== scopeKey ||
+    !scopeVerified ||
     journalState === "checking" ||
     journalState === "promoting"
   )
     return <DocumentEditorSkeleton title={document.title} />;
-  if (!draft) return children;
-  if (!hasEditIdentity && !failure)
-    return (
-      <>
-        <div role="status">
-          {failure === "error"
-            ? t("empty.genericError")
-            : t("editor.previewDraftSavedToHistory")}
-        </div>
-        {children}
-      </>
-    );
+  if (!draft) return withNotice(null);
+  // Legacy drafts are preserved automatically; that path toasts once.
+  if (!hasEditIdentity && !failure) return withNotice(null);
   if (!failure) return <DocumentEditorSkeleton title={document.title} />;
   const savedVersion = conflictDocument ?? document;
   return (

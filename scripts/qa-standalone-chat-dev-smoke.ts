@@ -306,7 +306,24 @@ function installAcceptanceTransportFixture(): void {
     appDir,
     "app/components/chat/ChatRouteContent.tsx",
   );
-  const source = fs.readFileSync(chatSurfacePath, "utf8");
+  let source = fs.readFileSync(chatSurfacePath, "utf8").replace(/\r\n/g, "\n");
+  const lifecycleAnchor =
+    "function ChatLifecycleTracking({ threadId }: { threadId: string }) {";
+  if (
+    !source.includes(
+      "registerAcceptanceClientDiagnostics(controller, threadId, hasActiveAgentRuns)",
+    )
+  ) {
+    assert.equal(source.split(lifecycleAnchor).length - 1, 1);
+    source = source.replace(
+      lifecycleAnchor,
+      `${lifecycleAnchor}\n  const { controller } = useAgentKit();\n  useEffect(() => registerAcceptanceClientDiagnostics(controller, threadId, hasActiveAgentRuns), [controller, threadId]);`,
+    );
+    source =
+      'import { hasActiveAgentRuns } from "@agent-native/agentkit/client";\nimport { registerAcceptanceClientDiagnostics } from "@/lib/agentkit-acceptance-transport";\n' +
+      source;
+    fs.writeFileSync(chatSurfacePath, source);
+  }
   if (source.includes("instrumentAgentKitAcceptanceTransport(")) return;
   const importAnchor = 'import { TAB_ID } from "@/lib/tab-id";';
   const transportAnchor = "    createAgentNativeAgentKitTransport({";
@@ -965,6 +982,33 @@ interface BrowserNetworkState {
   navigationCancellationUntil: number;
   inFlightRequests: Set<PlaywrightRequest>;
   requestsInFlightAtPersistenceReload: Set<PlaywrightRequest>;
+  queueOperations: Array<Record<string, unknown>>;
+}
+
+function recordQueueOperation(
+  network: BrowserNetworkState,
+  request: PlaywrightRequest,
+  stage: string,
+  status?: number,
+): void {
+  const url = new URL(request.url());
+  if (
+    request.method() !== "POST" ||
+    !/^\/_agent-native\/agent-chat\/threads\/[^/]+\/queued$/u.test(url.pathname)
+  )
+    return;
+  const body = request.postDataJSON() as {
+    mutation?: { type?: string; messageId?: string; message?: { id?: string } };
+  };
+  network.queueOperations.push({
+    at: Date.now(),
+    stage,
+    path: url.pathname,
+    operation: body.mutation?.type,
+    messageId: body.mutation?.messageId ?? body.mutation?.message?.id,
+    ...(status === undefined ? {} : { status }),
+  });
+  if (network.queueOperations.length > 200) network.queueOperations.shift();
 }
 
 function isBenignHttpError(
@@ -1321,6 +1365,8 @@ const suggestionPrompt =
 const incompleteRetryPrompt =
   "Fail this stream once, then recover cleanly when I retry.";
 const helloToolCallId = "call_agentkit_hello";
+const followUpCompletionPromptPrefix =
+  "The final reply above has already been delivered.";
 const approvalToolCallId = "call_agentkit_approval";
 const widgetToolCalls: Array<{
   id: string;
@@ -1602,6 +1648,24 @@ async function handleLoopbackCompletion(
     connection: "keep-alive",
     "content-type": "text/event-stream; charset=utf-8",
   });
+
+  if (prompt.startsWith(followUpCompletionPromptPrefix)) {
+    assert.deepEqual(
+      toolNames,
+      ["suggest-follow-ups"],
+      "the follow-up metadata pass must expose only suggest-follow-ups",
+    );
+    await streamToolCallResponse(response, requestNumber, {
+      id: `call_follow_ups_${requestNumber}`,
+      name: "suggest-follow-ups",
+      arguments: {
+        suggestions: [
+          { label: "Summarize this release", prompt: suggestionPrompt },
+        ],
+      },
+    });
+    return;
+  }
 
   if (prompt === helloPrompt) {
     assert.ok(toolNames.includes("hello"), "generated app must expose hello");
@@ -2849,6 +2913,13 @@ async function assertAgentKitChatAcceptance(
         })
       : [];
     const queueDiagnostics = {
+      client: await page.evaluate(() => {
+        const diagnostics = (
+          window as Window & { __agentKitAcceptanceDiagnostics?: () => unknown }
+        ).__agentKitAcceptanceDiagnostics;
+        return diagnostics ? diagnostics() : { unavailable: true };
+      }),
+      queueOperations: network.queueOperations,
       activeRun: {
         status: endpointDiagnostics.activeRunStatus,
         body: endpointDiagnostics.activeRunBody,
@@ -2857,6 +2928,22 @@ async function assertAgentKitChatAcceptance(
         status: endpointDiagnostics.threadStatus,
         durableMessages,
         agentKitMessages,
+        runs:
+          agentKit.runs && typeof agentKit.runs === "object"
+            ? Object.values(agentKit.runs)
+                .slice(-200)
+                .map((entry) => {
+                  const run = entry as Record<string, unknown>;
+                  return {
+                    id: run.id,
+                    status: run.status,
+                    lastSequence: run.lastSequence,
+                  };
+                })
+            : null,
+        activeRunIds: Array.isArray(agentKit.activeRunIds)
+          ? agentKit.activeRunIds.slice(-200)
+          : null,
         queuedMessages: Array.isArray(repository.queuedMessages)
           ? repository.queuedMessages.length
           : null,
@@ -2868,7 +2955,10 @@ async function assertAgentKitChatAcceptance(
         .locator('.agentkit-message[data-role="assistant"]')
         .allInnerTexts(),
     };
-    console.error("Queued follow-up render diagnostics:", queueDiagnostics);
+    console.error(
+      "Queued follow-up render diagnostics:",
+      JSON.stringify(queueDiagnostics, null, 2),
+    );
     throw error;
   }
   await queue.waitFor({ state: "hidden" });
@@ -2936,7 +3026,10 @@ async function assertAgentKitChatAcceptance(
   });
   provider.releaseIncompleteStream?.();
   provider.releaseIncompleteStream = null;
-  await page.locator(".agentkit-run-failure").waitFor({ state: "visible" });
+  await page
+    .locator(".agentkit-run-failure")
+    .last()
+    .waitFor({ state: "visible" });
   network.allowExpectedIncompleteStreamFailure = false;
   await approval.waitFor({ state: "detached" });
   await queue
@@ -3344,6 +3437,7 @@ async function main(): Promise<void> {
     navigationCancellationUntil: 0,
     inFlightRequests: new Set(),
     requestsInFlightAtPersistenceReload: new Set(),
+    queueOperations: [],
   };
 
   const captureCleanupError = (error: unknown) => {
@@ -3427,6 +3521,8 @@ async function main(): Promise<void> {
 
     page.on("request", (request) => {
       const requestUrl = new URL(request.url());
+      if (requestUrl.origin === runningOrigin)
+        recordQueueOperation(network, request, "request");
       const trackedSubmitPrompt = [queuedPrompt, incompleteRetryPrompt].find(
         (prompt) => request.postData()?.includes(prompt),
       );
@@ -3541,6 +3637,8 @@ async function main(): Promise<void> {
       const status = response.status();
       const request = response.request();
       const responseUrl = new URL(response.url());
+      if (responseUrl.origin === runningOrigin)
+        recordQueueOperation(network, request, "response", status);
       const trackedSubmitPrompt = [queuedPrompt, incompleteRetryPrompt].find(
         (prompt) => request.postData()?.includes(prompt),
       );

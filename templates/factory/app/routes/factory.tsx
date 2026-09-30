@@ -7,11 +7,11 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import {
   getReasoningEffortOptionsForModel,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
+import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
 import {
   IconAlertCircle,
   IconArrowLeft,

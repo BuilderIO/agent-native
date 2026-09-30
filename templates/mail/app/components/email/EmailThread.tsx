@@ -1339,7 +1339,10 @@ export function EmailThread({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
-              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
+              <h1
+                data-an-mask
+                className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2"
+              >
                 {threadSubject}
               </h1>
               {displayLabels.map((labelId) => {
@@ -1347,6 +1350,7 @@ export function EmailThread({
                 return (
                   <span
                     key={labelId}
+                    data-an-mask
                     className={cn(
                       "label-badge shrink-0 mt-1",
                       style.bg,
@@ -1513,6 +1517,7 @@ export function EmailThread({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <a
+                        data-an-block
                         href={githubPrUrl}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -1762,7 +1767,10 @@ function ThreadLoadingState({
 
           <div className="flex-1 min-w-0">
             {preview ? (
-              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
+              <h1
+                data-an-mask
+                className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2"
+              >
                 {threadSubject}
               </h1>
             ) : (
@@ -1780,7 +1788,10 @@ function ThreadLoadingState({
       <div className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4">
         <div className="mx-auto max-w-3xl space-y-3 pt-1.5">
           {preview ? (
-            <div className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
+            <div
+              data-an-mask
+              className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4"
+            >
               <div className="flex items-start gap-3">
                 <Skeleton className="h-9 w-9 rounded-full shrink-0" />
                 <div className="flex-1 min-w-0 space-y-3">
@@ -1879,6 +1890,7 @@ const CollapsedMessageRow = forwardRef<
   return (
     <div
       ref={ref}
+      data-an-mask
       onClick={onClick}
       className={cn(
         "flex items-center gap-2 sm:gap-3 px-3 py-3 sm:py-2 cursor-pointer rounded transition-colors",
@@ -1961,6 +1973,7 @@ const ExpandedMessageCard = forwardRef<
   return (
     <div
       ref={ref}
+      data-an-mask
       onClick={onFocus}
       className={cn(
         "rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden cursor-pointer",
@@ -2125,7 +2138,7 @@ const ExpandedMessageCard = forwardRef<
       )}
 
       {/* Body */}
-      <div className="px-3 sm:px-4 pb-5 pt-1 overflow-x-hidden">
+      <div data-an-block className="px-3 sm:px-4 pb-5 pt-1 overflow-x-hidden">
         {email.bodyHtml ? (
           <HtmlEmailBody
             html={email.bodyHtml}
@@ -2153,7 +2166,7 @@ const ExpandedMessageCard = forwardRef<
 
       {/* Attachments */}
       {email.attachments && email.attachments.length > 0 && (
-        <div className="px-3 sm:px-4 pb-4">
+        <div data-an-block className="px-3 sm:px-4 pb-4">
           {/* Image thumbnails */}
           {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
             <div className="flex flex-wrap gap-2 mb-2">
@@ -2182,7 +2195,9 @@ const ExpandedMessageCard = forwardRef<
                           />
                         </a>
                       </TooltipTrigger>
-                      <TooltipContent>{att.filename}</TooltipContent>
+                      <TooltipContent data-an-block>
+                        {att.filename}
+                      </TooltipContent>
                     </Tooltip>
                   );
                 })}

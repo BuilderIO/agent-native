@@ -60,7 +60,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     })[key] ?? key,
 }));
 
-vi.mock("@agent-native/core/client/navigation", async () => {
+vi.mock("@agent-native/toolkit/app/shared", async () => {
   const React = await import("react");
   const Group = ({
     children,

@@ -13,11 +13,11 @@ composants lorsque vous le pouvez, et déposez un calque lorsque vous avez besoi
 Importer le navigateur UI à partir des sous-chemins client ciblés :
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { AgentConversation } from "@agent-native/core/client/conversation";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
+import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { ResourcesPanel } from "@agent-native/core/client/resources";
 ```
 
@@ -189,22 +189,22 @@ Les styles Toolkit incluent la géométrie partagée. `@agent-native/toolkit/app
 
 ## Agent et chat UI {#agent-chat-ui}
 
-| API                                  | Chemin d'importation                          | À utiliser quand                                                                                                        |
-| ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` ou `/client/chat` | Vous souhaitez disposer d'une barre latérale complète autour de votre application.                                      |
-| `<AgentToggleButton>`                | `@agent-native/core/client` ou `/client/chat` | Vous affichez votre propre bouton d'en-tête pour la barre latérale.                                                     |
-| `<AgentPanel>`                       | `@agent-native/core/client` ou `/client/chat` | Vous voulez le panneau complet dans votre propre mise en page, itinéraire, boîte de dialogue ou colonne latérale.       |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` ou `/client/chat` | Vous souhaitez discuter en mode panneau ou page sans le wrapper de la barre latérale.                                   |
-| `<AssistantChat>`                    | `@agent-native/core/client` ou `/client/chat` | Vous souhaitez posséder le chrome environnant tout en conservant la conversation standard et le runtime du compositeur. |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` ou `/client/chat` | Vous voulez les onglets de discussion du framework sans chrome `AgentPanel`.                                            |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` ou `/client/chat` | Vous disposez d'un point de terminaison d'agent BYO qui diffuse des événements de discussion normalisés.                |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` ou `/client/chat` | Vous disposez d'un flux OpenAI Agents SDK et souhaitez que le chat standard UI l'entoure.                               |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` ou `/client/chat` | Vous disposez d'un flux d'événements Réponses OpenAI et souhaitez qu'il soit normalisé dans le chat UI.                 |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` ou `/client/chat` | Vous disposez d'un flux d'événements AG-UI et souhaitez qu'il soit normalisé dans le chat UI.                           |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` ou `/client/chat` | Vous disposez d'un flux Claude Agent SDK et souhaitez qu'il soit normalisé dans le chat UI.                             |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` ou `/client/chat` | Vous disposez d'un flux Vercel AI SDK et souhaitez qu'il soit normalisé dans le chat UI.                                |
-| `useChatThreads()`                   | `@agent-native/core/client` ou `/client/chat` | Vous avez besoin d'une liste de fils de discussion personnalisée, d'un sélecteur d'historique ou d'un chat limité UI.   |
-| `sendToAgentChat()`                  | `@agent-native/core/client` ou `/client/chat` | Une action produit doit confier le travail au chat de l'agent.                                                          |
+| API                                  | Chemin d'importation                   | À utiliser quand                                                                                                        |
+| ------------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat`       | Vous souhaitez disposer d'une barre latérale complète autour de votre application.                                      |
+| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat`       | Vous affichez votre propre bouton d'en-tête pour la barre latérale.                                                     |
+| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat`       | Vous voulez le panneau complet dans votre propre mise en page, itinéraire, boîte de dialogue ou colonne latérale.       |
+| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat`       | Vous souhaitez discuter en mode panneau ou page sans le wrapper de la barre latérale.                                   |
+| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat`       | Vous souhaitez posséder le chrome environnant tout en conservant la conversation standard et le runtime du compositeur. |
+| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat`       | Vous voulez les onglets de discussion du framework sans chrome `AgentPanel`.                                            |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | Vous disposez d'un point de terminaison d'agent BYO qui diffuse des événements de discussion normalisés.                |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | Vous disposez d'un flux OpenAI Agents SDK et souhaitez que le chat standard UI l'entoure.                               |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | Vous disposez d'un flux d'événements Réponses OpenAI et souhaitez qu'il soit normalisé dans le chat UI.                 |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | Vous disposez d'un flux d'événements AG-UI et souhaitez qu'il soit normalisé dans le chat UI.                           |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | Vous disposez d'un flux Claude Agent SDK et souhaitez qu'il soit normalisé dans le chat UI.                             |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | Vous disposez d'un flux Vercel AI SDK et souhaitez qu'il soit normalisé dans le chat UI.                                |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | Vous avez besoin d'une liste de fils de discussion personnalisée, d'un sélecteur d'historique ou d'un chat limité UI.   |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | Une action produit doit confier le travail au chat de l'agent.                                                          |
 
 `AgentChatRuntime` est le contrat d'agent BYO pour le shell de discussion standard. Passer
 `runtime` à `<AssistantChat>` lorsqu'un agent externe doit alimenter le
@@ -218,7 +218,7 @@ Formes d'application complètes, voir [Agent Surfaces](/docs/agent-surfaces).
 L'itinéraire personnalisé le plus court reste une surface pré-câblée :
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -228,7 +228,8 @@ export default function ChatRoute() {
 Pour un chrome personnalisé autour du runtime standard :
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -255,7 +256,7 @@ pour l'utilisation du connecteur, le flux d'événements normalisé et quand l'a
 
 ## Champ de discussion et compositeur {#composer}
 
-Utilisez `@agent-native/core/client/composer` lorsque vous avez besoin du même champ de discussion
+Utilisez `@agent-native/toolkit/app/chat/composer` lorsque vous avez besoin du même champ de discussion
 que la barre latérale dans une UI personnalisée. `@agent-native/toolkit/composer` fournit
 l’implémentation portable et autonome de Tiptap et de l’UI ; pour les services du framework, enveloppez-la dans
 `ComposerRuntimeAdaptersProvider` et fournissez les services. Core fournit la couche préconfigurée pour les pièces jointes, les mentions, les compétences, la voix et le choix du modèle.
@@ -271,7 +272,7 @@ l’implémentation portable et autonome de Tiptap et de l’UI ; pour les servi
 La plupart des UI personnalisés devraient commencer par `PromptComposer` :
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 <PromptComposer
   placeholder="Ask the agent..."
@@ -323,7 +324,7 @@ La configuration du sélecteur accepte :
 Une application peut déclarer des choix déjà autorisés. Ici, `labels` contient les textes traduits et `stageReference` actualise le contexte préparé de l’hôte :
 
 ```tsx
-import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import type { ComposerContextMenuItem } from "@agent-native/toolkit/app/chat/composer";
 import { Link } from "react-router";
 
 const contextMenuItems: ComposerContextMenuItem[] = [
@@ -427,7 +428,7 @@ L’instantané distingue `undefined` d’un tableau vide explicite. Il refuse p
 
 ## Rendu des conversations {#conversation}
 
-Utilisez `@agent-native/core/client/conversation` pour un rendu de style transcription
+Utilisez `@agent-native/toolkit/app/chat/conversation` pour un rendu de style transcription
 en dehors de l'exécution complète de l'agent.
 
 | API                                             | À utiliser quand                                                                             |
@@ -445,7 +446,7 @@ affichage des appels d'outils.
 Utiliser des widgets d'outils natifs lorsqu'un résultat d'action doit s'afficher en qualité d'application UI
 dans le chat au lieu de JSON simple. Les sorties réutilisables intégrées incluent
 `DataTableWidget`, `DataChartWidget` et `DataWidgetResult` ; ils sont exportés
-à partir de `@agent-native/core/client/chat` et de l'entrée du client racine. Voir
+à partir de `@agent-native/core/client/widgets` et de l'entrée du client racine. Voir
 [Native Interface de chat](/docs/native-chat-ui) pour le contrat de résultat de l'action.
 
 | API                              | Utiliser quand                                                                                                  |
@@ -544,7 +545,7 @@ import {
 
 ## Éditeur enrichi {#rich-editor}
 
-Utilisez `@agent-native/core/client/editor` lorsque vous avez besoin de l'éditeur de démarques partagé
+Utilisez `@agent-native/toolkit/editor` lorsque vous avez besoin de l'éditeur de démarques partagé
 surface utilisée par les plans, le contenu, les ressources et les documents collaboratifs
 expériences.
 
@@ -562,7 +563,7 @@ expériences.
 L'éditeur contrôlé de base est juste une démarque d'entrée et une démarque de sortie :
 
 ```tsx
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 <SharedRichEditor
   value={markdown}
@@ -579,7 +580,7 @@ import {
   emailToColor,
   useCollaborativeDoc,
 } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 const editorUser = {
   name: user.name,
@@ -675,9 +676,9 @@ function WorkspaceResources() {
 | Notifications | `<NotificationsBell>`                                           | `@agent-native/core/client/notifications` |
 | Progrès       | `<RunsTray>`, crochets de progression et types                  | `@agent-native/core/client/progress`      |
 | Intégration   | `useOnboarding()`, crochets de panneau d'intégration            | `@agent-native/core/client/onboarding`    |
-| Observabilité | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                  | `@agent-native/core/client/observability` |
+| Observabilité | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                  | `@agent-native/toolkit/app/observability` |
 | Ressources    | `<ResourcesPanel>`, `<ResourceTree>`, hooks de ressources       | `@agent-native/core/client/resources`     |
-| Éditeur riche | `<SharedRichEditor>`, commandes slash, crochets de nœud de bloc | `@agent-native/core/client/editor`        |
+| Éditeur riche | `<SharedRichEditor>`, commandes slash, crochets de nœud de bloc | `@agent-native/toolkit/editor`            |
 
 ## Complétion de texte unique {#one-off-text-completion}
 

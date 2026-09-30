@@ -3,7 +3,6 @@ import {
   callAction,
   readClientAppState,
   setClientAppState,
-  useActionMutation,
 } from "@agent-native/core/client/hooks";
 import type {
   ContentTrashItem,
@@ -13,6 +12,9 @@ import type {
 } from "@shared/content-trash";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+
+import { useContentActionMutation } from "./use-content-action-mutation";
+import { restoredDocumentTargets } from "./use-documents";
 
 export interface ContentTrashFilters {
   query?: string;
@@ -192,10 +194,10 @@ export interface ContentTrashOperation {
 }
 
 export function usePlanContentTrashPurge() {
-  return useActionMutation<
+  return useContentActionMutation<
     ContentTrashPurgePlanResponse,
     ContentTrashPurgeInput
-  >("plan-content-trash-purge");
+  >("plan-content-trash-purge", { invalidates: [] });
 }
 
 export interface ContentTrashPlanDetails {
@@ -231,11 +233,14 @@ export function useContentTrashPurgePlan(planId: string | null) {
   });
 }
 
+// The purge runs as an operation; useContentTrashOperation refreshes Trash when it ends.
 export function useExecuteContentTrashPurge() {
-  return useActionMutation<
+  return useContentActionMutation<
     { operationId: string; status: ContentTrashPurgeStatus },
     { planId: string; scopeToken: string; idempotencyKey: string }
-  >("execute-content-trash-purge");
+  >("execute-content-trash-purge", {
+    invalidates: [["action", "list-content-trash"]],
+  });
 }
 
 export function useContentTrashOperation(operationId: string | null) {
@@ -295,12 +300,11 @@ export function trashOperationIdFromError(error: unknown) {
 }
 
 export function useRestoreTrashItem() {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     { success: boolean; restored: number; documentId: string },
     { id: string }
   >("restore-document", {
-    onSuccess: () => void invalidateTrashQueries(queryClient),
+    invalidates: (_data, { id }) => restoredDocumentTargets(id),
   });
 }
 
@@ -314,6 +318,12 @@ export async function invalidateTrashQueries(
     queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] }),
     queryClient.invalidateQueries({
       queryKey: ["action", "get-content-database"],
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["action", "list-trashed-documents"],
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["action", "list-trashed-content-databases"],
     }),
   ]);
 }

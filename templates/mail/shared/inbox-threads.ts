@@ -21,6 +21,7 @@ export type InboxTab = {
   query?: string;
   total: number;
   unread: number;
+  totalIsLowerBound?: boolean;
 };
 
 export type InboxSyncAccountStatus = {
@@ -33,6 +34,7 @@ export type InboxSyncAccountStatus = {
    * `needs_reauth` — refresh token dead; user must reconnect.
    */
   state: "initial" | "ready" | "error" | "needs_reauth";
+  backfillPending?: boolean;
   lastSyncedAt: number | null;
   error?: string;
 };
@@ -49,6 +51,7 @@ export type ListInboxThreadsResult = {
   tabs: InboxTab[];
   activeTabId: string;
   items: InboxThreadItem[];
+  tabPreviews: Record<string, InboxThreadItem[]>;
   total: number;
   complete?: boolean;
   syncing: boolean;

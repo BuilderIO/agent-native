@@ -1,4 +1,4 @@
-import { AgentNativeIcon } from "@agent-native/core/client/ui";
+import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
 /**
  * Source-shaped Assets artwork based on the create chat and generation tray.
  * Images are licensed template presets; all conversation text is fabricated.

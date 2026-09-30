@@ -50,6 +50,186 @@ function createTransport(events: AgentEvent[]): AgentTransport {
 }
 
 describe("AgentKitClient", () => {
+  it.each(["accepted", "rejected"])(
+    "acknowledges the recoverable local message before a %s startRun settles",
+    async (outcome) => {
+      const started = Promise.withResolvers<{ runId: string }>();
+      const startRun = vi.fn<AgentTransport["startRun"]>(() => started.promise);
+      const client = new AgentKitClient({
+        transport: {
+          ...createTransport([protocolEvent(1, { type: "run.completed" })]),
+          startRun,
+        },
+      });
+      const metadata = { references: [{ type: "file", path: "/notes.md" }] };
+      const options = { metadata: { mode: "act" } };
+      const onLocalSubmit = vi.fn(() => {
+        expect(client.getThread("thread-1").messages).toEqual([
+          expect.objectContaining({
+            role: "user",
+            parts: [{ type: "text", text: "First prompt" }],
+            metadata,
+          }),
+        ]);
+        expect(startRun).not.toHaveBeenCalled();
+      });
+      const settled = vi.fn();
+      const submission = client
+        .sendMessage({
+          threadId: "thread-1",
+          text: "First prompt",
+          options,
+          metadata,
+          onLocalSubmit,
+        })
+        .then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        )
+        .finally(settled);
+      await vi.waitFor(() => expect(startRun).toHaveBeenCalledOnce());
+      expect(onLocalSubmit).toHaveBeenCalledOnce();
+      expect(settled).not.toHaveBeenCalled();
+      const request = startRun.mock.calls[0]![0];
+      expect(Object.keys(request).sort()).toEqual([
+        "messages",
+        "metadata",
+        "options",
+        "threadId",
+      ]);
+      expect(request.options).toEqual(options);
+      expect(request.metadata).toEqual(metadata);
+      expect(structuredClone(request)).toEqual(request);
+
+      const failure = new Error("Agent service unavailable");
+      if (outcome === "accepted") started.resolve({ runId: "run-1" });
+      else started.reject(failure);
+      const result = await submission;
+      expect(onLocalSubmit).toHaveBeenCalledOnce();
+      if (outcome === "accepted") {
+        expect(result).toMatchObject({ value: { runId: "run-1" } });
+        if ("value" in result) await result.value.completed;
+      } else {
+        expect(result).toEqual({ error: failure });
+        expect(client.getThread("thread-1").messages).toEqual([
+          expect.objectContaining({
+            status: "error",
+            parts: [{ type: "text", text: "First prompt" }],
+            metadata,
+          }),
+        ]);
+        expect(client.getSnapshot().error).toMatchObject({
+          code: "run_start_failed",
+        });
+      }
+      await client.shutdown();
+    },
+  );
+
+  it("does not acknowledge a message rejected by capability preflight", async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { modelSelection: false },
+        startRun,
+      },
+    });
+    const onLocalSubmit = vi.fn();
+    await expect(
+      client.sendMessage({
+        threadId: "thread-1",
+        text: "Keep this draft",
+        options: { model: "unsupported-model" },
+        onLocalSubmit,
+      }),
+    ).rejects.toBeInstanceOf(AgentKitCapabilityError);
+    expect(onLocalSubmit).not.toHaveBeenCalled();
+    expect(startRun).not.toHaveBeenCalled();
+    expect(client.getThread("thread-1").messages).toEqual([]);
+    await client.shutdown();
+  });
+
+  it("marks the local message failed if its acknowledgement callback throws", async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>();
+    const client = new AgentKitClient({
+      transport: { ...createTransport([]), startRun },
+    });
+    const failure = new Error("Local acknowledgement failed");
+    await expect(
+      client.sendMessage({
+        threadId: "thread-1",
+        text: "Keep this message",
+        onLocalSubmit: () => {
+          throw failure;
+        },
+      }),
+    ).rejects.toBe(failure);
+    expect(startRun).not.toHaveBeenCalled();
+    expect(client.getThread("thread-1").messages).toEqual([
+      expect.objectContaining({
+        status: "error",
+        parts: [{ type: "text", text: "Keep this message" }],
+      }),
+    ]);
+    expect(client.getSnapshot().error).toMatchObject({
+      code: "run_start_failed",
+    });
+    await client.shutdown();
+  });
+
+  it.each(["accepted", "rejected"])(
+    "acknowledges a %s queue write only after the queued message is inserted",
+    async (outcome) => {
+      const queued = Promise.withResolvers<{ message: AgentQueuedMessage }>();
+      const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+        () => queued.promise,
+      );
+      const client = new AgentKitClient({
+        transport: { ...createTransport([]), queueMessage },
+      });
+      const message: AgentQueuedMessage = {
+        id: "queued-1",
+        threadId: "thread-1",
+        text: "Next prompt",
+        createdAt: "2026-09-29T00:00:00.000Z",
+      };
+      const onLocalSubmit = vi.fn(() => {
+        expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
+      });
+      const submission = client
+        .queueMessage({
+          threadId: "thread-1",
+          text: message.text,
+          onLocalSubmit,
+        })
+        .then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        );
+      await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
+      expect(onLocalSubmit).not.toHaveBeenCalled();
+      expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+      const request = queueMessage.mock.calls[0]![0];
+      expect(request).not.toHaveProperty("onLocalSubmit");
+      expect(structuredClone(request)).toEqual(request);
+
+      const failure = new Error("Queue write failed");
+      if (outcome === "accepted") queued.resolve({ message });
+      else queued.reject(failure);
+      const result = await submission;
+      if (outcome === "accepted") {
+        expect(result).toEqual({ value: message });
+        expect(onLocalSubmit).toHaveBeenCalledOnce();
+      } else {
+        expect(result).toEqual({ error: failure });
+        expect(onLocalSubmit).not.toHaveBeenCalled();
+        expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+      }
+      await client.shutdown();
+    },
+  );
+
   it("persists completed run activity and assistant boundaries", async () => {
     const transport = createTransport([
       protocolEvent(1, { type: "run.started" }),
@@ -150,7 +330,11 @@ describe("AgentKitClient", () => {
           ]),
           runs: [expect.objectContaining({ id: "run-1", status: "completed" })],
           suggestions: [
-            { id: "release-summary", label: "Summarize this release" },
+            {
+              id: "release-summary",
+              label: "Summarize this release",
+              runId: "run-1",
+            },
           ],
           annotations: [
             {
@@ -168,7 +352,11 @@ describe("AgentKitClient", () => {
       expect.anything(),
     );
     expect(client.getThread("thread-1").suggestions).toEqual([
-      { id: "release-summary", label: "Summarize this release" },
+      {
+        id: "release-summary",
+        label: "Summarize this release",
+        runId: "run-1",
+      },
     ]);
 
     const restoredClient = new AgentKitClient({ transport });
@@ -1672,7 +1860,9 @@ describe("AgentKitClient", () => {
     expect(thread.messages[1]?.parts).toEqual([
       { type: "text", text: "Workspace reviewed." },
     ]);
-    expect(thread.suggestions).toEqual([{ id: "next", label: "Run checks" }]);
+    expect(thread.suggestions).toEqual([
+      { id: "next", label: "Run checks", runId: "run-1" },
+    ]);
     expect(thread.runs["run-1"]).toMatchObject({
       status: "completed",
       lastSequence: 6,
@@ -3356,6 +3546,79 @@ describe("AgentKitClient", () => {
     expect(restoredClient.getThread("thread-1").activeRunIds).toEqual([]);
   });
 
+  it("reattaches after approval when the interrupted reader is still closing", async () => {
+    const closeApprovalStream = Promise.withResolvers<void>();
+    const queued: AgentQueuedMessage = {
+      id: "queued-after-approval",
+      threadId: "thread-1",
+      text: "Continue after approval",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    let subscriptions = 0;
+    const promoted = vi.fn(async () => undefined);
+    const transport: AgentTransport = {
+      capabilities: { approvals: true, messageQueue: true },
+      async startRun() {
+        return { runId: "run-approval" };
+      },
+      async queueMessage() {
+        return { message: queued };
+      },
+      steerQueuedMessage: promoted,
+      async *subscribeToRun({ runId }) {
+        subscriptions += 1;
+        if (subscriptions === 1) {
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          yield {
+            ...protocolEvent(2, {
+              type: "approval.requested",
+              request: { id: "approval-1", title: "Continue?" },
+            }),
+            runId,
+          };
+          await closeApprovalStream.promise;
+          return;
+        }
+        yield {
+          ...protocolEvent(3, {
+            type: "approval.resolved",
+            approvalId: "approval-1",
+            response: { decision: "approve" },
+          }),
+          runId,
+        };
+        yield { ...protocolEvent(4, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+      async resumeRun() {
+        return { runId: "run-approval" };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Wait for approval",
+    });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-approval"]?.status).toBe(
+        "awaiting_approval",
+      ),
+    );
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+
+    await client.resolveApproval({
+      threadId: "thread-1",
+      runId: "run-approval",
+      approvalId: "approval-1",
+      response: { decision: "approve" },
+    });
+    closeApprovalStream.resolve();
+    await run.completed;
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+    expect(subscriptions).toBe(2);
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+  });
+
   it("reports replacement-run failures and permits an explicit reattach", async () => {
     const onError = vi.fn();
     let replacementSubscriptions = 0;
@@ -3538,6 +3801,79 @@ describe("AgentKitClient", () => {
 
     terminals.get("run-2")?.resolve();
     await second.completed;
+    await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+  });
+
+  it("promotes queued work after the run it followed finishes during preparation", async () => {
+    const terminal = Promise.withResolvers<void>();
+    const capabilityDiscovery =
+      Promise.withResolvers<
+        Awaited<ReturnType<NonNullable<AgentTransport["discoverCapabilities"]>>>
+      >();
+    const capabilityDiscoveryStarted = Promise.withResolvers<void>();
+    let currentTime = "2026-09-30T00:00:00.000Z";
+    let discoveryCount = 0;
+    const steerQueuedMessage = vi.fn(async () => undefined);
+    const transport: AgentTransport = {
+      async discoverCapabilities() {
+        discoveryCount += 1;
+        if (discoveryCount === 1) {
+          return {
+            protocol: negotiateAgentKitProtocolVersion(
+              createAgentKitProtocolVersionOffer(),
+            ),
+            capabilities: [{ id: "messageQueue", state: "available" }],
+            discoveredAt: currentTime,
+            expiresAt: "2026-09-30T00:01:00.000Z",
+          };
+        }
+        capabilityDiscoveryStarted.resolve();
+        return capabilityDiscovery.promise;
+      },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        await terminal.promise;
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+      async queueMessage(input) {
+        return {
+          message: {
+            id: "queued-1",
+            threadId: input.threadId,
+            text: input.text,
+            createdAt: "2026-09-30T00:00:00.000Z",
+          },
+        };
+      },
+      steerQueuedMessage,
+    };
+    const client = new AgentKitClient({ transport, now: () => currentTime });
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Run" });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toEqual(["run-1"]),
+    );
+
+    currentTime = "2026-09-30T00:02:00.000Z";
+    const queuedMessage = client.queueMessage({
+      threadId: "thread-1",
+      text: "Run next",
+    });
+    await capabilityDiscoveryStarted.promise;
+    terminal.resolve();
+    await run.completed;
+    capabilityDiscovery.resolve({
+      protocol: negotiateAgentKitProtocolVersion(
+        createAgentKitProtocolVersionOffer(),
+      ),
+      capabilities: [{ id: "messageQueue", state: "available" }],
+      discoveredAt: currentTime,
+    });
+    await queuedMessage;
+
     await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
   });
 

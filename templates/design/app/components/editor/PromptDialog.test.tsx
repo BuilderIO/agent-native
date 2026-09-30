@@ -3,10 +3,11 @@ vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
 
-import type { PromptComposerProps } from "@agent-native/core/client/composer";
+import type { PromptComposerProps } from "@agent-native/toolkit/app/chat/composer/index";
 import {
   act,
   createRef,
+  lazy,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -82,7 +83,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/composer", () => ({
   PromptComposer: (props: ComposerStubProps) => {
     mockComposer.current = props;
     const [text, setText] = useState("");
@@ -158,6 +159,9 @@ vi.mock("@agent-native/core/client/composer", () => ({
       </div>
     );
   },
+}));
+
+vi.mock("@agent-native/toolkit/composer/use-eager-file-uploads", () => ({
   useEagerFileUploads: () => {
     const [uploading, setUploading] = useState(false);
     const uploadFiles = useCallback(async (files: File[]) => {
@@ -268,8 +272,42 @@ async function renderPopover(props: Record<string, unknown>) {
   });
 }
 
+describe("PromptPopover lazy editor composer", () => {
+  it("keeps the composer area visible while the lazy chunk loads", async () => {
+    let resolveComposer!: (module: {
+      default: React.ComponentType<PromptComposerProps>;
+    }) => void;
+    const LoadedComposer: React.ComponentType<PromptComposerProps> = () => (
+      <div data-testid="loaded-prompt-composer" />
+    );
+    const DelayedComposer = lazy(
+      () =>
+        new Promise<{ default: React.ComponentType<PromptComposerProps> }>(
+          (resolve) => {
+            resolveComposer = resolve;
+          },
+        ),
+    );
+
+    await renderPopover({ composerComponent: DelayedComposer });
+
+    const fallback = container!.querySelector('[aria-busy="true"]');
+    expect(fallback?.querySelector(".h-16.w-full")).toBeTruthy();
+    expect(fallback?.querySelector(".size-8")).toBeTruthy();
+
+    await act(async () => {
+      resolveComposer({ default: LoadedComposer });
+      await Promise.resolve();
+    });
+
+    expect(
+      container!.querySelector('[data-testid="loaded-prompt-composer"]'),
+    ).toBeTruthy();
+  });
+});
+
 describe("PromptPopover inline home", () => {
-  it("renders the composer immediately and shows preflight as submitting", async () => {
+  it("keeps the composer calm while its submit preflight runs", async () => {
     let resolvePreflight!: (result: boolean) => void;
     const preflight = new Promise<boolean>((resolve) => {
       resolvePreflight = resolve;
@@ -285,7 +323,9 @@ describe("PromptPopover inline home", () => {
       check = Promise.resolve(mockComposer.current!.onBeforeSubmit!());
       await Promise.resolve();
     });
-    expect(mockComposer.current?.submitting).toBe(true);
+    expect(mockComposer.current?.submitting).toBe(false);
+    expect(mockComposer.current?.submissionDisabled).toBe(false);
+    expect(mockComposer.current?.disabled).not.toBe(true);
     expect(onSubmit).not.toHaveBeenCalled();
 
     await act(async () => {

@@ -3,11 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
-import {
-  getActiveOrgSettingForEvent,
-  getOrgDomain,
-  listOrgMembershipsForEvent,
-} from "../org/context.js";
+import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -35,6 +31,7 @@ import {
   normalizeOAuthScope,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { resolveMcpOrgChoices } from "./org-choice.js";
 import {
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
@@ -809,9 +806,9 @@ async function handleAuthorize(
         error: "login_required",
       });
     }
-    const loginHtml = getConfiguredLoginHtml(event);
-    return loginHtml
-      ? html(loginHtml, 200)
+    const loginPage = getConfiguredLoginHtml(event);
+    return loginPage
+      ? html(loginPage.html, loginPage.status)
       : oauthError("login_required", "Sign in required", 401);
   }
 
@@ -825,42 +822,13 @@ async function handleAuthorize(
     });
   }
 
-  const activeOrgSetting = await getActiveOrgSettingForEvent(
+  const { organizations, defaultOrganizationId } = await resolveMcpOrgChoices(
     event,
-    session.email,
-  );
-  const explicitPersonal = activeOrgSetting?.orgId === null;
-  const requestedOrganizationId =
+    session,
     method === "POST" && params.organization_id !== undefined
       ? params.organization_id || null
-      : explicitPersonal
-        ? null
-        : (activeOrgSetting?.orgId ?? session.orgId ?? null);
-  const memberships = await listOrgMembershipsForEvent(
-    event,
-    session.email,
-    requestedOrganizationId,
+      : undefined,
   );
-  const organizations =
-    memberships?.map((membership) => ({
-      id: membership.orgId,
-      name: membership.orgName,
-      domain: membership.allowedDomain,
-    })) ??
-    (!explicitPersonal && session.orgId
-      ? [{ id: session.orgId, name: "Organization", domain: null }]
-      : []);
-  const organizationOptions = explicitPersonal
-    ? [{ id: "", name: "Personal", domain: null }, ...organizations]
-    : organizations;
-  const defaultOrganizationId = explicitPersonal
-    ? ""
-    : activeOrgSetting?.orgId &&
-        organizations.some(({ id }) => id === activeOrgSetting.orgId)
-      ? activeOrgSetting.orgId
-      : session.orgId && organizations.some(({ id }) => id === session.orgId)
-        ? session.orgId
-        : organizations[0]?.id;
 
   if (method === "GET") {
     return html(
@@ -870,7 +838,7 @@ async function handleAuthorize(
         clientName: client.clientName || client.clientId,
         redirectUri,
         scopes: scope.split(/\s+/),
-        organizations: organizationOptions,
+        organizations,
         fields: {
           response_type: "code",
           client_id: clientId,
@@ -923,10 +891,7 @@ async function handleAuthorize(
   const selectedOrganization = organizations.find(
     ({ id }) => id === selectedOrganizationId,
   );
-  const selectedPersonal =
-    selectedOrganizationId === "" &&
-    (explicitPersonal || organizations.length === 0);
-  if (organizations.length > 0 && !selectedPersonal && !selectedOrganization) {
+  if (organizations.length > 0 && !selectedOrganization) {
     return oauthError(
       "invalid_request",
       "A valid organization selection is required",

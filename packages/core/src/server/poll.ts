@@ -11,12 +11,17 @@ import {
   type ActionChangeTarget,
 } from "../action-change-marker.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
-import { type DbExec, getDbExec } from "../db/client.js";
+import {
+  type DbExec,
+  getDbExec,
+  isProductionServerlessFunctionRuntime,
+} from "../db/client.js";
 import {
   ensureIndexExists,
   ensureIndexExistsConcurrently,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { appMigratesAtRelease } from "../db/migration-policy.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
@@ -313,6 +318,18 @@ async function readExtensionTargetsForRows(
 }
 
 type ChangeVisibility = "visible" | "hidden" | "pending";
+
+class SyncEventsTableUnavailableError extends Error {
+  constructor() {
+    super("Durable sync events are unavailable until their table exists.");
+    this.name = "SyncEventsTableUnavailableError";
+  }
+}
+
+function isMissingRelationError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  return (error as { code?: unknown }).code === "42P01";
+}
 
 export type ChangeReadResult = {
   version: number;
@@ -1131,16 +1148,31 @@ export class AppSyncState {
     orgId: string | undefined,
     cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
-    if (
-      (!cursor && since <= 0) ||
-      (cursor && cursor.version <= 0 && cursor.id === "") ||
-      !(await this.ensureSyncEventsTable())
-    ) {
+    if (syncEventsDisabled()) {
       return { version: this.version, events: [] };
     }
 
+    const readCursor = cursor ?? { version: since, id: "" };
+    if (readCursor.version <= 0 && readCursor.id === "") {
+      try {
+        const result = await this.getDb().execute(
+          "SELECT MAX(version) as max_version FROM sync_events",
+        );
+        return {
+          version: Math.max(
+            this.version,
+            timestampValue(result.rows[0]?.max_version),
+          ),
+          events: [],
+        };
+      } catch (error) {
+        if (isMissingRelationError(error))
+          throw new SyncEventsTableUnavailableError();
+        throw error;
+      }
+    }
+
     try {
-      const readCursor = cursor ?? { version: since, id: "" };
       const compositeCursorSql = cursor
         ? "(version > ? OR (version = ? AND id > ?))"
         : "version > ?";
@@ -1272,12 +1304,10 @@ export class AppSyncState {
           ? { cursor: encodeSyncCursor(lastCursor) }
           : {}),
       };
-    } catch {
-      return {
-        version: this.version,
-        events: [],
-        ...(cursor ? { cursor: encodeSyncCursor(cursor) } : {}),
-      };
+    } catch (error) {
+      if (isMissingRelationError(error))
+        throw new SyncEventsTableUnavailableError();
+      throw error;
     }
   }
 
@@ -1644,20 +1674,14 @@ export class AppSyncState {
       const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
       if (extensionsTs > this.lastExtensionsTs) {
         const since = this.lastExtensionsUpdatedAt;
-        const extensionResult =
-          since === undefined
-            ? await db.execute({
-                sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
-                args: [],
-              })
-            : await db.execute({
-                sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools WHERE updated_at > ? ORDER BY updated_at ASC",
-                args: [since],
-              });
-        const changedExtensionRows = extensionResult.rows.filter(
-          (row) => timestampValue(row.updated_at) > this.lastExtensionsTs,
-        );
-        if (this.lastExtensionsTs > 0) {
+        if (this.lastExtensionsTs > 0 && since !== undefined) {
+          const extensionResult = await db.execute({
+            sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools WHERE updated_at > ? ORDER BY updated_at ASC",
+            args: [since],
+          });
+          const changedExtensionRows = extensionResult.rows.filter(
+            (row) => timestampValue(row.updated_at) > this.lastExtensionsTs,
+          );
           const targetsByRow = await readExtensionTargetsForRows(
             db,
             changedExtensionRows,
@@ -1802,21 +1826,50 @@ export function createPollHandler(
         setResponseStatus(event, 401);
         return { error: "Unauthenticated" };
       }
-      await state.seedVersionFromDb();
-      const durableEvents = await state.ensureSyncEventsTable();
-      await state.checkExternalDbChanges({ durableEvents });
-
       const query = getQuery(event);
       const cursor = decodeSyncCursor(query.cursor);
       const since =
         cursor?.version ?? (parseInt(String(query.since ?? "0"), 10) || 0);
-      return await state.getCombinedChangesSinceForUser(
-        since,
-        session.email,
-        session.orgId,
-        durableEvents,
-        cursor,
-      );
+      if (syncEventsDisabled()) {
+        await state.seedVersionFromDb();
+        await state.checkExternalDbChanges({ durableEvents: false });
+        return await state.getCombinedChangesSinceForUser(
+          since,
+          session.email,
+          session.orgId,
+          false,
+          cursor,
+        );
+      }
+
+      const releaseOwnedServerlessPoll =
+        isProductionServerlessFunctionRuntime() && appMigratesAtRelease();
+      try {
+        if (!releaseOwnedServerlessPoll) {
+          await state.seedVersionFromDb();
+          await state.checkExternalDbChanges({ durableEvents: true });
+        }
+        // ponytail: release-owned serverless polling trusts sync_events; route direct SQL writes through recordChange instead of restoring marker scans.
+        return await state.getCombinedChangesSinceForUser(
+          since,
+          session.email,
+          session.orgId,
+          true,
+          cursor,
+        );
+      } catch (error) {
+        if (!(error instanceof SyncEventsTableUnavailableError)) throw error;
+        if (releaseOwnedServerlessPoll) throw error;
+        await state.seedVersionFromDb();
+        await state.checkExternalDbChanges({ durableEvents: false });
+        return await state.getCombinedChangesSinceForUser(
+          since,
+          session.email,
+          session.orgId,
+          false,
+          cursor,
+        );
+      }
     } catch (error) {
       console.error(
         `[agent-native] Poll handler failed (request_id=${getHttpRequestTelemetryId(event) ?? "unavailable"})`,

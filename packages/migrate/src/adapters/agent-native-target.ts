@@ -170,6 +170,7 @@ function packageJson(): string {
       },
       dependencies: {
         "@agent-native/core": "latest",
+        "@agent-native/toolkit": "latest",
         "@tabler/icons-react": "^3.41.1",
         "@tanstack/react-query": "^5.99.2",
         "@vitejs/plugin-react": "^6.0.1",
@@ -407,7 +408,7 @@ function rootTsx(): string {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client/ui";
-import { AgentSidebar } from "@agent-native/core/client/AgentSidebar";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
 import stylesheet from "./global.css?url";
 import type { ReactNode } from "react";
 import type { LinksFunction } from "react-router";
@@ -448,7 +449,7 @@ export default function Root() {
 }
 
 function agentRoute(): string {
-  return `import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+  return `import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 
 export default function AgentRoute() {
   return <AgentTabsPage />;
@@ -457,7 +458,7 @@ export default function AgentRoute() {
 }
 
 function globalCss(): string {
-  return `@import "@agent-native/core/styles/agent-native.css";
+  return `@import "@agent-native/toolkit/styles.css";
 `;
 }
 

@@ -1,11 +1,7 @@
 import type {
-  CodeAgentChatController,
-  CodeAgentChatTranscriptEvent,
-} from "@agent-native/core/client/agent-chat";
-import type {
   AgentChatRuntime,
   AgentChatRuntimeMessage,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { describe, expect, it, vi } from "vitest";
 
 import {

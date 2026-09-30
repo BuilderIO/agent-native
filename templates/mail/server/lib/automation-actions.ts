@@ -1,6 +1,7 @@
 import { notify } from "@agent-native/core/notifications";
 import type { AutomationAction } from "@shared/types.js";
 
+import type { GmailQuotaLane } from "./gmail-quota.js";
 import {
   gmailModifyMessage,
   gmailTrashMessage,
@@ -16,6 +17,7 @@ export interface ActionContext {
   ownerEmail: string;
   accountEmail: string;
   labelCache: Map<string, string>;
+  lane?: GmailQuotaLane;
   signal?: AbortSignal;
   notificationIdempotencyKey?: string;
   from?: string;
@@ -25,11 +27,12 @@ export interface ActionContext {
 
 export async function buildLabelCache(
   accessToken: string,
+  lane: GmailQuotaLane = "interactive",
   signal?: AbortSignal,
 ): Promise<Map<string, string>> {
   const cache = new Map<string, string>();
   try {
-    const res = await gmailListLabels(accessToken, signal);
+    const res = await gmailListLabels(accessToken, lane, signal);
     signal?.throwIfAborted();
     for (const label of res.labels || []) {
       if (label.id && label.name) {
@@ -48,6 +51,7 @@ export async function ensureGmailLabel(
   accessToken: string,
   labelName: string,
   labelCache: Map<string, string>,
+  lane: GmailQuotaLane = "interactive",
   signal?: AbortSignal,
 ): Promise<string> {
   signal?.throwIfAborted();
@@ -60,6 +64,7 @@ export async function ensureGmailLabel(
       accessToken,
       labelName,
       undefined,
+      lane,
       signal,
     );
     signal?.throwIfAborted();
@@ -70,7 +75,7 @@ export async function ensureGmailLabel(
   } catch (err: any) {
     if (signal?.aborted) signal.throwIfAborted();
     if (err instanceof Error && err.name === "AbortError") throw err;
-    const refreshed = await buildLabelCache(accessToken, signal);
+    const refreshed = await buildLabelCache(accessToken, lane, signal);
     for (const [k, v] of refreshed) labelCache.set(k, v);
     const retryId = labelCache.get(key);
     if (retryId) return retryId;
@@ -141,6 +146,7 @@ export async function executeAction(
           ctx.accessToken,
           action.labelName,
           ctx.labelCache,
+          ctx.lane,
           ctx.signal,
         );
         ctx.signal?.throwIfAborted();
@@ -149,6 +155,7 @@ export async function executeAction(
           ctx.messageId,
           [labelId],
           undefined,
+          ctx.lane,
           ctx.signal,
         )) as { historyId?: string } | undefined;
         ctx.signal?.throwIfAborted();
@@ -164,6 +171,7 @@ export async function executeAction(
           ctx.messageId,
           undefined,
           ["INBOX"],
+          ctx.lane,
           ctx.signal,
         )) as { historyId?: string } | undefined;
         ctx.signal?.throwIfAborted();
@@ -179,6 +187,7 @@ export async function executeAction(
           ctx.messageId,
           undefined,
           ["UNREAD"],
+          ctx.lane,
           ctx.signal,
         )) as { historyId?: string } | undefined;
         ctx.signal?.throwIfAborted();
@@ -194,6 +203,7 @@ export async function executeAction(
           ctx.messageId,
           ["STARRED"],
           undefined,
+          ctx.lane,
           ctx.signal,
         )) as { historyId?: string } | undefined;
         ctx.signal?.throwIfAborted();
@@ -207,6 +217,7 @@ export async function executeAction(
         const updated = (await gmailTrashMessage(
           ctx.accessToken,
           ctx.messageId,
+          ctx.lane,
           ctx.signal,
         )) as { historyId?: string } | undefined;
         ctx.signal?.throwIfAborted();

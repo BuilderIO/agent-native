@@ -602,6 +602,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onZoomChange,
   renderScreenContent,
   screenContentRenderKey,
+  onScreenRuntimeReload,
   screenSnapshotsById,
   tweakValues = EMPTY_TWEAK_VALUES,
   renderBreakpointContent,
@@ -1313,6 +1314,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const bridgeReadyCallbackByFrameIdRef = useRef<Map<string, () => void>>(
     new Map(),
   );
+  const runtimeReloadCallbackByFrameIdRef = useRef<Map<string, () => void>>(
+    new Map(),
+  );
+  const onScreenRuntimeReloadRef = useRef(onScreenRuntimeReload);
+  onScreenRuntimeReloadRef.current = onScreenRuntimeReload;
   const [bootStatusRevision, setBootStatusRevision] = useState(0);
   const [hoverPromotedScreenId, setHoverPromotedScreenId] = useState<
     string | null
@@ -1433,6 +1439,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     },
     [markScreenBootReady],
   );
+  const getScreenRuntimeReloadCallback = useCallback(
+    (screenId: string, frameId = "primary") => {
+      const callbackKey = `${screenId}\0${frameId}`;
+      const existing =
+        runtimeReloadCallbackByFrameIdRef.current.get(callbackKey);
+      if (existing) return existing;
+      const callback = () =>
+        onScreenRuntimeReloadRef.current?.(screenId, frameId);
+      runtimeReloadCallbackByFrameIdRef.current.set(callbackKey, callback);
+      return callback;
+    },
+    [],
+  );
   const screenPaintCandidatesRef = useRef<ScreenPaintCandidate[]>([]);
   const screenPaintTargetsRef = useRef<ScreenPaintTarget[]>([]);
   const surfaceSizeRef = useRef({ width: 0, height: 0 });
@@ -1469,6 +1488,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           bridgeReadyCallbackByFrameIdRef.current.delete(key);
         }
       }
+      for (const key of runtimeReloadCallbackByFrameIdRef.current.keys()) {
+        if (key.startsWith(`${id}\0`)) {
+          runtimeReloadCallbackByFrameIdRef.current.delete(key);
+        }
+      }
     }
   }, [screens]);
   useEffect(
@@ -1482,6 +1506,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       bootReadyFrameIdsByScreenIdRef.current.clear();
       bootStartCallbackByFrameIdRef.current.clear();
       bridgeReadyCallbackByFrameIdRef.current.clear();
+      runtimeReloadCallbackByFrameIdRef.current.clear();
     },
     [],
   );
@@ -10111,6 +10136,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           {
             onBootReady: getScreenBootReadyCallback(screen.id),
             onBootStart: getScreenBootStartCallback(screen.id),
+            onRuntimeReload: getScreenRuntimeReloadCallback(screen.id),
             cacheKey: screenContentRenderKey,
           },
         ),
@@ -10127,6 +10153,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     editorScreenIds,
     getScreenBootReadyCallback,
     getScreenBootStartCallback,
+    getScreenRuntimeReloadCallback,
     renderScreenContent,
     screenContentRenderKey,
     retainedEditorScreenIds,
@@ -10573,6 +10600,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               }
               getBootReadyCallback={getScreenBootReadyCallback}
               getBootStartCallback={getScreenBootStartCallback}
+              getRuntimeReloadCallback={getScreenRuntimeReloadCallback}
               cullTier={cullTier}
               isExportPreview={isExportPreview}
               isActive={screen.id === activeId}
@@ -11992,6 +12020,7 @@ interface ScreenProps {
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
   getBootReadyCallback?: (screenId: string, frameId: string) => () => void;
   getBootStartCallback?: (screenId: string, frameId: string) => () => void;
+  getRuntimeReloadCallback?: (screenId: string, frameId: string) => () => void;
   cullTier: ScreenCullTier;
   isExportPreview: boolean;
   onPick: (id: string, e: React.MouseEvent<HTMLElement>) => void;
@@ -12066,6 +12095,7 @@ const Screen = memo(function Screen({
   renderBreakpointContent,
   getBootReadyCallback,
   getBootStartCallback,
+  getRuntimeReloadCallback,
   cullTier,
   isExportPreview,
   onAddBreakpoint,
@@ -12624,6 +12654,7 @@ const Screen = memo(function Screen({
           renderBreakpointContent={renderBreakpointContent}
           getBootReadyCallback={getBootReadyCallback}
           getBootStartCallback={getBootStartCallback}
+          getRuntimeReloadCallback={getRuntimeReloadCallback}
           onStaticPreviewLoad={onStaticPreviewLoad}
           activeBreakpointWidth={screen.activeBreakpointWidth}
           isScreenSelected={isSelected}
@@ -12704,6 +12735,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.renderBreakpointContent === next.renderBreakpointContent &&
     prev.getBootReadyCallback === next.getBootReadyCallback &&
     prev.getBootStartCallback === next.getBootStartCallback &&
+    prev.getRuntimeReloadCallback === next.getRuntimeReloadCallback &&
     prev.cullTier === next.cullTier &&
     prev.isExportPreview === next.isExportPreview &&
     sameResolvedMetadata(prev.metadata, next.metadata) &&
@@ -12772,6 +12804,7 @@ function BreakpointPreviewRow({
   renderBreakpointContent,
   getBootReadyCallback,
   getBootStartCallback,
+  getRuntimeReloadCallback,
   onStaticPreviewLoad,
   activeBreakpointWidth,
   isScreenSelected,
@@ -12803,6 +12836,7 @@ function BreakpointPreviewRow({
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
   getBootReadyCallback?: ScreenProps["getBootReadyCallback"];
   getBootStartCallback?: ScreenProps["getBootStartCallback"];
+  getRuntimeReloadCallback?: ScreenProps["getRuntimeReloadCallback"];
   onStaticPreviewLoad?: ScreenProps["onStaticPreviewLoad"];
   activeBreakpointWidth: number | undefined;
   isScreenSelected: boolean;
@@ -12872,6 +12906,10 @@ function BreakpointPreviewRow({
                 `breakpoint:${widthPx}`,
               ),
               onBootStart: getBootStartCallback?.(
+                screen.id,
+                `breakpoint:${widthPx}`,
+              ),
+              onRuntimeReload: getRuntimeReloadCallback?.(
                 screen.id,
                 `breakpoint:${widthPx}`,
               ),

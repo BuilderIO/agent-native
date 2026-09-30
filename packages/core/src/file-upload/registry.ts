@@ -38,6 +38,27 @@ export function getActiveFileUploadProvider(): FileUploadProvider | null {
   return null;
 }
 
+/**
+ * Every registered provider's configured state for this request, in the same
+ * precedence order `getActiveFileUploadProviderForRequest` walks. A status read
+ * that needs both the list and the active provider derives the active one from
+ * this instead of detecting each provider a second time.
+ */
+export async function listFileUploadProviderStatusesForRequest(): Promise<
+  Array<{ provider: FileUploadProvider; configured: boolean }>
+> {
+  return Promise.all(
+    [...providers.values()].map(async (provider) => ({
+      provider,
+      configured:
+        provider.isConfigured() ||
+        (provider.isConfiguredForRequest
+          ? await provider.isConfiguredForRequest()
+          : false),
+    })),
+  );
+}
+
 export async function getActiveFileUploadProviderForRequest(): Promise<FileUploadProvider | null> {
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;

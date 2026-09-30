@@ -250,6 +250,29 @@ For enterprise-specific rules (allow-list domains, SSO enforcement, extra role c
 
 Active organization flows automatically: `session.orgId` → `AGENT_ORG_ID` → SQL row scoping, so data tagged with `org_id` is invisible to other orgs even to the agent. See [Security & Data Scoping](/docs/security) for the full model.
 
+## Built-in apps {#builtin-apps}
+
+By default every workspace can reach the hosted first-party apps (Mail, Calendar, Content, Design, Clips, and the rest) as built-in agents. Choose which ones your workspace offers with `agent-native.builtinAgents` in the root `package.json`:
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"]
+    }
+  }
+}
+```
+
+- `mode`: `"all"` (default, every public first-party app), `"none"` (no built-ins), or `"selected"` (only `include`).
+- `include`: the built-ins this workspace offers when `mode` is `"selected"`. Anything else stays unknown to the workspace.
+
+Unknown ids log a warning and are ignored. A standalone app can use the same key in its own `package.json`. `agent-native dev` and workspace deploys pass the value to every app as `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
+
+This config controls the app list, agent discovery, and agent-to-agent calls. Mounted workspace apps and connected remote agents are unaffected, and MCP app access stays a separate routing permission.
+
 ## Shared MCP servers {#shared-mcp}
 
 The recommended options for sharing MCP servers across workspace apps, in order of preference:

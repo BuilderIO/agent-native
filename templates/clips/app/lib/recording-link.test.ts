@@ -20,7 +20,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 const writeClipboardText = vi.hoisted(() => vi.fn());
-vi.mock("@agent-native/core/client/clipboard", () => ({ writeClipboardText }));
+vi.mock("@agent-native/toolkit/clipboard", () => ({ writeClipboardText }));
 
 import {
   copyFreshRecordingShareLink,

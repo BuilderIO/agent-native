@@ -15,6 +15,7 @@ import {
   IconSquareCheck,
   IconSend,
   IconX,
+  IconAlertCircle,
   IconThumbDown,
   IconThumbUp,
 } from "@tabler/icons-react";
@@ -60,6 +61,14 @@ interface EmailListItemProps {
   onImportanceFeedback?: (decision: "important" | "not-important") => void;
   onSendNow?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onCancelSchedule?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onConfirmUncertainScheduled?: (
+    e: React.MouseEvent,
+    thread: ThreadSummary,
+  ) => void;
+  onRetryUncertainScheduled?: (
+    e: React.MouseEvent,
+    thread: ThreadSummary,
+  ) => void;
   onHover: (thread: ThreadSummary) => void;
   onSwipeArchive?: (thread: ThreadSummary) => void;
   onSwipeSnooze?: (thread: ThreadSummary) => void;
@@ -139,6 +148,8 @@ export const EmailListItem = memo(function EmailListItem({
   onImportanceFeedback,
   onSendNow,
   onCancelSchedule,
+  onConfirmUncertainScheduled,
+  onRetryUncertainScheduled,
   onHover,
   onSwipeArchive,
   onSwipeSnooze,
@@ -151,8 +162,23 @@ export const EmailListItem = memo(function EmailListItem({
   const showArchive = Boolean(onArchive && canArchive);
   const showSnooze = Boolean(onSnooze && canSnooze);
   const showTrash = Boolean(onTrash && canTrash);
-  const showSendNow = Boolean(onSendNow && scheduledJobId);
-  const showCancelSchedule = Boolean(onCancelSchedule && scheduledJobId);
+  const scheduledJobStatus = email.scheduledJobStatus;
+  const isUncertainScheduled =
+    Boolean(scheduledJobId) && scheduledJobStatus === "uncertain";
+  const isProcessingScheduled =
+    Boolean(scheduledJobId) && scheduledJobStatus === "processing";
+  const showSendNow = Boolean(
+    onSendNow &&
+    scheduledJobId &&
+    !isUncertainScheduled &&
+    !isProcessingScheduled,
+  );
+  const showCancelSchedule = Boolean(
+    onCancelSchedule &&
+    scheduledJobId &&
+    !isUncertainScheduled &&
+    !isProcessingScheduled,
+  );
 
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -371,6 +397,22 @@ export const EmailListItem = memo(function EmailListItem({
     [onCancelSchedule, thread],
   );
 
+  const handleConfirmUncertainScheduledClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (thread) onConfirmUncertainScheduled?.(e, thread);
+    },
+    [onConfirmUncertainScheduled, thread],
+  );
+
+  const handleRetryUncertainScheduledClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (thread) onRetryUncertainScheduled?.(e, thread);
+    },
+    [onRetryUncertainScheduled, thread],
+  );
+
   const isThread = thread && thread.messageCount > 1;
   const senderName = isThread
     ? formatParticipants(thread.participants)
@@ -495,7 +537,14 @@ export const EmailListItem = memo(function EmailListItem({
             : undefined
         }
         className={cn(
-          "email-list-row group relative flex cursor-pointer items-center h-[48px] sm:h-[38px] px-3 transition-colors",
+          "email-list-row group relative flex cursor-pointer items-center px-3 transition-colors",
+          !isUncertainScheduled &&
+            !isProcessingScheduled &&
+            "h-[48px] sm:h-[38px]",
+          isUncertainScheduled &&
+            "h-auto min-h-[96px] items-start py-2 sm:min-h-[88px]",
+          isProcessingScheduled &&
+            "h-auto min-h-[56px] items-start py-2 sm:min-h-[50px]",
           isSelected && "selected",
           isFocused && !isSelected && "focused",
           isMultiSelected && "multi-selected",
@@ -552,24 +601,20 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Sender name — fixed width column */}
         <span
+          data-an-mask
           className={cn(
             "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate me-3",
             isUnread
               ? "font-semibold text-foreground"
               : "font-normal text-foreground/90",
           )}
-          title={
-            isMultiAccount && email.accountEmail
-              ? `Account: ${email.accountEmail}`
-              : undefined
-          }
         >
           {senderName}
         </span>
 
         {/* Label badges */}
         {displayLabels.length > 0 && (
-          <div className="flex items-center gap-1 shrink-0 me-2">
+          <div data-an-mask className="flex items-center gap-1 shrink-0 me-2">
             {displayLabels.slice(0, 2).map((labelId) => {
               const labelName =
                 labelNames?.get(labelId) ??
@@ -606,20 +651,68 @@ export const EmailListItem = memo(function EmailListItem({
         )}
 
         {/* Subject + snippet — fills remaining space */}
-        <div className="row-content flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
-          <span
-            className={cn(
-              "text-sm sm:text-[13px] truncate shrink-0 max-w-[75%]",
-              isUnread
-                ? "font-medium text-foreground"
-                : "font-normal text-foreground/90",
-            )}
+        <div
+          className={cn(
+            "row-content flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden",
+            (isUncertainScheduled || isProcessingScheduled) &&
+              "flex-col items-start justify-center gap-1 overflow-visible",
+          )}
+        >
+          <div
+            data-an-mask
+            className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden"
           >
-            {renderWithHighlight(email.subject, highlight)}
-          </span>
-          <span className="text-sm sm:text-[13px] text-muted-foreground/80 truncate">
-            {renderWithHighlight(email.snippet, highlight)}
-          </span>
+            <span
+              className={cn(
+                "text-sm sm:text-[13px] truncate shrink-0 max-w-[75%]",
+                isUnread
+                  ? "font-medium text-foreground"
+                  : "font-normal text-foreground/90",
+              )}
+            >
+              {renderWithHighlight(email.subject, highlight)}
+            </span>
+            <span className="text-sm sm:text-[13px] text-muted-foreground/80 truncate">
+              {renderWithHighlight(email.snippet, highlight)}
+            </span>
+          </div>
+          {isUncertainScheduled && (
+            <>
+              <p
+                role="alert"
+                className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+              >
+                <IconAlertCircle
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 shrink-0"
+                />
+                <span>{t("mail.sendLater.deliveryUnknownWarning")}</span>
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleConfirmUncertainScheduledClick}
+                  aria-label={t("mail.sendLater.markSentAfterChecking")}
+                  className="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
+                >
+                  {t("mail.sendLater.markSentAfterChecking")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRetryUncertainScheduledClick}
+                  aria-label={t("mail.sendLater.sendNewCopy")}
+                  className="rounded border border-amber-600/50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-500/10 dark:text-amber-200"
+                >
+                  {t("mail.sendLater.sendNewCopy")}
+                </button>
+              </div>
+            </>
+          )}
+          {isProcessingScheduled && (
+            <p className="text-xs text-muted-foreground" role="status">
+              {t("mail.sendLater.sendingStatus")}
+            </p>
+          )}
         </div>
 
         <div className="row-action-rail">
@@ -693,7 +786,12 @@ export const EmailListItem = memo(function EmailListItem({
             </Popover>
           )}
           {/* Hover actions overlay the preview while the time stays fixed. */}
-          <div className="hover-actions gap-0.5">
+          <div
+            className={cn(
+              "hover-actions gap-0.5",
+              (isUncertainScheduled || isProcessingScheduled) && "hidden",
+            )}
+          >
             {onToggleRead && (
               <Tooltip>
                 <TooltipTrigger asChild>

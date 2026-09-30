@@ -1,18 +1,11 @@
-import {
-  getOAuthTokens,
-  saveOAuthTokens,
-  listOAuthAccounts,
-  listOAuthAccountsByOwner,
-  setOAuthDisplayName,
-} from "@agent-native/core/oauth-tokens";
+import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
-import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db, schema } from "../db/index.js";
 import {
-  createOAuth2Client,
   gmailGetMessage,
   gmailGetThread,
   gmailListLabels,
@@ -27,7 +20,6 @@ import {
   getConnectedAccountsWithErrors,
   isConnected,
   gmailToEmailMessage,
-  getOAuth2Credentials,
   setAccountDisplayName,
 } from "./google-auth.js";
 import { syncInboxLabelDelta } from "./inbox-store-sync.js";
@@ -43,12 +35,6 @@ import {
   resolveComposeAttachments,
 } from "./outgoing-email.js";
 import { resolveGoogleSenderIdentity } from "./sender-identity.js";
-
-interface StoredTokens {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}
 
 export interface SnoozeJobPayload {
   snoozedAt: number;
@@ -77,7 +63,13 @@ export interface ScheduledJobRecord {
   accountEmail?: string | null;
   payload: string;
   runAt: number;
-  status: "pending" | "processing" | "done" | "cancelled";
+  status:
+    | "pending"
+    | "processing"
+    | "done"
+    | "cancelled"
+    | "uncertain"
+    | "retry_queued";
   processingClaimId?: string | null;
   processingLeaseUntil?: number | null;
   sendStartedAt?: number | null;
@@ -92,6 +84,16 @@ type ScheduledSendOptions = {
 
 const JOB_PROCESSING_LEASE_MS = 5 * 60_000;
 
+function scheduledJobOwnerScope(ownerEmail: string) {
+  return or(
+    eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+    and(
+      isNull(schema.scheduledJobs.ownerEmail),
+      eq(schema.scheduledJobs.accountEmail, ownerEmail),
+    ),
+  );
+}
+
 async function beginScheduledSendDispatch(
   options?: ScheduledSendOptions,
 ): Promise<void> {
@@ -103,77 +105,23 @@ async function beginScheduledSendDispatch(
   }
 }
 
-async function getAccessToken(
-  accountEmail: string,
-  requireFreshToken = false,
-): Promise<string | null> {
-  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
-    | StoredTokens
-    | undefined;
-  if (!tokens?.access_token) return null;
-
-  if (
-    requireFreshToken &&
-    tokens.expiry_date &&
-    !tokens.refresh_token &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    return null;
-  }
-
-  if (
-    tokens.expiry_date &&
-    tokens.refresh_token &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    try {
-      const { clientId, clientSecret } =
-        await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(clientId, clientSecret, "");
-      const refreshed = await oauth.refreshToken(tokens.refresh_token);
-      const updated = {
-        ...tokens,
-        access_token: refreshed.access_token,
-        expiry_date: Date.now() + refreshed.expires_in * 1000,
-      };
-      await saveOAuthTokens(
-        "google",
-        accountEmail,
-        updated as unknown as Record<string, unknown>,
-      );
-      return refreshed.access_token;
-    } catch (err: any) {
-      console.error(
-        `[getAccessToken] refresh failed for ${accountEmail}:`,
-        err.message,
-      );
-      if (requireFreshToken) return null;
-    }
-  }
-
-  return tokens.access_token;
-}
-
 async function getFirstAccountToken(
   preferEmail?: string,
   ownerEmail?: string,
   strictPreference = false,
 ): Promise<{ email: string; accessToken: string } | null> {
+  if (!ownerEmail) return null;
+
   if (preferEmail) {
-    const token = await getAccessToken(preferEmail, strictPreference);
-    if (token) return { email: preferEmail, accessToken: token };
+    const client = await getClientForConnectedAccount(ownerEmail, preferEmail);
+    if (client) return client;
     if (strictPreference) return null;
   }
 
-  const accounts = ownerEmail
-    ? await listOAuthAccountsByOwner("google", ownerEmail)
-    : await listOAuthAccounts("google");
-  for (const account of accounts) {
-    const token = await getAccessToken(account.accountId);
-    if (token) return { email: account.accountId, accessToken: token };
-  }
-
-  return null;
+  const { clients } = await getClientsWithErrors(ownerEmail);
+  return clients[0]
+    ? { email: clients[0].email, accessToken: clients[0].accessToken }
+    : null;
 }
 
 async function fetchLabelMap(
@@ -278,6 +226,7 @@ async function threadHasReplySinceSnooze(
         threadId,
         "full",
         undefined,
+        "interactive",
         signal,
       );
       signal?.throwIfAborted();
@@ -309,15 +258,14 @@ export async function listPendingJobs(
       .from(schema.scheduledJobs)
       .where(
         and(
-          inArray(schema.scheduledJobs.status, ["pending", "processing"]),
           or(
-            eq(schema.scheduledJobs.ownerEmail, ownerEmail),
             and(
-              isNull(schema.scheduledJobs.ownerEmail),
-              or(
-                eq(schema.scheduledJobs.accountEmail, ownerEmail),
-                isNull(schema.scheduledJobs.accountEmail),
-              ),
+              inArray(schema.scheduledJobs.status, ["pending", "processing"]),
+              scheduledJobOwnerScope(ownerEmail),
+            ),
+            and(
+              eq(schema.scheduledJobs.status, "uncertain"),
+              scheduledJobOwnerScope(ownerEmail),
             ),
           ),
         ),
@@ -331,6 +279,31 @@ export async function listPendingJobs(
     );
     return [];
   }
+}
+
+export async function markExpiredScheduledSendsUncertain(
+  now = Date.now(),
+): Promise<number> {
+  const rows = await db
+    .update(schema.scheduledJobs)
+    .set({
+      status: "uncertain",
+      processingClaimId: null,
+      processingLeaseUntil: null,
+    } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.type, "send_later"),
+        eq(schema.scheduledJobs.status, "processing"),
+        isNotNull(schema.scheduledJobs.sendStartedAt),
+        or(
+          isNull(schema.scheduledJobs.processingLeaseUntil),
+          lte(schema.scheduledJobs.processingLeaseUntil, now),
+        ),
+      ),
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length;
 }
 
 export async function createScheduledJobRecord(input: {
@@ -368,10 +341,7 @@ export async function updateScheduledJobForOwner(
     .select()
     .from(schema.scheduledJobs)
     .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
+      and(eq(schema.scheduledJobs.id, id), scheduledJobOwnerScope(ownerEmail)),
     );
 
   if (!existing) return null;
@@ -380,10 +350,7 @@ export async function updateScheduledJobForOwner(
     .update(schema.scheduledJobs)
     .set({ runAt, status: "pending" } as any)
     .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
+      and(eq(schema.scheduledJobs.id, id), scheduledJobOwnerScope(ownerEmail)),
     );
 
   return {
@@ -496,6 +463,7 @@ export async function resurfaceEmail(
           emailId,
           ["INBOX"],
           [],
+          "interactive",
           signal,
         )) as { historyId?: string } | undefined;
       }
@@ -504,6 +472,7 @@ export async function resurfaceEmail(
         emailId,
         ["UNREAD"],
         [],
+        "interactive",
         signal,
       )) as { historyId?: string } | undefined;
       signal?.throwIfAborted();
@@ -626,7 +595,18 @@ export async function getSyntheticEmailsForView(
   }
 
   return jobs
-    .filter((job) => job.type === "send_later")
+    .filter(
+      (
+        job,
+      ): job is ScheduledJobRecord & {
+        type: "send_later";
+        status: "pending" | "processing" | "uncertain";
+      } =>
+        job.type === "send_later" &&
+        (job.status === "pending" ||
+          job.status === "processing" ||
+          job.status === "uncertain"),
+    )
     .map((job) => {
       const payload = JSON.parse(job.payload || "{}") as SendLaterPayload;
       const sender = payload.accountEmail || payload.from || ownerEmail;
@@ -668,6 +648,7 @@ export async function getSyntheticEmailsForView(
         isArchived: false,
         isTrashed: false,
         labelIds: ["scheduled"],
+        scheduledJobStatus: job.status,
         ...(payload.attachments && payload.attachments.length > 0
           ? {
               attachments: payload.attachments.map((att) => ({
@@ -755,6 +736,7 @@ export async function sendScheduledEmail(
         account.accessToken,
         replyToId,
         "metadata",
+        "interactive",
         options?.signal,
       );
       options?.signal?.throwIfAborted();
@@ -868,7 +850,7 @@ export async function cancelScheduledJobForOwner(
     .where(
       and(
         eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+        scheduledJobOwnerScope(ownerEmail),
         eq(schema.scheduledJobs.status, "pending"),
       ),
     )
@@ -880,10 +862,7 @@ export async function cancelScheduledJobForOwner(
     .select()
     .from(schema.scheduledJobs)
     .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
+      and(eq(schema.scheduledJobs.id, id), scheduledJobOwnerScope(ownerEmail)),
     );
 
   if (!existing) return null;
@@ -893,15 +872,13 @@ export async function cancelScheduledJobForOwner(
 export async function sendScheduledJobNowForOwner(
   ownerEmail: string,
   id: string,
+  preclaimedId?: string,
 ): Promise<ScheduledJobRecord> {
   const [existing] = await db
     .select()
     .from(schema.scheduledJobs)
     .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
+      and(eq(schema.scheduledJobs.id, id), scheduledJobOwnerScope(ownerEmail)),
     );
 
   if (!existing) {
@@ -911,30 +888,41 @@ export async function sendScheduledJobNowForOwner(
   if (job.type !== "send_later") {
     throw new Error("Only scheduled emails can be sent now");
   }
-  if (job.status !== "pending") {
-    throw new Error(`Scheduled email is already ${job.status}`);
-  }
+  let claimId = preclaimedId;
+  if (claimId) {
+    if (
+      job.status !== "processing" ||
+      job.processingClaimId !== claimId ||
+      (job.processingLeaseUntil ?? 0) <= Date.now()
+    ) {
+      throw new Error("Scheduled email retry claim expired");
+    }
+  } else {
+    if (job.status !== "pending") {
+      throw new Error(`Scheduled email is already ${job.status}`);
+    }
 
-  const claimId = nanoid(24);
-  const claimedAt = Date.now();
-  const claim = await db
-    .update(schema.scheduledJobs)
-    .set({
-      status: "processing",
-      processingClaimId: claimId,
-      processingLeaseUntil: claimedAt + JOB_PROCESSING_LEASE_MS,
-      sendStartedAt: null,
-    } as any)
-    .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-        eq(schema.scheduledJobs.status, "pending"),
-      ),
-    )
-    .returning({ id: schema.scheduledJobs.id });
-  if (claim.length === 0) {
-    throw new Error("Scheduled email is already processing");
+    claimId = nanoid(24);
+    const claimedAt = Date.now();
+    const claim = await db
+      .update(schema.scheduledJobs)
+      .set({
+        status: "processing",
+        processingClaimId: claimId,
+        processingLeaseUntil: claimedAt + JOB_PROCESSING_LEASE_MS,
+        sendStartedAt: null,
+      } as any)
+      .where(
+        and(
+          eq(schema.scheduledJobs.id, id),
+          scheduledJobOwnerScope(ownerEmail),
+          eq(schema.scheduledJobs.status, "pending"),
+        ),
+      )
+      .returning({ id: schema.scheduledJobs.id });
+    if (claim.length === 0) {
+      throw new Error("Scheduled email is already processing");
+    }
   }
 
   let sendStarted = false;
@@ -961,9 +949,110 @@ export async function sendScheduledJobNowForOwner(
     }
     return { ...job, status: "done" };
   } catch (error) {
-    if (!sendStarted) await releaseJobProcessing(job.id, claimId);
+    if (!sendStarted) {
+      await releaseJobProcessing(job.id, claimId);
+    } else {
+      await markJobUncertain(job.id, claimId);
+    }
     throw error;
   }
+}
+
+export async function markJobUncertain(
+  id: string,
+  claimId: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(schema.scheduledJobs)
+    .set({
+      status: "uncertain",
+      processingClaimId: null,
+      processingLeaseUntil: null,
+    } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.status, "processing"),
+        eq(schema.scheduledJobs.processingClaimId, claimId),
+        isNotNull(schema.scheduledJobs.sendStartedAt),
+      ),
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length > 0;
+}
+
+export async function confirmUncertainScheduledJobSentForOwner(
+  ownerEmail: string,
+  id: string,
+): Promise<ScheduledJobRecord | null> {
+  const [confirmed] = await db
+    .update(schema.scheduledJobs)
+    .set({ status: "done" } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        or(scheduledJobOwnerScope(ownerEmail)),
+        eq(schema.scheduledJobs.type, "send_later"),
+        eq(schema.scheduledJobs.status, "uncertain"),
+      ),
+    )
+    .returning();
+  return (confirmed as ScheduledJobRecord | undefined) ?? null;
+}
+
+export async function retryUncertainScheduledJobForOwner(
+  ownerEmail: string,
+  id: string,
+): Promise<ScheduledJobRecord> {
+  return db.transaction(async (tx: any) => {
+    const [existing] = await tx
+      .select()
+      .from(schema.scheduledJobs)
+      .where(
+        and(
+          eq(schema.scheduledJobs.id, id),
+          scheduledJobOwnerScope(ownerEmail),
+          eq(schema.scheduledJobs.type, "send_later"),
+          eq(schema.scheduledJobs.status, "uncertain"),
+        ),
+      )
+      .limit(1);
+    if (!existing) {
+      throw new Error("Uncertain scheduled email not found");
+    }
+
+    const [claimed] = await tx
+      .update(schema.scheduledJobs)
+      .set({ status: "retry_queued" } as any)
+      .where(
+        and(
+          eq(schema.scheduledJobs.id, id),
+          scheduledJobOwnerScope(ownerEmail),
+          eq(schema.scheduledJobs.type, "send_later"),
+          eq(schema.scheduledJobs.status, "uncertain"),
+        ),
+      )
+      .returning({ id: schema.scheduledJobs.id });
+    if (!claimed) {
+      throw new Error("Uncertain scheduled email is already being resolved");
+    }
+
+    const claimId = nanoid(24);
+    const claimedAt = Date.now();
+    const retry: ScheduledJobRecord = {
+      ...existing,
+      id: nanoid(12),
+      ownerEmail: existing.ownerEmail ?? ownerEmail,
+      status: "processing",
+      runAt: claimedAt,
+      processingClaimId: claimId,
+      processingLeaseUntil: claimedAt + JOB_PROCESSING_LEASE_MS,
+      sendStartedAt: null,
+      createdAt: claimedAt,
+    };
+    await tx.insert(schema.scheduledJobs).values(retry as any);
+    return retry;
+  });
 }
 
 function claimableJobCondition(now: number) {

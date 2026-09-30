@@ -82,6 +82,7 @@ describe("local SSE refusal (serverless 204)", () => {
       onSseStateChange: (connected, capabilities) =>
         states.push({ connected, capabilities }),
       interval: 500,
+      fallbackInterval: 500,
     });
     await vi.advanceTimersByTimeAsync(50);
 
@@ -269,7 +270,11 @@ describe("local SSE refusal (serverless 204)", () => {
       }),
     );
 
-    const unsub = subscribeSyncEvents({ onEvents: () => {}, interval: 500 });
+    const unsub = subscribeSyncEvents({
+      onEvents: () => {},
+      interval: 500,
+      fallbackInterval: 500,
+    });
     await vi.advanceTimersByTimeAsync(50);
 
     const first = FakeEventSource.instances[0];

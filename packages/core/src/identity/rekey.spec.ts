@@ -1,5 +1,5 @@
 import { SignJWT } from "jose";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import {
@@ -8,16 +8,24 @@ import {
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
 import {
+  __resetIdleIdentityRekeyProbeCacheForTests,
+  beginIdentityRekey,
+  failIdentityRekey,
   IDENTITY_REKEY_COLUMNS,
   rekeyIdentity,
   rekeyIdentityAfterEmailVerification,
+  resumePendingIdentityRekeys,
 } from "./rekey.js";
 
-function dbAdapter(db: {
-  query: (sql: string, args?: unknown[]) => Promise<any>;
-}) {
+function dbAdapter(
+  db: {
+    query: (sql: string, args?: unknown[]) => Promise<any>;
+  },
+  calls?: Array<{ sql: string; args: unknown[] }>,
+) {
   return {
     async unsafe(sql: string, args: unknown[] = []) {
+      calls?.push({ sql, args });
       const result = await db.query(sql, args);
       const rows = result.rows as Array<Record<string, unknown>> & {
         count?: number;
@@ -262,6 +270,7 @@ describe("rekeyIdentity", () => {
     const pg = await createTestPglite();
     try {
       await seed(pg);
+      const calls: Array<{ sql: string; args: unknown[] }> = [];
       await pg.exec(`
         CREATE TABLE discovered_owned_rows (id TEXT PRIMARY KEY, owner_email TEXT);
         INSERT INTO discovered_owned_rows VALUES ('dynamic1', 'OLD@example.test');
@@ -269,7 +278,11 @@ describe("rekeyIdentity", () => {
         INSERT INTO settings VALUES ('o:org1:feature-flag:editor', '{"mode":"rules","emails":["old@example.test"],"updatedBy":"someone@example.test"}');
       `);
       const result = await pg.db.transaction((tx) =>
-        rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+        rekeyIdentity(
+          dbAdapter(tx, calls),
+          "old@example.test",
+          "new@example.test",
+        ),
       );
       expect(Object.keys(result.counts)).toContain("org_members.email");
       expect(result.sessionCount).toBe(1);
@@ -286,6 +299,11 @@ describe("rekeyIdentity", () => {
         "new@example.test",
         "other@example.test",
       ]);
+      const groupRead = calls.find((call) =>
+        call.sql.includes("FROM workspace_user_groups"),
+      );
+      expect(groupRead?.sql).toContain("WHERE EXISTS");
+      expect(groupRead?.args).toEqual(["old@example.test"]);
       const secrets = await pg
         .prepare("SELECT scope_id FROM app_secrets ORDER BY id")
         .all();
@@ -729,5 +747,105 @@ describe("rekeyIdentity", () => {
     } finally {
       await pg.close();
     }
+  });
+});
+
+describe("resumePendingIdentityRekeys idle probe cache", () => {
+  const PENDING_PROBE = /FROM identity_rekeys\s+WHERE status = 'pending'\s+AND/;
+  let now = 1_000_000;
+
+  function ledgerDb(
+    probe: (
+      email: string,
+    ) =>
+      | Array<Record<string, unknown>>
+      | Promise<Array<Record<string, unknown>>> = () => [],
+  ) {
+    const probes: string[] = [];
+    const db = {
+      async unsafe(sql: string, args: unknown[] = []) {
+        const rows = PENDING_PROBE.test(sql)
+          ? (probes.push(String(args[0])), await probe(String(args[0])))
+          : [];
+        return Object.assign([...rows], { count: 0 });
+      },
+    };
+    return { db, probes };
+  }
+
+  beforeEach(() => {
+    __resetIdleIdentityRekeyProbeCacheForTests();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("probes an idle email once per TTL on the per-request path", async () => {
+    const { db, probes } = ledgerDb();
+    const options = { ensureLedger: false, cacheIdle: true };
+
+    await resumePendingIdentityRekeys(db, "Person@Example.test", options);
+    await resumePendingIdentityRekeys(db, "person@example.test", options);
+    await resumePendingIdentityRekeys(db, "other@example.test", options);
+    expect(probes).toEqual(["person@example.test", "other@example.test"]);
+
+    now += 15_001;
+    await resumePendingIdentityRekeys(db, "person@example.test", options);
+    expect(probes).toHaveLength(3);
+  });
+
+  it("always probes without the per-request option", async () => {
+    const { db, probes } = ledgerDb();
+
+    await resumePendingIdentityRekeys(db, "person@example.test", {
+      ensureLedger: false,
+    });
+    await resumePendingIdentityRekeys(db, "person@example.test", {
+      ensureLedger: false,
+    });
+
+    expect(probes).toHaveLength(2);
+  });
+
+  it("probes again as soon as a rekey is begun or fails back to pending", async () => {
+    const { db, probes } = ledgerDb();
+    const options = { ensureLedger: false, cacheIdle: true };
+
+    await resumePendingIdentityRekeys(db, "old@example.test", options);
+    const ledger = await beginIdentityRekey(
+      db,
+      "old@example.test",
+      "new@example.test",
+    );
+    await resumePendingIdentityRekeys(db, "old@example.test", options);
+    expect(probes).toHaveLength(2);
+
+    await failIdentityRekey(db, ledger.id, new Error("rekey failed"));
+    await resumePendingIdentityRekeys(db, "old@example.test", options);
+    expect(probes).toHaveLength(3);
+  });
+
+  it("does not remember an idle answer read while a rekey was being begun", async () => {
+    let releaseProbe!: () => void;
+    const probeHeld = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+    let probeCount = 0;
+    const { db, probes } = ledgerDb(async () => {
+      probeCount += 1;
+      if (probeCount === 1) await probeHeld;
+      return [];
+    });
+    const options = { ensureLedger: false, cacheIdle: true };
+
+    const racing = resumePendingIdentityRekeys(db, "old@example.test", options);
+    await beginIdentityRekey(db, "old@example.test", "new@example.test");
+    releaseProbe();
+    await racing;
+    await resumePendingIdentityRekeys(db, "old@example.test", options);
+
+    expect(probes).toHaveLength(2);
   });
 });

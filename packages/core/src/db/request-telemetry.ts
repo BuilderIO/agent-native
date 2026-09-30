@@ -5,7 +5,10 @@ export type DatabaseOperationKind = "connect" | "query";
 export interface DatabaseRequestTelemetry {
   operationCount: number;
   queryCount: number;
+  rowsReturned: number;
   connectCount: number;
+  catalogQueryCount: number;
+  migrationTableQueryCount: number;
   retryCount: number;
   errorCount: number;
   timeoutCount: number;
@@ -64,7 +67,10 @@ export function createDatabaseRequestTelemetry(): DatabaseRequestTelemetry {
   return {
     operationCount: 0,
     queryCount: 0,
+    rowsReturned: 0,
     connectCount: 0,
+    catalogQueryCount: 0,
+    migrationTableQueryCount: 0,
     retryCount: 0,
     errorCount: 0,
     timeoutCount: 0,
@@ -171,4 +177,34 @@ export function beginDatabaseOperation(
 export function recordDatabaseRetry(): void {
   const telemetry = currentDatabaseTelemetry();
   if (telemetry) telemetry.retryCount += 1;
+}
+
+export function recordDatabaseQueryResult(
+  sql: string,
+  rowsReturned: number,
+): void {
+  const telemetry = currentDatabaseTelemetry();
+  if (!telemetry) return;
+
+  const source = sql
+    .replace(/--[^\n]*/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/'(?:''|[^'])*'/g, "''");
+  if (
+    /\b(?:information_schema|pg_catalog|pg_indexes|pg_(?:authid|class|attribute|namespace|proc|type|database|roles|tables|views|indexes|constraints|trigger|extension))\b/i.test(
+      source,
+    )
+  ) {
+    telemetry.catalogQueryCount += 1;
+  }
+  if (
+    /\b(?:from|join|update|into|delete\s+from)\s+(?:"?[\w$]+"?\.)?"?_?[\w$]*migrations[\w$]*"?\b/i.test(
+      source,
+    )
+  ) {
+    telemetry.migrationTableQueryCount += 1;
+  }
+  if (Number.isFinite(rowsReturned) && rowsReturned > 0) {
+    telemetry.rowsReturned += Math.floor(rowsReturned);
+  }
 }

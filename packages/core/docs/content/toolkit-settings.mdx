@@ -17,14 +17,6 @@ app. The command menu (⌘K) has a **Settings** command too. Every page is
 searchable out of the box: typing "language", "S3", or "API key" jumps to the
 row across every page the viewer can see.
 
-<Callout>
-
-The redesigned Settings ships behind the `settings-redesign` feature flag while
-it rolls out. With the flag off, the same `<SettingsTabsPage>` props render the
-earlier tabbed page, so an app written for the new Settings works either way.
-
-</Callout>
-
 <WireframeBlock id="doc-block-toolkit-settings">
   <Screen
     surface="desktop"
@@ -63,23 +55,16 @@ the settings route) so `/settings/<page>/<sub>` resolves. The route renders
 Organization pages, and the app supplies only its own content.
 
 ```tsx
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import {
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+} from "@agent-native/toolkit/app/settings";
 
 export default function SettingsRoute() {
   const agentSettingsTabs = useAgentSettingsTabs();
-  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
 
   return (
-    <div
-      className={
-        redesign.enabled || redesign.status === "loading" ? "h-dvh" : undefined
-      }
-    >
+    <div className="h-dvh">
       <SettingsTabsPage
         extraTabs={agentSettingsTabs}
         generalGroups={<RecordingDefaults />}
@@ -95,9 +80,9 @@ export default function SettingsRoute() {
 }
 ```
 
-The redesigned Settings brings its own back link to the app, navigation, and
-page header, so the app layout hides its sidebar and header on Settings routes
-(`isSettingsPathname(pathname)` while the flag is on or loading).
+Settings brings its own back link to the app, navigation, and page header, so
+the app layout hides its sidebar and header on Settings routes
+(`isSettingsPathname(pathname)`).
 
 | Prop                                          | Where it shows                                                                                                                         |
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -131,7 +116,7 @@ import { OrgMembersPage } from "@agent-native/core/client/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 
 const coreMembersPage = CORE_SETTINGS_PAGES.find(
   (page) => page.id === "members",

@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { localizeKnownChatErrorText } from "../client/error-format.js";
 import {
   coreMessagesForLocale,
-  englishAgentChatMessages,
-  loadAgentChatMessagesForLocale,
   loadCoreMessagesForLocale,
 } from "./core-messages.js";
-import defaultEnglishMessages from "./default-messages.js";
 import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
+import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";
 import { MCP_SETTINGS_MESSAGES } from "./mcp-settings-messages.js";
 import { PRIVACY_SETTINGS_MESSAGES } from "./privacy-settings-messages.js";
 import { SUPPORTED_LOCALES } from "./shared.js";
@@ -19,31 +16,36 @@ function placeholders(value: string): string[] {
     .sort();
 }
 
-describe("built-in Core chat translations", () => {
+describe("Core localization", () => {
+  it("localizes resource pack labels in every built-in locale", async () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadCoreMessagesForLocale(locale);
+      const pack = messages.agentResources as Record<string, string>;
+      expect(pack.exportPack, locale).toEqual(expect.any(String));
+      expect(pack.importPack, locale).toEqual(expect.any(String));
+      expect(pack.exportPackSuccess, locale).toEqual(expect.any(String));
+      expect(pack.exportPackFailed, locale).toEqual(expect.any(String));
+      expect(pack.importPackFailed, locale).toEqual(expect.any(String));
+      expect(pack.importPackInvalid, locale).toEqual(expect.any(String));
+      expect(placeholders(pack.importPackSuccess), locale).toEqual([
+        "imported",
+        "skipped",
+      ]);
+      if (locale !== "en-US") {
+        expect(pack.exportPack, locale).not.toBe("Export pack");
+        expect(pack.importPackInvalid, locale).not.toBe(
+          "That file is not a valid resource pack",
+        );
+      }
+    }
+  });
+
   it("localizes environment badge copy in every built-in locale", async () => {
     for (const locale of SUPPORTED_LOCALES) {
       const messages = await loadCoreMessagesForLocale(locale);
       expect(messages.environmentBadge, locale).toEqual(
         ENVIRONMENT_BADGE_MESSAGES[locale],
       );
-    }
-  });
-
-  it("exposes file storage copy to shared Core UI in every locale", async () => {
-    for (const locale of SUPPORTED_LOCALES) {
-      const messages = await loadCoreMessagesForLocale(locale);
-      const fileStorage = (
-        messages.onboarding as
-          | { fileStorage: Record<string, string> }
-          | undefined
-      )?.fileStorage;
-      const agentChatFileStorage = (
-        messages.agentChat as
-          | { onboarding?: { fileStorage: Record<string, string> } }
-          | undefined
-      )?.onboarding?.fileStorage;
-
-      expect(fileStorage, locale).toEqual(agentChatFileStorage);
     }
   });
 
@@ -57,6 +59,15 @@ describe("built-in Core chat translations", () => {
     }
   });
 
+  it("loads each locale's icon picker copy from its own catalog", async () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadCoreMessagesForLocale(locale);
+      expect(messages.iconPicker, locale).toEqual(
+        iconPickerMessagesForLocale(locale),
+      );
+    }
+  });
+
   it("keeps localized environment badges in synchronous boot messages", () => {
     expect(coreMessagesForLocale("es-ES")).toEqual({
       environmentBadge: ENVIRONMENT_BADGE_MESSAGES["es-ES"],
@@ -65,171 +76,5 @@ describe("built-in Core chat translations", () => {
     expect(coreMessagesForLocale("en-US").environmentBadge).toEqual(
       ENVIRONMENT_BADGE_MESSAGES["en-US"],
     );
-  });
-
-  it("defines every English key with matching placeholders in every locale", async () => {
-    const englishKeys = Object.keys(englishAgentChatMessages)
-      .filter((key) => !/_(zero|one|two|few|many|other)$/.test(key))
-      .sort();
-
-    for (const locale of SUPPORTED_LOCALES) {
-      const messages = await loadAgentChatMessagesForLocale(locale);
-
-      for (const key of englishKeys) {
-        expect(messages[key], `${locale}:${key}`).toEqual(expect.any(String));
-        expect(placeholders(messages[key]!), `${locale}:${key}`).toEqual(
-          placeholders(englishAgentChatMessages[key]!),
-        );
-      }
-    }
-  });
-
-  it("exposes localized human-review summary copy to the shared UI", async () => {
-    const summaryKeys = [
-      "summarizeWithAgent",
-      "regenerateSummary",
-      "summarizeWithAgentHelp",
-      "regenerateSummaryHelp",
-      "summarySending",
-      "summaryQueued",
-      "summaryFailed",
-      "summaryExpired",
-    ];
-    const englishSummaryQueued =
-      defaultEnglishMessages.observability.summaryQueued;
-
-    for (const locale of SUPPORTED_LOCALES) {
-      const [messages, agentChat] = await Promise.all([
-        loadCoreMessagesForLocale(locale),
-        loadAgentChatMessagesForLocale(locale),
-      ]);
-      const observability = messages.observability as Record<string, string>;
-
-      for (const key of summaryKeys) {
-        expect(observability[key], `${locale}:${key}`).toBe(
-          agentChat[`observability.${key}`],
-        );
-      }
-      if (locale !== "en-US") {
-        expect(observability.summaryQueued).not.toBe(englishSummaryQueued);
-      }
-    }
-  });
-
-  it("does not silently ship the English Core chat catalog for other locales", async () => {
-    const englishEntries = Object.entries(englishAgentChatMessages).filter(
-      ([key]) => !/_(zero|one|two|few|many|other)$/.test(key),
-    );
-
-    for (const locale of SUPPORTED_LOCALES.filter(
-      (candidate) => candidate !== "en-US",
-    )) {
-      const messages = await loadAgentChatMessagesForLocale(locale);
-      const translatedEntries = englishEntries.filter(
-        ([key, value]) => messages[key] !== value,
-      );
-      expect(
-        translatedEntries.length / englishEntries.length,
-        locale,
-      ).toBeGreaterThan(0.9);
-    }
-  });
-
-  it("keeps previously published chat catalog keys localized", async () => {
-    const messages = await loadCoreMessagesForLocale("de-DE");
-
-    expect(messages).toMatchObject({
-      agentPanel: {
-        addOwnKeys: "Eigene Schlüssel",
-        chat: "Chat",
-        loadingTerminal: "Terminal wird geladen...",
-        newChat: "Neuer Chat",
-        toggleAgent: "Agent ein-/ausblenden",
-        voiceMode: {
-          entryButtonLabel: "Mikrofon verwenden",
-        },
-      },
-      contextXray: {
-        panelTitle: "Kontext-Röntgen",
-      },
-      mcpIntegrations: {
-        customTitle: "Eigene Agent-Integration hinzufügen",
-        status: { verified: "Verifiziert" },
-      },
-    });
-  });
-
-  it("keeps English mcpIntegrations chat keys identical to the default catalog", () => {
-    const drifted = Object.entries(englishAgentChatMessages).filter(
-      ([key, value]) => {
-        if (!key.startsWith("mcpIntegrations.")) return false;
-        let fallback: unknown = defaultEnglishMessages;
-        for (const part of key.split(".")) {
-          fallback = (fallback as Record<string, unknown> | undefined)?.[part];
-        }
-        return fallback !== value;
-      },
-    );
-    expect(drifted).toEqual([]);
-  });
-
-  it.each([
-    [
-      "de-DE",
-      "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und verbinde anschließend Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
-    ],
-    [
-      "ar-SA",
-      "لا يوجد مزوّد LLM متصل. افتح الإعدادات > الوكيل > مزوّدو الذكاء الاصطناعي، ثم اربط Builder.io (تتوفر خطة مجانية) أو أضف مفتاح مزوّد.",
-    ],
-  ])(
-    "localizes Core's missing-provider error for %s",
-    async (locale, expected) => {
-      const messages = await loadAgentChatMessagesForLocale(locale);
-      const t = (key: string, options?: Record<string, unknown>) =>
-        messages[key.replace(/^agentChat\./, "")] ??
-        String(options?.defaultValue ?? key);
-
-      expect(
-        localizeKnownChatErrorText(
-          "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
-          t,
-        ),
-      ).toBe(expected);
-    },
-  );
-
-  it("offers both setup paths in English credential guidance", async () => {
-    const messages = await loadAgentChatMessagesForLocale("en-US");
-    const noProviderCopy = messages["errorMessages.noProviderConnected"];
-    const rejectedCredentialCopy = messages["recovery.credentialRejected"];
-
-    expect(noProviderCopy).toContain("connect Builder.io");
-    expect(noProviderCopy).toContain("add a provider key");
-    expect(rejectedCredentialCopy).toContain("Builder.io connection");
-    expect(rejectedCredentialCopy).toContain("provider key");
-    expect(rejectedCredentialCopy).not.toContain("Reconnect Builder.io");
-  });
-
-  it("localizes unresolved provider status copy in every built-in locale", async () => {
-    for (const locale of SUPPORTED_LOCALES) {
-      const messages = await loadAgentChatMessagesForLocale(locale);
-      expect(messages["setup.checkingProvider"], locale).toEqual(
-        expect.any(String),
-      );
-      expect(messages["setup.providerStatusUnavailable"], locale).toEqual(
-        expect.any(String),
-      );
-      expect(messages["codeRequired.builderAgentNotConnected"], locale).toEqual(
-        expect.any(String),
-      );
-      expect(
-        messages["agentNativeClips.meetingAsk.placeholder"],
-        locale,
-      ).toEqual(expect.any(String));
-      expect(messages["agentNativeClips.meetingAsk.ariaLabel"], locale).toEqual(
-        expect.any(String),
-      );
-    }
   });
 });

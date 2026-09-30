@@ -181,6 +181,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
   }
+  if (typeof entry.agentDiscoveryAvailable === "function") {
+    out.agentDiscoveryAvailable = entry.agentDiscoveryAvailable;
+  }
   if (
     Array.isArray(entry.capabilityScopes) &&
     entry.capabilityScopes.length > 0 &&
@@ -215,6 +218,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.timeoutMs === "number") out.timeoutMs = entry.timeoutMs;
   if (typeof entry.maxResultChars === "number") {
     out.maxResultChars = entry.maxResultChars;
+  }
+  if (typeof entry.maxBodyBytes === "number") {
+    out.maxBodyBytes = entry.maxBodyBytes;
   }
   if (
     typeof entry.needsApproval === "boolean" ||
@@ -445,6 +451,7 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
+  "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
   "set-tool-approval-policy",
@@ -492,6 +499,10 @@ export async function mergeCoreSharingActions(
       () => import("../org/actions/list-workspace-app-access.js"),
     ],
     [
+      "list-workspace-icons",
+      () => import("../org/actions/list-workspace-icons.js"),
+    ],
+    [
       "set-workspace-app-access",
       () => import("../org/actions/set-workspace-app-access.js"),
     ],
@@ -501,6 +512,10 @@ export async function mergeCoreSharingActions(
     ],
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
+    [
+      "get-agentkit-capabilities",
+      () => import("../agent/actions/get-agentkit-capabilities.js"),
+    ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "get-file-storage",
@@ -689,6 +704,11 @@ export async function mergeCoreSharingActions(
       () => import("../usage/actions/get-usage-metrics.js"),
     ],
     [
+      "get-usage-insights",
+      () => import("../usage/actions/get-usage-insights.js"),
+    ],
+    ["get-usage-run", () => import("../usage/actions/get-usage-run.js")],
+    [
       "get-builder-credit-usage",
       () => import("../usage/actions/get-builder-credit-usage.js"),
     ],
@@ -765,6 +785,14 @@ export async function mergeCoreSharingActions(
     [
       "export-audit-events",
       () => import("../audit/actions/export-audit-events.js"),
+    ],
+    [
+      "export-resource-pack",
+      () => import("../resources/actions/export-resource-pack.js"),
+    ],
+    [
+      "import-resource-pack",
+      () => import("../resources/actions/import-resource-pack.js"),
     ],
     [
       "promote-trace-eval",

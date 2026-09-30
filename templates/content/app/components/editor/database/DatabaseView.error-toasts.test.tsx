@@ -108,8 +108,31 @@ const builderCmsModelsQuery = vi.hoisted(() => ({
   refetch: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   generateTabId: () => "database-error-toasts-test",
+  fetchAgentEngineConfiguredState: vi.fn(async () => "configured"),
+  useAgentEngineConfigured: () => ({
+    canChat: true,
+    missing: false,
+    state: "configured",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: true,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
   useCodeMode: () => ({
     isCodeMode: false,
     canToggle: false,
@@ -123,7 +146,11 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/settings")
+  >()),
+  BuilderConnectPopover: () => null,
   useBuilderStatus: () => ({
     status: {
       configured: true,
@@ -171,6 +198,7 @@ vi.mock("@/hooks/use-content-database", () => ({
   },
   useAddDatabaseItem: () => addItemMutation,
   useAddContentDatabaseSourceFieldProperty: () => benignMutation,
+  useContentDatabases: () => ({ data: undefined, isLoading: false }),
   useAttachContentDatabaseSource: () => attachSourceMutation,
   useBuilderCmsAttachPreview: () => ({
     data: undefined,
@@ -212,6 +240,7 @@ vi.mock("@/hooks/use-content-database", () => ({
 
 vi.mock("@/hooks/use-document-properties", () => ({
   useSetDocumentProperty: () => benignMutation,
+  useContentDatabaseRowSearch: () => ({ data: undefined, isLoading: false }),
   useConfigureDocumentProperty: () => benignMutation,
   useUpdateDatabaseItems: () => benignMutation,
 }));

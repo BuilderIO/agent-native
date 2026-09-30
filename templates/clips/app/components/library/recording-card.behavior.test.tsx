@@ -106,6 +106,7 @@ const recording: RecordingSummary = {
   id: "recording-1",
   title: "Test recording",
   description: "",
+  kind: "video",
   thumbnailUrl: null,
   animatedThumbnailUrl: null,
   durationMs: 1_000,
@@ -292,6 +293,32 @@ describe("RecordingCard behavior", () => {
 
     expect(checkbox?.className).toContain("sm:opacity-100");
     expect(checkbox?.className).not.toContain("sm:opacity-0");
+  });
+
+  it("keeps the static thumbnail when the pointer enters a card", () => {
+    const thumbnailUrl = "/api/thumbnail/recording-1";
+
+    act(() => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            thumbnailUrl,
+            animatedThumbnailUrl: "/api/thumbnail/recording-1?animated=1",
+          }}
+        />,
+      );
+    });
+
+    const card = container.querySelector<HTMLElement>('[role="article"]');
+    const thumbnail = card?.querySelector<HTMLImageElement>("img");
+    expect(thumbnail?.getAttribute("src")).toBe(thumbnailUrl);
+
+    act(() => {
+      card?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+
+    expect(thumbnail?.getAttribute("src")).toBe(thumbnailUrl);
   });
 
   it("defers trash until the dropdown menu has closed", async () => {

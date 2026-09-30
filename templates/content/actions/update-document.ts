@@ -44,6 +44,11 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
 import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
@@ -69,6 +74,7 @@ import {
   favoritesSystemIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import {
   documentContentHash,
@@ -698,6 +704,14 @@ export default defineAction({
     if (args.isFavorite !== undefined && !requestUserEmail) {
       throw new Error("no authenticated user");
     }
+    if (args.icon !== undefined) {
+      if (!requestUserEmail) throw new Error("no authenticated user");
+      await verifyPrivateIconAssignment({
+        icon: args.icon,
+        userEmail: requestUserEmail,
+        orgId: (existing.orgId as string | null) ?? null,
+      });
+    }
     if (args.isFavorite !== undefined) {
       await provisionContentSpaces(db, requestUserEmail as string);
     }
@@ -841,6 +855,12 @@ export default defineAction({
 
     const titleChanged =
       args.title !== undefined && args.title !== existing.title;
+    const titleOrganizationIds =
+      titleChanged && requestUserEmail
+        ? (await listContentOrganizationMemberships(requestUserEmail)).map(
+            (membership) => membership.orgId,
+          )
+        : [];
     const contentChanged =
       content !== undefined && content !== existing.content;
     const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
@@ -1065,8 +1085,11 @@ export default defineAction({
             operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
           });
           if (prior) {
+            // The base alone can differ on a resend: the editor rebases an
+            // unsent save onto its own confirmed saves, while the page's
+            // draft journal replays it from the base it first recorded. The
+            // same authored body is the same delivery.
             if (
-              prior.authoredBaseRevision !== authoredBase.revision ||
               prior.candidateHash !==
                 documentContentHash(authoredCandidateContent) ||
               prior.metadataHash !== authoredMetadataHash
@@ -1133,7 +1156,7 @@ export default defineAction({
           content = resolved.content;
         }
         const lockedTitleChanged =
-          args.title !== undefined && args.title !== historyBefore.title;
+          titleChanged && args.title !== historyBefore.title;
         const lockedContentChanged =
           content !== undefined && content !== historyBefore.content;
         const lockedDescriptionChanged =
@@ -1260,6 +1283,32 @@ export default defineAction({
           contentCasConflict = true;
           return;
         }
+        if (lockedIconChanged) {
+          await syncPrivateIconReference(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              elementType: "document",
+              elementId: id,
+              documentId: id,
+              icon: updates.icon ?? null,
+              ownerEmail,
+              orgId: (existing.orgId as string | null) ?? null,
+            },
+          );
+        }
+        if (lockedContentChanged && content !== undefined) {
+          await syncPrivateCalloutReferences(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId: id,
+              before: historyBefore.content,
+              after: content,
+              userEmail: actor,
+              ownerEmail,
+              orgId: (existing.orgId as string | null) ?? null,
+            },
+          );
+        }
         committedContentChanged = lockedContentChanged;
         committedContentBefore = historyBefore.content;
 
@@ -1269,6 +1318,7 @@ export default defineAction({
             documentId: id,
             title: args.title,
             updatedAt,
+            organizationIds: titleOrganizationIds,
           });
         }
         if (lockedTitleChanged || lockedContentChanged) {

@@ -15,6 +15,7 @@ import { describe, it, afterEach } from "vitest";
 
 import {
   looksLikeMaterializedCorpus,
+  parseOutputDirectory,
   shouldIncludeCorpusSourceFile,
   swapCorpusDirIntoPlace,
 } from "./materialize-source-corpus.mjs";
@@ -73,6 +74,25 @@ describe("shouldIncludeCorpusSourceFile", () => {
         "templates/plan/app/components/i18n/de-DE.ts",
       ),
       true,
+    );
+  });
+});
+
+describe("parseOutputDirectory", () => {
+  it("resolves the package output path from the caller's working directory", () => {
+    assert.equal(
+      parseOutputDirectory(
+        ["--output", "corpus"],
+        join(tmpdir(), "core-corpus"),
+      ),
+      join(tmpdir(), "core-corpus", "corpus"),
+    );
+  });
+
+  it("rejects a missing output directory", () => {
+    assert.throws(
+      () => parseOutputDirectory(["--output"]),
+      /Expected a directory/,
     );
   });
 });

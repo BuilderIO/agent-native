@@ -1,7 +1,6 @@
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
-@import "@agent-native/core/styles/agent-native.css";
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
@@ -98,21 +97,6 @@
   .design-home-header-search {
     grid-column: 1 / -1;
     grid-row: 2;
-  }
-}
-
-@container design-home-toolbar (max-width: 52rem) {
-  .design-home-header .design-home-import-label {
-    display: none;
-  }
-
-  .design-home-header .design-home-import-button {
-    width: 2rem;
-    padding-inline: 0;
-  }
-
-  .design-home-header .design-home-import-chevron {
-    display: none;
   }
 }
 

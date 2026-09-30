@@ -1,5 +1,5 @@
-import type { ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+import type { ReviewThread } from "@agent-native/toolkit/app/review";
 import type {
   DistanceGuideBand,
   EqualGapGuide,
@@ -165,6 +165,7 @@ export interface DuplicateRequest {
 export interface ScreenContentRenderOptions {
   onBootStart?: () => void;
   onBootReady?: () => void;
+  onRuntimeReload?: () => void;
   cacheKey?: string | number | null;
 }
 
@@ -282,6 +283,7 @@ export interface MultiScreenCanvasProps {
     geometry: FrameGeometry,
     options?: ScreenContentRenderOptions,
   ) => ReactNode;
+  onScreenRuntimeReload?: (screenId: string, frameId: string) => void;
   screenContentRenderKey?: string | number | null;
   screenSnapshotsById?: Record<string, { html: string } | undefined>;
   tweakValues?: Record<string, string>;
@@ -296,6 +298,7 @@ export interface MultiScreenCanvasProps {
       active: boolean;
       onBootStart?: () => void;
       onBootReady?: () => void;
+      onRuntimeReload?: () => void;
     },
   ) => ReactNode;
   onScreenSelectionChange?: (ids: string[]) => void;

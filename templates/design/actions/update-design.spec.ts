@@ -64,7 +64,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core", () => ({
+vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
 }));
 
@@ -501,6 +501,49 @@ describe("update-design data concurrency", () => {
       } as never),
     ).rejects.toThrow(/must be an object/);
     expect(mocks.state.row).toEqual(before);
+  });
+
+  it("rejects malformed tweak definitions through action and snapshot writes", async () => {
+    const before = { ...mocks.state.row };
+    const operation = {
+      op: "set",
+      path: ["tweaks"],
+      value: [{}, {}, {}],
+    };
+    const input = { id: "design-1", dataOperations: [operation] };
+
+    expect(action.schema.safeParse(input).success).toBe(false);
+    expect(action.agentInputSchema.safeParse(input).success).toBe(false);
+    await expect(action.run(input as never)).rejects.toThrow(
+      /invalid tweak definitions/,
+    );
+    await expect(
+      action.run({
+        id: "design-1",
+        data: JSON.stringify({ tweaks: [[""]] }),
+      } as never),
+    ).rejects.toThrow(/tweaks must be an array of valid definitions/);
+    expect(mocks.state.row).toEqual(before);
+  });
+
+  it("accepts a well-formed tweak definition", async () => {
+    const tweaks = [
+      {
+        id: "accent",
+        label: "Accent",
+        type: "color-swatch",
+        options: [{ label: "Blue", value: "#2563eb", color: "#2563eb" }],
+        defaultValue: "#2563eb",
+        cssVar: "--color-accent",
+      },
+    ];
+
+    await action.run({
+      id: "design-1",
+      dataOperations: [{ op: "set", path: ["tweaks"], value: tweaks }],
+    } as never);
+
+    expect(JSON.parse(mocks.state.row.data!).tweaks).toEqual(tweaks);
   });
 
   it("CAS-matches a legacy null data row", async () => {

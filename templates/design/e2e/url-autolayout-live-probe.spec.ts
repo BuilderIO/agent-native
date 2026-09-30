@@ -73,7 +73,7 @@ test.describe("URL-backed live auto-layout probe", () => {
       <input id="startup-search" type="search" aria-label="Startup search" style="position:absolute;left:760px;top:24px">
       <input id="settings-search" type="search" aria-label="Settings search">
       <div id="flow" data-source-id="flow-root" data-agent-native-node-id="flow-root" data-agent-native-layer-name="Flow root" data-source-file="index.html" data-source-line="1" data-source-column="1"><div id="v1" data-source-id="v1" data-agent-native-node-id="v1" data-agent-native-layer-name="V1" data-source-file="index.html" data-source-line="1" data-source-column="2" data-card>V1</div><div id="v2" data-source-id="v2" data-agent-native-node-id="v2" data-agent-native-layer-name="V2" data-source-file="index.html" data-source-line="1" data-source-column="3" data-card>V2</div><div id="v3" data-source-id="v3" data-agent-native-node-id="v3" data-agent-native-layer-name="V3" data-source-file="index.html" data-source-line="1" data-source-column="4" data-card>V3</div></div>
-      <div id="group-grid" data-source-id="group-grid" data-agent-native-node-id="group-grid" data-source-file="index.html" data-source-line="1" data-source-column="5"><div id="group-occupied" data-source-id="group-occupied" data-agent-native-node-id="group-occupied" data-agent-native-layer-name="Occupied" data-source-file="index.html" data-source-line="1" data-source-column="8" data-group-card style="grid-column:3 / 5;grid-row:2">Occupied</div><div id="group-a" data-source-id="group-a" data-agent-native-node-id="group-a" data-agent-native-layer-name="Group A" data-source-file="index.html" data-source-line="1" data-source-column="6" data-group-card style="grid-column:1;grid-row:1">A</div><div id="group-b" data-source-id="group-b" data-agent-native-node-id="group-b" data-agent-native-layer-name="Group B" data-source-file="index.html" data-source-line="1" data-source-column="7" data-group-card style="grid-column:2;grid-row:1">B</div></div>
+      <div id="group-grid" data-source-id="group-grid" data-agent-native-node-id="group-grid" data-source-file="index.html" data-source-line="1" data-source-column="5"><div id="group-occupied" data-source-id="group-occupied" data-agent-native-node-id="group-occupied" data-agent-native-layer-name="Occupied" data-source-file="index.html" data-source-line="1" data-source-column="8" data-group-card style="grid-column:3 / 5;grid-row:2">Occupied</div><div id="group-a" data-source-id="group-a" data-agent-native-node-id="group-a" data-agent-native-layer-name="Group A" data-source-file="index.html" data-source-line="1" data-source-column="6" data-group-card style="grid-column:1;grid-row:1;padding:8px;margin:4px">A</div><div id="group-b" data-source-id="group-b" data-agent-native-node-id="group-b" data-agent-native-layer-name="Group B" data-source-file="index.html" data-source-line="1" data-source-column="7" data-group-card style="grid-column:2;grid-row:1;padding:20px 24px 28px 32px;margin:5px 6px 7px 8px">B</div></div>
       <button type="button">Keep focus in app</button>
       <script>window.__runStartupFocus = () => { const input = document.querySelector("#startup-search"); window.parent.postMessage({ type: "fixture-autofocus-started" }, "*"); requestAnimationFrame(() => { input?.focus({ preventScroll: true }); const focused = document.activeElement === input; document.body.dataset.autofocusReady = "true"; window.parent.postMessage({ type: "fixture-autofocus-complete", focused }, "*"); }); }; setTimeout(() => window.__runStartupFocus?.(), location.pathname === "/settings" ? 8500 : 250);</script>
     </main></body></html>`;
@@ -1686,7 +1686,94 @@ test.describe("URL-backed live auto-layout probe", () => {
     );
   });
 
-  test("holds a URL-backed grouped grid drag as one pending Apply unit", async ({
+  test("shows mixed padding and margin by side for multi-selection", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto(`${baseURL}/visual-edit/${designId}?editorView=overview`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("[data-design-editor]")).toBeVisible({
+      timeout: 90_000,
+    });
+    const frame = page
+      .locator("iframe[data-design-preview-iframe]")
+      .first()
+      .contentFrame();
+    const groupA = frame.locator('[data-agent-native-node-id="group-a"]');
+    const groupB = frame.locator('[data-agent-native-node-id="group-b"]');
+    await expect(groupA).toBeVisible({ timeout: 15_000 });
+    await expect(groupB).toBeVisible({ timeout: 15_000 });
+    await expect(
+      frame.locator("[data-agent-native-editor-chrome-host]"),
+    ).toHaveCount(1, { timeout: 30_000 });
+    const groupABox = await groupA.boundingBox();
+    const groupBBox = await groupB.boundingBox();
+    if (!groupABox || !groupBBox)
+      throw new Error("Grouped URL probe selection boxes missing");
+    const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(primaryModifier);
+    await page.mouse.click(
+      groupABox.x + groupABox.width / 2,
+      groupABox.y + groupABox.height / 2,
+    );
+    await page.keyboard.up(primaryModifier);
+    const selectedRows = page.locator(
+      '[role="treeitem"][aria-selected="true"]',
+    );
+    await expect
+      .poll(async () => await selectedRows.allTextContents(), {
+        timeout: 5_000,
+      })
+      .toEqual(expect.arrayContaining([expect.stringContaining("Group A")]));
+    await expect(selectedRows).toHaveCount(1);
+    await expect(
+      page.locator('button[aria-label="Unlink padding"]'),
+    ).toBeVisible();
+
+    await page.keyboard.down("Shift");
+    await page.keyboard.down(primaryModifier);
+    await page.mouse.click(
+      groupBBox.x + groupBBox.width / 2,
+      groupBBox.y + groupBBox.height / 2,
+    );
+    await page.keyboard.up(primaryModifier);
+    await page.keyboard.up("Shift");
+    await expect
+      .poll(async () => await selectedRows.allTextContents(), {
+        timeout: 5_000,
+      })
+      .toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Group A"),
+          expect.stringContaining("Group B"),
+        ]),
+      );
+    await expect(selectedRows).toHaveCount(2);
+    await expect(
+      page.locator('button[aria-label="Link padding"]'),
+    ).toBeVisible();
+    await expect(
+      page.locator('button[aria-label="Unlink padding"]'),
+    ).toHaveCount(0);
+    for (const label of ["Top", "Right", "Bottom", "Left"]) {
+      const input = page.locator(`input[aria-label="${label}"]`);
+      await expect(input).toBeVisible();
+      await expect(input).toHaveValue("Mixed");
+    }
+    for (const label of [
+      "Top margin",
+      "Right margin",
+      "Bottom margin",
+      "Left margin",
+    ]) {
+      const input = page.locator(`input[aria-label="${label}"]`);
+      await expect(input).toBeVisible();
+      await expect(input).toHaveValue("Mixed");
+    }
+  });
+
+  test("keeps a grouped grid drag in one pending visual edit unit", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1800, height: 1000 });
@@ -1937,78 +2024,60 @@ test.describe("URL-backed live auto-layout probe", () => {
         sourceWriteCount += 1;
       }
     });
-    await page.evaluate(() => {
-      const state = window as typeof window & {
-        __groupedUrlProbeHandoff?: { context?: string; message?: string };
-      };
-      window.addEventListener("message", (event) => {
-        const payload = event.data;
-        const submitMessageId = payload?.data?.submitMessageId;
-        if (
-          payload?.type !== "agentNative.submitChat" ||
-          typeof submitMessageId !== "string"
-        ) {
-          return;
-        }
-        state.__groupedUrlProbeHandoff = {
-          context:
-            typeof payload.data.context === "string"
-              ? payload.data.context
-              : undefined,
-          message:
-            typeof payload.data.message === "string"
-              ? payload.data.message
-              : undefined,
-        };
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatSubmitResult", {
-            detail: { submitMessageId, delivered: true },
-          }),
-        );
-      });
-    });
-    const applyUpdates = page.getByRole("button", {
-      name: "Apply design updates",
+    const pendingToolbar = page.locator(
+      "[data-design-pending-visual-style-toolbar]",
+    );
+    const copyPrompt = pendingToolbar.getByRole("button", {
+      name: "Copy prompt to your agent",
       exact: true,
     });
-    await expect(applyUpdates).toBeVisible({ timeout: 10_000 });
-    await applyUpdates.click();
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            document.body.innerText.includes("Verifying source and runtime"),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            Boolean(
-              (window as typeof window & { __groupedUrlProbeHandoff?: unknown })
-                .__groupedUrlProbeHandoff,
-            ),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    const groupedHandoff = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __groupedUrlProbeHandoff?: {
-              context?: string;
-              message?: string;
-            };
-          }
-        ).__groupedUrlProbeHandoff,
+    await expect(copyPrompt).toBeVisible({ timeout: 10_000 });
+    await pendingToolbar
+      .getByRole("button", { name: "Pending visual preview", exact: true })
+      .click();
+    await expect(
+      page.getByRole("menuitem", {
+        name: "Copy full prompt",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", {
+        name: "Abort preview and interact",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const toolbarScreenshot = path.resolve(
+      import.meta.dirname,
+      "../../../.tmp/design-editor-copy-prompt-signed-in.png",
     );
-    expect(groupedHandoff?.message).toContain("source");
-    expect(groupedHandoff?.context).toContain('"sourceId": "group-a"');
-    expect(groupedHandoff?.context).toContain('"sourceId": "group-b"');
-    expect(groupedHandoff?.context).toContain('"transactionId"');
+    fs.mkdirSync(path.dirname(toolbarScreenshot), { recursive: true });
+    await page.screenshot({ path: toolbarScreenshot });
+    await page.keyboard.press("Escape");
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
+      });
+    await copyPrompt.click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toContain(`{ designId: "${designId}" }`);
+    const copiedPrompt = await page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
+    expect(copiedPrompt).toContain("get-visual-edit-pending");
+
+    const pendingHandoffResponse = await page.request.get(
+      `${baseURL}/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(designId)}`,
+    );
+    expect(pendingHandoffResponse.ok()).toBe(true);
+    const pendingHandoff = (await pendingHandoffResponse.json()) as {
+      revision?: number;
+      status?: string;
+    };
+    expect(pendingHandoff.status).toBe("ready");
+    expect(pendingHandoff.revision).toEqual(expect.any(Number));
 
     const readResult = (await call("read-local-file", {
       designId,
@@ -2070,6 +2139,15 @@ test.describe("URL-backed live auto-layout probe", () => {
     });
     expect(writeResult).toMatchObject({ ok: true });
     expect(sourceWriteCount).toBe(1);
+    const acknowledgementResponse = await page.request.post(
+      `${baseURL}/_agent-native/actions/acknowledge-visual-edit-pending`,
+      { data: { designId, revision: pendingHandoff.revision } },
+    );
+    expect(acknowledgementResponse.ok()).toBe(true);
+    expect(await acknowledgementResponse.json()).toMatchObject({
+      status: "empty",
+      pendingEditCount: 0,
+    });
     expect(fs.readFileSync(path.join(rootPath, "index.html"), "utf8")).toBe(
       sourceWithRuntimeState,
     );

@@ -1,13 +1,13 @@
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
-  BuilderSetupCard,
   chatModelSelectionStorageKey,
   focusAgentChat,
   useAgentEngineConfigured,
   useChatModels,
-} from "@agent-native/core/client/agent-chat";
-import { isLocalRuntimeEngine } from "@agent-native/core/client/composer";
-import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { submitToAgent } from "@agent-native/core/client/navigation";
+} from "@agent-native/toolkit/app/chat";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import { isLocalRuntimeEngine } from "@agent-native/toolkit/app/chat/composer";
+import { submitToAgent } from "@agent-native/toolkit/app/shared";
 import {
   IconLayoutSidebarRight,
   IconMessage,
@@ -534,17 +534,12 @@ export function SearchModal({
         <div className="border-t border-[var(--docs-border)] py-2">
           {providerStatus === "missing" ? (
             <BuilderSetupCard attached fullWidth layout="sidebar" />
-          ) : providerStatus === "unknown" ||
-            providerStatus === "unavailable" ? (
+          ) : providerStatus === "unavailable" ? (
             <div
               className="mx-3 mb-1 flex items-center justify-between gap-3 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--fg-secondary)]"
               role="status"
             >
-              <span>
-                {providerStatus === "unknown"
-                  ? t("agentChat.setup.checkingProvider")
-                  : t("agentChat.setup.providerStatusUnavailable")}
-              </span>
+              <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
               {providerStatus === "unavailable" ? (
                 <button
                   type="button"

@@ -1,8 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { DevOverlay } from "@agent-native/core/client/dev-overlay";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
   getBrowserTabId,
   useDbSync,
@@ -17,6 +15,8 @@ import {
 } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import { DevOverlay } from "@agent-native/toolkit/app/dev-overlay";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { IconCheck } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -26,7 +26,6 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  Link,
   useLoaderData,
   useLocation,
   useRouteLoaderData,
@@ -55,7 +54,7 @@ import {
   isStandalonePublicPath,
 } from "@/lib/public-ssr-paths";
 
-import { i18nCatalog, loadI18nMessages } from "./i18n";
+import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 
@@ -84,7 +83,7 @@ export async function loader({
 }: LoaderFunctionArgs): Promise<RootLoaderData> {
   const resolved = resolveLocaleFromRequest({ request });
   const messages =
-    (await loadI18nMessages(resolved.locale)) ?? i18nCatalog.messages;
+    (await i18nCatalog.loadMessages?.(resolved.locale)) ?? i18nCatalog.messages;
   return {
     locale: resolved.locale,
     preference: resolved.preference,
@@ -126,47 +125,6 @@ const DEFAULT_LOADER_DATA: RootLoaderData = {
   dir: "ltr",
   messages: i18nCatalog.messages,
 };
-
-const PRIVATE_SHELL_NAVIGATION = [
-  ["/library", "library"],
-  ["/shared", "sharedWithMe"],
-  ["/spaces", "spaces"],
-  ["/meetings", "meetings"],
-  ["/dictate", "dictate"],
-  ["/archive", "archive"],
-  ["/trash", "trash"],
-] as const;
-
-function ClipsPrivateShellFallback({ messages }: { messages: LocaleMessages }) {
-  const navigation = messages.navigation as Record<string, string> | undefined;
-  const brand = navigation?.brand ?? "Clips";
-
-  return (
-    <div className="flex min-h-screen bg-background text-foreground">
-      <aside className="w-64 shrink-0 border-e border-border bg-sidebar p-4">
-        <Link
-          to="/library"
-          className="text-sm font-semibold text-primary"
-          aria-label={brand}
-        >
-          {brand}
-        </Link>
-        <nav aria-label={brand} className="mt-6 flex flex-col gap-1">
-          {PRIVATE_SHELL_NAVIGATION.map(([to, key]) => (
-            <Link
-              key={to}
-              to={to}
-              className="rounded px-2 py-1.5 text-sm text-primary hover:bg-accent"
-            >
-              {navigation?.[key] ?? key}
-            </Link>
-          ))}
-        </nav>
-      </aside>
-      <main className="min-w-0 flex-1" aria-busy="true" />
-    </div>
-  );
-}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const loaderData =
@@ -424,9 +382,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        clientOnlyFallback={
-          <ClipsPrivateShellFallback messages={loaderData.messages} />
-        }
+        skeletonLayout="prompt-library"
         isPublicPath={isPublicPath}
         sessionBypass={legacyRecordingPath}
         showEnvironmentBadge={isPublicPath && !publicSharePath}
@@ -453,4 +409,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

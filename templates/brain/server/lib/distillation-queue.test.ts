@@ -123,6 +123,12 @@ describe("enqueueCaptureDistillation", () => {
         guidance,
       }),
     );
+    expect(mocks.writeAppState.mock.calls[0]?.[1].message).toContain(
+      "brief dated launch announcements",
+    );
+    expect(mocks.writeAppState.mock.calls[0]?.[1].message).toContain(
+      "Keep launch plans distinct from confirmed launches",
+    );
     expect(result).toEqual(
       expect.objectContaining({
         existing: false,
