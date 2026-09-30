@@ -1159,19 +1159,34 @@ export function AiFilterSection() {
                               (progress) => progress.ruleId === rule.id,
                             ),
                           );
-                      const failureRuleId =
+                      const failedRuleIsPresent = Boolean(
                         status?.failedRuleId &&
                         instructions.some(
                           (instruction) =>
                             instruction.id === status.failedRuleId,
-                        )
+                        ),
+                      );
+                      const failureRuleId = status?.failedRuleId
+                        ? failedRuleIsPresent
                           ? status.failedRuleId
-                          : status?.perRule.find((progress) =>
-                              instructions.some(
-                                (instruction) =>
-                                  instruction.id === progress.ruleId,
-                              ),
-                            )?.ruleId;
+                          : undefined
+                        : status?.perRule.find((progress) =>
+                            instructions.some(
+                              (instruction) =>
+                                instruction.id === progress.ruleId,
+                            ),
+                          )?.ruleId;
+                      const failureDisplayRuleId =
+                        failureRuleId ??
+                        status?.perRule.find((progress) =>
+                          instructions.some(
+                            (instruction) => instruction.id === progress.ruleId,
+                          ),
+                        )?.ruleId;
+                      const statusForDisplay =
+                        status?.failedRuleId && !failedRuleIsPresent
+                          ? { ...status, failedRuleId: undefined }
+                          : status;
                       return (
                         <div key={rule.id} className="overflow-hidden">
                           <RuleRow
@@ -1203,7 +1218,7 @@ export function AiFilterSection() {
                           {(queueingBackfillRuleId === rule.id || status) && (
                             <RuleBackfillStatus
                               ruleId={rule.id}
-                              status={status}
+                              status={statusForDisplay}
                               loading={!status && recentBackfills.isLoading}
                               starting={queueingBackfillRuleId === rule.id}
                               undoing={undoingBackfill}
@@ -1211,7 +1226,7 @@ export function AiFilterSection() {
                               retrying={queueingBackfillRuleId === rule.id}
                               showFailure={
                                 status?.status !== "failed" ||
-                                rule.id === failureRuleId
+                                rule.id === failureDisplayRuleId
                               }
                               canRetry={
                                 state?.enabled === true &&
@@ -1219,7 +1234,8 @@ export function AiFilterSection() {
                                 rule.enabled &&
                                 status?.status === "failed" &&
                                 (status.appliedThreads === 0 ||
-                                  Boolean(status.undoToken)) &&
+                                  ((status.restoredThreads ?? 0) === 0 &&
+                                    (status.undoFailures ?? 0) === 0)) &&
                                 status.perRule.length > 0 &&
                                 status.perRule.every((progress) =>
                                   instructions.some(

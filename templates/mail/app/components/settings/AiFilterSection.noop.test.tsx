@@ -812,7 +812,7 @@ describe("AiFilterSection", () => {
     });
   });
 
-  it("does not retry applied changes after the undo token expires", async () => {
+  it("retries partially applied failures after the undo token expires", async () => {
     mocks.rules = [importantRule()];
     mocks.backfillStatus = {
       runId: "backfill-run",
@@ -822,6 +822,8 @@ describe("AiFilterSection", () => {
       matchedThreads: 1,
       appliedThreads: 1,
       failedThreads: 1,
+      restoredThreads: 0,
+      undoFailures: 0,
       perRule: [
         {
           ruleId: "important-rule",
@@ -839,6 +841,52 @@ describe("AiFilterSection", () => {
 
     expect(
       await screen.findByText("mail.aiFilter.ruleBackfillFailed"),
+    ).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["important-rule"],
+      });
+    });
+  });
+
+  it("does not retry after a failed run has already started Undo", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 2,
+      failedThreads: 1,
+      restoredThreads: 1,
+      undoFailures: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 2,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      failedRuleId: "important-rule",
+      error: "Email service is briefly busy.",
+      undoToken: "undo-token",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.ruleBackfillFailed"),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "mail.actions.undo" }),
     ).not.toBeNull();
     expect(
       screen.queryByRole("button", { name: "mail.error.tryAgain" }),
@@ -873,6 +921,7 @@ describe("AiFilterSection", () => {
           previews: [],
         },
       ],
+      failedRuleId: "deleted-rule",
       error: "fetch failed",
     };
     renderSection();
@@ -880,6 +929,7 @@ describe("AiFilterSection", () => {
     expect(
       await screen.findByText("mail.aiFilter.ruleBackfillRunFailed"),
     ).not.toBeNull();
+    expect(screen.queryByText("mail.aiFilter.ruleBackfillFailed")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "mail.error.tryAgain" }),
     ).toBeNull();
