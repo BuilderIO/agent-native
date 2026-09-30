@@ -3173,6 +3173,7 @@ export function AgentKitComposer({
     threadId,
   );
   const submissionBlocked = Boolean(submissionDisabled) || command.pending;
+  const [submissionPending, setSubmissionPending] = useState(false);
   const localComposerRef = useRef<TiptapComposerHandle>(null);
   const composerRef = hostComposerRef ?? localComposerRef;
   const selectedSuggestionRef = useRef<
@@ -3518,6 +3519,15 @@ export function AgentKitComposer({
   const suggestions = selectAgentSuggestions(thread);
   return (
     <div className={`agentkit-composer-stack ${className ?? ""}`}>
+      {submissionPending && !slots.transcript ? (
+        <span
+          className="agentkit-visually-hidden"
+          role="status"
+          aria-live="polite"
+        >
+          {labels.activityBuckets?.thinking ?? "Thinking"}
+        </span>
+      ) : null}
       {queueCapability.visible ? (
         Queue ? (
           <Queue
@@ -3680,6 +3690,7 @@ export function AgentKitComposer({
             return;
           }
           focusComposer();
+          setSubmissionPending(true);
           try {
             await command.execute(async () => {
               await submitMessage(
@@ -3691,6 +3702,7 @@ export function AgentKitComposer({
               );
             });
           } finally {
+            setSubmissionPending(false);
             focusComposer();
           }
         }}

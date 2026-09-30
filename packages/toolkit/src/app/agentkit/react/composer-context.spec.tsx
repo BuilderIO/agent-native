@@ -342,6 +342,9 @@ describe("AgentKit composer context submission", () => {
       expect(beforeSend).toHaveBeenCalledOnce();
       expect(runtime.startRun).not.toHaveBeenCalled();
       expect(runtime.queueMessage).not.toHaveBeenCalled();
+      expect(container.querySelector('[role="status"]')?.textContent).toBe(
+        "Thinking",
+      );
       expect(Object.isFrozen(saved)).toBe(true);
       expect(Object.isFrozen(saved!.contextItems![0])).toBe(true);
       expect(Object.isFrozen(saved!.references[0].metadata)).toBe(true);
@@ -351,6 +354,7 @@ describe("AgentKit composer context submission", () => {
         release();
         await pending;
       });
+      expect(container.querySelector('[role="status"]')).toBeNull();
       const input =
         intent === "queued"
           ? runtime.queueMessage.mock.calls[0][0]
