@@ -57,7 +57,7 @@ the deck while varying composition and information hierarchy. Never alternate
 light and dark slides or introduce a new font/palette for a single slide unless
 the user explicitly asks for it. Use semantic roles for labels, headings,
 body, rules, and surfaces; avoid decorative card grids, gradient text, glass
-panels, fake logos, and filler bullets.
+panels, decorative circles or dots, fake logos, and filler bullets.
 
 ## Fit and Density
 
