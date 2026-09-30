@@ -120,9 +120,6 @@ const messages = {
       company: "Company",
     },
     connectorPollInterval: "連線器輪詢間隔",
-    requireApproval: "需要公司知識的核准",
-    requireApprovalDescription:
-      "在發布之前對全公司範圍內的知識候選項進行排隊以供人工審核。",
     autoArchiveResolved: "自動存檔已解決的審閱專案",
     autoArchiveResolvedDescription:
       "從活動審核通道中刪除核准或拒絕的佇列專案。",

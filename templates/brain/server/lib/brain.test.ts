@@ -963,9 +963,10 @@ describe("Brain knowledge quality gates", () => {
     expect(guidance.distillation.rules.join(" ")).toContain(
       "Distinguish announced plans from confirmed launches",
     );
-    expect(guidance.distillation.rules.join(" ")).toContain(
-      "proposalMode=always",
+    expect(guidance.distillation.rules).toContain(
+      "write-knowledge publishes directly; there is no review step.",
     );
+    expect(guidance.distillation.rules.join(" ")).not.toContain("proposal");
     expect(guidance.captureSanitization).toMatchObject({
       enabled: true,
       model: null,
@@ -1634,6 +1635,7 @@ describe("Brain knowledge quality gates", () => {
       id: "clips-source",
       provider: "clips",
       title: "Clips exports",
+      configJson: JSON.stringify({ sanitizeBeforeStorage: true }),
     });
 
     const capture = await createCapture({
@@ -1819,7 +1821,7 @@ describe("Brain knowledge quality gates", () => {
     expect(mocks.rows.captures).toHaveLength(1);
   });
 
-  it("creates a proposal for company-tier knowledge below the auto-publish confidence gate", async () => {
+  it("publishes low-confidence company-tier knowledge directly without creating a proposal", async () => {
     seedSource();
     seedCapture();
 
@@ -1833,17 +1835,17 @@ describe("Brain knowledge quality gates", () => {
           quote: "Decision: ship the beta on May 20.",
         },
       ],
-      confidence: 80,
+      confidence: 50,
       publishTier: "company",
-      proposalMode: "auto",
     });
 
-    expect(result.mode).toBe("proposal");
-    expect(mocks.rows.proposals).toHaveLength(1);
-    expect(mocks.rows.knowledge).toHaveLength(0);
-    expect(mocks.rows.proposals[0]).toMatchObject({
-      status: "pending",
-      proposedAction: "create",
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.proposals).toHaveLength(0);
+    expect(mocks.rows.knowledge).toHaveLength(1);
+    expect(result.knowledge).toMatchObject({
+      status: "published",
+      publishTier: "company",
+      confidence: 50,
       title: "Beta date",
     });
   });
@@ -1863,7 +1865,6 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 80,
       publishTier: "company",
-      proposalMode: "auto",
     });
 
     expect(result.mode).toBe("knowledge");
@@ -1894,7 +1895,6 @@ describe("Brain knowledge quality gates", () => {
         },
       ],
       confidence: 95,
-      proposalMode: "never",
     });
 
     expect(result.mode).toBe("knowledge");
@@ -1919,7 +1919,6 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 80,
       publishTier: "company",
-      proposalMode: "auto",
     });
 
     expect(result.mode).toBe("knowledge");
@@ -1933,7 +1932,7 @@ describe("Brain knowledge quality gates", () => {
     expect(JSON.stringify(result.knowledge)).not.toContain("alice@example.com");
   });
 
-  it("keeps explicit proposals queued when their evidence source opts out of automatic review", async () => {
+  it("publishes directly when the evidence source opts out of review", async () => {
     seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
     seedCapture();
 
@@ -1948,15 +1947,15 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 80,
       publishTier: "company",
-      proposalMode: "always",
     });
 
-    expect(result.mode).toBe("proposal");
-    expect(mocks.rows.proposals).toHaveLength(1);
-    expect(mocks.rows.knowledge).toHaveLength(0);
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.proposals).toHaveLength(0);
+    expect(mocks.rows.knowledge).toHaveLength(1);
+    expect(result.knowledge).toMatchObject({ status: "published" });
   });
 
-  it("requires review at high confidence when any evidence source explicitly requires it", async () => {
+  it("publishes directly when any evidence source carries a legacy review requirement", async () => {
     seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
     seedCapture();
     seedSource({
@@ -1984,16 +1983,16 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 95,
       publishTier: "company",
-      proposalMode: "auto",
     });
 
-    expect(result.mode).toBe("proposal");
-    expect(mocks.rows.proposals).toHaveLength(1);
-    expect(mocks.rows.knowledge).toHaveLength(0);
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.proposals).toHaveLength(0);
+    expect(mocks.rows.knowledge).toHaveLength(1);
+    expect(result.knowledge).toMatchObject({ status: "published" });
   });
 
-  it("honors an explicit source review requirement above the legacy workspace default", async () => {
-    mocks.settings.requireApprovalForCompanyKnowledge = false;
+  it("ignores a legacy source review requirement and publishes directly", async () => {
+    mocks.settings.requireApprovalForCompanyKnowledge = true;
     seedSource({ configJson: JSON.stringify({ reviewRequired: true }) });
     seedCapture();
 
@@ -2008,12 +2007,12 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 95,
       publishTier: "company",
-      proposalMode: "auto",
     });
 
-    expect(result.mode).toBe("proposal");
-    expect(mocks.rows.proposals).toHaveLength(1);
-    expect(mocks.rows.knowledge).toHaveLength(0);
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.proposals).toHaveLength(0);
+    expect(mocks.rows.knowledge).toHaveLength(1);
+    expect(result.knowledge).toMatchObject({ status: "published" });
   });
 
   it("auto-publishes high-confidence company-tier knowledge when no redaction is needed", async () => {
@@ -2034,7 +2033,6 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 95,
       publishTier: "company",
-      proposalMode: "auto",
     });
 
     expect(result.mode).toBe("knowledge");
@@ -2066,7 +2064,6 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 95,
       publishTier: "company",
-      proposalMode: "never",
     });
     expect(result.mode).toBe("knowledge");
 
@@ -2121,7 +2118,6 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 95,
       publishTier: "company",
-      proposalMode: "never",
     });
     expect(result.mode).toBe("knowledge");
 
@@ -2164,7 +2160,6 @@ describe("Brain knowledge quality gates", () => {
         },
       ],
       confidence: 95,
-      proposalMode: "never",
     });
 
     const updated = await writeKnowledgeRecord({
@@ -2173,7 +2168,6 @@ describe("Brain knowledge quality gates", () => {
       body: "The updated beta plan still ships May 20.",
       evidence: [],
       confidence: 95,
-      proposalMode: "never",
     });
 
     expect(updated.knowledge).toMatchObject({
@@ -2203,7 +2197,7 @@ describe("Brain knowledge quality gates", () => {
         },
       ],
       confidence: 95,
-      proposalMode: "never",
+
       publishCanonical: true,
     });
     const originalPath = created.knowledge!.publishedResourcePath;
@@ -2214,7 +2208,6 @@ describe("Brain knowledge quality gates", () => {
       body: "The beta launch still ships May 20.",
       evidence: [],
       confidence: 95,
-      proposalMode: "never",
     });
 
     expect(updated.knowledge!.publishedResourcePath).toContain(
@@ -2237,7 +2230,7 @@ describe("Brain knowledge quality gates", () => {
       content: "Decision: ship the beta on May 20.",
     });
 
-    const result = await writeKnowledgeRecord({
+    const proposalPayload = {
       title: "Beta date",
       body: "The team decided to ship the beta on May 20.",
       summary: "Beta ships May 20.",
@@ -2249,13 +2242,36 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 80,
       publishTier: "company",
-      proposalMode: "auto",
+
       publishCanonical: true,
+    };
+    mocks.rows.proposals.push({
+      id: "proposal-1",
+      knowledgeId: null,
+      sourceId: "source-1",
+      captureId: "capture-1",
+      audienceId: "aud_org",
+      audienceAclHash: "acl-hash",
+      title: proposalPayload.title,
+      body: proposalPayload.body,
+      rationale: "Legacy pending proposal",
+      proposedAction: "create",
+      payloadJson: JSON.stringify(proposalPayload),
+      evidenceJson: JSON.stringify(proposalPayload.evidence),
+      status: "pending",
+      reviewerNotes: null,
+      createdBy: mocks.userEmail,
+      reviewedBy: null,
+      reviewedAt: null,
+      ownerEmail: mocks.userEmail,
+      orgId: mocks.orgId,
+      visibility: "org",
+      createdAt: "2026-05-15T12:00:00.000Z",
+      updatedAt: "2026-05-15T12:00:00.000Z",
     });
-    expect(result.mode).toBe("proposal");
 
     const preview = await previewKnowledgeCanonicalResource({
-      proposalId: result.proposal!.id,
+      proposalId: "proposal-1",
       draft: {
         title: "Beta launch date",
         body: "The reviewer wording says beta launches on May 20.",
@@ -2264,7 +2280,7 @@ describe("Brain knowledge quality gates", () => {
 
     expect(preview).toMatchObject({
       source: "proposal",
-      proposalId: result.proposal!.id,
+      proposalId: "proposal-1",
       knowledgeId: null,
       path: "context/company-brain/beta-launch-date-<new-id>.md",
       pathExact: false,
@@ -2297,7 +2313,6 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 95,
       publishTier: "private",
-      proposalMode: "never",
     });
     expect(result.mode).toBe("knowledge");
 
@@ -2325,7 +2340,6 @@ describe("Brain knowledge quality gates", () => {
       ],
       confidence: 95,
       publishTier: "company",
-      proposalMode: "never",
     });
 
     expect(result.mode).toBe("knowledge");
@@ -5487,15 +5501,15 @@ describe("Brain demo eval", () => {
       "how-it-works-recall",
       "process-policy-recall",
       "architecture-search-quality",
-      "proposal-gate",
-      "proposal-not-queryable",
+      "direct-publish",
+      "direct-publish-queryable",
       "pii-redaction",
       "search-pii-redaction",
       "personal-exclusion",
       "honest-not-found",
     ]);
     expect(mocks.rows.sources).toHaveLength(4);
-    expect(mocks.rows.proposals).toHaveLength(1);
+    expect(mocks.rows.proposals).toHaveLength(0);
     expect(mocks.rows.knowledge).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -5650,12 +5664,13 @@ describe("Brain demo eval", () => {
       id: "real-dev-fusion-import-review-policy",
       sourceId: "real-dev-fusion-source",
       externalId: "real-dev-fusion-import-review-policy",
-      title: "Brain import policy keeps company knowledge review-gated",
+      title:
+        "Brain import policy allows direct publishing of company knowledge",
       kind: "message",
       content: [
         "Slack #dev-fusion thread",
-        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable knowledge.",
-        "Low-confidence policy items stay pending proposals and out of published search until review.",
+        "Process policy: raw imports become captures; cited company-tier knowledge publishes directly as durable knowledge with no review step.",
+        "Low-confidence policy items publish with their confidence score and stay in published search.",
       ].join("\n"),
       metadataJson: JSON.stringify({
         provider: "slack",

@@ -132,9 +132,6 @@ const enUS = {
       company: "Company",
     },
     connectorPollInterval: "Connector poll interval",
-    requireApproval: "Require approval for company knowledge",
-    requireApprovalDescription:
-      "Queue company-wide knowledge candidates for human review before publishing.",
     autoArchiveResolved: "Auto-archive resolved review items",
     autoArchiveResolvedDescription:
       "Remove approved or rejected queue items from the active review lane.",
@@ -3022,9 +3019,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "سطح الموصلات المتدهورة أو الفاشلة في تدفق المراجعة.",
       notifySourceErrors: "إخطار على أخطاء المصدر",
-      requireApprovalDescription:
-        "قم بوضع المرشحين ذوي المعرفة على مستوى الشركة في قائمة الانتظار للمراجعة البشرية قبل النشر.",
-      requireApproval: "تتطلب الموافقة على معرفة الشركة",
       requireCitationsDescription:
         "يجب أن يستشهد السؤال Brain بصفوف المصدر المعتمدة للحصول على الإجابات الواقعية.",
       requireCitations: "تتطلب الاستشهادات",
@@ -3435,10 +3429,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "Oberflächenbeeinträchtigung oder fehlerhafte Anschlüsse im Überprüfungsablauf.",
       notifySourceErrors: "Bei Quellfehlern benachrichtigen",
-      requireApprovalDescription:
-        "Stellen Sie unternehmensweite Wissenskandidaten vor der Veröffentlichung zur menschlichen Prüfung in die Warteschlange.",
-      requireApproval:
-        "Für Unternehmenskenntnisse ist eine Genehmigung erforderlich",
       requireCitationsDescription:
         "Bitten Sie Brain, für sachliche Antworten müssen genehmigte Quellenzeilen zitiert werden.",
       requireCitations: "Erfordern Zitate",
@@ -3867,9 +3857,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "Conectores de superficie degradada o defectuosos en el flujo de revisión.",
       notifySourceErrors: "Notificar sobre errores de origen",
-      requireApprovalDescription:
-        "Ponga en cola a los candidatos con conocimientos de toda la empresa para su revisión humana antes de publicarlos.",
-      requireApproval: "Requerir aprobación para conocimiento de la empresa.",
       requireCitationsDescription:
         "Ask Brain debe citar filas de fuentes aprobadas para obtener respuestas objetivas.",
       requireCitations: "Requerir citas",
@@ -4297,10 +4284,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "Surface des connecteurs dégradés ou défaillants dans le flux de révision.",
       notifySourceErrors: "Notifier sur les erreurs sources",
-      requireApprovalDescription:
-        "Mettez en file d'attente les candidats aux connaissances à l'échelle de l'entreprise pour un examen humain avant de les publier.",
-      requireApproval:
-        "Exiger une approbation pour les connaissances de l'entreprise",
       requireCitationsDescription:
         "Demandez à Brain de citer les lignes de sources approuvées pour des réponses factuelles.",
       requireCitations: "Exiger des citations",
@@ -4716,9 +4699,6 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTier: "डिफ़ॉल्ट प्रकाशन स्तर",
       notifySourceErrorsDescription: "समीक्षा प्रवाह में सतह ख़राब या विफल कनेक्टर।",
       notifySourceErrors: "स्रोत त्रुटियों पर सूचित करें",
-      requireApprovalDescription:
-        "प्रकाशन से पहले मानव समीक्षा के लिए कंपनी-व्यापी ज्ञान वाले उम्मीदवारों की कतार लगाएं।",
-      requireApproval: "कंपनी के ज्ञान के लिए अनुमोदन की आवश्यकता है",
       requireCitationsDescription:
         "पूछें Brain को तथ्यात्मक उत्तरों के लिए अनुमोदित स्रोत पंक्तियों का हवाला देना चाहिए।",
       requireCitations: "उद्धरणों की आवश्यकता है",
@@ -5120,9 +5100,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "レビュー フローでの表面の劣化または故障したコネクタ。",
       notifySourceErrors: "ソースエラーを通知する",
-      requireApprovalDescription:
-        "公開する前に、全社的なナレッジの候補者をキューに入れて人によるレビューを受けます。",
-      requireApproval: "社内知識の承認が必要",
       requireCitationsDescription:
         "Ask Brain は、事実に基づく回答として承認されたソース行を引用する必要があります。",
       requireCitations: "引用を要求する",
@@ -5532,9 +5509,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "검토 흐름에서 표면 성능이 저하되거나 커넥터에 오류가 발생했습니다.",
       notifySourceErrors: "소스 오류 알림",
-      requireApprovalDescription:
-        "게시하기 전에 사람의 검토를 위해 전사적 지식 후보를 대기열에 추가하세요.",
-      requireApproval: "회사 지식에 대한 승인이 필요합니다.",
       requireCitationsDescription:
         "Ask Brain은 사실 답변에 대해 승인된 소스 행을 인용해야 합니다.",
       requireCitations: "인용이 필요합니다",
@@ -5942,9 +5916,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "Superfície de conectores degradados ou com falha no fluxo de revisão.",
       notifySourceErrors: "Notificar sobre erros de origem",
-      requireApprovalDescription:
-        "Coloque na fila os candidatos de conhecimento de toda a empresa para revisão humana antes de publicar.",
-      requireApproval: "Exigir aprovação para conhecimento da empresa",
       requireCitationsDescription:
         "Ask Brain deve citar linhas de origem aprovadas para respostas factuais.",
       requireCitations: "Exigir citações",
@@ -6347,9 +6318,6 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTier: "默认发布层",
       notifySourceErrorsDescription: "审查流程中表面退化或失效的连接器。",
       notifySourceErrors: "通知源错误",
-      requireApprovalDescription:
-        "在发布之前对全公司范围内的知识候选者进行排队以供人工审核。",
-      requireApproval: "需要公司知识的批准",
       requireCitationsDescription:
         "询问 Brain 必须引用经批准的源行以获得事实答案。",
       requireCitations: "需要引用",

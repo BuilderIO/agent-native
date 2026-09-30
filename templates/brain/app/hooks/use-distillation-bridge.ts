@@ -177,8 +177,8 @@ function buildMessage(
     `Distill Brain capture ${capture.id} (${capture.title}). ` +
     `Use get-capture with includeRawContent=true before exact quote ` +
     `validation. Treat short dated company launch announcements as retainable ` +
-    `plans, not proof of a completed launch; write supported knowledge or a ` +
-    `review proposal with write-knowledge. Ignore only if no company-relevant ` +
+    `plans, not proof of a completed launch; write supported knowledge with ` +
+    `write-knowledge. Ignore only if no company-relevant ` +
     `fact remains. Mark the capture distilled or ignored with queueId ${queueId} and ` +
     `claimToken ${claimToken}.`
   );

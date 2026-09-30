@@ -38,7 +38,7 @@ async function writeDistillationRequest(values: {
       `includeRawContent=true when you need exact quote validation, extract ` +
       `durable company knowledge, including brief dated launch announcements, ` +
       `with exact evidence quotes. Keep launch plans distinct from confirmed ` +
-      `launches. Call write-knowledge for supported entries or proposals, then ` +
+      `launches. Call write-knowledge for supported entries, then ` +
       `mark-capture-distilled when finished. Ignore only when no company-relevant ` +
       `fact remains after privacy filtering.`,
   });
