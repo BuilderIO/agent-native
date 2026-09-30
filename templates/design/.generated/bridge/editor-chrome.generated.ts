@@ -2307,6 +2307,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var runtimeLayerSnapshotReservationRequestId = 0;
     var runtimeLayerSnapshotReservationInFlight = false;
     var runtimeLayerSnapshotReservationDirty = false;
+    var runtimeLayerSnapshotReservationReadinessRequestId = null;
+    var runtimeLayerSnapshotPendingReadinessRequestId = null;
     var lastRuntimeLayerSnapshotHtml = "";
     var lastRuntimeLayerSnapshotReservationToken = "";
     var runtimeDocumentId = "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -2575,7 +2577,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot(reservationToken, requestId) {
+    function postRuntimeLayerSnapshot(reservationToken, requestId, readinessRequestId) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2593,6 +2595,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               ...snapshot,
               requestId,
               documentId: runtimeDocumentId,
+              ...Number.isSafeInteger(readinessRequestId) ? { readinessRequestId } : {},
               ...reservationToken ? { reservationToken } : {}
             }
           },
@@ -2601,13 +2604,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       var snapshotReservationToken = reservationToken || "";
-      if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+      if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(readinessRequestId)) {
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-unchanged",
             payload: {
               requestId,
               documentId: snapshot.documentId,
+              ...Number.isSafeInteger(readinessRequestId) ? { readinessRequestId } : {},
               ...reservationToken ? { reservationToken } : {}
             }
           },
@@ -2618,6 +2622,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
       if (requestId !== void 0) snapshot.requestId = requestId;
+      if (Number.isSafeInteger(readinessRequestId)) {
+        snapshot.readinessRequestId = readinessRequestId;
+      }
       if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
@@ -2627,7 +2634,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
     }
-    function requestRuntimeLayerSnapshot() {
+    function requestRuntimeLayerSnapshot(readinessRequestId) {
+      if (Number.isSafeInteger(readinessRequestId)) {
+        runtimeLayerSnapshotPendingReadinessRequestId = readinessRequestId;
+      }
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
         runtimeLayerSnapshotTimer = null;
@@ -2638,10 +2648,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (runtimeLayerSnapshotReservationInFlight) {
         runtimeLayerSnapshotReservationDirty = true;
+        runtimeLayerSnapshotPendingReadinessRequestId ?? (runtimeLayerSnapshotPendingReadinessRequestId = runtimeLayerSnapshotReservationReadinessRequestId);
         return;
       }
       runtimeLayerSnapshotReservationInFlight = true;
       runtimeLayerSnapshotReservationRequestId += 1;
+      runtimeLayerSnapshotReservationReadinessRequestId = runtimeLayerSnapshotPendingReadinessRequestId;
+      runtimeLayerSnapshotPendingReadinessRequestId = null;
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-reservation-request",
@@ -5529,6 +5542,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var passiveSelectionEls = [];
     var passiveSelectionOverlays = [];
+    var passiveSelectionOverlayRects = [];
     var repeatInstanceOverlays = [];
     var repeatInstanceAnchor = null;
     var multiSelectionBoundsOverlay = null;
@@ -5847,11 +5861,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         positionMultiSelectionBounds();
         return;
       }
+      var poolStyleChanged = style !== passiveSelectionOverlayPoolStyle;
+      var previousPassiveEls = passiveSelectionEls;
+      var previousPassiveRects = passiveSelectionOverlayRects;
       passiveSelectionEls = nextPassiveEls;
       syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
+      passiveSelectionOverlayRects = passiveSelectionEls.map(function(el) {
+        return el.getBoundingClientRect();
+      });
       passiveSelectionEls.forEach(function(el, index) {
         var overlay = passiveSelectionOverlays[index];
-        if (overlay) positionOverlay(overlay, el);
+        var previousRect = previousPassiveRects[index];
+        var nextRect = passiveSelectionOverlayRects[index];
+        var boundsChanged = !previousRect || previousRect.left !== nextRect.left || previousRect.top !== nextRect.top || previousRect.width !== nextRect.width || previousRect.height !== nextRect.height;
+        if (overlay && (poolStyleChanged || previousPassiveEls[index] !== el || boundsChanged)) {
+          positionOverlay(overlay, el);
+        }
       });
       positionMultiSelectionBounds();
     }
@@ -7502,11 +7527,286 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       };
     }
+    function cornerRadiusColorIsVisible(value) {
+      var color = String(value || "").trim().toLowerCase();
+      if (!color || color === "none" || color === "transparent") return false;
+      var parsed = parseCssRgb(color);
+      if (parsed) return parsed.a > 0;
+      if (/^#[\\da-f]{4}$/.test(color)) {
+        return parseInt(color.slice(-1).repeat(2), 16) > 0;
+      }
+      if (/^#[\\da-f]{8}$/.test(color)) {
+        return parseInt(color.slice(-2), 16) > 0;
+      }
+      var legacyHsl = /^hsla?\\(([^)]+)\\)$/.exec(color);
+      if (legacyHsl && legacyHsl[1].includes(",")) {
+        var components = legacyHsl[1].split(",");
+        if (components.length >= 4) return parseFloat(components[3]) > 0;
+      }
+      var alpha = /\\/\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))%?\\s*\\)$/.exec(color);
+      return !alpha || Number(alpha[1]) > 0;
+    }
+    function cornerRadiusColorPrefix(value) {
+      var color = String(value || "").trim();
+      var functionName = /^[a-z][\\w-]*\\(/i.exec(color);
+      if (functionName) {
+        var depth = 0;
+        for (var index = functionName[0].length - 1; index < color.length; index += 1) {
+          if (color[index] === "(") depth += 1;
+          else if (color[index] === ")") {
+            depth -= 1;
+            if (depth === 0) return color.slice(0, index + 1);
+          }
+        }
+        return null;
+      }
+      var keyword = /^(?:transparent|[a-z]+)\\b/i.exec(color);
+      if (keyword) return keyword[0];
+      var hex = /^#[\\da-f]{3,8}\\b/i.exec(color);
+      return hex ? hex[0] : null;
+    }
+    function cornerRadiusSplitCssList(value) {
+      var parts = [];
+      var depth = 0;
+      var start = 0;
+      for (var index = 0; index < value.length; index += 1) {
+        if (value[index] === "(") depth += 1;
+        else if (value[index] === ")") depth -= 1;
+        else if (value[index] === "," && depth === 0) {
+          parts.push(value.slice(start, index).trim());
+          start = index + 1;
+        }
+      }
+      parts.push(value.slice(start).trim());
+      return parts;
+    }
+    function cornerRadiusGradientHasVisiblePaint(value) {
+      var gradient = /^(?:repeating-)?(linear|radial|conic)-gradient\\((.*)\\)$/i.exec(value);
+      if (!gradient) return true;
+      var stops = cornerRadiusSplitCssList(gradient[2]);
+      for (var index = 0; index < stops.length; index += 1) {
+        var stop = stops[index];
+        if (/^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)%$/.test(stop)) continue;
+        if (index === 0 && gradient[1].toLowerCase() === "radial" && (/\\bat\\b/i.test(stop) || /^(?:[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:px|em|rem|vw|vh|vmin|vmax|cm|mm|in|pt|pc|q)\\s*){1,2}$/i.test(
+          stop
+        ))) {
+          continue;
+        }
+        if (index === 0 && /^(?:to\\b|from\\b|in\\b|at\\b|[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:deg|grad|rad|turn)\\b|(?:circle|ellipse|closest|farthest)\\b)/i.test(
+          stop
+        )) {
+          continue;
+        }
+        var color = cornerRadiusColorPrefix(stop);
+        if (!color || cornerRadiusColorIsVisible(color)) return true;
+      }
+      return false;
+    }
+    function cornerRadiusBackgroundImageHasVisiblePaint(value) {
+      if (!value || value === "none") return false;
+      var layers = cornerRadiusSplitCssList(value);
+      for (var index = 0; index < layers.length; index += 1) {
+        if (cornerRadiusGradientHasVisiblePaint(layers[index])) return true;
+      }
+      return false;
+    }
+    function cornerRadiusVisibilityIsVisible(node) {
+      var visibility = window.getComputedStyle(node).visibility;
+      return visibility !== "hidden" && visibility !== "collapse";
+    }
+    function cornerRadiusNodeAndAncestorsAllowPaint(node, stopAt) {
+      var cursor = node;
+      while (cursor) {
+        var style = window.getComputedStyle(cursor);
+        var filterOpacities = style.filter.matchAll(
+          /(?:^|\\s)opacity\\(\\s*([^\\s)]+)/g
+        );
+        for (var filterOpacity of filterOpacities) {
+          if (parseFloat(filterOpacity[1]) === 0) return false;
+        }
+        if (style.display === "none" || Number(style.opacity) === 0) return false;
+        if (cursor === stopAt) return true;
+        cursor = cursor.parentElement;
+      }
+      return !stopAt;
+    }
+    function cornerRadiusSvgGradientHasVisibleStops(gradient, visited) {
+      if (visited.indexOf(gradient) >= 0) return false;
+      visited.push(gradient);
+      var stops = Array.from(gradient.children).filter(function(child) {
+        return child.tagName.toLowerCase() === "stop";
+      });
+      for (var index = 0; index < stops.length; index += 1) {
+        var style = window.getComputedStyle(stops[index]);
+        if (Number(style.getPropertyValue("stop-opacity")) > 0 && cornerRadiusColorIsVisible(style.getPropertyValue("stop-color"))) {
+          return true;
+        }
+      }
+      if (stops.length) return false;
+      var reference = gradient.getAttribute("href") || gradient.getAttributeNS("http://www.w3.org/1999/xlink", "href") || "";
+      if (reference.charAt(0) !== "#") return false;
+      var inherited = gradient.ownerDocument.getElementById(reference.slice(1));
+      if (!inherited || !/^(?:linear|radial)gradient$/i.test(inherited.localName || "")) {
+        return false;
+      }
+      return cornerRadiusSvgGradientHasVisibleStops(inherited, visited);
+    }
+    function cornerRadiusSvgPatternHasVisibleContent(pattern, visited) {
+      if (visited.indexOf(pattern) >= 0) return false;
+      var seen = visited.concat([pattern]);
+      var svgPattern = pattern;
+      function patternDimensionIsPositive(name) {
+        var current = svgPattern;
+        var visitedDimensions = [];
+        while (current && visitedDimensions.indexOf(current) < 0) {
+          visitedDimensions.push(current);
+          if (current.hasAttribute(name)) {
+            var dimension = name === "width" ? current.width : current.height;
+            return Boolean(dimension && dimension.baseVal.value > 0);
+          }
+          var reference2 = current.getAttribute("href") || current.getAttributeNS("http://www.w3.org/1999/xlink", "href") || "";
+          if (reference2.charAt(0) !== "#") return false;
+          var inherited2 = current.ownerDocument.getElementById(
+            reference2.slice(1)
+          );
+          current = inherited2 && /^pattern$/i.test(inherited2.localName || "") ? inherited2 : null;
+        }
+        return false;
+      }
+      if (!patternDimensionIsPositive("width") || !patternDimensionIsPositive("height"))
+        return false;
+      if (!cornerRadiusNodeAndAncestorsAllowPaint(pattern, null)) return false;
+      var graphics = pattern.querySelectorAll(
+        "circle, ellipse, image, line, path, polygon, polyline, rect, text, use"
+      );
+      for (var index = 0; index < graphics.length; index += 1) {
+        var graphic = graphics[index];
+        if (!cornerRadiusNodeAndAncestorsAllowPaint(graphic, pattern) || !cornerRadiusVisibilityIsVisible(graphic)) {
+          continue;
+        }
+        var bounds;
+        try {
+          bounds = graphic.getBBox();
+        } catch (_error) {
+          continue;
+        }
+        var style = window.getComputedStyle(graphic);
+        if (bounds.width > 0 && bounds.height > 0 && style.fill !== "none" && Number(style.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(style.fill, graphic, seen)) {
+          return true;
+        }
+        if ((bounds.width > 0 || bounds.height > 0 || cornerRadiusSvgZeroLengthStrokeHasVisibleCap(graphic, style)) && style.stroke !== "none" && parseFloat(style.strokeWidth) > 0 && Number(style.strokeOpacity) > 0 && cornerRadiusSvgPaintIsVisible(style.stroke, graphic, seen)) {
+          return true;
+        }
+      }
+      if (graphics.length) return false;
+      var reference = pattern.getAttribute("href") || pattern.getAttributeNS("http://www.w3.org/1999/xlink", "href") || "";
+      if (reference.charAt(0) !== "#") return false;
+      var inherited = pattern.ownerDocument.getElementById(reference.slice(1));
+      return inherited && /^pattern$/i.test(inherited.localName || "") ? cornerRadiusSvgPatternHasVisibleContent(inherited, seen) : false;
+    }
+    function cornerRadiusSvgPaintIsVisible(value, target, visited) {
+      var paint = String(value || "").trim();
+      if (!paint || paint === "none") return false;
+      var reference = /^url\\(\\s*(['"]?)#([^)'"\\s]+)\\1\\s*\\)(?:\\s+(.+))?$/i.exec(
+        paint
+      );
+      if (!reference) {
+        return /^url\\(/i.test(paint) ? false : cornerRadiusColorIsVisible(paint);
+      }
+      var paintServer = target.ownerDocument.getElementById(reference[2]);
+      if (!paintServer) {
+        return reference[3] ? cornerRadiusColorIsVisible(reference[3]) : false;
+      }
+      var seen = visited || [];
+      if (seen.indexOf(paintServer) >= 0) return false;
+      if (/^(?:linear|radial)gradient$/i.test(paintServer.localName || "")) {
+        return cornerRadiusSvgGradientHasVisibleStops(paintServer, []);
+      }
+      if (/^pattern$/i.test(paintServer.localName || "")) {
+        return cornerRadiusSvgPatternHasVisibleContent(paintServer, seen);
+      }
+      return false;
+    }
+    function cornerRadiusReferencedPaintElements(el) {
+      if (!el || el.tagName.toLowerCase() !== "svg") return [];
+      var paintTarget = vectorPaintTarget(el);
+      if (!paintTarget) return [];
+      var pending = [paintTarget];
+      var visited = [];
+      var referenced = [];
+      function enqueueReference(owner, value) {
+        var match = /url\\(\\s*(['"]?)#([^)'"\\s]+)\\1\\s*\\)/gi;
+        var reference;
+        while (reference = match.exec(String(value || ""))) {
+          var target = owner.ownerDocument.getElementById(reference[2]);
+          if (target && visited.indexOf(target) < 0) pending.push(target);
+        }
+        if (!/^(?:pattern|lineargradient|radialgradient|use)$/i.test(
+          owner.localName || ""
+        )) {
+          return;
+        }
+        var href = owner.getAttribute("href") || owner.getAttributeNS("http://www.w3.org/1999/xlink", "href") || "";
+        var id = /^#(.+)$/.exec(href.trim());
+        var target = id && owner.ownerDocument.getElementById(id[1]);
+        if (target && visited.indexOf(target) < 0) pending.push(target);
+      }
+      while (pending.length) {
+        var current = pending.pop();
+        if (!current || visited.indexOf(current) >= 0) continue;
+        visited.push(current);
+        referenced.push(current);
+        var nodes = [current].concat(Array.from(current.querySelectorAll("*")));
+        nodes.forEach(function(node) {
+          var style = window.getComputedStyle(node);
+          enqueueReference(node, style.fill);
+          enqueueReference(node, style.stroke);
+          enqueueReference(
+            node,
+            node.getAttribute("href") || node.getAttributeNS("http://www.w3.org/1999/xlink", "href")
+          );
+        });
+      }
+      return referenced;
+    }
+    function cornerRadiusSvgZeroLengthStrokeHasVisibleCap(graphic, style) {
+      if (!/^(?:line|path|polyline)$/i.test(graphic.localName || "")) {
+        return false;
+      }
+      var geometry = graphic;
+      if (typeof geometry.getTotalLength !== "function") return false;
+      return geometry.getTotalLength() === 0 && (style.strokeLinecap === "round" || style.strokeLinecap === "square");
+    }
+    function cornerRadiusHasVisiblePaint(el) {
+      if (!cornerRadiusNodeAndAncestorsAllowPaint(el, null)) return false;
+      var style = window.getComputedStyle(el);
+      if (cornerRadiusVisibilityIsVisible(el) && (cornerRadiusBackgroundImageHasVisiblePaint(style.backgroundImage) || cornerRadiusColorIsVisible(style.backgroundColor))) {
+        return true;
+      }
+      var borderSides = ["top", "right", "bottom", "left"];
+      for (var index = 0; index < borderSides.length; index += 1) {
+        var side = borderSides[index];
+        if (cornerRadiusVisibilityIsVisible(el) && parseFloat(style.getPropertyValue("border-" + side + "-width")) > 0 && style.getPropertyValue("border-" + side + "-style") !== "none" && style.getPropertyValue("border-" + side + "-style") !== "hidden" && cornerRadiusColorIsVisible(
+          style.getPropertyValue("border-" + side + "-color")
+        )) {
+          return true;
+        }
+      }
+      if (el.tagName.toLowerCase() !== "svg") return false;
+      var paintTarget = vectorPaintTarget(el);
+      if (!paintTarget || !cornerRadiusNodeAndAncestorsAllowPaint(paintTarget, el) || !cornerRadiusVisibilityIsVisible(paintTarget)) {
+        return false;
+      }
+      var paintStyle = window.getComputedStyle(paintTarget);
+      return paintStyle.fill !== "none" && Number(paintStyle.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget) || paintStyle.stroke !== "none" && parseFloat(paintStyle.strokeWidth) > 0 && Number(paintStyle.strokeOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget);
+    }
     function cornerRadiusHandleKeys(el) {
       if (!el || el.nodeType !== 1) return [];
       var kind = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (kind !== "rectangle" && kind !== "polygon" && kind !== "star")
+        return [];
+      if (!cornerRadiusHasVisiblePaint(el)) return [];
       if (kind === "rectangle") return ["nw", "ne", "se", "sw"];
-      if (kind !== "polygon" && kind !== "star") return [];
       var path = radiusPathData(el);
       if (!path || path.malformed) return [];
       if (kind === "star") return ["vertex-0"];
@@ -8081,6 +8381,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             "*"
           );
         }
+        syncOverlayObservers();
       } else {
         applyElementOverlayChrome(overlay, el);
       }
@@ -8763,6 +9064,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     var overlayMutationObserver = null;
     var observedResizeEls = [];
     var observedMutationRoot = null;
+    var observedMutationTarget = null;
+    var observedMutationPaintServers = [];
+    var observedMutationPaintParents = [];
     function ensureOverlayObservers() {
       if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
         overlayResizeObserver = new ResizeObserver(function() {
@@ -8800,7 +9104,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
-        if (nextRoot !== observedMutationRoot) {
+        var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
+        var nextPaintServers = nextTarget ? cornerRadiusReferencedPaintElements(nextTarget) : [];
+        var nextPaintParents = [];
+        nextPaintServers.forEach(function(server) {
+          var parent = server.parentElement;
+          if (parent && parent !== nextRoot && parent !== nextTarget && nextPaintParents.indexOf(parent) < 0) {
+            nextPaintParents.push(parent);
+          }
+        });
+        var paintServersChanged = nextPaintServers.length !== observedMutationPaintServers.length || nextPaintServers.some(function(server, index) {
+          return observedMutationPaintServers[index] !== server;
+        });
+        var paintParentsChanged = nextPaintParents.length !== observedMutationPaintParents.length || nextPaintParents.some(function(parent, index) {
+          return observedMutationPaintParents[index] !== parent;
+        });
+        if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || paintServersChanged || paintParentsChanged) {
           overlayMutationObserver.disconnect();
           if (nextRoot) {
             overlayMutationObserver.observe(nextRoot, {
@@ -8812,11 +9131,30 @@ export const editorChromeBridgeScript: string = `"use strict";
               overlayMutationObserver.observe(selectedEl, {
                 attributes: true,
                 childList: true,
-                subtree: false
+                subtree: selectedEl.tagName.toLowerCase() === "svg"
               });
             }
           }
+          nextPaintServers.forEach(function(server) {
+            if (server !== nextRoot && server !== nextTarget) {
+              overlayMutationObserver.observe(server, {
+                attributes: true,
+                childList: true,
+                subtree: true
+              });
+            }
+          });
+          nextPaintParents.forEach(function(parent) {
+            overlayMutationObserver.observe(parent, {
+              attributes: true,
+              childList: true,
+              subtree: false
+            });
+          });
           observedMutationRoot = nextRoot;
+          observedMutationTarget = nextTarget;
+          observedMutationPaintServers = nextPaintServers;
+          observedMutationPaintParents = nextPaintParents;
         }
       }
     }
@@ -9342,25 +9680,32 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function updateTextEditingChrome(target, originalMinWidth, originalMinHeight) {
-      target.style.outline = "none";
-      target.style.outlineStyle = "none";
-      target.style.outlineWidth = "0px";
-      target.style.outlineColor = "transparent";
-      target.style.outlineOffset = "0px";
+      if (target.style.outlineStyle !== "none")
+        target.style.outlineStyle = "none";
+      if (target.style.outlineWidth !== "0px") target.style.outlineWidth = "0px";
+      if (target.style.outlineColor !== "transparent")
+        target.style.outlineColor = "transparent";
+      if (target.style.outlineOffset !== "0px")
+        target.style.outlineOffset = "0px";
       if (hasTextCharacters(target)) {
         document.documentElement.removeAttribute(
           "data-agent-native-empty-text-editing"
         );
-        target.style.minWidth = originalMinWidth;
-        target.style.minHeight = originalMinHeight;
+        if (target.style.minWidth !== originalMinWidth)
+          target.style.minWidth = originalMinWidth;
+        if (target.style.minHeight !== originalMinHeight)
+          target.style.minHeight = originalMinHeight;
         positionOverlay(selectionOverlay, target);
         setSelectionOverlayResizeChromeVisible(false);
         positionTextCaretOverlay(target);
         return;
       }
       hideTextCaretOverlay(target);
-      target.style.minWidth = originalMinWidth || "1px";
-      target.style.minHeight = originalMinHeight || "1em";
+      var minWidth = originalMinWidth || "1px";
+      var minHeight = originalMinHeight || "1em";
+      if (target.style.minWidth !== minWidth) target.style.minWidth = minWidth;
+      if (target.style.minHeight !== minHeight)
+        target.style.minHeight = minHeight;
       document.documentElement.setAttribute(
         "data-agent-native-empty-text-editing",
         "true"
@@ -21089,7 +21434,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "request-runtime-layer-snapshot") {
-        requestRuntimeLayerSnapshot();
+        requestRuntimeLayerSnapshot(
+          Number.isSafeInteger(e.data.readinessRequestId) ? e.data.readinessRequestId : void 0
+        );
         return;
       }
       if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
@@ -21099,12 +21446,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         runtimeLayerSnapshotReservationInFlight = false;
         if (runtimeLayerSnapshotReservationDirty) {
           runtimeLayerSnapshotReservationDirty = false;
-          requestRuntimeLayerSnapshot();
+          var queuedReadinessRequestId = runtimeLayerSnapshotPendingReadinessRequestId ?? runtimeLayerSnapshotReservationReadinessRequestId;
+          runtimeLayerSnapshotReservationReadinessRequestId = null;
+          requestRuntimeLayerSnapshot(queuedReadinessRequestId ?? void 0);
           return;
         }
+        var reservationReadinessRequestId = runtimeLayerSnapshotReservationReadinessRequestId;
+        runtimeLayerSnapshotReservationReadinessRequestId = null;
         postRuntimeLayerSnapshot(
           typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0,
-          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0,
+          reservationReadinessRequestId ?? void 0
         );
         return;
       }

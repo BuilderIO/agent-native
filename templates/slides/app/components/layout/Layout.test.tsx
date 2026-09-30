@@ -6,17 +6,49 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   agentSidebarMock,
+  navigateChatMock,
   flushDeckSaveMock,
   useDecksMock,
   creativeContextLabEnabled,
 } = vi.hoisted(() => ({
   agentSidebarMock: vi.fn(),
+  navigateChatMock: vi.fn(),
   flushDeckSaveMock: vi.fn(),
   useDecksMock: vi.fn(),
   creativeContextLabEnabled: { value: false },
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  fetchAgentEngineConfiguredState: async () => "unavailable",
+  isAgentChatHomeHandoffActive: vi.fn(() => false),
+  navigateWithAgentChatViewTransition: navigateChatMock,
+  useAgentChatHomeHandoff: vi.fn(() => false),
+  useAgentChatHomeHandoffLinks: vi.fn(),
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: false,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
+}));
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
   AgentSidebar: ({
     children,
     ...props
@@ -34,16 +66,14 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     );
   },
   focusAgentChat: vi.fn(),
-  isAgentChatHomeHandoffActive: vi.fn(() => false),
-  navigateWithAgentChatViewTransition: vi.fn(),
-  useAgentChatHomeHandoff: vi.fn(() => false),
-  useAgentChatHomeHandoffLinks: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, values?: Record<string, unknown>) =>
     key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/org")>()),
   InvitationBanner: () => <div data-testid="invitation-banner" />,
 }));
 vi.mock("@agent-native/creative-context/client", () => ({
@@ -58,7 +88,9 @@ vi.mock("@agent-native/toolkit/app-shell", () => ({
 vi.mock("@shared/google-docs", () => ({
   extractGoogleSlidesUrls: () => [],
 }));
-vi.mock("@tabler/icons-react", () => ({
+vi.mock("@tabler/icons-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tabler/icons-react")>()),
+  IconBulb: () => <span data-testid="bulb-icon" />,
   IconMenu2: () => <span data-testid="menu-icon" />,
 }));
 vi.mock("@/context/DeckContext", () => ({ useDecks: useDecksMock }));
@@ -71,6 +103,9 @@ vi.mock("@/lib/utils", () => ({
 }));
 vi.mock("../editor/GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => null,
+}));
+vi.mock("../editor/SlidesComposerContextProvider", () => ({
+  SlidesComposerContextProvider: () => null,
 }));
 vi.mock("./AgentWorkIndicator", () => ({
   AgentWorkIndicator: () => <div data-testid="agent-work-indicator" />,
@@ -113,6 +148,7 @@ function NavigateAway() {
 describe("Slides Layout", () => {
   beforeEach(() => {
     agentSidebarMock.mockClear();
+    navigateChatMock.mockClear();
     flushDeckSaveMock.mockReset().mockResolvedValue(undefined);
     useDecksMock.mockReturnValue({
       decks: [],
@@ -131,6 +167,20 @@ describe("Slides Layout", () => {
     renderLayout("/");
     expect(screen.getByTestId("creative-context-composer-chip")).toBeTruthy();
   });
+
+  it.each([
+    ["thread/one", "/chat/thread%2Fone?deckId=deck-1"],
+    [undefined, "/chat?deckId=deck-1"],
+  ])(
+    "opens fullscreen with thread %s while retaining deck context",
+    (threadId, path) => {
+      renderLayout("/deck/deck-1");
+      const props = agentSidebarMock.mock.lastCall![0];
+      expect(props.storageKey).toBeUndefined();
+      act(() => props.onFullscreenRequest(threadId));
+      expect(navigateChatMock).toHaveBeenCalledWith(expect.any(Function), path);
+    },
+  );
 
   it("enables agent-panel auto-open only during a run", () => {
     renderLayout("/");

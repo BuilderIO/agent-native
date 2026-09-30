@@ -3,10 +3,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconApps } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 
-import {
-  filterOtherApps,
-  type ConnectedAppSummary,
-} from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
 import {
   isWorkspaceAppVisibleInDefaultLaunchers,
@@ -26,7 +22,7 @@ function appLabel(app: WorkspaceAppSummary): string {
   return app.name.trim() || app.id;
 }
 
-type RailApp = WorkspaceAppSummary & { external?: boolean };
+type RailApp = WorkspaceAppSummary;
 
 export function WorkspaceAppsRail({
   collapsed = false,
@@ -43,33 +39,17 @@ export function WorkspaceAppsRail({
       includeAgentCards: false,
     },
   );
-  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
-    "list-connected-agents",
-    {},
-  );
   if (appsQuery.isError || !appsQuery.data) return null;
 
-  const workspaceApps = appsQuery.data;
-  const apps: RailApp[] = [
-    ...workspaceApps.filter(
+  const apps: RailApp[] = appsQuery.data
+    .filter(
       (app) =>
         isWorkspaceAppVisibleInDefaultLaunchers(app) &&
         !app.archived &&
         app.status !== "pending" &&
         !!workspaceAppHref(app),
-    ),
-    ...filterOtherApps(connectedAppsQuery.data ?? [], workspaceApps).map(
-      (app) => ({
-        id: app.id,
-        name: app.name,
-        description: app.description,
-        path: "",
-        url: app.homeUrl ?? app.url,
-        status: "ready" as const,
-        external: true,
-      }),
-    ),
-  ].sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
+    )
+    .sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
 
   if (apps.length === 0) return null;
 
@@ -102,11 +82,7 @@ export function WorkspaceAppsRail({
         {!collapsed ? <span className="truncate">{label}</span> : null}
       </>
     );
-    const link = app.external ? (
-      <a href={href} {...linkProps}>
-        {linkContent}
-      </a>
-    ) : (
+    const link = (
       <Link to={workspaceAppRoute(app.id)} {...linkProps}>
         {linkContent}
       </Link>

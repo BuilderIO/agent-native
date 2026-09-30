@@ -19,6 +19,10 @@ const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
   source.indexOf("const handlePromptSubmit"),
 );
+const runner = source.slice(
+  source.indexOf("const runPendingDeckGeneration"),
+  source.indexOf("const handlePromptSubmit"),
+);
 
 describe("new deck generation flow", () => {
   it("renders the inline home composer immediately with chunk recovery", () => {
@@ -114,8 +118,14 @@ describe("new deck generation flow", () => {
     );
 
     expect(recovery).toContain('settlePendingDeckAttachments("commit")');
-    expect(promptSubmit.indexOf("setNewDeckPromptOpen(false")).toBeLessThan(
-      promptSubmit.indexOf("if (options?.slidesContext)"),
+    const composerContextIndex = promptSubmit.indexOf(
+      "const retryComposerContext =",
+    );
+    expect(composerContextIndex).toBeGreaterThan(-1);
+    const promptCloseIndex = promptSubmit.indexOf("setNewDeckPromptOpen(false");
+    expect(promptCloseIndex).toBeGreaterThan(composerContextIndex);
+    expect(promptCloseIndex).toBeLessThan(
+      promptSubmit.indexOf("const promptReferenceDeckId ="),
     );
     expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
     expect(referenceStep).toContain("text: pending.prompt");
@@ -249,9 +259,30 @@ describe("new deck generation flow", () => {
   });
 
   it("keeps prior attachment chips when a generation retry adds files", () => {
-    expect(flow).toContain("const attachmentsForGeneration = [");
-    expect(flow).toContain("...newDeckRetryAttachments");
-    expect(flow).toContain("...attachments");
+    expect(runner).toContain("const attachmentsForGeneration = [");
+    expect(runner).toContain("...newDeckRetryAttachments");
+    expect(runner).toContain("...attachments");
+    expect(runner).toContain(
+      "mergeUploadedFilesForRetry(\n        newDeckRetryFiles,\n        files,\n      )",
+    );
+    expect(runner).toContain("modelSelection ?? newDeckRetryModelSelection");
+  });
+
+  it("shares saved retry inputs with composer-context generation", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const fastPath = promptSubmit.slice(
+      promptSubmit.indexOf("if (\n        retryComposerContext &&"),
+      promptSubmit.indexOf("setPendingDeck({"),
+    );
+
+    expect(fastPath).toContain("runPendingDeckGeneration(");
+    expect(fastPath).toContain("files,");
+    expect(fastPath).toContain("attachments.attachments");
+    expect(runner).toContain("mergeUploadedFilesForRetry(");
+    expect(runner).toContain("...newDeckRetryAttachments");
   });
   it("passes uploaded image references through the home agent submission", () => {
     expect(flow).toContain(
@@ -263,6 +294,16 @@ describe("new deck generation flow", () => {
   it("preserves the composer model selection through the reference step", () => {
     expect(source).toContain("options?: SlidesPromptSubmitOptions");
     expect(source).toContain("modelSelection: options");
+    expect(source).toContain(
+      `attachments.attachments,
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,`,
+    );
     expect(flow).toContain("...modelSelection");
   });
 
@@ -295,8 +336,8 @@ describe("new deck generation flow", () => {
     expect(directImportFlow).toContain(
       'callAction("import-google-slides-reference"',
     );
-    expect(directImportFlow).toContain('callAction("import-pptx"');
-    expect(directImportFlow).toContain('callAction("import-file"');
+    expect(directImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(directImportFlow).toMatch(/callAction\(\s*"import-file"/);
     expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
     expect(source).toContain(
       "usePromptImport({ onImport: handleDirectImport })",

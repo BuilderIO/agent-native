@@ -330,6 +330,7 @@ interface EditPanelProps {
   onScreenHeightModeChange?: (screenId: string, mode: ScreenHeightMode) => void;
   selectedScreenSource?: ScreenSourceSelection | null;
   sourceLocationUnavailable?: boolean;
+  sourceLocationSnapshotFailed?: boolean;
   localhostConnections?: LocalhostConnectionOption[];
   onScreenSourceChange?: (
     screenId: string,
@@ -2172,6 +2173,7 @@ export const EditPanel = memo(function EditPanel({
   onScreenHeightModeChange,
   selectedScreenSource,
   sourceLocationUnavailable = false,
+  sourceLocationSnapshotFailed = false,
   localhostConnections,
   onScreenSourceChange,
   onAddLocalhostScreen,
@@ -2336,6 +2338,9 @@ export const EditPanel = memo(function EditPanel({
     };
   }, [effectiveSelectedElements, textEditingState]);
   const selectedCount = effectiveSelectedElements.length;
+  const selectedElementsKey = JSON.stringify(
+    effectiveSelectedElements.map(elementStableKey),
+  );
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !fileId || selectedCount > 1) return undefined;
     const nodeId = inspectorElement?.sourceId;
@@ -2709,7 +2714,14 @@ export const EditPanel = memo(function EditPanel({
             {!inspectorElement && selectedScreenGeometry ? (
               <ScreenSelectionHeader screen={selectedScreenGeometry} />
             ) : null}
-            {sourceLocationUnavailable ? (
+            {sourceLocationSnapshotFailed ? (
+              <div
+                role="status"
+                className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
+              >
+                {t("designEditor.toasts.sourceLocationSnapshotFailed")}
+              </div>
+            ) : sourceLocationUnavailable ? (
               <div
                 role="status"
                 className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
@@ -2994,7 +3006,7 @@ export const EditPanel = memo(function EditPanel({
                     />
                   ) : null}
                   <LayoutContextProperties
-                    key={`layout-context:${inspectorElementSectionKey}`}
+                    key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}

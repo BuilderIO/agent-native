@@ -333,6 +333,10 @@ describe("sendToAgentChat", () => {
               displayOnly: true,
               text: "outline",
             },
+            {
+              type: "file",
+              name: "pasted-text-2.txt",
+            },
           ],
         },
       },
@@ -351,6 +355,11 @@ describe("sendToAgentChat", () => {
         contentType: "text/plain",
         displayOnly: true,
         text: "outline",
+      },
+      {
+        type: "file",
+        name: "pasted-text-2.txt",
+        displayOnly: true,
       },
     ]);
   });
@@ -726,6 +735,27 @@ describe("sendToAgentChat", () => {
     });
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
     expect(dispatchEventSpy).not.toHaveBeenCalled();
+
+    await flushMicrotasks();
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId },
+      }),
+    );
+  });
+
+  it("does not relay a direct MCP App chat when host delivery is unknown", async () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(null));
+
+    const tabId = sendToAgentChat({
+      message: "continue with this selection",
+      submit: true,
+    });
 
     await flushMicrotasks();
 

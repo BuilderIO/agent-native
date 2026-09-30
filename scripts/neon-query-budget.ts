@@ -22,6 +22,8 @@ const METRIC_NAMES = [
 const BUDGETED_METRICS = [
   "queries",
   "rowsReturned",
+  "catalogQueries",
+  "migrationTableQueries",
   "poolAcquisitions",
 ] as const;
 const PGLITE_DATABASE_URL = "pglite:memory";
@@ -70,9 +72,9 @@ export interface QueryBudgetMetrics {
 export interface TemplateQueryBudget {
   action: string | null;
   budget?: {
-    page: Partial<QueryBudgetMetrics>;
-    listAction: Partial<QueryBudgetMetrics> | null;
-    idlePoll: Partial<QueryBudgetMetrics>;
+    page: QueryBudgetMetrics;
+    listAction: QueryBudgetMetrics | null;
+    idlePoll: QueryBudgetMetrics;
     pollRequests: number;
   };
   observed?: {
@@ -154,6 +156,41 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
+// The handler is measured with release-owned migrations, so every schema the
+// template's release script migrates has to exist before it loads; otherwise
+// plugin queries fail against missing tables and drop out of the count.
+async function loadCreativeContextMigrations(
+  template: string,
+): Promise<((nitroApp: null) => Promise<void> | void) | null> {
+  const releaseScript = path.resolve(
+    "templates",
+    template,
+    "scripts/migrate-production.ts",
+  );
+  let source: string;
+  try {
+    source = await readFile(releaseScript, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  if (!source.includes("creativeContextDbPlugin")) return null;
+  const templateRequire = createRequire(
+    path.resolve("templates", template, "package.json"),
+  );
+  const { creativeContextDbPlugin } = (await import(
+    pathToFileURL(
+      templateRequire.resolve("@agent-native/creative-context/server"),
+    ).href
+  )) as { creativeContextDbPlugin?: unknown };
+  if (typeof creativeContextDbPlugin !== "function") {
+    fail(
+      `${template}: @agent-native/creative-context/server did not export creativeContextDbPlugin`,
+    );
+  }
+  return creativeContextDbPlugin as (nitroApp: null) => Promise<void> | void;
+}
+
 async function provisionTemplateSchema(template: string): Promise<void> {
   // Provision disposable PGlite before the production-marked handler loads.
   await withSchemaProvisioningRuntime(async () => {
@@ -190,8 +227,11 @@ async function provisionTemplateSchema(template: string): Promise<void> {
     }
 
     const migrationExports = TEMPLATE_MIGRATION_EXPORTS[template] ?? [];
+    const creativeContextMigrations =
+      await loadCreativeContextMigrations(template);
     await withMigrationRuntime(async () => {
       await runFrameworkReleaseMigrations(null);
+      await creativeContextMigrations?.(null);
       if (template === "dispatch") {
         const dispatchMigrations = migrationModule.dispatchMigrations;
         if (!Array.isArray(dispatchMigrations)) {
@@ -447,7 +487,16 @@ export function compareQueryBudget(
     }
     for (const key of BUDGETED_METRICS) {
       const expectedValue = expected[key];
-      if (expectedValue === undefined) continue;
+      if (
+        typeof expectedValue !== "number" ||
+        !Number.isFinite(expectedValue) ||
+        expectedValue < 0
+      ) {
+        errors.push(
+          `${report.template} ${pathName}.${key}: budget baseline is missing or invalid`,
+        );
+        continue;
+      }
       const allowed =
         expectedValue +
         Math.max(

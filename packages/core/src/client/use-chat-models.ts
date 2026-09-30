@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+
+export { DEFAULT_MODEL };
 import {
   DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,

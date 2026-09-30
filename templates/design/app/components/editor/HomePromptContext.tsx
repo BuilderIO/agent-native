@@ -1,34 +1,33 @@
 import {
+  actionErrorMessage,
+  callAction,
+  useChangeVersions,
+  useSession,
+} from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import {
+  composerSourceListSchema,
+  composerSourceReferenceSchema,
+  type ComposerSourceRequest,
+} from "@agent-native/core/shared";
+import {
   snapshotComposerContextItems,
+  readAssistantChatComposerContextDraft,
+  writeAssistantChatComposerContextDraft,
+  useAgentKitCapabilities,
+  useAgentKitIntegrationMenu,
   type ComposerContextSnapshot,
   type AgentChatContextItem,
   type ComposerContextMenuItem,
   type ComposerContextPickerConfig,
   type ComposerContextPickerItem,
   type ComposerContextPickerRequest,
-} from "@agent-native/core/client/composer";
-import {
-  actionErrorMessage,
-  callAction,
-  useChangeVersions,
-  useSession,
-} from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
-import {
-  composerSourceListSchema,
-  composerSourceReferenceSchema,
-  type ComposerSourceRequest,
-} from "@agent-native/core/shared";
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { parseFigmaFileKey } from "@shared/figma-url";
-import {
-  IconComponents,
-  IconLink,
-  IconOmega,
-  IconTextRecognition,
-} from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
+import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import type {
   PromptDesignSystemOption,
   PromptTemplateOption,
@@ -40,7 +39,8 @@ import {
 } from "@/lib/composer-context";
 
 type SourceItem = { id: string; title: string; url?: string };
-type Source = "design" | "slides" | "figma" | "website";
+type Source = "design" | "slides" | "figma" | "website" | "integration";
+type BrowseSource = Exclude<Source, "website" | "integration">;
 type Reference = SourceItem & { source: Source; figmaUrl?: string };
 
 function referenceKey(reference: Reference) {
@@ -63,6 +63,9 @@ export function useHomePromptContext({
   systemsLoading,
   systemsError,
   retrySystems,
+  active = true,
+  scopeKey,
+  draftScope,
 }: {
   systems: PromptDesignSystemOption[];
   systemId: string | null | undefined;
@@ -73,13 +76,25 @@ export function useHomePromptContext({
   systemsLoading?: boolean;
   systemsError?: unknown;
   retrySystems?: () => void;
+  active?: boolean;
+  scopeKey?: string;
+  draftScope?: string;
 }) {
   const t = useT();
+  const formatters = useFormatters();
+  const capabilities = useAgentKitCapabilities();
   const systemsEnabled = useDesignSystemWorkflows();
   const systemId = systemsEnabled ? selectedSystemId : null;
   const [items, setItems] = useState<AgentChatContextItem[]>([]);
   const { session } = useSession();
-  const identity = `${session?.email ?? "anonymous"}:${session?.orgId ?? "none"}`;
+  const identity = JSON.stringify([
+    session?.authUserId,
+    session?.email ?? "anonymous",
+    session?.orgId ?? "none",
+    scopeKey ?? "home",
+  ]);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const refreshKey = useChangeVersions(["action", "designs", "files", "decks"]);
   const identityRef = useRef(identity);
   identityRef.current = identity;
@@ -90,6 +105,21 @@ export function useHomePromptContext({
     item: AgentChatContextItem;
   }>();
   const [systemRevision, setSystemRevision] = useState(0);
+  const [draftHydrated, setDraftHydrated] = useState(!draftScope);
+  const [draftError, setDraftError] = useState<"read" | "write">();
+  const [draftRetry, setDraftRetry] = useState(0);
+  const currentSystem = useRef(systemState);
+  currentSystem.current = systemState;
+  const submissionReceipts = useRef(
+    new WeakMap<
+      ComposerContextSnapshot,
+      {
+        identity: string;
+        references: Map<string, number>;
+        systemItem?: AgentChatContextItem;
+      }
+    >(),
+  );
   const requests = useRef(
     new Map<string, { reference: Reference; revision: number }>(),
   );
@@ -180,7 +210,8 @@ export function useHomePromptContext({
     [loadFailed, identity],
   );
   const attachBatch = (references: readonly Reference[]) => {
-    if (identityRef.current !== identity) throw new Error(loadFailed);
+    if (!activeRef.current || identityRef.current !== identity)
+      throw new Error(loadFailed);
     if (
       references.some(
         (reference) =>
@@ -196,6 +227,38 @@ export function useHomePromptContext({
       throw new Error(t("homeContext.tooMany"));
     for (const reference of batch.values()) attach(reference);
   };
+  useEffect(() => {
+    if (!draftScope) return;
+    setDraftHydrated(false);
+    try {
+      const draft = readAssistantChatComposerContextDraft(draftScope);
+      requests.current.clear();
+      setItems([]);
+      onSystemChange(draft?.designSystemId ?? null);
+      for (const reference of draft?.references ?? []) attach(reference);
+      setDraftError(undefined);
+      setDraftHydrated(true);
+    } catch {
+      setDraftError("read");
+    }
+  }, [draftScope, draftRetry, attach, onSystemChange]);
+  const saveDraft = useCallback(() => {
+    if (!draftScope) return;
+    try {
+      writeAssistantChatComposerContextDraft(draftScope, {
+        designSystemId: systemId ?? null,
+        references: [...requests.current.values()].map(
+          ({ reference }) => reference,
+        ),
+      });
+      setDraftError(undefined);
+    } catch {
+      setDraftError("write");
+    }
+  }, [draftScope, systemId]);
+  useEffect(() => {
+    if (draftHydrated) saveDraft();
+  }, [draftHydrated, items, saveDraft]);
   const systemTitle =
     systems.find((system) => system.id === systemId)?.title ??
     t("promptDialog.designSystem");
@@ -245,6 +308,19 @@ export function useHomePromptContext({
       previousIdentity.current !== identity
         ? []
         : [
+            ...(draftScope && (!draftHydrated || draftError)
+              ? [
+                  {
+                    key: "design-context-draft",
+                    title: t("homeContext.design"),
+                    context: "",
+                    status: draftError
+                      ? ("error" as const)
+                      : ("pending" as const),
+                    ...(draftError ? { statusMessage: loadFailed } : {}),
+                  },
+                ]
+              : []),
             ...(systemId
               ? [
                   systemState?.id === systemId
@@ -269,16 +345,29 @@ export function useHomePromptContext({
               : []),
             ...items,
           ],
-    [items, systemId, systemState, systemTitle, template, identity],
+    [
+      items,
+      systemId,
+      systemState,
+      systemTitle,
+      template,
+      identity,
+      draftScope,
+      draftHydrated,
+      draftError,
+      loadFailed,
+      t,
+    ],
   );
   const referencePicker = (
-    source: Exclude<Source, "website">,
-  ): ComposerContextPickerConfig => {
+    source: BrowseSource,
+  ): Extract<ComposerContextPickerConfig, { load: unknown }> => {
     const toReference = (
       item: ComposerContextPickerItem,
       request: ComposerContextPickerRequest,
     ): Reference => ({
-      ...item,
+      title: item.title,
+      ...(item.url ? { url: item.url } : {}),
       id:
         source === "figma"
           ? decodeURIComponent(item.id.slice(item.id.lastIndexOf(":") + 1))
@@ -289,6 +378,15 @@ export function useHomePromptContext({
     return {
       scopeKey: identity,
       refreshKey,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        ...(source === "design" ? { layout: "gallery" as const } : {}),
+        onAttach: (
+          items: readonly ComposerContextPickerItem[],
+          request: ComposerContextPickerRequest,
+        ) => attachBatch(items.map((item) => toReference(item, request))),
+      },
       searchPlaceholder: t(
         source === "figma"
           ? "homeContext.searchFrames"
@@ -315,21 +413,8 @@ export function useHomePromptContext({
                   ? undefined
                   : t("homeContext.invalidFigmaUrl"),
             },
-            presentation: {
-              type: "dialog" as const,
-              mode: "multiple" as const,
-              onAttach: (
-                items: readonly ComposerContextPickerItem[],
-                request: ComposerContextPickerRequest,
-              ) => attachBatch(items.map((item) => toReference(item, request))),
-            },
           }
-        : {
-            onSelect: (
-              item: ComposerContextPickerItem,
-              request: ComposerContextPickerRequest,
-            ) => attachBatch([toReference(item, request)]),
-          }),
+        : {}),
       load: async ({ search, page, cursor, url, signal }) => {
         try {
           const result = composerSourceListSchema.safeParse(
@@ -370,20 +455,77 @@ export function useHomePromptContext({
       },
     };
   };
+  const integrationMenu = useAgentKitIntegrationMenu({
+    capabilities,
+    scopeKey: identity,
+    onSelect: (integration) => {
+      attachBatch([
+        {
+          id: integration.id,
+          title: integration.label,
+          source: "integration",
+        },
+      ]);
+    },
+  });
   const menuItems: ComposerContextMenuItem[] = [
     {
       id: "design",
       label: t("homeContext.design"),
-      icon: <IconTextRecognition size={16} />,
       searchPlaceholder: t("homeContext.searchDesign"),
       children: [
+        {
+          id: "design-reference",
+          label: t("homeContext.referenceDesign"),
+          intent: "add-context",
+          picker: {
+            ...referencePicker("design"),
+            load: async ({ search, page, signal }) => {
+              const result = await callAction<{
+                designs: Array<{
+                  id: string;
+                  title: string;
+                  description?: string | null;
+                  previewHtml?: string | null;
+                  updatedAt: string;
+                }>;
+                hasMore: boolean;
+              }>(
+                "list-designs",
+                { includePreview: "true", pageSize: 12, search, page },
+                { method: "GET", signal },
+              );
+              return {
+                hasMore: result.hasMore,
+                items: result.designs.map((design) => ({
+                  id: design.id,
+                  title: design.title,
+                  description: design.description,
+                  preview: (
+                    <DesignThumbnail
+                      html={design.previewHtml ?? null}
+                      className="h-full w-full"
+                    />
+                  ),
+                  metadata: (
+                    <time dateTime={design.updatedAt}>
+                      {formatters.formatDate(design.updatedAt, {
+                        dateStyle: "medium",
+                      })}
+                    </time>
+                  ),
+                })),
+              };
+            },
+          },
+        },
         ...(systemsEnabled
           ? [
               {
                 id: "system",
                 label: t("homeContext.useDesignSystem"),
-                icon: <IconOmega size={16} />,
                 picker: {
+                  presentation: { type: "dialog", mode: "single" },
                   scopeKey: identity,
                   searchPlaceholder: t("homeContext.searchSystems"),
                   selectedIds: systemId ? [systemId] : [],
@@ -402,7 +544,6 @@ export function useHomePromptContext({
                     : t("homeContext.noSystems"),
                   footerAction: {
                     label: t("homeContext.createSystem"),
-                    icon: <IconOmega size={16} />,
                     renderLink: (children) => (
                       <Link to="/design-systems/setup">{children}</Link>
                     ),
@@ -413,21 +554,29 @@ export function useHomePromptContext({
                         onSelect: () => onSystemChange(null),
                       }
                     : undefined,
-                  onSelect: (item) => onSystemChange(item.id),
+                  onSelect: (item) => {
+                    if (!activeRef.current || identityRef.current !== identity)
+                      throw new Error(loadFailed);
+                    onSystemChange(item.id);
+                  },
                 },
               } satisfies ComposerContextMenuItem,
             ]
           : []),
-        {
-          id: "figma-reference",
-          label: t("homeContext.figmaReference"),
-          icon: <IconComponents size={16} />,
-          picker: referencePicker("figma"),
-        },
+        ...(capabilities.data?.sources.figma.available
+          ? [
+              {
+                id: "figma-reference",
+                label: t("homeContext.figmaReference"),
+                intent: "add-context" as const,
+                picker: referencePicker("figma"),
+              } satisfies ComposerContextMenuItem,
+            ]
+          : []),
         {
           id: "website-reference",
           label: t("homeContext.websiteReference"),
-          icon: <IconLink size={16} />,
+          intent: "add-context",
           picker: {
             scopeKey: identity,
             presentation: { type: "dialog", mode: "url" },
@@ -449,10 +598,16 @@ export function useHomePromptContext({
               ]),
           },
         },
+        integrationMenu,
       ],
     },
   ];
   const remove = (key: string) => {
+    if (key === "design-context-draft") {
+      saveDraft();
+      setDraftHydrated(true);
+      return;
+    }
     if (key === SYSTEM_CONTEXT_KEY) {
       onSystemChange(null);
       return;
@@ -465,6 +620,11 @@ export function useHomePromptContext({
     setItems((current) => current.filter((item) => item.key !== key));
   };
   const retry = (key: string) => {
+    if (key === "design-context-draft") {
+      if (draftError === "read") setDraftRetry((value) => value + 1);
+      else saveDraft();
+      return;
+    }
     if (key === SYSTEM_CONTEXT_KEY) {
       setSystemRevision((value) => value + 1);
       return;
@@ -472,12 +632,17 @@ export function useHomePromptContext({
     const request = requests.current.get(key);
     if (request) attach(request.reference);
   };
+  const referencesForSubmission = new Map(requests.current);
   const prepareSubmission = async (
     snapshot: ComposerContextSnapshot | undefined,
   ) => {
     const submittedIdentity = identity;
     const submittedSystemId = systemId;
-    const references = new Map(requests.current);
+    const submittedSystemItem =
+      systemState && systemState.id === submittedSystemId
+        ? systemState.item
+        : undefined;
+    const references = referencesForSubmission;
     const submitted = snapshotComposerContextItems(snapshot);
     if (!submitted) return undefined;
     const refreshed = await Promise.all(
@@ -522,7 +687,8 @@ export function useHomePromptContext({
           if (identityRef.current === submittedIdentity) {
             if (item.key === SYSTEM_CONTEXT_KEY && submittedSystemId)
               setSystemState((state) =>
-                state?.id === submittedSystemId
+                state?.id === submittedSystemId &&
+                state.item === submittedSystemItem
                   ? {
                       ...state,
                       item: {
@@ -537,7 +703,9 @@ export function useHomePromptContext({
             else
               setItems((current) =>
                 current.map((currentItem) =>
-                  currentItem.key === item.key
+                  currentItem.key === item.key &&
+                  requests.current.get(item.key)?.revision ===
+                    references.get(item.key)?.revision
                     ? {
                         ...currentItem,
                         context: "",
@@ -552,15 +720,47 @@ export function useHomePromptContext({
         }
       }),
     );
-    if (identityRef.current !== submittedIdentity) throw new Error(loadFailed);
-    return snapshotComposerContextItems(refreshed);
+    if (!mounted.current || identityRef.current !== submittedIdentity)
+      throw new Error(loadFailed);
+    const prepared = snapshotComposerContextItems(refreshed);
+    submissionReceipts.current.set(prepared, {
+      identity: submittedIdentity,
+      references: new Map(
+        submitted.flatMap((item) => {
+          const request = references.get(item.key);
+          return request ? [[item.key, request.revision]] : [];
+        }),
+      ),
+      systemItem: submitted.some((item) => item.key === SYSTEM_CONTEXT_KEY)
+        ? submittedSystemItem
+        : undefined,
+    });
+    return prepared;
+  };
+  const submissionAccepted = (snapshot: ComposerContextSnapshot) => {
+    const receipt = submissionReceipts.current.get(snapshot);
+    submissionReceipts.current.delete(snapshot);
+    if (!mounted.current || receipt?.identity !== identityRef.current) return;
+    const removed = new Set<string>();
+    for (const [key, revision] of receipt.references) {
+      if (requests.current.get(key)?.revision !== revision) continue;
+      requests.current.delete(key);
+      removed.add(key);
+    }
+    setItems((current) => current.filter((item) => !removed.has(item.key)));
+    if (
+      receipt.systemItem &&
+      currentSystem.current?.item === receipt.systemItem
+    )
+      onSystemChange(null);
   };
   return {
     contextItems,
-    menuItems,
+    menuItems: active ? menuItems : [],
     remove,
     retry,
     prepareSubmission,
+    submissionAccepted,
     identity,
   };
 }

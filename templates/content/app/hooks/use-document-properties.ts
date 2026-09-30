@@ -1,11 +1,14 @@
 import {
+  callActionWithRetry,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import type {
   ConfigureDocumentPropertyRequest,
+  ContentDatabaseMutationTarget,
   ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
+  DocumentDiscoveryPagination,
   DeleteDocumentPropertyRequest,
   DocumentPropertyDefinition,
   DocumentPropertyOption,
@@ -17,7 +20,11 @@ import type {
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
-import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  type UseMutationResult,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { dbText } from "../components/editor/database/text";
@@ -285,6 +292,54 @@ function withDatabaseScope<
   } as UseMutationResult<TData, Error, ScopedVariables, TContext>;
 }
 
+export interface ContentDatabaseRowSearchResponse {
+  databaseId: string;
+  databaseDocumentId: string;
+  rows: Array<{ documentId: string; title: string; icon: string | null }>;
+  pagination: DocumentDiscoveryPagination;
+  /** Present when the viewer may add rows to the related database. */
+  rowCreation: {
+    target: ContentDatabaseMutationTarget;
+    schemaRevision: string;
+  } | null;
+}
+
+/** Search a collection's rows by title, for picking relation values. */
+export function useContentDatabaseRowSearch(
+  databaseId: string | null | undefined,
+  query: string,
+  enabled: boolean,
+) {
+  return useInfiniteQuery({
+    queryKey: [
+      "action",
+      "search-content-database-rows",
+      { databaseId, query: query.trim() ? query : undefined },
+    ],
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) => {
+      if (!databaseId) throw new Error("databaseId is required");
+      return callActionWithRetry<ContentDatabaseRowSearchResponse>(
+        "search-content-database-rows",
+        {
+          databaseId,
+          limit: 25,
+          offset: pageParam,
+          ...(query.trim() ? { query } : {}),
+        },
+        { signal },
+      );
+    },
+    getNextPageParam: (page) =>
+      page.pagination.hasMore
+        ? (page.pagination.nextOffset ?? undefined)
+        : undefined,
+    enabled: enabled && !!databaseId,
+    placeholderData: (prev) => prev,
+    staleTime: 10_000,
+  });
+}
+
 export function useDocumentProperties(
   documentId: string | null,
   databaseId: string | null,
@@ -450,6 +505,7 @@ export function useSetDocumentProperty(
             documentId: variables.documentId,
             propertyId: variables.propertyId,
             value: variables.value,
+            relationTargets: variables.relationTargets,
           }),
       );
       queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
@@ -459,6 +515,7 @@ export function useSetDocumentProperty(
             documentId: variables.documentId,
             propertyId: variables.propertyId,
             value: variables.value,
+            relationTargets: variables.relationTargets,
           }),
       );
       return { previous, ...sequence };
@@ -491,10 +548,11 @@ export function useSetDocumentProperty(
       if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {
         return;
       }
-      const savedValue =
-        data.properties.find(
-          (property) => property.definition.id === variables.propertyId,
-        )?.value ?? variables.value;
+      const savedProperty = data.properties.find(
+        (property) => property.definition.id === variables.propertyId,
+      );
+      const savedValue = savedProperty?.value ?? variables.value;
+      const savedRelationTargets = savedProperty?.relationTargets;
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) =>
@@ -502,6 +560,7 @@ export function useSetDocumentProperty(
             documentId: variables.documentId,
             propertyId: variables.propertyId,
             value: savedValue as DocumentPropertyValue,
+            relationTargets: savedRelationTargets,
           }),
       );
       queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
@@ -511,6 +570,7 @@ export function useSetDocumentProperty(
             documentId: variables.documentId,
             propertyId: variables.propertyId,
             value: savedValue as DocumentPropertyValue,
+            relationTargets: savedRelationTargets,
           }),
       );
       void queryClient.invalidateQueries({

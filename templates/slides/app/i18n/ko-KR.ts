@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "연동" } },
   templatesPage: {
     actions: "{{title}} 템플릿 작업",
     previewAction: "미리보기",
@@ -170,6 +171,15 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "최신 변경 사항이 이 기기에만 있습니다. 나가기 전에 백업을 다운로드하세요.",
+    slideConflictReview: "검토",
+    slideConflictTitle: "이 슬라이드는 다른 곳에서 변경되었습니다",
+    slideConflictDescription:
+      "다른 편집자가 최신 버전을 저장했습니다. 초안을 유지하면 저장된 슬라이드 내용이 대체됩니다. 최신 버전을 사용할 수도 있습니다.",
+    slideConflictUseLatest: "최신 버전 사용",
+    slideConflictKeepDraft: "내 초안 유지",
+    slideConflictKeepEditing: "계속 편집",
+    slideConflictResolutionFailed:
+      "충돌을 해결하지 못했습니다. 초안은 그대로 유지됩니다.",
     offline: "오프라인",
     selected: "선택됨",
     chooseDesignSystem: "デザインシステムを選択",
@@ -242,6 +252,9 @@ const messages = {
     media: "미디어",
     generateImage: "이미지 생성",
     assetLibrary: "에셋 라이브러리",
+    imageOptions: "이미지 옵션",
+    cropImage: "이미지 자르기",
+    cropHandle: "이미지 {{position}} 자르기",
     diagrams: "다이어그램",
     insertMermaidDiagram: "Mermaid 다이어그램 삽입",
     insertMermaidFailed: "다이어그램 삽입 실패",
@@ -847,7 +860,7 @@ const messages = {
     },
     importDeck: "덱 가져오기",
     context: {
-      websiteReference: "웹사이트 첨부",
+      websiteReference: "웹사이트 추가",
       websiteUrlLabel: "웹사이트 URL",
       websiteUrl: "웹사이트 URL 붙여넣기",
       figmaUrlLabel: "Figma 링크",
@@ -861,7 +874,7 @@ const messages = {
       searchPresentations: "프레젠테이션 검색…",
       menu: {
         system: "디자인 시스템 사용",
-        figma: "Figma 첨부",
+        figma: "Figma 추가",
         design: "디자인 참조",
         deck: "프레젠테이션 참조",
         searchDesign: "디자인 검색…",
@@ -1041,7 +1054,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
   },
 };

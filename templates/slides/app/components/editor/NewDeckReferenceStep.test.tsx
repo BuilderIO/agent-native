@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Deck } from "@/context/DeckContext";
 import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
-vi.mock("@agent-native/core/client/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
   FileStorageSetupPopover: ({
     open,
     status,

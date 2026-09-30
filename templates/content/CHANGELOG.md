@@ -3,7 +3,29 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-29
+
+### Improved
+
+- Content block prompts stay editable while AI setup completes.
+- Related pages can be loaded past the first 25 results
+
+### Fixed
+
+- Inline prompts no longer show temporary status rows.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
+## 2026-09-28
+
+### Added
+
+- Link rows across collections with relation properties
+
 ## 2026-09-26
+
+### Improved
+
+- Command search now shows matching titles instantly from documents already loaded in the sidebar, filling in richer results as the server responds.
 
 ### Fixed
 

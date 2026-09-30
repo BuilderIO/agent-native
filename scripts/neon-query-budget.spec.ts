@@ -124,27 +124,9 @@ describe("Neon cold-request query budgets", () => {
     const baseline = {
       action: "list-forms",
       budget: {
-        page: {
-          queries: privateMetrics.queries,
-          rowsReturned: privateMetrics.rowsReturned,
-          catalogQueries: 0,
-          migrationTableQueries: 0,
-          poolAcquisitions: privateMetrics.poolAcquisitions,
-        },
-        listAction: {
-          queries: privateMetrics.queries,
-          rowsReturned: privateMetrics.rowsReturned,
-          catalogQueries: 0,
-          migrationTableQueries: 0,
-          poolAcquisitions: privateMetrics.poolAcquisitions,
-        },
-        idlePoll: {
-          queries: privateMetrics.queries,
-          rowsReturned: privateMetrics.rowsReturned,
-          catalogQueries: 0,
-          migrationTableQueries: 0,
-          poolAcquisitions: privateMetrics.poolAcquisitions,
-        },
+        page: privateMetrics,
+        listAction: privateMetrics,
+        idlePoll: privateMetrics,
         pollRequests: 1,
       },
     };
@@ -158,8 +140,8 @@ describe("Neon cold-request query budgets", () => {
           ...report,
           page: {
             ...privateMetrics,
-            catalogQueries: 99,
-            migrationTableQueries: 99,
+            catalogQueries: 3,
+            migrationTableQueries: 2,
           },
         },
         baseline,
@@ -173,6 +155,38 @@ describe("Neon cold-request query budgets", () => {
         baseline,
         { absolute: 1, percent: 0.1 },
       ).includes("forms idlePoll.queries: measured 5, budget 4 (baseline 3)"),
+    );
+    const catalogAndMigrationRegressions = compareQueryBudget(
+      {
+        ...report,
+        page: {
+          ...privateMetrics,
+          catalogQueries: 4,
+          migrationTableQueries: 3,
+        },
+      },
+      baseline,
+      { absolute: 1, percent: 0.1 },
+    );
+    assert.ok(
+      catalogAndMigrationRegressions.includes(
+        "forms page.catalogQueries: measured 4, budget 3 (baseline 2)",
+      ),
+    );
+    assert.ok(
+      catalogAndMigrationRegressions.includes(
+        "forms page.migrationTableQueries: measured 3, budget 2 (baseline 1)",
+      ),
+    );
+    const incompleteBudget = structuredClone(baseline);
+    Reflect.deleteProperty(incompleteBudget.budget.page, "catalogQueries");
+    assert.ok(
+      compareQueryBudget(report, incompleteBudget, {
+        absolute: 1,
+        percent: 0.1,
+      }).includes(
+        "forms page.catalogQueries: budget baseline is missing or invalid",
+      ),
     );
   });
 });

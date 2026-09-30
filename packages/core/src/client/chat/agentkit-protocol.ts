@@ -44,7 +44,7 @@ import { BACKGROUND_FUNCTION_WALL_HEADROOM_MS } from "../../app-config/run-lifec
 import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
-} from "../chat-first.js";
+} from "../chat-first-state.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeCapabilities,
@@ -2036,7 +2036,10 @@ export function createAgentKitProtocolAdapter(
           {
             type: "suggestions.updated",
             ...base,
-            suggestions: event.suggestions,
+            suggestions: event.suggestions.map((suggestion) => ({
+              ...suggestion,
+              runId: run.runId,
+            })),
           },
         ];
       case "annotation": {

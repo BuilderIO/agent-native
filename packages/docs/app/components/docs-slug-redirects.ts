@@ -12,6 +12,7 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "visual-plans": "template-plan",
   "toolkit-app-adapters": "toolkit-ui",
   "toolkit-shell-hooks": "toolkit-ui",
+  "upgrading-to-0-197": "upgrading-core-ui",
   "toolkit-collaboration-ui": "toolkit-collaboration",
   "toolkit-sharing-ui": "toolkit-sharing",
   "migration-workbench": "code-agents-ui",

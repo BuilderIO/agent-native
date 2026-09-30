@@ -1,8 +1,8 @@
-import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
+import { createToolkitI18nCatalog } from "@agent-native/toolkit/app/i18n";
 
 import enUS from "./en-US";
 
-export const i18nCatalog = createAgentNativeI18nCatalog({
+export const i18nCatalog = createToolkitI18nCatalog({
   messages: enUS,
   localeLoaders: {
     "zh-CN": () => import("./zh-CN"),

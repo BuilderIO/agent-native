@@ -11,6 +11,7 @@ vi.mock("./client.js", async (importOriginal) => {
 });
 
 import {
+  assertHostedRuntimeDatabase,
   assertSchemaMutationAllowed,
   getDbExec,
   createDbExec,
@@ -312,6 +313,88 @@ describe("runMigrations – serverless request runtime", () => {
 
     expect(getDbExec).toHaveBeenCalled();
   });
+});
+
+describe("runMigrations – deployed server without a hosted database", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_SERVER_RUNTIME__",
+    );
+    vi.clearAllMocks();
+  });
+
+  // A long-lived Node server exits when a boot migration fails. Migrating a
+  // database the server refuses would take down the sign-in page that
+  // explains the missing DATABASE_URL, so the step is skipped instead. Nitro
+  // does not await async plugins, so the plugin that starts serving can run
+  // while this one is still loading its migrations.
+  it.each([
+    ["was already serving", { startsServingWhileLoading: false }],
+    [
+      "starts serving while migrations load",
+      { startsServingWhileLoading: true },
+    ],
+  ])(
+    "skips boot migrations instead of exiting when the server %s without a hosted database",
+    async (_timing, { startsServingWhileLoading }) => {
+      for (const key of [
+        "NODE_ENV",
+        "APP_NAME",
+        "DATABASE_URL",
+        "DATABASE_URL_UNPOOLED",
+        "NETLIFY_DATABASE_URL",
+        "NETLIFY_DATABASE_URL_UNPOOLED",
+        "NETLIFY",
+        "NETLIFY_FUNCTION_NAME",
+        "NETLIFY_LOCAL",
+        "AWS_LAMBDA_FUNCTION_NAME",
+        "LAMBDA_TASK_ROOT",
+        "AWS_EXECUTION_ENV",
+        "VERCEL",
+        "VERCEL_FUNCTION_ID",
+        "VERCEL_REGION",
+      ]) {
+        vi.stubEnv(key, "");
+      }
+      vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+      const { markServerRuntimeStarted } = await import("./server-runtime.js");
+      if (!startsServingWhileLoading) markServerRuntimeStarted();
+      // The real refusal, where the real client applies it: on first open.
+      vi.mocked(getDbExec).mockImplementation(
+        () =>
+          ({
+            execute: vi.fn(async () => {
+              assertHostedRuntimeDatabase();
+              return { rows: [], rowsAffected: 0 };
+            }),
+          }) as never,
+      );
+      const exit = vi
+        .spyOn(process, "exit")
+        .mockImplementation((() => undefined) as never);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const plugin = runMigrations(
+        async () => {
+          if (startsServingWhileLoading) markServerRuntimeStarted();
+          return [
+            { version: 1, sql: "CREATE TABLE t1 (id INTEGER PRIMARY KEY)" },
+          ];
+        },
+        { table: "refused_migrations" },
+      );
+      await plugin(null);
+
+      expect(createDbExec).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("Set DATABASE_URL"),
+      );
+    },
+  );
 });
 
 describe("runMigrations – empty migration list", () => {

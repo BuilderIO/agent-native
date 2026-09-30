@@ -8,9 +8,10 @@ import {
   searchKnowledgeRows,
   serializeKnowledge,
 } from "../server/lib/brain.js";
+import type { SearchLaneStatuses } from "../server/lib/hybrid-search.js";
 import {
   buildFederatedSearchCoverage,
-  searchEverythingRows,
+  searchEverythingWithLanes,
   type UniversalSearchResult,
 } from "../server/lib/search.js";
 import {
@@ -230,14 +231,23 @@ export default defineAction({
       guidance.retrieval.rawCaptureFallback === "allowed-leads" ||
       (guidance.retrieval.rawCaptureFallback === "thin-results" &&
         (!knowledge.length || knowledgeTextLength < 260));
+    const captureSearchLanes: SearchLaneStatuses = {
+      fts: { status: "ok" },
+      semantic: { status: "ok" },
+    };
     if (allowRawCaptureFallback) {
       const seenCaptures = new Set<string>();
       for (const facet of facetsFromQuestion(question)) {
-        const matches = await searchEverythingRows({
+        const { rows: matches, lanes } = await searchEverythingWithLanes({
           query: facet,
           type: "capture",
           limit: 24,
         });
+        for (const lane of ["fts", "semantic"] as const) {
+          if (captureSearchLanes[lane].status === "ok") {
+            captureSearchLanes[lane] = lanes[lane];
+          }
+        }
         for (const match of matches) {
           if (seenCaptures.has(match.id)) continue;
           seenCaptures.add(match.id);
@@ -280,9 +290,13 @@ export default defineAction({
 
     if (!knowledge.length && !eligibleCaptures.length) {
       const federatedCoverage = await federatedCoveragePromise;
+      const captureSearchIncomplete =
+        captureSearchLanes.fts.status === "failed" ||
+        captureSearchLanes.semantic.status === "failed";
       return {
-        answer:
-          guidance.retrieval.rawCaptureFallback === "never-answer"
+        answer: captureSearchIncomplete
+          ? "Brain search was incomplete (the semantic or keyword lane failed), so matching raw captures may be missing. I could not find approved Brain knowledge for that question."
+          : guidance.retrieval.rawCaptureFallback === "never-answer"
             ? "I could not find enough reviewed Brain knowledge for that question yet."
             : "I could not find approved Brain knowledge or matching raw captures for that question yet.",
         answerSource: "none",
@@ -295,6 +309,7 @@ export default defineAction({
         sourcePolicy,
         responseGuidance: guidance.response,
         federatedCoverage,
+        captureSearchLanes,
       };
     }
 
@@ -344,6 +359,7 @@ export default defineAction({
         sourcePolicy,
         responseGuidance: guidance.response,
         federatedCoverage,
+        captureSearchLanes,
       };
     }
     if (knowledge.length) {
@@ -375,6 +391,7 @@ export default defineAction({
       sourcePolicy,
       responseGuidance: guidance.response,
       federatedCoverage,
+      captureSearchLanes,
     };
   },
   link: ({ result }) => {

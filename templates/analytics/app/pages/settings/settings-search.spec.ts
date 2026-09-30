@@ -1,7 +1,7 @@
 import {
   CORE_SETTINGS_PAGES,
   type SettingsPageContext,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { describe, expect, it } from "vitest";
 
 import { buildAnalyticsSettingsCommandItems } from "./settings-search";

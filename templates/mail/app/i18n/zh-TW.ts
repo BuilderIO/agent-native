@@ -630,6 +630,8 @@ const messages = {
       ruleBackfillMatches: "近期有 {{count}} 封郵件符合",
       ruleBackfillNoMatches: "近期沒有郵件符合此規則。",
       ruleBackfillFailed: "無法將此規則套用到近期郵件。",
+      ruleBackfillRunFailed: "無法完成將規則套用至近期郵件。",
+      backfillStatusLoadFailed: "無法載入規則的近期狀態。",
       ruleBackfillPartialFailure: "有 {{count}} 封郵件無法更新。",
       ruleBackfillUndoing: "正在還原近期郵件…",
       ruleBackfillUndoComplete: "已還原 {{count}} 封郵件",

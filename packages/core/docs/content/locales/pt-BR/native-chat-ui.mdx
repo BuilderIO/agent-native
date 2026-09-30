@@ -228,7 +228,7 @@ Registre componentes específicos do produto pelo ID exato do renderizador e, em
 na ação:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/agent-chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -369,10 +369,8 @@ entrada `@agent-native/core/client`). Use o tempo de execução genérico HTTP q
 pode expor um endpoint POST que retorna eventos de tempo de execução SSE ou NDJSON:
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",

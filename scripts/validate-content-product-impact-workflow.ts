@@ -27,7 +27,7 @@ const PNPM_ACTION =
   "pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320";
 const NODE_ACTION =
   "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020";
-const CONTROLLER_REVISION = "03caa13fd5bf6176ee01ab223452db9932b7ca8c";
+const CONTROLLER_REVISION = "72715043afb74b9e4ab82bdb763f812ce180becd";
 const CHECKER_COMMAND =
   "pnpm --dir controller exec tsx scripts/validate-content-product-impact.ts";
 const BASE_FETCH_COMMAND =
@@ -163,8 +163,6 @@ export function validateContentProductImpactWorkflow(
       "reopened",
       "edited",
       "ready_for_review",
-      "labeled",
-      "unlabeled",
     ];
     const eventTypes = pullRequest.types;
     if (

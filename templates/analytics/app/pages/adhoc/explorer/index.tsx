@@ -39,12 +39,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { useMetricsQuery } from "@/lib/query-metrics";
 
+import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import { ChartTypePicker } from "./components/ChartTypePicker";
 import { DateRangePicker } from "./components/DateRangePicker";
 import { EventPanel } from "./components/EventPanel";
 import { ExplorerChart } from "./components/ExplorerChart";
 import { SqlPreview } from "./components/SqlPreview";
-import { buildSql } from "./sql-builder";
+import { buildSql, dateRangeToDays } from "./sql-builder";
+import type { DateRange } from "./types";
 import { useExplorerConfig } from "./use-explorer-config";
 
 export default function ExplorerPage() {
@@ -124,6 +126,23 @@ export default function ExplorerPage() {
     setConfig({ ...config, name });
     void saveConfig(name);
     setSaveDialogOpen(false);
+  };
+
+  const handleDateRangeChange = (dateRange: DateRange) => {
+    if (dateRange !== "custom") {
+      setConfig({ ...config, dateRange });
+      return;
+    }
+    const start = new Date();
+    start.setDate(start.getDate() - dateRangeToDays(config.dateRange));
+    setConfig({
+      ...config,
+      dateRange,
+      customDateStart:
+        config.customDateStart || start.toISOString().slice(0, 10),
+      customDateEnd:
+        config.customDateEnd || new Date().toISOString().slice(0, 10),
+    });
   };
 
   return (
@@ -209,8 +228,21 @@ export default function ExplorerPage() {
           {/* Date range */}
           <DateRangePicker
             value={config.dateRange}
-            onChange={(dateRange) => setConfig({ ...config, dateRange })}
+            onChange={handleDateRangeChange}
           />
+          {config.dateRange === "custom" && (
+            <DateRangeInput
+              label={t("sqlDashboard.customRange")}
+              startDate={config.customDateStart || ""}
+              endDate={config.customDateEnd || ""}
+              onStartChange={(customDateStart) =>
+                setConfig({ ...config, customDateStart })
+              }
+              onEndChange={(customDateEnd) =>
+                setConfig({ ...config, customDateEnd })
+              }
+            />
+          )}
         </div>
       </div>
 

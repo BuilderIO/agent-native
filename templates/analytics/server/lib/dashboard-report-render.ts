@@ -4,7 +4,10 @@ import {
 } from "@agent-native/core/server";
 
 import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
-import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
+import {
+  interpolate,
+  interpolateDashboardPanelSql,
+} from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
 import {
   pivotRows,
@@ -167,9 +170,7 @@ async function fetchOnePanel(
   try {
     query = normalizeDashboardPanelQuery(
       source,
-      interpolate(serializePanelSql(panel.sql), vars, {
-        failClosedTimeVariables: true,
-      }),
+      interpolateDashboardPanelSql(serializePanelSql(panel.sql), vars, panel),
     );
   } catch (error) {
     return { status: "query-failed", message: describeError(error) };

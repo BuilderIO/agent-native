@@ -35,6 +35,16 @@ vi.mock("@agent-native/core/server", () => ({
 const CAPTURED_AT = "2026-05-20T15:00:00.000Z";
 const CLEAN_BODY = "Decision: ship the retrieval API before the launch review.";
 
+function longCleanBody(length: number) {
+  const lines: string[] = [];
+  for (let i = 0; lines.join("\n").length < length; i += 1) {
+    lines.push(
+      `Decision ${i}: ship the retrieval API before the launch review.`,
+    );
+  }
+  return `${lines.join("\n").slice(0, length - 1)}.`;
+}
+
 function scoresWith(overrides: JevCategoryScores = {}): JevCategoryScores {
   return Object.fromEntries(
     BRAIN_SENSITIVITY_CATEGORIES.map((category) => [
@@ -139,16 +149,44 @@ describe("probability to disposition mapping", () => {
     expect(decision.confidenceBand).toBe("medium");
   });
 
-  it("fails closed on the uncertain middle band without naming a category", () => {
+  it("allows a middle-band score below the block bar", () => {
     const decision = jevSensitivityDecision(scoresWith({ recruiting: 0.45 }), {
       judgedContent: CLEAN_BODY,
       capturedAt: CAPTURED_AT,
       truncated: false,
     });
 
-    expect(decision.disposition).toBe("quarantined");
+    expect(decision.disposition).toBe("allowed");
     expect(decision.categories).toEqual([]);
-    expect(decision.confidenceBand).toBe("uncertain");
+    expect(decision.categoryScores?.recruiting).toBe(0.45);
+  });
+
+  it("quarantines and names the category just over the block bar", () => {
+    const decision = jevSensitivityDecision(scoresWith({ personal: 0.62 }), {
+      judgedContent: CLEAN_BODY,
+      capturedAt: CAPTURED_AT,
+      truncated: false,
+    });
+
+    expect(decision.disposition).toBe("quarantined");
+    expect(decision.categories).toEqual(["personal"]);
+    expect(decision.confidenceBand).toBe("medium");
+  });
+
+  it("quarantines a workspace-rule hit below the category bar only at the block bar", () => {
+    const below = jevSensitivityDecision(
+      { ...scoresWith(), [WORKSPACE_RULE_QUESTION]: 0.59 },
+      { judgedContent: CLEAN_BODY, capturedAt: CAPTURED_AT, truncated: false },
+    );
+    const at = jevSensitivityDecision(
+      { ...scoresWith(), [WORKSPACE_RULE_QUESTION]: 0.6 },
+      { judgedContent: CLEAN_BODY, capturedAt: CAPTURED_AT, truncated: false },
+    );
+
+    expect(below.disposition).toBe("allowed");
+    expect(at.disposition).toBe("quarantined");
+    expect(at.categories).toEqual([]);
+    expect(at.confidenceBand).toBe("medium");
   });
 
   it("quarantines when the deterministic screen leaves no safe content", () => {
@@ -184,15 +222,16 @@ describe("review fixes", () => {
     expect(decision.disposition).toBe("quarantined");
   });
 
-  it("treats a score exactly on the allow bar as uncertain", () => {
-    const decision = jevSensitivityDecision(scoresWith({ personal: 0.2 }), {
+  it("treats a score exactly on the block bar as sensitive", () => {
+    const decision = jevSensitivityDecision(scoresWith({ personal: 0.6 }), {
       judgedContent: CLEAN_BODY,
       capturedAt: CAPTURED_AT,
       truncated: false,
     });
 
     expect(decision.disposition).toBe("quarantined");
-    expect(decision.confidenceBand).toBe("uncertain");
+    expect(decision.categories).toEqual(["personal"]);
+    expect(decision.confidenceBand).toBe("medium");
   });
 
   it("rejects an out-of-range probability instead of clamping it to safe", async () => {
@@ -552,6 +591,93 @@ describe("end to end classification", () => {
 
     expect(outcome.failureReason).toBe("jev-timeout");
     expect(JSON.stringify(outcome)).not.toContain("request URL");
+  });
+
+  it("judges a long capture in consecutive windows and allows it when each is clean", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    const fetchMock = vi.fn(async () => jevResponse(scoresWith()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await runJevClassification({
+      ...input,
+      content: longCleanBody(90_000),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const sentBodies = (fetchMock.mock.calls as unknown[][]).map(
+      (call) => JSON.parse(String((call[1] as RequestInit).body)).state.body,
+    );
+    expect(sentBodies.map((body: string) => body.length)).toEqual([
+      40_000, 40_000, 10_000,
+    ]);
+    expect(outcome.failureReason).toBeUndefined();
+    expect(outcome.decision?.disposition).toBe("allowed");
+    expect(outcome.decision?.safeContent).toHaveLength(90_000);
+  });
+
+  it("quarantines a capture longer than every window combined", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    const fetchMock = vi.fn(async () => jevResponse(scoresWith()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await runJevClassification({
+      ...input,
+      content: longCleanBody(330_000),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(outcome.decision?.disposition).toBe("quarantined");
+    expect(outcome.decision?.confidenceBand).toBe("uncertain");
+  });
+
+  it("keeps the highest score any window reported", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jevResponse(scoresWith()))
+      .mockResolvedValueOnce(jevResponse(scoresWith({ compensation: 0.9 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await runJevClassification({
+      ...input,
+      content: longCleanBody(50_000),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(outcome.decision?.disposition).toBe("quarantined");
+    expect(outcome.decision?.categories).toEqual(["compensation"]);
+  });
+
+  it("reports a failure when any window fails", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jevResponse(scoresWith()))
+        .mockResolvedValueOnce({ ok: false, status: 502 }),
+    );
+
+    const outcome = await runJevClassification({
+      ...input,
+      content: longCleanBody(50_000),
+    });
+
+    expect(outcome.decision).toBeUndefined();
+    expect(outcome.failureReason).toBe("jev-http-502");
+  });
+
+  it("reports a missing credential as a failure, not as unconfigured", async () => {
+    resolveSourceCredential.mockResolvedValue(undefined);
+    resolveBuilderGatewayAuth.mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(runJevClassification(input)).resolves.toEqual({
+      configured: false,
+      failureReason: "jev-credential-unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("stays out of the way when the workspace picked another classifier", async () => {

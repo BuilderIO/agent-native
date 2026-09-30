@@ -406,6 +406,24 @@ export const runAssetsMigrations = runMigrations(
         ALTER TABLE IF EXISTS image_library_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
+    {
+      version: 41,
+      name: "asset-dedupe-candidate-indexes",
+      sql: `
+        CREATE INDEX IF NOT EXISTS image_assets_library_dedupe_tuple_idx
+          ON image_assets (
+            library_id, status, role, media_type, mime_type, size_bytes, id
+          )
+          WHERE CASE WHEN metadata IS JSON THEN CASE WHEN jsonb_typeof(metadata::jsonb -> 'contentHash') = 'string' THEN NULLIF(metadata::jsonb ->> 'contentHash', '') END END IS NULL;
+        CREATE INDEX IF NOT EXISTS image_assets_library_content_hash_idx
+          ON image_assets (
+            library_id, status, role, media_type,
+            (CASE WHEN metadata IS JSON THEN CASE WHEN jsonb_typeof(metadata::jsonb -> 'contentHash') = 'string' THEN NULLIF(metadata::jsonb ->> 'contentHash', '') END END),
+            id
+          )
+          WHERE CASE WHEN metadata IS JSON THEN CASE WHEN jsonb_typeof(metadata::jsonb -> 'contentHash') = 'string' THEN NULLIF(metadata::jsonb ->> 'contentHash', '') END END IS NOT NULL
+      `,
+    },
   ],
   { table: "images_migrations" },
 );

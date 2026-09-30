@@ -1,11 +1,11 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { NotificationsBell } from "@agent-native/core/client/notifications";
-import { RunsTray } from "@agent-native/core/client/progress";
 import {
   useHeaderTitle,
   useHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import { NotificationsBell } from "@agent-native/toolkit/app/notifications";
+import { RunsTray } from "@agent-native/toolkit/app/progress";
 import type { ReactNode } from "react";
 import { useLocation } from "react-router";
 

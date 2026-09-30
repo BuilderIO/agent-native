@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrações" } },
   templatesPage: {
     actions: "Ações do modelo {{title}}",
     previewAction: "Prévia",
@@ -170,6 +171,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "Suas alterações mais recentes estão apenas neste dispositivo. Baixe um backup antes de sair.",
+    slideConflictReview: "Revisar",
+    slideConflictTitle: "Este slide foi alterado em outro lugar",
+    slideConflictDescription:
+      "Outra pessoa salvou uma versão mais recente. Manter seu rascunho substituirá o conteúdo salvo deste slide, ou use a versão mais recente.",
+    slideConflictUseLatest: "Usar a versão mais recente",
+    slideConflictKeepDraft: "Manter meu rascunho",
+    slideConflictKeepEditing: "Continuar editando",
+    slideConflictResolutionFailed:
+      "Não foi possível resolver o conflito. Seu rascunho continua aqui.",
     offline: "Offline",
     selected: "selecionado",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -243,6 +253,9 @@ const messages = {
     media: "Mídia",
     generateImage: "Gerar imagem",
     assetLibrary: "Biblioteca de assets",
+    imageOptions: "Opções da imagem",
+    cropImage: "Cortar imagem",
+    cropHandle: "Cortar imagem {{position}}",
     diagrams: "Diagramas",
     insertMermaidDiagram: "Inserir diagrama Mermaid",
     insertMermaidFailed: "Falha ao inserir o diagrama",
@@ -869,7 +882,7 @@ const messages = {
     },
     importDeck: "Importar apresentação",
     context: {
-      websiteReference: "Anexar site",
+      websiteReference: "Adicionar site",
       websiteUrlLabel: "URL do site",
       websiteUrl: "Cole a URL de um site",
       figmaUrlLabel: "Link do Figma",
@@ -884,7 +897,7 @@ const messages = {
       searchPresentations: "Buscar apresentações…",
       menu: {
         system: "Usar um sistema de design",
-        figma: "Anexar Figma",
+        figma: "Adicionar Figma",
         design: "Usar um design como referência",
         deck: "Usar uma apresentação como referência",
         searchDesign: "Pesquisar design…",
@@ -1067,7 +1080,7 @@ const messages = {
   agentChat: {
     setup: {
       providerStatusUnavailable:
-        "Não foi possível verificar a conexão com a IA.",
+        "Não foi possível confirmar se a IA está pronta.",
     },
   },
 };
