@@ -21,6 +21,7 @@ export interface DownloadPdfArgs {
     settings?: Partial<ExportSettingsValue>;
     format?: "png" | "jpg" | "webp";
   }) => Promise<Blob>;
+  resolveCompositePageSize?: () => { width: number; height: number } | null;
   resolvePngCaptureTarget: (scope: PngCaptureScope) => {
     cropSelection: ElementInfo | readonly ElementInfo[] | null;
     doc: Document;
@@ -37,6 +38,7 @@ export async function runDownloadPdf(
     fallbackExportName,
     pngExportingRef,
     renderPngBlob,
+    resolveCompositePageSize,
     resolvePngCaptureTarget,
     setPngExporting,
     showRasterCaptureError,
@@ -50,27 +52,36 @@ export async function runDownloadPdf(
   pngExportingRef.current = true;
   setPngExporting(true);
   try {
-    const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
-    const crop = resolveExportCropRect(doc, cropSelection);
-    const pageCrop = crop ?? resolveBoardExportCropRect(doc, iframe);
-    const pageWidth = Math.max(
-      1,
-      pageCrop?.width ??
-        Math.max(
-          doc.documentElement.scrollWidth,
-          doc.body?.scrollWidth ?? 0,
-          iframe.clientWidth,
-        ),
-    );
-    const pageHeight = Math.max(
-      1,
-      pageCrop?.height ??
-        Math.max(
-          doc.documentElement.scrollHeight,
-          doc.body?.scrollHeight ?? 0,
-          iframe.clientHeight,
-        ),
-    );
+    const compositePageSize =
+      scope === "screens" ? resolveCompositePageSize?.() : null;
+    let pageWidth: number;
+    let pageHeight: number;
+    if (compositePageSize) {
+      pageWidth = compositePageSize.width;
+      pageHeight = compositePageSize.height;
+    } else {
+      const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
+      const crop = resolveExportCropRect(doc, cropSelection);
+      const pageCrop = crop ?? resolveBoardExportCropRect(doc, iframe);
+      pageWidth = Math.max(
+        1,
+        pageCrop?.width ??
+          Math.max(
+            doc.documentElement.scrollWidth,
+            doc.body?.scrollWidth ?? 0,
+            iframe.clientWidth,
+          ),
+      );
+      pageHeight = Math.max(
+        1,
+        pageCrop?.height ??
+          Math.max(
+            doc.documentElement.scrollHeight,
+            doc.body?.scrollHeight ?? 0,
+            iframe.clientHeight,
+          ),
+      );
+    }
     const pdfScale = Math.max(
       PDF_MIN_PRINT_RASTER_SCALE,
       settings?.scale ?? PDF_MIN_PRINT_RASTER_SCALE,

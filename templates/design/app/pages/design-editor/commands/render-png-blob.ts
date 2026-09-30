@@ -32,6 +32,55 @@ export interface RenderPngBlobArgs {
   viewMode: "single" | "overview";
 }
 
+type ScreenCompositeArgs = Pick<
+  RenderPngBlobArgs,
+  "canvasFrameGeometryById" | "overviewScreens" | "selectedScreenIds"
+>;
+
+export function resolveScreenCompositeFrames({
+  canvasFrameGeometryById,
+  overviewScreens,
+  selectedScreenIds,
+}: ScreenCompositeArgs) {
+  return selectedScreenIds
+    .map((screenId, order) => {
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        `iframe[data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+      );
+      if (!iframe) throw new PngCaptureError("no-preview");
+      const screen = overviewScreens.find(
+        (candidate) => candidate.id === screenId,
+      );
+      const geometry = canvasFrameGeometryById[screenId] ?? {};
+      return {
+        frame: {
+          x: geometry.x ?? order * ((screen?.width ?? 1440) + 80),
+          y: geometry.y ?? 0,
+          width: Math.max(
+            1,
+            geometry.width ?? screen?.width ?? iframe.clientWidth,
+          ),
+          height: Math.max(
+            1,
+            geometry.height ?? screen?.height ?? iframe.clientHeight,
+          ),
+          rotation: geometry.rotation ?? 0,
+        },
+        iframe,
+        order,
+        screenId,
+        z: geometry.z ?? order,
+      };
+    })
+    .sort((left, right) => left.z - right.z || left.order - right.order);
+}
+
+export function resolveScreenCompositeBounds(args: ScreenCompositeArgs) {
+  return getExportCompositeBounds(
+    resolveScreenCompositeFrames(args).map(({ frame }) => frame),
+  );
+}
+
 export async function runRenderPngBlob(
   {
     activeCanvasSourceType,
@@ -62,56 +111,38 @@ export async function runRenderPngBlob(
     viewMode === "overview" &&
     selectedScreenIds.length > 0
   ) {
-    const captures = selectedScreenIds
-      .map((screenId, order) => {
-        const iframe = document.querySelector<HTMLIFrameElement>(
-          `iframe[data-screen-iframe-id="${CSS.escape(screenId)}"]`,
-        );
-        if (!iframe) throw new PngCaptureError("no-preview");
-        let doc: Document | null = null;
-        try {
-          doc = iframe.contentDocument;
-          if (!doc?.documentElement) doc = null;
-        } catch {
-          doc = null;
+    const captures = resolveScreenCompositeFrames({
+      canvasFrameGeometryById,
+      overviewScreens,
+      selectedScreenIds,
+    }).map(({ frame, iframe, order, screenId, z }) => {
+      let doc: Document | null = null;
+      try {
+        doc = iframe.contentDocument;
+        if (!doc?.documentElement) doc = null;
+      } catch {
+        doc = null;
+      }
+      if (!doc) {
+        const sourceType =
+          normalizeDesignSourceType(iframe.dataset.designSourceType) ??
+          activeCanvasSourceType;
+        if (sourceType !== "inline") {
+          throw new PngCaptureError("external-preview");
         }
-        if (!doc) {
-          const sourceType =
-            normalizeDesignSourceType(iframe.dataset.designSourceType) ??
-            activeCanvasSourceType;
-          if (sourceType !== "inline") {
-            throw new PngCaptureError("external-preview");
-          }
-          if (!canEditDesign) {
-            throw new PngCaptureError("read-only-preview");
-          }
-          throw new PngCaptureError("no-preview");
+        if (!canEditDesign) {
+          throw new PngCaptureError("read-only-preview");
         }
-        const screen = overviewScreens.find(
-          (candidate) => candidate.id === screenId,
-        );
-        const geometry = canvasFrameGeometryById[screenId] ?? {};
-        return {
-          doc,
-          frame: {
-            x: geometry.x ?? order * ((screen?.width ?? 1440) + 80),
-            y: geometry.y ?? 0,
-            width: Math.max(
-              1,
-              geometry.width ?? screen?.width ?? iframe.clientWidth,
-            ),
-            height: Math.max(
-              1,
-              geometry.height ?? screen?.height ?? iframe.clientHeight,
-            ),
-            rotation: geometry.rotation ?? 0,
-          },
-          iframe,
-          order,
-          z: geometry.z ?? order,
-        };
-      })
-      .sort((left, right) => left.z - right.z || left.order - right.order);
+        throw new PngCaptureError("no-preview");
+      }
+      return {
+        doc,
+        frame,
+        iframe,
+        order,
+        z,
+      };
+    });
     const bounds = getExportCompositeBounds(
       captures.map((capture) => capture.frame),
     );

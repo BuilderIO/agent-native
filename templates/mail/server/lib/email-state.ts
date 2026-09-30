@@ -12,7 +12,6 @@ import {
   gmailModifyMessage,
   gmailModifyThread,
   gmailTrashThread,
-  gmailUntrashThread,
   registerGmailAccountToken,
 } from "./google-api.js";
 import {

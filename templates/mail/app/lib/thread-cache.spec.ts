@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 
+import type { EmailMessage } from "@shared/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const THREAD_CACHE_STORAGE_KEY = "mail.threadCache.v1";
 const THREAD_CACHE_GLOBALS = [
+  "__mailThreadCacheFormat",
+  "__mailThreadOwner",
   "__mailThreadCache",
   "__mailThreadInflight",
   "__mailThreadSubscribers",
@@ -81,5 +84,36 @@ describe("thread cache privacy", () => {
 
     expect(storage.getItem(THREAD_CACHE_STORAGE_KEY)).toBeNull();
     expect(threadCache.getCachedThread("new-thread")).toEqual([]);
+  });
+
+  it("scopes cached threads to the signed-in user and mailbox", async () => {
+    const threadCache = await import("./thread-cache");
+    const accountA = [
+      { id: "message-a", accountEmail: "first@example.test" } as EmailMessage,
+    ];
+    const accountB = [
+      { id: "message-b", accountEmail: "second@example.test" } as EmailMessage,
+    ];
+
+    threadCache.setThreadCacheOwner("user-a");
+    threadCache.setCachedThread("shared-thread", accountA);
+    threadCache.setCachedThread("shared-thread", accountB);
+
+    expect(threadCache.getCachedThread("shared-thread")).toBeUndefined();
+    expect(
+      threadCache.getCachedThread("shared-thread", "first@example.test"),
+    ).toEqual(accountA);
+    expect(
+      threadCache.getCachedThread("shared-thread", "second@example.test"),
+    ).toEqual(accountB);
+
+    threadCache.setThreadCacheOwner("user-b");
+
+    expect(
+      threadCache.getCachedThread("shared-thread", "first@example.test"),
+    ).toBeUndefined();
+    expect(
+      threadCache.getCachedThread("shared-thread", "second@example.test"),
+    ).toBeUndefined();
   });
 });

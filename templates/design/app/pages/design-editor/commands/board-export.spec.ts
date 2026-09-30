@@ -243,6 +243,38 @@ describe("board document exports", () => {
     }
   });
 
+  it("uses composite bounds for multiple selected screens without resolving one iframe", async () => {
+    const resolvePngCaptureTarget = vi.fn(() => {
+      throw new Error("A composite has no single capture iframe");
+    });
+    const resolveCompositePageSize = vi.fn(() => ({
+      width: 680,
+      height: 250,
+    }));
+
+    await runDownloadPdf(
+      {
+        fallbackExportName: () => "Test - Export.pdf",
+        pngExportingRef: { current: false },
+        renderPngBlob: async () => new Blob(["image"], { type: "image/png" }),
+        resolveCompositePageSize,
+        resolvePngCaptureTarget,
+        setPngExporting: vi.fn(),
+        showRasterCaptureError: vi.fn(),
+        t: () => "PDF downloaded",
+        triggerBlobDownload: vi.fn(),
+      },
+      { scale: 1 },
+      "screens",
+    );
+
+    expect(resolveCompositePageSize).toHaveBeenCalledOnce();
+    expect(resolvePngCaptureTarget).not.toHaveBeenCalled();
+    expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 680, height: 250 }),
+    );
+  });
+
   it("leaves ordinary screen document exports uncropped", async () => {
     const fixture = createReportedBoardFixture();
     fixture.iframe.setAttribute("data-screen-iframe-id", "screen-1");

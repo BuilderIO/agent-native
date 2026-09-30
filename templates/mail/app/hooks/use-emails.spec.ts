@@ -464,8 +464,12 @@ describe("useMarkRead", () => {
       source.indexOf("export function useMarkThreadRead()"),
     );
 
-    expect(hook).toContain("getCachedThread(resolvedThreadId)");
-    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
+    expect(hook).toMatch(
+      /getCachedThread\(\s*resolvedThreadId,\s*resolvedAccountEmail\s*\)/,
+    );
+    expect(hook).toMatch(
+      /supersedeCachedThreadFetch\(\s*resolvedThreadId,\s*resolvedAccountEmail\s*\)/,
+    );
     expect(hook).toContain(
       "message.id === id ? { ...message, isRead } : message",
     );
@@ -533,7 +537,9 @@ describe("useMarkRead", () => {
     );
 
     expect(hook).toContain("const restartThread = resolvedThreadId");
-    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
+    expect(hook).toMatch(
+      /supersedeCachedThreadFetch\(\s*resolvedThreadId,\s*resolvedAccountEmail\s*\)/,
+    );
     expect(hook).toContain("resolvedThreadId && restartThread");
     expect(source).toContain("clearOptimisticOverrideProperty(emailId, field)");
     expect(hook).toContain("refreshThreadAfterMutations(");
@@ -543,7 +549,7 @@ describe("useMarkRead", () => {
 describe("thread fetch ownership", () => {
   it("only lets the current request clear its in-flight entry", () => {
     expect(threadCacheSource()).toContain(
-      "if (inflight.get(threadId) === request) inflight.delete(threadId)",
+      "if (inflight.get(key) === request) inflight.delete(key)",
     );
     expect(threadCacheSource()).toContain("return superseded");
   });
@@ -633,7 +639,9 @@ describe("useMarkThreadRead", () => {
       source.indexOf("export function useToggleStar()"),
     );
 
-    expect(hook).toContain("supersedeCachedThreadFetch(threadId)");
+    expect(hook).toMatch(
+      /supersedeCachedThreadFetch\(\s*threadId,\s*resolvedAccountEmail,?\s*\)/,
+    );
     expect(hook).toContain("beginReadMutation(id, false, true)");
     expect(hook).not.toContain("context.previousThread");
   });

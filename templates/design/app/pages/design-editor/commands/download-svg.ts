@@ -30,11 +30,12 @@ export function resolveSvgExportIframe<
 >(iframes: Iterable<T>, activePreviewFrameId?: string | null): T | null {
   const candidates = Array.from(iframes);
   if (activePreviewFrameId) {
-    const active = candidates.find(
-      (iframe) =>
-        iframe.getAttribute("data-screen-iframe-id") === activePreviewFrameId,
+    return (
+      candidates.find(
+        (iframe) =>
+          iframe.getAttribute("data-screen-iframe-id") === activePreviewFrameId,
+      ) ?? null
     );
-    if (active) return active;
   }
   return candidates.length === 1 ? (candidates[0] ?? null) : null;
 }

@@ -377,19 +377,21 @@ export function useAddOptimisticReply() {
       ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
     };
 
-    const prior = getCachedThread(threadId) ?? [];
+    const prior = getCachedThread(threadId, data.accountEmail) ?? [];
     setCachedThread(
       threadId,
       [...prior, optimisticMessage].sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
       ),
+      data.accountEmail,
     );
 
     return () => {
-      const current = getCachedThread(threadId) ?? [];
+      const current = getCachedThread(threadId, data.accountEmail) ?? [];
       setCachedThread(
         threadId,
         current.filter((m) => m.id !== optimisticMessage.id),
+        data.accountEmail,
       );
     };
   };
@@ -871,11 +873,12 @@ function applyEmailBooleanMutationStates(
 function applyReadMutationStates(
   states: Map<string, boolean | undefined | null>,
   threadId?: string,
+  accountEmail?: string,
 ) {
   const resolved = applyEmailBooleanMutationStates(states, "isRead");
   if (resolved.size === 0) return;
   if (!threadId) return;
-  const thread = getCachedThread(threadId);
+  const thread = getCachedThread(threadId, accountEmail);
   if (!thread) return;
   setCachedThread(
     threadId,
@@ -884,12 +887,14 @@ function applyReadMutationStates(
         ? { ...message, isRead: resolved.get(message.id)! }
         : message,
     ),
+    accountEmail,
   );
 }
 
 function applyStarMutationStates(
   states: Map<string, boolean | undefined | null>,
   threadIdsByEmailId?: Readonly<Record<string, string>> | string,
+  accountEmail?: string,
 ) {
   const resolved = applyEmailBooleanMutationStates(states, "isStarred");
   if (resolved.size === 0 || !threadIdsByEmailId) return;
@@ -902,7 +907,7 @@ function applyStarMutationStates(
             .filter((entry): entry is [string, string] => Boolean(entry[1])),
         );
   for (const threadId of new Set(threadIds.values())) {
-    const thread = getCachedThread(threadId);
+    const thread = getCachedThread(threadId, accountEmail);
     if (!thread) continue;
     setCachedThread(
       threadId,
@@ -911,6 +916,7 @@ function applyStarMutationStates(
           ? { ...message, isStarred: resolved.get(message.id)! }
           : message,
       ),
+      accountEmail,
     );
   }
 }
@@ -1467,8 +1473,9 @@ export function useMarkRead() {
         target?.threadId ||
         findInboxThreadIdByMessageId(qc, id) ||
         target?.id;
+      const resolvedAccountEmail = accountEmail ?? target?.accountEmail;
       const previousThread = resolvedThreadId
-        ? getCachedThread(resolvedThreadId)
+        ? getCachedThread(resolvedThreadId, resolvedAccountEmail)
         : undefined;
       const previousReadState =
         previousThread?.find((message) => message.id === id)?.isRead ??
@@ -1491,7 +1498,7 @@ export function useMarkRead() {
             )
           : undefined;
       const restartThread = resolvedThreadId
-        ? supersedeCachedThreadFetch(resolvedThreadId)
+        ? supersedeCachedThreadFetch(resolvedThreadId, resolvedAccountEmail)
         : false;
       if (resolvedThreadId) {
         if (previousThread) {
@@ -1500,6 +1507,7 @@ export function useMarkRead() {
             previousThread.map((message) =>
               message.id === id ? { ...message, isRead } : message,
             ),
+            resolvedAccountEmail,
           );
         }
       }
@@ -1516,6 +1524,7 @@ export function useMarkRead() {
         mutationVersion,
         readIntent,
         threadId: resolvedThreadId,
+        accountEmail: resolvedAccountEmail,
         inboxMutationId,
         refreshThread:
           resolvedThreadId && restartThread
@@ -1530,6 +1539,7 @@ export function useMarkRead() {
           [id, confirmReadMutation(id, context.mutationVersion, isRead)],
         ]),
         context.threadId,
+        context.accountEmail,
       );
     },
     onError: (err, { id }, context) => {
@@ -1539,6 +1549,7 @@ export function useMarkRead() {
       applyReadMutationStates(
         new Map([[id, confirmedState]]),
         context?.threadId,
+        context?.accountEmail,
       );
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
@@ -1601,7 +1612,11 @@ export function useMarkThreadRead() {
       });
       const allEmails =
         previous.flatMap(([, data]) => flattenInfiniteEmails(data)) ?? [];
-      const previousThread = getCachedThread(threadId);
+      const resolvedAccountEmail =
+        accountEmail ??
+        allEmails.find((email) => (email.threadId || email.id) === threadId)
+          ?.accountEmail;
+      const previousThread = getCachedThread(threadId, resolvedAccountEmail);
       const unreadIds = new Set(
         [...allEmails, ...(previousThread ?? [])]
           .filter(
@@ -1614,7 +1629,10 @@ export function useMarkThreadRead() {
         id,
         version: beginReadMutation(id, false, true),
       }));
-      const restartThread = supersedeCachedThreadFetch(threadId);
+      const restartThread = supersedeCachedThreadFetch(
+        threadId,
+        resolvedAccountEmail,
+      );
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
       }
@@ -1627,6 +1645,7 @@ export function useMarkThreadRead() {
         setCachedThread(
           threadId,
           previousThread.map((message) => ({ ...message, isRead: true })),
+          resolvedAccountEmail,
         );
       }
       try {
@@ -1643,14 +1662,11 @@ export function useMarkThreadRead() {
         mutations,
         retryIntent,
         inboxMutationId,
+        accountEmail: resolvedAccountEmail,
         refreshThread: restartThread
           ? {
               threadId,
-              accountEmail:
-                accountEmail ??
-                allEmails.find(
-                  (email) => (email.threadId || email.id) === threadId,
-                )?.accountEmail,
+              accountEmail: resolvedAccountEmail,
             }
           : undefined,
       };
@@ -1663,7 +1679,7 @@ export function useMarkThreadRead() {
           confirmReadMutation(mutation.id, mutation.version, true),
         );
       }
-      applyReadMutationStates(confirmed, threadId);
+      applyReadMutationStates(confirmed, threadId, context?.accountEmail);
     },
     onError: (err, { threadId }, context) => {
       const rollback = new Map<string, boolean | undefined | null>();
@@ -1673,7 +1689,7 @@ export function useMarkThreadRead() {
           rollbackReadMutation(mutation.id, mutation.version),
         );
       }
-      applyReadMutationStates(rollback, threadId);
+      applyReadMutationStates(rollback, threadId, context?.accountEmail);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -1751,7 +1767,7 @@ export function useToggleStar() {
         accountEmail,
         flag: isStarred,
       }),
-    onMutate: async ({ id, isStarred, threadId }) => {
+    onMutate: async ({ id, isStarred, threadId, accountEmail }) => {
       const target = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data))
@@ -1761,8 +1777,9 @@ export function useToggleStar() {
         target?.threadId ||
         findInboxThreadIdByMessageId(qc, id) ||
         target?.id;
+      const resolvedAccountEmail = accountEmail ?? target?.accountEmail;
       const previousThread = resolvedThreadId
-        ? getCachedThread(resolvedThreadId)
+        ? getCachedThread(resolvedThreadId, resolvedAccountEmail)
         : undefined;
       const mutationVersion = beginStarMutation(
         id,
@@ -1811,6 +1828,7 @@ export function useToggleStar() {
           previousThread.map((message) =>
             message.id === id ? { ...message, isStarred } : message,
           ),
+          resolvedAccountEmail,
         );
       }
       await Promise.all([
@@ -1823,6 +1841,7 @@ export function useToggleStar() {
         inboxSnapshot,
         inboxMutationId,
         mutationVersion,
+        accountEmail: resolvedAccountEmail,
       };
     },
     onSuccess: (_data, { id, isStarred }, context) => {
@@ -1832,13 +1851,18 @@ export function useToggleStar() {
           [id, confirmStarMutation(id, context.mutationVersion, isStarred)],
         ]),
         context.threadId,
+        context.accountEmail,
       );
     },
     onError: (err, { id }, context) => {
       const state = context
         ? rollbackStarMutation(id, context.mutationVersion)
         : null;
-      applyStarMutationStates(new Map([[id, state]]), context?.threadId);
+      applyStarMutationStates(
+        new Map([[id, state]]),
+        context?.threadId,
+        context?.accountEmail,
+      );
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -2795,7 +2819,9 @@ export function useSendEmail() {
         data.replyToId ||
         makeTempId("thread");
 
-      const previousThread = getCachedThread(threadId);
+      const resolvedAccountEmail =
+        data.accountEmail ?? replyTarget?.accountEmail;
+      const previousThread = getCachedThread(threadId, resolvedAccountEmail);
       const previousLists = getRecentSentListSnapshots(qc);
 
       const existingMessages = previousThread ?? [];
@@ -2844,6 +2870,7 @@ export function useSendEmail() {
           [...existingMessages, optimisticMessage].sort(
             (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
           ),
+          resolvedAccountEmail,
         );
       }
 
@@ -2858,6 +2885,7 @@ export function useSendEmail() {
         previousThread: rollbackThread,
         optimisticMessage,
         threadId,
+        accountEmail: resolvedAccountEmail,
         previousLists,
       };
     },
@@ -2868,7 +2896,11 @@ export function useSendEmail() {
         qc.setQueryData(key, data),
       );
       if (context.previousThread) {
-        setCachedThread(context.threadId, context.previousThread);
+        setCachedThread(
+          context.threadId,
+          context.previousThread,
+          context.accountEmail,
+        );
       } else {
         invalidateCachedThread(context.threadId);
       }
@@ -2879,9 +2911,9 @@ export function useSendEmail() {
 
       const sourceThreadId = context.threadId;
       const current =
-        getCachedThread(threadId) ??
+        getCachedThread(threadId, context.accountEmail) ??
         (sourceThreadId !== threadId
-          ? getCachedThread(sourceThreadId)
+          ? getCachedThread(sourceThreadId, context.accountEmail)
           : undefined) ??
         [];
       const replacement = {
@@ -2916,6 +2948,7 @@ export function useSendEmail() {
         ).sort(
           (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
         ),
+        context.accountEmail,
       );
       if (sourceThreadId !== threadId) {
         invalidateCachedThread(sourceThreadId);

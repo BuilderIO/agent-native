@@ -1194,6 +1194,7 @@ export default defineAction({
             if (
               !placement.fileId ||
               placementIntents[index]?.existedAtStart ||
+              placementIntents[index]?.owns.y ||
               latestFrames[placement.fileId]
             ) {
               return [];

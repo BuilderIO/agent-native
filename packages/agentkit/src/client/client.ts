@@ -1768,6 +1768,7 @@ export class AgentKitClient implements AgentKitController {
     );
     this.assertActive();
     this.stopThreadConsumers(threadId, "deleted");
+    this.clearSubmittedUserMessages(threadId);
     this.queuedMessageOverrides.delete(threadId);
     const threads = { ...this.snapshot.threads };
     delete threads[threadId];
@@ -2954,7 +2955,19 @@ export class AgentKitClient implements AgentKitController {
       ?.abort(new AgentKitConsumerStoppedError(reason));
   }
 
+  private clearSubmittedUserMessages(threadId: ThreadId, runId?: RunId): void {
+    const prefix = `${threadId}\u0000`;
+    for (const key of this.submittedUserMessages.keys()) {
+      if (
+        runId ? key === this.runKey(threadId, runId) : key.startsWith(prefix)
+      ) {
+        this.submittedUserMessages.delete(key);
+      }
+    }
+  }
+
   private markRunCancelled(threadId: ThreadId, runId: RunId): void {
+    this.clearSubmittedUserMessages(threadId, runId);
     const thread = this.getThread(threadId);
     const run = thread.runs[runId] ?? this.runState(runId);
     const activeRunIds = thread.activeRunIds.filter((id) => id !== runId);
@@ -2987,6 +3000,7 @@ export class AgentKitClient implements AgentKitController {
     runId: RunId,
     error: AgentError,
   ): void {
+    this.clearSubmittedUserMessages(threadId, runId);
     const thread = this.getThread(threadId);
     const run = thread.runs[runId] ?? this.runState(runId);
     const completedAt = this.now();

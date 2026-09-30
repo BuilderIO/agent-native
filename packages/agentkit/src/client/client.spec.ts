@@ -3196,6 +3196,10 @@ describe("AgentKitClient", () => {
     });
     expect(client.getThread("thread-1").runs["run-1"]?.status).toBe("failed");
     expect(client.getThread("thread-1").activeRunIds).toEqual([]);
+    expect(
+      (client as unknown as { submittedUserMessages: Map<string, string> })
+        .submittedUserMessages.size,
+    ).toBe(0);
   });
 
   it("does not roll an accepted stream cursor back during a stale refresh", async () => {
@@ -3405,6 +3409,38 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").runs["run-1"]?.status).toBe(
       "cancelled",
     );
+    expect(
+      (client as unknown as { submittedUserMessages: Map<string, string> })
+        .submittedUserMessages.size,
+    ).toBe(0);
+  });
+
+  it("clears submitted-message reconciliation when a thread is deleted", async () => {
+    const subscribed = Promise.withResolvers<void>();
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      async *subscribeToRun({ signal }) {
+        subscribed.resolve();
+        await new Promise<void>((resolve) =>
+          signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      },
+      async deleteThread() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await subscribed.promise;
+
+    expect(
+      (client as unknown as { submittedUserMessages: Map<string, string> })
+        .submittedUserMessages.size,
+    ).toBe(1);
+    await client.deleteThread("thread-1");
+    await expect(run.completed).resolves.toBeUndefined();
+    expect(
+      (client as unknown as { submittedUserMessages: Map<string, string> })
+        .submittedUserMessages.size,
+    ).toBe(0);
   });
 
   it("settles projected work when cancellation stops the stream before its terminal event", async () => {

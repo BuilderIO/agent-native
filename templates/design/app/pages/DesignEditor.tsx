@@ -794,7 +794,10 @@ import {
 import { runRecordPendingLiveTextEdit } from "./design-editor/commands/record-pending-live-text-edit";
 import { runRecordPendingVisualStyleEdit } from "./design-editor/commands/record-pending-visual-style-edit";
 import { runRedo } from "./design-editor/commands/redo";
-import { runRenderPngBlob } from "./design-editor/commands/render-png-blob";
+import {
+  resolveScreenCompositeBounds,
+  runRenderPngBlob,
+} from "./design-editor/commands/render-png-blob";
 import {
   runFileContentSaveKeepalive,
   runQueueFileContentSave,
@@ -19490,6 +19493,19 @@ function DesignEditor() {
           fallbackExportName,
           pngExportingRef,
           renderPngBlob,
+          resolveCompositePageSize: () => {
+            if (viewMode !== "overview" || selectedScreenIds.length === 0) {
+              return null;
+            }
+            const bounds = resolveScreenCompositeBounds({
+              canvasFrameGeometryById: exportCanvasFrameGeometryById,
+              overviewScreens,
+              selectedScreenIds,
+            });
+            return bounds
+              ? { width: bounds.width, height: bounds.height }
+              : null;
+          },
           resolvePngCaptureTarget,
           setPngExporting,
           showRasterCaptureError,
@@ -19501,10 +19517,14 @@ function DesignEditor() {
       ),
     [
       fallbackExportName,
+      exportCanvasFrameGeometryById,
+      overviewScreens,
       renderPngBlob,
       resolvePngCaptureTarget,
+      selectedScreenIds,
       t,
       triggerBlobDownload,
+      viewMode,
     ],
   );
 
