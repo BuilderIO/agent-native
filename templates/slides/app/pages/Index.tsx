@@ -187,10 +187,29 @@ function HomeChrome({ title, actions }: { title: string; actions: ReactNode }) {
   return null;
 }
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
+const HOME_LIBRARY_TAB_STORAGE_KEY = "slides:home-library-tab";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
 const PENDING_PROMPT_MODEL_SELECTION_KEY =
   "slides:pending-deck-model-selection";
+
+function readStoredHomeLibraryTab(): PromptHomeLibraryTab | undefined {
+  try {
+    const tab = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
+    return tab === "templates" || tab === "recent" ? tab : undefined;
+  } catch {
+    // coercion-ok: the tab preference is optional when browser storage is unavailable.
+    return undefined;
+  }
+}
+
+function writeStoredHomeLibraryTab(tab: PromptHomeLibraryTab): void {
+  try {
+    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, tab);
+  } catch {
+    // coercion-ok: an unavailable preference store preserves the in-memory selection.
+  }
+}
 
 type DeckModelSelection = Pick<
   PromptComposerSubmitOptions,
@@ -578,9 +597,13 @@ export default function Index({ active = true }: { active?: boolean }) {
     string | null
   >(null);
   const [deckSearch, setDeckSearch] = useState("");
-  const [homeSection, setHomeSection] =
-    useState<PromptHomeLibraryTab>("templates");
-  const homeLibraryTabWasSelectedRef = useRef(false);
+  const storedHomeLibraryTab = readStoredHomeLibraryTab();
+  const [homeSection, setHomeSection] = useState<PromptHomeLibraryTab>(
+    storedHomeLibraryTab ?? "templates",
+  );
+  const homeLibraryTabWasSelectedRef = useRef(
+    storedHomeLibraryTab !== undefined,
+  );
   const deckFilterWasSelectedRef = useRef(false);
   useEffect(() => {
     if (deckSearch.trim()) setHomeSection("recent");
@@ -594,6 +617,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       decks.length > 0
     ) {
       setHomeSection("recent");
+      writeStoredHomeLibraryTab("recent");
+      homeLibraryTabWasSelectedRef.current = true;
     }
   }, [decks.length, isHome, loadError, loading]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
@@ -2393,6 +2418,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         value={homeSection}
         onValueChange={(value) => {
           homeLibraryTabWasSelectedRef.current = true;
+          writeStoredHomeLibraryTab(value);
           setHomeSection(value);
         }}
         labels={{

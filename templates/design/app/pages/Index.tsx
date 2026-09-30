@@ -140,6 +140,25 @@ interface DesignListResult {
 }
 
 const DESIGN_PAGE_SIZE = 50;
+const HOME_LIBRARY_TAB_STORAGE_KEY = "design:home-library-tab";
+
+function readStoredHomeLibraryTab(): PromptHomeLibraryTab | undefined {
+  try {
+    const tab = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
+    return tab === "templates" || tab === "recent" ? tab : undefined;
+  } catch {
+    // coercion-ok: the tab preference is optional when browser storage is unavailable.
+    return undefined;
+  }
+}
+
+function writeStoredHomeLibraryTab(tab: PromptHomeLibraryTab): void {
+  try {
+    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, tab);
+  } catch {
+    // coercion-ok: an unavailable preference store preserves the in-memory selection.
+  }
+}
 
 interface HomeSuggestion {
   id?: string;
@@ -167,9 +186,13 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [homeSection, setHomeSection] =
-    useState<PromptHomeLibraryTab>("templates");
-  const homeLibraryTabWasSelectedRef = useRef(false);
+  const storedHomeLibraryTab = readStoredHomeLibraryTab();
+  const [homeSection, setHomeSection] = useState<PromptHomeLibraryTab>(
+    storedHomeLibraryTab ?? "templates",
+  );
+  const homeLibraryTabWasSelectedRef = useRef(
+    storedHomeLibraryTab !== undefined,
+  );
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -241,6 +264,8 @@ export default function Index() {
       !homeLibraryTabWasSelectedRef.current
     ) {
       setHomeSection("recent");
+      writeStoredHomeLibraryTab("recent");
+      homeLibraryTabWasSelectedRef.current = true;
     }
   }, [
     accessibleDesignsSummary.data?.totalCount,
@@ -1256,6 +1281,7 @@ export default function Index() {
           value={homeSection}
           onValueChange={(value) => {
             homeLibraryTabWasSelectedRef.current = true;
+            writeStoredHomeLibraryTab(value);
             setHomeSection(value);
           }}
           labels={{

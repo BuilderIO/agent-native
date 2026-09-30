@@ -379,6 +379,7 @@ let headerContainer: HTMLDivElement | null = null;
 let headerRoot: Root | null = null;
 
 beforeEach(async () => {
+  localStorage.clear();
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -899,6 +900,21 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
+    expect(localStorage.getItem("design:home-library-tab")).toBe("recent");
+  });
+
+  it("restores a saved Recent choice before the design summary completes", async () => {
+    await act(async () => root.unmount());
+    localStorage.setItem("design:home-library-tab", "recent");
+    mocks.ownCount = 1;
+    mocks.ownStatus = "pending";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
   });
 
   it("preserves an explicit Templates choice made while the summary is pending", async () => {
@@ -916,6 +932,16 @@ describe("home library", () => {
     mocks.ownStatus = "success";
     await act(async () => root.render(<Index />));
 
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+    expect(localStorage.getItem("design:home-library-tab")).toBe("templates");
+
+    await act(async () => root.unmount());
+    mocks.ownStatus = "success";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
     expect(
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
