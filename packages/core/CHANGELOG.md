@@ -51,6 +51,15 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.5
+  - @agent-native/recap-cli@0.5.55
+
 ## 0.198.4
 
 ### Patch Changes
@@ -3654,11 +3663,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 68f299c: Clarify deployment targets and document Agent-Native app configuration.
-
-## 0.164.20
-
-### Patch Changes
-
-- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

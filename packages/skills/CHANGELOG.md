@@ -1,5 +1,13 @@
 # @agent-native/skills
 
+## 0.3.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/core@0.198.5
+
 ## 0.3.16
 
 ### Patch Changes
@@ -1860,12 +1868,5 @@
 
 - Updated dependencies [68f299c]
   - @agent-native/core@0.164.21
-
-## 0.2.650
-
-### Patch Changes
-
-- Updated dependencies [bfe4163]
-  - @agent-native/core@0.164.20
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
