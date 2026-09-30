@@ -1417,6 +1417,33 @@ describe("in-place text session: undo", () => {
     expect(el.innerHTML).toBe("Heading");
   });
 
+  it("keeps session redo history across a non-cancelable native historyRedo", () => {
+    const el = mount('<p id="t">Head</p>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 4);
+    type(el, "X");
+    expect(session.undo()).toBe(true);
+
+    const event = beforeInput(el, "historyRedo", { cancelable: false });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(session.redo()).toBe(true);
+    expect(el.textContent).toBe("HeadX");
+  });
+
+  it("does not insert a no-op checkpoint for a non-cancelable native historyUndo", () => {
+    const el = mount('<p id="t">Head</p>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 4);
+    type(el, "X");
+
+    const event = beforeInput(el, "historyUndo", { cancelable: false });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(session.undo()).toBe(true);
+    expect(el.textContent).toBe("Head");
+  });
+
   it("groups typing by word and restores a Markdown shortcut to literal text", () => {
     const el = mount('<div id="t">Alpha</div>');
     session = startInPlaceTextSession(el);

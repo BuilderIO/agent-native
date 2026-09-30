@@ -4061,14 +4061,15 @@ export function startInPlaceTextSession(
       }
       return;
     }
-    if (!event.cancelable) {
-      checkpoint(type.startsWith("delete") ? "delete" : "typing");
-      return;
-    }
     if (type === "historyUndo" || type === "historyRedo") {
+      if (!event.cancelable) return;
       event.preventDefault();
       if (type === "historyUndo") undo();
       else redo();
+      return;
+    }
+    if (!event.cancelable) {
+      checkpoint(type.startsWith("delete") ? "delete" : "typing");
       return;
     }
     const range = selectionRange();
