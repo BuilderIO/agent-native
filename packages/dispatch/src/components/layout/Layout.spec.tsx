@@ -1,3 +1,4 @@
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 // @vitest-environment happy-dom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -12,7 +13,6 @@ import {
   dispatchNavLinkTarget,
   formatThreadAge,
   isElectronEmbeddedSearch,
-  isSettingsShellPath,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
@@ -30,13 +30,27 @@ const clientState = vi.hoisted(() => ({
     .mockResolvedValue({ startUrl: "about:blank" }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
   ) => navigate(path),
   useAgentChatHomeHandoff: () => false,
   useAgentChatHomeHandoffLinks: vi.fn(),
+  useChatModels: () => ({
+    availableModels: [],
+    defaultModel: "auto",
+    selectedModel: "auto",
+    selectedEngine: "",
+    selectedEffort: "medium" as const,
+    isLoading: false,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
   useChatThreads: () => ({
     threads: clientState.threads,
     activeThreadId: "active-thread",
@@ -65,9 +79,11 @@ vi.mock("@agent-native/core/client/api-path", () => ({
     clientState.basePath && path.startsWith("/")
       ? `${clientState.basePath}${path}`
       : path,
+  frameworkRoutePrefix: () => "",
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionQuery: (action: string) => ({
     data:
       action === "list-workspace-apps" ? clientState.workspaceApps : undefined,
@@ -87,6 +103,7 @@ vi.mock("next-themes", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
   useT: () => (key: string, values?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "dispatch.nav.chat": "Chat",
@@ -113,6 +130,10 @@ vi.mock("@agent-native/toolkit/app/shared", async (importOriginal) => ({
     typeof import("@agent-native/toolkit/app/shared")
   >()),
   openCommandMenu: vi.fn(),
+}));
+
+vi.mock("../create-app-popover", () => ({
+  CreateAppPopover: () => null,
 }));
 
 vi.mock("@agent-native/toolkit/app/feedback", () => ({
@@ -204,14 +225,14 @@ describe("Dispatch workspace app sidebar", () => {
 
 describe("Dispatch Settings frame", () => {
   it("drops the Dispatch chrome on Settings", () => {
-    expect(isSettingsShellPath("/settings")).toBe(true);
-    expect(isSettingsShellPath("/settings/members")).toBe(true);
-    expect(isSettingsShellPath("/settings/app")).toBe(true);
+    expect(isSettingsPathname("/settings")).toBe(true);
+    expect(isSettingsPathname("/settings/members")).toBe(true);
+    expect(isSettingsPathname("/settings/app")).toBe(true);
   });
 
   it("keeps the Dispatch chrome off Settings", () => {
-    expect(isSettingsShellPath("/admin")).toBe(false);
-    expect(isSettingsShellPath("/apps/mail/settings")).toBe(false);
+    expect(isSettingsPathname("/admin")).toBe(false);
+    expect(isSettingsPathname("/apps/mail/settings")).toBe(false);
   });
 });
 
@@ -748,8 +769,8 @@ describe("chat-first surface panel toggle stacking", () => {
   it("keeps the toggle above the mobile full-screen surface panel overlay", async () => {
     const { ChatFirstSurfacePanelToggle: RealChatFirstSurfacePanelToggle } =
       await vi.importActual<
-        typeof import("@agent-native/core/client/agent-chat")
-      >("@agent-native/core/client/agent-chat");
+        typeof import("@agent-native/toolkit/app/chat/chat-first")
+      >("@agent-native/toolkit/app/chat/chat-first");
     const { ChatFirstSurfacePanel } =
       await import("@agent-native/toolkit/app/chat/chat-first");
 

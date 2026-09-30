@@ -1,5 +1,5 @@
 ---
-"@agent-native/core": patch
+"@agent-native/dispatch": patch
 ---
 
-Keep Dispatch inside the dev SSR transform graph so generated workspaces can load its routes.
+Keep the package changelog in Dispatch's route wrapper so generated workspaces can render the shared Settings page during SSR.

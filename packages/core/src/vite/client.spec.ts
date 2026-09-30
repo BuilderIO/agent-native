@@ -4078,7 +4078,7 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(fakeCore, { recursive: true, force: true });
   });
 
-  it("keeps framework packages inside the dev SSR graph", () => {
+  it("keeps react-router inside the dev SSR graph so dedupe applies", () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-ssr-"));
     fs.writeFileSync(
@@ -4086,7 +4086,6 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "react-router": "^8.0.1",
-          "@agent-native/dispatch": "^0.40.2",
         },
       }),
     );
@@ -4118,18 +4117,10 @@ describe("local-core dev aliases and router dedupe", () => {
           entry.test("react-router/dom") &&
           !entry.test("react-router-extra"),
       );
-      const dispatchNoExternal = noExternal.find(
-        (entry) =>
-          entry instanceof RegExp &&
-          entry.test("@agent-native/dispatch") &&
-          entry.test("@agent-native/dispatch/routes/pages/settings") &&
-          !entry.test("@agent-native/dispatch-extra"),
-      );
 
       expect(coreNoExternal).toBeDefined();
       expect(toolkitNoExternal).toBeDefined();
       expect(routerNoExternal).toBeDefined();
-      expect(dispatchNoExternal).toBeDefined();
       expect(external).not.toContain("react-router");
       expect(external).not.toContain("react-router/dom");
     } finally {
