@@ -24,6 +24,8 @@ export interface RenderPngBlobArgs {
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   overviewScreens: OverviewScreen[];
+  prepareScreenForExport?: (screenId: string) => void | Promise<void>;
+  releaseScreenFromExport?: () => void;
   resolvePngCaptureTarget: (
     scope: PngCaptureScope,
     screenId?: string,
@@ -95,6 +97,8 @@ export async function runRenderPngBlob(
   {
     canvasFrameGeometryById,
     overviewScreens,
+    prepareScreenForExport,
+    releaseScreenFromExport,
     resolvePngCaptureTarget,
     selectedScreenIds,
     viewMode,
@@ -127,10 +131,15 @@ export async function runRenderPngBlob(
         }
       > = [];
       for (const screenId of selectedScreenIds) {
-        const target = resolvePngCaptureTarget(scope, screenId);
-        const prepared = await prepareExportCaptureTarget(target);
-        preparedTargets.push(prepared);
-        captureSources.push({ screenId, ...prepared });
+        try {
+          await prepareScreenForExport?.(screenId);
+          const target = resolvePngCaptureTarget(scope, screenId);
+          const prepared = await prepareExportCaptureTarget(target);
+          preparedTargets.push(prepared);
+          captureSources.push({ screenId, ...prepared });
+        } finally {
+          releaseScreenFromExport?.();
+        }
       }
       const exportFrames = resolveSelectedScreenExportFrames({
         selectedScreenIds,

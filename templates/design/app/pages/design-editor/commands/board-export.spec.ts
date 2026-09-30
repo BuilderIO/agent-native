@@ -210,13 +210,27 @@ describe("board document exports", () => {
       );
 
     try {
+      const events: string[] = [];
       const args = {
         ...renderArgs({ doc: iframe.contentDocument!, iframe }),
         overviewScreens: [
           { id: "screen-1", width: 320, height: 200 },
         ] as never[],
+        prepareScreenForExport: vi.fn(async () => {
+          await Promise.resolve();
+          events.push("ready:screen-1");
+        }),
+        releaseScreenFromExport: vi.fn(() => events.push("release")),
         selectedScreenIds: ["screen-1"],
       };
+      args.resolvePngCaptureTarget = vi.fn(() => {
+        events.push("target:screen-1");
+        return {
+          cropSelection: null,
+          doc: iframe.contentDocument!,
+          iframe,
+        };
+      });
       const resolvePngCaptureTarget = vi.fn(() => ({
         cropSelection: null,
         doc: iframe.contentDocument!,
@@ -239,7 +253,14 @@ describe("board document exports", () => {
         "screens",
       );
 
+      expect(args.resolvePngCaptureTarget).toHaveBeenCalledWith(
+        "screens",
+        "screen-1",
+      );
       expect(resolvePngCaptureTarget).toHaveBeenCalledWith("screens");
+      expect(args.prepareScreenForExport).toHaveBeenCalledWith("screen-1");
+      expect(args.releaseScreenFromExport).toHaveBeenCalledOnce();
+      expect(events).toEqual(["ready:screen-1", "target:screen-1", "release"]);
       expect(mocks.html2canvas).toHaveBeenCalled();
       expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
         expect.objectContaining({ width: 320, height: 200 }),

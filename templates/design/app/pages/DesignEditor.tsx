@@ -19515,6 +19515,72 @@ function DesignEditor() {
         : [];
   }, [activeCodeLayerProjection.nodes, selectedElement, selectedLayerIdsState]);
 
+  const resolveSnapshotExportSource = useCallback(
+    async (screenId: string) => {
+      const screen = overviewScreens.find(
+        (candidate) => candidate.id === screenId,
+      );
+      if (!screen) return null;
+      const deadline = window.performance.now() + 15_000;
+      while (window.performance.now() < deadline) {
+        const snapshot = runtimeLayerSnapshotsByIdRef.current[screenId];
+        const baseUrl =
+          liveScreenSnapshotsById[screenId]?.url ??
+          previewUrlAtLiveRoute(
+            screen.url ?? screen.previewUrl,
+            liveRoutePathsByScreenIdRef.current[screenId],
+          );
+        if (
+          snapshot?.html &&
+          baseUrl &&
+          isCurrentRuntimeLayerSnapshot(
+            snapshot,
+            runtimeLayerSnapshotReadinessByIdRef.current[screenId],
+          )
+        ) {
+          return { html: snapshot.html, baseUrl };
+        }
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
+      }
+      return null;
+    },
+    [liveScreenSnapshotsById, overviewScreens],
+  );
+  const markScreenForExport = useCallback(
+    (screenId: string) => {
+      if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) {
+        runtimeLayerSnapshotReadinessByIdRef.current[screenId] = {
+          status: "loading",
+        };
+      }
+      exportPreviewScreenIdRef.current = screenId;
+      setExportPreviewScreenId(screenId);
+    },
+    [setExportPreviewScreenId],
+  );
+  const prepareSelectedScreenForExport = useCallback(
+    async (screenId: string) => {
+      const screen = overviewScreens.find(
+        (candidate) => candidate.id === screenId,
+      );
+      const sourceType =
+        normalizeDesignSourceType(screen?.sourceType) ?? activeCanvasSourceType;
+      if (sourceType === "inline") return;
+      markScreenForExport(screenId);
+      await resolveSnapshotExportSource(screenId);
+    },
+    [
+      activeCanvasSourceType,
+      markScreenForExport,
+      overviewScreens,
+      resolveSnapshotExportSource,
+    ],
+  );
+  const releaseScreenFromExport = useCallback(() => {
+    exportPreviewScreenIdRef.current = null;
+    setExportPreviewScreenId(null);
+  }, [setExportPreviewScreenId]);
+
   const resolvePngCaptureTarget = useCallback(
     (scope: PngCaptureScope, requestedScreenId?: string) => {
       let iframe = canvasIframeRef.current;
@@ -19671,6 +19737,8 @@ function DesignEditor() {
           canEditDesign,
           canvasFrameGeometryById: exportCanvasFrameGeometryById,
           overviewScreens,
+          prepareScreenForExport: prepareSelectedScreenForExport,
+          releaseScreenFromExport,
           resolvePngCaptureTarget,
           selectedScreenIds,
           viewMode,
@@ -19682,6 +19750,8 @@ function DesignEditor() {
       canEditDesign,
       exportCanvasFrameGeometryById,
       overviewScreens,
+      prepareSelectedScreenForExport,
+      releaseScreenFromExport,
       resolvePngCaptureTarget,
       selectedScreenIds,
       viewMode,
@@ -19793,38 +19863,6 @@ function DesignEditor() {
     ],
   );
 
-  const resolveSnapshotExportSource = useCallback(
-    async (screenId: string) => {
-      const screen = overviewScreens.find(
-        (candidate) => candidate.id === screenId,
-      );
-      if (!screen) return null;
-      const deadline = window.performance.now() + 15_000;
-      while (window.performance.now() < deadline) {
-        const snapshot = runtimeLayerSnapshotsByIdRef.current[screenId];
-        const baseUrl =
-          liveScreenSnapshotsById[screenId]?.url ??
-          previewUrlAtLiveRoute(
-            screen.url ?? screen.previewUrl,
-            liveRoutePathsByScreenIdRef.current[screenId],
-          );
-        if (
-          snapshot?.html &&
-          baseUrl &&
-          isCurrentRuntimeLayerSnapshot(
-            snapshot,
-            runtimeLayerSnapshotReadinessByIdRef.current[screenId],
-          )
-        ) {
-          return { html: snapshot.html, baseUrl };
-        }
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
-      }
-      return null;
-    },
-    [liveScreenSnapshotsById, overviewScreens],
-  );
-
   const handleDownloadAllScreensPdf = useCallback(
     async () =>
       runDownloadAllScreensPdf({
@@ -19833,20 +19871,9 @@ function DesignEditor() {
         canvasFrameGeometryById: exportCanvasFrameGeometryById,
         fallbackExportName,
         overviewScreens,
-        prepareScreenForExport: (screenId) => {
-          if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) {
-            runtimeLayerSnapshotReadinessByIdRef.current[screenId] = {
-              status: "loading",
-            };
-          }
-          exportPreviewScreenIdRef.current = screenId;
-          setExportPreviewScreenId(screenId);
-        },
+        prepareScreenForExport: markScreenForExport,
         resolveSnapshotExportSource,
-        releaseScreenFromExport: () => {
-          exportPreviewScreenIdRef.current = null;
-          setExportPreviewScreenId(null);
-        },
+        releaseScreenFromExport,
         pngExportingRef,
         setPngExporting,
         showRasterCaptureError,
@@ -19859,8 +19886,9 @@ function DesignEditor() {
       exportCanvasFrameGeometryById,
       fallbackExportName,
       overviewScreens,
+      markScreenForExport,
       resolveSnapshotExportSource,
-      setExportPreviewScreenId,
+      releaseScreenFromExport,
       showRasterCaptureError,
       t,
       triggerBlobDownload,
