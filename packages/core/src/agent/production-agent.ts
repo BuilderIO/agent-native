@@ -4472,9 +4472,9 @@ function getRawToolInputValidator(
   schema: RawJsonSchema,
   useMcpDefaultDialect = false,
 ): ValidateFunction {
-  const cached = rawToolInputValidatorCache.get(schema)?.get(
-    useMcpDefaultDialect,
-  );
+  const cached = rawToolInputValidatorCache
+    .get(schema)
+    ?.get(useMcpDefaultDialect);
   if (cached) return cached;
   const declaredDialect = (schema as { $schema?: unknown }).$schema;
   const normalizedDialect =
