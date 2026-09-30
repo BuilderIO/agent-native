@@ -383,6 +383,7 @@ vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
 import { Header } from "@/components/layout/Header";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { deckIdFromPathname } from "@/context/DeckContext";
+import { IMPORT_ACTION_TIMEOUT_MS } from "@/lib/import-uploaded-deck";
 
 import Index from "./Index";
 
@@ -1661,9 +1662,58 @@ describe("Slides prompt-led home", () => {
       ).importFile(new File(["pptx"], "direct.pptx"), "pptx");
     });
 
+    expect(callAction).toHaveBeenCalledWith(
+      "import-pptx",
+      expect.objectContaining({ filePath: uploaded.path }),
+      { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+    );
     expect(promptUploads.cleanupUploadedPromptFiles).toHaveBeenCalledWith([
       uploaded,
     ]);
+  });
+
+  it("uses the extended action timeout for direct PDF imports", async () => {
+    const uploaded = {
+      path: "/uploads/direct.pdf",
+      originalName: "direct.pdf",
+      filename: "direct.pdf",
+      type: "application/pdf",
+      size: 4,
+    };
+    createDeck.mockReturnValue({ id: "direct-deck" });
+    promptUploads.uploadPromptFiles.mockResolvedValue([uploaded]);
+    callAction.mockResolvedValueOnce({
+      imported: true,
+      deckId: "direct-deck",
+      pageCount: 1,
+    });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await (
+        homeImport.current as {
+          importFile: (file: File, scope: "pdf") => Promise<boolean>;
+        }
+      ).importFile(
+        new File(["pdf"], "direct.pdf", { type: "application/pdf" }),
+        "pdf",
+      );
+    });
+
+    expect(callAction).toHaveBeenCalledWith(
+      "import-file",
+      expect.objectContaining({
+        filePath: uploaded.path,
+        format: "pdf",
+        deckId: "direct-deck",
+        importIntoDeck: true,
+      }),
+      { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+    );
   });
 
   it("preserves the filename when a direct-import upload needs sign-in", async () => {
