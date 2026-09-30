@@ -795,6 +795,12 @@ describe("DeckContext deck creation persistence", () => {
           {
             op: "patch-slide",
             slideId: "slide-1",
+            fields: { content: "First", notes: "Persisted notes" },
+            baseContentHash: hashSlideContent("Before"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
             fields: { content: "Latest" },
             baseContentHash: hashSlideContent("Before"),
           },
@@ -802,8 +808,17 @@ describe("DeckContext deck creation persistence", () => {
       }),
     });
     expect(applied.status).toBe(200);
+    const persistedResponse = await fetchMock(
+      `/_agent-native/actions/get-deck?id=${initial.id}`,
+    );
+    const persistedDeck = (await persistedResponse.json()) as Deck;
+    expect(persistedResponse.status).toBe(200);
+    expect(persistedDeck.slides[0]).toMatchObject({
+      content: "Latest",
+      notes: "Persisted notes",
+    });
+    expect(persistedDeck.updatedAt).not.toBe(initial.updatedAt);
     expect(getAccessibleDeck()?.slides[0]?.content).toBe("Latest");
-    expect(getAccessibleDeck()?.updatedAt).not.toBe(initial.updatedAt);
   });
 
   it("exposes an initial deck-list failure instead of an authoritative empty list", async () => {
@@ -2431,6 +2446,81 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
   });
 
+  it("keeps a conflicted slide draft after a delayed blur commit", async () => {
+    window.history.pushState({}, "", "/deck/inline-conflict-delayed-commit");
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      getPutAttempts,
+      getAccessibleDeck,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-conflict-delayed-commit",
+      title: "Conflict delayed commit",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "User typing" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [{ ...initial.slides[0]!, content: "Agent edit" }],
+    });
+    resolveDeferredPatch(409, "slide_content_stale");
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2_100));
+    });
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "User committed",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+    });
+
+    expect(getPutAttempts(initial.id)).toBe(0);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck"),
+      ),
+    ).toBe(false);
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe("User committed");
+    expect(getStaleContentConflictSlideId(initial.id)).toBe("slide-1");
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Agent edit");
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+  }, 20_000);
+
   it("does not cancel another slide's debounce when holding a conflicted draft", async () => {
     window.history.pushState({}, "", "/deck/inline-conflict-debounce-order");
     const {
@@ -2494,14 +2584,20 @@ describe("DeckContext deck creation persistence", () => {
       });
     });
     await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    expect(getAccessibleDeck()?.slides[1]?.notes).toBe("Independent note edit");
+
+    await act(async () => {
       await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
         "unresolved slide content conflict",
       );
     });
 
-    expect(getPatchAttempts(initial.id)).toBe(2);
     expect(getAccessibleDeck()?.slides[0]?.content).toBe("Remote edit");
-    expect(getAccessibleDeck()?.slides[1]?.notes).toBe("Independent note edit");
     expect(getStaleContentDraft(initial.id, "slide-1")).toBe(
       "Newest held draft",
     );
