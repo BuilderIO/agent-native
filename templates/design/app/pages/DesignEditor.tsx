@@ -17734,6 +17734,9 @@ function DesignEditor() {
     if (restored.length > 0) return restored;
     return activeFileId && fileIds.has(activeFileId) ? [activeFileId] : [];
   }, [activeFileId, files]);
+  const rememberOverviewScreenSelection = useCallback((screenId: string) => {
+    lastOverviewSelectedScreenIdsRef.current = [screenId];
+  }, []);
 
   const enterOverviewFromZoom = useCallback(
     (nextMode?: EditorMode) => {
@@ -17878,6 +17881,7 @@ function DesignEditor() {
           setMode,
           setPinMode,
           setSelectedElement,
+          rememberOverviewScreenSelection,
           overviewInteractScreenId,
           setOverviewInteractScreenId,
           t,
@@ -17898,6 +17902,7 @@ function DesignEditor() {
       enterSingleScreen,
       requestPendingLiveNonStyleRevert,
       requestPendingVisualStyleRevert,
+      rememberOverviewScreenSelection,
       t,
       files,
       overviewInteractScreenId,
