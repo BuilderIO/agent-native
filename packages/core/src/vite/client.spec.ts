@@ -3449,6 +3449,10 @@ describe("Vite SSR stubs", () => {
     expect(await plugin.resolveId("yjs", undefined, { ssr: false })).toBeNull();
 
     const code = await plugin.load("\0agent-native-ssr-stub");
+    const stubs = await import(
+      `data:text/javascript,${encodeURIComponent(code)}`
+    );
+    expect(() => new stubs.PluginKey("ssr")).not.toThrow();
     expect(code).toContain("export const Doc = stub;");
     expect(code).toContain("export const Map = stub;");
     expect(code).toContain("export const encodeStateVector = stub;");
