@@ -287,38 +287,27 @@ const AGENT_PANEL_CONTROL_STYLE = {
   lineHeight: 1,
 } satisfies React.CSSProperties;
 const ACTIVATE_KEYS = new Set(["Enter", " "]);
-const AGENT_PANEL_MENU_EXIT_DURATION_MS = 100;
-type AgentPanelOverlayOpenTiming = "animation-frame" | "timeout";
 
 export function deferAgentPanelOverlayOpen(
   event: { preventDefault: () => void },
   closeMenu: () => void,
   openOverlay: () => void,
-  timing: AgentPanelOverlayOpenTiming = "animation-frame",
+  pendingOverlayRef: { current: (() => void) | null },
 ): void {
   event.preventDefault();
+  pendingOverlayRef.current = openOverlay;
   closeMenu();
-  if (timing === "timeout") {
-    setTimeout(openOverlay, AGENT_PANEL_MENU_EXIT_DURATION_MS);
-    return;
-  }
-  if (
-    typeof window !== "undefined" &&
-    typeof window.requestAnimationFrame === "function"
-  ) {
-    window.requestAnimationFrame(() => openOverlay());
-  } else {
-    setTimeout(openOverlay, 0);
-  }
 }
 
 export function consumeAgentPanelOverlayFocusRestore(
-  pendingOverlayRef: { current: boolean },
+  pendingOverlayRef: { current: (() => void) | null },
   event: { preventDefault: () => void },
 ): void {
-  if (!pendingOverlayRef.current) return;
-  pendingOverlayRef.current = false;
+  const openOverlay = pendingOverlayRef.current;
+  if (!openOverlay) return;
+  pendingOverlayRef.current = null;
   event.preventDefault();
+  openOverlay();
 }
 
 interface AvailableCli {
@@ -1209,9 +1198,8 @@ function AgentPanelInner({
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
-  const preventHeaderMenuFocusRestoreRef = useRef(false);
+  const pendingHeaderOverlayRef = useRef<(() => void) | null>(null);
   const closeHeaderMenuForOverlay = useCallback(() => {
-    preventHeaderMenuFocusRestoreRef.current = true;
     setHeaderMenuOpen(false);
   }, []);
 
@@ -1402,7 +1390,7 @@ function AgentPanelInner({
             className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-48 overflow-y-auto"
             onCloseAutoFocus={(event) => {
               consumeAgentPanelOverlayFocusRestore(
-                preventHeaderMenuFocusRestoreRef,
+                pendingHeaderOverlayRef,
                 event,
               );
             }}
@@ -1515,7 +1503,7 @@ function AgentPanelInner({
                         event,
                         closeHeaderMenuForOverlay,
                         () => setShareFromMenuOpen(true),
-                        "timeout",
+                        pendingHeaderOverlayRef,
                       )
                     }
                   >
@@ -1531,7 +1519,7 @@ function AgentPanelInner({
                     event,
                     closeHeaderMenuForOverlay,
                     toggleHistory,
-                    "timeout",
+                    pendingHeaderOverlayRef,
                   )
                 }
               >
@@ -1580,6 +1568,7 @@ function AgentPanelInner({
                     event,
                     closeHeaderMenuForOverlay,
                     () => setFeedbackOpen(true),
+                    pendingHeaderOverlayRef,
                   )
                 }
               >
@@ -1777,7 +1766,7 @@ function AgentPanelInner({
                       className="w-44"
                       onCloseAutoFocus={(event) => {
                         consumeAgentPanelOverlayFocusRestore(
-                          preventHeaderMenuFocusRestoreRef,
+                          pendingHeaderOverlayRef,
                           event,
                         );
                       }}
@@ -1789,7 +1778,7 @@ function AgentPanelInner({
                               event,
                               closeHeaderMenuForOverlay,
                               toggleHistory,
-                              "timeout",
+                              pendingHeaderOverlayRef,
                             )
                           }
                         >
@@ -1854,7 +1843,7 @@ function AgentPanelInner({
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
       pageToolbarSlot,
-      preventHeaderMenuFocusRestoreRef,
+      pendingHeaderOverlayRef,
       setHeaderMenuOpen,
       showPageNewChatButton,
       t,

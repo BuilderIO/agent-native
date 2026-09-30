@@ -25,10 +25,9 @@ function OverlayHandoffHarness({
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
-  const pendingOverlayRef = useRef(false);
+  const pendingOverlayRef = useRef<(() => void) | null>(null);
 
   const closeMenuForOverlay = () => {
-    pendingOverlayRef.current = true;
     setMenuOpen(false);
   };
 
@@ -53,7 +52,7 @@ function OverlayHandoffHarness({
                 event,
                 closeMenuForOverlay,
                 () => setHistoryOpen(true),
-                "timeout",
+                pendingOverlayRef,
               )
             }
           >
@@ -62,8 +61,11 @@ function OverlayHandoffHarness({
           <DropdownMenuItem
             data-testid="feedback-item"
             onSelect={(event) =>
-              deferAgentPanelOverlayOpen(event, closeMenuForOverlay, () =>
-                setFeedbackOpen(true),
+              deferAgentPanelOverlayOpen(
+                event,
+                closeMenuForOverlay,
+                () => setFeedbackOpen(true),
+                pendingOverlayRef,
               )
             }
           >
@@ -76,7 +78,7 @@ function OverlayHandoffHarness({
                 event,
                 closeMenuForOverlay,
                 () => setShareFromMenuOpen(true),
-                "timeout",
+                pendingOverlayRef,
               )
             }
           >
@@ -139,32 +141,23 @@ function OverlayHandoffHarness({
 describe("AgentPanel sibling overlay handoff", () => {
   let container: HTMLDivElement;
   let root: Root;
-  let frames: Array<FrameRequestCallback>;
-  let requestAnimationFrame: typeof window.requestAnimationFrame;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    frames = [];
-    requestAnimationFrame = window.requestAnimationFrame;
-    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-      frames.push(callback);
-      return frames.length;
-    }) as typeof window.requestAnimationFrame;
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
-    window.requestAnimationFrame = requestAnimationFrame;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it("keeps feedback open after the menu restores focus", async () => {
+  it("opens feedback after the menu closes", async () => {
     const focusRestorePrevented = vi.fn();
 
     await act(async () => {
@@ -204,20 +197,14 @@ describe("AgentPanel sibling overlay handoff", () => {
     });
 
     expect(focusRestorePrevented).toHaveBeenCalledWith(true);
-    expect(frames).toHaveLength(1);
-
-    await act(async () => {
-      frames[0]!(0);
-    });
 
     expect(
       document.body.querySelector('[data-testid="feedback-content"]'),
     ).toBeTruthy();
   });
 
-  it("keeps All chats open after the menu restores focus", async () => {
+  it("keeps All chats open after the menu closes", async () => {
     const focusRestorePrevented = vi.fn();
-    vi.useFakeTimers();
 
     await act(async () => {
       root.render(
@@ -251,19 +238,8 @@ describe("AgentPanel sibling overlay handoff", () => {
         );
     });
 
-    expect(
-      document.body.querySelector('[data-testid="history-content"]'),
-    ).toBeNull();
-
-    act(() => {
-      vi.advanceTimersByTime(99);
-    });
-    expect(
-      document.body.querySelector('[data-testid="history-content"]'),
-    ).toBeNull();
-
-    act(() => {
-      vi.advanceTimersByTime(1);
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 150));
     });
 
     expect(focusRestorePrevented).toHaveBeenCalledWith(true);
@@ -274,7 +250,6 @@ describe("AgentPanel sibling overlay handoff", () => {
 
   it("opens the share popover after clicking Share in the overflow menu", async () => {
     const focusRestorePrevented = vi.fn();
-    vi.useFakeTimers();
 
     await act(async () => {
       root.render(
@@ -309,20 +284,8 @@ describe("AgentPanel sibling overlay handoff", () => {
         );
     });
 
-    expect(frames).toHaveLength(0);
-    expect(
-      document.body.querySelector('[data-testid="share-content"]'),
-    ).toBeNull();
-
-    act(() => {
-      vi.advanceTimersByTime(99);
-    });
-    expect(
-      document.body.querySelector('[data-testid="share-content"]'),
-    ).toBeNull();
-
-    act(() => {
-      vi.advanceTimersByTime(1);
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 150));
     });
 
     expect(focusRestorePrevented).toHaveBeenCalledWith(true);
