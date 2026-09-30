@@ -1243,6 +1243,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}}에게 요청 중...",
   "tool.elapsed": "{{duration}} 경과",
   "tool.askingAgentFailed": "{{agent}}에게 요청하는 중 오류 발생",
+  "tool.failedWithoutDetails": "오류 세부 정보가 없습니다.",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",
   "tool.interrupted":

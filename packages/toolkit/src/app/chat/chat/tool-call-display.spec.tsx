@@ -508,6 +508,55 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain(errorMessage);
   });
 
+  it("keeps failed delegated subtools expandable without error text", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          argsText='{"task":"query the warehouse"}'
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "complete",
+              reasoning: [],
+              toolCalls: [
+                {
+                  id: "query-1",
+                  name: "query-warehouse",
+                  status: "failed",
+                },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    const delegation = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    act(() => delegation?.click());
+    const subtool = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    ).find((button) => button.textContent?.includes("query warehouse"));
+    expect(subtool?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(
+      "No error details are available.",
+    );
+
+    act(() => subtool?.click());
+
+    expect(subtool?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("No error details are available.");
+  });
+
   it("keeps an unresolved delegated agent visibly running when chat state dips", () => {
     act(() => {
       root.render(
@@ -1436,6 +1485,44 @@ describe("ToolCallDisplay native renderers", () => {
     expect(
       container.querySelector("[data-agent-native-cube-loader]"),
     ).not.toBeNull();
+  });
+
+  it("keeps reconnect tool errors expandable without showing them in the row", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "failed-tool-1",
+        toolName: "update-slide",
+        argsText: "",
+        args: {},
+        isError: true,
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).toContain("update slide");
+    expect(container.textContent).not.toContain(
+      "No error details are available.",
+    );
+    expect(
+      container.querySelector("[data-agent-native-cube-loader]"),
+    ).toBeNull();
+
+    act(() => disclosure?.click());
+
+    expect(container.textContent).toContain("No error details are available.");
+    expect(container.querySelector(".text-destructive")).toBeNull();
   });
 
   it("does not spin frozen reconnect activity cards", () => {

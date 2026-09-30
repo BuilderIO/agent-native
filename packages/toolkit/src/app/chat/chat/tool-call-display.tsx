@@ -672,16 +672,17 @@ export function ToolCallDisplay({
   const isDelegatedAgentCall =
     toolName === "call-agent" || toolName.startsWith("agent:");
   const effectiveIsRunning =
-    isRunning ||
-    (isDelegatedAgentCall &&
-      isToolCallActive({
-        type: "tool-call",
-        toolName,
-        result,
-        outcome,
-        activity,
-        structuredMeta,
-      }));
+    !isError &&
+    (isRunning ||
+      (isDelegatedAgentCall &&
+        isToolCallActive({
+          type: "tool-call",
+          toolName,
+          result,
+          outcome,
+          activity,
+          structuredMeta,
+        })));
   const showActiveTail = isActiveTail ?? isLatestRunning;
   const toolKind = structuredMeta?.toolKind as string | undefined;
   const wrapToolDisplay = (children: React.ReactNode) => (
@@ -946,7 +947,7 @@ function ToolCallDisplayGeneric({
 
   const canExpand = isAgentCall
     ? hasStreamText
-    : hasArgs || result !== undefined;
+    : hasArgs || result !== undefined || isError;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
   const integration = resolveToolIntegration(toolName, args);
   const ToolIcon = resolveToolIcon(toolName);
@@ -1061,7 +1062,11 @@ function ToolCallDisplayGeneric({
         ) : null}
       </button>
       <AnimatedCollapse
-        open={isExpanded && !isAgentCall && (hasArgs || result !== undefined)}
+        open={
+          isExpanded &&
+          !isAgentCall &&
+          (hasArgs || result !== undefined || isError)
+        }
       >
         <div className={cn("mt-1 space-y-2", !embeddedInWorkSummary && "pl-5")}>
           {inputPayload && (
@@ -1070,9 +1075,9 @@ function ToolCallDisplayGeneric({
               lang={inputPayload.lang}
             />
           )}
-          {isError && result ? (
+          {isError ? (
             <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
-              {result}
+              {result || t("agentChat.tool.failedWithoutDetails")}
             </div>
           ) : resultPayload ? (
             <ToolOutputPopover
@@ -1301,7 +1306,12 @@ function AgentActivityToolCallRow({
   const [open, setOpen] = useState(false);
   const t = useT();
   const isRunning = tool.status === "running";
-  const failureDetails = tool.status === "failed" ? tool.result : undefined;
+  const failureDetails =
+    tool.status === "failed"
+      ? tool.result?.trim()
+        ? tool.result
+        : t("agentChat.tool.failedWithoutDetails")
+      : undefined;
   const integration = resolveToolIntegration(
     tool.name,
     tool.input ? parseJsonText(tool.input) : undefined,
@@ -1341,7 +1351,7 @@ function AgentActivityToolCallRow({
       toolCallId={tool.id}
       suppressLongRunningHint
     >
-      {failureDetails ? (
+      {tool.status === "failed" ? (
         <div>
           <button
             type="button"
@@ -1456,6 +1466,7 @@ export function ReconnectStreamMessage({
   const latestActiveToolIndex = content.reduce(
     (latestIndex, part, index) =>
       part.type === "tool-call" &&
+      !part.isError &&
       !isCallAgentToolCallShadowed(content, index) &&
       (chatRunning || (allowActivitySpinner && part.activity === true))
         ? index
@@ -1497,12 +1508,14 @@ export function ReconnectStreamMessage({
         argsText={part.argsText}
         args={part.args}
         result={part.result}
+        isError={part.isError}
         mcpApp={part.mcpApp}
         chatUI={part.chatUI}
         structuredMeta={part.structuredMeta}
         activity={part.activity}
         outcome={part.outcome}
         isRunning={
+          !part.isError &&
           part.result === undefined &&
           (chatRunning || (allowActivitySpinner && part.activity === true))
         }

@@ -1259,6 +1259,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "جارٍ سؤال {{agent}}...",
   "tool.elapsed": "انقضت {{duration}}",
   "tool.askingAgentFailed": "حدث خطأ أثناء سؤال {{agent}}",
+  "tool.failedWithoutDetails": "لا تتوفر تفاصيل للخطأ.",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",
   "tool.interrupted":

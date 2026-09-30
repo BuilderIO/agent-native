@@ -1130,6 +1130,78 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
+  it("falls back to Thinking when the newest activity has completed", async () => {
+    const threadId = "thread-completed-latest-activity";
+    const runId = "run-completed-latest-activity";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events: [
+        {
+          id: "activity-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "read-components",
+            kind: "read",
+            label: "Reading components.tsx",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "activity-completed",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-28T00:00:02.000Z",
+          type: "activity.completed" as const,
+          activity: {
+            id: "read-components",
+            kind: "read",
+            label: "Reading components.tsx",
+            status: "completed" as const,
+            completedAt: "2026-09-28T00:00:02.000Z",
+          },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 2,
+          startedAt: "2026-09-28T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    const current = tree.container.querySelector(
+      "[data-agentkit-current-activity]",
+    );
+    expect(current?.textContent).toBe("Thinking");
+    expect(current?.querySelector(".agent-running-shimmer")).not.toBeNull();
+    expect(
+      tree.container.querySelector(".agentkit-activities-summary")?.textContent,
+    ).not.toContain("Reading components.tsx");
+    await tree.unmount();
+  });
+
   it("keeps bounded activity history settled while its run continues", async () => {
     const threadId = "thread-settled-segment";
     const runId = "run-settled-segment";

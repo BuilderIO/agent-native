@@ -1022,8 +1022,9 @@ export function AgentActivityGroup({
   const activityItems = items.filter(
     (activity) => !durableToolResultIds.has(activity.id),
   );
-  const latestActivity = items.reduce<AgentActivity | undefined>(
+  const latestRunningActivity = items.reduce<AgentActivity | undefined>(
     (current, activity) => {
+      if (activity.status !== "running") return current;
       if (!current) return activity;
       return (latestSequence.get(activity.id) ?? -1) >=
         (latestSequence.get(current.id) ?? -1)
@@ -1076,7 +1077,7 @@ export function AgentActivityGroup({
         ["completed", "failed", "cancelled"].includes(run.status)));
   if (items.length === 0 && !activelyWorking) return null;
   const currentActivity = activelyWorking
-    ? (latestActivity ?? {
+    ? (latestRunningActivity ?? {
         id: `thinking:${runId ?? thread.id}`,
         kind: "model",
         label: labels.reasoning,

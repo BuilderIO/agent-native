@@ -1264,6 +1264,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} に問い合わせ中...",
   "tool.elapsed": "{{duration}} 経過",
   "tool.askingAgentFailed": "{{agent}} への問い合わせ中にエラーが発生しました",
+  "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
   "tool.interrupted":

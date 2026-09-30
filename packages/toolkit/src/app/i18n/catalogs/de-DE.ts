@@ -894,6 +894,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} wird gefragt...",
   "tool.elapsed": "{{duration}} vergangen",
   "tool.askingAgentFailed": "Fehler beim Fragen von {{agent}}",
+  "tool.failedWithoutDetails": "Keine Fehlerdetails verfügbar.",
   "tool.input": "Eingabe",
   "tool.inputWithLabel": "Eingabe – {{label}}",
   "tool.interrupted":
