@@ -1156,6 +1156,35 @@ describe("AgentKitChat interactions", () => {
       ).find((button) => button.textContent?.trim() === "Steer");
       expect(steerButton?.disabled).toBe(false);
 
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-queue">
+            <AgentKitChat composerProps={{ submissionDisabled: true }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      const blockedSteerButton = Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          'section[data-agent-message-queue="true"] button',
+        ),
+      ).find((button) => button.textContent?.trim() === "Steer");
+      expect(blockedSteerButton).toBeUndefined();
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          'section[data-agent-message-queue="true"] button[aria-label="Remove queued message"]',
+        )?.disabled,
+      ).toBe(false);
+
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-queue">
+            <AgentKitChat />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+
       const moreActions = container.querySelectorAll<HTMLButtonElement>(
         'section[data-agent-message-queue="true"] button[aria-label="More actions"]',
       );
