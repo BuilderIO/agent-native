@@ -28,7 +28,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { Spinner } from "../ui/spinner.js";
 import { TooltipProvider } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
@@ -107,6 +106,8 @@ export interface PromptComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
+  /** Scope where a failed submission should be recovered after the host forks. */
+  getSubmitFailureDraftScope?: () => string | null;
   /** Handle file paste/drop errors in the host chat surface. */
   onAttachmentError?: (message: string) => void;
   /** Delegate app-scaffolding prompts to the enclosing Builder chat. */
@@ -136,6 +137,8 @@ export interface PromptComposerProps {
   draftScope?: string;
   /** Keep the submitted prompt in the editor. Default: false. */
   preserveDraftOnSubmit?: boolean;
+  /** Clear the submitted text before the host request finishes. */
+  clearOnSubmitImmediately?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
   /** Controlled open state for hosts that resize around the model picker. */
@@ -339,10 +342,7 @@ export function shouldGateComposerForEngine(
   return state !== "configured";
 }
 
-/**
- * Show setup treatment only for a confirmed-missing engine with a setup
- * component. Unresolved status uses the retry treatment instead.
- */
+/** Show setup treatment only when a confirmed-missing engine has setup UI. */
 export function shouldGateComposerForMissingEngine(input: {
   state: string;
   hasSetupComponent: boolean;
@@ -620,6 +620,7 @@ function PromptComposerInner({
   rootStyle,
   draftScope,
   preserveDraftOnSubmit = false,
+  clearOnSubmitImmediately,
   showModelSelector = true,
   modelSelectorOpen,
   showAutoModelOption = true,
@@ -679,6 +680,7 @@ function PromptComposerInner({
   imageModelMenu,
   composerRef,
   onBeforeSubmit,
+  getSubmitFailureDraftScope,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
 }: PromptComposerProps) {
@@ -761,9 +763,6 @@ function PromptComposerInner({
     ? agentEngineConfigured.state
     : "configured";
   const missingApiKey = engineStatusChecksEnabled && engineState === "missing";
-  const engineStatusUnresolved =
-    engineStatusChecksEnabled &&
-    (engineState === "unknown" || engineState === "unavailable");
   const handleBuilderConnected = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -847,29 +846,20 @@ function PromptComposerInner({
           />
         </div>
       ) : null}
-      {engineStatusUnresolved ? (
-        engineState === "unknown" ? (
-          <div className="mb-2 flex justify-center">
-            <Spinner
-              aria-label={t("common.loading")}
-              className="size-4 text-muted-foreground"
-            />
-          </div>
-        ) : (
-          <div
-            className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-            role="status"
+      {engineState === "unavailable" ? (
+        <div
+          className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+          role="status"
+        >
+          <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+          <button
+            type="button"
+            className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={retryEngineStatus}
           >
-            <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-            <button
-              type="button"
-              className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={retryEngineStatus}
-            >
-              {t("agentChat.common.retry")}
-            </button>
-          </div>
-        )
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
       ) : null}
       <AgentComposerFrame
         className={cn(
@@ -900,7 +890,7 @@ function PromptComposerInner({
           disabled={disabled}
           contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled || engineSubmissionBlocked}
-          submitting={submitting || engineState === "unknown"}
+          submitting={submitting}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}
@@ -909,9 +899,11 @@ function PromptComposerInner({
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
           onBeforeSubmit={onBeforeSubmit}
+          getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           onAttachmentError={onAttachmentError}
           interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
           clearOnSubmit={!preserveDraftOnSubmit}
+          clearOnSubmitImmediately={clearOnSubmitImmediately}
           plusMenuMode={
             plusMenuMode ??
             (attachmentsEnabled || onAttachmentRequest

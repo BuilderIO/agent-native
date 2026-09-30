@@ -15,6 +15,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - The open chat panel is separated from your inbox by a visible divider.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 - Existing compose drafts keep their attachments when revised
 - Scheduled email changes refresh the inbox and schedule list
 

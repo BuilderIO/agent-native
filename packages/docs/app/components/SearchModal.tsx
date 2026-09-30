@@ -534,17 +534,12 @@ export function SearchModal({
         <div className="border-t border-[var(--docs-border)] py-2">
           {providerStatus === "missing" ? (
             <BuilderSetupCard attached fullWidth layout="sidebar" />
-          ) : providerStatus === "unknown" ||
-            providerStatus === "unavailable" ? (
+          ) : providerStatus === "unavailable" ? (
             <div
               className="mx-3 mb-1 flex items-center justify-between gap-3 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--fg-secondary)]"
               role="status"
             >
-              <span>
-                {providerStatus === "unknown"
-                  ? t("agentChat.setup.checkingProvider")
-                  : t("agentChat.setup.providerStatusUnavailable")}
-              </span>
+              <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
               {providerStatus === "unavailable" ? (
                 <button
                   type="button"

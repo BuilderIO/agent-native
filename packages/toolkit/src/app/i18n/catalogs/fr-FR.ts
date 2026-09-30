@@ -859,9 +859,8 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "Connectez l’IA pour commencer à discuter...",
   "setup.connectToChat": "Connecter l’IA au chat",
   "setup.connectToStart": "Connectez l’IA pour commencer à discuter",
-  "setup.checkingProvider": "Vérification de la connexion à l’IA…",
   "setup.providerStatusUnavailable":
-    "Impossible de vérifier la connexion à l’IA.",
+    "Impossible de confirmer que l’IA est prête.",
   "agentNativeClips.meetingAsk.placeholder": "Posez votre question",
   "agentNativeClips.meetingAsk.ariaLabel":
     "Posez une question sur cette réunion",

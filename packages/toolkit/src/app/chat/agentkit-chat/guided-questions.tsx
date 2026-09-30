@@ -454,6 +454,10 @@ export function GuidedQuestionProviderGate({
 }) {
   const t = useT();
 
+  if (providerStatus === "unknown" || providerStatus === "configured") {
+    return null;
+  }
+
   if (providerStatus === "missing") {
     return (
       <BuilderSetupCard fullWidth onConnected={onRetry} onRetry={onRetry} />
@@ -465,20 +469,14 @@ export function GuidedQuestionProviderGate({
       className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
       role="status"
     >
-      <span>
-        {providerStatus === "unknown"
-          ? t("agentChat.setup.checkingProvider")
-          : t("agentChat.setup.providerStatusUnavailable")}
-      </span>
-      {providerStatus === "unavailable" ? (
-        <button
-          type="button"
-          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onRetry}
-        >
-          {t("agentChat.common.retry")}
-        </button>
-      ) : null}
+      <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+      <button
+        type="button"
+        className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onRetry}
+      >
+        {t("agentChat.common.retry")}
+      </button>
     </div>
   );
 }
@@ -522,7 +520,9 @@ export function GuidedQuestionFlow({
     },
     [answers, isSubmissionBlocked, isSubmitting, onSubmit],
   );
-  const inputsDisabled = isSubmitting || isSubmissionBlocked;
+  const submissionsDisabled = isSubmitting || isSubmissionBlocked;
+  const inputsDisabled =
+    isSubmitting || (isSubmissionBlocked && providerStatus !== "unknown");
 
   const allRequiredAnswered = questions
     .filter((question) => question.required)
@@ -593,7 +593,7 @@ export function GuidedQuestionFlow({
             <button
               type="button"
               onClick={onSkip}
-              disabled={inputsDisabled}
+              disabled={submissionsDisabled}
               className="cursor-pointer rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
             >
               {skipLabel}
@@ -601,7 +601,7 @@ export function GuidedQuestionFlow({
             <button
               type="button"
               onClick={() => submitAnswers()}
-              disabled={!allRequiredAnswered || inputsDisabled}
+              disabled={!allRequiredAnswered || submissionsDisabled}
               className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {submitLabel}
