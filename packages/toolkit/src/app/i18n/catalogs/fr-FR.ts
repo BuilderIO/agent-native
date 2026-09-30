@@ -760,6 +760,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "Revenir à ce point ? Les modifications ultérieures seront perdues.",
   "message.restoreRequestFailed": "Échec de la demande de restauration.",
+  "message.historyUnavailable":
+    "Impossible de charger l’historique des modifications.",
   "message.threadNotFound":
     "Ce fil de discussion n’est plus disponible. Démarrez une nouvelle discussion ou réessayez si cela est inattendu.",
   "message.restoring": "Restauration...",

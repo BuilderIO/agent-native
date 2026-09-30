@@ -1013,6 +1013,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "ここまで復元しますか？",
   "message.revertQuestion": "この時点に戻しますか？この後の変更は失われます。",
   "message.restoreRequestFailed": "復元リクエストに失敗しました。",
+  "message.historyUnavailable": "変更履歴を読み込めませんでした。",
   "message.threadNotFound":
     "このチャットスレッドは利用できなくなりました。新しいチャットを開始するか、想定外の場合は再試行してください。",
   "message.restoring": "復元中...",

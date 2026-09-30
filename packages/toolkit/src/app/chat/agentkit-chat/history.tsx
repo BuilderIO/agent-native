@@ -108,6 +108,8 @@ export interface AgentKitHistoryConfig<
 
 export interface AgentKitHistoryContextValue {
   beginningVersion: AgentKitHistoryVersion | null;
+  historyLoadFailed: boolean;
+  isRetryingHistory: boolean;
   isBusy: boolean;
   isRestoring: boolean;
   isSubmissionInFlight: boolean;
@@ -117,6 +119,7 @@ export interface AgentKitHistoryContextValue {
   beginSubmission: () => Promise<(() => void) | null>;
   /** Wait until an in-flight restore has finished before mutating the host. */
   waitForRestore: () => Promise<void>;
+  retryHistory: () => void;
   findVersion: (
     message: AgentKitHistoryMessage,
   ) => AgentKitHistoryVersion | null;
@@ -711,15 +714,18 @@ export function AgentKitHistoryProvider<
   const currentThreadRef = useRef(threadId);
   const initializedRef = useRef(false);
 
-  const versions = useMemo(() => {
-    if (listQuery.data == null) return [];
+  const loadedVersions = useMemo(() => {
+    if (listQuery.data == null) return null;
     const result = history.list.getVersions(listQuery.data);
-    return Array.isArray(result)
-      ? result.filter((version): version is TVersion =>
-          isAssistantChatHistoryVersion(version),
-        )
-      : [];
+    if (!Array.isArray(result)) return null;
+    return result.filter((version): version is TVersion =>
+      isAssistantChatHistoryVersion(version),
+    );
   }, [history.list, listQuery.data]);
+  const versions = loadedVersions ?? [];
+  const retryHistory = useCallback(() => {
+    void listQuery.refetch();
+  }, [listQuery.refetch]);
   const historyMessages = useMemo(
     () => getAgentKitHistoryMessages(threadId, thread, history.scope),
     [history.scope, thread, threadId],
@@ -918,6 +924,9 @@ export function AgentKitHistoryProvider<
         threadId,
         history.isEditable,
       ),
+      historyLoadFailed:
+        listQuery.isError || (listQuery.isSuccess && loadedVersions == null),
+      isRetryingHistory: listQuery.isFetching,
       isBusy:
         thread.activeRunIds.length > 0 ||
         isRestoring ||
@@ -930,6 +939,7 @@ export function AgentKitHistoryProvider<
       findVersion,
       toHistoryMessage,
       restoreVersion,
+      retryHistory,
     }),
     [
       findVersion,
@@ -937,8 +947,13 @@ export function AgentKitHistoryProvider<
       beginSubmission,
       waitForRestore,
       history.isEditable,
+      listQuery.isError,
+      listQuery.isFetching,
+      listQuery.isSuccess,
+      loadedVersions,
       isRestoring,
       restoreVersion,
+      retryHistory,
       submissionsInFlight,
       submissionCountsByThread,
       thread.activeRunIds.length,

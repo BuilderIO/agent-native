@@ -997,6 +997,7 @@ const messages = {
   "message.revertQuestion":
     "Revert to this point? Changes made after this point will be lost.",
   "message.restoreRequestFailed": "Restore request failed.",
+  "message.historyUnavailable": "Could not load change history.",
   "message.threadNotFound":
     "This chat thread is no longer available. Start a new chat or retry if this was unexpected.",
   "message.restoring": "Restoring...",

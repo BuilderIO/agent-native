@@ -934,6 +934,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "恢复到此处？",
   "message.revertQuestion": "还原到此处？此后所做的更改将会丢失。",
   "message.restoreRequestFailed": "恢复请求失败。",
+  "message.historyUnavailable": "无法加载更改历史。",
   "message.threadNotFound":
     "此聊天线程已不可用。请开始新聊天；如果这是意外情况，也可以重试。",
   "message.restoring": "正在恢复...",

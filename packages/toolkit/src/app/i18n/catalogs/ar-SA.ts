@@ -1007,6 +1007,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "هل تريد الرجوع إلى هذه النقطة؟ ستفقد التغييرات التي أُجريت بعدها.",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
+  "message.historyUnavailable": "تعذر تحميل سجل التغييرات.",
   "message.threadNotFound":
     "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",

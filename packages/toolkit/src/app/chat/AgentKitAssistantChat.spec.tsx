@@ -747,6 +747,29 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("shows a retry when chat history fails to load", async () => {
+    const retryHistory = vi.fn();
+    chatMocks.history = {
+      historyLoadFailed: true,
+      isRetryingHistory: false,
+      retryHistory,
+    };
+
+    await mount(baseProps());
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "agentChat.message.historyUnavailable",
+    );
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.common.retry",
+    );
+    expect(retry).toBeDefined();
+
+    await act(async () => retry?.click());
+
+    expect(retryHistory).toHaveBeenCalledOnce();
+  });
+
   it("shows Thinking in the transcript while a submitted user message is pending", async () => {
     chatMocks.history = { isSubmissionInFlight: true };
     chatMocks.thread.messages = [

@@ -84,8 +84,17 @@ export default function HistoryPanel({
   const restoreVersion = useRestoreDeckVersion();
   const { flushDeckSave, refreshOpenDeck } = useDecks();
 
-  const versions = versionsQuery.data?.versions ?? [];
+  const versions = Array.isArray(versionsQuery.data?.versions)
+    ? versionsQuery.data.versions
+    : [];
+  const versionsLoadFailed =
+    versionsQuery.isError ||
+    (versionsQuery.isSuccess && !Array.isArray(versionsQuery.data?.versions));
   const selectedVersion = versionQuery.data;
+  const versionLoadFailed =
+    (versionQuery.isError ||
+      (versionQuery.isSuccess && versionQuery.data == null)) &&
+    !versionQuery.data;
   const selectedSlides = useMemo(
     () =>
       (selectedVersion?.slides ?? []).map((slide) => ({
@@ -155,7 +164,7 @@ export default function HistoryPanel({
         {selectedVersionId ? (
           <div className="flex h-[calc(100%-60px)] flex-col">
             <div className="border-b border-border px-4 py-3">
-              {versionQuery.isLoading ? (
+              {versionQuery.isLoading && !versionQuery.data ? (
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-2/3" />
                   <Skeleton className="h-3 w-1/3" />
@@ -176,13 +185,28 @@ export default function HistoryPanel({
 
             <ScrollArea className="flex-1">
               <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
-                {versionQuery.isLoading ? (
+                {versionQuery.isLoading && !versionQuery.data ? (
                   Array.from({ length: 4 }).map((_, index) => (
                     <Skeleton
                       key={index}
                       className="aspect-video w-full rounded-lg"
                     />
                   ))
+                ) : versionLoadFailed ? (
+                  <div
+                    role="alert"
+                    className="col-span-full flex flex-col items-center gap-3 py-12 text-center text-xs text-muted-foreground"
+                  >
+                    <p>{t("history.snapshotLoadFailed")}</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void versionQuery.refetch()}
+                      disabled={versionQuery.isFetching}
+                    >
+                      {t("history.retry")}
+                    </Button>
+                  </div>
                 ) : selectedSlides.length ? (
                   selectedSlides.map((slide, index) => (
                     <div key={slide.id || index} className="min-w-0">
@@ -214,7 +238,11 @@ export default function HistoryPanel({
                   size="sm"
                   className="w-full"
                   onClick={handleRestore}
-                  disabled={restoreVersion.isPending || versionQuery.isLoading}
+                  disabled={
+                    restoreVersion.isPending ||
+                    versionQuery.isLoading ||
+                    versionLoadFailed
+                  }
                 >
                   {restoreVersion.isPending ? (
                     <IconLoader2 size={15} className="mr-1.5 animate-spin" />
@@ -228,7 +256,23 @@ export default function HistoryPanel({
           </div>
         ) : (
           <ScrollArea className="h-[calc(100%-60px)]">
-            {versionsQuery.isLoading ? (
+            {versionsLoadFailed ? (
+              <div
+                role="alert"
+                className="flex items-center justify-between gap-3 px-4 py-3 text-xs text-muted-foreground"
+              >
+                <span>{t("history.loadFailed")}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void versionsQuery.refetch()}
+                  disabled={versionsQuery.isFetching}
+                >
+                  {t("history.retry")}
+                </Button>
+              </div>
+            ) : null}
+            {versionsQuery.isLoading && !versionsQuery.data ? (
               <div className="space-y-2 p-3">
                 {Array.from({ length: 5 }).map((_, index) => (
                   <Skeleton key={index} className="h-16 w-full rounded-md" />
@@ -271,7 +315,7 @@ export default function HistoryPanel({
                   );
                 })}
               </div>
-            ) : (
+            ) : versionsLoadFailed ? null : (
               <div className="px-6 py-14 text-center">
                 <IconHistory
                   size={24}
