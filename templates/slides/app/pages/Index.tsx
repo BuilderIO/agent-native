@@ -1559,10 +1559,11 @@ export default function Index({ active = true }: { active?: boolean }) {
       const automaticReferenceDeckId =
         retryReferenceSelection?.automaticReferenceDeckId ??
         composerContext.automaticReferenceDeckId;
+      const replaceAutomaticDeckContext =
+        Boolean(automaticReferenceDeckId) &&
+        (!reusingRetryInputs || Boolean(promptReferenceDeckId));
       const generationComposerContext =
-        retryComposerContext &&
-        promptReferenceDeckId &&
-        automaticReferenceDeckId
+        retryComposerContext && replaceAutomaticDeckContext
           ? {
               ...retryComposerContext,
               references: retryComposerContext.references.filter(

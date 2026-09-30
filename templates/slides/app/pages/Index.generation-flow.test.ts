@@ -99,6 +99,9 @@ describe("new deck generation flow", () => {
     expect(promptSubmit).toContain(
       'retryReferenceSelection?.referenceDeckIdSource === "automatic"',
     );
+    expect(promptSubmit).toContain(
+      "(!reusingRetryInputs || Boolean(promptReferenceDeckId))",
+    );
     expect(promptSubmit).toContain("promptReferenceDeckId ??");
     expect(promptSubmit).toContain("!reusingRetryInputs");
     expect(promptSubmit).toContain(
