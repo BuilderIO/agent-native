@@ -41,6 +41,10 @@
   justify-self: center;
 }
 
+.slides-home-toolbar:not(:has(.slides-home-search)) > :last-child {
+  grid-column: 2 / -1;
+}
+
 @media (min-width: 64rem) {
   .slides-home-toolbar {
     padding-inline: 1.5rem;
@@ -49,10 +53,12 @@
 
 @container (max-width: 25rem) {
   .slides-home-toolbar {
-    height: 7rem;
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .slides-home-toolbar:has(.slides-home-search) {
+    height: 7rem;
     grid-template-rows: 3.5rem 3.5rem;
-    row-gap: 0;
   }
 
   .slides-home-search {
@@ -77,7 +83,7 @@
   align-items: center;
 }
 
-.slides-home-mobile-toolbar > :first-child {
+.slides-home-mobile-toolbar > .slides-home-mobile-search {
   grid-column: 2;
   width: 100%;
   min-width: 0;
@@ -85,7 +91,7 @@
   justify-self: center;
 }
 
-.slides-home-mobile-toolbar > :last-child {
+.slides-home-mobile-toolbar > .slides-home-mobile-import {
   grid-column: 3;
   justify-self: end;
   min-width: 0;

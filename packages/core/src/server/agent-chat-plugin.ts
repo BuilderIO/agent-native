@@ -3716,8 +3716,7 @@ export function createAgentChatPlugin(
       const buildSubAgentActions = (): Record<string, ActionEntry> =>
         isDevMode()
           ? {
-              // Sub-agents spawned in dev mode also invoke template actions
-              // via bash, so omit them from the native tool registry.
+              ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
               ...(lazyContext ? frameworkContextTool : {}),
