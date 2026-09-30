@@ -259,10 +259,13 @@ export default defineAppConfig({
 
 Each entry is one CSP source expression — `'self'`, `'none'`, a scheme such as
 `https:` or `blob:`, or an origin such as `https://cdn.example.com`. Prefer
-naming the origin over `https:` when the app knows it. These are display-only
-directives: `connect-src` stays `'self'` and is not configurable, so data still
-leaves only through the host bridge (`extensionFetch()` or an action), which
-enforces permissions and allow-lists.
+naming the origin over `https:` when the app knows it. Allowing a remote
+origin is an explicit egress permission: the browser requests that URL, and
+extension script can encode data into it. `connect-src` stays `'self'` and is
+not configurable. API calls still go through the host bridge
+(`extensionFetch()` or an action), which enforces permissions and allow-lists.
+That bridge is not the only way data can leave once a remote image or media
+source is configured.
 
 ## Tailwind classes
 
