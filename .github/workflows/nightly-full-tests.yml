@@ -28,13 +28,15 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
+          key: playwright-v2-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-v2-${{ runner.os }}-
+            playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
         run: |
-          pnpm exec playwright install --only-shell --force chromium
-          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
+          pnpm exec playwright install --only-shell chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell chromium
 
       - name: Run full fast-test suite
         run: TEST_WORKSPACE_CONCURRENCY=1 VITEST_CONCURRENCY=100% pnpm test:fast
