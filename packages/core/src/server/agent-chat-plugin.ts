@@ -2822,6 +2822,20 @@ export function createAgentChatPlugin(
               ...(connectionRequest.detail
                 ? { detail: connectionRequest.detail }
                 : {}),
+              ...(connectionRequest.source?.kind === "workspace_connection" &&
+              connectionRequest.source.id === connectionRequest.provider
+                ? {
+                    source: {
+                      id: connectionRequest.provider,
+                      kind: "workspace_connection" as const,
+                      ...(connectionRequest.source.label
+                        ? {
+                            label: connectionRequest.source.label.slice(0, 120),
+                          }
+                        : {}),
+                    },
+                  }
+                : {}),
             };
             yield {
               role: "agent" as const,

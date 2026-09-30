@@ -499,6 +499,10 @@ export async function mergeCoreSharingActions(
       () => import("../org/actions/list-workspace-app-access.js"),
     ],
     [
+      "list-workspace-icons",
+      () => import("../org/actions/list-workspace-icons.js"),
+    ],
+    [
       "set-workspace-app-access",
       () => import("../org/actions/set-workspace-app-access.js"),
     ],
@@ -699,6 +703,11 @@ export async function mergeCoreSharingActions(
       "get-usage-metrics",
       () => import("../usage/actions/get-usage-metrics.js"),
     ],
+    [
+      "get-usage-insights",
+      () => import("../usage/actions/get-usage-insights.js"),
+    ],
+    ["get-usage-run", () => import("../usage/actions/get-usage-run.js")],
     [
       "get-builder-credit-usage",
       () => import("../usage/actions/get-builder-credit-usage.js"),

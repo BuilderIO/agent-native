@@ -10,7 +10,11 @@
  * No React exports, so this stays Fast-Refresh friendly and unit-testable.
  */
 
-import { isBulletMarker, isBulletRow } from "./bullet-editing";
+import {
+  isBulletMarker,
+  isBulletRow,
+  stripCopiedIdentity,
+} from "./bullet-editing";
 
 export type SlideListKind = "bullet" | "ordered";
 
@@ -25,6 +29,32 @@ const LIST_STYLE: Record<SlideListKind, string> = {
   ordered:
     "margin:0;padding-left:1.25em;list-style-position:outside;list-style-type:decimal;",
 };
+
+const LIST_LAYOUT_PROPERTIES = [
+  "position",
+  "inset",
+  "inset-block",
+  "inset-inline",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "width",
+  "height",
+  "min-width",
+  "max-width",
+  "min-height",
+  "max-height",
+  "display",
+  "transform",
+  "transform-origin",
+  "z-index",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+] as const;
 
 const ROW_TEXT_PROPERTY =
   /^(color|font(-.+)?|letter-spacing|word-spacing|line-height|text-(transform|shadow|decoration(-.+)?))$/;
@@ -88,6 +118,29 @@ function bulletRows(element: HTMLElement): HTMLElement[] {
   return Array.from(element.children).filter(
     (child): child is HTMLElement =>
       child instanceof HTMLElement && isBulletRow(child),
+  );
+}
+
+export function slideListRows(
+  element: HTMLElement,
+  range: Range | null,
+): HTMLElement[] {
+  const lists = isListTag(element)
+    ? [element]
+    : Array.from(element.children).filter(isListTag);
+  const intersectedLists = lists.filter((candidate) =>
+    Array.from(candidate.children).some((row) =>
+      range?.collapsed
+        ? row.contains(range.startContainer)
+        : !!range && range.intersectsNode(row),
+    ),
+  );
+  if (intersectedLists.length === 0) return bulletRows(element);
+  return intersectedLists.flatMap((list) =>
+    Array.from(list.children).filter(
+      (row): row is HTMLElement =>
+        row instanceof HTMLElement && row.tagName === "LI",
+    ),
   );
 }
 
@@ -215,13 +268,45 @@ function buildLines(doc: Document, lines: string[]): DocumentFragment {
 export function toggleSlideList(
   element: HTMLElement,
   kind: SlideListKind,
+  selectedBulletRows?: HTMLElement[],
 ): HTMLElement | null {
   const doc = element.ownerDocument;
+  if (selectedBulletRows?.length) {
+    const groups = new Map<HTMLElement, HTMLElement[]>();
+    for (const row of selectedBulletRows) {
+      const list = row.parentElement;
+      if (!list || !isListTag(list)) continue;
+      const rows = groups.get(list) ?? [];
+      rows.push(row);
+      groups.set(list, rows);
+    }
+    let result = element;
+    for (const [list, rows] of groups) {
+      const listRows = Array.from(list.children).filter(
+        (row): row is HTMLElement =>
+          row instanceof HTMLElement && row.tagName === "LI",
+      );
+      if (rows.length < listRows.length || list.tagName === LIST_TAG[kind]) {
+        const next = toggleSelectedListRows(element, list, rows, kind);
+        if (list === element) result = next;
+      } else if (list.tagName !== LIST_TAG[kind]) {
+        const next = retag(list, LIST_TAG[kind]);
+        next.style.setProperty(
+          "list-style-type",
+          kind === "ordered" ? "decimal" : "disc",
+        );
+        if (list === element) result = next;
+      }
+    }
+    if (groups.size > 0) return result;
+  }
   const existing = listElement(element);
 
   if (!existing) {
     const rows = bulletRows(element);
-    if (rows.length > 0) return toggleBulletRows(element, rows, kind);
+    if (rows.length > 0) {
+      return toggleBulletRows(element, selectedBulletRows ?? rows, kind);
+    }
     const lines = readLines(element);
     if (lines.length === 0) return null;
     const look = headingTextLook(element);
@@ -261,6 +346,101 @@ export function toggleSlideList(
   }
 
   existing.replaceWith(buildLines(doc, lines));
+  return element;
+}
+
+function toggleSelectedListRows(
+  element: HTMLElement,
+  list: HTMLElement,
+  selectedRows: HTMLElement[],
+  kind: SlideListKind,
+): HTMLElement {
+  const currentKind = list.tagName === "OL" ? "ordered" : "bullet";
+  const selected = new Set(selectedRows);
+  const template = list.cloneNode(false) as HTMLElement;
+  stripCopiedIdentity(template);
+  for (const property of LIST_LAYOUT_PROPERTIES) {
+    template.style.removeProperty(property);
+  }
+  const fragment = list.ownerDocument.createDocumentFragment();
+  const orderedValues = new Map<HTMLElement, number>();
+  if (currentKind === "ordered") {
+    const rows = Array.from(list.children).filter(
+      (row): row is HTMLElement =>
+        row instanceof HTMLElement && row.tagName === "LI",
+    );
+    const reversed = list.hasAttribute("reversed");
+    const step = reversed ? -1 : 1;
+    const start = list.getAttribute("start");
+    let value = start?.trim() ? Number(start) : reversed ? rows.length : 1;
+    if (!Number.isInteger(value)) value = reversed ? rows.length : 1;
+    for (const row of rows) {
+      const rowValue = row.getAttribute("value");
+      if (rowValue?.trim()) {
+        const override = Number(rowValue);
+        if (Number.isInteger(override)) value = override;
+      }
+      orderedValues.set(row, value);
+      value += step;
+    }
+  }
+  let activeList: HTMLElement | null = null;
+  let activeKind: SlideListKind | null = null;
+
+  for (const row of Array.from(list.children)) {
+    if (!(row instanceof HTMLElement)) continue;
+    const selectedKind = selected.has(row)
+      ? currentKind === kind
+        ? null
+        : kind
+      : currentKind;
+    if (selectedKind === null) {
+      activeList = null;
+      activeKind = null;
+      fragment.append(retag(row, "DIV"));
+      continue;
+    }
+    if (!activeList || activeKind !== selectedKind) {
+      activeList = template.cloneNode(false) as HTMLElement;
+      if (activeList.tagName !== LIST_TAG[selectedKind]) {
+        activeList = retag(activeList, LIST_TAG[selectedKind]);
+      }
+      if (selectedKind === "ordered") {
+        const start = orderedValues.get(row);
+        if (start !== undefined && currentKind === "ordered") {
+          activeList.setAttribute("start", String(start));
+        } else {
+          activeList.removeAttribute("start");
+          activeList.removeAttribute("reversed");
+          activeList.removeAttribute("type");
+        }
+      } else {
+        activeList.removeAttribute("start");
+        activeList.removeAttribute("reversed");
+        activeList.removeAttribute("type");
+      }
+      activeList.style.setProperty(
+        "list-style-type",
+        selectedKind === "ordered" ? "decimal" : "disc",
+      );
+      fragment.append(activeList);
+      activeKind = selectedKind;
+    }
+    activeList.append(row);
+  }
+
+  if (list === element) {
+    const root = retag(list, "DIV");
+    root.removeAttribute("start");
+    root.removeAttribute("reversed");
+    root.removeAttribute("type");
+    root.style.removeProperty("padding-left");
+    root.style.removeProperty("list-style-position");
+    root.style.removeProperty("list-style-type");
+    root.replaceChildren(fragment);
+    return root;
+  }
+  list.replaceWith(fragment);
   return element;
 }
 

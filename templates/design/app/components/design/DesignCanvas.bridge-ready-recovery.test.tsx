@@ -60,7 +60,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       });
     });
     const bridgeUrl = `http://127.0.0.1:${iframePort}`;
-    const documentId = "runtime-document-live";
+    let documentId = "runtime-document-live";
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -78,6 +78,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     }> = [];
     const onRuntimeLayerSnapshot = vi.fn();
     const onRuntimeLayerSnapshotReadinessChange = vi.fn();
+    const onRuntimeReload = vi.fn();
     const onReserveVisualEditSnapshot = vi.fn(() => {
       let resolve!: (value: { reservationToken: string }) => void;
       const promise = new Promise<{ reservationToken: string }>((done) => {
@@ -101,6 +102,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
           onRuntimeLayerSnapshotReadinessChange={
             onRuntimeLayerSnapshotReadinessChange
           }
+          onRuntimeReload={onRuntimeReload}
           onReserveVisualEditSnapshot={onReserveVisualEditSnapshot}
           zoom={100}
           deviceFrame="none"
@@ -343,6 +345,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       reservationToken: "reservation-for-43",
     });
     await sendBridgeMessage({ type: "agent-native:runtime-reloading" });
+    expect(onRuntimeReload).not.toHaveBeenCalled();
     expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
       status: "loading",
     });
@@ -351,6 +354,14 @@ describe("DesignCanvas one-shot bridge queue", () => {
       documentId,
       routePath: "/",
     });
+    expect(onRuntimeReload).not.toHaveBeenCalled();
+    documentId = "runtime-document-reloaded";
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    expect(onRuntimeReload).toHaveBeenCalledExactlyOnceWith();
     const postReloadReadinessRequests = iframePostMessage.mock.calls
       .map(
         ([message]) =>

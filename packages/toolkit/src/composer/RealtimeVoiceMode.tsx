@@ -350,11 +350,7 @@ export function RealtimeVoiceModeEntry({
                   disabled={providerStatusPending}
                   onClick={() => choose("realtime", onStartVoiceMode)}
                 >
-                  {providerStatusPending ? (
-                    <IconLoader2 className="animate-spin" />
-                  ) : (
-                    <IconMicrophone />
-                  )}
+                  <IconMicrophone />
                   {copy.startVoiceMode}
                 </Button>
                 <Button

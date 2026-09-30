@@ -25,7 +25,8 @@ vi.mock("../labs/index.js", () => ({
   ),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) =>
     key === "agentChat.auth.logOut" ? "Cerrar sesión" : key,
   useOptionalLocale: () => ({ locale: "en" }),
@@ -517,6 +518,7 @@ describe("SettingsTabsPage", () => {
   });
 
   it("renders What's new markdown in the legacy settings fallback", async () => {
+    await import("../changelog/Changelog.js");
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -530,6 +532,7 @@ describe("SettingsTabsPage", () => {
       "#settings-tab-whats-new",
     );
     expect(whatsNewTab).not.toBeNull();
+    await import("../changelog/Changelog.js");
 
     await act(async () => {
       whatsNewTab!.click();
@@ -605,10 +608,11 @@ describe("SettingsTabsPage", () => {
     ]);
   });
 
-  it("keeps shell-only app groups out of the tabbed page", () => {
+  it("keeps shell-only app groups out of the tabbed page with legacy General content", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
+          general={<div>Legacy General content</div>}
           generalGroups={<div>App groups</div>}
           notifications={<div>Email settings</div>}
           notificationsLabel="Notifications"
@@ -641,6 +645,7 @@ describe("SettingsTabsPage", () => {
     ]);
     // `generalGroups` may call useSettingsShell(), which throws here.
     expect(container.textContent).not.toContain("App groups");
+    expect(container.textContent).toContain("Legacy General content");
   });
 
   it("visually separates app, agent, and workspace tabs", () => {

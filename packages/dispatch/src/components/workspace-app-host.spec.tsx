@@ -47,6 +47,12 @@ const clientState = vi.hoisted(() => {
   };
 });
 
+vi.mock("@agent-native/toolkit/app/chat", () => ({
+  AgentSidebar: ({ children }: { children: React.ReactNode }) => (
+    <div data-agent-sidebar>{children}</div>
+  ),
+}));
+
 vi.mock("@agent-native/toolkit/app/chat/chat-first", () => ({
   CHAT_FIRST_DEFAULT_APP_IDS: [
     "content",

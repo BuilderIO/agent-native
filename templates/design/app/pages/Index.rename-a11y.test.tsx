@@ -35,8 +35,50 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   useAgentEngineConfigured: () => ({ state: "configured", missing: false }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: true,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
+}));
+
+vi.mock(
+  "@agent-native/toolkit/app/chat/composer/index",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/composer/index")
+    >()),
+    PromptComposer: () => null,
+    snapshotComposerContextItems: (items: unknown) => items,
+    useAgentKitCapabilities: () => ({
+      data: { sources: { figma: { available: false } }, integrations: [] },
+    }),
+    useAgentKitIntegrationMenu: () => ({
+      id: "integrations",
+      label: "Integrations",
+      intent: "invoke-integration",
+      picker: {},
+    }),
+  }),
+);
+
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: () => null,
+  BuilderSetupContent: () => null,
 }));
 
 vi.mock("@agent-native/toolkit/app/settings", () => ({
@@ -53,7 +95,9 @@ vi.mock("@agent-native/core/client/collab", () => ({
   emailToName: (email: string) => email,
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
+  useOrg: () => ({ data: undefined }),
   useOrgMembers: () => ({ data: undefined }),
 }));
 
@@ -92,7 +136,12 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   setClientAppState: async () => undefined,
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useFormatters: () => ({
+    formatDate: (value: string) => value,
+    formatNumber: String,
+  }),
   useT: () => (key: string) => key,
 }));
 
@@ -116,6 +165,12 @@ vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => mocks.queryClient,
+  useQuery: () => ({
+    data: undefined,
+    isError: false,
+    isPending: false,
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock("react-router", () => ({

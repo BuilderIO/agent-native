@@ -38,6 +38,7 @@ import {
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import { ClientOnly } from "@agent-native/toolkit/app/shared";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
@@ -140,6 +141,25 @@ interface DesignListResult {
 }
 
 const DESIGN_PAGE_SIZE = 50;
+const HOME_LIBRARY_TAB_STORAGE_KEY = "design:home-library-tab";
+
+function readStoredHomeLibraryTab(): PromptHomeLibraryTab | undefined {
+  try {
+    const tab = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
+    return tab === "templates" || tab === "recent" ? tab : undefined;
+  } catch {
+    // coercion-ok: the tab preference is optional when browser storage is unavailable.
+    return undefined;
+  }
+}
+
+function writeStoredHomeLibraryTab(tab: PromptHomeLibraryTab): void {
+  try {
+    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, tab);
+  } catch {
+    // coercion-ok: an unavailable preference store preserves the in-memory selection.
+  }
+}
 
 interface HomeSuggestion {
   id?: string;
@@ -167,9 +187,13 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [homeSection, setHomeSection] =
-    useState<PromptHomeLibraryTab>("templates");
-  const homeLibraryTabWasSelectedRef = useRef(false);
+  const storedHomeLibraryTab = readStoredHomeLibraryTab();
+  const [homeSection, setHomeSection] = useState<PromptHomeLibraryTab>(
+    storedHomeLibraryTab ?? "templates",
+  );
+  const homeLibraryTabWasSelectedRef = useRef(
+    storedHomeLibraryTab !== undefined,
+  );
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -241,6 +265,8 @@ export default function Index() {
       !homeLibraryTabWasSelectedRef.current
     ) {
       setHomeSection("recent");
+      writeStoredHomeLibraryTab("recent");
+      homeLibraryTabWasSelectedRef.current = true;
     }
   }, [
     accessibleDesignsSummary.data?.totalCount,
@@ -1252,314 +1278,317 @@ export default function Index() {
             retrying={accessibleDesignsSummary.isFetching}
           />
         ) : null}
-        <PromptHomeLibrary
-          value={homeSection}
-          onValueChange={(value) => {
-            homeLibraryTabWasSelectedRef.current = true;
-            setHomeSection(value);
-          }}
-          labels={{
-            templates: t("navigation.templates"),
-            recent: t("home.recent"),
-          }}
-          browseAll={
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/templates">
-                {t("home.browseAllTemplates")}
-                <IconArrowRight />
-              </Link>
-            </Button>
-          }
-          recentActions={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  aria-label={t("home.designFilter")}
-                >
-                  <IconFilter />
-                  {designFilter === "mine" ? t("home.mine") : t("home.all")}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuRadioGroup
-                  value={designFilter}
-                  onValueChange={handleDesignFilterChange}
-                >
-                  <DropdownMenuRadioItem value="mine">
-                    {t("home.mine")}
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="all">
-                    {t("home.all")}
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          }
-          templates={
-            templatesError ? (
-              <QueryErrorState
-                onRetry={() => void refetchTemplates()}
-                retrying={templatesFetching}
-              />
-            ) : (
-              <DesignTemplateLibrary
-                templates={templateOptions.filter(
-                  (template) => template.isBuiltIn,
-                )}
-                loading={templatesLoading}
-              />
-            )
-          }
-          recent={
-            <>
-              {isLoading ? (
-                <LoadingSkeleton />
-              ) : isError ? (
+        <ClientOnly>
+          <PromptHomeLibrary
+            value={homeSection}
+            onValueChange={(value) => {
+              homeLibraryTabWasSelectedRef.current = true;
+              writeStoredHomeLibraryTab(value);
+              setHomeSection(value);
+            }}
+            labels={{
+              templates: t("navigation.templates"),
+              recent: t("home.recent"),
+            }}
+            browseAll={
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/templates">
+                  {t("home.browseAllTemplates")}
+                  <IconArrowRight />
+                </Link>
+              </Button>
+            }
+            recentActions={
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={t("home.designFilter")}
+                  >
+                    <IconFilter />
+                    {designFilter === "mine" ? t("home.mine") : t("home.all")}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuRadioGroup
+                    value={designFilter}
+                    onValueChange={handleDesignFilterChange}
+                  >
+                    <DropdownMenuRadioItem value="mine">
+                      {t("home.mine")}
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="all">
+                      {t("home.all")}
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
+            templates={
+              templatesError ? (
                 <QueryErrorState
-                  onRetry={() => void refetch()}
-                  retrying={isFetching}
+                  onRetry={() => void refetchTemplates()}
+                  retrying={templatesFetching}
                 />
-              ) : designs.length === 0 ? (
-                <SearchEmptyState />
               ) : (
-                <>
-                  {isSelectingDesigns ? (
-                    <div className="-mt-4 mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
-                      <div className="text-sm text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          {t("home.selected", { count: selectedDesignCount })}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
+                <DesignTemplateLibrary
+                  templates={templateOptions.filter(
+                    (template) => template.isBuiltIn,
+                  )}
+                  loading={templatesLoading}
+                />
+              )
+            }
+            recent={
+              <>
+                {isLoading ? (
+                  <LoadingSkeleton />
+                ) : isError ? (
+                  <QueryErrorState
+                    onRetry={() => void refetch()}
+                    retrying={isFetching}
+                  />
+                ) : designs.length === 0 ? (
+                  <SearchEmptyState />
+                ) : (
+                  <>
+                    {isSelectingDesigns ? (
+                      <div className="-mt-4 mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
+                        <div className="text-sm text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {t("home.selected", { count: selectedDesignCount })}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={toggleVisibleSelection}
+                                aria-label={
+                                  allVisibleSelected
+                                    ? t("home.clearVisibleSelection")
+                                    : t("home.selectVisibleDesigns")
+                                }
+                                className="cursor-pointer"
+                              >
+                                <IconChecks className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {allVisibleSelected
+                                ? t("home.clearVisibleSelection")
+                                : t("home.selectVisibleDesigns")}
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={clearSelection}
+                                aria-label={t("home.clearSelection")}
+                                className="cursor-pointer"
+                              >
+                                <IconX className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t("home.clearSelection")}
+                            </TooltipContent>
+                          </Tooltip>
+                          {creativeContextEnabled ? (
                             <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={toggleVisibleSelection}
-                              aria-label={
-                                allVisibleSelected
-                                  ? t("home.clearVisibleSelection")
-                                  : t("home.selectVisibleDesigns")
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setContextDesigns(
+                                  designs.filter((design) =>
+                                    selectedDesignIds.has(design.id),
+                                  ),
+                                )
                               }
                               className="cursor-pointer"
                             >
-                              <IconChecks className="w-4 h-4" />
+                              <IconPlus className="w-3.5 h-3.5" />
+                              {t(
+                                "creativeContext.addToContext" /* i18n-key-ignore */,
+                              )}
                             </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {allVisibleSelected
-                              ? t("home.clearVisibleSelection")
-                              : t("home.selectVisibleDesigns")}
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={clearSelection}
-                              aria-label={t("home.clearSelection")}
-                              className="cursor-pointer"
-                            >
-                              <IconX className="w-4 h-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {t("home.clearSelection")}
-                          </TooltipContent>
-                        </Tooltip>
-                        {creativeContextEnabled ? (
+                          ) : null}
                           <Button
-                            variant="outline"
+                            variant="destructive"
                             size="sm"
-                            onClick={() =>
-                              setContextDesigns(
-                                designs.filter((design) =>
-                                  selectedDesignIds.has(design.id),
-                                ),
-                              )
-                            }
+                            onClick={() => setBulkDeleteOpen(true)}
                             className="cursor-pointer"
                           >
-                            <IconPlus className="w-3.5 h-3.5" />
-                            {t(
-                              "creativeContext.addToContext" /* i18n-key-ignore */,
-                            )}
+                            <IconTrash className="w-3.5 h-3.5" />
+                            {t("home.delete")}
                           </Button>
-                        ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                    <TemplateLibraryGrid
+                      items={designs}
+                      isSelected={(design) => selectedDesignIds.has(design.id)}
+                      actionsVisible={() => isSelectingDesigns}
+                      labels={{
+                        loading: t("templatesPage.loading"),
+                        empty: t("home.searchNoResultsTitle"),
+                        retry: t("homeContext.retry"),
+                      }}
+                      renderLink={(design, children) => (
+                        <Link to={`/design/${design.id}`}>{children}</Link>
+                      )}
+                      renderPreview={(design) => (
+                        <div className="design-library-card-preview">
+                          <DesignThumbnail
+                            html={design.previewHtml ?? null}
+                            className="h-full w-full"
+                          />
+                        </div>
+                      )}
+                      renderMetadata={(design) => (
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span className="shrink-0">
+                            {formatDate(design.updatedAt || design.createdAt)}
+                          </span>
+                          {showAuthors && design.ownerEmail ? (
+                            <>
+                              <span aria-hidden>·</span>
+                              <DesignAuthorByline
+                                email={design.ownerEmail}
+                                name={design.ownerName}
+                              />
+                            </>
+                          ) : null}
+                        </div>
+                      )}
+                      renderActions={(design) => {
+                        const isSelected = selectedDesignIds.has(design.id);
+                        return (
+                          <>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() =>
+                                    toggleDesignSelection(design.id)
+                                  }
+                                  aria-label={t("home.selectDesign", {
+                                    title: design.title,
+                                  })}
+                                  className={cn(
+                                    "h-5 w-5",
+                                    isSelectingDesigns && "!opacity-100",
+                                  )}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t("home.selectDesign", {
+                                  title: design.title,
+                                })}
+                              </TooltipContent>
+                            </Tooltip>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={t("home.actionsForDesign", {
+                                    title: design.title,
+                                  })}
+                                >
+                                  <IconDots />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setTimeout(() => startRename(design))
+                                  }
+                                >
+                                  <IconPencil />
+                                  {t("home.rename")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDuplicate(design.id)}
+                                >
+                                  <IconCopy />
+                                  {t("home.duplicate")}
+                                </DropdownMenuItem>
+                                {creativeContextEnabled ? (
+                                  <DropdownMenuItem
+                                    onSelect={(event) => {
+                                      event.preventDefault();
+                                      setContextDesigns([design]);
+                                    }}
+                                  >
+                                    <IconPlus />
+                                    {t(
+                                      "creativeContext.addToContext" /* i18n-key-ignore */,
+                                    )}
+                                  </DropdownMenuItem>
+                                ) : null}
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setTimeout(() => setDeleteId(design.id))
+                                  }
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  <IconTrash />
+                                  {t("home.delete")}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </>
+                        );
+                      }}
+                    />
+                    {totalPages > 1 ? (
+                      <nav
+                        aria-label={t("home.paginationPage", {
+                          page,
+                          totalPages,
+                        })}
+                        className="mt-6 flex items-center justify-between gap-3 border-t border-border px-1 pt-3"
+                      >
                         <Button
-                          variant="destructive"
+                          variant="outline"
                           size="sm"
-                          onClick={() => setBulkDeleteOpen(true)}
+                          onClick={() => handlePageChange(page - 1)}
+                          disabled={page <= 1 || isFetching}
                           className="cursor-pointer"
                         >
-                          <IconTrash className="w-3.5 h-3.5" />
-                          {t("home.delete")}
+                          <IconChevronLeft className="size-3.5" />
+                          {t("home.paginationPrevious")}
                         </Button>
-                      </div>
-                    </div>
-                  ) : null}
-                  <TemplateLibraryGrid
-                    items={designs}
-                    isSelected={(design) => selectedDesignIds.has(design.id)}
-                    actionsVisible={() => isSelectingDesigns}
-                    labels={{
-                      loading: t("templatesPage.loading"),
-                      empty: t("home.searchNoResultsTitle"),
-                      retry: t("homeContext.retry"),
-                    }}
-                    renderLink={(design, children) => (
-                      <Link to={`/design/${design.id}`}>{children}</Link>
-                    )}
-                    renderPreview={(design) => (
-                      <div className="design-library-card-preview">
-                        <DesignThumbnail
-                          html={design.previewHtml ?? null}
-                          className="h-full w-full"
-                        />
-                      </div>
-                    )}
-                    renderMetadata={(design) => (
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="shrink-0">
-                          {formatDate(design.updatedAt || design.createdAt)}
+                        <span
+                          aria-live="polite"
+                          className="text-xs text-muted-foreground"
+                        >
+                          {t("home.paginationPage", { page, totalPages })}
                         </span>
-                        {showAuthors && design.ownerEmail ? (
-                          <>
-                            <span aria-hidden>·</span>
-                            <DesignAuthorByline
-                              email={design.ownerEmail}
-                              name={design.ownerName}
-                            />
-                          </>
-                        ) : null}
-                      </div>
-                    )}
-                    renderActions={(design) => {
-                      const isSelected = selectedDesignIds.has(design.id);
-                      return (
-                        <>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() =>
-                                  toggleDesignSelection(design.id)
-                                }
-                                aria-label={t("home.selectDesign", {
-                                  title: design.title,
-                                })}
-                                className={cn(
-                                  "h-5 w-5",
-                                  isSelectingDesigns && "!opacity-100",
-                                )}
-                              />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t("home.selectDesign", {
-                                title: design.title,
-                              })}
-                            </TooltipContent>
-                          </Tooltip>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                aria-label={t("home.actionsForDesign", {
-                                  title: design.title,
-                                })}
-                              >
-                                <IconDots />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  setTimeout(() => startRename(design))
-                                }
-                              >
-                                <IconPencil />
-                                {t("home.rename")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleDuplicate(design.id)}
-                              >
-                                <IconCopy />
-                                {t("home.duplicate")}
-                              </DropdownMenuItem>
-                              {creativeContextEnabled ? (
-                                <DropdownMenuItem
-                                  onSelect={(event) => {
-                                    event.preventDefault();
-                                    setContextDesigns([design]);
-                                  }}
-                                >
-                                  <IconPlus />
-                                  {t(
-                                    "creativeContext.addToContext" /* i18n-key-ignore */,
-                                  )}
-                                </DropdownMenuItem>
-                              ) : null}
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  setTimeout(() => setDeleteId(design.id))
-                                }
-                                className="text-destructive focus:text-destructive"
-                              >
-                                <IconTrash />
-                                {t("home.delete")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </>
-                      );
-                    }}
-                  />
-                  {totalPages > 1 ? (
-                    <nav
-                      aria-label={t("home.paginationPage", {
-                        page,
-                        totalPages,
-                      })}
-                      className="mt-6 flex items-center justify-between gap-3 border-t border-border px-1 pt-3"
-                    >
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePageChange(page - 1)}
-                        disabled={page <= 1 || isFetching}
-                        className="cursor-pointer"
-                      >
-                        <IconChevronLeft className="size-3.5" />
-                        {t("home.paginationPrevious")}
-                      </Button>
-                      <span
-                        aria-live="polite"
-                        className="text-xs text-muted-foreground"
-                      >
-                        {t("home.paginationPage", { page, totalPages })}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePageChange(page + 1)}
-                        disabled={page >= totalPages || isFetching}
-                        className="cursor-pointer"
-                      >
-                        {t("home.paginationNext")}
-                        <IconChevronRight className="size-3.5" />
-                      </Button>
-                    </nav>
-                  ) : null}
-                </>
-              )}
-            </>
-          }
-        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(page + 1)}
+                          disabled={page >= totalPages || isFetching}
+                          className="cursor-pointer"
+                        >
+                          {t("home.paginationNext")}
+                          <IconChevronRight className="size-3.5" />
+                        </Button>
+                      </nav>
+                    ) : null}
+                  </>
+                )}
+              </>
+            }
+          />
+        </ClientOnly>
       </PromptHome>
 
       {creativeContextEnabled ? (

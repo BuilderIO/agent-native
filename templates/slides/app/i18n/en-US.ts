@@ -252,6 +252,9 @@ const messages = {
     media: "Media",
     generateImage: "Generate Image",
     assetLibrary: "Asset Library",
+    imageOptions: "Image options",
+    cropImage: "Crop image",
+    cropHandle: "Crop image {{position}}",
     diagrams: "Diagrams",
     insertMermaidDiagram: "Insert Mermaid Diagram",
     insertMermaidFailed: "Failed to insert diagram",
@@ -611,9 +614,12 @@ const messages = {
     slideNumber: "Slide {{number}}",
     noSlidesInSnapshot: "No slides in this snapshot.",
     restoreThisVersion: "Restore this version",
+    retry: "Retry",
     noSavedVersions: "No history yet",
     noSavedVersionsDescription:
       "History is saved automatically before future deck edits.",
+    loadFailed: "Could not load saved versions.",
+    snapshotLoadFailed: "Could not load this saved version.",
   },
   editorSidebar: {
     selectSlide: "Select slide {{number}}",

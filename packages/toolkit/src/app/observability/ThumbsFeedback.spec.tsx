@@ -1,11 +1,17 @@
 // @vitest-environment happy-dom
 
-import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { AgentNativeI18nProvider as CoreAgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { ThumbsFeedback } from "./ThumbsFeedback.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+const AgentNativeI18nProvider = (
+  props: React.ComponentProps<typeof CoreAgentNativeI18nProvider>,
+) => <CoreAgentNativeI18nProvider catalog={toolkitI18nCatalog} {...props} />;
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useSession: () => ({
@@ -19,10 +25,21 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 let container: HTMLDivElement;
 let root: Root;
+const sharedFetchMock = vi.fn<typeof fetch>();
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+  sharedFetchMock.mockReset();
+  sharedFetchMock.mockImplementation(async (input) => {
+    if (String(input).includes("/api/forms/public/")) {
+      return Response.json({
+        id: "form-1",
+        fields: [{ id: "feedback", type: "textarea" }],
+      });
+    }
+    return Response.json({});
+  });
+  vi.stubGlobal("fetch", sharedFetchMock);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -35,11 +52,14 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+const catalog = createToolkitI18nCatalog({ messages: {} });
+
 describe("ThumbsFeedback localization", () => {
   it("renders localized accessible labels and explanation copy", async () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="de-DE"
           initialPreference="de-DE"
           persistPreference={false}
@@ -70,6 +90,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -116,7 +137,7 @@ describe("ThumbsFeedback localization", () => {
       );
     });
 
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
     await vi.waitFor(() =>
       expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2),
     );
@@ -146,7 +167,7 @@ describe("ThumbsFeedback localization", () => {
       "VITE_AGENT_NATIVE_FEEDBACK_URL",
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes("/api/forms/public/")) {
@@ -164,6 +185,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -248,7 +270,7 @@ describe("ThumbsFeedback localization", () => {
       "VITE_AGENT_NATIVE_FEEDBACK_URL",
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
     let observabilityAttempts = 0;
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input);
@@ -278,6 +300,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -375,7 +398,7 @@ describe("ThumbsFeedback localization", () => {
       "VITE_AGENT_NATIVE_FEEDBACK_URL",
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
     let formAttempts = 0;
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
@@ -404,6 +427,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -494,6 +518,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -513,7 +538,7 @@ describe("ThumbsFeedback localization", () => {
 
     act(() => down.click());
 
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(
       JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
@@ -533,7 +558,7 @@ describe("ThumbsFeedback localization", () => {
   });
 
   it("treats non-ok responses as failed and allows a thumbs-up retry", async () => {
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
     fetchMock
       .mockResolvedValueOnce({ ok: false, status: 500 })
       .mockResolvedValueOnce({ ok: true, status: 200 });
@@ -541,6 +566,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -573,12 +599,13 @@ describe("ThumbsFeedback localization", () => {
   });
 
   it("keeps text feedback available when a non-ok response fails", async () => {
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
 
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -622,6 +649,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -657,6 +685,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -687,11 +716,12 @@ describe("ThumbsFeedback localization", () => {
   });
 
   it("does not resubmit when clicking the already-applied vote again", async () => {
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
 
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -718,7 +748,7 @@ describe("ThumbsFeedback localization", () => {
 
   it("ignores a stale thumbs-up response after the user already switched to thumbs-down", async () => {
     let resolveUpRequest: ((value: { ok: boolean }) => void) | undefined;
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
     fetchMock.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -729,6 +759,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -769,7 +800,7 @@ describe("ThumbsFeedback localization", () => {
 
   it("ignores a stale failed thumbs-down response after the user switched back to thumbs-up", async () => {
     let rejectDownRequest: (() => void) | undefined;
-    const fetchMock = vi.mocked(globalThis.fetch);
+    const fetchMock = sharedFetchMock;
     fetchMock.mockImplementationOnce(
       () =>
         new Promise((_resolve, reject) => {
@@ -780,6 +811,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}

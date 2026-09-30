@@ -31,8 +31,11 @@ import {
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
-import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
-import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
+import {
+  ClientOnly,
+  LazyChunkErrorBoundary,
+  LazyChunkRetryFallback,
+} from "@agent-native/toolkit/app/shared";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
@@ -187,10 +190,29 @@ function HomeChrome({ title, actions }: { title: string; actions: ReactNode }) {
   return null;
 }
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
+const HOME_LIBRARY_TAB_STORAGE_KEY = "slides:home-library-tab";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
 const PENDING_PROMPT_MODEL_SELECTION_KEY =
   "slides:pending-deck-model-selection";
+
+function readStoredHomeLibraryTab(): PromptHomeLibraryTab | undefined {
+  try {
+    const tab = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
+    return tab === "templates" || tab === "recent" ? tab : undefined;
+  } catch {
+    // coercion-ok: the tab preference is optional when browser storage is unavailable.
+    return undefined;
+  }
+}
+
+function writeStoredHomeLibraryTab(tab: PromptHomeLibraryTab): void {
+  try {
+    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, tab);
+  } catch {
+    // coercion-ok: an unavailable preference store preserves the in-memory selection.
+  }
+}
 
 type DeckModelSelection = Pick<
   PromptComposerSubmitOptions,
@@ -578,9 +600,13 @@ export default function Index({ active = true }: { active?: boolean }) {
     string | null
   >(null);
   const [deckSearch, setDeckSearch] = useState("");
-  const [homeSection, setHomeSection] =
-    useState<PromptHomeLibraryTab>("templates");
-  const homeLibraryTabWasSelectedRef = useRef(false);
+  const storedHomeLibraryTab = readStoredHomeLibraryTab();
+  const [homeSection, setHomeSection] = useState<PromptHomeLibraryTab>(
+    storedHomeLibraryTab ?? "templates",
+  );
+  const homeLibraryTabWasSelectedRef = useRef(
+    storedHomeLibraryTab !== undefined,
+  );
   const deckFilterWasSelectedRef = useRef(false);
   useEffect(() => {
     if (deckSearch.trim()) setHomeSection("recent");
@@ -594,6 +620,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       decks.length > 0
     ) {
       setHomeSection("recent");
+      writeStoredHomeLibraryTab("recent");
+      homeLibraryTabWasSelectedRef.current = true;
     }
   }, [decks.length, isHome, loadError, loading]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
@@ -969,14 +997,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       return;
     }
 
-    const filesForGeneration = mergeUploadedFilesForRetry(
-      newDeckRetryFiles,
-      files,
-    );
-    const attachmentsForGeneration = [
-      ...newDeckRetryAttachments,
-      ...attachments,
-    ];
+    const filesForGeneration = files;
+    const attachmentsForGeneration = attachments;
     const designSystemId =
       referenceSelection.designSystemId !== undefined
         ? referenceSelection.designSystemId
@@ -1382,14 +1404,22 @@ export default function Index({ active = true }: { active?: boolean }) {
       attachments: ReadonlyArray<PromptChatAttachment> = [],
       modelSelection?: DeckModelSelection,
     ) => {
+      const filesForGeneration = mergeUploadedFilesForRetry(
+        newDeckRetryFiles,
+        files,
+      );
+      const attachmentsForGeneration = [
+        ...newDeckRetryAttachments,
+        ...attachments,
+      ];
       const generation = Promise.resolve().then(() =>
         handleCreateDeckWithPrompt(
           prompt,
-          files,
+          filesForGeneration,
           referenceSelection,
           context,
-          attachments,
-          modelSelection,
+          attachmentsForGeneration,
+          modelSelection ?? newDeckRetryModelSelection,
         ),
       );
       pendingDeckGenerationRef.current = generation;
@@ -1407,7 +1437,13 @@ export default function Index({ active = true }: { active?: boolean }) {
       );
       return generation;
     },
-    [handleCreateDeckWithPrompt, settlePendingDeckAttachments],
+    [
+      handleCreateDeckWithPrompt,
+      newDeckRetryFiles,
+      newDeckRetryAttachments,
+      newDeckRetryModelSelection,
+      settlePendingDeckAttachments,
+    ],
   );
 
   useEffect(() => {
@@ -1438,6 +1474,15 @@ export default function Index({ active = true }: { active?: boolean }) {
       const retryContextItems =
         options?.contextItems ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContextItems : undefined);
+      const retryReferenceFilePaths =
+        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
+      const carriedImportedReference =
+        newDeckRetryFiles.length > 0
+          ? newDeckRetryImportedReference
+          : undefined;
+      const carriedDeckMissing =
+        carriedImportedReference !== undefined &&
+        !decks.some((deck) => deck.id === carriedImportedReference.deckId);
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const promptReferenceDeckId = findPromptReferenceDeckId(
         prompt,
@@ -1460,7 +1505,15 @@ export default function Index({ active = true }: { active?: boolean }) {
           files,
           {
             designSystemId: retryComposerContext.designSystemId,
-            referenceDeckId: null,
+            referenceDeckId: carriedDeckMissing
+              ? null
+              : (carriedImportedReference?.deckId ?? null),
+            referenceFilePaths: retryReferenceFilePaths,
+            ...(!carriedDeckMissing && carriedImportedReference
+              ? {
+                  importedReferenceFilePath: carriedImportedReference.filePath,
+                }
+              : {}),
             composerContext: retryComposerContext,
             contextItems: retryContextItems,
           },
@@ -1476,15 +1529,13 @@ export default function Index({ active = true }: { active?: boolean }) {
         );
         return "retain" as const;
       }
-      const retryReferenceFilePaths =
-        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
       setPendingDeck({
         prompt,
         files,
         referenceFilePaths: retryReferenceFilePaths,
         importedReference:
           retryReferenceFilePaths.length > 0
-            ? newDeckRetryImportedReference
+            ? carriedImportedReference
             : undefined,
         context: retryContext,
         ...(promptReferenceDeckId
@@ -1598,10 +1649,14 @@ export default function Index({ active = true }: { active?: boolean }) {
 
       try {
         if (selection.kind === "pptx") {
-          const imported = (await callAction("import-pptx", {
-            filePath: file.path,
-            designSystemId: initialDesignSystemId,
-          })) as {
+          const imported = (await callAction(
+            "import-pptx",
+            {
+              filePath: file.path,
+              designSystemId: initialDesignSystemId,
+            },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
             id?: unknown;
             imported?: unknown;
             slideCount?: unknown;
@@ -1643,12 +1698,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         }
 
         try {
-          const imported = (await callAction("import-file", {
-            filePath: file.path,
-            format: "pdf",
-            deckId: deck.id,
-            importIntoDeck: true,
-          })) as {
+          const imported = (await callAction(
+            "import-file",
+            {
+              filePath: file.path,
+              format: "pdf",
+              deckId: deck.id,
+              importIntoDeck: true,
+            },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
             imported?: unknown;
             deckId?: unknown;
             pageCount?: unknown;
@@ -2358,53 +2417,56 @@ export default function Index({ active = true }: { active?: boolean }) {
           </div>
         </div>
       ) : null}
-      <PromptHomeLibrary
-        value={homeSection}
-        onValueChange={(value) => {
-          homeLibraryTabWasSelectedRef.current = true;
-          setHomeSection(value);
-        }}
-        labels={{
-          templates: t("templatesPage.title"),
-          recent: t("home.recent"),
-        }}
-        browseAll={
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/templates">
-              {t("templatesPage.browseAll")}
-              <IconArrowRight />
-            </Link>
-          </Button>
-        }
-        recentActions={
-          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-        }
-        templates={<DeckTemplateLibrary enabled={isHome} />}
-        recent={
-          <div className="agent-template-library-grid">
-            {visibleDecks.map((deck) => (
-              <DeckCard
-                key={deck.id}
-                deck={deck}
-                onDelete={(id) => setDeckToDelete(id)}
-                onRename={handleRename}
-                onDuplicate={handleDuplicate}
-                onToggleStar={handleToggleStar}
-                isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
-                canSetWorkspaceDefault={canManageWorkspaceDefaults}
-                onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
-              />
-            ))}
-            {visibleDecks.length === 0 && (
-              <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                {normalizedDeckSearch
-                  ? t("home.noDecksMatchSearch")
-                  : t("home.noMineDecks")}
-              </div>
-            )}
-          </div>
-        }
-      />
+      <ClientOnly>
+        <PromptHomeLibrary
+          value={homeSection}
+          onValueChange={(value) => {
+            homeLibraryTabWasSelectedRef.current = true;
+            writeStoredHomeLibraryTab(value);
+            setHomeSection(value);
+          }}
+          labels={{
+            templates: t("templatesPage.title"),
+            recent: t("home.recent"),
+          }}
+          browseAll={
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/templates">
+                {t("templatesPage.browseAll")}
+                <IconArrowRight />
+              </Link>
+            </Button>
+          }
+          recentActions={
+            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+          }
+          templates={<DeckTemplateLibrary enabled={isHome} />}
+          recent={
+            <div className="agent-template-library-grid">
+              {visibleDecks.map((deck) => (
+                <DeckCard
+                  key={deck.id}
+                  deck={deck}
+                  onDelete={(id) => setDeckToDelete(id)}
+                  onRename={handleRename}
+                  onDuplicate={handleDuplicate}
+                  onToggleStar={handleToggleStar}
+                  isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
+                  canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                  onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
+                />
+              ))}
+              {visibleDecks.length === 0 && (
+                <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                  {normalizedDeckSearch
+                    ? t("home.noDecksMatchSearch")
+                    : t("home.noMineDecks")}
+                </div>
+              )}
+            </div>
+          }
+        />
+      </ClientOnly>
 
       <AlertDialog
         open={isHome && !!workspaceDefaultCandidate}

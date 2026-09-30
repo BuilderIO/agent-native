@@ -785,7 +785,7 @@ const messages = {
   "mcpIntegrations.catalog.gong.useCase":
     "Sales calls, transcripts, deal insights, account summaries",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong requires a tech admin to create an MCP integration and choose personal or shared authorization. The generated client ID and secret must be configured before connecting.",
+    "A Gong tech admin must create an MCP integration with personal or shared authorization. For Manual registration, save the generated client ID and secret as workspace secrets `GONG_MCP_CLIENT_ID` and `GONG_MCP_CLIENT_SECRET`; Automatic registration needs no client credentials.",
   "mcpIntegrations.catalog.semgrep.description":
     "Scan code for security findings.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -997,6 +997,7 @@ const messages = {
   "message.revertQuestion":
     "Revert to this point? Changes made after this point will be lost.",
   "message.restoreRequestFailed": "Restore request failed.",
+  "message.historyUnavailable": "Could not load change history.",
   "message.threadNotFound":
     "This chat thread is no longer available. Start a new chat or retry if this was unexpected.",
   "message.restoring": "Restoring...",
@@ -1348,6 +1349,191 @@ const messages = {
   "usage.providerSpendDetail":
     "Provider or older calls outside Builder billing",
   "usage.providerSpendToday": "Other or unclassified usage: {{amount}} today",
+  "observability.insights.verdictSmooth": "Running smoothly",
+  "observability.insights.verdictLook_one": "{{count}} thing worth a look",
+  "observability.insights.verdictLook_other": "{{count}} things worth a look",
+  "observability.insights.verdictProblems_one": "{{count}} problem",
+  "observability.insights.verdictProblems_other": "{{count}} problems",
+  "observability.insights.spentSummary_one":
+    "{{amount}} spent on {{count}} prompt in the last {{days}} days.",
+  "observability.insights.spentSummary_other":
+    "{{amount}} spent on {{count}} prompts in the last {{days}} days.",
+  "observability.insights.handledLabel": "Handled by Agent-Native:",
+  "observability.insights.handledHeading": "Handled by Agent-Native",
+  "observability.insights.handledParallel":
+    "Ran {{count}} tool calls at the same time, about {{duration}} faster than one by one.",
+  "observability.insights.handledRecovered_one":
+    "Recovered from {{count}} tool error without stopping.",
+  "observability.insights.handledRecovered_other":
+    "Recovered from {{count}} tool errors without stopping.",
+  "observability.insights.avgPerPrompt": "Average per prompt",
+  "observability.insights.completed": "Completed",
+  "observability.insights.completedDetail": "{{done}} of the last {{total}}",
+  "observability.insights.completedRecovered_one":
+    "{{done}} of the last {{total}}, after recovering from {{count}} tool error",
+  "observability.insights.completedRecovered_other":
+    "{{done}} of the last {{total}}, after recovering from {{count}} tool errors",
+  "observability.insights.typicalTime": "Typical time",
+  "observability.insights.median": "median",
+  "observability.insights.sampleNote":
+    "Completion, typical time, what Agent-Native handled and the findings use the latest {{shown}} of {{total}} prompts.",
+  "observability.insights.changeSame": "same as the period before",
+  "observability.insights.changeUp": "↑ {{percent}}% vs the period before",
+  "observability.insights.changeDown": "↓ {{percent}}% vs the period before",
+  "observability.insights.kindProblem": "Problem",
+  "observability.insights.kindSaving": "Could save",
+  "observability.insights.kindInfo": "Good to know",
+  "observability.insights.fixLabel": "Fix:",
+  "observability.insights.openPrompt": "Open the prompt",
+  "observability.insights.seePrompts_one": "See the {{count}} prompt",
+  "observability.insights.seePrompts_other": "See the {{count}} prompts",
+  "observability.insights.erroredTitle_one":
+    "{{count}} prompt ended with an error",
+  "observability.insights.erroredTitle_other":
+    "{{count}} prompts ended with an error",
+  "observability.insights.erroredBody": "The agent stopped before finishing.",
+  "observability.insights.erroredFix":
+    "Open a prompt to see the last thing it did before it stopped.",
+  "observability.insights.toolFailedTitle_one":
+    "The {{tool}} tool failed in {{count}} prompt",
+  "observability.insights.toolFailedTitle_other":
+    "The {{tool}} tool failed in {{count}} prompts",
+  "observability.insights.toolFailedSaid": "It said: “{{error}}”",
+  "observability.insights.toolFailedGeneric": "The tool reported an error.",
+  "observability.insights.toolRecoveredAll":
+    "The agent recovered and finished every time.",
+  "observability.insights.toolRecoveredSome":
+    "The agent recovered and finished in {{count}} of them.",
+  "observability.insights.restartTitle":
+    "Starting over cost about {{amount}} ({{percent}}% of spend)",
+  "observability.insights.restartBody":
+    "In {{count}} of {{total}} recent prompts the agent re-sent its whole conversation after {{reason}}, instead of re-using what it had already sent.",
+  "observability.insights.reasonToolLookup": "picking up new tools",
+  "observability.insights.reasonPrefixChanged":
+    "something at the start of its instructions changed",
+  "observability.insights.fixToolLookup":
+    "Preload the tools this app uses with initialToolNames so the tool list stays the same for the whole prompt.",
+  "observability.insights.fixPrefixChanged":
+    "Keep changing content, like timestamps or per-step state, out of the system prompt.",
+  "observability.insights.priciestTitle":
+    "One prompt used {{percent}}% of recent spend",
+  "observability.insights.priciestBody_one":
+    "“{{prompt}}” cost {{amount}} over {{count}} step.",
+  "observability.insights.priciestBody_other":
+    "“{{prompt}}” cost {{amount}} over {{count}} steps.",
+  "observability.insights.untitledPrompt": "Untitled prompt",
+  "observability.insights.promptsHeading": "Prompts",
+  "observability.insights.showing": "Showing {{count}}",
+  "observability.insights.sortNewest": "Newest",
+  "observability.insights.sortCost": "Most expensive",
+  "observability.insights.emptyPrompts":
+    "No prompts in this period yet. They show up here a few seconds after they finish.",
+  "observability.insights.promptNotSaved": "Prompt text wasn't saved",
+  "observability.insights.ratedHelpful": "Rated helpful",
+  "observability.insights.ratedUnhelpful": "Rated unhelpful",
+  "observability.insights.notRated": "Not rated",
+  "observability.insights.stoppedWithError": "Stopped with an error",
+  "observability.insights.detailsUnavailable":
+    "Step details are no longer available",
+  "observability.insights.answered": "Answered",
+  "observability.insights.finished": "Finished",
+  "observability.insights.startedOverShort": "started over {{count}}×",
+  "observability.insights.recoveredShort_one":
+    "recovered from {{count}} tool error",
+  "observability.insights.recoveredShort_other":
+    "recovered from {{count}} tool errors",
+  "observability.insights.toolsFailedShort_one": "{{count}} tool failed",
+  "observability.insights.toolsFailedShort_other": "{{count}} tools failed",
+  "observability.insights.headerDuration": "in {{duration}}",
+  "observability.insights.stepsCount_one": "{{count}} step",
+  "observability.insights.stepsCount_other": "{{count}} steps",
+  "observability.insights.whatItDid": "What it did:",
+  "observability.insights.replyNotSaved":
+    "The reply text wasn't saved for this prompt.",
+  "observability.insights.showAll": "Show all",
+  "observability.insights.showLess": "Show less",
+  "observability.insights.moreTools": "+{{count}} more",
+  "observability.insights.failedSuffix": "failed",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.startedOverNote_one":
+    "Started over {{count}} time after {{reason}}. That cost about {{amount}} of the {{total}}.",
+  "observability.insights.startedOverNote_other":
+    "Started over {{count}} times after {{reason}}. That cost about {{amount}} of the {{total}}.",
+  "observability.insights.toolFailedNote_one":
+    "The {{tool}} tool failed {{count}} time.",
+  "observability.insights.toolFailedNote_other":
+    "The {{tool}} tool failed {{count}} times.",
+  "observability.insights.toolFailedRecoveredNote_one":
+    "The {{tool}} tool failed {{count}} time, but the agent kept going and finished.",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "The {{tool}} tool failed {{count}} times, but the agent kept going and finished.",
+  "observability.insights.showSteps_one": "Show the {{count}} step",
+  "observability.insights.showSteps_other": "Show the {{count}} steps",
+  "observability.insights.hideSteps": "Hide steps",
+  "observability.insights.costDetails": "Cost details and checks",
+  "observability.insights.turnReply": "Wrote the reply",
+  "observability.insights.turnThought": "Thought it through",
+  "observability.insights.startedOverTag": "started over",
+  "observability.insights.toolFailedTag": "tool failed",
+  "observability.insights.turnContext":
+    "Sent {{tokens}} tokens of context, {{percent}}% re-used from earlier.",
+  "observability.insights.turnExpired":
+    "The saved context had expired after a pause, which is expected.",
+  "observability.insights.turnOutput": "Wrote {{tokens}} tokens.",
+  "observability.insights.turnRestart":
+    "Started over after {{reason}}, about {{amount}} more than re-using it.",
+  "observability.insights.noCacheCompare":
+    "At list prices, re-using earlier context took this prompt from {{noCache}} down to {{estimated}}.",
+  "observability.insights.partReused": "Re-used context",
+  "observability.insights.partSaved": "Saved to cache",
+  "observability.insights.partNew": "New context",
+  "observability.insights.partOutput": "Written by the model",
+  "observability.insights.checksHeading": "Automatic checks",
+  "observability.insights.checksNone": "None were recorded.",
+  "observability.insights.checksGraded": "(graded by a model)",
+  "observability.insights.checksNote":
+    "Framework checks look at how the run went (errors, steps, speed), not at whether the result was good.",
+  "observability.insights.lookedForTools": "Looked for more tools",
+  "observability.insights.prevPrompt": "Previous prompt (K)",
+  "observability.insights.nextPrompt": "Next prompt (J)",
+  "observability.insights.toolVerb.add": "Added {{object}}",
+  "observability.insights.toolVerb.analyze": "Analyzed {{object}}",
+  "observability.insights.toolVerb.apply": "Applied {{object}}",
+  "observability.insights.toolVerb.capture": "Captured {{object}}",
+  "observability.insights.toolVerb.check": "Checked {{object}}",
+  "observability.insights.toolVerb.connect": "Connected {{object}}",
+  "observability.insights.toolVerb.create": "Created {{object}}",
+  "observability.insights.toolVerb.delete": "Deleted {{object}}",
+  "observability.insights.toolVerb.duplicate": "Duplicated {{object}}",
+  "observability.insights.toolVerb.edit": "Edited {{object}}",
+  "observability.insights.toolVerb.export": "Exported {{object}}",
+  "observability.insights.toolVerb.fetch": "Fetched {{object}}",
+  "observability.insights.toolVerb.find": "Found {{object}}",
+  "observability.insights.toolVerb.generate": "Generated {{object}}",
+  "observability.insights.toolVerb.index": "Indexed {{object}}",
+  "observability.insights.toolVerb.insert": "Inserted {{object}}",
+  "observability.insights.toolVerb.list": "Listed {{object}}",
+  "observability.insights.toolVerb.move": "Moved {{object}}",
+  "observability.insights.toolVerb.navigate": "Navigated {{object}}",
+  "observability.insights.toolVerb.open": "Opened {{object}}",
+  "observability.insights.toolVerb.present": "Presented {{object}}",
+  "observability.insights.toolVerb.propose": "Proposed {{object}}",
+  "observability.insights.toolVerb.query": "Queried {{object}}",
+  "observability.insights.toolVerb.read": "Read {{object}}",
+  "observability.insights.toolVerb.remove": "Removed {{object}}",
+  "observability.insights.toolVerb.rename": "Renamed {{object}}",
+  "observability.insights.toolVerb.reply": "Replied to {{object}}",
+  "observability.insights.toolVerb.resolve": "Resolved {{object}}",
+  "observability.insights.toolVerb.run": "Ran {{object}}",
+  "observability.insights.toolVerb.save": "Saved {{object}}",
+  "observability.insights.toolVerb.search": "Searched {{object}}",
+  "observability.insights.toolVerb.send": "Sent {{object}}",
+  "observability.insights.toolVerb.set": "Set {{object}}",
+  "observability.insights.toolVerb.take": "Took {{object}}",
+  "observability.insights.toolVerb.update": "Updated {{object}}",
+  "observability.insights.toolVerb.upload": "Uploaded {{object}}",
+  "observability.insights.toolVerb.view": "Viewed {{object}}",
+  "observability.insights.toolVerb.write": "Wrote {{object}}",
   "usage.driverCreditsAndUsd": "Builder credits / USD",
   "billing.builderCreditLimitTitle": "Your Builder credits are used up",
   "billing.builderCreditLimitEmailBody":
@@ -2711,6 +2897,8 @@ const messages = {
   "settingsSubAgents.registryLink": "Browse the Global A2A Registry",
   "settingsSubAgents.connectTitle": "Connect {{name}}",
   "settingsSubAgents.close": "Close",
+  "observability.insights.rawTrace":
+    "Raw trace (every span, with inputs and outputs)",
 } as const;
 
 export default messages;

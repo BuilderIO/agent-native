@@ -3,16 +3,28 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-30
+
+### Improved
+
+- Slides remembers your home library tab, so returning users can open straight to Recent.
+
 ## 2026-09-29
 
 ### Improved
 
+- Crop images freely and see the selected slide at a glance
 - Pasting a link to an accessible deck preselects it as the visual reference for a new presentation.
 - Undo and redo are available in the editor menu
 - Settings pages now share the account layout, with dated updates that load in batches.
 
 ### Fixed
 
+- Choosing the latest slide version preserves other pending slide edits.
+- Generation retries keep the original files and references.
+- List commands now change only the selected text rows, leaving other rows untouched.
+- Large PDF and PowerPoint imports have more time to finish
+- The Position control stays available while a selected object's style details initialize.
 - Conflicting edits to one slide no longer block unrelated slide changes.
 - The home composer stays put as the app opens.
 - Slide conflict resolution keeps drafts available until saves succeed and retries independent edits against the current deck version.

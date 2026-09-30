@@ -775,7 +775,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "सेल्स कॉल, ट्रांसक्रिप्ट, डील इनसाइट, खाते का सारांश",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong में एक टेक एडमिन को MCP इंटीग्रेशन बनाना होगा और व्यक्तिगत या साझा ऑथराइज़ेशन चुनना होगा। कनेक्ट करने से पहले जनरेट किए गए क्लाइंट ID और सीक्रेट को कॉन्फ़िगर करना ज़रूरी है।",
+    "Gong के टेक एडमिन को व्यक्तिगत या साझा ऑथराइज़ेशन वाला MCP इंटीग्रेशन बनाना होगा। मैन्युअल रजिस्ट्रेशन के लिए जनरेट किया गया क्लाइंट ID और सीक्रेट वर्कस्पेस सीक्रेट `GONG_MCP_CLIENT_ID` और `GONG_MCP_CLIENT_SECRET` के रूप में सेव करें; ऑटोमैटिक रजिस्ट्रेशन के लिए क्लाइंट क्रेडेंशियल की ज़रूरत नहीं है।",
   "mcpIntegrations.catalog.semgrep.description":
     "सुरक्षा से जुड़ी समस्याओं के लिए कोड स्कैन करें।",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -980,6 +980,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
   "message.revertQuestion": "इस बिंदु पर वापस जाएँ? इसके बाद किए गए बदलाव खो जाएँगे।",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
+  "message.historyUnavailable": "बदलावों का इतिहास लोड नहीं हो सका।",
   "message.threadNotFound":
     "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",
@@ -1327,6 +1328,187 @@ const messages: ToolkitAgentChatTranslation = {
   "usage.providerSpendDetail": "Builder बिलिंग से बाहर प्रदाता या पुराने कॉल",
   "usage.providerSpendToday": "आज का अन्य या अवर्गीकृत उपयोग: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder क्रेडिट / USD",
+  "observability.insights.verdictSmooth": "सब कुछ ठीक चल रहा है",
+  "observability.insights.handledLabel": "Agent-Native द्वारा संभाला गया:",
+  "observability.insights.handledHeading": "Agent-Native द्वारा संभाला गया",
+  "observability.insights.handledParallel":
+    "{{count}} टूल कॉल एक साथ चलाए, जो एक-एक करके चलाने से लगभग {{duration}} तेज़ था।",
+  "observability.insights.avgPerPrompt": "प्रति प्रॉम्प्ट औसत",
+  "observability.insights.completed": "पूरा हुआ",
+  "observability.insights.completedDetail": "आख़िरी {{total}} में से {{done}}",
+  "observability.insights.typicalTime": "सामान्य समय",
+  "observability.insights.median": "मीडियन",
+  "observability.insights.sampleNote":
+    "पूरा होने की दर, सामान्य समय, Agent-Native ने क्या संभाला और निष्कर्ष, {{total}} में से नवीनतम {{shown}} प्रॉम्प्ट पर आधारित हैं।",
+  "observability.insights.changeSame": "पिछली अवधि जैसा ही",
+  "observability.insights.changeUp": "↑ {{percent}}% पिछली अवधि की तुलना में",
+  "observability.insights.changeDown": "↓ {{percent}}% पिछली अवधि की तुलना में",
+  "observability.insights.kindProblem": "समस्या",
+  "observability.insights.kindSaving": "बचत हो सकती है",
+  "observability.insights.kindInfo": "जानने योग्य बात",
+  "observability.insights.fixLabel": "समाधान:",
+  "observability.insights.openPrompt": "प्रॉम्प्ट खोलें",
+  "observability.insights.erroredBody": "एजेंट पूरा करने से पहले ही रुक गया।",
+  "observability.insights.erroredFix":
+    "रुकने से पहले एजेंट ने आख़िरी बार क्या किया, यह देखने के लिए प्रॉम्प्ट खोलें।",
+  "observability.insights.toolFailedSaid": "उसने कहा: “{{error}}”",
+  "observability.insights.toolFailedGeneric": "टूल ने एक एरर की जानकारी दी।",
+  "observability.insights.toolRecoveredAll": "एजेंट हर बार उबरा और काम पूरा किया।",
+  "observability.insights.toolRecoveredSome":
+    "एजेंट उनमें से {{count}} में उबरा और काम पूरा किया।",
+  "observability.insights.restartTitle":
+    "फिर से शुरू करने में लगभग {{amount}} खर्च हुए ({{percent}}% खर्च का)",
+  "observability.insights.restartBody":
+    "आख़िरी {{total}} प्रॉम्प्ट में से {{count}} में, {{reason}} के बाद एजेंट ने पूरी बातचीत फिर से भेजी, बजाय इसके कि जो पहले भेजा था उसे फिर से इस्तेमाल करता।",
+  "observability.insights.reasonToolLookup": "नए टूल्स मिलने",
+  "observability.insights.reasonPrefixChanged":
+    "उसके इंस्ट्रक्शन्स की शुरुआत में कुछ बदलने",
+  "observability.insights.fixToolLookup":
+    "इस ऐप में इस्तेमाल होने वाले टूल्स को initialToolNames से पहले ही लोड करें, ताकि पूरे प्रॉम्प्ट में टूल लिस्ट एक जैसी बनी रहे।",
+  "observability.insights.fixPrefixChanged":
+    "बदलते रहने वाली चीज़ों को, जैसे टाइमस्टैंप या हर स्टेप की स्थिति को, सिस्टम प्रॉम्प्ट से बाहर रखें।",
+  "observability.insights.priciestTitle":
+    "एक प्रॉम्प्ट ने हाल के खर्च का {{percent}}% इस्तेमाल किया",
+  "observability.insights.untitledPrompt": "बिना शीर्षक वाला प्रॉम्प्ट",
+  "observability.insights.promptsHeading": "प्रॉम्प्ट्स",
+  "observability.insights.showing": "{{count}} दिखा रहे हैं",
+  "observability.insights.sortNewest": "सबसे नया",
+  "observability.insights.sortCost": "सबसे महंगा",
+  "observability.insights.emptyPrompts":
+    "इस अवधि में अभी तक कोई प्रॉम्प्ट नहीं है। पूरा होने के कुछ सेकंड बाद वे यहां दिखने लगते हैं।",
+  "observability.insights.promptNotSaved": "प्रॉम्प्ट का टेक्स्ट सेव नहीं हुआ",
+  "observability.insights.ratedHelpful": "उपयोगी बताया गया",
+  "observability.insights.ratedUnhelpful": "अनुपयोगी बताया गया",
+  "observability.insights.notRated": "कोई रेटिंग नहीं",
+  "observability.insights.stoppedWithError": "एरर के साथ रुका",
+  "observability.insights.detailsUnavailable": "स्टेप की जानकारी अब उपलब्ध नहीं है",
+  "observability.insights.answered": "जवाब दिया गया",
+  "observability.insights.finished": "पूरा हुआ",
+  "observability.insights.startedOverShort": "{{count}}× फिर से शुरू हुआ",
+  "observability.insights.headerDuration": "{{duration}} में",
+  "observability.insights.whatItDid": "उसने क्या किया:",
+  "observability.insights.replyNotSaved":
+    "इस प्रॉम्प्ट के लिए जवाब का टेक्स्ट सेव नहीं हुआ।",
+  "observability.insights.showAll": "सभी दिखाएं",
+  "observability.insights.showLess": "कम दिखाएं",
+  "observability.insights.moreTools": "+{{count}} और",
+  "observability.insights.failedSuffix": "फेल हुआ",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.hideSteps": "स्टेप्स छिपाएं",
+  "observability.insights.costDetails": "लागत का विवरण और चेक्स",
+  "observability.insights.turnReply": "जवाब लिखा",
+  "observability.insights.turnThought": "सोच-समझकर विचार किया",
+  "observability.insights.startedOverTag": "फिर से शुरू हुआ",
+  "observability.insights.toolFailedTag": "टूल फेल हुआ",
+  "observability.insights.turnContext":
+    "{{tokens}} टोकन का कॉन्टेक्स्ट भेजा, जिसमें से {{percent}}% पहले से इस्तेमाल किया हुआ था।",
+  "observability.insights.turnExpired":
+    "रुकने के बाद सेव किया गया कॉन्टेक्स्ट एक्सपायर हो गया था, जो सामान्य बात है।",
+  "observability.insights.turnOutput": "{{tokens}} टोकन लिखे।",
+  "observability.insights.turnRestart":
+    "{{reason}} के बाद फिर से शुरू हुआ, जो इसे फिर से इस्तेमाल करने से लगभग {{amount}} ज़्यादा था।",
+  "observability.insights.noCacheCompare":
+    "लिस्ट प्राइस पर, पहले के कॉन्टेक्स्ट को फिर से इस्तेमाल करने से इस प्रॉम्प्ट की लागत {{noCache}} से घटकर {{estimated}} हो गई।",
+  "observability.insights.partReused": "फिर से इस्तेमाल किया गया कॉन्टेक्स्ट",
+  "observability.insights.partSaved": "कैश में सेव किया गया",
+  "observability.insights.partNew": "नया कॉन्टेक्स्ट",
+  "observability.insights.partOutput": "मॉडल द्वारा लिखा गया",
+  "observability.insights.checksHeading": "ऑटोमैटिक चेक्स",
+  "observability.insights.checksNone": "कोई भी रिकॉर्ड नहीं किया गया।",
+  "observability.insights.checksGraded": "(एक मॉडल द्वारा ग्रेड किया गया)",
+  "observability.insights.checksNote":
+    "फ्रेमवर्क चेक्स यह देखते हैं कि रन कैसे हुआ (एरर, स्टेप्स, स्पीड), न कि नतीजा कितना अच्छा था।",
+  "observability.insights.lookedForTools": "और टूल्स खोजे",
+  "observability.insights.prevPrompt": "पिछला प्रॉम्प्ट (K)",
+  "observability.insights.nextPrompt": "अगला प्रॉम्प्ट (J)",
+  "observability.insights.toolVerb.add": "{{object}} जोड़ा",
+  "observability.insights.toolVerb.analyze": "{{object}} एनालाइज़ किया",
+  "observability.insights.toolVerb.apply": "{{object}} अप्लाई किया",
+  "observability.insights.toolVerb.capture": "{{object}} कैप्चर किया",
+  "observability.insights.toolVerb.check": "{{object}} चेक किया",
+  "observability.insights.toolVerb.connect": "{{object}} कनेक्ट किया",
+  "observability.insights.toolVerb.create": "{{object}} बनाया",
+  "observability.insights.toolVerb.delete": "{{object}} डिलीट किया",
+  "observability.insights.toolVerb.duplicate": "{{object}} डुप्लीकेट किया",
+  "observability.insights.toolVerb.edit": "{{object}} एडिट किया",
+  "observability.insights.toolVerb.export": "{{object}} एक्सपोर्ट किया",
+  "observability.insights.toolVerb.fetch": "{{object}} फ़ेच किया",
+  "observability.insights.toolVerb.find": "{{object}} ढूंढा",
+  "observability.insights.toolVerb.generate": "{{object}} जनरेट किया",
+  "observability.insights.toolVerb.index": "{{object}} इंडेक्स किया",
+  "observability.insights.toolVerb.insert": "{{object}} इन्सर्ट किया",
+  "observability.insights.toolVerb.list": "{{object}} लिस्ट किया",
+  "observability.insights.toolVerb.move": "{{object}} मूव किया",
+  "observability.insights.toolVerb.navigate": "{{object}} नेविगेट किया",
+  "observability.insights.toolVerb.open": "{{object}} खोला",
+  "observability.insights.toolVerb.present": "{{object}} प्रेजेंट किया",
+  "observability.insights.toolVerb.propose": "{{object}} सुझाया",
+  "observability.insights.toolVerb.query": "{{object}} क्वेरी की",
+  "observability.insights.toolVerb.read": "{{object}} पढ़ा",
+  "observability.insights.toolVerb.remove": "{{object}} हटाया",
+  "observability.insights.toolVerb.rename": "{{object}} का नाम बदला",
+  "observability.insights.toolVerb.reply": "{{object}} को जवाब दिया",
+  "observability.insights.toolVerb.resolve": "{{object}} रिज़ॉल्व किया",
+  "observability.insights.toolVerb.run": "{{object}} चलाया",
+  "observability.insights.toolVerb.save": "{{object}} सेव किया",
+  "observability.insights.toolVerb.search": "{{object}} खोजा",
+  "observability.insights.toolVerb.send": "{{object}} भेजा",
+  "observability.insights.toolVerb.set": "{{object}} सेट किया",
+  "observability.insights.toolVerb.take": "{{object}} लिया",
+  "observability.insights.toolVerb.update": "{{object}} अपडेट किया",
+  "observability.insights.toolVerb.upload": "{{object}} अपलोड किया",
+  "observability.insights.toolVerb.view": "{{object}} देखा",
+  "observability.insights.toolVerb.write": "{{object}} लिखा",
+  "observability.insights.verdictLook_one": "ध्यान देने लायक {{count}} बात",
+  "observability.insights.verdictLook_other": "ध्यान देने लायक {{count}} बातें",
+  "observability.insights.verdictProblems_one": "{{count}} समस्या",
+  "observability.insights.verdictProblems_other": "{{count}} समस्याएं",
+  "observability.insights.spentSummary_one":
+    "पिछले {{days}} दिनों में {{count}} प्रॉम्प्ट पर {{amount}} खर्च हुआ।",
+  "observability.insights.spentSummary_other":
+    "पिछले {{days}} दिनों में {{count}} प्रॉम्प्ट पर {{amount}} खर्च हुए।",
+  "observability.insights.handledRecovered_one":
+    "एजेंट {{count}} टूल एरर से बिना रुके उबर गया।",
+  "observability.insights.handledRecovered_other":
+    "एजेंट {{count}} टूल एरर्स से बिना रुके उबर गया।",
+  "observability.insights.completedRecovered_one":
+    "आख़िरी {{total}} में से {{done}}, {{count}} टूल एरर से उबरने के बाद",
+  "observability.insights.completedRecovered_other":
+    "आख़िरी {{total}} में से {{done}}, {{count}} टूल एरर्स से उबरने के बाद",
+  "observability.insights.seePrompts_one": "{{count}} प्रॉम्प्ट देखें",
+  "observability.insights.seePrompts_other": "{{count}} प्रॉम्प्ट देखें",
+  "observability.insights.erroredTitle_one":
+    "{{count}} प्रॉम्प्ट किसी एरर के साथ खत्म हुआ।",
+  "observability.insights.erroredTitle_other":
+    "{{count}} प्रॉम्प्ट किसी एरर के साथ खत्म हुए।",
+  "observability.insights.toolFailedTitle_one":
+    "{{tool}} टूल {{count}} प्रॉम्प्ट में फेल हुआ।",
+  "observability.insights.toolFailedTitle_other":
+    "{{tool}} टूल {{count}} प्रॉम्प्ट में फेल हुआ।",
+  "observability.insights.priciestBody_one":
+    "“{{prompt}}” की लागत {{count}} स्टेप में {{amount}} रही।",
+  "observability.insights.priciestBody_other":
+    "“{{prompt}}” की लागत {{count}} स्टेप्स में {{amount}} रही।",
+  "observability.insights.recoveredShort_one": "{{count}} टूल एरर से उबरा",
+  "observability.insights.recoveredShort_other": "{{count}} टूल एरर्स से उबरा",
+  "observability.insights.toolsFailedShort_one": "{{count}} टूल फेल हुआ",
+  "observability.insights.toolsFailedShort_other": "{{count}} टूल फेल हुए",
+  "observability.insights.stepsCount_one": "{{count}} स्टेप",
+  "observability.insights.stepsCount_other": "{{count}} स्टेप्स",
+  "observability.insights.startedOverNote_one":
+    "{{reason}} के बाद {{count}} बार फिर से शुरू हुआ। इसमें {{total}} में से लगभग {{amount}} खर्च हुआ।",
+  "observability.insights.startedOverNote_other":
+    "{{reason}} के बाद {{count}} बार फिर से शुरू हुआ। इसमें {{total}} में से लगभग {{amount}} खर्च हुआ।",
+  "observability.insights.toolFailedNote_one":
+    "{{tool}} टूल {{count}} बार फेल हुआ।",
+  "observability.insights.toolFailedNote_other":
+    "{{tool}} टूल {{count}} बार फेल हुआ।",
+  "observability.insights.toolFailedRecoveredNote_one":
+    "{{tool}} टूल {{count}} बार फेल हुआ, लेकिन एजेंट ने काम जारी रखा और उसे पूरा किया।",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "{{tool}} टूल {{count}} बार फेल हुआ, लेकिन एजेंट ने काम जारी रखा और उसे पूरा किया।",
+  "observability.insights.showSteps_one": "{{count}} स्टेप दिखाएं",
+  "observability.insights.showSteps_other": "{{count}} स्टेप्स दिखाएं",
   "billing.builderCreditLimitTitle": "आपके Builder क्रेडिट खत्म हो गए हैं",
   "billing.builderCreditLimitEmailBody":
     "आपके कनेक्ट किए गए Builder खाते में क्रेडिट खत्म होने के कारण AI अनुरोध रुक गया। जारी रखने के लिए अपना Builder प्लान अपग्रेड करें।",
@@ -2647,6 +2829,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "Global A2A Registry देखें",
   "settingsSubAgents.connectTitle": "{{name}} कनेक्ट करें",
   "settingsSubAgents.close": "बंद करें",
+  "observability.insights.rawTrace": "रॉ ट्रेस (हर स्पैन, इनपुट और आउटपुट के साथ)",
 };
 
 export default messages;

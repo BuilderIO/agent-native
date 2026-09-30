@@ -234,6 +234,18 @@ vi.mock("../agentkit/react/root.js", async () => {
   return {
     AgentKitRoot: (props: any) => {
       chatMocks.rootProps = props;
+      if (chatMocks.useRealRoot) {
+        return React.createElement(actual.AgentKitRoot, {
+          ...props,
+          ...(chatMocks.realComposerController
+            ? {
+                controller: chatMocks.realComposerController,
+                transport: undefined,
+                endpoint: undefined,
+              }
+            : {}),
+        });
+      }
       if (chatMocks.realComposerController) {
         return React.createElement(AgentKitProvider, {
           ...props,
@@ -747,6 +759,29 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("shows a retry when chat history fails to load", async () => {
+    const retryHistory = vi.fn();
+    chatMocks.history = {
+      historyLoadFailed: true,
+      isRetryingHistory: false,
+      retryHistory,
+    };
+
+    await mount(baseProps());
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "agentChat.message.historyUnavailable",
+    );
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.common.retry",
+    );
+    expect(retry).toBeDefined();
+
+    await act(async () => retry?.click());
+
+    expect(retryHistory).toHaveBeenCalledOnce();
+  });
+
   it("shows Thinking in the transcript while a submitted user message is pending", async () => {
     chatMocks.history = { isSubmissionInFlight: true };
     chatMocks.thread.messages = [
@@ -759,6 +794,8 @@ describe("AgentKitAssistantChat host behavior", () => {
     ];
     await mount(baseProps());
 
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "agentChat.status.thinking",
     );
@@ -847,6 +884,29 @@ describe("AgentKitAssistantChat host behavior", () => {
     return client;
   }
 
+  it("keeps the real editor editable while a submission is in flight", async () => {
+    chatMocks.useRealChat = true;
+    chatMocks.history = { isSubmissionInFlight: true };
+    await useRealComposer();
+    await mount(baseProps({ showModelSelector: false }));
+
+    const editor = container.querySelector<HTMLElement>(
+      '[contenteditable="true"]',
+    );
+    expect(editor).not.toBeNull();
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+
+    await act(async () =>
+      chatMocks.composerProps.composerRef.current.setText("Keep this draft"),
+    );
+    expect(editor?.textContent).toBe("Keep this draft");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )?.disabled,
+    ).toBe(true);
+  });
+
   it.each(["default", "compact"] as const)(
     "clears the real %s composer before startRun resolves and preserves the next draft",
     async (composerLayoutVariant) => {
@@ -855,12 +915,13 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.useRealChat = true;
       const client = await useRealComposer(startRun);
       try {
-        await mount(
-          baseProps({
-            composerLayoutVariant,
-            showModelSelector: false,
-          }),
-        );
+        const props = baseProps({
+          composerLayoutVariant,
+          showModelSelector: false,
+        });
+        const openThread = vi.spyOn(client, "openThread");
+        chatMocks.useRealRoot = true;
+        await mount(props);
         container.style.width =
           composerLayoutVariant === "compact" ? "320px" : "960px";
         const composer = chatMocks.composerProps.composerRef.current;
@@ -883,6 +944,19 @@ describe("AgentKitAssistantChat host behavior", () => {
         ).toContain("First prompt");
         expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([]);
         expect(editor.textContent).toBe("");
+
+        await act(async () =>
+          root.render(<AgentKitAssistantChat {...props} isNewThread={false} />),
+        );
+        await flush();
+
+        expect(chatMocks.rootProps.load).toBe("manual");
+        expect(openThread).not.toHaveBeenCalled();
+        expect(
+          container
+            .querySelector<HTMLElement>("[contenteditable]")
+            ?.getAttribute("contenteditable"),
+        ).toBe("true");
 
         await act(async () => composer.setText("Next draft"));
         await act(async () => started.resolve({ runId: "run-latency" }));
@@ -3338,11 +3412,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.thread.activeRunIds = ["run-1"];
     await mount(baseProps());
 
-    await act(async () => {
-      await chatMocks.resumeProps.onMessageResume({
-        message: "Continue after connecting the integration.",
-      });
+    const resume = chatMocks.resumeProps.onMessageResume({
+      message: "Continue after connecting the integration.",
     });
+    expect(resume).toBeInstanceOf(Promise);
+    await act(async () => resume);
     expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "Continue after connecting the integration.",
@@ -3380,6 +3454,19 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect.objectContaining({ text: "Continue after OAuth." }),
     );
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps failed integration prompt submissions resumable", async () => {
+    chatMocks.thread.activeRunIds = ["run-1"];
+    const submissionError = new Error("Temporary send failure");
+    chatMocks.control.queueMessage.mockRejectedValueOnce(submissionError);
+    await mount(baseProps());
+
+    await expect(
+      chatMocks.resumeProps.onMessageResume({
+        message: "Continue after OAuth.",
+      }),
+    ).rejects.toBe(submissionError);
   });
 
   it("shows the missing-final-response warning from recovered run metadata", async () => {

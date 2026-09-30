@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
+import type { AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Index from "./Index";
@@ -36,7 +38,9 @@ const mocks = vi.hoisted(() => ({
   focusComposer: vi.fn(),
   submitWithText: vi.fn(),
   agentEngine: { state: "configured", missing: false },
-  fetchAgentEngineConfiguredState: vi.fn(),
+  fetchAgentEngineConfiguredState: vi.fn(
+    async () => "missing" as AgentEngineConfiguredState,
+  ),
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
 }));
 
@@ -44,50 +48,38 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/agent-chat")
   >()),
-  BuilderSetupCard: ({
-    bouncePulse = 0,
-    onConnected,
-  }: {
-    bouncePulse?: number;
-    onConnected?: () => void;
-  }) => (
-    <div
-      data-setup-card
-      data-testid="ai-setup-card"
-      data-bounce-pulse={bouncePulse}
-    >
-      Connect AI
-      <button type="button" onClick={onConnected}>
-        Connect Builder.io
-      </button>
-      <a href="/settings/keys">Custom keys</a>
-    </div>
-  ),
+  useChatModels: vi.fn(),
   useAgentEngineConfigured: () => mocks.agentEngine,
   fetchAgentEngineConfiguredState: mocks.fetchAgentEngineConfiguredState,
 }));
-vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
-  BuilderSetupCard: ({
-    bouncePulse = 0,
-    onConnected,
-  }: {
-    bouncePulse?: number;
-    onConnected?: () => void;
-  }) => (
-    <div
-      data-setup-card
-      data-testid="ai-setup-card"
-      data-bounce-pulse={bouncePulse}
-    >
-      Connect AI
-      <button type="button" onClick={onConnected}>
-        Connect Builder.io
-      </button>
-      <a href="/settings/keys">Custom keys</a>
-    </div>
-  ),
-  BuilderSetupContent: () => null,
-}));
+
+vi.mock(
+  "@agent-native/toolkit/app/chat/chat/run-recovery",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/chat/run-recovery")
+    >()),
+    BuilderSetupCard: ({
+      bouncePulse = 0,
+      onConnected,
+    }: {
+      bouncePulse?: number;
+      onConnected?: () => void;
+    }) => (
+      <div
+        data-setup-card
+        data-testid="ai-setup-card"
+        data-bounce-pulse={bouncePulse}
+      >
+        Connect AI
+        <button type="button" onClick={onConnected}>
+          Connect Builder.io
+        </button>
+        <a href="/settings/keys">Custom keys</a>
+      </div>
+    ),
+  }),
+);
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
 }));
@@ -302,6 +294,8 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@agent-native/toolkit/app/chat/composer/index")
     >()),
+    PromptComposer: () => null,
+    snapshotComposerContextItems: (items: unknown) => items,
     useAgentKitIntegrationMenu: () => ({
       id: "integrations",
       label: "Integrations",
@@ -373,6 +367,7 @@ let headerContainer: HTMLDivElement | null = null;
 let headerRoot: Root | null = null;
 
 beforeEach(async () => {
+  localStorage.clear();
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -604,7 +599,7 @@ describe("Index skip to editor", () => {
     expect(container.querySelector("[data-testid='ai-setup-card']")).toBeNull();
   });
 
-  it("keeps chat interactive while provider status is unresolved and checks before submit", async () => {
+  it("disables chat while provider status is unresolved and checks before submit", async () => {
     mocks.agentEngine = { state: "unknown", missing: false };
     await act(async () => root.render(<Index />));
     expect(container.textContent).not.toContain(
@@ -664,6 +659,12 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Connect AI");
   });
 
+  it("hides home suggestions while provider setup is pending", async () => {
+    mocks.agentEngine = { state: "missing", missing: true };
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).not.toContain("Generated dashboard");
+    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+  });
   it.each([
     { state: "missing", missing: true, ready: false },
     { state: "unknown", missing: false, ready: false },
@@ -671,15 +672,24 @@ describe("Index skip to editor", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "gates home composer and suggestions for $state (missing=$missing)",
+    "gates home composer submission and suggestions for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       mocks.agentEngine = { state, missing };
+      mocks.fetchAgentEngineConfiguredState.mockResolvedValue(
+        ready
+          ? "configured"
+          : state === "unavailable"
+            ? "unavailable"
+            : "missing",
+      );
       await act(async () => root.render(<Index />));
       expect(mocks.promptProps?.disabled).not.toBe(true);
       expect(mocks.promptProps).toMatchObject({
         showModelSelector: ready,
         modelStatusChecksEnabled: ready,
       });
+      expect(mocks.promptProps?.onBeforeSubmit).toEqual(expect.any(Function));
+      await expect(mocks.promptProps?.onBeforeSubmit()).resolves.toBe(ready);
       expect(container.textContent).not.toContain(
         "agentChat.setup.checkingProvider",
       );
@@ -884,6 +894,29 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
+    expect(localStorage.getItem("design:home-library-tab")).toBe("recent");
+  });
+
+  it("restores a saved Recent choice before the design summary completes", async () => {
+    await act(async () => root.unmount());
+    localStorage.setItem("design:home-library-tab", "recent");
+    mocks.ownCount = 1;
+    mocks.ownStatus = "pending";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+  });
+
+  it("does not server-render the home library before restoring its saved tab", () => {
+    localStorage.setItem("design:home-library-tab", "recent");
+
+    expect(renderToString(<Index />)).not.toContain(
+      "agent-prompt-home-library",
+    );
   });
 
   it("preserves an explicit Templates choice made while the summary is pending", async () => {
@@ -901,6 +934,16 @@ describe("home library", () => {
     mocks.ownStatus = "success";
     await act(async () => root.render(<Index />));
 
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+    expect(localStorage.getItem("design:home-library-tab")).toBe("templates");
+
+    await act(async () => root.unmount());
+    mocks.ownStatus = "success";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
     expect(
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,

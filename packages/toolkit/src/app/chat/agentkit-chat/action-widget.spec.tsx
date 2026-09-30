@@ -16,17 +16,20 @@ import {
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
 } from "@agent-native/core/data-widgets";
-import { AgentKitProvider } from "@agent-native/toolkit/app/agentkit/react/context";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { AgentKitProvider } from "../../agentkit/react/context.js";
+import { createToolkitI18nCatalog } from "../../i18n.js";
 import {
   registerActionChatRenderer,
   type ToolRendererProps,
 } from "../chat/tool-render-registry.js";
 import { AgentKitActionWidget } from "./action-widget.js";
+
+const catalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("AgentKitActionWidget", () => {
   it("resolves the renderer with stored action args and structured result", async () => {
@@ -214,7 +217,7 @@ describe("AgentKitActionWidget", () => {
     try {
       await act(async () => {
         root.render(
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
             <AgentKitProvider controller={client} threadId="thread-1">
               <>
                 <AgentKitActionWidget value={formsWidget} threadId="thread-1" />
@@ -301,7 +304,7 @@ describe("AgentKitActionWidget", () => {
     try {
       await act(async () => {
         root.render(
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
             <AgentKitProvider controller={client} threadId="thread-1">
               <>
                 {widgets.map((widget) => (
@@ -384,7 +387,7 @@ describe("AgentKitActionWidget", () => {
     try {
       await act(async () => {
         root.render(
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
             <AgentKitProvider controller={client} threadId="thread-1">
               {widgets.map((widget) => (
                 <AgentKitActionWidget

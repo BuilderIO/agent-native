@@ -253,6 +253,9 @@ const messages = {
     media: "الوسائط",
     generateImage: "إنشاء صورة",
     assetLibrary: "مكتبة الأصول",
+    imageOptions: "خيارات الصورة",
+    cropImage: "اقتصاص الصورة",
+    cropHandle: "اقتصاص الصورة {{position}}",
     diagrams: "المخططات",
     insertMermaidDiagram: "إدراج مخطط Mermaid",
     insertMermaidFailed: "فشل إدراج المخطط",
@@ -622,9 +625,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "إعادة المحاولة",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "تعذر تحميل الإصدارات المحفوظة.",
+    snapshotLoadFailed: "تعذر تحميل هذا الإصدار المحفوظ.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",

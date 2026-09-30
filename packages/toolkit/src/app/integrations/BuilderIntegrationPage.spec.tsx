@@ -25,8 +25,8 @@ const actionMocks = vi.hoisted(() => ({
 vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: () => flowMock.current,
 }));
-vi.mock("../use-action.js", () => actionMocks);
-vi.mock("../org/hooks.js", () => ({
+vi.mock("@agent-native/core/client/use-action", () => actionMocks);
+vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: { orgName: "Acme" } }),
 }));
 vi.mock("../settings/deferred-builder-connect-popover.js", () => ({
@@ -38,7 +38,7 @@ vi.mock("../settings/deferred-builder-connect-popover.js", () => ({
     onConnect: (provisionAccount: boolean) => void;
   }) => React.cloneElement(children, { onClick: () => onConnect(false) }),
 }));
-vi.mock("../i18n.js", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, unknown>): string => {

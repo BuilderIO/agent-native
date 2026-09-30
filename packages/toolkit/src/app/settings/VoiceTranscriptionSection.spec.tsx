@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,7 +81,10 @@ vi.mock("./deferred-builder-connect-popover.js", () => ({
     children,
 }));
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 type Handler = (init?: RequestInit) => Response | Promise<Response>;
 
@@ -140,7 +144,14 @@ describe("VoiceTranscriptionSection compact picker", () => {
 
   async function render() {
     await act(async () => {
-      root.render(<VoiceTranscriptionSection compact />);
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={toolkitI18nCatalog}
+          persistPreference={false}
+        >
+          <VoiceTranscriptionSection compact />
+        </AgentNativeI18nProvider>,
+      );
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));

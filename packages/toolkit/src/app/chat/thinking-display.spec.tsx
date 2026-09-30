@@ -3,7 +3,7 @@
 import {
   DEFAULT_THINKING_DISPLAY,
   parseThinkingDisplay,
-} from "@agent-native/core/shared";
+} from "@agent-native/core/shared/thinking-display";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

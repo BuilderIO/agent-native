@@ -7,11 +7,25 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { toolkitMessagesForLocale } from "../i18n/catalog.js";
 import {
-  FirstRunOnboarding,
+  FirstRunOnboarding as FirstRunOnboardingSource,
   manualSetupSettingsRoute,
 } from "./FirstRunOnboarding.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+
+function FirstRunOnboarding() {
+  return (
+    <AgentNativeI18nProvider
+      catalog={toolkitI18nCatalog}
+      persistPreference={false}
+    >
+      <FirstRunOnboardingSource />
+    </AgentNativeI18nProvider>
+  );
+}
 
 const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
@@ -31,16 +45,24 @@ vi.mock("react-router", async (importOriginal) => {
   };
 });
 
-vi.mock("./use-onboarding.js", () => ({
+vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
+  useFeatureFlagState: () => ({ status: "ready", enabled: true }),
+}));
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   trackOnboardingEvent: mocks.trackOnboardingEvent,
   useOnboarding: mocks.useOnboarding,
 }));
 
-vi.mock("./use-preview-mode.js", () => ({
+vi.mock("@agent-native/core/client/onboarding/use-preview-mode", () => ({
   ONBOARDING_PREVIEW_QUERY_PARAM: "onboarding",
   ONBOARDING_PREVIEW_STEP_QUERY_PARAM: "step",
   useOnboardingPreviewMode: mocks.useOnboardingPreviewMode,
   useOnboardingPreviewStep: mocks.useOnboardingPreviewStep,
+}));
+
+vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
+  useFeatureFlagState: () => ({ status: "ready", enabled: true }),
 }));
 
 vi.mock("../settings/useBuilderStatus.js", () => ({
@@ -1471,7 +1493,7 @@ describe("FirstRunOnboarding", () => {
           persistPreference={false}
         >
           <TooltipProvider>
-            <FirstRunOnboarding />
+            <FirstRunOnboardingSource />
           </TooltipProvider>
         </AgentNativeI18nProvider>,
       );
@@ -1590,7 +1612,9 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("sends manual setup to Agent › Model", () => {
-    expect(manualSetupSettingsRoute()).toBe("/settings/model");
+    expect(manualSetupSettingsRoute({ redesign: true })).toBe(
+      "/settings/model",
+    );
   });
 
   it("keeps the choice screen visible when completion fails", async () => {

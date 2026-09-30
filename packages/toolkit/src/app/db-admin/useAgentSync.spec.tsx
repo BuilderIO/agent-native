@@ -16,7 +16,7 @@ const appStateMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => chatMocks);
-vi.mock("../application-state.js", () => appStateMocks);
+vi.mock("@agent-native/core/client/application-state", () => appStateMocks);
 
 import { useDbAdminAgentSync } from "./useAgentSync.js";
 

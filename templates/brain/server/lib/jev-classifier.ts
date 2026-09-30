@@ -10,7 +10,6 @@ import {
   type BrainSensitivityScoreKey,
 } from "./search-index-contracts.js";
 import {
-  MAX_CLASSIFIER_OUTPUT_CHARS,
   sanitizeSensitiveText,
   screenSensitivityDeterministically,
 } from "./sensitivity-policy.js";
@@ -18,12 +17,12 @@ import {
 const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 const JEV_MODEL = "jev-latest";
 const JEV_MAX_INPUT_CHARS = 40_000;
+const JEV_MAX_WINDOWS = 8;
 const MAX_TITLE_CHARS = 1_000;
 
 const JEV_TIMEOUT_MS = 5_000;
 
 const JEV_BLOCK_PROBABILITY = 0.6;
-const JEV_ALLOW_PROBABILITY = 0.2;
 const JEV_HIGH_CONFIDENCE_PROBABILITY = 0.85;
 
 const SCORE_CACHE_LIMIT = 500;
@@ -441,10 +440,10 @@ export function jevSensitivityDecision(
   },
 ): BrainSensitivityDecision {
   const screen = screenSensitivityDeterministically(context.judgedContent);
-  const safeContent = sanitizeSensitiveText(screen.safeLines.join("\n")).slice(
-    0,
-    MAX_CLASSIFIER_OUTPUT_CHARS,
-  );
+  // Not capped at MAX_CLASSIFIER_OUTPUT_CHARS: this is the content Jev
+  // judged, and an allowed capture is stored from it, so a cap would silently
+  // drop the tail of a long capture Jev cleared.
+  const safeContent = sanitizeSensitiveText(screen.safeLines.join("\n"));
   const entries = BRAIN_SENSITIVITY_CATEGORIES.map(
     (category) => [category, scores[category] ?? 0] as const,
   ).sort((a, b) => b[1] - a[1]);
@@ -456,9 +455,11 @@ export function jevSensitivityDecision(
     .filter(([, score]) => score >= JEV_BLOCK_PROBABILITY)
     .map(([category]) => category);
 
-  const clearlySafe = highest < JEV_ALLOW_PROBABILITY;
   const disposition =
-    safeContent && clearlySafe && !categories.length && !context.truncated
+    safeContent &&
+    highest < JEV_BLOCK_PROBABILITY &&
+    !categories.length &&
+    !context.truncated
       ? "allowed"
       : "quarantined";
   const confidenceBand =
@@ -523,7 +524,9 @@ export async function runJevClassification(
       failureReason: jevFailureReason(error, "credential"),
     };
   }
-  if (!auth) return { configured: false };
+  if (!auth) {
+    return { configured: false, failureReason: "jev-credential-unavailable" };
+  }
 
   const screenedTitle = sanitizeSensitiveText(
     screenSensitivityDeterministically(input.title).safeLines.join(" "),
@@ -531,29 +534,47 @@ export async function runJevClassification(
   const fullBody = sanitizeSensitiveText(
     screenSensitivityDeterministically(input.content).safeLines.join("\n"),
   );
-  const judgedBody = fullBody.slice(0, JEV_MAX_INPUT_CHARS);
-  const truncated = judgedBody.length < fullBody.length;
+  const judgedLimit = JEV_MAX_INPUT_CHARS * JEV_MAX_WINDOWS;
+  const judgedBody = fullBody.slice(0, judgedLimit);
+  const truncated = fullBody.length > judgedLimit;
   const workspaceRule =
     sanitizeSensitiveText(
       input.settings.sensitivityCustomInstructions?.trim() ?? "",
     ) || undefined;
-  const key = cacheKey(screenedTitle, judgedBody, workspaceRule);
 
-  let scores = readCachedScores(key);
-  if (!scores) {
-    try {
-      scores = await requestJevSensitivityScores(
-        auth,
-        { title: screenedTitle, body: judgedBody },
-        workspaceRule,
-      );
-      writeCachedScores(key, scores);
-    } catch (error) {
-      return {
-        configured: true,
-        authSource: auth.source,
-        failureReason: jevFailureReason(error, "request"),
-      };
+  const windows = [judgedBody.slice(0, JEV_MAX_INPUT_CHARS)];
+  for (
+    let offset = JEV_MAX_INPUT_CHARS;
+    offset < judgedBody.length;
+    offset += JEV_MAX_INPUT_CHARS
+  ) {
+    windows.push(judgedBody.slice(offset, offset + JEV_MAX_INPUT_CHARS));
+  }
+
+  const scores: JevCategoryScores = {};
+  for (const window of windows) {
+    const key = cacheKey(screenedTitle, window, workspaceRule);
+    let windowScores = readCachedScores(key);
+    if (!windowScores) {
+      try {
+        windowScores = await requestJevSensitivityScores(
+          auth,
+          { title: screenedTitle, body: window },
+          workspaceRule,
+        );
+        writeCachedScores(key, windowScores);
+      } catch (error) {
+        return {
+          configured: true,
+          authSource: auth.source,
+          failureReason: jevFailureReason(error, "request"),
+        };
+      }
+    }
+    for (const [scoreKey, score] of Object.entries(windowScores) as Array<
+      [BrainSensitivityScoreKey, number]
+    >) {
+      scores[scoreKey] = Math.max(scores[scoreKey] ?? 0, score);
     }
   }
 

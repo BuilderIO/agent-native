@@ -5,6 +5,7 @@ import {
   QUERY_BUDGET_APPS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
+  shardQueryBudgetApps,
   isDocsPath,
   isGuardScopedScriptPath,
   isInstructionPath,
@@ -116,12 +117,23 @@ test("runs guards for a docs-app cache-header change", () => {
 
 test("runs cold-request query budgets for framework and template changes", () => {
   const core = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+  const creativeContext = classifyChangedPaths([
+    "packages/creative-context/src/jobs/server-worker.ts",
+  ]);
   const template = classifyChangedPaths([
     "templates/forms/actions/list-forms.ts",
   ]);
   const docs = classifyChangedPaths(["docs/guide.md"]);
 
   assert.equal(core.checks.neon_query_budget, true);
+  assert.equal(creativeContext.checks.neon_query_budget, true);
+  assert.deepEqual(creativeContext.queryBudgetApps, [
+    "analytics",
+    "assets",
+    "content",
+    "design",
+    "slides",
+  ]);
   assert.equal(template.checks.neon_query_budget, true);
   assert.equal(docs.checks.neon_query_budget, false);
 });
@@ -161,6 +173,31 @@ test("measures every template for Core and budget changes, and Creative Context 
   assert.deepEqual(budget.queryBudgetApps, [...QUERY_BUDGET_APPS]);
   assert.equal(full.full, true);
   assert.deepEqual(full.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+});
+
+test("splits every query budget template across two shards", () => {
+  const scope = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+
+  assert.deepEqual(
+    scope.queryBudgetShards.map((shard) => shard.shard),
+    ["1/2", "2/2"],
+  );
+  const [first, second] = scope.queryBudgetShards.map((shard) => shard.apps);
+  assert.ok(Math.abs(first.length - second.length) <= 1);
+  assert.deepEqual([...first, ...second].sort(), [...QUERY_BUDGET_APPS].sort());
+});
+
+test("runs one query budget job for a one-template change and none when off", () => {
+  const template = classifyChangedPaths([
+    "templates/forms/actions/list-forms.ts",
+  ]);
+  const docs = classifyChangedPaths(["docs/guide.md"]);
+
+  assert.deepEqual(template.queryBudgetShards, [
+    { shard: "1/1", apps: ["forms"] },
+  ]);
+  assert.deepEqual(docs.queryBudgetShards, []);
+  assert.deepEqual(shardQueryBudgetApps([]), []);
 });
 
 test("skips the query budget for a template it does not measure", () => {

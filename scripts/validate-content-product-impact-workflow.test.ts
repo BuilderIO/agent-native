@@ -8,6 +8,14 @@ const workflow = readFileSync(
   ".github/workflows/content-product-conformance.yml",
   "utf8",
 );
+const editGate = workflow.slice(
+  workflow.indexOf("    if: >-"),
+  workflow.indexOf("    runs-on:"),
+);
+const editGateGroup = workflow.slice(
+  workflow.indexOf("  group: >-"),
+  workflow.indexOf("  cancel-in-progress:"),
+);
 
 describe("Content product conformance workflow boundary", () => {
   it("keeps the pilot read-only, exact-revision, and broadly observable", () => {
@@ -107,10 +115,7 @@ describe("Content product conformance workflow boundary", () => {
 
   it("requires the check job and impact checker step to be unconditional", () => {
     const unsafe = workflow
-      .replace(
-        "    name: Advisory Content product impact",
-        "    name: Advisory Content product impact\n    if: false",
-      )
+      .replace(editGate, "    if: false\n")
       .replace(
         "      - name: Check Content product impact",
         "      - name: Check Content product impact\n        if: false",
@@ -121,6 +126,27 @@ describe("Content product conformance workflow boundary", () => {
       result.issues.filter((issue) => issue.includes("unconditionally")).length,
       2,
     );
+  });
+
+  it("skips only edits that change neither the base nor a declaration", () => {
+    assert.ok(editGate.includes("github.event.changes.base"));
+    const loosened = workflow.replace(
+      editGate,
+      "    if: github.event.action != 'edited'\n",
+    );
+    const result = validateContentProductImpactWorkflow(loosened);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("edit gate")));
+  });
+
+  it("keeps skipped edits out of the pull request's concurrency group", () => {
+    const shared = workflow.replace(
+      editGateGroup,
+      "  group: content-product-conformance-${{ github.event.pull_request.number }}\n",
+    );
+    const result = validateContentProductImpactWorkflow(shared);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("concurrency group")));
   });
 
   it("rejects extra jobs and additional checkout steps", () => {

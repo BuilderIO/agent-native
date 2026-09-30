@@ -13,6 +13,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Adding panels now saves without a layout width error.
 - Analytics accepts valid field names that contain SQL keywords and digits
 - Analytics date filters support custom date ranges across dashboards.
 - The Analytics sidebar shows a single divider above Send feedback.
@@ -84,6 +85,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Find session replays by app, date, duration, visitor, and error signals
 - Analytics sidebar navigation and footer controls align consistently, with full-width dividers.
 - The Sessions list hides 0m recordings by default, with a filter to include them.
 

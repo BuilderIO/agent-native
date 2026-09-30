@@ -19,11 +19,11 @@ const sharesQuery = {
   refetch: vi.fn(),
 };
 
-vi.mock("../use-action.js", () => ({
+vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: () => sharesQuery,
-  useActionMutation: () => ({ mutate: vi.fn() }),
+  useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock("../i18n.js", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string>) =>
     values?.title ?? values?.type ?? key,
 }));
@@ -85,7 +85,7 @@ async function renderDialog(
 }
 
 describe("ShareDialog primitive normalization", () => {
-  const source = readFileSync(resolve("src/client/sharing/ShareDialog.tsx"), {
+  const source = readFileSync(resolve("src/app/sharing/ShareDialog.tsx"), {
     encoding: "utf8",
   });
 

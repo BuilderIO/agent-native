@@ -12,6 +12,7 @@ import type { AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/
 import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import type { Document } from "@shared/api";
 import { IconMenu2 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   type CSSProperties,
   ReactNode,
@@ -30,12 +31,14 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
+import { startPageOpenDocumentReads } from "@/hooks/use-documents";
 import { useOptimisticDocumentTitle } from "@/hooks/use-optimistic-document-title";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
 } from "@/lib/document-history-restore-controller";
+import { retirePageOpenReads } from "@/lib/page-open-reads";
 
 import { Header } from "./Header";
 import { isContentSettingsRoute } from "./settings-route-policy";
@@ -103,6 +106,24 @@ export function Layout({ children }: LayoutProps) {
   const pendingDocumentTitle = useOptimisticDocumentTitle(pendingDocumentId, {
     enabled: !!pendingDocumentId,
   });
+  const queryClient = useQueryClient();
+  const pendingSearch = navigation.location?.search ?? "";
+  useEffect(() => {
+    if (!showPendingDocumentSkeleton || !pendingDocumentId) return;
+    const search = new URLSearchParams(pendingSearch);
+    startPageOpenDocumentReads(queryClient, pendingDocumentId, {
+      databaseId: search.get("databaseId"),
+      databaseDocumentId: search.get("databaseDocumentId"),
+    });
+  }, [
+    pendingDocumentId,
+    pendingSearch,
+    queryClient,
+    showPendingDocumentSkeleton,
+  ]);
+  useEffect(() => {
+    if (currentDocumentId) retirePageOpenReads(queryClient, currentDocumentId);
+  }, [currentDocumentId, location.key, queryClient]);
   const documentScope = useMemo(
     () =>
       activeDocumentId
@@ -132,7 +153,7 @@ export function Layout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {

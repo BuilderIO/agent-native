@@ -2014,9 +2014,11 @@ function mapAgentNativeEvent(
         reason: ev.connectionReason ?? "connect",
         appId: ev.appId,
         detail: ev.detail,
-        source: ev.agent
-          ? { id: ev.agent, kind: "agent", label: ev.agent }
-          : undefined,
+        source: ev.source
+          ? { ...ev.source, kind: ev.source.kind ?? "connection" }
+          : ev.agent
+            ? { id: ev.agent, kind: "agent", label: ev.agent }
+            : undefined,
       },
     ];
   }

@@ -44,7 +44,10 @@ import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "@agent-native/core/action
 import { normalizeActionChangeResult } from "@agent-native/core/action-ui";
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 
+import { createToolkitI18nCatalog } from "../../../i18n.js";
 import { RecordChangeWidget } from "./RecordChangeWidget.js";
+
+const catalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("core.record-change", () => {
   let container: HTMLDivElement;
@@ -164,7 +167,7 @@ describe("core.record-change", () => {
     };
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget context={context} />
         </AgentNativeI18nProvider>,
       );
@@ -196,7 +199,7 @@ describe("core.record-change", () => {
 
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget context={context} />
         </AgentNativeI18nProvider>,
       );
@@ -233,7 +236,7 @@ describe("core.record-change", () => {
 
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget context={context} />
         </AgentNativeI18nProvider>,
       );
@@ -257,7 +260,7 @@ describe("core.record-change", () => {
     root = createRoot(container);
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget context={context} />
         </AgentNativeI18nProvider>,
       );
@@ -291,10 +294,10 @@ describe("core.record-change", () => {
     await act(async () => {
       root.render(
         <>
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
             <RecordChangeWidget context={context} />
           </AgentNativeI18nProvider>
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
             <RecordChangeWidget context={context} />
           </AgentNativeI18nProvider>
         </>,
@@ -367,7 +370,7 @@ describe("core.record-change", () => {
 
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget context={context} />
         </AgentNativeI18nProvider>,
       );
@@ -396,7 +399,7 @@ describe("core.record-change", () => {
   it("does not render unsafe change URLs as links", async () => {
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget
             context={{
               toolName: "test-action",
@@ -423,7 +426,7 @@ describe("core.record-change", () => {
   it("shows saved drafts as awaiting review with a review and edit action", async () => {
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget
             context={{
               toolName: "manage-draft",
@@ -458,7 +461,7 @@ describe("core.record-change", () => {
   it("uses the filter icon for Mail rule changes", async () => {
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget
             context={{
               toolName: "manage-email-rules",
@@ -488,7 +491,7 @@ describe("core.record-change", () => {
   it("localizes sharing roles and visibility in action cards", async () => {
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget
             context={{
               toolName: "share-resource",
@@ -522,7 +525,7 @@ describe("core.record-change", () => {
     ]) {
       await act(async () => {
         root.render(
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
             <RecordChangeWidget
               context={{
                 toolName: "set-resource-visibility",
@@ -551,7 +554,7 @@ describe("core.record-change", () => {
   it("renders an available Calendar time with a use-time action", async () => {
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget
             context={{
               toolName: "find-a-time",
@@ -587,7 +590,7 @@ describe("core.record-change", () => {
     }).format(Date.parse(scheduledAt));
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget
             context={{
               toolName: "create-scheduled-send",
@@ -619,7 +622,7 @@ describe("core.record-change", () => {
   it("localizes booking-link fallback titles and durations", async () => {
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <RecordChangeWidget
             context={{
               toolName: "create-booking-link",
@@ -651,6 +654,7 @@ describe("core.record-change", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="es-ES"
           initialPreference="es-ES"
           persistPreference={false}
@@ -682,6 +686,7 @@ describe("core.record-change", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="fr-FR"
           initialPreference="fr-FR"
           persistPreference={false}
@@ -715,6 +720,7 @@ describe("core.record-change", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="es-ES"
           initialPreference="es-ES"
           persistPreference={false}

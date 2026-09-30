@@ -5,9 +5,13 @@ import { z } from "zod";
 import { readBrainAgentGuidance } from "../server/lib/brain.js";
 import {
   buildFederatedSearchCoverage,
-  searchEverythingRows,
+  searchEverythingWithLanes,
   type UniversalSearchResult,
 } from "../server/lib/search.js";
+import {
+  evaluateSourceAnswerPolicy,
+  loadAccessibleSourcePolicySnapshots,
+} from "../server/lib/source-policy.js";
 
 function resultDeepLink(result: UniversalSearchResult): string | null {
   if (result.type === "knowledge") {
@@ -36,7 +40,7 @@ function resultDeepLink(result: UniversalSearchResult): string | null {
 
 export default defineAction({
   description:
-    "Search Brain-indexed company knowledge and return deterministic federated coverage/delegation hints for deciding which specialist app to ask next.",
+    "Semantic (pgvector) plus keyword search across every synced Slack thread, Zoom transcript, knowledge entry and source. Capture results include provider, location (Slack channel or Zoom meeting), content, capturedAt and sourceUrl; use capturedAt to judge recency. If lanes.semantic.status is 'failed', semantic matches are missing — say so. Only capture results with answerEligible: true may support an answer; others are leads.",
   schema: z.object({
     query: z.string().min(1),
     type: z
@@ -44,7 +48,15 @@ export default defineAction({
       .default("all")
       .describe("Restrict results to one normalized result type."),
     provider: z
-      .enum(["manual", "generic", "clips", "slack", "granola", "github"])
+      .enum([
+        "manual",
+        "generic",
+        "clips",
+        "slack",
+        "granola",
+        "github",
+        "zoom",
+      ])
       .optional()
       .describe("Restrict results to one Brain source provider."),
     kind: z
@@ -69,10 +81,17 @@ export default defineAction({
   },
   run: async (args) => {
     const { guidance } = await readBrainAgentGuidance();
-    const [results, federatedCoverage] = await Promise.all([
-      searchEverythingRows(args),
+    const [{ rows: results, lanes }, federatedCoverage] = await Promise.all([
+      searchEverythingWithLanes(args),
       buildFederatedSearchCoverage(args),
     ]);
+    const captureSourceIds = results.flatMap((result) =>
+      result.type === "capture" && result.source?.id ? [result.source.id] : [],
+    );
+    const hasCaptures = results.some((result) => result.type === "capture");
+    const sourcePolicies = hasCaptures
+      ? await loadAccessibleSourcePolicySnapshots(captureSourceIds)
+      : new Map();
     return {
       query: args.query,
       count: results.length,
@@ -84,10 +103,25 @@ export default defineAction({
       policy: guidance.retrieval,
       responseGuidance: guidance.response,
       federatedCoverage,
-      results: results.map((result) => ({
-        ...result,
-        deepLink: resultDeepLink(result),
-      })),
+      lanes,
+      results: results.map((result) => {
+        if (result.type !== "capture") {
+          return { ...result, deepLink: resultDeepLink(result) };
+        }
+        const answerPolicy = evaluateSourceAnswerPolicy({
+          sourceIds: result.source?.id ? [result.source.id] : [],
+          sourcePolicies,
+          contentUpdatedAt: result.updatedAt,
+          resultType: "capture",
+          reviewed: false,
+        });
+        return {
+          ...result,
+          answerEligible: answerPolicy.eligible,
+          answerExclusionReasons: answerPolicy.exclusionReasons,
+          deepLink: resultDeepLink(result),
+        };
+      }),
     };
   },
   link: ({ result }) => {

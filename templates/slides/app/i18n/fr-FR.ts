@@ -261,6 +261,9 @@ const messages = {
     media: "Média",
     generateImage: "Générer une image",
     assetLibrary: "Bibliothèque de ressources",
+    imageOptions: "Options de l’image",
+    cropImage: "Recadrer l’image",
+    cropHandle: "Recadrer l’image {{position}}",
     diagrams: "Diagrammes",
     insertMermaidDiagram: "Insérer un diagramme Mermaid",
     insertMermaidFailed: "Échec de l'insertion du diagramme",
@@ -629,9 +632,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "Réessayer",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "Impossible de charger les versions enregistrées.",
+    snapshotLoadFailed: "Impossible de charger cette version enregistrée.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",

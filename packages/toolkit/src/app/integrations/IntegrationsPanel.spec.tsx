@@ -22,7 +22,7 @@ vi.mock("../resources/McpIntegrationDialog.js", () => ({
   McpIntegrationDialog: () => null,
 }));
 
-vi.mock("../resources/mcp-integration-catalog.js", () => ({
+vi.mock("@agent-native/core/client/resources/mcp-integration-catalog", () => ({
   isMcpIntegrationCatalogAvailable: () => false,
   getDefaultMcpIntegrations: () => [
     {
@@ -54,11 +54,14 @@ vi.mock("../resources/mcp-integration-catalog.js", () => ({
   ],
 }));
 
-vi.mock("../resources/use-mcp-servers.js", () => mcpMocks);
+vi.mock("@agent-native/core/client/resources/use-mcp-servers", () => mcpMocks);
 
-vi.mock("./useIntegrationStatus.js", () => integrationMocks);
+vi.mock(
+  "@agent-native/core/client/integrations/useIntegrationStatus",
+  () => integrationMocks,
+);
 
-vi.mock("../i18n.js", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "mcpIntegrations.connectionError": "Connection error",

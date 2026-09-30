@@ -110,7 +110,7 @@ describe("AgentMessageActions layout", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
     const rules = Array.from(styles.matchAll(/([^{}]+)\{([^{}]*)\}/g));
     const rule = (selector: string) =>
       rules.find((match) => match[1].trim() === selector)?.[2];
@@ -273,7 +273,7 @@ describe("AgentKitChat", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
 
     expect(styles).toContain('[data-agent-composer-slot="root"]');
     expect(styles).toContain('[data-agent-message-queue="true"]');
@@ -434,7 +434,7 @@ describe("AgentKitChat", () => {
     const source = readFileSync(
       join(process.cwd(), "src/app/agentkit/react/components.tsx"),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
     for (const prop of ["slashCommands", "slashSkills", "onSlashCommand"]) {
       expect(source).toContain(`${prop}={${prop}}`);
     }
@@ -474,9 +474,10 @@ describe("AgentKitChat", () => {
     expect(source).toContain("await control.removeQueued(item.id)");
     expect(source).toContain("pending={command.pending || Boolean(disabled)}");
     expect(source).toContain(
-      "submissionDisabled={submissionDisabled || command.pending}",
+      "const submissionBlocked = Boolean(submissionDisabled) || command.pending",
     );
     expect(source).toContain("submitting={command.pending}");
+    expect(source).toContain("submissionDisabled={submissionBlocked}");
     expect(source).toContain("if (disabled)");
     expect(source).toContain(
       "willQueue={active && queueWhileRunning && canQueue}",

@@ -841,6 +841,9 @@ const NON_VISUAL_TAGS = new Set([
   "noscript",
 ]);
 
+const UNPAINTED_SOURCE_RE =
+  /<!--[\s\S]*?-->|<(script|style|noscript|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+
 const SVG_RESOURCE_TAGS = new Set([
   "clippath",
   "defs",
@@ -2528,14 +2531,16 @@ function paintsOwnTextFor(
   elements: readonly ParsedElement[],
 ): boolean {
   if (element.selfClosing) return false;
+  const paintsText = (from: number, to: number) =>
+    Boolean(html.slice(from, to).replace(UNPAINTED_SOURCE_RE, "").trim());
   let at = element.contentStart;
   for (const childIndex of element.childIndexes) {
     const child = elements[childIndex];
     if (!child) continue;
-    if (html.slice(at, child.start).trim()) return true;
+    if (paintsText(at, child.start)) return true;
     at = Math.max(at, child.end);
   }
-  return Boolean(html.slice(at, element.contentEnd).trim());
+  return paintsText(at, element.contentEnd);
 }
 
 function wholeTextStyleRootFor(

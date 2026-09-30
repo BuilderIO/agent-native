@@ -53,7 +53,7 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
         getVersions: (result: unknown) =>
           Array.isArray(result)
             ? result.filter(isAssistantChatHistoryVersion)
-            : [],
+            : null,
       },
       restore: {
         action: "restore-crm-dashboard-revision",

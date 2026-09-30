@@ -7,6 +7,7 @@ import {
   Node,
   Project,
   QuoteKind,
+  StructureKind,
   SyntaxKind,
   type ImportDeclaration,
   type ImportSpecifierStructure,
@@ -292,6 +293,7 @@ function importedNameStructure(
   typeOnly: boolean,
 ): ImportSpecifierStructure {
   return {
+    kind: StructureKind.ImportSpecifier,
     name: nextName,
     alias:
       localName !== nextName

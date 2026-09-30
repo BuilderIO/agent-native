@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act, type ComponentType } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -9,7 +10,10 @@ const orgState = vi.hoisted(() => ({
   value: { orgId: "org-1", orgName: "Acme", role: "member" as string },
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org/hooks", () => ({
+  useOrg: () => ({ data: orgState.value, isLoading: false }),
+}));
+vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: orgState.value, isLoading: false }),
 }));
 vi.mock("../../../org/workspace-app-links.js", () => ({
@@ -26,11 +30,14 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 import type { TreeNode } from "@agent-native/core/client/resources/use-resources";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 
+import { createToolkitI18nCatalog } from "../../../i18n.js";
 import { SettingsShellProvider, type SettingsPageHeader } from "../context.js";
 import FilesSettingsPage from "./files.js";
 import InstructionsSettingsPage from "./instructions.js";
 import MemorySettingsPage from "./memory.js";
 import SkillsSettingsPage from "./skills.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 function leaf(
   path: string,
@@ -109,21 +116,26 @@ async function renderPage(Page: ComponentType) {
   header = null;
   await act(async () => {
     root.render(
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <SettingsShellProvider
-            value={{
-              route: { page: "skills", sub: null },
-              navigate: () => {},
-              setHeader: (next) => {
-                header = next;
-              },
-            }}
-          >
-            <Page />
-          </SettingsShellProvider>
-        </TooltipProvider>
-      </QueryClientProvider>,
+      <AgentNativeI18nProvider
+        catalog={toolkitI18nCatalog}
+        persistPreference={false}
+      >
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <SettingsShellProvider
+              value={{
+                route: { page: "skills", sub: null },
+                navigate: () => {},
+                setHeader: (next) => {
+                  header = next;
+                },
+              }}
+            >
+              <Page />
+            </SettingsShellProvider>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </AgentNativeI18nProvider>,
     );
   });
   for (let attempt = 0; attempt < 50; attempt += 1) {

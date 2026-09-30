@@ -1,5 +1,26 @@
 # @agent-native/toolkit
 
+## 0.198.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ce1245c: Preserve queued chat intent through asynchronous preparation and resumed runtime streams.
+- e6de282: Keep the current route and filters available to agents when the sidebar is closed.
+- d2b14cf: Respect host submission guards when selecting agent suggestions.
+- Updated dependencies
+- Updated dependencies [ce1245c]
+  - @agent-native/agentkit@0.198.3
+
+## 0.198.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 63c4c02: Restore Agent Observability to Settings and align its dashboard with the redesigned Settings surface.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.2
+
 ## 0.198.1
 
 ### Patch Changes
@@ -954,17 +975,5 @@
 ### Minor Changes
 
 - e53a34e: Move the reusable ChatHistoryList and its stylesheet to the Toolkit chat-history entrypoint while preserving Core compatibility imports. Adopt it across first-party full-page chat sidebars, ship readable Toolkit source, and add generated-app guidance for selective app-owned UI customization.
-
-## 0.6.0
-
-### Minor Changes
-
-- 01a3f27: BREAKING: move the portable composer, rich editor, collaboration display, visual controls, and shared UI primitives to focused Toolkit entrypoints. Core's removed deep compatibility paths now throw an actionable migration error, and moved symbols are removed from the legacy `@agent-native/core/client` barrel. Run `npx @agent-native/core@latest upgrade --codemods --yes` to rewrite supported imports. Framework-wired composer APIs remain available from `@agent-native/core/client/composer`; bare reusable composer UI is available from `@agent-native/toolkit/composer`.
-
-## 0.5.1
-
-### Patch Changes
-
-- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

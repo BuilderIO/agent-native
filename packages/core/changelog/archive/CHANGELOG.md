@@ -1,3 +1,15 @@
+## 0.164.18
+
+### Patch Changes
+
+- b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
+## 0.164.17
+
+### Patch Changes
+
+- d492462: Support TipTap mark rule helpers in generated SSR stubs.
+
 ## 0.164.16
 
 ### Patch Changes

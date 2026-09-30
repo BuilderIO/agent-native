@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 
-import { splitMarkdownBlocks } from "@agent-native/core/shared";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { splitMarkdownBlocks } from "../../../markdown-block-split.js";
 import {
   loadMarkdown,
   markdownComponents,

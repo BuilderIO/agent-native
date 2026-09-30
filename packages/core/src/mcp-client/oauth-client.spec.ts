@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.hoisted(() => vi.fn());
+const discoverOAuthServerInfoMock = vi.hoisted(() => vi.fn());
 const refreshAuthorizationMock = vi.hoisted(() => vi.fn());
 const validateAuthorizationResponseIssuerMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensMock = vi.hoisted(() => vi.fn());
@@ -13,6 +14,7 @@ const getAppConfigMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@modelcontextprotocol/client", () => ({
   auth: authMock,
+  discoverOAuthServerInfo: discoverOAuthServerInfoMock,
   refreshAuthorization: refreshAuthorizationMock,
   validateAuthorizationResponseIssuer: validateAuthorizationResponseIssuerMock,
 }));
@@ -108,6 +110,16 @@ beforeEach(() => {
   vi.restoreAllMocks();
   getAppConfigMock.mockReset().mockReturnValue({ app: {} });
   authMock.mockReset();
+  discoverOAuthServerInfoMock.mockReset().mockResolvedValue({
+    authorizationServerUrl: "https://auth.example.com",
+    authorizationServerMetadata: {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      registration_endpoint: "https://auth.example.com/register",
+      response_types_supported: ["code"],
+    },
+  });
   refreshAuthorizationMock.mockReset();
   deleteOAuthTokensMock.mockReset();
   getOAuthTokensMock.mockReset();

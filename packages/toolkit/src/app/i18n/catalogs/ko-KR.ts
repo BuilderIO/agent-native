@@ -781,7 +781,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "영업 통화, 스크립트, 거래 인사이트, 계정 요약",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong에서는 기술 관리자가 MCP 연동을 만들고 개인 또는 공유 승인 방식을 선택해야 합니다. 연결하기 전에 생성된 클라이언트 ID와 시크릿을 구성해야 합니다.",
+    "Gong 기술 관리자가 개인 또는 공유 승인을 선택해 MCP 연동을 만들어야 합니다. 수동 등록에서는 생성된 클라이언트 ID와 시크릿을 워크스페이스 시크릿 `GONG_MCP_CLIENT_ID` 및 `GONG_MCP_CLIENT_SECRET`으로 저장하세요. 자동 등록에는 클라이언트 인증 정보가 필요하지 않습니다.",
   "mcpIntegrations.catalog.semgrep.description":
     "코드에서 보안 문제를 스캔합니다.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -991,6 +991,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "이 지점으로 되돌릴까요? 이후 변경 사항은 사라집니다.",
   "message.restoreRequestFailed": "복원 요청에 실패했습니다.",
+  "message.historyUnavailable": "변경 기록을 불러올 수 없습니다.",
   "message.threadNotFound":
     "이 채팅 스레드는 더 이상 사용할 수 없습니다. 새 채팅을 시작하거나 예상치 못한 문제라면 다시 시도하세요.",
   "message.restoring": "복원 중...",
@@ -1342,6 +1343,165 @@ const messages: ToolkitAgentChatTranslation = {
   "usage.providerSpendDetail": "Builder 청구 외 제공업체 사용 또는 이전 호출",
   "usage.providerSpendToday": "오늘 기타 또는 분류되지 않은 사용량: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder 크레딧 / USD",
+  "observability.insights.verdictSmooth": "문제없이 작동 중",
+  "observability.insights.verdictLook_other": "확인해볼 점 {{count}}개",
+  "observability.insights.verdictProblems_other": "문제 {{count}}개",
+  "observability.insights.spentSummary_other":
+    "지난 {{days}}일 동안 프롬프트 {{count}}개에 {{amount}}를 사용했습니다.",
+  "observability.insights.handledLabel": "Agent-Native가 처리:",
+  "observability.insights.handledHeading": "Agent-Native가 처리",
+  "observability.insights.handledParallel":
+    "도구 호출 {{count}}개를 동시에 실행해 하나씩 실행할 때보다 약 {{duration}} 더 빨랐습니다.",
+  "observability.insights.handledRecovered_other":
+    "도구 오류 {{count}}건에서 멈추지 않고 복구했습니다.",
+  "observability.insights.avgPerPrompt": "프롬프트당 평균",
+  "observability.insights.completed": "완료",
+  "observability.insights.completedDetail": "최근 {{total}}개 중 {{done}}개",
+  "observability.insights.completedRecovered_other":
+    "최근 {{total}}개 중 {{done}}개(도구 오류 {{count}}건 복구 후)",
+  "observability.insights.typicalTime": "일반적인 소요 시간",
+  "observability.insights.median": "중앙값",
+  "observability.insights.sampleNote":
+    "완료율, 일반 소요 시간, Agent-Native가 처리한 내용, 발견 사항은 전체 {{total}}개 중 최근 {{shown}}개 프롬프트 기준입니다.",
+  "observability.insights.changeSame": "이전 기간과 동일",
+  "observability.insights.changeUp": "↑ {{percent}}%(이전 기간 대비)",
+  "observability.insights.changeDown": "↓ {{percent}}%(이전 기간 대비)",
+  "observability.insights.kindProblem": "문제",
+  "observability.insights.kindSaving": "절약",
+  "observability.insights.kindInfo": "참고",
+  "observability.insights.fixLabel": "해결 방법:",
+  "observability.insights.openPrompt": "프롬프트 열기",
+  "observability.insights.seePrompts_other": "프롬프트 {{count}}개 보기",
+  "observability.insights.erroredTitle_other":
+    "프롬프트 {{count}}개가 오류로 종료됨",
+  "observability.insights.erroredBody": "에이전트가 완료되기 전에 멈췄습니다.",
+  "observability.insights.erroredFix":
+    "프롬프트를 열면 멈추기 전 마지막으로 수행한 작업을 확인할 수 있습니다.",
+  "observability.insights.toolFailedTitle_other":
+    "{{tool}} 도구가 프롬프트 {{count}}개에서 실패했습니다",
+  "observability.insights.toolFailedSaid": '표시된 오류: "{{error}}"',
+  "observability.insights.toolFailedGeneric": "도구에서 오류가 발생했습니다.",
+  "observability.insights.toolRecoveredAll":
+    "에이전트가 매번 복구하고 작업을 완료했습니다.",
+  "observability.insights.toolRecoveredSome":
+    "에이전트가 그중 {{count}}건에서 복구하고 완료했습니다.",
+  "observability.insights.restartTitle":
+    "다시 시작하는 데 약 {{amount}}가 들었습니다(지출의 {{percent}}%)",
+  "observability.insights.restartBody":
+    "최근 프롬프트 {{total}}개 중 {{count}}개에서 {{reason}} 이후 이미 보낸 내용을 재사용하지 않고 전체 대화를 다시 보냈습니다.",
+  "observability.insights.reasonToolLookup": "새 도구를 가져온",
+  "observability.insights.reasonPrefixChanged": "지침 앞부분이 바뀐",
+  "observability.insights.fixToolLookup":
+    "initialToolNames로 이 앱이 사용하는 도구를 미리 로드하면 프롬프트 전체에서 도구 목록이 바뀌지 않습니다.",
+  "observability.insights.fixPrefixChanged":
+    "타임스탬프나 단계별 상태처럼 계속 바뀌는 내용은 시스템 프롬프트에 넣지 마세요.",
+  "observability.insights.priciestTitle":
+    "프롬프트 1개가 최근 지출의 {{percent}}%를 차지했습니다",
+  "observability.insights.priciestBody_other":
+    '"{{prompt}}"는 {{count}}단계에 걸쳐 {{amount}}가 들었습니다.',
+  "observability.insights.untitledPrompt": "제목 없는 프롬프트",
+  "observability.insights.promptsHeading": "프롬프트",
+  "observability.insights.showing": "{{count}}개 표시 중",
+  "observability.insights.sortNewest": "최신순",
+  "observability.insights.sortCost": "비용 높은순",
+  "observability.insights.emptyPrompts":
+    "이 기간에는 아직 프롬프트가 없습니다. 완료되면 몇 초 후 여기에 표시됩니다.",
+  "observability.insights.promptNotSaved":
+    "프롬프트 텍스트가 저장되지 않았습니다",
+  "observability.insights.ratedHelpful": "도움됨으로 평가",
+  "observability.insights.ratedUnhelpful": "도움 안 됨으로 평가",
+  "observability.insights.notRated": "평가 없음",
+  "observability.insights.stoppedWithError": "오류로 중단됨",
+  "observability.insights.detailsUnavailable":
+    "단계별 세부 정보는 더 이상 확인할 수 없습니다",
+  "observability.insights.answered": "답변 완료",
+  "observability.insights.finished": "종료",
+  "observability.insights.startedOverShort": "{{count}}× 다시 시작",
+  "observability.insights.recoveredShort_other":
+    "도구 오류 {{count}}건에서 복구",
+  "observability.insights.toolsFailedShort_other": "도구 {{count}}개 실패",
+  "observability.insights.headerDuration": "{{duration}} 만에",
+  "observability.insights.stepsCount_other": "{{count}}단계",
+  "observability.insights.whatItDid": "수행한 작업:",
+  "observability.insights.replyNotSaved":
+    "이 프롬프트의 답변 텍스트는 저장되지 않았습니다.",
+  "observability.insights.showAll": "전체 보기",
+  "observability.insights.showLess": "간략히 보기",
+  "observability.insights.moreTools": "+{{count}}개 더",
+  "observability.insights.failedSuffix": "실패",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.startedOverNote_other":
+    "{{reason}} 이후 {{count}}번 다시 시작했습니다. 이로 인해 {{total}} 중 약 {{amount}}가 들었습니다.",
+  "observability.insights.toolFailedNote_other":
+    "{{tool}} 도구가 {{count}}번 실패했습니다.",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "{{tool}} 도구가 {{count}}번 실패했지만 에이전트가 계속 진행해 완료했습니다.",
+  "observability.insights.showSteps_other": "{{count}}단계 보기",
+  "observability.insights.hideSteps": "단계 숨기기",
+  "observability.insights.costDetails": "비용 세부 정보 및 점검",
+  "observability.insights.turnReply": "답변 작성",
+  "observability.insights.turnThought": "충분히 검토",
+  "observability.insights.startedOverTag": "다시 시작",
+  "observability.insights.toolFailedTag": "도구 실패",
+  "observability.insights.turnContext":
+    "컨텍스트로 {{tokens}} 토큰을 보냈고, 그중 {{percent}}%는 이전 내용을 재사용했습니다.",
+  "observability.insights.turnExpired":
+    "일시 중지 후 저장된 컨텍스트가 만료되었습니다. 이는 정상적인 동작입니다.",
+  "observability.insights.turnOutput": "{{tokens}} 토큰을 출력했습니다.",
+  "observability.insights.turnRestart":
+    "{{reason}} 이후 다시 시작해 재사용할 때보다 약 {{amount}} 더 들었습니다.",
+  "observability.insights.noCacheCompare":
+    "정가 기준으로, 이전 컨텍스트를 재사용해 이 프롬프트의 비용이 {{noCache}}에서 {{estimated}}로 줄었습니다.",
+  "observability.insights.partReused": "재사용한 컨텍스트",
+  "observability.insights.partSaved": "캐시에 저장",
+  "observability.insights.partNew": "새 컨텍스트",
+  "observability.insights.partOutput": "모델이 생성한 출력",
+  "observability.insights.checksHeading": "자동 점검",
+  "observability.insights.checksNone": "기록된 항목이 없습니다.",
+  "observability.insights.checksGraded": "(모델이 채점함)",
+  "observability.insights.checksNote":
+    "프레임워크 점검은 결과가 좋았는지가 아니라 실행 과정(오류, 단계, 속도)을 확인합니다.",
+  "observability.insights.lookedForTools": "도구 추가 조회",
+  "observability.insights.prevPrompt": "이전 프롬프트 (K)",
+  "observability.insights.nextPrompt": "다음 프롬프트 (J)",
+  "observability.insights.toolVerb.add": "{{object}} 추가",
+  "observability.insights.toolVerb.analyze": "{{object}} 분석",
+  "observability.insights.toolVerb.apply": "{{object}} 적용",
+  "observability.insights.toolVerb.capture": "{{object}} 캡처",
+  "observability.insights.toolVerb.check": "{{object}} 확인",
+  "observability.insights.toolVerb.connect": "{{object}} 연결",
+  "observability.insights.toolVerb.create": "{{object}} 만들기",
+  "observability.insights.toolVerb.delete": "{{object}} 삭제",
+  "observability.insights.toolVerb.duplicate": "{{object}} 복제",
+  "observability.insights.toolVerb.edit": "{{object}} 편집",
+  "observability.insights.toolVerb.export": "{{object}} 내보내기",
+  "observability.insights.toolVerb.fetch": "{{object}} 가져오기",
+  "observability.insights.toolVerb.find": "{{object}} 찾기",
+  "observability.insights.toolVerb.generate": "{{object}} 생성",
+  "observability.insights.toolVerb.index": "{{object}} 색인화",
+  "observability.insights.toolVerb.insert": "{{object}} 삽입",
+  "observability.insights.toolVerb.list": "{{object}} 목록 조회",
+  "observability.insights.toolVerb.move": "{{object}} 이동",
+  "observability.insights.toolVerb.navigate": "{{object}} 이동",
+  "observability.insights.toolVerb.open": "{{object}} 열기",
+  "observability.insights.toolVerb.present": "{{object}} 제시",
+  "observability.insights.toolVerb.propose": "{{object}} 제안",
+  "observability.insights.toolVerb.query": "{{object}} 조회",
+  "observability.insights.toolVerb.read": "{{object}} 읽기",
+  "observability.insights.toolVerb.remove": "{{object}} 제거",
+  "observability.insights.toolVerb.rename": "{{object}} 이름 변경",
+  "observability.insights.toolVerb.reply": "{{object}} 답장",
+  "observability.insights.toolVerb.resolve": "{{object}} 해결",
+  "observability.insights.toolVerb.run": "{{object}} 실행",
+  "observability.insights.toolVerb.save": "{{object}} 저장",
+  "observability.insights.toolVerb.search": "{{object}} 검색",
+  "observability.insights.toolVerb.send": "{{object}} 전송",
+  "observability.insights.toolVerb.set": "{{object}} 설정",
+  "observability.insights.toolVerb.take": "{{object}} 가져오기",
+  "observability.insights.toolVerb.update": "{{object}} 업데이트",
+  "observability.insights.toolVerb.upload": "{{object}} 업로드",
+  "observability.insights.toolVerb.view": "{{object}} 보기",
+  "observability.insights.toolVerb.write": "{{object}} 작성",
   "billing.builderCreditLimitTitle": "Builder 크레딧을 모두 사용했습니다",
   "billing.builderCreditLimitEmailBody":
     "연결된 Builder 계정의 크레딧이 소진되어 AI 요청이 중단되었습니다. Builder 플랜을 업그레이드하면 계속 이용할 수 있습니다.",
@@ -2684,6 +2844,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "Global A2A Registry 둘러보기",
   "settingsSubAgents.connectTitle": "{{name}} 연결",
   "settingsSubAgents.close": "닫기",
+  "observability.insights.rawTrace": "원시 트레이스 (모든 스팬과 입력/출력)",
 };
 
 export default messages;
