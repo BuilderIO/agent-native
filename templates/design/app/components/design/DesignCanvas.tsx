@@ -5433,19 +5433,6 @@ export function DesignCanvas({
     usesLiveEditEditorBridge,
   ]);
 
-  useEffect(() => {
-    if (!onBootReady) return;
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    const handleLoad = () => {
-      if (bootReadyRef.current) return;
-      bootReadyRef.current = true;
-      onBootReady();
-    };
-    iframe.addEventListener("load", handleLoad);
-    return () => iframe.removeEventListener("load", handleLoad);
-  }, [iframeDocumentIdentity, onBootReady]);
-
   useLayoutEffect(() => {
     if (!onRuntimeLayerSnapshotReadinessChange) return;
     if (editorChromeReadyRef.current) {

@@ -41,8 +41,8 @@ vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
-vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: (...args: unknown[]) =>
+vi.mock("../../../../lib/recording-policy.js", () => ({
+  getUploadRecoveryPolicy: (...args: unknown[]) =>
     mockIsFeatureFlagEnabled(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({

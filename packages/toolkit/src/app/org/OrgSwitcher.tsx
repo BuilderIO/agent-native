@@ -11,6 +11,7 @@ import {
   useJoinByDomain,
 } from "@agent-native/core/client/org";
 import { signOut } from "@agent-native/core/client/sign-out";
+import { workspacePrivateIconUrl } from "@agent-native/core/client/uploads";
 import { setBrowserDemoModeEnabled } from "@agent-native/core/demo/browser-state";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { shouldOfferWorkspace } from "@agent-native/core/org/workspace-url";
@@ -503,7 +504,7 @@ export function OrgSwitcher({
               value={org.icon}
               size={12}
               resolveImageUrl={(image) =>
-                image.authority === "url" ? image.assetId : undefined
+                workspacePrivateIconUrl(org.orgId ?? "", image)
               }
               fallback={<IconBriefcase className="size-3 shrink-0" />}
             />
@@ -585,7 +586,7 @@ export function OrgSwitcher({
                 value={o.icon}
                 size={14}
                 resolveImageUrl={(image) =>
-                  image.authority === "url" ? image.assetId : undefined
+                  workspacePrivateIconUrl(o.orgId, image)
                 }
                 fallback={<IconBriefcase className={ITEM_ICON_CLASS} />}
               />

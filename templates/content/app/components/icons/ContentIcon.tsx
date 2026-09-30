@@ -2,6 +2,8 @@ import { safeParseIconValue, type IconValue } from "@agent-native/core/icons";
 import { ResourceIcon } from "@agent-native/toolkit/icons";
 import type { ReactNode } from "react";
 
+import { contentImageIconUrl } from "./private-icon-assets";
+
 interface ContentIconProps {
   value: IconValue | string | null | undefined;
   size?: number;
@@ -32,12 +34,7 @@ export function ContentIcon({
       className={className}
       fallback={fallback}
       label={label}
-      resolveImageUrl={(image) =>
-        (image.authority === "url" || image.authority === "notion") &&
-        /^https?:\/\//u.test(image.assetId)
-          ? image.assetId
-          : undefined
-      }
+      resolveImageUrl={contentImageIconUrl}
     />
   );
 }

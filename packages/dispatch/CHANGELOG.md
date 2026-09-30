@@ -1,5 +1,58 @@
 # @agent-native/dispatch
 
+## 0.40.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 4dfe557: Keep homepage submissions in the active full-page chat and hide unavailable request ID actions.
+- Updated dependencies [0670eb1]
+- Updated dependencies [77540af]
+- Updated dependencies [df12726]
+- Updated dependencies
+- Updated dependencies [4dfe557]
+  - @agent-native/toolkit@0.198.6
+
+## 0.40.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.198.5
+
+## 0.40.5
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- cefc33b: Align full-page chat headers to the pane edges and remove the extra gap below them.
+- Release all public npm packages with a patch version bump.
+- df67544: Store uploaded icons in private blobs with scoped metadata and verified image reads.
+- Updated dependencies [85a87e6]
+- Updated dependencies [cefc33b]
+- Updated dependencies [7a25922]
+- Updated dependencies [df67544]
+- Updated dependencies [2fdd284]
+- Updated dependencies [c82ae28]
+- Updated dependencies
+- Updated dependencies [c650ba5]
+- Updated dependencies [9fa81ab]
+- Updated dependencies [20d3bb8]
+  - @agent-native/toolkit@0.198.4
+
+## 0.40.4
+
+### Patch Changes
+
+- 036c2c7: Tighten test-only assertions for the dev auth secret and the Dispatch auth plugin so they fail when the behavior they name breaks. No runtime change.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [ce1245c]
+- Updated dependencies [e6de282]
+- Updated dependencies [d2b14cf]
+  - @agent-native/toolkit@0.198.3
+
 ## 0.40.3
 
 ### Patch Changes
@@ -1032,60 +1085,5 @@
 - fb18771: Keep selected chat-first apps visible and open granted external apps from Dispatch.
 - Updated dependencies [fb18771]
   - @agent-native/toolkit@0.16.1
-
-## 0.27.0
-
-### Minor Changes
-
-- 9e21e1b: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
-
-### Patch Changes
-
-- 9e21e1b: Refresh workspace app lists after starting a Builder app creation.
-- 9e21e1b: Keep embedded workspace apps synchronized with their parent light or dark theme.
-- Updated dependencies [9e21e1b]
-- Updated dependencies [9e21e1b]
-- Updated dependencies [9e21e1b]
-  - @agent-native/toolkit@0.16.0
-
-## 0.26.0
-
-### Minor Changes
-
-- 73c4a97: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
-
-### Patch Changes
-
-- 73c4a97: Refresh workspace app lists after starting a Builder app creation.
-- Updated dependencies [73c4a97]
-- Updated dependencies [73c4a97]
-  - @agent-native/toolkit@0.15.1
-
-## 0.25.1
-
-### Patch Changes
-
-- Updated dependencies [f07ec04]
-  - @agent-native/toolkit@0.15.0
-
-## 0.25.0
-
-### Minor Changes
-
-- 89f194f: Add a default-off Dispatch workspace sign-in rollout for iframe app panes. The
-  flagged path mints short-lived, app-scoped embed sessions for exact first-party
-  origins, explicitly registered custom workspace apps, and same-origin mounted
-  workspace apps without changing the existing MCP access policy.
-- 89f194f: Add folder-backed agent packs with safe Claude/Cowork-style import, agent-owned
-  references and skills, and a shared Factory Agents surface for managing simple
-  agents alongside mounted agentic apps.
-- 89f194f: Add a simple Agents workspace for creating reusable profiles, importing Claude-style or generic agent definitions, and connecting existing HTTP/A2A agents.
-
-### Patch Changes
-
-- 89f194f: Keep visited workspace app frames mounted while switching apps so returning restores live state instantly.
-- 89f194f: Provision cross-app SSO state and authorization-code tables during release migrations so production serverless requests never perform schema DDL.
-- Updated dependencies [89f194f]
-  - @agent-native/toolkit@0.14.3
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -3,6 +3,17 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-30
+
+### Improved
+
+- The chat header now spans the full pane, with messages closer beneath it.
+
+### Fixed
+
+- Chat stays ready for your next draft while a message is being sent.
+- Prompts sent from the home page stay in the active conversation.
+
 ## 2026-09-29
 
 ### Improved
@@ -11,6 +22,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- The chat history menu stays open when opened from the header.
 - New workspaces can open Dispatch pages without a server rendering error.
 - Apps and app launchers only show apps installed in this workspace
 

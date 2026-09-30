@@ -781,7 +781,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "영업 통화, 스크립트, 거래 인사이트, 계정 요약",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong에서는 기술 관리자가 MCP 연동을 만들고 개인 또는 공유 승인 방식을 선택해야 합니다. 연결하기 전에 생성된 클라이언트 ID와 시크릿을 구성해야 합니다.",
+    "Gong 기술 관리자가 개인 또는 공유 승인을 선택해 MCP 연동을 만들어야 합니다. 수동 등록에서는 생성된 클라이언트 ID와 시크릿을 워크스페이스 시크릿 `GONG_MCP_CLIENT_ID` 및 `GONG_MCP_CLIENT_SECRET`으로 저장하세요. 자동 등록에는 클라이언트 인증 정보가 필요하지 않습니다.",
   "mcpIntegrations.catalog.semgrep.description":
     "코드에서 보안 문제를 스캔합니다.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -991,6 +991,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "이 지점으로 되돌릴까요? 이후 변경 사항은 사라집니다.",
   "message.restoreRequestFailed": "복원 요청에 실패했습니다.",
+  "message.historyUnavailable": "변경 기록을 불러올 수 없습니다.",
   "message.threadNotFound":
     "이 채팅 스레드는 더 이상 사용할 수 없습니다. 새 채팅을 시작하거나 예상치 못한 문제라면 다시 시도하세요.",
   "message.restoring": "복원 중...",
@@ -1243,6 +1244,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}}에게 요청 중...",
   "tool.elapsed": "{{duration}} 경과",
   "tool.askingAgentFailed": "{{agent}}에게 요청하는 중 오류 발생",
+  "tool.failedWithoutDetails": "오류 세부 정보가 없습니다.",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",
   "tool.interrupted":

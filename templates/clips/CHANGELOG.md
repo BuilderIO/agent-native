@@ -3,6 +3,13 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-30
+
+### Improved
+
+- Recording saved notifications keep the Copy link action available.
+- Clips desktop confirms copied links with a check mark.
+
 ## 2026-09-29
 
 ### Improved
@@ -11,6 +18,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
 - Clips Desktop shows a brief confirmation after copying a share link
 - Chat composers no longer show temporary status rows.
 - Fixed library and signup loading flashes and made desktop recording startup cues and countdowns reliable.
@@ -26,6 +35,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Choose faster recording uploads and improved recovery together in Settings → Labs, while recordings already in progress keep their original behavior.
 - The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
 - Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
 - The chat sidebar matches the app navigation color, with tighter composer spacing.

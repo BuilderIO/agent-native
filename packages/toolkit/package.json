@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.198.2",
+  "version": "0.198.6",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -685,9 +685,11 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
+    "i18next": "26.3.1",
     "mermaid": "11.15.0",
     "playwright": "catalog:",
-    "react-router": "^8.1.0",
+    "react-i18next": "17.0.8",
+    "react-router": "catalog:",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

@@ -14,6 +14,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
 - Failed Mail rule runs now show their status once and keep Undo available after an interrupted update.
 - The open chat panel is separated from your inbox by a visible divider.
 - Sent chat prompts clear immediately, while reply progress appears in the conversation.

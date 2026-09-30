@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { LabValues } from "@agent-native/core/client/labs/use-lab";
+import type {
+  LabStates,
+  LabValues,
+} from "@agent-native/core/client/labs/use-lab";
 import {
   useActionMutation,
   useActionQuery,
@@ -21,6 +24,7 @@ interface LabsSettingsState {
   /** The labs to list: every one passed until the server answers, then the ones it registered. */
   labs: readonly LabDefinition[];
   enabled: (lab: LabDefinition) => boolean;
+  mixed: (lab: LabDefinition) => boolean;
   toggle: (lab: LabDefinition, enabled: boolean) => void;
   /** Switches wait for the server's answer; they can't save before it. */
   disabled: boolean;
@@ -30,7 +34,7 @@ interface LabsSettingsState {
   failedLab: LabDefinition | null;
 }
 
-function hasOwn(values: LabValues, key: string): boolean {
+function hasOwn(values: LabStates, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(values, key);
 }
 
@@ -43,7 +47,7 @@ function hasOwn(values: LabValues, key: string): boolean {
 function useLabsSettingsState(
   labs: readonly LabDefinition[],
 ): LabsSettingsState {
-  const valuesQuery = useActionQuery<LabValues>("get-labs" as never);
+  const valuesQuery = useActionQuery<LabStates>("get-lab-states" as never);
   const setLab = useActionMutation<
     { key: string; enabled: boolean; values: LabValues },
     { key: string; enabled: boolean }
@@ -80,7 +84,11 @@ function useLabsSettingsState(
     labs: visible,
     enabled: (lab) =>
       overrides[lab.key] ??
-      (values ? values[lab.key] === true : lab.defaultEnabled === true),
+      (values
+        ? values[lab.key]?.enabled === true
+        : lab.defaultEnabled === true),
+    mixed: (lab) =>
+      overrides[lab.key] === undefined && values?.[lab.key]?.mixed === true,
     toggle,
     disabled: !values || setLab.isPending,
     loadFailed: !values && valuesQuery.isError,
@@ -111,6 +119,7 @@ function LabRows({ state }: { state: LabsSettingsState }) {
       {state.labs.map((lab) => {
         const label = lab.displayName ?? lab.key;
         const failed = state.failedLab?.key === lab.key;
+        const mixed = state.mixed(lab);
         return (
           <SettingsRow
             key={lab.key}
@@ -123,17 +132,44 @@ function LabRows({ state }: { state: LabsSettingsState }) {
                     lab: label,
                   })}
                 </span>
+              ) : mixed ? (
+                (lab.inheritedMixedDescription ?? lab.description)
               ) : (
                 lab.description
               )
             }
             control={
-              <Switch
-                checked={state.enabled(lab)}
-                onChange={(next) => state.toggle(lab, next)}
-                disabled={state.disabled}
-                aria-label={label}
-              />
+              mixed ? (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={state.disabled}
+                    onClick={() => state.toggle(lab, true)}
+                    aria-label={`${label}: ${t("agentChat.settingsShell.channels.state.on")}`}
+                  >
+                    {t("agentChat.settingsShell.channels.state.on")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={state.disabled}
+                    onClick={() => state.toggle(lab, false)}
+                    aria-label={`${label}: ${t("agentChat.settingsShell.channels.state.off")}`}
+                  >
+                    {t("agentChat.settingsShell.channels.state.off")}
+                  </Button>
+                </div>
+              ) : (
+                <Switch
+                  checked={state.enabled(lab)}
+                  onChange={(next) => state.toggle(lab, next)}
+                  disabled={state.disabled}
+                  aria-label={label}
+                />
+              )
             }
           />
         );

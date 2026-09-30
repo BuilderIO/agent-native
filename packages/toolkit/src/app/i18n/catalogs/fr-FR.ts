@@ -549,7 +549,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "Appels commerciaux, transcriptions, insights sur les opportunités, résumés de comptes",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong exige qu’un administrateur technique crée une intégration MCP et choisisse une autorisation personnelle ou partagée. L’ID client et le secret générés doivent être configurés avant la connexion.",
+    "Un administrateur technique Gong doit créer une intégration MCP avec une autorisation personnelle ou partagée. Pour l’inscription manuelle, enregistrez l’ID client et le secret générés dans les secrets de l’espace de travail `GONG_MCP_CLIENT_ID` et `GONG_MCP_CLIENT_SECRET` ; l’inscription automatique ne nécessite pas d’identifiants client.",
   "mcpIntegrations.catalog.semgrep.description":
     "Analysez le code pour détecter des problèmes de sécurité.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -760,6 +760,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "Revenir à ce point ? Les modifications ultérieures seront perdues.",
   "message.restoreRequestFailed": "Échec de la demande de restauration.",
+  "message.historyUnavailable":
+    "Impossible de charger l’historique des modifications.",
   "message.threadNotFound":
     "Ce fil de discussion n’est plus disponible. Démarrez une nouvelle discussion ou réessayez si cela est inattendu.",
   "message.restoring": "Restauration...",
@@ -896,6 +898,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultation de {{agent}}...",
   "tool.elapsed": "Temps écoulé : {{duration}}",
   "tool.askingAgentFailed": "Erreur lors de la consultation de {{agent}}",
+  "tool.failedWithoutDetails": "Aucun détail d’erreur disponible.",
   "tool.input": "Entrée",
   "tool.inputWithLabel": "Entrée - {{label}}",
   "tool.interrupted":

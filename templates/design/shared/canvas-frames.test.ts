@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   mergeCanvasFramePlacements,
+  nextCanvasFramePosition,
   nextFreeCanvasRowY,
   numericDesignDataWriteError,
   parseCanvasFrameGeometryById,
@@ -418,7 +419,84 @@ describe("nextFreeCanvasRowY", () => {
     expect(nextFreeCanvasRowY({ a: { x: 0, y: 300 } }, 50)).toBe(350);
   });
 
+  it("uses renderer fallback geometry when finding the next row", () => {
+    expect(
+      nextFreeCanvasRowY({ legacy: { x: 0, y: 100 } }, 160, {
+        responsiveLayout: { screenFileIds: ["legacy"] },
+      }),
+    ).toBe(900);
+  });
+
   it("ignores malformed entries", () => {
     expect(nextFreeCanvasRowY({ a: "nope", b: 5 }, 96)).toBe(0);
+  });
+});
+
+describe("nextCanvasFramePosition", () => {
+  it("places beside the rotated frame bounds", () => {
+    const position = nextCanvasFramePosition({
+      tall: { x: 0, y: 0, width: 100, height: 1000, rotation: 90 },
+    });
+    expect(position.x).toBe(710);
+    expect(position.y).toBeCloseTo(450);
+  });
+
+  it("includes rendered responsive breakpoint frames in the right edge", () => {
+    expect(
+      nextCanvasFramePosition(
+        { mobile: { x: 0, y: 0, width: 390, height: 844 } },
+        160,
+        {
+          responsiveLayout: {
+            screenFileIds: ["mobile"],
+            screenMetadataByFileId: {
+              mobile: { width: 390, height: 844 },
+            },
+            breakpointWidths: [390, 768, 1440],
+          },
+        },
+      ),
+    ).toEqual({ x: 2806, y: 0 });
+  });
+
+  it("uses renderer fallback dimensions when persisted frame geometry is partial", () => {
+    expect(
+      nextCanvasFramePosition({ screen: { x: 100, y: 200 } }, 160, {
+        responsiveLayout: { screenFileIds: ["screen"] },
+      }),
+    ).toEqual({ x: 580, y: 200 });
+    expect(
+      nextCanvasFramePosition({ screen: { x: 100, y: 200 } }, 160, {
+        responsiveLayout: {
+          screenFileIds: ["screen"],
+          screenMetadataByFileId: {
+            screen: { width: 640, height: 480 },
+          },
+        },
+      }),
+    ).toEqual({ x: 580, y: 200 });
+  });
+
+  it("includes overview screens that only have renderer-generated geometry", () => {
+    expect(
+      nextCanvasFramePosition({}, 160, {
+        responsiveLayout: { screenFileIds: ["first", "second"] },
+      }),
+    ).toEqual({ x: 856, y: 0 });
+  });
+
+  it("uses responsive group widths for screens without persisted geometry", () => {
+    const position = nextCanvasFramePosition({}, 160, {
+      responsiveLayout: {
+        screenFileIds: ["legacy"],
+        screenMetadataByFileId: {
+          legacy: { width: 390, height: 844 },
+        },
+        breakpointWidths: [390, 768, 1440],
+      },
+    });
+
+    expect(position.x).toBeGreaterThan(480);
+    expect(position.y).toBe(0);
   });
 });

@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   isPromptUploadLimitError: vi.fn(() => false),
   isPromptUploadNetworkError: vi.fn(() => false),
   isPromptUploadStorageStatusError: vi.fn(() => false),
+  deckContentConflicts: [] as Array<{ slideId: string; canResolve: boolean }>,
+  resolveDeckContentConflict: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -63,7 +65,11 @@ vi.mock("@/context/DeckContext", () => ({
   getStaleContentConflictSlideId: () => undefined,
   hasFailedDeckSave: () => false,
   hasUnsavedDeckChanges: () => false,
-  useDecks: () => ({ resolveContentConflict: vi.fn() }),
+  useDeckContentConflicts: () => mocks.deckContentConflicts,
+  useDecks: () => ({
+    resolveContentConflict: vi.fn(),
+    resolveDeckContentConflict: mocks.resolveDeckContentConflict,
+  }),
   useSaveState: () => ({ saving: false }),
 }));
 
@@ -183,6 +189,7 @@ const deckWithSlides: Deck = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.creativeContextLabEnabled.value = true;
+  mocks.deckContentConflicts = [];
 });
 
 afterEach(() => {

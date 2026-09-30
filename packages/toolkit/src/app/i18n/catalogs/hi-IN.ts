@@ -775,7 +775,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "सेल्स कॉल, ट्रांसक्रिप्ट, डील इनसाइट, खाते का सारांश",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong में एक टेक एडमिन को MCP इंटीग्रेशन बनाना होगा और व्यक्तिगत या साझा ऑथराइज़ेशन चुनना होगा। कनेक्ट करने से पहले जनरेट किए गए क्लाइंट ID और सीक्रेट को कॉन्फ़िगर करना ज़रूरी है।",
+    "Gong के टेक एडमिन को व्यक्तिगत या साझा ऑथराइज़ेशन वाला MCP इंटीग्रेशन बनाना होगा। मैन्युअल रजिस्ट्रेशन के लिए जनरेट किया गया क्लाइंट ID और सीक्रेट वर्कस्पेस सीक्रेट `GONG_MCP_CLIENT_ID` और `GONG_MCP_CLIENT_SECRET` के रूप में सेव करें; ऑटोमैटिक रजिस्ट्रेशन के लिए क्लाइंट क्रेडेंशियल की ज़रूरत नहीं है।",
   "mcpIntegrations.catalog.semgrep.description":
     "सुरक्षा से जुड़ी समस्याओं के लिए कोड स्कैन करें।",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -980,6 +980,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
   "message.revertQuestion": "इस बिंदु पर वापस जाएँ? इसके बाद किए गए बदलाव खो जाएँगे।",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
+  "message.historyUnavailable": "बदलावों का इतिहास लोड नहीं हो सका।",
   "message.threadNotFound":
     "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",
@@ -1228,6 +1229,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
   "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
+  "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
   "tool.interrupted":
