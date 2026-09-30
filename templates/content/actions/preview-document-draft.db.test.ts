@@ -1451,6 +1451,34 @@ describe("private preview document drafts", () => {
     ).rejects.toThrow();
   });
 
+  it("answers a reader without edit access instead of refusing, and keeps any old draft private", async () => {
+    const documentId = await createDocument();
+    await asUser(COLLABORATOR, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: payload("collaborator draft"),
+      }),
+    );
+    await getDb()
+      .update(schema.documentShares)
+      .set({ role: "viewer" })
+      .where(
+        and(
+          eq(schema.documentShares.resourceId, documentId),
+          eq(schema.documentShares.principalId, COLLABORATOR),
+        ),
+      );
+
+    await expect(
+      asUser(COLLABORATOR, () => getDraft.run({ documentId })),
+    ).resolves.toEqual({ editable: false, draft: null });
+    await expect(
+      asUser(OWNER, () => getDraft.run({ documentId })),
+    ).resolves.toEqual({ editable: true, draft: null });
+  });
+
   it("returns the current draft when two tabs race to create or update", async () => {
     const documentId = await createDocument();
     const first = await asUser(OWNER, () =>
