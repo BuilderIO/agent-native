@@ -763,11 +763,23 @@ function RepeatedActivityCluster({
   );
 }
 
+function formatToolDiagnostic(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value || undefined;
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function toolToActivity(tool: AgentToolCall): AgentActivity {
   const failed = tool.status === "failed";
-  const errorMessage =
-    tool.error?.message ??
-    (failed && typeof tool.output === "string" ? tool.output : undefined);
+  const errorMessage = failed
+    ? ((tool.error?.message?.trim() ? tool.error.message : undefined) ??
+      formatToolDiagnostic(tool.output) ??
+      formatToolDiagnostic(tool.error?.details))
+    : undefined;
   return {
     id: tool.id,
     kind: inferAgentActivityKind(tool.name),
@@ -1158,10 +1170,11 @@ export function AgentActivityGroup({
           ))}
         </div>
       ) : null}
-      {hasExpandableActivity ? (
+      {hasExpandableActivity || activelyWorking ? (
         <AgentWorkDisclosure
           label={summaryLabel}
           running={visiblyRunning}
+          expandable={hasExpandableActivity}
           current={
             currentActivity ? (
               <span
@@ -1285,11 +1298,13 @@ export function AgentActivityGroup({
 function AgentWorkDisclosure({
   label,
   running,
+  expandable = true,
   current,
   children,
 }: {
   label: string;
   running?: boolean;
+  expandable?: boolean;
   current?: ReactNode;
   children: ReactNode;
 }) {
@@ -1298,12 +1313,15 @@ function AgentWorkDisclosure({
     <details
       className="agentkit-activities"
       data-running={running ? "true" : undefined}
+      data-expandable={expandable ? "true" : "false"}
       open={open}
     >
       <summary
         className="agentkit-activities-summary"
+        aria-disabled={!expandable}
         onClick={(event) => {
           event.preventDefault();
+          if (!expandable) return;
           setOpen((value) => !value);
         }}
       >
@@ -1359,9 +1377,7 @@ const ACTIVITY_BUCKET_ORDER: ActivityBucket[] = [
 ];
 
 function activityBucketForKind(kind: string): ActivityBucket {
-  if (kind === "reasoning" || kind === "model" || kind === "status") {
-    return "thinking";
-  }
+  if (kind === "reasoning") return "thinking";
   if (kind === "search" || kind === "read") return "research";
   if (
     kind === "write" ||
