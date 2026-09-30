@@ -3317,6 +3317,9 @@ importers:
       vgpu:
         specifier: 0.3.1
         version: 0.3.1
+      yjs:
+        specifier: 'catalog:'
+        version: 13.6.32
       zod:
         specifier: ^4.3.6
         version: 4.4.3
