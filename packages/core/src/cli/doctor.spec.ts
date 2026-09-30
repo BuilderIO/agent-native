@@ -479,6 +479,18 @@ describe("runDoctorScan", () => {
     expect(report.findings).toEqual([]);
   });
 
+  it("rejects non-object package manifests before resolving peers", () => {
+    const root = makeTempAppRoot({ "package.json": "null" });
+
+    expect(() =>
+      runDoctorScan({
+        root,
+        only: ["feature-dependencies"],
+        shellEnvironment: { DATABASE_URL: "" },
+      }),
+    ).toThrow(/Invalid .*package\.json: expected a JSON object/);
+  });
+
   it.each([
     {
       when: "pglite-database",

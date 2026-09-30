@@ -7,10 +7,10 @@ export function isDispatchEnvironmentAdmin(email: string): boolean {
   return [
     ...config.adminEmails,
     ...config.workspaceOwnerEmails,
-    ...config.defaultOwnerEmails,
+    ...(config.defaultOwnerEmail ? [config.defaultOwnerEmail] : []),
   ].some((candidate) => candidate.trim().toLowerCase() === normalized);
 }
 
 export function getDispatchDefaultOwnerEmail(): string | null {
-  return getAppConfig().dispatch.defaultOwnerEmails[0]?.trim() || null;
+  return getAppConfig().dispatch.defaultOwnerEmail?.trim() || null;
 }

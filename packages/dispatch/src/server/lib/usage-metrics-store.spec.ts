@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   dispatchConfig: {
     adminEmails: [] as string[],
     workspaceOwnerEmails: [] as string[],
-    defaultOwnerEmails: [] as string[],
+    defaultOwnerEmail: undefined as string | undefined,
   },
 }));
 
@@ -86,7 +86,7 @@ afterEach(() => {
   mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
   mocks.dispatchConfig.adminEmails = [];
   mocks.dispatchConfig.workspaceOwnerEmails = [];
-  mocks.dispatchConfig.defaultOwnerEmails = [];
+  mocks.dispatchConfig.defaultOwnerEmail = undefined;
 });
 
 describe("listDispatchUsageMetrics", () => {

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   dispatchConfig: {
     adminEmails: [] as string[],
     workspaceOwnerEmails: [] as string[],
-    defaultOwnerEmails: [] as string[],
+    defaultOwnerEmail: undefined as string | undefined,
   },
 }));
 
@@ -111,7 +111,7 @@ describe("thread-debug-store", () => {
     mocks.ownerEmail = "owner@example.com";
     mocks.dispatchConfig.adminEmails = [];
     mocks.dispatchConfig.workspaceOwnerEmails = [];
-    mocks.dispatchConfig.defaultOwnerEmails = [];
+    mocks.dispatchConfig.defaultOwnerEmail = undefined;
     mocks.currentExecute.mockReset();
     mocks.createDbExec.mockReset();
     mocks.currentExecute.mockImplementation(async ({ sql, args }) => ({
@@ -272,7 +272,7 @@ describe("thread-debug-store", () => {
   });
 
   it("merges all admin-visible sources, sorts globally, limits, and preserves partial health", async () => {
-    mocks.dispatchConfig.defaultOwnerEmails = ["Owner@Example.com"];
+    mocks.dispatchConfig.defaultOwnerEmail = "Owner@Example.com";
     vi.stubEnv("REMOTE_A_DATABASE_URL", "postgres://remote-a/db");
     vi.stubEnv("REMOTE_B_DATABASE_URL", "postgres://remote-b/db");
     vi.stubEnv("REMOTE_C_DATABASE_URL", "postgres://remote-c/db");

@@ -9,8 +9,8 @@ export const dispatchConfig = z.object({
     env: "WORKSPACE_OWNER_EMAIL",
     doc: "Comma-separated workspace owner emails trusted by Dispatch.",
   }),
-  defaultOwnerEmails: z.array(z.string().email()).default([]).meta({
+  defaultOwnerEmail: z.string().email().optional().meta({
     env: "DISPATCH_DEFAULT_OWNER_EMAIL",
-    doc: "Comma-separated default Dispatch owner emails.",
+    doc: "Default Dispatch owner email.",
   }),
 });

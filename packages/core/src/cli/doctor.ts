@@ -191,11 +191,13 @@ function runGuard(
         );
       }
       if (
-        packageJson !== null &&
-        typeof packageJson === "object" &&
-        !Array.isArray(packageJson) &&
-        !isDirectCoreDependency(packageJson as PackageJsonLike)
+        packageJson === null ||
+        typeof packageJson !== "object" ||
+        Array.isArray(packageJson)
       ) {
+        throw new Error(`Invalid ${packageJsonPath}: expected a JSON object`);
+      }
+      if (!isDirectCoreDependency(packageJson as PackageJsonLike)) {
         return { name, findings: [] };
       }
 

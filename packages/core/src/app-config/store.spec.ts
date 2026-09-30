@@ -86,7 +86,7 @@ describe("app config store", () => {
     expect(getAppConfig().dispatch).toEqual({
       adminEmails: ["admin@example.com", "ops@example.com"],
       workspaceOwnerEmails: ["owner@example.com"],
-      defaultOwnerEmails: ["default@example.com"],
+      defaultOwnerEmail: "default@example.com",
     });
   });
 
