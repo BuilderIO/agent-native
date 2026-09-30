@@ -903,6 +903,7 @@ function firstWorkEvents(events: AgentEvent[]): AgentEvent[] {
 function messageHasVisibleAssistantOutput(
   message: AgentMessage,
   messageRenderer: AgentKitSlots["message"],
+  textRenderer: AgentKitSlots["text"],
   dataRenderer: AgentKitSlots["data"],
   messagePartRenderers: AgentKitRegistry["messageParts"],
 ): boolean {
@@ -910,7 +911,12 @@ function messageHasVisibleAssistantOutput(
   if (messageRenderer) return true;
   return message.parts.some((part) => {
     if (part.type === "reasoning") return false;
-    if (part.type === "text") return part.text.trim().length > 0;
+    if (part.type === "text") {
+      return (
+        Boolean(textRenderer || messagePartRenderers?.text) ||
+        part.text.trim().length > 0
+      );
+    }
     if (part.type === "data") {
       return Boolean(dataRenderer || messagePartRenderers?.data);
     }
@@ -925,6 +931,7 @@ function messageEventHasVisibleAssistantOutput(
   event: AgentEvent,
   assistantMessageIds: ReadonlySet<string>,
   messageRenderer: AgentKitSlots["message"],
+  textRenderer: AgentKitSlots["text"],
   dataRenderer: AgentKitSlots["data"],
   messagePartRenderers: AgentKitRegistry["messageParts"],
 ): boolean {
@@ -939,6 +946,7 @@ function messageEventHasVisibleAssistantOutput(
   return messageHasVisibleAssistantOutput(
     event.message,
     messageRenderer,
+    textRenderer,
     dataRenderer,
     messagePartRenderers,
   );
@@ -1159,11 +1167,9 @@ export function AgentActivityGroup({
       bucketGroups.push([activity]);
     }
   }
-  const visibleReasoningGroups = displayGroups
-    .get("thinking")!
-    .filter((activities) => reasoningMap.has(activities[0]!.id));
+  const reasoningGroups = displayGroups.get("thinking")!;
   const hasExpandableActivity =
-    visibleReasoningGroups.length > 0 ||
+    reasoningGroups.length > 0 ||
     ACTIVITY_BUCKET_ORDER.some(
       (bucket) =>
         bucket !== "thinking" && displayGroups.get(bucket)!.length > 0,
@@ -1227,7 +1233,7 @@ export function AgentActivityGroup({
             {ACTIVITY_BUCKET_ORDER.map((bucket) => {
               const groups =
                 bucket === "thinking"
-                  ? visibleReasoningGroups
+                  ? reasoningGroups
                   : displayGroups.get(bucket)!;
               if (groups.length === 0) return null;
               const content = (
@@ -4187,6 +4193,7 @@ export function AgentKitChat({
   }, [thread.events]);
   const dataRenderer = slots.data;
   const messageRenderer = slots.message;
+  const textRenderer = slots.text;
   const messagePartRenderers = registry.messageParts;
   const messageBoundarySequences = useMemo(() => {
     const firstVisibleSequence = new Map<string, number>();
@@ -4202,6 +4209,7 @@ export function AgentKitChat({
           event,
           assistantMessageIds,
           messageRenderer,
+          textRenderer,
           dataRenderer,
           messagePartRenderers,
         )
@@ -4231,6 +4239,7 @@ export function AgentKitChat({
     dataRenderer,
     messagePartRenderers,
     messageRenderer,
+    textRenderer,
     thread.events,
     thread.messages,
   ]);
@@ -4283,6 +4292,7 @@ export function AgentKitChat({
           messageHasVisibleAssistantOutput(
             message,
             messageRenderer,
+            textRenderer,
             dataRenderer,
             messagePartRenderers,
           ),
@@ -4378,7 +4388,10 @@ export function AgentKitChat({
             parts: message.parts.filter(
               (part) =>
                 part.type !== "reasoning" &&
-                (part.type !== "text" || part.text.trim()),
+                (part.type !== "text" ||
+                  part.text.trim() ||
+                  textRenderer ||
+                  messagePartRenderers?.text),
             ),
           }
         : message;

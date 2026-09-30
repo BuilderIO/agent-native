@@ -1238,7 +1238,10 @@ describe("AgentChat lifecycle", () => {
       id: "assistant-data-response",
       role: "assistant" as const,
       status: "complete" as const,
-      parts: [{ type: "data" as const, data: { value: "visible" } }],
+      parts: [
+        { type: "data" as const, data: { value: "visible" } },
+        { type: "text" as const, text: " " },
+      ],
     };
     const activityEvent = {
       id: "event-renderer-boundary-activity",
@@ -1300,9 +1303,9 @@ describe("AgentChat lifecycle", () => {
           <AgentKitChat composer={false} />
         </AgentKitProvider>,
       );
-    const expectActivityBeforeOutput = () => {
+    const expectActivityBeforeOutput = (selector = "[data-rendered-data]") => {
       const work = tree.container.querySelector(".agentkit-activities");
-      const output = tree.container.querySelector("[data-rendered-data]");
+      const output = tree.container.querySelector(selector);
       expect(work).not.toBeNull();
       expect(output).not.toBeNull();
       expect(
@@ -1348,6 +1351,36 @@ describe("AgentChat lifecycle", () => {
     ).toBe("Message renderer output");
     expectActivityBeforeOutput();
 
+    await render({
+      slots: {
+        text: () => <span data-rendered-text>Rendered blank text</span>,
+      },
+    });
+    expect(
+      tree.container.querySelector("[data-rendered-text]")?.textContent,
+    ).toBe("Rendered blank text");
+    const work = tree.container.querySelector(".agentkit-activities")!;
+    const textOutput = tree.container.querySelector("[data-rendered-text]")!;
+    expect(
+      work.compareDocumentPosition(textOutput) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]"),
+    ).toBeNull();
+
+    await render({
+      registry: {
+        messageParts: {
+          text: () => <span data-rendered-text>Registered blank text</span>,
+        },
+      },
+    });
+    expect(
+      tree.container.querySelector("[data-rendered-text]")?.textContent,
+    ).toBe("Registered blank text");
+    expectActivityBeforeOutput("[data-rendered-text]");
+
     await render();
     expect(
       tree.container.querySelector("[data-agentkit-current-activity]")
@@ -1391,6 +1424,36 @@ describe("AgentChat lifecycle", () => {
         ...base(4),
         type: "activity.started",
         activity: {
+          id: "protocol-reasoning",
+          kind: "reasoning",
+          label: "Planning response",
+          status: "running",
+        },
+      },
+      {
+        ...base(5),
+        type: "activity.updated",
+        activity: {
+          id: "protocol-reasoning",
+          kind: "reasoning",
+          label: "Checking assumptions",
+          status: "running",
+        },
+      },
+      {
+        ...base(6),
+        type: "activity.completed",
+        activity: {
+          id: "protocol-reasoning",
+          kind: "reasoning",
+          label: "Checking assumptions",
+          status: "completed",
+        },
+      },
+      {
+        ...base(7),
+        type: "activity.started",
+        activity: {
           id: "search",
           kind: "search",
           label: "Searching documentation",
@@ -1415,6 +1478,13 @@ describe("AgentChat lifecycle", () => {
       <AgentKitProvider
         controller={observable.controller}
         threadId={threadId}
+        registry={{
+          activities: {
+            reasoning: ({ value }) => (
+              <span data-protocol-reasoning>{value.label}</span>
+            ),
+          },
+        }}
         slots={{
           reasoning: ({ value, active, resetKey }) => (
             <span data-thought={resetKey} data-active={active}>
@@ -1449,6 +1519,9 @@ describe("AgentChat lifecycle", () => {
         '[data-activity-bucket="reasoning-content"] [data-thought][data-thought$="assistant-2:0"]',
       )?.textContent,
     ).toContain("Second thought");
+    expect(work.querySelector("[data-protocol-reasoning]")?.textContent).toBe(
+      "Checking assumptions",
+    );
     expect(tree.container.textContent).not.toContain("Hidden thought");
     expect(
       work.querySelector("[data-agentkit-current-activity]")?.textContent,
@@ -1461,7 +1534,7 @@ describe("AgentChat lifecycle", () => {
     expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
 
     thread = reduceAgentEvent(thread, {
-      ...base(5, 18),
+      ...base(8, 18),
       type: "message.completed",
       message: {
         id: "assistant-2",
@@ -1474,7 +1547,7 @@ describe("AgentChat lifecycle", () => {
       },
     });
     thread = reduceAgentEvent(thread, {
-      ...base(6, 19),
+      ...base(9, 19),
       type: "run.completed",
     });
     await act(async () => observable.update(snapshot(1)));
@@ -1501,6 +1574,9 @@ describe("AgentChat lifecycle", () => {
     await act(async () => work.querySelector("summary")!.click());
     expect(work.open).toBe(true);
     expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
+    expect(work.querySelector("[data-protocol-reasoning]")?.textContent).toBe(
+      "Checking assumptions",
+    );
     expect(work.textContent).toContain("First thought");
     expect(work.textContent).toContain("Second thought");
     expect(work.textContent).not.toContain("Hidden thought");
