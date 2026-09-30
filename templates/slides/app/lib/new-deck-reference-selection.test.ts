@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   findPromptReferenceDeckId,
   resolveNewDeckReferenceSelection,
+  resolveRetryReferenceDeckSelection,
 } from "./new-deck-reference-selection";
 
 describe("findPromptReferenceDeckId", () => {
@@ -83,6 +84,59 @@ describe("resolveNewDeckReferenceSelection", () => {
     ).toEqual({
       designSystemId: "ds-picked",
       referenceDeckId: "deck-picked",
+    });
+  });
+});
+
+describe("resolveRetryReferenceDeckSelection", () => {
+  it("clears an automatic deck when an edited retry has no composer context or link", () => {
+    expect(
+      resolveRetryReferenceDeckSelection({
+        carriedDeckMissing: false,
+        hasComposerContext: false,
+        hasExplicitComposerDeckReference: false,
+        promptReferenceDeckId: null,
+        reusingRetryInputs: false,
+        retryReferenceDeckId: "previous-automatic-deck",
+        retryReferenceDeckIdSource: "automatic",
+      }),
+    ).toEqual({
+      referenceDeckId: null,
+      referenceDeckIdSource: "automatic",
+    });
+  });
+
+  it("marks a deck linked in an edited automatic retry as prompt-derived", () => {
+    expect(
+      resolveRetryReferenceDeckSelection({
+        carriedDeckMissing: false,
+        hasComposerContext: false,
+        hasExplicitComposerDeckReference: false,
+        promptReferenceDeckId: "prompt-deck",
+        reusingRetryInputs: false,
+        retryReferenceDeckId: "previous-automatic-deck",
+        retryReferenceDeckIdSource: "automatic",
+      }),
+    ).toEqual({
+      referenceDeckId: "prompt-deck",
+      referenceDeckIdSource: "prompt",
+    });
+  });
+
+  it("preserves an explicit deck selection when the prompt links another deck", () => {
+    expect(
+      resolveRetryReferenceDeckSelection({
+        carriedDeckMissing: false,
+        hasComposerContext: false,
+        hasExplicitComposerDeckReference: false,
+        promptReferenceDeckId: "prompt-deck",
+        reusingRetryInputs: false,
+        retryReferenceDeckId: "selected-deck",
+        retryReferenceDeckIdSource: "selection",
+      }),
+    ).toEqual({
+      referenceDeckId: "selected-deck",
+      referenceDeckIdSource: "selection",
     });
   });
 });

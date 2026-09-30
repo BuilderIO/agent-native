@@ -5,6 +5,8 @@ export interface NewDeckReferenceSelection {
   referenceDeckId: string | null;
 }
 
+export type ReferenceDeckIdSource = "prompt" | "selection" | "automatic";
+
 export function findPromptReferenceDeckId(
   prompt: string,
   origin: string,
@@ -47,5 +49,66 @@ export function resolveNewDeckReferenceSelection(args: {
     referenceDeckId: args.referenceDeckAuto
       ? args.defaultReferenceDeckId
       : args.selectedReferenceDeckId,
+  };
+}
+
+export function resolveRetryReferenceDeckSelection(args: {
+  carriedDeckMissing: boolean;
+  hasComposerContext: boolean;
+  hasExplicitComposerDeckReference: boolean;
+  carriedImportedReferenceDeckId?: string;
+  promptReferenceDeckId: string | null;
+  reusingRetryInputs: boolean;
+  retryReferenceDeckId?: string | null;
+  retryReferenceDeckIdSource?: ReferenceDeckIdSource;
+}): {
+  referenceDeckId: string | null | undefined;
+  referenceDeckIdSource?: ReferenceDeckIdSource;
+} {
+  const {
+    carriedDeckMissing,
+    hasComposerContext,
+    hasExplicitComposerDeckReference,
+    carriedImportedReferenceDeckId,
+    promptReferenceDeckId,
+    reusingRetryInputs,
+    retryReferenceDeckId,
+    retryReferenceDeckIdSource,
+  } = args;
+  const referenceDeckId =
+    carriedDeckMissing || hasExplicitComposerDeckReference
+      ? null
+      : retryReferenceDeckIdSource === "automatic"
+        ? (promptReferenceDeckId ??
+          (!reusingRetryInputs
+            ? null
+            : (carriedImportedReferenceDeckId ??
+              retryReferenceDeckId ??
+              (hasComposerContext ? null : undefined))))
+        : retryReferenceDeckIdSource === "prompt"
+          ? reusingRetryInputs
+            ? (retryReferenceDeckId ?? promptReferenceDeckId ?? null)
+            : (promptReferenceDeckId ?? null)
+          : retryReferenceDeckIdSource === "selection"
+            ? (retryReferenceDeckId ?? null)
+            : retryReferenceDeckId !== undefined
+              ? retryReferenceDeckId
+              : (carriedImportedReferenceDeckId ??
+                promptReferenceDeckId ??
+                (hasComposerContext ? null : undefined));
+  const hasExplicitDeckSelection =
+    hasExplicitComposerDeckReference ||
+    retryReferenceDeckIdSource === "selection" ||
+    (retryReferenceDeckId !== undefined &&
+      retryReferenceDeckIdSource !== "prompt" &&
+      retryReferenceDeckIdSource !== "automatic");
+
+  return {
+    referenceDeckId,
+    referenceDeckIdSource: hasExplicitDeckSelection
+      ? "selection"
+      : promptReferenceDeckId
+        ? "prompt"
+        : retryReferenceDeckIdSource,
   };
 }
