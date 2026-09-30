@@ -459,6 +459,99 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.querySelector(".text-destructive")).toBeNull();
   });
 
+  it("shows specialized tool errors only after explicitly expanding the call", () => {
+    const errorMessage = "The command failed.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="run-command"
+          args={{}}
+          result={errorMessage}
+          isError
+          isRunning={false}
+          structuredMeta={{
+            toolKind: "bash",
+            command: "pnpm test",
+            cwd: "/repo",
+            exitCode: 1,
+          }}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+
+    act(() => disclosure?.click());
+
+    expect(container.textContent).toContain(errorMessage);
+  });
+
+  it("bypasses native tool renderers for failures and keeps details collapsed", () => {
+    const errorMessage = "The action failed.";
+    registerToolRenderer({
+      id: "app.response-insights",
+      match: "response-insights",
+      Component: AppRenderer,
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={errorMessage}
+          isError
+          isRunning={false}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(container.textContent).not.toContain("App renderer wins");
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(errorMessage);
+
+    act(() => disclosure?.click());
+
+    expect(container.textContent).toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+  });
+
+  it("shows fallback details for delegated failures without error text", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isError
+          isRunning={false}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure?.textContent).toContain("Asked Analytics");
+    expect(disclosure?.textContent).not.toContain("Error");
+    expect(container.textContent).not.toContain(
+      "No error details are available.",
+    );
+    expect(container.querySelector(".text-destructive")).toBeNull();
+
+    act(() => disclosure?.click());
+
+    expect(container.textContent).toContain("No error details are available.");
+  });
+
   it("shows failed delegated subtool details only after that tool is expanded", () => {
     const errorMessage = "The warehouse query failed.";
     act(() => {

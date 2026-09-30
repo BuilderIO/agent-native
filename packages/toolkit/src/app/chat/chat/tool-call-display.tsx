@@ -30,7 +30,6 @@ import { cn } from "@agent-native/toolkit/utils";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
   IconAlertTriangle,
-  IconCircleX,
   IconCheck,
   IconChevronRight,
   IconCopy,
@@ -697,7 +696,7 @@ export function ToolCallDisplay({
       {children}
     </ToolActivityPresentation>
   );
-  if (toolKind === "bash") {
+  if (!isError && toolKind === "bash") {
     return wrapToolDisplay(
       <BashCell
         meta={
@@ -708,7 +707,7 @@ export function ToolCallDisplay({
       />,
     );
   }
-  if (toolKind === "edit") {
+  if (!isError && toolKind === "edit") {
     return wrapToolDisplay(
       <EditCell
         meta={
@@ -718,7 +717,7 @@ export function ToolCallDisplay({
       />,
     );
   }
-  if (toolKind === "write") {
+  if (!isError && toolKind === "write") {
     return wrapToolDisplay(
       <WriteCell
         meta={
@@ -820,7 +819,7 @@ function ToolCallDisplayGeneric({
   const hasStreamText = agentStreamText.length > 0;
   const hasArgs = !isAgentCall && Object.keys(args).length > 0;
 
-  if (toolName === "connect-builder" && result) {
+  if (!isError && toolName === "connect-builder" && result) {
     try {
       const parsed = JSON.parse(result);
       if (parsed?.kind === "connect-builder-card") {
@@ -841,7 +840,7 @@ function ToolCallDisplayGeneric({
     }
   }
 
-  if (toolName === "connect-file-storage" && result) {
+  if (!isError && toolName === "connect-file-storage" && result) {
     try {
       const parsed = JSON.parse(result);
       if (parsed?.kind === "connect-file-storage-card") {
@@ -854,6 +853,7 @@ function ToolCallDisplayGeneric({
   }
 
   if (
+    !isError &&
     toolName === "agent-teams" &&
     (args as Record<string, string>)?.action === "spawn" &&
     result
@@ -907,11 +907,14 @@ function ToolCallDisplayGeneric({
   };
   const skipRegistryRenderer =
     !isAgentCall && isBuiltinDataWidgetActionRenderer(nativeToolContext);
-  const NativeToolRenderer = isAgentCall
-    ? null
-    : (resolveBuiltinActionChatRenderer(nativeToolContext) ??
-      (skipRegistryRenderer ? null : resolveToolRenderer(nativeToolContext)) ??
-      resolveBuiltinFallbackToolRenderer(nativeToolContext));
+  const NativeToolRenderer =
+    isError || isAgentCall
+      ? null
+      : (resolveBuiltinActionChatRenderer(nativeToolContext) ??
+        (skipRegistryRenderer
+          ? null
+          : resolveToolRenderer(nativeToolContext)) ??
+        resolveBuiltinFallbackToolRenderer(nativeToolContext));
   if (NativeToolRenderer) {
     return (
       <ActionChatUiSurface
@@ -939,9 +942,7 @@ function ToolCallDisplayGeneric({
   const displayName = isAgentCall
     ? isRunning
       ? t("agentChat.tool.askingAgent", { agent: agentName })
-      : isAgentError
-        ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
-        : t("agentChat.tool.askedAgent", { agent: agentName })
+      : t("agentChat.tool.askedAgent", { agent: agentName })
     : toolLabel(t, toolName);
   const rowContext = isAgentCall ? null : resolveToolCallRowContext(args);
 
@@ -963,7 +964,11 @@ function ToolCallDisplayGeneric({
         responseText={agentStreamText}
         isRunning={isRunning}
         isError={isAgentError}
-        errorText={isAgentError ? result : undefined}
+        errorText={
+          isAgentError
+            ? result || t("agentChat.tool.failedWithoutDetails")
+            : undefined
+        }
         durationMs={
           typeof structuredMeta?.agentDurationMs === "number"
             ? structuredMeta.agentDurationMs
@@ -998,8 +1003,6 @@ function ToolCallDisplayGeneric({
             <IntegrationToolBadge integration={integration} />
           ) : isRunning ? (
             <CubeLoader aria-hidden="true" className="size-3.5" />
-          ) : isAgentError ? (
-            <IconCircleX className="size-3.5 text-destructive" />
           ) : isUnknownOutcome ? (
             <IconAlertTriangle className="size-3.5 text-muted-foreground" />
           ) : (
