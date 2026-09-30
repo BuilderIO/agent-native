@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
+import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { SLIDES_LAYOUT_OVERFLOW_WARNING } from "@shared/labs";
@@ -1606,6 +1607,7 @@ type ActiveImageCrop = {
   viewport: HTMLElement;
   image: HTMLImageElement;
   frozen: { restoreMarkdownTree?: () => void };
+  publishSelection: (element: HTMLElement) => void;
   restorePreviewStyles: () => void;
   restoreChrome: () => void;
   hasChanges: () => boolean;
@@ -1677,7 +1679,18 @@ export default function SlideEditor({
   const lastImageClickRef = useRef<{
     image: HTMLImageElement;
     timestamp: number;
+    clientX: number;
+    clientY: number;
   } | null>(null);
+  const pendingImageDoubleClickRef = useRef<{
+    image: HTMLImageElement;
+    pointerId: number;
+    timestamp: number;
+    clientX: number;
+    clientY: number;
+    isDoubleClick: boolean;
+  } | null>(null);
+  const selectedImageForCropRef = useRef<HTMLImageElement | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionViewportRect, setSelectionViewportRect] =
@@ -2294,6 +2307,7 @@ export default function SlideEditor({
           ? (restored as HTMLImageElement)
           : restored.querySelector<HTMLImageElement>("img");
       if (image) setSelectedImg(image);
+      if (image) crop.publishSelection(restored);
       setImageOverlay(null);
       return;
     }
@@ -2304,8 +2318,33 @@ export default function SlideEditor({
 
   useEffect(() => {
     const onCropKeyDown = (event: KeyboardEvent) => {
-      if (!imageCropRef.current || event.key === "Escape") return;
-      if (event.key === "Enter") {
+      const crop = imageCropRef.current;
+      if (!crop || event.key === "Escape") return;
+      if (event.key === "Tab") {
+        const handles = Array.from(
+          crop.frame.querySelectorAll<HTMLButtonElement>("[data-crop-handle]"),
+        );
+        if (handles.length === 0) return;
+        const currentIndex = handles.indexOf(
+          document.activeElement as HTMLButtonElement,
+        );
+        const nextIndex =
+          currentIndex < 0
+            ? event.shiftKey
+              ? handles.length - 1
+              : 0
+            : (currentIndex + (event.shiftKey ? -1 : 1) + handles.length) %
+              handles.length;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        handles[nextIndex]?.focus();
+        return;
+      }
+      if (
+        event.key === "Enter" ||
+        event.key === " " ||
+        event.key === "Spacebar"
+      ) {
         event.preventDefault();
         event.stopImmediatePropagation();
         finishImageCrop(true);
@@ -8059,7 +8098,15 @@ export default function SlideEditor({
   const startImageCrop = useCallback(
     (target: HTMLImageElement) => {
       const slideContent = getSlideContent();
-      if (readOnly || !slideContent || !slideContent.contains(target)) return;
+      // Keep Markdown crop gated until React-tree saves are browser-verified.
+      if (
+        readOnly ||
+        !isHtmlSlide ||
+        !slideContent ||
+        !slideContent.contains(target)
+      ) {
+        return;
+      }
 
       const existingFrame = findPersistedImageObject(target, slideContent);
       const frameIsPersistedImage = Boolean(
@@ -8138,7 +8185,10 @@ export default function SlideEditor({
         const imageLeft = image.offsetLeft;
         const imageTop = image.offsetTop;
         const imageStyle = image.style;
-        const cropFrame = frame.ownerDocument.createElement("div");
+        const inlineParent = Boolean(parent.closest("p"));
+        const cropFrame = frame.ownerDocument.createElement(
+          inlineParent ? "span" : "div",
+        );
         cropFrame.className = "fmd-pptx-image";
         cropFrame.setAttribute("data-pptx-element-kind", "image");
         for (const property of [
@@ -8157,6 +8207,7 @@ export default function SlideEditor({
           if (value) cropFrame.style.setProperty(property, value);
         }
         cropFrame.style.position ||= "absolute";
+        cropFrame.style.display = "block";
         cropFrame.style.left ||= `${imageLeft}px`;
         cropFrame.style.top ||= `${imageTop}px`;
         cropFrame.style.width ||= `${imageWidth}px`;
@@ -8168,7 +8219,9 @@ export default function SlideEditor({
         image.removeAttribute("data-slide-object-id");
         cropFrame.setAttribute("data-builder-id", ensureBuilderId(cropFrame));
 
-        viewport = frame.ownerDocument.createElement("div");
+        viewport = frame.ownerDocument.createElement(
+          inlineParent ? "span" : "div",
+        );
         viewport.className = "fmd-image-crop-viewport";
         Object.assign(viewport.style, {
           position: "absolute",
@@ -8176,6 +8229,7 @@ export default function SlideEditor({
           width: "100%",
           height: "100%",
           overflow: "hidden",
+          display: "block",
         });
         parent.insertBefore(cropFrame, image);
         cropFrame.appendChild(viewport);
@@ -8242,6 +8296,7 @@ export default function SlideEditor({
         viewport: viewport!,
         image,
         frozen: { restoreMarkdownTree: frozen.restoreMarkdownTree },
+        publishSelection: publishImageSelection,
         restorePreviewStyles: () => {
           for (const [element, property, value, priority] of previewStyles) {
             if (value) element.style.setProperty(property, value, priority);
@@ -8309,6 +8364,7 @@ export default function SlideEditor({
     [
       freezeElementForFreeformSelection,
       getSlideContent,
+      isHtmlSlide,
       publishImageSelection,
       readOnly,
       slide.content,
@@ -9159,7 +9215,7 @@ export default function SlideEditor({
     (e: ReactMouseEvent) => {
       // Viewers see the slide but can't enter edit mode — matches Google
       // Slides' viewer experience.
-      if (readOnly) return;
+      if (readOnly || imageCropRef.current) return;
 
       const target = e.target as HTMLElement;
       const slideContent = containerRef.current?.querySelector(
@@ -9177,15 +9233,16 @@ export default function SlideEditor({
         slideContent && resolvedTarget !== slideContent
           ? findPersistedImageObject(resolvedTarget, slideContent)
           : null;
-      const imageTarget =
-        resolvedTarget.tagName === "IMG"
+      const imageTarget = target.closest("[data-slide-group-move-handle]")
+        ? selectedImageForCropRef.current
+        : resolvedTarget.tagName === "IMG"
           ? resolvedTarget
           : imageOwner?.querySelector<HTMLElement>("img");
       const imagePlaceholder = resolvedTarget.closest<HTMLElement>(
         ".fmd-img-placeholder",
       );
 
-      if (imageTarget) {
+      if (imageTarget && isHtmlSlide) {
         e.preventDefault();
         e.stopPropagation();
         startImageCrop(imageTarget as HTMLImageElement);
@@ -9234,38 +9291,122 @@ export default function SlideEditor({
           selectedForDrag.getAttribute("data-pptx-element-kind") === "image")
       ? selectedForDrag.querySelector<HTMLImageElement>("img")
       : null;
+  const slideContentForImageCrop = getSlideContent();
+  selectedImageForCropRef.current =
+    selectedImageForCrop ??
+    (selectedImg instanceof HTMLImageElement &&
+    slideContentForImageCrop?.contains(selectedImg)
+      ? selectedImg
+      : null);
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      if (readOnly || !isHtmlSlide) {
+        lastImageClickRef.current = null;
+        pendingImageDoubleClickRef.current = null;
+        return;
+      }
+      if (event.button !== 0) {
+        lastImageClickRef.current = null;
+        pendingImageDoubleClickRef.current = null;
+        return;
+      }
       const slideContent = getSlideContent();
       const image =
         target.tagName === "IMG" && slideContent?.contains(target)
           ? (target as HTMLImageElement)
           : target.closest("[data-slide-group-move-handle]")
-            ? selectedImageForCrop
+            ? selectedImageForCropRef.current
             : null;
-      if (!image) return;
+      if (!image) {
+        lastImageClickRef.current = null;
+        pendingImageDoubleClickRef.current = null;
+        return;
+      }
       const lastImageClick = lastImageClickRef.current;
       const timestamp = Date.now();
-      if (
-        target.closest("[data-slide-group-move-handle]") &&
+      const isDoubleClick = Boolean(
         lastImageClick?.image === image &&
-        timestamp - lastImageClick.timestamp <= 500
+        timestamp - lastImageClick.timestamp <= 500 &&
+        Math.hypot(
+          event.clientX - lastImageClick.clientX,
+          event.clientY - lastImageClick.clientY,
+        ) <= 5,
+      );
+      pendingImageDoubleClickRef.current = {
+        image,
+        pointerId: event.pointerId,
+        timestamp,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        isDoubleClick,
+      };
+      lastImageClickRef.current = null;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const pending = pendingImageDoubleClickRef.current;
+      if (
+        !pending ||
+        pending.pointerId !== event.pointerId ||
+        !hasCrossedCanvasDragThreshold(
+          { x: pending.clientX, y: pending.clientY },
+          { x: event.clientX, y: event.clientY },
+        )
       ) {
+        return;
+      }
+      pendingImageDoubleClickRef.current = null;
+      lastImageClickRef.current = null;
+    };
+
+    const onPointerCancel = (event: PointerEvent) => {
+      if (pendingImageDoubleClickRef.current?.pointerId === event.pointerId) {
+        pendingImageDoubleClickRef.current = null;
         lastImageClickRef.current = null;
-        event.preventDefault();
-        event.stopPropagation();
-        startImageCrop(image);
-      } else {
-        lastImageClickRef.current = { image, timestamp };
       }
     };
 
+    const onPointerUp = (event: PointerEvent) => {
+      const pending = pendingImageDoubleClickRef.current;
+      if (!pending || pending.pointerId !== event.pointerId) return;
+      pendingImageDoubleClickRef.current = null;
+      if (
+        Math.hypot(
+          event.clientX - pending.clientX,
+          event.clientY - pending.clientY,
+        ) > 5
+      ) {
+        lastImageClickRef.current = null;
+        return;
+      }
+      if (pending.isDoubleClick) {
+        lastImageClickRef.current = null;
+        requestAnimationFrame(() => {
+          if (!imageCropRef.current) startImageCrop(pending.image);
+        });
+        return;
+      }
+      lastImageClickRef.current = {
+        image: pending.image,
+        timestamp: pending.timestamp,
+        clientX: pending.clientX,
+        clientY: pending.clientY,
+      };
+    };
+
     document.addEventListener("pointerdown", onPointerDown, true);
-    return () =>
+    document.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("pointercancel", onPointerCancel, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    return () => {
       document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [getSlideContent, selectedImageForCrop, startImageCrop]);
+      document.removeEventListener("pointermove", onPointerMove, true);
+      document.removeEventListener("pointercancel", onPointerCancel, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+    };
+  }, [getSlideContent, isHtmlSlide, readOnly, startImageCrop]);
   const isSelectedElementDraggable = selectedForDrag
     ? !isSlideCanvasShell(selectedForDrag)
     : false;
@@ -9313,8 +9454,25 @@ export default function SlideEditor({
         canZoomIn,
       };
 
+  const contextImageTarget = (() => {
+    const target = contextMenuTargetRef.current;
+    return target?.matches("img")
+      ? (target as HTMLImageElement)
+      : (target?.querySelector<HTMLImageElement>("img") ?? null);
+  })();
+
   const slideElementContextMenuContent = (
     <>
+      {contextImageTarget && (
+        <>
+          <ContextMenuItem
+            onSelect={() => showImageOverlay(contextImageTarget)}
+          >
+            {t("editorToolbar.imageOptions")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      )}
       <ContextMenuItem
         disabled={!hasClipboardSelection}
         onSelect={cutSelectedObjects}

@@ -80,8 +80,8 @@ function handlePosition(handle: ResizeHandle): CSSProperties {
       : "c";
   const style: CSSProperties = {
     position: "absolute",
-    width: handle.length === 1 ? 24 : 16,
-    height: handle.length === 1 ? 8 : 16,
+    width: handle.length === 1 ? (vertical === "c" ? 8 : 24) : 16,
+    height: handle.length === 1 ? (horizontal === "c" ? 8 : 24) : 16,
     padding: 0,
     border: 0,
     background: "transparent",
@@ -101,11 +101,11 @@ function handlePosition(handle: ResizeHandle): CSSProperties {
       style.left = "50%";
       style.transform = "translateX(-50%)";
     } else if (horizontal === "w") {
-      style.left = -8;
+      style.left = -4;
       style.top = "50%";
       style.transform = "translateY(-50%)";
     } else {
-      style.right = -8;
+      style.right = -4;
       style.top = "50%";
       style.transform = "translateY(-50%)";
     }
@@ -378,6 +378,34 @@ function canvasPointInFrame(
   };
 }
 
+function clientPointInFrame(
+  frame: HTMLElement,
+  point: { x: number; y: number },
+): { x: number; y: number } | null {
+  const parent = frame.offsetParent as HTMLElement | null;
+  if (!parent) return null;
+  const parentBounds = parent.getBoundingClientRect();
+  const scaleX =
+    parent.offsetWidth > 0 ? parentBounds.width / parent.offsetWidth : 1;
+  const scaleY =
+    parent.offsetHeight > 0 ? parentBounds.height / parent.offsetHeight : 1;
+  const parentPoint = {
+    x:
+      (point.x - parentBounds.left) / scaleX -
+      parent.clientLeft +
+      parent.scrollLeft,
+    y:
+      (point.y - parentBounds.top) / scaleY -
+      parent.clientTop +
+      parent.scrollTop,
+  };
+  return canvasPointInFrame(
+    readGeometry(frame),
+    readSlideObjectTransformSnapshot(frame),
+    parentPoint,
+  );
+}
+
 function pointerDeltaInCanvas(
   canvas: HTMLElement,
   start: { x: number; y: number },
@@ -630,12 +658,18 @@ export default function ImageCropOverlay({
     };
 
     const onOutsidePointerDown = (event: PointerEvent) => {
-      const bounds = frame.getBoundingClientRect();
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("[data-slide-crop-overlay]")) return;
+      const point = clientPointInFrame(frame, {
+        x: event.clientX,
+        y: event.clientY,
+      });
       const insideFrame =
-        event.clientX >= bounds.left &&
-        event.clientX <= bounds.right &&
-        event.clientY >= bounds.top &&
-        event.clientY <= bounds.bottom;
+        point !== null &&
+        point.x >= 0 &&
+        point.x <= frame.offsetWidth &&
+        point.y >= 0 &&
+        point.y <= frame.offsetHeight;
       if (insideFrame) return;
       if (event.target instanceof Node && image.contains(event.target)) {
         startGesture(event, "move-image");
@@ -684,6 +718,7 @@ export default function ImageCropOverlay({
         boxSizing: "border-box",
         outline: "1px solid currentColor",
         outlineOffset: -1,
+        boxShadow: "0 0 0 1px hsl(var(--slides-crop-control-contrast))",
         background: "transparent",
         touchAction: "none",
         cursor: "move",
@@ -715,17 +750,17 @@ export default function ImageCropOverlay({
           {handle.length === 1 ? (
             <span
               aria-hidden="true"
-              className="absolute inset-x-0.5 inset-y-0.5 rounded-sm bg-[hsl(var(--slides-crop-control))]"
+              className="absolute inset-x-0.5 inset-y-0.5 rounded-sm bg-[hsl(var(--slides-crop-control))] drop-shadow-[0_0_1px_hsl(var(--slides-crop-control-contrast))]"
             />
           ) : (
             <>
               <span
                 aria-hidden="true"
-                className={`absolute h-[3px] w-[9px] bg-[hsl(var(--slides-crop-control))] ${handle.includes("w") ? "left-0" : "right-0"} ${handle.includes("n") ? "top-0" : "bottom-0"}`}
+                className={`absolute h-[3px] w-[9px] bg-[hsl(var(--slides-crop-control))] drop-shadow-[0_0_1px_hsl(var(--slides-crop-control-contrast))] ${handle.includes("w") ? "left-0" : "right-0"} ${handle.includes("n") ? "top-0" : "bottom-0"}`}
               />
               <span
                 aria-hidden="true"
-                className={`absolute h-[9px] w-[3px] bg-[hsl(var(--slides-crop-control))] ${handle.includes("w") ? "left-0" : "right-0"} ${handle.includes("n") ? "top-0" : "bottom-0"}`}
+                className={`absolute h-[9px] w-[3px] bg-[hsl(var(--slides-crop-control))] drop-shadow-[0_0_1px_hsl(var(--slides-crop-control-contrast))] ${handle.includes("w") ? "left-0" : "right-0"} ${handle.includes("n") ? "top-0" : "bottom-0"}`}
               />
             </>
           )}

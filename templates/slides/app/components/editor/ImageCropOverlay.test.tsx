@@ -38,6 +38,10 @@ function createCropCanvas() {
   frame.style.cssText =
     "position:absolute;left:100px;top:80px;width:200px;height:100px;transform-origin:50% 50%;";
   Object.defineProperties(frame, {
+    offsetParent: {
+      configurable: true,
+      get: () => canvas,
+    },
     offsetLeft: {
       configurable: true,
       get: () => Number.parseFloat(frame.style.left) || 0,
@@ -112,9 +116,10 @@ describe("<ImageCropOverlay>", () => {
     expect(crop).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /^Crop / })).toHaveLength(8);
     expect(screen.getByRole("button", { name: "Crop Top Left" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Crop Left" }).style.left).toBe(
-      "-8px",
-    );
+    const westHandle = screen.getByRole("button", { name: "Crop Left" });
+    expect(westHandle.style.left).toBe("-4px");
+    expect(westHandle.style.width).toBe("8px");
+    expect(westHandle.style.height).toBe("24px");
     const masks = Array.from(
       crop.querySelectorAll<HTMLElement>("[data-crop-mask]"),
     );
@@ -130,6 +135,14 @@ describe("<ImageCropOverlay>", () => {
     expect(
       crop.querySelector("[data-crop-handle='nw'] span")?.className,
     ).toContain("bg-[hsl(var(--slides-crop-control))]");
+    expect(
+      crop.querySelector("[data-crop-handle='nw'] span")?.className,
+    ).toContain(
+      "drop-shadow-[0_0_1px_hsl(var(--slides-crop-control-contrast))]",
+    );
+    expect(crop.style.boxShadow).toBe(
+      "0 0 0 1px hsl(var(--slides-crop-control-contrast))",
+    );
     expect(masks[0]?.className).toContain(
       "bg-[hsl(var(--slides-crop-control)/0.5)]",
     );
@@ -262,6 +275,46 @@ describe("<ImageCropOverlay>", () => {
     render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
 
     fireEvent.pointerDown(document.body, { button: 0, pointerId: 3 });
+    expect(onFinish).toHaveBeenCalledWith(true, false);
+  });
+
+  it("does not commit when an extended side-handle target is pressed", () => {
+    const nodes = createCropCanvas();
+    const onFinish = vi.fn();
+    render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Crop Left" }), {
+      button: 0,
+      pointerId: 10,
+      clientX: 45,
+      clientY: 100,
+    });
+
+    expect(onFinish).not.toHaveBeenCalled();
+  });
+
+  it("hit-tests outside presses against the rotated frame polygon", () => {
+    const nodes = createCropCanvas();
+    const onFinish = vi.fn();
+    nodes.frame.style.transform = "rotate(45deg)";
+    nodes.frame.style.transformOrigin = "50% 50%";
+    nodes.frame.getBoundingClientRect = () => new DOMRect(47, 12, 106, 106);
+    render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
+
+    const bounds = nodes.frame.getBoundingClientRect();
+    const outsidePolygon = { x: 50, y: 15 };
+    expect(outsidePolygon.x).toBeGreaterThanOrEqual(bounds.left);
+    expect(outsidePolygon.x).toBeLessThanOrEqual(bounds.right);
+    expect(outsidePolygon.y).toBeGreaterThanOrEqual(bounds.top);
+    expect(outsidePolygon.y).toBeLessThanOrEqual(bounds.bottom);
+
+    fireEvent.pointerDown(document.body, {
+      button: 0,
+      pointerId: 11,
+      clientX: outsidePolygon.x,
+      clientY: outsidePolygon.y,
+    });
+
     expect(onFinish).toHaveBeenCalledWith(true, false);
   });
 

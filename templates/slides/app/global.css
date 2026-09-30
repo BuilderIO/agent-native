@@ -181,6 +181,7 @@ button[title="Open agent sidebar"] {
 
   --accent-cyan: 187 100% 50%;
   --slides-crop-control: 0 0% 0%;
+  --slides-crop-control-contrast: 0 0% 100%;
   --slides-thumbnail-shadow: 0 0% 0%;
 }
 
