@@ -3628,7 +3628,6 @@ export function AgentKitComposer({
         imageModelMenu={imageModelMenu}
         autoFocus={autoFocus}
         composerRef={composerRef}
-        submitting={command.pending}
         willQueue={active && queueWhileRunning && canQueue}
         showModelSelector={showModelSelector && canSelectModel}
         availableModels={availableModels}

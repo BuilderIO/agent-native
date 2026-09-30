@@ -160,6 +160,8 @@ describe("AgentKitChat interactions", () => {
         ).toContain("First prompt");
         expect(client.getThread("thread-latency").activeRunIds).toEqual([]);
         expect(editor.textContent).toBe("");
+        expect(send.getAttribute("aria-busy")).toBeNull();
+        expect(send.querySelector(".animate-spin")).toBeNull();
 
         await act(async () => composerRef.current!.setText("Next draft"));
         await act(async () => started.resolve({ runId: "run-latency" }));
