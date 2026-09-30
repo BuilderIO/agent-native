@@ -1007,6 +1007,7 @@ export function startInPlaceTextSession(
     throw new Error("startInPlaceTextSession: element is already editable");
   }
   let el = element;
+  const initialRootTagName = el.tagName;
   let active = true;
   const initialContentEditable = el.getAttribute("contenteditable");
   const initialEditingBlock = el.getAttribute("data-editing-block");
@@ -2008,7 +2009,8 @@ export function startInPlaceTextSession(
       blockquote ?? (/^H[1-6]$/.test(block.tagName) ? block : null);
     if (demote && paragraphBefore(caret, demote)) {
       if (demote.tagName === "BLOCKQUOTE") plainifyQuote(demote);
-      else if (demote === el) retagRoot("P");
+      else if (demote === el)
+        retagRoot(initialRootTagName === "DIV" ? "DIV" : "P");
       else retagBlock(demote, "P");
       return true;
     }
@@ -3746,19 +3748,20 @@ export function startInPlaceTextSession(
     if (kind) {
       command(() => {
         deleteRange(prefix);
-        const current = selectionRange();
+        let current = selectionRange();
         if (!current) return false;
-        if (ordered) {
-          const item = listItemAt(current.startContainer);
-          if (item)
-            return changeListItemKind(item, "ordered", Number(ordered[1]));
-        }
         let target = commandBlock(current.startContainer);
         if (hasLineBreakBefore(target, current)) {
           target =
             target === el
               ? promoteRootLines(current)
               : promoteBlockLines(target, current);
+          current = selectionRange() ?? current;
+        }
+        if (ordered) {
+          const item = listItemAt(current.startContainer);
+          if (item)
+            return changeListItemKind(item, "ordered", Number(ordered[1]));
         }
         const applied = applyAuthoringCommandAtBlock(
           kind,

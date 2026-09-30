@@ -3976,6 +3976,19 @@ describe("in-place text session: Content authoring parity", () => {
     expect(quote.firstElementChild?.textContent).toBe("AboveQuoted");
   });
 
+  it("restores a root div when Backspace demotes a Markdown heading", () => {
+    const el = mount('<div id="t">Alpha</div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Alpha"), 0);
+
+    type(el, "## ");
+    expect(session.element.tagName).toBe("H2");
+    beforeInput(session.element, "deleteContentBackward");
+
+    expect(session.element.tagName).toBe("DIV");
+    expect(session.element.textContent).toBe("Alpha");
+  });
+
   it("demotes a root quote without escaping the edited element", () => {
     const el = mount(
       '<p>Outside</p><blockquote id="t"><p>Quoted</p></blockquote>',
@@ -4306,9 +4319,33 @@ describe("in-place text session: Content authoring parity", () => {
     const list = session.element.querySelector(":scope > ol");
     expect(list).not.toBeNull();
     expect((list as HTMLOListElement).style.paddingLeft).toBe("1.2em");
-    expect(list?.querySelectorAll(":scope > li")).toHaveLength(3);
+    expect(
+      Array.from(
+        list?.querySelectorAll(":scope > li") ?? [],
+        (item) => item.textContent,
+      ),
+    ).toEqual(["One", "Two", "more", "Three"]);
     expect(list?.textContent).toContain("Twomore");
     expect(list?.textContent).not.toContain("1. ");
+  });
+
+  it("converts only the soft-break line to an ordered list from a UL item", () => {
+    const el = mount(
+      '<ul id="t"><li>One</li><li>Two<br>more</li><li>Three</li></ul>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "more"), 0);
+
+    type(el, "1. ");
+
+    expect(session.element.tagName).toBe("DIV");
+    expect(
+      Array.from(session.element.children, (child) => child.tagName),
+    ).toEqual(["UL", "OL", "UL"]);
+    expect(session.element.children[0]?.textContent).toBe("OneTwo");
+    expect(session.element.children[1]?.textContent).toBe("more");
+    expect(session.element.children[2]?.textContent).toBe("Three");
+    expect(session.element.textContent).not.toContain("1. ");
   });
 
   it("scopes the list keyboard shortcut to the caret block", () => {
