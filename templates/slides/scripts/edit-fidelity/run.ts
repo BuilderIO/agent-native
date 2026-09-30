@@ -4748,7 +4748,12 @@ async function runScenario(
         v.push(
           `no element on the reloaded slide has the typed text line for line (closest: ${JSON.stringify((snapReload.editedText ?? "none").slice(0, 160))})`,
         );
-      const restyled = restyledAddedText(snapView, snapReload);
+      // Enter at the end of a heading intentionally creates a plain paragraph.
+      const restyled = restyledAddedText(
+        snapView,
+        snapReload,
+        scenario === "enter3",
+      );
       if (restyled.length)
         v.push(
           `typed text on the reloaded slide has a style no text of the element had (${restyled.slice(0, 3).join("; ")})`,

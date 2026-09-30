@@ -52,6 +52,8 @@ export interface SnapRecord {
   key: string;
   kind: "text" | "box";
   inside: boolean;
+  tag?: string;
+  inlineStyle?: string;
   props: Record<string, string>;
   rect: Rect;
 }
@@ -795,10 +797,18 @@ export function installInPageHelpers(chromeSelector: string) {
       inside: boolean,
       props: Record<string, string>,
       rect: Rect,
+      textElement?: Pick<SnapRecord, "tag" | "inlineStyle">,
     ) => {
       const n = seen.get(base) ?? 0;
       seen.set(base, n + 1);
-      records.push({ key: `${base}#${n}`, kind, inside, props, rect });
+      records.push({
+        key: `${base}#${n}`,
+        kind,
+        inside,
+        props,
+        rect,
+        ...textElement,
+      });
     };
     const boxKey = (el: Element) => {
       const cls = (el.getAttribute("class") ?? "")
@@ -828,6 +838,10 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           { ...pick(cs, TEXT_PROPS), visible: String(visible(el)) },
           textRect,
+          {
+            tag: el.tagName.toLowerCase(),
+            inlineStyle: el.getAttribute("style") ?? "",
+          },
         );
       }
       if (paints(el, cs)) {
