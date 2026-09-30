@@ -1910,6 +1910,42 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     );
   });
 
+  it("lets the Interact guard run before changing the picked screen", async () => {
+    const onEdit = vi.fn();
+    const onPick = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          onPick={onPick}
+          onEdit={onEdit}
+        />,
+      );
+    });
+
+    const interact = container.querySelector<HTMLButtonElement>(
+      "[data-frame-full-view]",
+    );
+    expect(interact).not.toBeNull();
+    await act(async () => interact?.click());
+
+    expect(onEdit).toHaveBeenCalledWith("screen-a");
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
   it("hides narrow breakpoint width suffixes without truncating the device label", async () => {
     await act(async () => {
       root.render(
