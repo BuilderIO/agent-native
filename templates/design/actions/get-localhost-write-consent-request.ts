@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { readAppState } from "@agent-native/core/application-state";
+import { appStateGet } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
+import { localhostConsentRequestStateAddress } from "./localhost-consent-request-state.js";
 
 const requestSchema = z.object({
   designId: z.string(),
@@ -20,9 +22,8 @@ export default defineAction({
   http: { method: "GET" },
   run: async ({ designId }) => {
     await assertAccess("design", designId, "editor");
-    const value = await readAppState(
-      `design-localhost-write-consent-request:${designId}`,
-    );
+    const { key, sessionId } = localhostConsentRequestStateAddress(designId);
+    const value = await appStateGet(sessionId, key);
     if (value == null) return { request: null };
     const request = requestSchema.parse(value);
     if (request.designId !== designId) {
