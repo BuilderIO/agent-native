@@ -1602,6 +1602,23 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
         "slide text: rapid typing and debounce pause changed the text",
       );
     }
+    const beforeCaretKeys = expectedSlideText;
+    await editor.press(lineStartKey);
+    await editor.pressSequentially("Caret start ");
+    expectedSlideText = `Caret start ${beforeCaretKeys}`;
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: line-start key did not put the caret at the line start",
+      );
+    }
+    await editor.press(lineEndKey);
+    await editor.pressSequentially(" caret end");
+    expectedSlideText += " caret end";
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: line-end key did not put the caret at the line end",
+      );
+    }
     const titleInput = page
       .locator('[data-slides-editor-root="true"] input[type="text"]')
       .first();
@@ -4760,7 +4777,7 @@ async function runScenario(
       const restyled = restyledAddedText(
         snapView,
         snapReload,
-        scenario === "enter3" ? state0.caretBlockTag : null,
+        scenario === "enter3" ? state0.caretConvertibleTag : null,
       );
       if (restyled.length)
         v.push(

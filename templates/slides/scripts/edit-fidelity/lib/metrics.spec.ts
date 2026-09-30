@@ -377,20 +377,23 @@ describe("restyledAddedText", () => {
     },
   );
 
-  it("does not excuse paragraph style loss when Enter starts in mixed content", () => {
+  it("does not exempt a paragraph edit because a sibling is a list item", () => {
     const view = snap([
       { ...rec("text:List item#0", white, true), tag: "li" },
-      { ...rec("text:Paragraph#0", white, true), tag: "p" },
+      {
+        ...rec("text:Paragraph#0", { color: "rgb(0, 0, 255)" }, true),
+        tag: "p",
+      },
     ]);
     const plainParagraph = {
-      ...rec("text:new line#0", { color: "rgb(255, 255, 255)" }, true),
+      ...rec("text:new line#0", { color: "rgb(0, 0, 0)" }, true),
       tag: "p",
       inlineStyle: "",
     };
-    const reload = snap([...view.records, plainParagraph]);
+    const after = snap([...view.records, plainParagraph]);
 
-    expect(restyledAddedText(view, reload, "p")).toEqual(["text:new line#0"]);
-    expect(restyledAddedText(view, reload, "li")).toEqual([]);
+    expect(restyledAddedText(view, after, "p")).toEqual(["text:new line#0"]);
+    expect(restyledAddedText(view, after, "li")).toEqual([]);
   });
 });
 

@@ -91,7 +91,7 @@ export interface EditorState {
    * the caret, -1 for the element itself; null with no caret in it.
    */
   caretBlock: number | null;
-  caretBlockTag: string | null;
+  caretConvertibleTag: string | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
@@ -540,6 +540,19 @@ export function installInPageHelpers(chromeSelector: string) {
       : Array.from(source.querySelectorAll("*")).indexOf(el);
   }
 
+  function caretConvertibleTag(editor: HTMLElement | null): string | null {
+    const focus = getSelection()?.focusNode;
+    if (!editor || !focus || !editor.contains(focus)) return null;
+    let el = focus instanceof Element ? focus : focus.parentElement;
+    while (el) {
+      const tag = el.tagName.toLowerCase();
+      if (/^h[1-6]$/.test(tag) || tag === "li") return tag;
+      if (el === editor) break;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
   /**
    * Top of the element's rendered text and line breaks. A range over the
    * whole element would also take in the border box of every child, so a
@@ -572,14 +585,6 @@ export function installInPageHelpers(chromeSelector: string) {
     const origin = root.getBoundingClientRect();
     const pm = activeEditor();
     const source = editedSource(root, pm);
-    const caretBlockIndex = caretBlock(source);
-    const caretBlockTag =
-      source && caretBlockIndex !== null
-        ? ((caretBlockIndex === -1
-            ? source
-            : source.querySelectorAll("*")[caretBlockIndex]
-          )?.tagName.toLowerCase() ?? null)
-        : null;
     const slideRoot = root.querySelector(".slide-content") ?? root;
     return {
       editing: !!pm,
@@ -591,8 +596,8 @@ export function installInPageHelpers(chromeSelector: string) {
         : null,
       contentTop: source ? contentTop(source, origin) : null,
       caretRect: caretRect(origin, source),
-      caretBlock: caretBlockIndex,
-      caretBlockTag,
+      caretBlock: caretBlock(source),
+      caretConvertibleTag: caretConvertibleTag(pm),
       sourceTag: source?.tagName ?? null,
       sourceText: source ? norm(source.textContent) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,
