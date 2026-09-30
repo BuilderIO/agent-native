@@ -164,7 +164,11 @@ describe("AddPanelPopover", () => {
       'config:{timeScope:"dashboard"}',
     );
     expect(mocks.send.mock.calls[0][0].context).toContain(
-      "dashboard's matching date filter",
+      "Inspect the dashboard's declared filters",
     );
+    expect(mocks.send.mock.calls[0][0].context).toContain("{{timeRange}}");
+    expect(mocks.send.mock.calls[0][0].context).toContain("{{timeRangeStart}}");
+    expect(mocks.send.mock.calls[0][0].context).toContain("{{timeRangeEnd}}");
+    expect(mocks.send.mock.calls[0][0].context).not.toContain("{{dateStart}}");
   });
 });
