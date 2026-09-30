@@ -51,11 +51,52 @@ const mutationTargetSchema = {
 };
 
 const insertPanelSchema = z
-  .record(z.string(), z.unknown())
-  .refine(
-    (panel) => typeof panel.id === "string" && panel.id.trim().length > 0,
-    { message: "panel.id must be a non-empty string" },
-  );
+  .object({
+    id: z.string().refine((id) => id.trim().length > 0, {
+      message: "panel.id must be a non-empty string",
+    }),
+    title: z.string().refine((title) => title.trim().length > 0, {
+      message: "panel.title must be a non-empty string",
+    }),
+    chartType: z.enum([
+      "line",
+      "area",
+      "bar",
+      "metric",
+      "table",
+      "pie",
+      "section",
+      "funnel",
+      "heatmap",
+      "callout",
+      "extension",
+    ]),
+    width: z
+      .number()
+      .int()
+      .min(1)
+      .max(6)
+      .optional()
+      .describe(
+        "Optional integer panel width from 1 to 6; do not pass a string.",
+      ),
+    source: z
+      .enum([
+        "bigquery",
+        "ga4",
+        "amplitude",
+        "first-party",
+        "demo",
+        "prometheus",
+        "program",
+      ])
+      .optional(),
+    sql: z.string().optional(),
+    columns: z.number().int().min(1).max(6).optional(),
+    tab: z.string().optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
 
 const mutationOperationSchema = z.discriminatedUnion("op", [
   z.object({

@@ -331,10 +331,52 @@ describe("mutate-dashboard", () => {
           },
         ],
       }),
-    ).rejects.toThrow(/panel\.id must be a non-empty string/);
+    ).rejects.toThrow(/Invalid action parameters/);
 
     expect(mocks.getDashboard).not.toHaveBeenCalled();
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("requires typed fields for structured panel inserts", () => {
+    const base = {
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "insertPanel",
+          panel: panel("new-panel"),
+        },
+      ],
+    };
+
+    expect(mutateDashboard.schema.parse(base).operations).toEqual(
+      base.operations,
+    );
+    expect(
+      mutateDashboard.schema.parse({
+        ...base,
+        operations: [
+          {
+            ...base.operations[0],
+            panel: {
+              id: "new-panel",
+              title: "new-panel",
+              chartType: "metric",
+            },
+          },
+        ],
+      }).operations,
+    ).toBeDefined();
+    expect(() =>
+      mutateDashboard.schema.parse({
+        ...base,
+        operations: [
+          {
+            ...base.operations[0],
+            panel: { ...base.operations[0].panel, width: "1" },
+          },
+        ],
+      }),
+    ).toThrow(/expected number, received string/i);
   });
 
   it("validates SQL-affecting mutations before saving", async () => {
