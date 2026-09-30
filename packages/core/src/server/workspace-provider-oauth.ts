@@ -130,6 +130,7 @@ export interface WorkspaceProviderOAuthFlow {
   orgId?: string;
   appId: string;
   scope: WorkspaceProviderOAuthScope;
+  returnUrl?: string;
   salesforceLoginUrl?: string;
   expiresAt: number;
 }
@@ -154,6 +155,7 @@ function isWorkspaceProviderOAuthFlow(
     typeof flow.appId === "string" &&
     flow.appId.length > 0 &&
     isWorkspaceProviderOAuthScope(flow.scope) &&
+    (flow.returnUrl === undefined || typeof flow.returnUrl === "string") &&
     (flow.salesforceLoginUrl === undefined ||
       typeof flow.salesforceLoginUrl === "string") &&
     typeof flow.expiresAt === "number" &&
@@ -308,7 +310,6 @@ export async function handleWorkspaceProviderOAuthStart(
         app: appId,
         scope: orgContext.oauthScope,
         ...(useRootGoogleCallback ? { provider: providerId } : {}),
-        returnUrl,
         flowId,
       });
       const flow: WorkspaceProviderOAuthFlow = {
@@ -320,6 +321,7 @@ export async function handleWorkspaceProviderOAuthStart(
         orgId,
         appId,
         scope: orgContext.oauthScope,
+        ...(returnUrl ? { returnUrl } : {}),
         ...(salesforceLoginUrl ? { salesforceLoginUrl } : {}),
         expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
       };
@@ -555,6 +557,7 @@ export async function handleWorkspaceProviderOAuthCallback(
         });
       }
       const returnPath =
+        flow.returnUrl ??
         state.returnUrl ??
         `/settings/integrations?connected=${encodeURIComponent(providerId)}`;
       return redirectWithStagedCookies(event, getAppUrl(event, returnPath));

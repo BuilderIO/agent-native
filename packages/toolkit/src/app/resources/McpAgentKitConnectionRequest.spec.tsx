@@ -67,7 +67,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
     act(() => root.unmount());
   });
 
-  it("starts workspace OAuth and saves the chat request for return", async () => {
+  it("starts workspace OAuth and saves a retry prompt for return", async () => {
     window.sessionStorage.clear();
     window.history.replaceState(
       {},
@@ -111,10 +111,43 @@ describe("McpAgentKitConnectionRequestCard", () => {
       scope: "user",
       returnPath: "/dispatch/chat/thread-1?tab=docs#selected",
     });
-    expect(consumeMcpConnectionResume()).toMatchObject({
-      agentKit: target,
-      returnUrl: "/dispatch/chat/thread-1?tab=docs#selected",
+    const resume = consumeMcpConnectionResume();
+    expect(resume?.returnUrl).toBe("/dispatch/chat/thread-1?tab=docs#selected");
+    expect(resume).not.toHaveProperty("agentKit");
+    act(() => root.unmount());
+  });
+
+  it("does not route workspace providers without OAuth through the OAuth start", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    vi.mocked(startWorkspaceProviderOAuth).mockClear();
+
+    act(() => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          appId="dispatch"
+          source={{
+            id: "slack",
+            kind: "workspace_connection",
+            label: "Slack",
+          }}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={() => undefined}
+          fallback={<div data-unsupported-provider="">Setup unavailable</div>}
+        />,
+      );
     });
+
+    expect(
+      container.querySelector("[data-unsupported-provider]"),
+    ).not.toBeNull();
+    expect(startWorkspaceProviderOAuth).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 

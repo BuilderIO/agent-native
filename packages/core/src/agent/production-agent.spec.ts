@@ -611,6 +611,11 @@ describe("callConnectedAgentReference", () => {
                 reason: "grant",
                 appId: "dispatch",
                 detail: "Connect Slack to continue.",
+                source: {
+                  id: "slack",
+                  kind: "workspace_connection",
+                  label: "Slack",
+                },
               },
             },
             parts: [{ type: "text", text: "Connect Slack to continue." }],
@@ -645,7 +650,11 @@ describe("callConnectedAgentReference", () => {
       provider: "slack",
       reason: "grant",
       appId: "dispatch",
-      source: { id: "Dispatch", kind: "agent", label: "Dispatch" },
+      source: {
+        id: "slack",
+        kind: "workspace_connection",
+        label: "Slack",
+      },
     });
     expect(events.at(-1)).toEqual({
       type: "agent_call",

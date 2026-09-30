@@ -2536,7 +2536,11 @@ export async function callConnectedAgentReference(input: {
           ...(connectionRequest.appId
             ? { appId: connectionRequest.appId }
             : {}),
-          source: { id: input.agent, kind: "agent", label: input.agent },
+          source: connectionRequest.source ?? {
+            id: input.agent,
+            kind: "agent",
+            label: input.agent,
+          },
         },
       );
     }
@@ -2570,12 +2574,31 @@ function parseA2AConnectionRequest(
   const appId = typeof request.appId === "string" ? request.appId.trim() : "";
   const detail =
     typeof request.detail === "string" ? request.detail.trim() : "";
+  const sourceValue =
+    request.source && typeof request.source === "object"
+      ? (request.source as Record<string, unknown>)
+      : null;
+  const sourceId =
+    typeof sourceValue?.id === "string" ? sourceValue.id.trim() : "";
+  const sourceLabel =
+    typeof sourceValue?.label === "string" ? sourceValue.label.trim() : "";
   return {
     version: 1,
     provider,
     reason,
     ...(appId && appId.length <= 120 ? { appId } : {}),
     ...(detail && detail.length <= 1_000 ? { detail } : {}),
+    ...(sourceValue?.kind === "workspace_connection" &&
+    sourceId === provider &&
+    sourceId.length <= 120
+      ? {
+          source: {
+            id: sourceId,
+            kind: "workspace_connection" as const,
+            ...(sourceLabel ? { label: sourceLabel.slice(0, 120) } : {}),
+          },
+        }
+      : {}),
   };
 }
 

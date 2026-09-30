@@ -15,7 +15,11 @@ import {
   createCapabilityUnsupportedError,
   negotiateAgentKitProtocolVersion,
 } from "../protocol/index.js";
-import { AgentKitCapabilityError, AgentKitClient } from "./client.js";
+import {
+  AgentKitCapabilityError,
+  AgentKitClient,
+  AgentKitRunSlotBusyError,
+} from "./client.js";
 
 function protocolEvent(
   sequence: number,
@@ -2554,10 +2558,10 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").queuedMessages).toEqual([]);
   });
 
-  it("waits for the active run to finish before promoting queued work", async () => {
+  it("retries queued promotion after approval without relying on a terminal event", async () => {
     const runCompletion = Promise.withResolvers<void>();
-    const promotionStarted = Promise.withResolvers<void>();
-    const finishPromotion = Promise.withResolvers<void>();
+    const promotionRetried = Promise.withResolvers<void>();
+    let serverSlotBusy = true;
     let promotionAttempts = 0;
     const queued: AgentQueuedMessage = {
       id: "queued-during-run",
@@ -2566,17 +2570,18 @@ describe("AgentKitClient", () => {
       createdAt: "2026-08-29T00:00:00.000Z",
     };
     const transport: AgentTransport = {
-      capabilities: { messageQueue: true },
+      capabilities: { approvals: true, messageQueue: true },
       async startRun() {
         return { runId: "run-1" };
       },
       async queueMessage() {
         return { message: queued };
       },
+      async resolveApproval() {},
       async steerQueuedMessage() {
         promotionAttempts += 1;
-        promotionStarted.resolve();
-        await finishPromotion.promise;
+        if (serverSlotBusy) throw new AgentKitRunSlotBusyError();
+        promotionRetried.resolve();
         return { runId: "run-2" };
       },
       async *subscribeToRun({ runId }) {
@@ -2594,20 +2599,28 @@ describe("AgentKitClient", () => {
     await client.queueMessage({ threadId: "thread-1", text: queued.text });
 
     expect(promotionAttempts).toBe(0);
+    await client.resolveApproval({
+      threadId: "thread-1",
+      runId: "run-1",
+      approvalId: "approval-1",
+      response: { decision: "approve" },
+    });
+    await vi.waitFor(() => expect(promotionAttempts).toBe(1));
     expect(client.getThread("thread-1")).toMatchObject({
       queuedMessages: [queued],
       messages: [{ role: "user" }],
     });
 
-    runCompletion.resolve();
-    await firstRun.completed;
-    await promotionStarted.promise;
-    finishPromotion.resolve();
+    serverSlotBusy = false;
+    await promotionRetried.promise;
+    expect(promotionAttempts).toBe(2);
     await vi.waitFor(() =>
       expect(client.getThread("thread-1").runs["run-2"]?.status).toBe(
         "completed",
       ),
     );
+    runCompletion.resolve();
+    await firstRun.completed;
 
     expect(client.getThread("thread-1")).toMatchObject({
       activeRunIds: [],
@@ -3875,6 +3888,58 @@ describe("AgentKitClient", () => {
     await queuedMessage;
 
     await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+  });
+
+  it("retries automatic queue promotion after the run slot becomes free", async () => {
+    const retry = Promise.withResolvers<void>();
+    let attempts = 0;
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { messageQueue: true },
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun({ threadId, runId }) {
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+        async cancelRun() {},
+        async queueMessage(input) {
+          return {
+            message: {
+              id: "queued-1",
+              threadId: input.threadId,
+              text: input.text,
+              createdAt: "2026-08-29T00:00:00.000Z",
+            },
+          };
+        },
+        async steerQueuedMessage() {
+          attempts += 1;
+          if (attempts === 1) throw new AgentKitRunSlotBusyError();
+          retry.resolve();
+        },
+      },
+    });
+    await client.queueMessage({ threadId: "thread-1", text: "Run next" });
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await run.completed;
+    await retry.promise;
+
+    expect(attempts).toBe(2);
+    await vi.waitFor(() => {
+      expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    });
+    await client.dispose();
   });
 
   it("merges a stale load without discarding newer optimistic and run state", async () => {

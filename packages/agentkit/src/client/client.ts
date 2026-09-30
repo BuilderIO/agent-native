@@ -452,6 +452,28 @@ export class AgentKitCapabilityError extends Error {
   }
 }
 
+export class AgentKitRunSlotBusyError extends Error {
+  public readonly code = "run_slot_busy" as const;
+  public readonly retryable = true;
+
+  public constructor() {
+    super("The current agent run still owns this thread.");
+    this.name = "AgentKitRunSlotBusyError";
+  }
+}
+
+function isAgentKitRunSlotBusyError(
+  error: unknown,
+): error is AgentKitRunSlotBusyError {
+  return (
+    error instanceof AgentKitRunSlotBusyError ||
+    (!!error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "run_slot_busy")
+  );
+}
+
 export class AgentKitOperationError extends Error {
   public readonly code = "operation_unsupported" as const;
   public readonly retryable = false;
@@ -550,6 +572,10 @@ export class AgentKitClient implements AgentKitController {
   >();
   private readonly queueMutationChains = new Map<ThreadId, Promise<void>>();
   private readonly queuePromotions = new Set<ThreadId>();
+  private readonly queuePromotionTimers = new Map<
+    ThreadId,
+    ReturnType<typeof setTimeout>
+  >();
   private readonly requestAbortController = new AbortController();
   private capabilitiesLoad?: Promise<AgentCapabilities>;
   private shutdownPromise?: Promise<void>;
@@ -1103,6 +1129,7 @@ export class AgentKitClient implements AgentKitController {
         resolveApproval!(input, context),
       );
       this.assertActive();
+      this.scheduleQueuePromotion(input.threadId);
       return;
     }
     const result = await this.invokeRequest(requestContext, (context) =>
@@ -1125,6 +1152,7 @@ export class AgentKitClient implements AgentKitController {
     const key = this.runKey(input.threadId, result.runId);
     const existingConsumer = this.consumers.get(key);
     if (existingConsumer) {
+      this.scheduleQueuePromotion(input.threadId);
       void (async () => {
         await Promise.allSettled([existingConsumer]);
         if (!this.disposed) {
@@ -1141,6 +1169,7 @@ export class AgentKitClient implements AgentKitController {
       result.runId,
       this.consume(input.threadId, result.runId),
     );
+    this.scheduleQueuePromotion(input.threadId);
   }
 
   public async resolveConnectionRequest(
@@ -1632,7 +1661,12 @@ export class AgentKitClient implements AgentKitController {
       } catch (error) {
         if (this.disposed) throw error;
         this.patch({ connection: previousConnection, error: previousError });
-        this.report(error, "queue_steer_failed");
+        if (
+          !isAgentKitRunSlotBusyError(error) ||
+          !this.queuePromotions.has(threadId)
+        ) {
+          this.report(error, "queue_steer_failed");
+        }
         throw error;
       }
     });
@@ -1767,6 +1801,10 @@ export class AgentKitClient implements AgentKitController {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.disposed = true;
     this.requestAbortController.abort(new AgentKitDisposedError());
+    for (const timer of this.queuePromotionTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.queuePromotionTimers.clear();
     for (const controller of this.consumerAbortControllers.values()) {
       controller.abort(new AgentKitConsumerStoppedError("disposed"));
     }
@@ -3068,6 +3106,12 @@ export class AgentKitClient implements AgentKitController {
   }
 
   private scheduleQueuePromotion(threadId: ThreadId): void {
+    if (this.disposed) return;
+    const retryTimer = this.queuePromotionTimers.get(threadId);
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      this.queuePromotionTimers.delete(threadId);
+    }
     const thread = this.getThread(threadId);
     if (this.queuePromotions.has(threadId)) return;
     const queued = thread.queuedMessages[0];
@@ -3082,7 +3126,15 @@ export class AgentKitClient implements AgentKitController {
     }
     this.queuePromotions.add(threadId);
     void this.steerQueuedMessage(threadId, queued.id)
-      .catch(() => {
+      .catch((error) => {
+        if (isAgentKitRunSlotBusyError(error) && !this.disposed) {
+          const timer = setTimeout(() => {
+            this.queuePromotionTimers.delete(threadId);
+            this.scheduleQueuePromotion(threadId);
+          }, 1_000);
+          this.queuePromotionTimers.set(threadId, timer);
+          return;
+        }
         // `steerQueuedMessage` already restores state and reports the failure.
       })
       .finally(() => this.queuePromotions.delete(threadId));

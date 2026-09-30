@@ -9,6 +9,7 @@ import {
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
+import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { AgentConnectionRequestCard } from "../agentkit/react/components.js";
@@ -60,11 +61,10 @@ export function McpAgentKitConnectionRequestCard({
       throw error;
     }
   };
-  if (
-    source?.kind === "workspace_connection" &&
-    source.id === provider &&
-    appId
-  ) {
+  if (source?.kind === "workspace_connection") {
+    const workspaceProvider =
+      source.id === provider ? getWorkspaceConnectionProvider(source.id) : null;
+    if (!workspaceProvider?.oauth || !appId) return fallback;
     const request: AgentConnectionRequest = {
       id: target.requestId,
       provider,
@@ -84,7 +84,6 @@ export function McpAgentKitConnectionRequestCard({
             !saveMcpConnectionResume(
               detail ??
                 `Continue after connecting ${source.label ?? provider}.`,
-              target,
             )
           ) {
             return false;

@@ -1,3 +1,4 @@
+import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type {
   AgentAnnotation,
   AgentAnnotationSnapshot,
@@ -1225,28 +1226,22 @@ export function createAgentNativeAgentKitTransport(
           "Agent chat active-run response must be an object.",
         );
       }
-      if (status.awaitingRedispatch === true) {
-        throw new Error(
-          "The agent runtime owns a continuation for this thread; the queued message remains pending.",
-        );
-      }
       const clear =
-        status.active !== true ||
-        status.status === "completed" ||
-        status.status === "complete" ||
-        status.status === "failed" ||
-        status.status === "cancelled" ||
-        status.status === "errored" ||
-        status.status === "aborted";
+        status.awaitingRedispatch !== true &&
+        (status.active !== true ||
+          status.status === "completed" ||
+          status.status === "complete" ||
+          status.status === "failed" ||
+          status.status === "cancelled" ||
+          status.status === "errored" ||
+          status.status === "aborted");
       consecutiveClearPolls = clear ? consecutiveClearPolls + 1 : 0;
       if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
       await new Promise((resolve) =>
         setTimeout(resolve, RUN_SLOT_POLL_INTERVAL_MS),
       );
     }
-    throw new Error(
-      "The current agent run did not release the thread; the queued message remains pending.",
-    );
+    throw new AgentKitRunSlotBusyError();
   }
 
   async function readQueue(threadId: string): Promise<AgentQueuedMessage[]> {
