@@ -56,17 +56,25 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
-  PromptComposer: () => null,
-  snapshotComposerContextItems: (items: unknown) => items,
-  useAgentKitCapabilities: () => ({ data: undefined }),
-  useAgentKitIntegrationMenu: () => ({
-    id: "integrations",
-    label: "Integrations",
-    intent: "invoke-integration",
-    picker: {},
+vi.mock(
+  "@agent-native/toolkit/app/chat/composer/index",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/composer/index")
+    >()),
+    PromptComposer: () => null,
+    snapshotComposerContextItems: (items: unknown) => items,
+    useAgentKitCapabilities: () => ({
+      data: { sources: { figma: { available: false } }, integrations: [] },
+    }),
+    useAgentKitIntegrationMenu: () => ({
+      id: "integrations",
+      label: "Integrations",
+      intent: "invoke-integration",
+      picker: {},
+    }),
   }),
-}));
+);
 
 vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
   BuilderSetupCard: () => null,
@@ -87,7 +95,8 @@ vi.mock("@agent-native/core/client/collab", () => ({
   emailToName: (email: string) => email,
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
   useOrg: () => ({ data: undefined }),
   useOrgMembers: () => ({ data: undefined }),
 }));
@@ -127,7 +136,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   setClientAppState: async () => undefined,
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useFormatters: () => ({
     formatDate: (value: string) => value,
     formatNumber: String,

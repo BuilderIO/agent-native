@@ -23,7 +23,12 @@ const dispatchAuthPlugin = async (nitroApp: any) => {
     googleOnly,
     marketing: marketing as any,
     workspaceAppPublicPaths: ["/"],
-    publicPaths: authConfig.publicPaths,
+    // This route authenticates its own audience-bound service bearer before any
+    // asset lookup; the session guard cannot authenticate peer services.
+    publicPaths: [
+      ...(authConfig.publicPaths ?? []),
+      "/_agent-native/private-icons",
+    ],
   });
   return plugin(nitroApp);
 };

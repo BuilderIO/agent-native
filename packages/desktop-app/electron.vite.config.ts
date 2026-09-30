@@ -2,8 +2,24 @@ import { resolve } from "path";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
+
+import desktopPackage from "./package.json";
+
+function desktopDependencyExternal(
+  exclude: string[],
+  alwaysExternal: string[],
+) {
+  const packages = [
+    ...Object.keys(desktopPackage.dependencies).filter(
+      (name) => !exclude.includes(name),
+    ),
+    ...alwaysExternal,
+  ];
+  return (id: string) =>
+    packages.some((name) => id === name || id.startsWith(`${name}/`));
+}
 
 const workspaceRendererPackages = [
   "@agent-native/code-agents-ui",
@@ -212,34 +228,27 @@ const desktopDefines = {
 export default defineConfig({
   main: {
     define: desktopDefines,
-    plugins: [
-      externalizeDepsPlugin({
-        exclude: [
-          "@agent-native/code-agents-ui",
-          "@agent-native/code-agents-ui/code-agents",
-          "@agent-native/shared-app-config",
-          "@modelcontextprotocol/sdk",
-          "@sentry/electron",
-          "electron-updater",
-          "zod",
-        ],
-      }),
-      assertElectronIsExternalPlugin(),
-    ],
+    plugins: [assertElectronIsExternalPlugin()],
     resolve: {
       alias: {
         "@shared": resolve("shared"),
       },
     },
     build: {
-      rollupOptions: {
-        external: [
-          "electron",
-          /^electron\/.+/,
-          "node-pty",
-          "@agent-native/core",
-          /^@agent-native\/core\/.+/,
-        ],
+      externalizeDeps: false,
+      rolldownOptions: {
+        external: desktopDependencyExternal(
+          [
+            "@agent-native/code-agents-ui",
+            "@agent-native/code-agents-ui/code-agents",
+            "@agent-native/shared-app-config",
+            "@modelcontextprotocol/sdk",
+            "@sentry/electron",
+            "electron-updater",
+            "zod",
+          ],
+          ["electron", "node-pty"],
+        ),
         input: {
           index: resolve("src/main/index.ts"),
           "browser-control-host": resolve(
@@ -252,24 +261,23 @@ export default defineConfig({
   },
   preload: {
     define: desktopDefines,
-    plugins: [
-      externalizeDepsPlugin({
-        exclude: [
-          "@agent-native/code-agents-ui",
-          "@agent-native/code-agents-ui/code-agents",
-          "@agent-native/shared-app-config",
-        ],
-      }),
-      inlinePreloadChunksPlugin(),
-    ],
+    plugins: [inlinePreloadChunksPlugin()],
     resolve: {
       alias: {
         "@shared": resolve("shared"),
       },
     },
     build: {
-      rollupOptions: {
-        external: ["electron"],
+      externalizeDeps: false,
+      rolldownOptions: {
+        external: desktopDependencyExternal(
+          [
+            "@agent-native/code-agents-ui",
+            "@agent-native/code-agents-ui/code-agents",
+            "@agent-native/shared-app-config",
+          ],
+          ["electron"],
+        ),
         input: {
           index: resolve("src/preload/index.ts"),
           webview: resolve("src/preload/webview.ts"),

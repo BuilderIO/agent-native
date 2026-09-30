@@ -37,12 +37,12 @@ const labsActions = vi.hoisted(() => ({
   mutate: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useChangeVersions: () => 0,
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
     isLoading: false,
   }),
+  useChangeVersions: () => 0,
 }));
 vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: () => ({

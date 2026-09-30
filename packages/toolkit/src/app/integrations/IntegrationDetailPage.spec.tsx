@@ -36,7 +36,7 @@ vi.mock("../settings/api-keys/api-keys-client.js", () => keys);
 vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: { orgName: "Acme" } }),
 }));
-vi.mock("./useIntegrationStatus.js", () => ({
+vi.mock("@agent-native/core/client/integrations/useIntegrationStatus", () => ({
   useIntegrationStatus: () => ({ statuses: [], loading: false, refetch() {} }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
