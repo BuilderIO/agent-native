@@ -1088,6 +1088,7 @@ async function scaffoldOneAppIntoWorkspace(
     );
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
     applyLocalWorkspaceOverrides(workspace.workspaceRoot, workspaceOverrides);
+    ensureWorkspaceDrizzleDependency(workspace.workspaceRoot);
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
     if (err instanceof CreateWizardCancelledError) {
@@ -1923,6 +1924,20 @@ function resolvePublishedWorkspaceSpecifier(
   } catch {
     return "*";
   }
+}
+
+function ensureWorkspaceDrizzleDependency(workspaceRoot: string): void {
+  const packageJsonPath = path.join(workspaceRoot, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+  if (!pkg || typeof pkg !== "object" || Array.isArray(pkg)) {
+    throw new Error(`${packageJsonPath} must contain a JSON object`);
+  }
+  pkg.dependencies ??= {};
+  if (typeof pkg.dependencies !== "object" || Array.isArray(pkg.dependencies)) {
+    throw new Error(`${packageJsonPath} has an invalid dependencies object`);
+  }
+  pkg.dependencies["drizzle-orm"] ??= DRIZZLE_DEPENDENCY_VERSION;
+  fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + "\n");
 }
 
 async function scaffoldRequiredPackages(

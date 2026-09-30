@@ -1370,10 +1370,18 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
   it("allows Dispatch to be added later as the canonical workspace app", async () => {
     const wsDir = path.join(tmpDir, "my-ws");
     await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+    const rootPackageJsonPath = path.join(wsDir, "package.json");
+    const rootPackageJson = readPkg(wsDir);
+    delete rootPackageJson.dependencies?.["drizzle-orm"];
+    fs.writeFileSync(
+      rootPackageJsonPath,
+      JSON.stringify(rootPackageJson, null, 2) + "\n",
+    );
 
     process.chdir(wsDir);
     await addAppToWorkspace("dispatch", { template: "dispatch" });
 
+    expect(readPkg(wsDir).dependencies?.["drizzle-orm"]).toBeDefined();
     const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
     expect(dispatchPkg.name).toBe("dispatch");
     expect(
