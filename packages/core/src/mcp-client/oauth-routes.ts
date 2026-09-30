@@ -104,9 +104,12 @@ const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
   serverOrigins: ReadonlyArray<string>;
   credentialPairs: ReadonlyArray<readonly [string, string]>;
+  allowOrganizationScope?: boolean;
+  requireClientCredentials?: boolean;
 }> = [
   {
     serverOrigins: ["https://mcp.hubspot.com"],
+    requireClientCredentials: true,
     credentialPairs: [
       ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"],
       ["HUBSPOT_INTEGRATION_CLIENT_ID", "HUBSPOT_INTEGRATION_CLIENT_SECRET"],
@@ -124,11 +127,18 @@ const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
       "https://chatmcp.googleapis.com",
       "https://people.googleapis.com",
     ],
+    requireClientCredentials: true,
     credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
   },
   {
     serverOrigins: ["https://workspacemcp.googleapis.com"],
+    requireClientCredentials: true,
     credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+  },
+  {
+    serverOrigins: ["https://mcp.gong.io"],
+    allowOrganizationScope: true,
+    credentialPairs: [["GONG_MCP_CLIENT_ID", "GONG_MCP_CLIENT_SECRET"]],
   },
 ];
 
@@ -394,7 +404,10 @@ async function handleMcpOAuthStart(
       const clientInformation = await resolveManagedMcpOAuthClient(
         urlCheck.url!,
       );
-      if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
+      if (
+        managedMcpOAuthClientFor(urlCheck.url!)?.requireClientCredentials &&
+        !clientInformation
+      ) {
         return null;
       }
       const storedCredentials =
@@ -563,7 +576,12 @@ export function wantsHtmlResponse(event: H3Event): boolean {
 }
 
 function isManagedMcpOAuthServer(serverUrl: URL): boolean {
-  return MANAGED_MCP_OAUTH_CLIENTS.some((client) =>
+  const client = managedMcpOAuthClientFor(serverUrl);
+  return Boolean(client && !client.allowOrganizationScope);
+}
+
+function managedMcpOAuthClientFor(serverUrl: URL) {
+  return MANAGED_MCP_OAUTH_CLIENTS.find((client) =>
     client.serverOrigins.includes(serverUrl.origin),
   );
 }
