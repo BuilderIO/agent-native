@@ -64,6 +64,17 @@ function drizzleRawQuery(text: string, params: unknown[] = []) {
   return query;
 }
 
+function terminateNeonTransactionConnection(transaction: any): void {
+  const client = transaction.session?.client;
+  const stream = client?.connection?.stream;
+  if (
+    typeof client?.release === "function" &&
+    typeof stream?.destroy === "function"
+  ) {
+    stream.destroy();
+  }
+}
+
 async function withTransactionStatementTimeout<T>(
   transaction: any,
   run: () => T | Promise<T>,
@@ -83,6 +94,7 @@ async function withTransactionStatementTimeout<T>(
       timeoutMs,
       () => {
         timedOut = true;
+        terminateNeonTransactionConnection(transaction);
       },
       { sql: timeoutSql },
     );
@@ -597,6 +609,7 @@ function drizzleTransactionExec(
         timeoutMs,
         () => {
           timedOut = true;
+          if (started) terminateNeonTransactionConnection(transaction);
         },
         { sql: query },
       );

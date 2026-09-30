@@ -17,6 +17,9 @@ describe("createGetDb pooled transaction scoping", () => {
     let rolledBackTransactions = 0;
     let releasedTransactions = 0;
     let delayCancellationResponse = false;
+    let hangTransactionTimeoutSetup = false;
+    let hangTransactionStatement = false;
+    let destroyedTransactionConnections = 0;
     const timeoutOperations: string[] = [];
     const queryDelays = new Map<string, number>();
     const transactionNestingIndexes: number[] = [];
@@ -30,11 +33,12 @@ describe("createGetDb pooled transaction scoping", () => {
     const rawQuery = (query: string) => ({
       getSQL: () => ({ toQuery: () => ({ sql: query, params: [] }) }),
     });
-    const execute = vi.fn(async (query: any) => {
+    const execute = vi.fn(async (query: any, session?: any) => {
       const compiled = query.toQuery();
       if (
         compiled.sql.startsWith("SELECT set_config('statement_timeout', CASE")
       ) {
+        if (hangTransactionTimeoutSetup) return await hangQuery(session);
         const setupDelayMs = queryDelays.get("transaction-timeout-setup");
         if (setupDelayMs) {
           timeoutOperations.push("transaction-timeout-config:start");
@@ -46,6 +50,8 @@ describe("createGetDb pooled transaction scoping", () => {
           timeoutOperations.push("transaction-timeout-config:complete");
         return { rows: [{ set_config: statementTimeout }], rowCount: 1 };
       }
+      if (hangTransactionStatement && compiled.sql === "SELECT 109")
+        return await hangQuery(session);
       if (
         compiled.sql.startsWith("SELECT current_setting('statement_timeout')")
       ) {
@@ -110,9 +116,29 @@ describe("createGetDb pooled transaction scoping", () => {
       }
       return { rows: [{ id: 42 }], rowCount: 1 };
     });
+    const hangQuery = (session: any) =>
+      new Promise((_, reject) => {
+        const abort = () => {
+          session.pendingQueries.delete(abort);
+          reject(new Error("connection terminated"));
+        };
+        session.pendingQueries.add(abort);
+      });
     const makeSession = () => {
       const sessionId = ++nextSessionId;
-      const session: any = {
+      const session: any = { id: sessionId, pendingQueries: new Set() };
+      session.client = {
+        release: vi.fn(),
+        connection: {
+          stream: {
+            destroy() {
+              destroyedTransactionConnections++;
+              for (const abort of [...session.pendingQueries]) abort();
+            },
+          },
+        },
+      };
+      Object.assign(session, {
         id: sessionId,
         prepareQuery(query: any) {
           const compiled =
@@ -129,7 +155,7 @@ describe("createGetDb pooled transaction scoping", () => {
                 sessionId,
                 ...(token === undefined ? {} : { token }),
               });
-              return execute({ toQuery: () => compiled });
+              return execute({ toQuery: () => compiled }, session);
             },
           };
         },
@@ -137,12 +163,12 @@ describe("createGetDb pooled transaction scoping", () => {
           return this.prepareQuery(query.getSQL?.() ?? query).execute();
         },
         query(query: string, params: unknown[]) {
-          return execute({ toQuery: () => ({ sql: query, params }) });
+          return execute({ toQuery: () => ({ sql: query, params }) }, session);
         },
         queryObjects(query: string, params: unknown[]) {
-          return execute({ toQuery: () => ({ sql: query, params }) });
+          return execute({ toQuery: () => ({ sql: query, params }) }, session);
         },
-      };
+      });
       return session;
     };
     const makeRelationalQueries = (
@@ -426,6 +452,34 @@ describe("createGetDb pooled transaction scoping", () => {
       await expect(tx.transaction(async () => undefined)).rejects.toThrow(
         "DB query timed out after 25ms (connection terminated)",
       );
+      const connectionsDestroyedBeforeHangingSetup =
+        destroyedTransactionConnections;
+      const hangingSetupStartedAt = Date.now();
+      hangTransactionTimeoutSetup = true;
+      await expect(tx.transaction(async () => undefined)).rejects.toThrow(
+        "DB query timed out after 25ms (connection terminated)",
+      );
+      hangTransactionTimeoutSetup = false;
+      expect(Date.now() - hangingSetupStartedAt).toBeLessThan(500);
+      expect(destroyedTransactionConnections).toBeGreaterThan(
+        connectionsDestroyedBeforeHangingSetup,
+      );
+      const connectionsDestroyedBeforeHangingStatement =
+        destroyedTransactionConnections;
+      const hangingStatementStartedAt = Date.now();
+      hangTransactionStatement = true;
+      await expect(
+        tx.transaction(() =>
+          getDbExec().execute({ sql: "SELECT 109", timeoutMs: 25 }),
+        ),
+      ).rejects.toThrow(
+        "DB query timed out after 25ms (connection terminated)",
+      );
+      hangTransactionStatement = false;
+      expect(Date.now() - hangingStatementStartedAt).toBeLessThan(500);
+      expect(destroyedTransactionConnections).toBeGreaterThan(
+        connectionsDestroyedBeforeHangingStatement,
+      );
       vi.stubEnv("DB_OP_TIMEOUT_MS", "100");
       queryDelays.delete("transaction-timeout-setup");
       expect(
@@ -515,7 +569,7 @@ describe("createGetDb pooled transaction scoping", () => {
     delayCancellationResponse = false;
     expect(timedOutTransactionSettled).toBe(true);
     expect(statementTimeout).toBe("0");
-    expect(rolledBackTransactions).toBe(4);
+    expect(rolledBackTransactions).toBe(6);
     expect(
       execute.mock.calls.some(([query]) =>
         query.toQuery().sql.startsWith("SET LOCAL statement_timeout = "),
@@ -535,7 +589,7 @@ describe("createGetDb pooled transaction scoping", () => {
     await new Promise((resolve) => setTimeout(resolve, 35));
     expect(defaultTimedOutTransactionSettled).toBe(true);
     await defaultTimeoutAssertion;
-    expect(rolledBackTransactions).toBe(5);
+    expect(rolledBackTransactions).toBe(7);
     expect(releasedTransactions).toBeGreaterThanOrEqual(4);
     expect(statementTimeout).toBe("0");
   });
