@@ -1,14 +1,14 @@
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import {
   AppSidebar,
   AppSidebarNavItem,
   AppSidebarSection,
-  FeedbackButton,
   type AppSidebarItemDefinition,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import {
   IconAlertTriangle,
   IconBuilding,
@@ -20,7 +20,6 @@ import {
   IconMessageCircle,
   IconPencilCheck,
   IconRoute,
-  IconSettings,
   IconStar,
   IconTable,
   IconUsers,
@@ -66,11 +65,6 @@ const primaryNav = [
 
 const footerNav = [
   { to: "/ask", labelKey: "navigation.askCrm", icon: IconMessageCircle },
-  {
-    to: "/settings/connections",
-    labelKey: "navigation.connections",
-    icon: IconSettings,
-  },
 ];
 
 export function CrmSidebar({ onNavigate }: { onNavigate?: () => void }) {

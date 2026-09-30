@@ -242,8 +242,6 @@ describe("MCP server UI helpers", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.useFakeTimers();
     try {
-      // Route the deferral onto faked timers so the paint window only passes
-      // when the test advances it.
       vi.stubGlobal("requestAnimationFrame", undefined);
       vi.stubGlobal("requestIdleCallback", undefined);
       const fetchMock = vi.fn(async () => Response.json(EMPTY_LIST));

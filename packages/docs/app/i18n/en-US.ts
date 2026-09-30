@@ -1,4 +1,10 @@
 const enUS = {
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
+    },
+    common: { retry: "Retry" },
+  },
   language: {
     label: "Language",
     system: "System",
@@ -743,11 +749,11 @@ const enUS = {
           "Yes. Set a canonical logo in your brand kit and enable logo compositing for the generation. Assets places the original logo onto the image after generation, so the image model does not redraw it. Review its placement and the surrounding image before use.",
       },
       s001: "Assets app screenshot",
-      // V3 landing page copy (2026-09-11) — hero through final CTA below.
+      imageCredits: "Image credits",
       heroEyebrow: "Assets",
-      heroTitle: "Create and manage brand assets with your AI agent",
+      heroTitle: "Generate on-brand images in a conversation",
       heroDescription:
-        "Assets is a free and open-source brand asset library for organizing your images, videos, and brand references, with an AI agent that generates and edits media using your brand kit.",
+        "Describe what you need, give your agent a brand kit or reference, and compare generated variations right alongside the conversation.",
       heroCta: "Generate an image",
       useCasesHeading: "What can you do with Assets?",
       useCasesBody:
@@ -805,45 +811,44 @@ const enUS = {
           "Yes. Create a copy with the CLI, add your actions, data, and interface, then deploy your application. Configure authentication and provider access for your environment, and test the workflows you add before sharing it with users.",
       },
       s001: "Chat app screenshot",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "Build your own AI chat app",
       heroDescription:
-        "Chat is a free and open-source AI chat app starter with saved conversations, authentication, and an agent you can extend with your own actions, data, and screens.",
+        "A free and open-source chat starter with durable threads, authentication, shared actions, and an agent you can extend with your own tools and screens.",
       heroCta: "Build your chat",
       heroSecondaryCta: "Open Chat",
-      useCasesHeading: "What can you build with Chat?",
+      useCasesHeading: "Turn conversations into working assistants",
       useCasesBody:
-        "Start with the chat app, then add the data and actions for your use case. These workflows are yours to build on the starter.",
-      useCase1Title: "Build an internal assistant",
+        "Add the actions, data, and screens that let your agent answer questions and move work forward.",
+      useCase1Title: "Answer questions with your team’s context",
       useCase1Body:
-        "Add actions that look up information or handle requests for your team. Use the included sign-in and conversation history as the starting point.",
-      useCase2Title: "Prototype an agent workflow",
+        "Connect the sources your app needs through actions, then let the agent bring notes, files, and project details into one reply.",
+      useCase2Title: "Give your agent tools to act",
       useCase2Body:
-        "Implement a useful action and try it through chat. Refine the agent's instructions and behavior before adding more tools or screens.",
-      useCase3Title: "Add an interface for agent work",
+        "Prototype a workflow in chat, call the actions you define, and refine how the agent handles each step.",
+      useCase3Title: "Make results usable",
       useCase3Body:
-        "Build a queue, list, or editor when users need to review work visually. Connect it to the same actions and data as your agent.",
+        "Open agent work in a queue, table, or editor so people can inspect and continue from the same shared data.",
       keyFeaturesEyebrow: "Key features",
       keyFeaturesHeading: "A starting point for your agent and its interface",
-      feature1Title: "Saved conversations",
+      feature1Title: "Durable conversations",
       feature1Body:
-        "Give users threads they can return to. Create, reopen, rename, pin, and archive conversations from the included sidebar.",
-      feature2Title: "Built-in agent chat",
+        "Create, reopen, rename, pin, and archive threads from the included history sidebar.",
+      feature2Title: "Full-page agent chat",
       feature2Body:
-        "Start with a full-page conversation and the framework's agent runtime. Add instructions and tools for the tasks your application needs to handle.",
-      feature3Title: "Authentication and sessions",
+        "Start with the chat surface and runtime, ready for your own instructions, tools, and workflows.",
+      feature3Title: "Connect your own services",
       feature3Body:
-        "Start with login, signup, sessions, and organization support already wired in. Add the access rules your application's data and workflows require.",
+        "Add provider actions and connection flows for tools like Granola, Linear, Drive, or Notion; the starter leaves those integrations to your app.",
       feature4Title: "Shared actions",
       feature4Body:
-        "Define an operation once for your agent and interface to use. Follow the included example action when adding your own capabilities.",
-      feature5Title: "Live data sync",
+        "Keep agent tools and interface operations on the same action surface.",
+      feature5Title: "Live workspace state",
       feature5Body:
-        "Keep your interface updated when the agent changes application data. Build screens around shared state and the framework's database sync.",
-      feature6Title: "Database and run inspection",
+        "Keep current navigation and selected work synchronized for the user and agent.",
+      feature6Title: "Custom screens",
       feature6Body:
-        "Use the included database administration and observability screens to inspect stored data and agent runs while building and debugging your application.",
+        "Add focused views when a conversation needs a queue, editor, or other domain interface.",
       finalCtaHeading: "Build your first agent workflow",
       finalCtaBody:
         "Create your copy and add the first action your users need.",
@@ -867,45 +872,44 @@ const enUS = {
         answer5:
           "Yes. Share dashboards with teammates or your organization using viewer, editor, or admin access. You can also schedule email reports with current dashboard results, or configure alerts for conditions you want to track.",
       },
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Analytics",
-      heroTitle: "Analyze your data with your AI agent",
+      heroTitle: "Ask a question. Get the chart, query, and context.",
       heroDescription:
-        "Analytics is a free and open-source AI analytics tool for querying your connected data, building dashboards, and investigating user sessions.",
+        "Bring warehouse, product, and revenue data together. The agent checks your metric definitions, writes the SQL, and turns the answer into a reusable dashboard.",
       heroCta: "Explore your data",
-      useCasesHeading: "What can you do with Analytics?",
+      useCasesHeading: "Follow the signal from metric to session",
       useCasesBody:
-        "Track product growth, report on business performance, or investigate a problem someone encountered in your app.",
-      useCase1Title: "Track product growth",
+        "Keep the reasoning beside each result, then carry a chart into a dashboard or a session investigation.",
+      useCase1Title: "Explain a change in activation",
       useCase1Body:
-        "Ask how signups, active users, or conversions have changed. Compare periods and break down results by channel, plan, or customer segment.",
-      useCase2Title: "Report on business performance",
+        "Compare cohorts and channels in a conversation. The agent uses your documented metric definitions, writes the query, and shows the evidence behind the change.",
+      useCase2Title: "Build a living revenue review",
       useCase2Body:
-        "Bring revenue, pipeline, or usage metrics into a dashboard for your team. Set date filters and revisit it for your next review.",
-      useCase3Title: "Investigate user issues",
+        "Ask the agent to combine billing, CRM, or warehouse metrics into a dashboard. Filters and panels persist for your next review.",
+      useCase3Title: "Trace a metric to a real session",
       useCase3Body:
-        "Find a recorded session and replay what happened. Inspect console errors and network requests, then share diagnostics with your AI agent.",
+        "Move from a spike or error to the session behind it. Inspect console and network activity, then share temporary diagnostic context with the agent.",
       keyFeaturesEyebrow: "Key features",
       keyFeaturesHeading:
         "Everything you need to query, visualize, and explore",
-      feature1Title: "Natural language queries",
+      feature1Title: "Ask across connected data",
       feature1Body:
-        "Ask your AI agent a question about your data. Get a chart, table, or metric, then follow up with a different breakdown.",
-      feature2Title: "Reusable dashboards",
+        "Ask a question across warehouse, product, and revenue sources. The agent turns the answer into a chart and supports follow-up breakdowns.",
+      feature2Title: "Dashboards the agent can edit",
       feature2Body:
-        "Build dashboards with your AI agent or edit them yourself. Arrange panels, add filters, save views, and share access with your team.",
-      feature3Title: "SQL query explorer",
+        "Have the agent add or reshape panels, filters, and breakdowns. Changes stay in a reusable dashboard your team can share.",
+      feature3Title: "Visible SQL and metric context",
       feature3Body:
-        "Run BigQuery queries and review their results and history. Inspect the SQL behind dashboard panels to check the calculations and filters.",
-      feature4Title: "Data source connections",
+        "Inspect the query behind a result and the metric definition used to write it. Refine the SQL when you need more control.",
+      feature4Title: "One workspace for data sources",
       feature4Body:
-        "Connect sources such as BigQuery, GA4, HubSpot, and Stripe. Query warehouse data, product events, customer records, and revenue from the same app.",
-      feature5Title: "Data dictionary",
+        "Connect BigQuery, GA4, product analytics, HubSpot, and Stripe, then explore their permitted data from the same app.",
+      feature5Title: "Definitions the agent follows",
       feature5Body:
-        "Document metric definitions, tables, and query examples. Your AI agent uses this context when writing queries and working with your data.",
-      feature6Title: "Session replay",
+        "Document metric rules, joins, examples, and known gotchas. Analytics gives that context to the agent when it writes queries.",
+      feature6Title: "Session replay with diagnostics",
       feature6Body:
-        "Replay recorded sessions with console and network activity alongside them. Jump to errors and copy a temporary diagnostics link for your AI agent.",
+        "Jump from an error to a recording with console and network events in view. Share a temporary diagnostic link for agent-assisted investigation.",
       finalCtaHeading: "Start with a question about your data",
       finalCtaBody:
         "Connect a source and ask your AI agent for the first chart.",
@@ -995,45 +999,44 @@ const enUS = {
           "Yes. Add required co-hosts, and Calendar checks their free/busy information before offering a time. To also respect each co-host's configured working hours, you and that co-host must add each other's calendars as overlays. Without that mutual sharing, Calendar checks their free/busy information only.",
       },
       s001: "Calendar app screenshot",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Calendar",
-      heroTitle: "Manage your schedule with your AI agent",
+      heroTitle: "Find time, book meetings, and adapt your day with an agent",
       heroDescription:
-        "Calendar is a free and open-source AI scheduling assistant for managing Google Calendar events, finding meeting times, and letting people book with you.",
+        "Calendar brings your Google calendars and availability rules together so the agent can find shared openings, prepare bookings, and help update events.",
       heroCta: "Start scheduling",
-      useCasesHeading: "What can you do with Calendar?",
+      useCasesHeading: "Let the agent handle the scheduling details",
       useCasesBody:
-        "Book a client call, bring your team together, or adjust your day when plans change.",
-      useCase1Title: "Book client calls and demos",
+        "Check real availability across calendars, then review a clear proposal before a meeting is created or moved.",
+      useCase1Title: "Turn a booking link into a prepared meeting",
       useCase1Body:
-        "Give prospects and customers a booking link so they can choose a time. Collect the details you need before the call.",
-      useCase2Title: "Find time for team meetings",
+        "Offer only times that respect working hours, notice, and buffers. Collect the details you need, then add the video link when the guest books.",
+      useCase2Title: "Find a slot everyone can make",
       useCase2Body:
-        "Ask your AI agent for a time when your teammates are available. Choose a suggested slot to book the meeting.",
-      useCase3Title: "Adjust your day when plans change",
+        "Ask the agent to compare attendee free/busy time and calendar overlays. It returns the shared opening and the calendars it checked.",
+      useCase3Title: "Reschedule without losing the thread",
       useCase3Body:
-        "Ask your AI agent to move a meeting or find another time, with your existing events and working hours in view.",
+        "Ask for a later time and let the agent check guests, preserve meeting details, and prepare the updated invite for your review.",
       keyFeaturesEyebrow: "Key features",
       keyFeaturesHeading:
         "Everything you need to schedule, book, and reschedule",
-      feature1Title: "AI scheduling",
+      feature1Title: "Natural-language scheduling",
       feature1Body:
-        "Ask your AI agent to check your schedule, find available times, and create or reschedule events on your connected Google Calendar.",
-      feature2Title: "Multiple calendar accounts",
+        "Ask the agent to check availability, propose a time, and create or move an event with its guests and meeting details.",
+      feature2Title: "Availability across accounts",
       feature2Body:
-        "View work and personal Google accounts together in day, week, or month view. Add read-only calendar feeds alongside your events.",
-      feature3Title: "Customizable booking links",
+        "View connected Google calendars together and include read-only feeds as schedule context.",
+      feature3Title: "Booking pages with intake",
       feature3Body:
-        "Create booking pages for different meeting types. Set the duration and add questions for people to answer when they book.",
-      feature4Title: "Availability controls",
+        "Create links for different meeting types, set duration and booking questions, and let guests choose an available slot.",
+      feature4Title: "Rules that shape every slot",
       feature4Body:
-        "Set your working hours, time zone, and buffers between meetings. Choose how much notice you need and how far ahead people can book.",
-      feature5Title: "Co-host scheduling",
+        "Set working hours, buffers, notice, time zone, and booking horizon so suggested and public times fit your schedule.",
+      feature5Title: "Real multi-host checks",
       feature5Body:
-        "Add required co-hosts to a booking link. Offer meeting times when everyone is free, then invite them when someone books.",
-      feature6Title: "Video meeting links",
+        "Add required co-hosts and check their free/busy availability before offering a time. Calendar also respects shared working-hour overlays when configured.",
+      feature6Title: "Agent-managed meeting follow-through",
       feature6Body:
-        "Add Google Meet, connect Zoom, or use a custom meeting link so guests know where to join when they book.",
+        "Keep Google Meet or Zoom details attached as the agent prepares event changes and updated invitations.",
       finalCtaHeading: "Put your next meeting on the calendar",
       finalCtaBody: "Find a time with your AI agent, or send a booking link.",
       finalCtaButton: "Start scheduling",
@@ -1098,7 +1101,6 @@ const enUS = {
     },
     clips: {
       s001: "Clips app screenshot",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "Screen recordings your AI agent can see and hear",
       heroDescription:
@@ -1265,7 +1267,6 @@ const enUS = {
           "Yes. New documents are private by default. Share them with viewer, editor, or admin access, and use page version history to restore an earlier snapshot. Restoring a snapshot replaces the page's current content.",
       },
       s001: "Content app screenshot",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "Create and organize your work with your AI agent",
       heroDescription:
@@ -1389,7 +1390,6 @@ const enUS = {
           "Export HTML or a ZIP of the design files, or prepare a handoff for a coding agent. The prototype provides a starting point for development; application logic, integrations, testing, and deployment still need implementation and review. HTML exports may use external runtime resources.",
       },
       s001: "Design app screenshot",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "Design interactive prototypes with your AI agent",
       heroDescription:
@@ -1511,7 +1511,6 @@ const enUS = {
           "No. In a team workspace, Dispatch can require review of its own changes to shared resources and settings. Actions inside connected apps, such as sending email, follow those apps' controls. The Dispatch approval queue is not a universal gate for every agent action.",
       },
       s001: "Dispatch app screenshot",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "Coordinate your AI agents from one place",
       heroDescription:
@@ -1627,7 +1626,6 @@ const enUS = {
           "Yes, after configuring a destination for the form. Slack and Discord use webhook URLs. Google Sheets requires a deployed Google Apps Script endpoint that receives submissions; a spreadsheet link alone will not work. You can also use a webhook or export responses as CSV. Agent exports of all responses as CSV or JSON require connected file storage.",
       },
       s001: "Forms app screenshot",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Forms",
       heroTitle: "Create forms with your AI agent",
       heroDescription:
@@ -1747,45 +1745,46 @@ const enUS = {
           "Yes. A teammate can request a draft that appears in your review queue. Open it, edit the message, and send it when ready. The requester cannot send it on your behalf; the draft owner or an organization admin controls sending.",
       },
       s001: "Mail app screenshot",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "Manage your inbox with your AI agent",
+      heroTitle: "Take control of your inbox with Jev",
       heroDescription:
-        "Mail is a free and open-source email client for Gmail, with an AI agent that finds messages, summarizes conversations, drafts replies, and organizes your inbox.",
+        "Tell Jev what matters in plain English. It keeps human GitHub comments, moves your manager’s mail up, and clears bot notifications—then learns from your corrections.",
       heroCta: "Manage your inbox",
-      useCasesHeading: "What can you do with Mail?",
+      mobileArchiveToast:
+        "Archived 1,167 bot notifications · kept 4 PR comments",
+      useCasesHeading: "A smarter inbox, powered by Jev",
       useCasesBody:
-        "Catch up on conversations, reply to customers and colleagues, or sort through a backlog of email.",
-      useCase1Title: "Catch up on conversations",
+        "Set a rule in plain English. Jev prioritizes the people and conversations that matter, applies useful labels, and archives repetitive mail as it arrives.",
+      useCase1Title: "Keep the people. Clear the bots.",
       useCase1Body:
-        "Ask your AI agent what happened in a long thread, what was agreed, and which questions still need an answer.",
-      useCase2Title: "Reply to customers and colleagues",
+        "Tell Jev what matters: keep human GitHub pull-request comments in Product, archive bot notifications, and move your manager’s mail to Important. Refine every rule with a prompt, and teach the spam filter as you go.",
+      useCase2Title: "Every email, tagged for you",
       useCase2Body:
-        "Give your AI agent the points you want to cover. Review and edit its reply in the compose panel before sending.",
-      useCase3Title: "Sort through your inbox",
+        "Jev labels conversations by meaning, not just keywords, so customer notes, receipts, and research land in the right place.",
+      useCase3Title: "Automate the routine work",
       useCase3Body:
-        "Ask your AI agent to label invoices, archive newsletters, or star messages from a client. Apply rules to handle similar emails as they arrive.",
+        "Set rules to label or archive new mail in the background, then review the run history whenever you want.",
       keyFeaturesEyebrow: "Key features",
       keyFeaturesHeading:
         "Everything you need to read, write, and organize email",
-      feature1Title: "AI thread summaries",
+      feature1Title: "Priority sorting",
       feature1Body:
-        "Ask about the conversation you have open. Your AI agent reads the thread to summarize the discussion and identify outstanding questions.",
-      feature2Title: "AI email drafting",
+        "Rank incoming threads by urgency and context, so deadlines and people waiting for a reply rise to the top.",
+      feature2Title: "Contextual AI labels",
       feature2Body:
-        "Draft a reply or revise selected text with your AI agent. Set writing preferences, add your signature, and edit drafts yourself.",
-      feature3Title: "Multi-account search",
+        "Classify messages by what the conversation is about, then keep similar mail grouped as it arrives.",
+      feature3Title: "Agent-driven inbox",
       feature3Body:
-        "Connect work and personal Gmail accounts. Search across them from one inbox, using the search bar or asking your AI agent.",
-      feature4Title: "Inbox automations",
+        "Ask the agent to search, summarize, label, archive, star, or prepare a reply from the inbox you are viewing.",
+      feature4Title: "Background automations",
       feature4Body:
-        "Describe rules for labeling, archiving, starring, or marking incoming messages as read. Use AI rules or set up native Gmail filters.",
-      feature5Title: "Keyboard shortcuts",
+        "Apply plain-language rules to incoming messages and inspect the actions Mail has taken.",
+      feature5Title: "Review before sending",
       feature5Body:
-        "Navigate messages, compose replies, archive conversations, and search your inbox from the keyboard. Open the command palette to find more actions.",
-      feature6Title: "Scheduled sends and snooze",
+        "Have the agent draft or revise a reply, then review and edit it before it leaves your inbox.",
+      feature6Title: "A spam filter that learns",
       feature6Body:
-        "Choose when to send an email or bring a message back to your attention. Review scheduled items and cancel them when plans change.",
+        "Mark a filtered message as wanted or flag unwanted mail. Jev learns from each correction and applies it to similar messages.",
       finalCtaHeading: "Start with your next email",
       finalCtaBody:
         "Open a conversation and ask your AI agent for a summary or a draft reply.",
@@ -1934,7 +1933,6 @@ const enUS = {
           "Export a PPTX file to open in PowerPoint. To use the presentation in Google Slides, import that file there. Review fonts and layouts after export because they can render differently between editors.",
       },
       s001: "Slides app screenshot",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "Create presentations with your AI agent",
       heroDescription:

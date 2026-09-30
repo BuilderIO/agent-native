@@ -1,6 +1,10 @@
 import { analyzeRegexSource } from "../shared/bounded-regex.js";
 import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
 import {
+  loadOptionalPeer,
+  OptionalPeerDependencyError,
+} from "../shared/optional-peer.js";
+import {
   applyTargetedReplace,
   findTargetedMatches,
   type TargetedAmbiguousMatch,
@@ -103,7 +107,12 @@ export async function applyExtensionContentUpdate(
   try {
     return await applyExtensionContentUpdateUnchecked(currentContent, opts);
   } catch (error) {
-    if (error instanceof ExtensionContentEditError) throw error;
+    if (
+      error instanceof ExtensionContentEditError ||
+      error instanceof OptionalPeerDependencyError
+    ) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new ExtensionContentEditError(message);
   }
@@ -146,37 +155,31 @@ async function applyExtensionContentUpdateUnchecked(
 }
 
 export async function formatExtensionHtml(content: string): Promise<string> {
-  try {
-    // prettier's main entry `import()`s all 13 parser plugins, so a bundler
-    // inlines ~3.5MB of flow/typescript/yaml/markdown parsers just to format
-    // HTML. Load the standalone core plus only the plugins the HTML printer
-    // reaches, which still formats embedded <style> (postcss) and <script>
-    // (babel + estree).
-    const [{ format }, ...plugins] = await Promise.all([
+  const [{ format }, ...plugins] = await loadOptionalPeer("prettier", () =>
+    Promise.all([
       import("prettier/standalone"),
       import("prettier/plugins/html"),
       import("prettier/plugins/postcss"),
       import("prettier/plugins/babel"),
       import("prettier/plugins/estree"),
-    ]);
+    ]),
+  );
+
+  try {
     const formatted = await format(content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
       plugins,
     });
-    return typeof formatted === "string" ? formatted : content;
-  } catch (err: any) {
-    const message = String(err?.message ?? err);
-    if (
-      message.includes("Cannot find package 'prettier'") ||
-      message.includes('Cannot find package "prettier"') ||
-      message.includes("Cannot find module 'prettier'") ||
-      message.includes('Cannot find module "prettier"')
-    ) {
-      return content;
+    if (typeof formatted !== "string") {
+      throw new Error("Prettier returned a non-string result");
     }
+    return formatted;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Unable to format extension HTML with Prettier: ${message}`,
+      { cause: error },
     );
   }
 }
@@ -268,9 +271,6 @@ function applyInsert(
 ): { content: string; summary: string } {
   if (!edit.marker) throw new Error("Patch find/marker text cannot be empty");
 
-  // Only pass occurrence when the caller actually gave one — defaulting it
-  // here would suppress the helper's ambiguity check for a repeated marker
-  // and silently insert at the first hit.
   const result = findTargetedMatches(content, edit.marker, {
     occurrence: edit.occurrence,
   });
@@ -292,9 +292,6 @@ function applyInsert(
     );
   }
 
-  // occurrence, if given, was already validated (positive integer, in range)
-  // by findTargetedMatches above — an out-of-range value returns
-  // "occurrence_out_of_range" and is handled in the !result.ok branch.
   const occurrence = edit.occurrence ?? 1;
   const match = matches[occurrence - 1]!;
   const insertAt = edit.op === "insert-before" ? match.index : match.end;
@@ -305,9 +302,6 @@ function applyInsert(
   };
 }
 
-/** A literal-find edit is a no-op (not an error) on zero matches when the
- * caller either asserted `expectedMatches: 0` or opted out with
- * `required: false` and didn't assert a count at all. */
 function isCountedNoOp(edit: {
   expectedMatches?: number;
   required?: boolean;
@@ -318,13 +312,6 @@ function isCountedNoOp(edit: {
   );
 }
 
-/**
- * Shared not-found / ambiguous / invalid-occurrence / out-of-range reporting
- * for the literal-find ops (replace, insert-before, insert-after). Always
- * throws — callers check the `required`/`expectedMatches` no-op case
- * themselves before reaching here (and only for a true "not_found": matches
- * exist for "occurrence_out_of_range", so that is never a no-op).
- */
 function throwLiteralMatchFailure(
   op: string,
   result: Extract<TargetedMatchesResult, { ok: false }>,
@@ -339,8 +326,6 @@ function throwLiteralMatchFailure(
     );
   }
   if (result.reason === "occurrence_out_of_range") {
-    // Restores the pre-helper validation order: an expectedMatches mismatch
-    // against the REAL total count is reported before the occurrence miss.
     if (
       expectedMatches !== undefined &&
       result.matchCount !== expectedMatches
@@ -358,11 +343,6 @@ function throwLiteralMatchFailure(
   throw new Error(`${expected}${formatCandidates(result.candidates)}`);
 }
 
-// Candidate/ambiguous text below is echoed from the user's own extension
-// content, not a system diagnostic — wrap it so production-agent's
-// permanent-precondition classifier (broad phrases like "no authenticated
-// user", column-0-anchored) never mistakes quoted file content for a real
-// signal and stops the turn on a false positive.
 function formatCandidates(candidates: TargetedCandidate[]): string {
   if (candidates.length === 0) return "";
   const lines = candidates.map((c) => `line ${c.line}: ${c.text}`).join("\n");

@@ -1,8 +1,14 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
+import { sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
+  annotateMissingTable,
+  dbExecQueryBudget,
   getActivePgliteTransactionClient,
   getRuntimeDatabaseUrl,
+  hasExplicitDbTimeout,
   isPgliteUrl,
   isConnectionError,
   getPgliteClient,
@@ -15,12 +21,15 @@ import {
   retryOnConnectionError,
   dbOpTimeoutMs,
   sharedDbPool,
+  toPostgresParams,
+  withDbExec,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  postgresStatementTimeoutMs,
   assertHostedRuntimeDatabase,
 } from "./client.js";
+import type { DbExec, DbExecStatement } from "./client.js";
 
-// Lazy driver loaders — cached promises so dynamic import only runs once.
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
 function getPgDrizzle() {
   if (!_pgDrizzle) {
@@ -47,6 +56,682 @@ function getNeonServerlessDrizzle() {
     }));
   }
   return _neonServerlessDrizzle;
+}
+
+function drizzleRawQuery(text: string, params: unknown[] = []) {
+  const query = sql.raw(text);
+  query.toQuery = () => ({ sql: text, params });
+  return query;
+}
+
+function terminateNeonTransactionConnection(transaction: any): void {
+  const client = transaction.session?.client;
+  const stream = client?.connection?.stream;
+  if (
+    typeof client?.release === "function" &&
+    typeof stream?.destroy === "function"
+  ) {
+    stream.destroy();
+  }
+}
+
+async function withTransactionStatementTimeout<T>(
+  transaction: any,
+  run: () => T | Promise<T>,
+): Promise<T> {
+  const timeoutMs = dbOpTimeoutMs();
+  const statementTimeoutMs = postgresStatementTimeoutMs(timeoutMs);
+  const timeoutSql = `SELECT set_config('statement_timeout', CASE WHEN current_setting('statement_timeout')::interval <= interval '0' OR current_setting('statement_timeout')::interval > interval '${statementTimeoutMs}ms' THEN '${statementTimeoutMs}ms' ELSE current_setting('statement_timeout') END, true)`;
+  let timedOut = false;
+  let setupQuery: Promise<unknown> | undefined;
+  try {
+    await withDbTimeout(
+      "query",
+      () =>
+        (setupQuery = Promise.resolve(
+          transaction.execute(drizzleRawQuery(timeoutSql)),
+        )),
+      timeoutMs,
+      () => {
+        timedOut = true;
+        terminateNeonTransactionConnection(transaction);
+      },
+      { sql: timeoutSql },
+    );
+  } catch (err) {
+    if (timedOut && setupQuery) await setupQuery.catch(() => {});
+    throw err;
+  }
+  return await run();
+}
+
+type DrizzleTransactionQueryQueue = {
+  pending: Promise<void>;
+  parent?: DrizzleTransactionQueryQueue;
+  active: boolean;
+  nestedTransactionActive: boolean;
+};
+type ActiveDrizzleTransactionScope = {
+  queue: DrizzleTransactionQueryQueue;
+  transaction: any;
+  parent?: ActiveDrizzleTransactionScope;
+};
+const activeDrizzleTransactionScope =
+  new AsyncLocalStorage<ActiveDrizzleTransactionScope>();
+
+function createDrizzleTransactionQueryQueue(
+  parent?: DrizzleTransactionQueryQueue,
+): DrizzleTransactionQueryQueue {
+  return {
+    pending: Promise.resolve(),
+    parent,
+    active: true,
+    nestedTransactionActive: false,
+  };
+}
+
+function assertDrizzleTransactionQueryQueueActive(
+  queue: DrizzleTransactionQueryQueue,
+): void {
+  for (
+    let current: DrizzleTransactionQueryQueue | undefined = queue;
+    current;
+    current = current.parent
+  ) {
+    if (!current.active) {
+      throw new Error(
+        "Cannot use a database handle after its transaction has completed",
+      );
+    }
+  }
+}
+
+async function closeDrizzleTransactionQueryQueue(
+  queue: DrizzleTransactionQueryQueue,
+): Promise<void> {
+  queue.active = false;
+  await queue.pending;
+}
+
+function activeDrizzleTransactionScopeForQueue(
+  queue?: DrizzleTransactionQueryQueue,
+): ActiveDrizzleTransactionScope | undefined {
+  const activeScope = activeDrizzleTransactionScope.getStore();
+  if (!queue) {
+    if (activeScope)
+      assertDrizzleTransactionQueryQueueActive(activeScope.queue);
+    return activeScope;
+  }
+  assertDrizzleTransactionQueryQueueActive(queue);
+  for (let scope = activeScope; scope; scope = scope.parent) {
+    assertDrizzleTransactionQueryQueueActive(scope.queue);
+    for (
+      let current: DrizzleTransactionQueryQueue | undefined = scope.queue;
+      current;
+      current = current.parent
+    ) {
+      if (current !== queue) continue;
+      if (scope !== activeScope) {
+        throw new Error(
+          "Cannot use a database handle from an enclosing transaction while an independent transaction is active",
+        );
+      }
+      return scope;
+    }
+  }
+  return undefined;
+}
+
+function runInActiveDrizzleTransactionScope<T>(
+  scope: Omit<ActiveDrizzleTransactionScope, "parent">,
+  run: () => T,
+): T {
+  return activeDrizzleTransactionScope.run(
+    { ...scope, parent: activeDrizzleTransactionScope.getStore() },
+    run,
+  );
+}
+
+function acquireDrizzleTransactionQuery(
+  queue: DrizzleTransactionQueryQueue,
+): Promise<() => void> {
+  const previous = queue.pending;
+  let release!: () => void;
+  queue.pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return previous.then(() => release);
+}
+
+async function withDrizzleTransactionQuery<T>(
+  queue: DrizzleTransactionQueryQueue | undefined,
+  run: () => Promise<T>,
+): Promise<T> {
+  const activeScope = activeDrizzleTransactionScopeForQueue(queue);
+  const activeQueue = activeScope?.queue ?? queue;
+  if (!activeQueue) return await run();
+  if (activeQueue.nestedTransactionActive) {
+    throw new Error(
+      "Cannot use a transaction handle while its nested transaction is active",
+    );
+  }
+  const release = await acquireDrizzleTransactionQuery(activeQueue);
+  try {
+    const currentQueue =
+      activeDrizzleTransactionScopeForQueue(queue)?.queue ?? queue;
+    if (currentQueue?.nestedTransactionActive) {
+      throw new Error(
+        "Cannot use a transaction handle while its nested transaction is active",
+      );
+    }
+    return await run();
+  } finally {
+    release();
+  }
+}
+
+function scopeDrizzlePreparedQuery(
+  prepared: any,
+  queue: DrizzleTransactionQueryQueue | undefined,
+  sourceSession: any,
+  prepareArgs: unknown[],
+) {
+  let hasToken = false;
+  let token: unknown;
+  const resolvePrepared = (target: any) => {
+    const activeScope = activeDrizzleTransactionScopeForQueue(queue);
+    const session = activeScope?.transaction.session;
+    if (!session || session === sourceSession) return target;
+    const rebound = session.prepareQuery(...prepareArgs);
+    if (hasToken) rebound.setToken?.(token);
+    return rebound;
+  };
+
+  const scoped = new Proxy(prepared, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target);
+      if (prop === "setToken" && typeof value === "function") {
+        return (nextToken: unknown) => {
+          hasToken = true;
+          token = nextToken;
+          value.call(target, nextToken);
+          return scoped;
+        };
+      }
+      if (
+        (prop === "execute" || prop === "all" || prop === "values") &&
+        typeof value === "function"
+      ) {
+        return (...args: unknown[]) =>
+          withDrizzleTransactionQuery(queue, () => {
+            const current = resolvePrepared(target);
+            return current[prop].apply(current, args);
+          });
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return scoped;
+}
+
+function scopeDrizzleSessionQueries(
+  session: any,
+  queue: DrizzleTransactionQueryQueue | undefined,
+) {
+  return new Proxy(session, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, target);
+      if (prop === "prepareQuery" && typeof value === "function") {
+        return (...args: unknown[]) => {
+          const activeScope = activeDrizzleTransactionScopeForQueue(queue);
+          const queryQueue = queue ?? activeScope?.queue;
+          const querySession = activeScope?.transaction.session ?? target;
+          const prepared = querySession.prepareQuery(...args);
+          return scopeDrizzlePreparedQuery(
+            prepared,
+            queryQueue,
+            querySession,
+            args,
+          );
+        };
+      }
+      if (
+        (prop === "query" || prop === "queryObjects") &&
+        typeof value === "function"
+      ) {
+        return (...args: unknown[]) =>
+          withDrizzleTransactionQuery(queue, () => {
+            const activeScope = activeDrizzleTransactionScopeForQueue(queue);
+            const querySession = activeScope?.transaction.session ?? target;
+            return querySession[prop].apply(querySession, args);
+          });
+      }
+      return typeof value === "function" ? value.bind(receiver) : value;
+    },
+  });
+}
+
+function scopeDrizzleRelationalPreparedQuery(
+  prepared: any,
+  getQuery: () => any,
+  queue: DrizzleTransactionQueryQueue | undefined,
+  prepareArgs: unknown[],
+  initialToken?: { value: unknown },
+) {
+  let hasToken = initialToken !== undefined;
+  let token = initialToken?.value;
+  const scoped = new Proxy(prepared, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target);
+      if (prop === "setToken" && typeof value === "function") {
+        return (nextToken: unknown) => {
+          hasToken = true;
+          token = nextToken;
+          value.call(target, nextToken);
+          return scoped;
+        };
+      }
+      if (
+        (prop === "execute" || prop === "all" || prop === "values") &&
+        typeof value === "function"
+      ) {
+        return (...args: unknown[]) =>
+          withDrizzleTransactionQuery(queue, () => {
+            const current = getQuery().prepare(...prepareArgs);
+            if (hasToken) current.setToken?.(token);
+            return current[prop].apply(current, args);
+          });
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return scoped;
+}
+
+function scopeDrizzleRelationalQuery(
+  query: any,
+  getQuery: () => any,
+  queue: DrizzleTransactionQueryQueue | undefined,
+  transactionSession?: any,
+) {
+  let hasToken = false;
+  let token: unknown;
+  const getScopedQuery = () => {
+    const current = getQuery();
+    const activeScope = activeDrizzleTransactionScopeForQueue(queue);
+    if (transactionSession || activeScope) {
+      current.session =
+        activeScope?.transaction.session ??
+        transactionSession ??
+        current.session;
+    }
+    return current;
+  };
+  const execute = (...args: unknown[]) =>
+    withDrizzleTransactionQuery(queue, () => {
+      const current = getScopedQuery();
+      if (hasToken) current.setToken?.(token);
+      return current.execute(...args);
+    });
+  const scoped = new Proxy(query, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target);
+      if (prop === "setToken" && typeof value === "function") {
+        return (nextToken: unknown) => {
+          hasToken = true;
+          token = nextToken;
+          value.call(target, nextToken);
+          return scoped;
+        };
+      }
+      if (prop === "execute" && typeof value === "function") return execute;
+      if (prop === "then" && typeof value === "function") {
+        return (onFulfilled: unknown, onRejected: unknown) =>
+          execute().then(onFulfilled as any, onRejected as any);
+      }
+      if (prop === "catch" && typeof value === "function") {
+        return (onRejected: unknown) => execute().catch(onRejected as any);
+      }
+      if (prop === "finally" && typeof value === "function") {
+        return (onFinally: unknown) => execute().finally(onFinally as any);
+      }
+      if (prop === "prepare" && typeof value === "function") {
+        return (...args: unknown[]) => {
+          const current = getScopedQuery();
+          return scopeDrizzleRelationalPreparedQuery(
+            current.prepare(...args),
+            getScopedQuery,
+            queue,
+            args,
+            hasToken ? { value: token } : undefined,
+          );
+        };
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return scoped;
+}
+
+function scopeDrizzleRelationalQueries(
+  queries: any,
+  transaction: any,
+  queue: DrizzleTransactionQueryQueue,
+) {
+  return new Proxy(queries, {
+    get(target, tableName) {
+      const builder = Reflect.get(target, tableName, target);
+      if (!builder || typeof builder !== "object") return builder;
+      return new Proxy(builder, {
+        get(builderTarget, method) {
+          const value = Reflect.get(builderTarget, method, builderTarget);
+          if (
+            (method !== "findFirst" && method !== "findMany") ||
+            typeof value !== "function"
+          ) {
+            return typeof value === "function"
+              ? value.bind(builderTarget)
+              : value;
+          }
+          return (...args: unknown[]) => {
+            const getQuery = () => {
+              const activeScope = activeDrizzleTransactionScopeForQueue(queue);
+              const activeTransaction = activeScope?.transaction ?? transaction;
+              return activeTransaction.query[tableName][method](...args);
+            };
+            return scopeDrizzleRelationalQuery(getQuery(), getQuery, queue);
+          };
+        },
+      });
+    },
+  });
+}
+
+function scopeDrizzleRootRelationalQueries(
+  queries: any,
+  queue?: DrizzleTransactionQueryQueue,
+  transactionSession?: any,
+) {
+  return new Proxy(queries, {
+    get(target, tableName) {
+      const builder = Reflect.get(target, tableName, target);
+      if (!builder || typeof builder !== "object") return builder;
+      return new Proxy(builder, {
+        get(builderTarget, method) {
+          const value = Reflect.get(builderTarget, method, builderTarget);
+          if (
+            (method !== "findFirst" && method !== "findMany") ||
+            typeof value !== "function"
+          ) {
+            return typeof value === "function"
+              ? value.bind(builderTarget)
+              : value;
+          }
+          return (...args: unknown[]) => {
+            const activeScope = activeDrizzleTransactionScopeForQueue(queue);
+            const queryQueue = queue ?? activeScope?.queue;
+            const querySession =
+              activeScope?.transaction.session ?? transactionSession;
+            const getQuery = () => value.apply(builderTarget, args);
+            return scopeDrizzleRelationalQuery(
+              getQuery(),
+              getQuery,
+              queryQueue,
+              querySession,
+            );
+          };
+        },
+      });
+    },
+  });
+}
+
+async function withNestedDrizzleTransaction<T>(
+  transaction: any,
+  queue: DrizzleTransactionQueryQueue,
+  run: (
+    nested: any,
+    nestedQueue: DrizzleTransactionQueryQueue,
+  ) => T | Promise<T>,
+): Promise<T> {
+  const activeScope = activeDrizzleTransactionScopeForQueue(queue);
+  const activeQueue = activeScope?.queue ?? queue;
+  const activeTransaction = activeScope?.transaction ?? transaction;
+  return await withDrizzleTransactionQuery(activeQueue, async () => {
+    activeQueue.nestedTransactionActive = true;
+    try {
+      return await activeTransaction.transaction(async (nested: any) => {
+        const nestedQueue = createDrizzleTransactionQueryQueue(activeQueue);
+        try {
+          await withTransactionStatementTimeout(nested, () => undefined);
+          return await runInActiveDrizzleTransactionScope(
+            { queue: nestedQueue, transaction: nested },
+            () => run(nested, nestedQueue),
+          );
+        } finally {
+          await closeDrizzleTransactionQueryQueue(nestedQueue);
+        }
+      });
+    } finally {
+      activeQueue.nestedTransactionActive = false;
+    }
+  });
+}
+
+function drizzleTransactionExec(
+  transaction: any,
+  queryQueue = createDrizzleTransactionQueryQueue(),
+): DbExec {
+  const executeStatement = async (
+    statement: DbExecStatement,
+    remainingMs: () => number,
+    timedOut: () => boolean,
+  ) => {
+    const query =
+      typeof statement === "string" ? { sql: statement, args: [] } : statement;
+    const postgresSql = toPostgresParams(query.sql);
+    const args = (query.args ?? []).map((arg) => arg ?? null);
+    const prepared = drizzleRawQuery(postgresSql, args);
+
+    if (!hasExplicitDbTimeout(statement)) {
+      return await transaction.execute(prepared);
+    }
+
+    const currentTimeout = await transaction.execute(
+      drizzleRawQuery(
+        "SELECT current_setting('statement_timeout') AS statement_timeout",
+      ),
+    );
+    const currentRows = Array.isArray(currentTimeout)
+      ? currentTimeout
+      : currentTimeout?.rows;
+    const previousTimeout = currentRows?.[0]?.statement_timeout;
+    if (typeof previousTimeout !== "string") {
+      throw new Error("Could not read the active statement timeout");
+    }
+    if (timedOut()) return undefined;
+
+    await transaction.execute(
+      drizzleRawQuery(
+        `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(remainingMs())}`,
+      ),
+    );
+    const restoreTimeout = () =>
+      transaction.execute(
+        drizzleRawQuery("SELECT set_config('statement_timeout', $1, true)", [
+          previousTimeout,
+        ]),
+      );
+    if (timedOut()) {
+      // Keep the transaction open until this reset finishes or rollback releases the local setting.
+      await restoreTimeout().catch(() => {});
+      return undefined;
+    }
+
+    let queryResult: any;
+    let queryError: unknown;
+    let queryFailed = false;
+    try {
+      queryResult = await transaction.execute(prepared);
+    } catch (err) {
+      queryFailed = true;
+      queryError = err;
+    }
+    try {
+      await restoreTimeout();
+    } catch (err) {
+      if (!queryFailed) throw err;
+    }
+    if (queryFailed) throw queryError;
+    return queryResult;
+  };
+
+  const execute = async (statement: DbExecStatement) => {
+    const query = typeof statement === "string" ? statement : statement.sql;
+    const { timeoutMs } = dbExecQueryBudget(statement);
+    const startedAt = Date.now();
+    const remainingMs = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
+    let timedOut = false;
+    let started = false;
+    let inFlight: Promise<any> | undefined;
+    let result: any;
+    try {
+      result = await withDbTimeout(
+        "query",
+        () => {
+          inFlight = withDrizzleTransactionQuery(queryQueue, () => {
+            if (timedOut) return Promise.resolve(undefined);
+            started = true;
+            return executeStatement(statement, remainingMs, () => timedOut);
+          });
+          return inFlight;
+        },
+        timeoutMs,
+        () => {
+          timedOut = true;
+          if (started) terminateNeonTransactionConnection(transaction);
+        },
+        { sql: query },
+      );
+    } catch (err) {
+      // A caller can catch the timeout and continue, so drain any query already sent.
+      if (timedOut && started && inFlight) await inFlight.catch(() => {});
+      throw annotateMissingTable(err, statement);
+    }
+
+    const rows = Array.isArray(result) ? result : result?.rows;
+    if (!Array.isArray(rows)) {
+      throw new Error("Drizzle transaction query returned no row array");
+    }
+    return {
+      rows,
+      rowsAffected:
+        result.rowCount ?? result.count ?? result.affectedRows ?? rows.length,
+    };
+  };
+  const exec: DbExec = {
+    execute,
+  };
+
+  exec.atomicBatch = async (statements) => {
+    const results = [];
+    for (const statement of statements)
+      results.push(await exec.execute(statement));
+    return results;
+  };
+
+  if (typeof transaction.transaction === "function") {
+    exec.transaction = (run) =>
+      withNestedDrizzleTransaction(transaction, queryQueue, (nested, queue) => {
+        const nestedExec = drizzleTransactionExec(nested, queue);
+        return withDbExec(nestedExec, () => run(nestedExec));
+      });
+  }
+
+  return exec;
+}
+
+function scopeDbExecToDrizzleTransactions<T extends object>(
+  db: T,
+  queryQueue?: DrizzleTransactionQueryQueue,
+): T {
+  return new Proxy(db, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, target);
+      if (prop === "transaction" && typeof value === "function") {
+        return (run: unknown, ...args: unknown[]) => {
+          if (typeof run !== "function") {
+            return value.apply(target, [run, ...args]);
+          }
+          if (!queryQueue) {
+            if (activeDrizzleTransactionScopeForQueue()) {
+              throw new Error(
+                "Cannot start a root transaction while another transaction is active; use the transaction handle to create a savepoint",
+              );
+            }
+            const transactionQueue = createDrizzleTransactionQueryQueue();
+            return value.apply(target, [
+              async (transaction: any) => {
+                try {
+                  return await withTransactionStatementTimeout(
+                    transaction,
+                    () =>
+                      withDbExec(
+                        drizzleTransactionExec(transaction, transactionQueue),
+                        () =>
+                          runInActiveDrizzleTransactionScope(
+                            { queue: transactionQueue, transaction },
+                            () =>
+                              (run as (transaction: any) => unknown)(
+                                scopeDbExecToDrizzleTransactions(
+                                  transaction,
+                                  transactionQueue,
+                                ),
+                              ),
+                          ),
+                      ),
+                  );
+                } finally {
+                  await closeDrizzleTransactionQueryQueue(transactionQueue);
+                }
+              },
+              ...args,
+            ]);
+          }
+
+          return withNestedDrizzleTransaction(
+            target,
+            queryQueue,
+            (transaction, nestedQueue) =>
+              withDbExec(drizzleTransactionExec(transaction, nestedQueue), () =>
+                (run as (transaction: any) => unknown)(
+                  scopeDbExecToDrizzleTransactions(transaction, nestedQueue),
+                ),
+              ),
+          );
+        };
+      }
+      if (prop === "session" && value) {
+        const activeScope = activeDrizzleTransactionScopeForQueue(queryQueue);
+        return scopeDrizzleSessionQueries(
+          value,
+          queryQueue ?? activeScope?.queue,
+        );
+      }
+      if (prop === "query" && queryQueue && value) {
+        return scopeDrizzleRelationalQueries(value, target, queryQueue);
+      }
+      if (prop === "query" && value) {
+        const activeScope = activeDrizzleTransactionScopeForQueue();
+        return scopeDrizzleRootRelationalQueries(
+          value,
+          activeScope?.queue,
+          activeScope?.transaction.session,
+        );
+      }
+      return typeof value === "function" ? value.bind(receiver) : value;
+    },
+  });
 }
 
 /**
@@ -78,13 +763,6 @@ function isBeginQuery(sql: unknown): boolean {
   return /^\s*BEGIN(?:\s|$)/i.test(queryText(sql));
 }
 
-/**
- * Drizzle sends BEGIN through the client returned by pool.connect(), so a
- * pool startup parameter alone is not enough protection when Neon routes the
- * connection through a transaction pooler. Put the idle timeout in the same
- * simple-protocol message as BEGIN; a worker killed before its next query
- * still leaves a backend that will reap itself.
- */
 function guardNeonTransactionClient<
   T extends { query: (...args: any[]) => any },
 >(client: T): T {
@@ -106,25 +784,6 @@ function guardNeonTransactionClient<
   });
 }
 
-/**
- * Wraps a @neondatabase/serverless Pool so every query goes through
- * the same withDbTimeout + retryOnConnectionError resilience that the
- * raw DbExec path in client.ts uses. This protects Drizzle queries
- * (which bypass DbExec) from the frozen-WebSocket failure mode documented
- * in client.ts (~lines 378–408).
- *
- * Retry-safety rule (prevents double-execution on writes):
- *   - Reads (SELECT / WITH …): retry freely on any connection-class error.
- *   - Writes: only retry when the error occurred during connection acquire
- *     (i.e. withDbTimeout "connect" timed out before the statement was ever
- *     sent). Post-send failures on writes are rethrown immediately.
- *
- * Transactions: we do NOT wrap individual queries inside a drizzle
- * transaction — drizzle-neon-serverless manages the session itself, so
- * interposing a per-query client acquire/release would break the sticky
- * connection the transaction needs. The pool-level error logger still fires
- * on idle-client drops inside transactions.
- */
 export function buildResilientNeonPool<
   T extends {
     connect(): Promise<any>;
@@ -133,9 +792,6 @@ export function buildResilientNeonPool<
     on(event: string, listener: (...args: any[]) => void): unknown;
   },
 >(pool: T): T {
-  // Preserve all original pool methods and properties; only override `connect`
-  // and `query` at the Pool level (used by drizzle's neon-serverless adapter
-  // when it calls pool.query() directly, e.g. outside a transaction).
   const resilientQuery = async (
     sql: string | { text?: unknown },
     args?: any[],
@@ -152,15 +808,11 @@ export function buildResilientNeonPool<
       rows: unknown[];
       rowCount?: number;
     }> => {
-      // Bound the pool.connect() acquire — a frozen Neon WebSocket stalls here
-      // before the query ever starts, so a query-level timeout alone won't help.
       let acquireTimedOut = false;
       const client = await withDbTimeout(
         "connect",
         () =>
           pool.connect().then((c: any) => {
-            // If we already gave up on this slot, immediately release it so
-            // the scarce pool connection isn't leaked.
             if (acquireTimedOut) c.release();
             return c;
           }),
@@ -189,6 +841,7 @@ export function buildResilientNeonPool<
             }>,
           dbOpTimeoutMs(),
           () => releaseClient(true),
+          { sql: sqlText },
         );
         releaseClient();
         return result;
@@ -199,19 +852,12 @@ export function buildResilientNeonPool<
     };
 
     if (isRead) {
-      // Reads: retry on any connection-class error (safe — no side effects).
       return retryOnConnectionError(runAttempt);
     }
 
-    // Writes: attempt once. If the acquire itself times out (error occurs
-    // before the statement was sent), that produces a CONNECT_TIMEOUT which
-    // isConnectionError() recognises → retry is safe. Any error that surfaces
-    // AFTER the statement was sent must propagate immediately to avoid
-    // double-execution.
     try {
       return await runAttempt();
     } catch (err) {
-      // acquire-timeout fires before the statement → safe to retry once.
       if (isConnectionError(err) && (err as any)?.code === "CONNECT_TIMEOUT") {
         return runAttempt();
       }
@@ -219,9 +865,6 @@ export function buildResilientNeonPool<
     }
   };
 
-  // Return a proxy so every pool property/method is forwarded as-is, but
-  // pool.query() goes through the resilient wrapper. drizzle-neon-serverless
-  // calls pool.connect() for transactions and pool.query() for simple queries.
   return new Proxy(pool, {
     get(target, prop) {
       if (prop === "query") return resilientQuery;
@@ -250,25 +893,6 @@ export function buildResilientNeonPool<
   }) as T;
 }
 
-/**
- * Wraps a postgres.js client so Drizzle queries on the non-Neon Postgres
- * path get the same withDbTimeout + retryOnConnectionError protection as
- * every other Postgres path (raw DbExec postgres.js, raw DbExec Neon, and
- * the Drizzle Neon pool above). Without this, one hung query on a BYO
- * Postgres deployment stalls its request forever.
- *
- * Drizzle's postgres-js session only calls `client.unsafe(query, params)` —
- * awaited directly for row-object results or via `.values()` for row-array
- * results — plus `client.begin(...)` for transactions. We interpose on
- * `unsafe` with a lazy thenable that re-issues the query per retry attempt,
- * and leave transactions unwrapped (same rule as the Neon wrapper: the
- * driver manages the sticky connection inside `begin`).
- *
- * Retry-safety mirrors buildResilientNeonPool: reads retry freely on
- * connection-class errors; writes retry only on CONNECT_TIMEOUT (postgres.js
- * raises it before the statement is ever sent), so writes can't
- * double-execute.
- */
 export function buildResilientPostgresJsClient<
   T extends {
     unsafe(query: string, params?: any[], options?: any): any;
@@ -284,14 +908,13 @@ export function buildResilientPostgresJsClient<
         async () => (mode === "values" ? pending.values() : pending),
         dbOpTimeoutMs(),
         () => {
-          // Best-effort cancel so the timed-out statement doesn't keep
-          // occupying one of the (small, serverless-capped) pool slots.
           try {
             pending.cancel?.();
           } catch {
             // ignore — cancellation is advisory
           }
         },
+        { sql: query },
       );
     };
 
@@ -300,8 +923,6 @@ export function buildResilientPostgresJsClient<
       try {
         return await runAttempt(mode)();
       } catch (err) {
-        // Connect timeout fires before the statement is sent → one retry is
-        // safe even for writes.
         if (
           isConnectionError(err) &&
           (err as any)?.code === "CONNECT_TIMEOUT"
@@ -312,8 +933,6 @@ export function buildResilientPostgresJsClient<
       }
     };
 
-    // Lazy thenable mirroring the slice of postgres.js's PendingQuery
-    // surface that Drizzle uses: `await q` or `await q.values()`.
     return {
       then: (onFulfilled?: any, onRejected?: any) =>
         execute("rows").then(onFulfilled, onRejected),
@@ -332,20 +951,7 @@ export function buildResilientPostgresJsClient<
   }) as T;
 }
 
-/**
- * Neon's pooler endpoints cold-start in 5–10s. Serverless environments
- * (Netlify Functions, Vercel Edge, CF Workers) have short cold-start
- * budgets of their own, and `postgres-js` opens a raw TCP connection on
- * port 5432 that can't negotiate around Neon's wake-up window — every
- * request after an idle period 502s. `@neondatabase/serverless` rides
- * over WebSockets (HTTP/443 upgrade) and handles Neon wake-up
- * transparently, supports transactions, and works in every serverless
- * runtime we deploy to, so we prefer it whenever the URL points at Neon.
- */
 export function isNeonUrl(url: string): boolean {
-  // Must match neon.tech followed by port/path/query/end — include `?` so
-  // URLs like `postgres://…@ep.neon.tech?sslmode=require` (no explicit port
-  // or path) still route through the serverless driver.
   return /\.neon\.tech([:/?]|$)/.test(url);
 }
 
@@ -377,17 +983,10 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   function startInit(): Promise<any> {
     if (_dbReady) return _dbReady;
 
-    // getDb() below calls this via `void startInit()`, so a throw here must
-    // surface through the rejected `_dbReady` it awaits later, not as a
-    // synchronous exception out of this function.
     try {
       assertHostedRuntimeDatabase();
     } catch (err) {
       _dbReady = Promise.reject(err);
-      // The real consumer attaches its handler later, through the lazy proxy's
-      // `then` trap, once the caller awaits the query chain — one or more
-      // microtasks from now. Without this, Node flags the promise as an
-      // unhandled rejection in the gap before that happens.
       _dbReady.catch(() => {});
       return _dbReady;
     }
@@ -405,9 +1004,6 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
 
     if (isNeonUrl(url)) {
       _dbReady = getNeonServerlessDrizzle().then(({ drizzle, Pool }) => {
-        // Shared with the DbExec singleton, Better Auth, and every other
-        // `createGetDb` store: one connect per process instead of one per
-        // schema module. See `sharedDbPool` in client.ts.
         resetOnPoolClose("neon", url);
         const rawPool = sharedDbPool(
           "neon",
@@ -415,46 +1011,31 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           () => new Pool({ connectionString: url, ...neonPoolOptions() }),
         );
         guardNeonPool(rawPool, url);
-        // Wrap the pool with the resilience layer so Drizzle queries get the
-        // same withDbTimeout + retryOnConnectionError protection as the raw
-        // DbExec path in client.ts. Reads retry freely; writes only retry on
-        // acquire-timeout (pre-send) errors to avoid double-execution.
         const pool = buildResilientNeonPool(rawPool);
-        _db = drizzle(pool, { schema });
+        _db = scopeDbExecToDrizzleTransactions(drizzle(pool, { schema }));
         return _db;
       });
     } else {
       _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
-        // pgPoolOptions caps the pool to a small size on serverless so
-        // concurrent frozen instances don't exhaust Neon/Postgres'
-        // connection limit ("Max client connections reached"). Shared across
-        // consumers — see `sharedDbPool` in client.ts.
         resetOnPoolClose("postgres-js", url);
         const client = sharedDbPool("postgres-js", url, () =>
           postgres(url, pgPoolOptions(url)),
         );
-        _db = drizzle(buildResilientPostgresJsClient(client), { schema });
+        _db = scopeDbExecToDrizzleTransactions(
+          drizzle(buildResilientPostgresJsClient(client), { schema }),
+        );
         return _db;
       });
     }
     return _dbReady;
   }
 
-  /**
-   * Create a lazy proxy that records property accesses and method calls,
-   * then replays them on the real DB once init completes. Supports
-   * Drizzle's chained API: db.select().from(table).where(...).
-   *
-   * When `.then()` is called (i.e. the chain is awaited), the proxy
-   * awaits _dbReady and replays the recorded chain on the real _db.
-   */
   function createLazyProxy(
     ready: Promise<any>,
     chain: Array<{ prop: string | symbol; args?: any[] }>,
   ): any {
     return new Proxy(function () {} as any, {
       get(_target, prop) {
-        // When awaited, replay the chain on the real db
         if (prop === "then" || prop === "catch" || prop === "finally") {
           const promise = ready.then((readyDb) => {
             let result: any = readyDb;
@@ -465,26 +1046,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
             }
             return result;
           });
-          // `ready` can already be rejected (e.g. the hosted-runtime database
-          // guard) when this trap fires, and `[prop].bind(promise)` only
-          // returns a handler for the *caller* to invoke — it does not attach
-          // one itself. Without this, `promise` sits rejected and unhandled
-          // for the gap until the caller actually calls the bound function,
-          // which is enough for Node to report it as an unhandled rejection.
           promise.catch(() => {});
           return (promise as any)[prop].bind(promise);
         }
-        // drizzle-orm duck-types "is this an SQL entity" by reading these two
-        // properties directly off a value — synchronously, without awaiting
-        // (see `isSQLWrapper` in drizzle-orm/sql/sql.js). Because this proxy's
-        // target is a function, answering that probe with another proxy would
-        // make an un-awaited chain (e.g. a subquery chain embedded as a raw
-        // value instead of being awaited — the pattern that broke
-        // list-recordings.ts) masquerade as a resolved SQL entity. drizzle
-        // then calls `.getSQL()` on it, which duck-types as a wrapper again,
-        // forever — `RangeError: Maximum call stack size exceeded` deep
-        // inside drizzle internals instead of a message pointing at the
-        // actual bug. Fail loudly here instead, at the point of misuse.
         if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
           throw new Error(
             "getDb(): accessed an unresolved query chain synchronously " +
@@ -494,12 +1058,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
               "using its result.",
           );
         }
-        // Symbol.toStringTag, Symbol.iterator, etc. — return another proxy
-        // Property access (e.g. db.query) — record and return another proxy
         return createLazyProxy(ready, [...chain, { prop }]);
       },
       apply(_target, _thisArg, args) {
-        // Method call (e.g. .from(table)) — record args and return another proxy
         if (chain.length === 0) return createLazyProxy(ready, []);
         const last = chain[chain.length - 1];
         const newChain = chain.slice(0, -1);
@@ -509,13 +1070,6 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     });
   }
 
-  /**
-   * Get the Drizzle DB instance. Kicks off lazy init on first call.
-   * If the async init hasn't completed yet, returns a lazy Proxy that
-   * records the Drizzle chain (select/from/where/etc.) and replays it
-   * once the DB driver finishes loading. Since callers always `await`
-   * the final result, the proxy is transparent.
-   */
   function getDb(): PgDatabase<PgQueryResultHKT, T> {
     const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
     const activePgliteClient = isPgliteUrl(url)

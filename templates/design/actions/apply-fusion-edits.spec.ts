@@ -1,9 +1,3 @@
-/**
- * Tests for apply-fusion-edits batching: pending queued edits become one
- * numbered prompt for the app agent, and rows transition to sent/error based
- * on the dispatch result.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -34,13 +28,10 @@ vi.mock("@agent-native/core/server", () => ({
   sendFusionBranchMessage: (args: unknown) => sendFusionBranchMessage(args),
 }));
 
-const isFeatureFlagEnabled = vi.fn().mockResolvedValue(true);
-vi.mock("@agent-native/core/feature-flags", () => ({
-  defineFeatureFlag: (definition: Record<string, unknown>) => ({
-    ...definition,
-    defaultValue: false,
-  }),
-  isFeatureFlagEnabled: (...args: unknown[]) => isFeatureFlagEnabled(...args),
+const isFullAppBuildingEnabled = vi.fn().mockResolvedValue(true);
+vi.mock("../server/lib/full-app-lab.js", () => ({
+  isFullAppBuildingEnabled: (...args: unknown[]) =>
+    isFullAppBuildingEnabled(...args),
 }));
 
 vi.mock("nanoid", () => ({ nanoid: () => "batch_123" }));
@@ -80,22 +71,25 @@ import action from "./apply-fusion-edits.js";
 
 beforeEach(() => {
   sendFusionBranchMessage.mockReset();
-  isFeatureFlagEnabled.mockResolvedValue(true);
+  isFullAppBuildingEnabled.mockResolvedValue(true);
   updateCalls.length = 0;
   pendingRows = [];
 });
 
 describe("apply-fusion-edits", () => {
   it("rejects when full app building is disabled for the action caller", async () => {
-    isFeatureFlagEnabled.mockResolvedValueOnce(false);
+    isFullAppBuildingEnabled.mockResolvedValueOnce(false);
 
     await expect(
-      action.run({ designId: "design_1" } as never, "action-context" as never),
+      action.run(
+        { designId: "design_1" } as never,
+        { userEmail: "user@example.com", orgId: "org_1" } as never,
+      ),
     ).rejects.toThrow("Full app building is not enabled");
-    expect(isFeatureFlagEnabled).toHaveBeenCalledWith(
-      expect.objectContaining({ key: "full-app-building" }),
-      "action-context",
-    );
+    expect(isFullAppBuildingEnabled).toHaveBeenCalledWith({
+      userEmail: "user@example.com",
+      orgId: "org_1",
+    });
   });
 
   it("returns sentCount 0 when nothing is pending", async () => {

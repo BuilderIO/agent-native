@@ -1,18 +1,18 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgMembers } from "@agent-native/core/client/org";
 import {
-  ReviewThreadPanel,
   useResolveReviewThread,
   useReviewComments,
   useSetReviewThreadUnread,
   useSetReviewThreadsUnread,
-  type ReviewThread,
 } from "@agent-native/core/client/review";
 import type {
   ReviewComment,
   ReviewMention,
   ReviewThreadPreference,
 } from "@agent-native/core/review";
+import { type ReviewThread } from "@agent-native/toolkit/app/review";
+import { ReviewThreadPanel } from "@agent-native/toolkit/app/review";
 import {
   IconAdjustmentsHorizontal,
   IconMail,
@@ -42,9 +42,7 @@ export interface ReviewCommentsPanelProps {
   canComment: boolean;
   currentUserEmail?: string | null;
   currentTargetId?: string | null;
-  /** Caller-derived editor capability for resolving threads. */
   canResolve?: boolean;
-  /** Caller authorization for deleting a specific root comment. */
   canDeleteComment?: (comment: ReviewComment, thread: ReviewThread) => boolean;
   signInHref?: string;
   onSelectThread?: (thread: ReviewThread) => void;
@@ -254,19 +252,20 @@ export function ReviewCommentsPanel({
         <div className="relative min-w-0 flex-1">
           <IconSearch className="pointer-events-none absolute start-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
+            size="sm"
             value={search}
             onChange={(event) => setSearch(event.currentTarget.value)}
             placeholder={t("review.search")}
             aria-label={t("review.search")}
-            className="h-8 ps-7 text-xs"
+            className="ps-7 text-xs"
           />
         </div>
         {canSetThreadPreferences && unreadThreadIds.size ? (
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="size-8 shrink-0"
+            size="icon-sm"
+            className="shrink-0"
             aria-label={t("review.markAllRead")}
             onClick={markAllRead}
           >
@@ -278,8 +277,8 @@ export function ReviewCommentsPanel({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8 shrink-0"
+              size="icon-sm"
+              className="shrink-0"
               aria-label={t("review.filter")}
             >
               <IconAdjustmentsHorizontal className="size-4" />

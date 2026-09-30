@@ -4,10 +4,13 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import type { CreateStartKind } from "./create-tui.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   coreTemplates,
@@ -15,6 +18,7 @@ import {
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
+import { addConfiguredMigrationDependencies } from "./upgrade.js";
 import {
   ensureNodePtyBuildDependency,
   parseWorkspaceScope,
@@ -87,6 +91,9 @@ const MINIMUM_RELEASE_AGE_EXCLUDES = [
   '"@modelcontextprotocol/core"',
   '"@modelcontextprotocol/node"',
   '"@modelcontextprotocol/server"',
+  '"@agent-native/agentkit"',
+  '"@agent-native/toolkit"',
+  '"@agent-native/recap-cli"',
   '"@typescript/*"',
   '"@sentry/*"',
   "fast-xml-parser",
@@ -99,7 +106,6 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
 ];
 const TAR_LISTING_MAX_BUFFER = 100 * 1024 * 1024;
 const localPackageTarballs = new Map<string, string>();
-/** VCS/editor files that don't count as "not empty" for an in-place scaffold. */
 const IN_PLACE_ALLOWLIST = new Set([
   ".git",
   ".gitignore",
@@ -112,12 +118,6 @@ const IN_PLACE_ALLOWLIST = new Set([
   "Thumbs.db",
 ]);
 
-/**
- * Tagged error for input that fails CLI-level validation (repo names, app
- * names, etc.). The Sentry `beforeSend` hook in cli/index.ts drops events
- * whose top-level exception type is `ValidationError` so we don't pollute
- * Sentry with expected user-input rejections.
- */
 export class ValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -125,10 +125,13 @@ export class ValidationError extends Error {
   }
 }
 
-/**
- * Move the primitive-first and chat on-ramps to the top of the list so they
- * line up with clack's default highlight.
- */
+class CreateWizardCancelledError extends Error {
+  constructor() {
+    super("Scaffold cancelled.");
+    this.name = "CreateWizardCancelledError";
+  }
+}
+
 function onRampFirst(templates: TemplateMeta[]): TemplateMeta[] {
   return moveTemplatesToFront(templates, ["headless", "chat"]);
 }
@@ -145,7 +148,28 @@ function moveTemplatesToFront(
   return [...preferred, ...templates.filter((t) => !preferredSet.has(t.name))];
 }
 
-/** Primitive-first scaffold option appended to standalone pickers. */
+async function loadCreateTui() {
+  // Keep the Ink-only module out of the single-file desktop runner bundle.
+  const tuiModule = "./create-tui.js";
+  if (
+    !process.stdin.isTTY ||
+    !process.stdout.isTTY ||
+    process.env.CI === "false"
+  ) {
+    return import(tuiModule);
+  }
+
+  // Ink caches CI detection on import, but a real TTY still needs live redraws.
+  const originalCi = process.env.CI;
+  process.env.CI = "false";
+  try {
+    return await import(tuiModule);
+  } finally {
+    if (originalCi === undefined) delete process.env.CI;
+    else process.env.CI = originalCi;
+  }
+}
+
 const HEADLESS_OPTION = {
   name: "headless",
   label: "Headless",
@@ -159,75 +183,236 @@ const COMMUNITY_OPTION = {
 };
 
 export interface CreateAppOptions {
-  /** Pre-select these templates in the picker. Comma-separated string or array. */
   template?: string;
-  /** Scaffold a single standalone app (old behavior). Skips workspace creation. */
   standalone?: boolean;
-  /** Internal: skip pnpm install at the end (for tests). */
   noInstall?: boolean;
-  /**
-   * Internal: always scaffold a workspace and skip the start-shape prompt.
-   * Used by the deprecated `create-workspace` alias, whose contract is an
-   * unconditional workspace scaffold.
-   */
   forceWorkspace?: boolean;
-  /**
-   * Internal: scaffold into the current directory instead of a new subfolder.
-   * Set when the name argument is `.`/`./` (see `createApp`).
-   */
   inPlace?: boolean;
+  _communityAppPicker?: (
+    apps: CommunityWorkspaceAppOption[],
+  ) => Promise<string>;
 }
 
-/**
- * Main entry for `agent-native create [name]`.
- *
- * Default behavior: ask for a starting shape, with Chat and first-party
- * templates creating a workspace at <name>/. Use --standalone for the
- * single-app standalone flow.
- *
- * If run *inside* an existing workspace, falls through to the add-app
- * flow that scaffolds one new app under apps/<name>/.
- */
+export async function runCreateCommand(
+  name?: string,
+  opts?: CreateAppOptions,
+): Promise<void> {
+  if (name === "." || name === "./") {
+    name = path.basename(process.cwd());
+    opts = { ...opts, inPlace: true };
+  }
+
+  const workspace = detectWorkspace(process.cwd());
+  const parsed = parseTemplateList(opts?.template);
+  const requestedCommunityTemplate =
+    parsed.find((template) => isCommunityTemplateSelection(template)) ??
+    (parsed.includes(COMMUNITY_OPTION.name)
+      ? COMMUNITY_OPTION.name
+      : undefined);
+  const isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const hasInteractiveConfig =
+    !name ||
+    !opts?.template ||
+    requestedCommunityTemplate === COMMUNITY_OPTION.name ||
+    (isTTY && Boolean(requestedCommunityTemplate)) ||
+    Boolean(workspace && parsed.length > 1);
+  if (!isTTY) {
+    if (hasInteractiveConfig) {
+      console.error(
+        "An interactive terminal is needed to choose a project type. Pass a project name and --template, or run `agent-native create --help`.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    await createApp(name, opts);
+    return;
+  }
+
+  if (!hasInteractiveConfig) {
+    await createApp(name, opts);
+    return;
+  }
+
+  if (workspace && parsed.includes("headless")) {
+    await createApp(name, opts);
+    return;
+  }
+  const installedApps = workspace
+    ? listInstalledApps(workspace.workspaceRoot)
+    : [];
+  const requestedApps = parsed.filter(
+    (template) =>
+      template !== COMMUNITY_OPTION.name &&
+      template !== requestedCommunityTemplate &&
+      !installedApps.includes(template),
+  );
+  if (workspace && requestedCommunityTemplate && requestedApps.length > 0) {
+    console.error(
+      "Add community templates separately from first-party apps in an existing workspace.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const alreadyInstalled =
+    parsed.length > 0 &&
+    requestedApps.length === 0 &&
+    !requestedCommunityTemplate
+      ? parsed[0]
+      : undefined;
+  if (alreadyInstalled) {
+    console.error(
+      `App "${alreadyInstalled}" is already installed in this workspace.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const initialKind: CreateStartKind | undefined = workspace
+    ? requestedCommunityTemplate
+      ? "community"
+      : "workspace-add"
+    : opts?.forceWorkspace
+      ? "first-party"
+      : opts?.standalone
+        ? Boolean(requestedCommunityTemplate)
+          ? "community"
+          : parsed.includes("headless")
+            ? "headless"
+            : "standalone"
+        : parsed.includes("dispatch")
+          ? "first-party"
+          : parsed.includes("headless")
+            ? "headless"
+            : parsed.length > 1
+              ? "first-party"
+              : parsed.length === 1
+                ? Boolean(requestedCommunityTemplate)
+                  ? "community"
+                  : "standalone"
+                : undefined;
+  const initialCommunityTemplate =
+    initialKind === "community"
+      ? requestedCommunityTemplate === COMMUNITY_OPTION.name
+        ? undefined
+        : requestedCommunityTemplate
+      : undefined;
+  if (
+    workspace &&
+    !requestedCommunityTemplate &&
+    coreTemplates().every((template) => installedApps.includes(template.name))
+  ) {
+    console.log("All available apps are already installed.");
+    return;
+  }
+
+  const { runCreateWizard } = await loadCreateTui();
+  const answers = await runCreateWizard({
+    cwd: process.cwd(),
+    initialName: workspace ? undefined : name,
+    initialKind,
+    initialTemplates: workspace
+      ? requestedCommunityTemplate
+        ? []
+        : requestedApps
+      : parsed.filter((template) => template !== COMMUNITY_OPTION.name),
+    initialCommunityTemplate,
+    installedApps,
+    addToWorkspace: Boolean(workspace),
+    validateName(value: string) {
+      if (!/^[a-z][a-z0-9-]*$/.test(value)) {
+        return "Use lowercase letters, numbers, and hyphens (must start with a letter).";
+      }
+      if (opts?.inPlace) {
+        const conflicting = fs
+          .readdirSync(process.cwd())
+          .filter((entry) => !IN_PLACE_ALLOWLIST.has(entry));
+        if (conflicting.length > 0) {
+          return "This folder is not empty. Choose another name or use an empty folder.";
+        }
+      } else if (fs.existsSync(path.resolve(process.cwd(), value))) {
+        return `Directory "${value}" already exists. Choose another name.`;
+      }
+      return undefined;
+    },
+    validateCommunityTemplate(value: string) {
+      try {
+        parseCommunityPromptValue(value);
+        return undefined;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    },
+  });
+  if (!answers) {
+    console.log("Cancelled. No files were created.");
+    return;
+  }
+
+  const communityAppPicker = async (apps: CommunityWorkspaceAppOption[]) => {
+    const { promptInkChoice } = await loadCreateTui();
+    const selection = await promptInkChoice(
+      "Choose an app from this community workspace",
+      apps.map((app) => ({ value: app.name, label: app.label })),
+    );
+    if (!selection) throw new CreateWizardCancelledError();
+    return selection;
+  };
+
+  if (answers.addToWorkspace) {
+    await addSelectedAppsToWorkspace(
+      answers.kind === "community"
+        ? [parseCommunityPromptValue(answers.communityTemplate ?? "").canonical]
+        : answers.templates,
+      communityAppPicker,
+    );
+    return;
+  }
+
+  const selection =
+    answers.kind === "headless"
+      ? "headless"
+      : answers.kind === "community"
+        ? parseCommunityPromptValue(answers.communityTemplate ?? "").canonical
+        : answers.kind === "standalone"
+          ? (answers.templates[0] ?? "chat")
+          : answers.templates.join(",") || "dispatch";
+  await createApp(answers.name, {
+    ...opts,
+    template: selection,
+    standalone: answers.kind === "standalone" || answers.kind === "headless",
+    forceWorkspace:
+      answers.kind === "chat-workspace" || answers.kind === "first-party",
+    _communityAppPicker: communityAppPicker,
+  });
+}
+
 export async function createApp(
   name?: string,
   opts?: CreateAppOptions,
 ): Promise<void> {
   const clack = await import("@clack/prompts");
 
-  // `create .` (or `./`) means "scaffold into the current folder" — derive the
-  // project name from the folder's basename, like create-react-app / npm init.
   if (name === "." || name === "./") {
     name = path.basename(process.cwd());
     opts = { ...opts, inPlace: true };
   }
 
-  // Reject an invalid provided name before any interactive prompt so bad input
-  // fails fast instead of blocking on the start-shape picker below.
   if (name !== undefined) {
     assertValidProjectName(name, clack);
   }
 
-  // If we're already inside a workspace, the meaning of `create <name>` is
-  // "add a new app to this workspace". Delegate to add-app.
   const workspace = detectWorkspace(process.cwd());
   if (workspace) {
     await addAppToWorkspace(name, opts);
     return;
   }
 
-  // Standalone escape hatch — behaves like the old single-app flow.
   if (opts?.standalone) {
     await createStandaloneApp(name, opts, clack);
     return;
   }
 
-  // When exactly one template is specified explicitly, treat it as a
-  // standalone scaffold (script-friendly, matches historic behavior).
-  // Use `--template a,b` to opt into the workspace flow with the multi-select
-  // picker. Bare `create` asks for the starting shape first.
   const parsed = parseTemplateList(opts?.template);
-  // Headless can't live in a workspace, so reject it when more than one
-  // template is requested or when workspace semantics are forced.
   if (
     parsed.includes("headless") &&
     (parsed.length > 1 || opts?.forceWorkspace)
@@ -237,22 +422,12 @@ export async function createApp(
     );
     process.exit(1);
   }
-  // A single explicit template scaffolds a standalone app, unless the caller
-  // forces workspace semantics (the deprecated `create-workspace` alias), in
-  // which case the template is preselected in the workspace picker below.
   if (parsed.length === 1 && !opts?.forceWorkspace) {
     await createStandaloneApp(name, opts, clack);
     return;
   }
 
-  // No template specified: ask what shape to start from before diving into
-  // "which templates?". The on-ramp choice implies the project structure, so
-  // we don't ask a separate "workspace or standalone?" question — Chat and
-  // Template creates a workspace, while Community and Headless scaffold a
-  // single standalone app.
   if (parsed.length === 0) {
-    // The deprecated `create-workspace` alias forces workspace semantics, so
-    // it must skip the start-shape prompt and scaffold a workspace directly.
     if (opts?.forceWorkspace) {
       await createWorkspaceInteractive(name, opts, clack);
       return;
@@ -263,9 +438,6 @@ export async function createApp(
       return;
     }
     if (shape === "chat") {
-      // Chat is the default workspace on-ramp. Keep the minimal chat app in
-      // the same workspace shape as every other first-party app so the next
-      // documented step, `add-app`, works immediately.
       await createWorkspaceInteractive(
         name,
         { ...opts, template: shape },
@@ -278,26 +450,13 @@ export async function createApp(
       await createStandaloneApp(name, { ...opts, template }, clack);
       return;
     }
-    // shape === "template" → full app(s) in a workspace.
     await createWorkspaceInteractive(name, opts, clack);
     return;
   }
 
-  // Multiple explicit templates: create a workspace with them.
   await createWorkspaceInteractive(name, opts, clack);
 }
 
-/**
- * Top-level on-ramp shown by the bare `create <name>` command (no flags). The
- * choice made here implies the project structure, so we deliberately avoid a
- * separate "workspace or standalone?" question:
- *   - "template" → full app(s) in a workspace (the multi-select picker)
- *   - "chat"     → a minimal Chat app in a workspace with Dispatch
- *   - "community" → a single standalone app from a public GitHub repository
- *   - "headless" → a single standalone action-first app with no UI shell
- * Headless cannot be a workspace member. Use `--standalone --template chat`
- * when a standalone Chat app is the intended shape.
- */
 async function promptStartShape(
   clack: typeof import("@clack/prompts"),
 ): Promise<"template" | "chat" | "community" | "headless"> {
@@ -388,25 +547,24 @@ function communityScaffoldOptions(
   shape: "standalone" | "workspace",
   destinationAppName: string,
   targetWorkspaceCoreName?: string,
+  appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
 ): ScaffoldAppTemplateOptions {
   return {
     shape,
     destinationAppName,
     targetWorkspaceCoreName,
-    ...(process.stdin.isTTY && process.stdout.isTTY
-      ? {
-          selectCommunityWorkspaceApp: (apps: CommunityWorkspaceAppOption[]) =>
-            promptCommunityWorkspaceApp(apps, clack),
-        }
-      : {}),
+    ...(appPicker
+      ? { selectCommunityWorkspaceApp: appPicker }
+      : process.stdin.isTTY && process.stdout.isTTY
+        ? {
+            selectCommunityWorkspaceApp: (
+              apps: CommunityWorkspaceAppOption[],
+            ) => promptCommunityWorkspaceApp(apps, clack),
+          }
+        : {}),
   };
 }
 
-/**
- * Validate a project name supplied on the command line. Mirrors the rule in
- * `promptNameIfMissing` so an invalid name is rejected before any interactive
- * prompt runs (the sub-flows re-validate, which is a harmless no-op).
- */
 function assertValidProjectName(
   name: string,
   clack: typeof import("@clack/prompts"),
@@ -418,18 +576,6 @@ function assertValidProjectName(
     process.exit(1);
   }
 }
-/**
- * Resolve where a scaffold writes and guard the target. A named project writes
- * to a new sibling subfolder that must not already exist; `create .` writes
- * into the current directory, which must be empty apart from benign VCS/editor
- * files (a pre-existing repo is allowed).
- *
- * For an in-place scaffold we do NOT return the current directory: we build
- * into a private staging directory and `finalizeScaffold` copies the result
- * in afterward. Staging keeps the whole scaffold atomic — a mid-scaffold
- * failure's cleanup can only ever delete the staging dir, never the user's
- * current directory (including its `.git`).
- */
 function resolveScaffoldTarget(
   name: string,
   inPlace: boolean | undefined,
@@ -457,10 +603,6 @@ function resolveScaffoldTarget(
   return targetDir;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Workspace creation (new default)
- * ───────────────────────────────────────────────────────────────────────── */
-
 async function createWorkspaceInteractive(
   name: string | undefined,
   opts: CreateAppOptions | undefined,
@@ -485,10 +627,6 @@ async function createWorkspaceInteractive(
     "About workspaces",
   );
 
-  // Dispatch is the workspace control plane (shared secrets, messaging,
-  // approvals, cross-app routing) and is always scaffolded — the picker
-  // only shows the optional apps. If the user explicitly passed
-  // `--template=...`, those entries get unioned with dispatch.
   const optionalPicks =
     preselected.length > 0
       ? preselected.filter((t) => t !== "dispatch")
@@ -527,9 +665,6 @@ async function createWorkspaceInteractive(
       }
       appNames.add(appName);
       scaffoldedApps.push(appName);
-      // Distinguish download vs local copy in the spinner so a multi-second
-      // GitHub fetch doesn't look like a frozen "Scaffolding..." message.
-      // Mirrors the local-vs-remote decision inside scaffoldAppTemplate.
       const willDownload =
         templateName !== "headless" &&
         (isCommunityTemplateSelection(templateName) ||
@@ -548,6 +683,7 @@ async function createWorkspaceInteractive(
           "workspace",
           appName,
           workspaceCoreName,
+          opts?._communityAppPicker,
         ),
       );
       s.message(
@@ -579,6 +715,7 @@ async function createWorkspaceInteractive(
         ...resolution,
         shape: "workspace",
       });
+      addConfiguredFeatureDependencies(appDir, targetDir);
       ensureGuardedScaffold(appDir);
       fixWebManifestName(
         appDir,
@@ -588,7 +725,6 @@ async function createWorkspaceInteractive(
       );
       rewriteNetlifyToml(appDir, appName, "workspace");
       renameGitignore(appDir);
-      // Each app owns its own .claude / .agents symlinks.
       setupAgentSymlinks(appDir);
     }
 
@@ -599,35 +735,19 @@ async function createWorkspaceInteractive(
       `Workspace scaffolded with ${templates.length} app${templates.length === 1 ? "" : "s"}.`,
     );
   } catch (err: any) {
+    if (err instanceof CreateWizardCancelledError) {
+      s.stop("Cancelled.");
+      cleanupOnFailure(targetDir);
+      clack.outro("Cancelled. No files were created.");
+      return;
+    }
     s.stop("Failed to scaffold workspace.");
-    // Remove the partially-scaffolded workspace so a retry of `agent-native
-    // create <name>` doesn't trip the "Directory already exists" guard. For an
-    // in-place scaffold `targetDir` is the private staging dir, so this never
-    // touches the user's current directory.
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
 
   finalizeScaffold(targetDir, opts?.inPlace);
-
-  // Show the user the tree we just built so the workspace/app distinction is
-  // visible, not just described. First-time users routinely expect their
-  // workspace name to be the app — seeing apps/<template>/ subdirectories
-  // makes the structure concrete.
-  const treeLines = [
-    `  ${name}/                    ← your workspace`,
-    ...scaffoldedApps.map(
-      (appName, i) =>
-        `  ${i === scaffoldedApps.length - 1 ? "└─" : "├─"} apps/${appName}/`.padEnd(
-          30,
-        ) + `   ← app`,
-    ),
-  ];
-  const dispatchNextStep = [
-    `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
-    `at the top, with all your apps listed under it.`,
-  ];
 
   const installSteps = hasPnpm()
     ? [
@@ -644,19 +764,12 @@ async function createWorkspaceInteractive(
 
   clack.outro(
     [
-      `Created workspace "${name}" with ${templates.length} app${templates.length === 1 ? "" : "s"}:`,
-      ``,
-      ...treeLines,
-      ``,
-      `Next steps:`,
-      ``,
-      `  cd ${name}`,
+      `Workspace ready · ${templates.length} app${templates.length === 1 ? "" : "s"}`,
+      `Path: ${opts?.inPlace ? process.cwd() : path.resolve(targetDir)}`,
+      `Apps: ${scaffoldedApps.map(titleCase).join(", ")}`,
+      "Next:",
+      `  cd ${opts?.inPlace ? "." : name}`,
       ...installSteps,
-      ``,
-      ...dispatchNextStep,
-      ``,
-      `Add another app later:        npx @agent-native/core@latest add-app`,
-      `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );
 }
@@ -676,12 +789,6 @@ function workspaceAppNameForTemplateSelection(templateName: string): string {
   return appName;
 }
 
-/**
- * Detect whether pnpm is on PATH. End-user machines often have npm/yarn but
- * not pnpm; the workspace scaffold uses pnpm workspaces, so we surface a
- * specific install hint in the outro when it's missing rather than letting
- * the user hit `zsh: command not found: pnpm`.
- */
 function hasPnpm(): boolean {
   try {
     execFileSync("pnpm", ["--version"], { stdio: "ignore" });
@@ -704,8 +811,6 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(targetDir);
   renameGitignore(targetDir);
 
-  // Inject the catalog from this repo's pnpm-workspace.yaml so templates'
-  // `catalog:` version references resolve in the scaffolded workspace.
   const catalog = loadCatalog();
   if (Object.keys(catalog).length > 0) {
     const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
@@ -732,10 +837,8 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(corePackageDir);
   setupAgentSymlinks(corePackageDir);
 
-  // Ensure apps/ exists (even if empty).
   fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
 
-  // Root-level agent instructions apply before an agent descends into an app.
   linkWorkspaceRootSkills(targetDir);
   setupAgentSymlinks(targetDir);
   ensureGuardedScaffold(targetDir);
@@ -784,18 +887,6 @@ function linkWorkspaceRootSkills(targetDir: string): void {
   }
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Adding an app into an existing workspace
- * ───────────────────────────────────────────────────────────────────────── */
-
-/**
- * Entry for `agent-native add-app [name]`. Called from inside a workspace.
- * Shows the multi-select picker (excluding already-installed apps) and
- * scaffolds each selected template under apps/<name>/.
- *
- * When `name` is provided with `--template foo`, scaffolds exactly one app
- * named <name> using template foo (non-interactive).
- */
 export async function addAppToWorkspace(
   name?: string,
   opts?: CreateAppOptions,
@@ -809,13 +900,10 @@ export async function addAppToWorkspace(
     process.exit(1);
   }
 
-  applyLocalWorkspaceOverrides(workspace.workspaceRoot);
-
   clack.intro("Add an app to your workspace");
 
   const installed = listInstalledApps(workspace.workspaceRoot);
 
-  // Non-interactive path: name + single --template
   const preselected = parseTemplateList(opts?.template);
   if (preselected.includes("headless")) {
     clack.cancel(
@@ -825,7 +913,14 @@ export async function addAppToWorkspace(
   }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
-    await scaffoldOneAppIntoWorkspace(workspace, name, tpl, clack);
+    await scaffoldOneAppIntoWorkspace(
+      workspace,
+      name,
+      tpl,
+      clack,
+      true,
+      opts?._communityAppPicker,
+    );
     return;
   }
 
@@ -853,8 +948,55 @@ export async function addAppToWorkspace(
   }
 
   for (const t of templates) {
-    await scaffoldOneAppIntoWorkspace(workspace, t, t, clack);
+    const added = await scaffoldOneAppIntoWorkspace(
+      workspace,
+      t,
+      t,
+      clack,
+      true,
+      opts?._communityAppPicker,
+    );
+    if (!added) return;
   }
+}
+
+async function addSelectedAppsToWorkspace(
+  templates: string[],
+  appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
+): Promise<void> {
+  const clack = await import("@clack/prompts");
+  const workspace = detectWorkspace(process.cwd());
+  if (!workspace) {
+    clack.cancel("Not inside a workspace. Run `agent-native create` first.");
+    process.exit(1);
+  }
+  if (templates.length === 0) {
+    clack.cancel("No apps selected. Choose at least one app to add.");
+    process.exit(0);
+  }
+
+  for (const template of templates) {
+    const added = await scaffoldOneAppIntoWorkspace(
+      workspace,
+      workspaceAppNameForTemplateSelection(template),
+      template,
+      clack,
+      false,
+      appPicker,
+    );
+    if (!added) return;
+  }
+
+  clack.outro(
+    [
+      `Added ${templates.length} app${templates.length === 1 ? "" : "s"} to ${path.resolve(workspace.workspaceRoot)}:`,
+      ...templates.map((template) => `  · ${template}`),
+      "",
+      "Next steps:",
+      "  pnpm install",
+      "  pnpm dev",
+    ].join("\n"),
+  );
 }
 
 async function scaffoldOneAppIntoWorkspace(
@@ -862,9 +1004,11 @@ async function scaffoldOneAppIntoWorkspace(
   appName: string,
   templateName: string,
   clack: typeof import("@clack/prompts"),
-): Promise<void> {
-  // Dispatch is the one reserved-route exception: the canonical workspace
-  // control-plane app intentionally owns /dispatch.
+  showOutro = true,
+  appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
+  scaffoldTemplate: typeof scaffoldAppTemplate = scaffoldAppTemplate,
+  prepareWorkspaceOverrides: typeof prepareLocalWorkspaceOverrides = prepareLocalWorkspaceOverrides,
+): Promise<boolean> {
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
@@ -884,7 +1028,7 @@ async function scaffoldOneAppIntoWorkspace(
   );
 
   try {
-    const resolution = await scaffoldAppTemplate(
+    const resolution = await scaffoldTemplate(
       appDir,
       templateName,
       communityScaffoldOptions(
@@ -892,6 +1036,7 @@ async function scaffoldOneAppIntoWorkspace(
         "workspace",
         appName,
         workspace.workspaceCoreName,
+        appPicker,
       ),
     );
     replacePlaceholders(
@@ -925,6 +1070,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
+    addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
     ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
@@ -936,30 +1082,39 @@ async function scaffoldOneAppIntoWorkspace(
     rewriteNetlifyToml(appDir, appName, "workspace");
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
+    const workspaceOverrides = prepareWorkspaceOverrides(
+      workspace.workspaceRoot,
+    );
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
+    applyLocalWorkspaceOverrides(workspace.workspaceRoot, workspaceOverrides);
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
+    if (err instanceof CreateWizardCancelledError) {
+      s.stop("Cancelled.");
+      cleanupOnFailure(appDir);
+      clack.outro("Cancelled. No app was added.");
+      return false;
+    }
     s.stop(`Failed to scaffold apps/${appName}.`);
     cleanupOnFailure(appDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
 
-  clack.outro(
-    [
-      `Done!`,
-      ``,
-      `  pnpm install`,
-      `  pnpm dev`,
-      ``,
-      `The workspace gateway will detect apps/${appName} and serve it at /${appName}.`,
-    ].join("\n"),
-  );
+  if (showOutro) {
+    clack.outro(
+      [
+        `Added apps/${appName} to ${path.resolve(workspace.workspaceRoot)}.`,
+        ``,
+        `  pnpm install`,
+        `  pnpm dev`,
+        ``,
+        `The workspace gateway will serve this app at /${appName}.`,
+      ].join("\n"),
+    );
+  }
+  return true;
 }
-
-/* ─────────────────────────────────────────────────────────────────────────
- * Standalone creation (escape hatch)
- * ───────────────────────────────────────────────────────────────────────── */
 
 async function createStandaloneApp(
   name: string | undefined,
@@ -972,7 +1127,6 @@ async function createStandaloneApp(
 
   const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
-  // Standalone is single-select — pick one template.
   let template =
     opts?.template && !opts.template.includes(",") ? opts.template : undefined;
   if (!template) {
@@ -993,48 +1147,84 @@ async function createStandaloneApp(
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(template, clack);
+  const includedAppName =
+    template === "headless"
+      ? "Headless"
+      : titleCase(normalizeTemplateName(template));
+  const willDownload =
+    template !== "headless" &&
+    (isCommunityTemplateSelection(template) ||
+      !findLocalTemplate(normalizeTemplateName(template)));
   s.start(
     template === "headless"
       ? "Scaffolding the headless agent app..."
-      : (communityTemplateDownloadMessage(template) ??
-          `Downloading the ${template} template from GitHub...`),
+      : willDownload
+        ? (communityTemplateDownloadMessage(template) ??
+          `Downloading the ${template} template from GitHub...`)
+        : `Scaffolding the ${titleCase(template)} template...`,
   );
+  let includedApp = includedAppName;
   try {
     const resolution = await scaffoldAppTemplate(
       targetDir,
       template,
-      communityScaffoldOptions(clack, "standalone", name),
+      communityScaffoldOptions(
+        clack,
+        "standalone",
+        name,
+        undefined,
+        opts?._communityAppPicker,
+      ),
     );
-    s.message(`Setting up ${name}…`);
+    includedApp =
+      sanitizeTerminalLabel(resolution.sourceIdentity?.appTitle ?? "") ||
+      (resolution.communityTemplate?.app ?? includedApp);
+    s.message(`Configuring ${name}...`);
     postProcessStandalone(name, targetDir, template, resolution);
     s.stop("App created!");
   } catch (err: any) {
+    if (err instanceof CreateWizardCancelledError) {
+      s.stop("Cancelled.");
+      cleanupOnFailure(targetDir);
+      clack.outro("Cancelled. No files were created.");
+      return;
+    }
     s.stop("Failed to create app.");
-    // `targetDir` is the private staging dir for an in-place scaffold, so this
-    // only ever removes the staging copy, never the user's current directory.
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
 
   finalizeScaffold(targetDir, opts?.inPlace);
+  const projectPath = opts?.inPlace ? process.cwd() : path.resolve(targetDir);
+  const changeDirectory = opts?.inPlace ? "." : name;
 
   if (template === "headless") {
     clack.outro(
       [
-        "Done! Next steps:",
+        "Headless app ready",
+        `Path: ${projectPath}`,
+        "Included: Headless",
+        "Next:",
         "",
-        `  cd ${name}`,
+        `  cd ${changeDirectory}`,
         "  pnpm install",
         "  pnpm action hello --name Builder",
         `  pnpm agent "Call hello for Builder"`,
-        "",
-        "Add a UI later by starting from the Chat template; `agent-native add` is reserved for integration blueprints.",
       ].join("\n"),
     );
   } else {
     clack.outro(
-      `Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`,
+      [
+        "Standalone app ready",
+        `Path: ${projectPath}`,
+        `Included: ${includedApp}`,
+        "Next:",
+        "",
+        `  cd ${changeDirectory}`,
+        "  pnpm install",
+        "  pnpm dev",
+      ].join("\n"),
     );
   }
 }
@@ -1061,12 +1251,6 @@ function standaloneTemplatePromptOptions() {
   ];
 }
 
-/**
- * Remove a partially-scaffolded target directory after a scaffold failure so a
- * retry doesn't hit the "Directory already exists" guard. Best-effort — the
- * underlying failure is what we want surfaced, so we swallow rm errors and
- * skip if the directory is somehow already gone.
- */
 function cleanupOnFailure(targetDir: string): void {
   try {
     if (fs.existsSync(targetDir)) {
@@ -1077,15 +1261,6 @@ function cleanupOnFailure(targetDir: string): void {
   }
 }
 
-/**
- * Land a finished scaffold in its final home and initialize git. A named
- * scaffold is already in place, so this only inits git. An in-place scaffold
- * (`create .`) was built in `scaffoldDir` (a staging dir); copy only the files
- * that don't already exist into the current directory so pre-existing files
- * (`.git`, `README.md`, `.gitignore`, editor configs) are preserved, then drop
- * the staging dir. Git init/commit is skipped when the scaffold lands inside a
- * repo so we never write an unexpected commit into the user's history.
- */
 function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
   if (!inPlace) {
     tryGitInitUnlessRepo(scaffoldDir);
@@ -1101,21 +1276,10 @@ function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
 }
 
 function tryGitInitUnlessRepo(dir: string): void {
-  // Only "git says there is no repository here" earns an init. A discovery
-  // failure has to fall through to doing nothing.
   if (discoverEnclosingRepo(dir).state !== "outside") return;
   tryGitInit(dir);
 }
 
-/**
- * The variables that bind git to a particular repository.
- *
- * Deliberately narrower than git's `local_repo_env`: that list also clears
- * `GIT_CONFIG*`, because git is entering a different repository and the
- * caller's `-c` overrides were scoped to the old one. Here the caller is
- * configuring the scaffold that is about to exist, so `init.defaultBranch`,
- * `core.hooksPath` and `commit.gpgsign` have to survive.
- */
 const GIT_REPO_LOCATION_ENV = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
@@ -1134,17 +1298,6 @@ const GIT_REPO_LOCATION_ENV = [
   "GIT_WORK_TREE",
 ];
 
-/**
- * Env with any inherited repository context dropped.
- *
- * Whatever launched the process — a hook, a `rebase --exec`, a `receive-pack`
- * quarantine — may have pinned git to its own repository. Inheriting that makes
- * discovery answer about that repository rather than the directory being
- * scaffolded, and makes an init write into it. Picking the variables off one at
- * a time invites the next gap, so mirror the list git clears for exactly this
- * reason. The discovery controls are deliberately not in it: where the search
- * stops really is the caller's to configure.
- */
 function envWithoutRepoOverrides(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of GIT_REPO_LOCATION_ENV) delete env[key];
@@ -1156,20 +1309,6 @@ type RepoDiscovery =
   | { state: "outside" }
   | { state: "unknown"; reason: string };
 
-/**
- * Whether `dir` sits inside a repository, as git itself resolves it.
- *
- * Matching a `.git` entry by hand looks equivalent and is not: discovery also
- * turns on symlinked paths, filesystem boundaries, `GIT_CEILING_DIRECTORIES`
- * and `GIT_DISCOVERY_ACROSS_FILESYSTEM`. Running git is free here, since the
- * only alternative to finding a repo is shelling out to `git init` anyway.
- *
- * "No repository" and "could not tell" are separate answers on purpose. Git
- * exits 128 for a checkout it refuses — dubious ownership, a corrupt gitfile —
- * as readily as for a genuinely repo-less directory, and reading the first as
- * the second is how a guard against nested repositories comes to create one.
- * `LC_ALL` is pinned so the message they are told apart by is not translated.
- */
 function discoverEnclosingRepo(dir: string): RepoDiscovery {
   const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
     cwd: dir,
@@ -1188,12 +1327,6 @@ function discoverEnclosingRepo(dir: string): RepoDiscovery {
   return { state: "unknown", reason: stderr || `git exited ${result.status}` };
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Shared scaffolding helpers
- * ───────────────────────────────────────────────────────────────────────── */
-
-/** Where a scaffolded template's bytes came from, recorded so
- *  `agent-native template sync` can reproduce them later. */
 export interface ScaffoldTemplateResolution {
   templateRef?: string;
   templateSource?: "github" | "bundled" | "local-checkout";
@@ -1223,14 +1356,6 @@ export interface ScaffoldProvenance extends ScaffoldTemplateResolution {
   shape?: "workspace" | "standalone";
 }
 
-/**
- * Scaffold a single app template into `targetDir`. Resolves:
- *   - "headless" / legacy "blank" → bundled action-first template
- *   - "community:user/repo[#ref]" → download and validate the whole repo
- *   - legacy "github:user/repo[#ref]" and clean GitHub HTTPS URLs → community
- *   - first-party template name → use a bundled copy or download its subdir
- *     from BuilderIO/agent-native
- */
 async function scaffoldAppTemplate(
   targetDir: string,
   template: string,
@@ -1238,7 +1363,6 @@ async function scaffoldAppTemplate(
 ): Promise<ScaffoldTemplateResolution> {
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
-  // Normalize legacy / renamed aliases.
   let resolved = normalizeTemplateName(template);
 
   if (resolved === "headless") {
@@ -1308,9 +1432,6 @@ async function scaffoldAppTemplate(
     );
   }
 
-  // If running from the framework monorepo with a local templates/ dir, use
-  // that. Otherwise download from GitHub. This keeps `agent-native create`
-  // fast during framework development.
   const sourceTemplate = templateSourceName(resolved);
   const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
@@ -1328,8 +1449,6 @@ async function scaffoldAppTemplate(
   return { templateSource: "github", templateRef };
 }
 
-/** A template dir inside the installed core package ships with the CLI;
- *  anything above it belongs to a framework checkout. */
 function localTemplateSourceKind(
   localTemplate: string,
 ): "bundled" | "local-checkout" {
@@ -1345,12 +1464,6 @@ function templateSourceName(name: string): string {
   return name;
 }
 
-/**
- * Prefer a nearby templates/<name> or src/templates/<name> directory. This
- * covers the framework checkout, the dist/templates copy bundled into
- * published CLI packages, and source templates included in package files;
- * packages that do not bundle a template fall back to GitHub.
- */
 function findLocalTemplate(name: string): string | undefined {
   return findLocalTemplateFrom(path.resolve(__dirname), name);
 }
@@ -1575,10 +1688,6 @@ function showCommunityTemplateTrustNote(
   if (message) clack.note(message, "Community template — review before use");
 }
 
-/**
- * Find a local packages/<name> directory (for framework development).
- * Returns undefined when running as a published npm package.
- */
 function findLocalPackage(name: string): string | undefined {
   let dir = path.resolve(__dirname);
   for (let i = 0; i < 10; i++) {
@@ -1593,11 +1702,6 @@ function findLocalPackage(name: string): string | undefined {
   return undefined;
 }
 
-/**
- * Pack a local framework package before linking it into a generated app.
- * Raw file: dependencies retain workspace-only catalog references, while a
- * packed artifact has the publish-ready manifest that consumers receive.
- */
 function localPackageTarball(packageDir: string): string {
   const cached = localPackageTarballs.get(packageDir);
   if (cached) return cached;
@@ -1609,8 +1713,6 @@ function localPackageTarball(packageDir: string): string {
   );
   const npmCacheDir = path.join(packDir, "npm-cache");
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  // npm prints one notice per packed corpus file; piping that output through
-  // execFileSync's default buffer makes local linking fail as the corpus grows.
   execFileSync(
     npm,
     ["pack", "--ignore-scripts", "--pack-destination", packDir],
@@ -1706,11 +1808,6 @@ function collectLocalPackageBuildOutputs(
   }
 }
 
-/**
- * Local framework packages publish compiled entrypoints only. Build a clean
- * checkout before packing it so generated apps never receive a tarball whose
- * package.json points at absent dist files.
- */
 function ensureLocalPackageBuildOutputs(packageDir: string): void {
   const packageJsonPath = path.join(packageDir, "package.json");
   const packageJson = JSON.parse(
@@ -1827,11 +1924,6 @@ function resolvePublishedWorkspaceSpecifier(
   }
 }
 
-/**
- * Scaffold internal workspace packages required by the selected templates.
- * Deduplicates so each package is only copied once even if multiple
- * templates need it.
- */
 async function scaffoldRequiredPackages(
   templateNames: string[],
   workspaceRoot: string,
@@ -1857,9 +1949,6 @@ async function scaffoldRequiredPackages(
       await downloadGitHubSubdir(REPO, `packages/${pkgName}`, targetDir);
     }
 
-    // The copied package may have published framework packages as workspace:*
-    // deps. Convert them to published ranges because these package-backed
-    // modules are npm dependencies, not scaffolded workspace members.
     const pkgJsonPath = path.join(targetDir, "package.json");
     if (fs.existsSync(pkgJsonPath)) {
       try {
@@ -1888,10 +1977,6 @@ async function scaffoldRequiredPackages(
             }
           }
         }
-        // These packages' `exports` maps point at `./dist/*`, and `dist/` is
-        // gitignored (never committed), so a scaffolded workspace must build
-        // it on install. pnpm always runs `prepare` for workspace packages,
-        // unlike `postinstall`, so this is the reliable hook.
         if (
           pkg.scripts &&
           typeof pkg.scripts.build === "string" &&
@@ -1904,9 +1989,6 @@ async function scaffoldRequiredPackages(
     }
   }
 
-  // Add a postinstall script to build workspace packages so their dist/
-  // directories exist even when downloaded from GitHub (where dist/ is
-  // gitignored).
   if (needed.size > 0) {
     const rootPkgPath = path.join(workspaceRoot, "package.json");
     if (fs.existsSync(rootPkgPath)) {
@@ -1936,13 +2018,6 @@ const GUARDED_VERIFICATION_MARKER = "Guarded verification";
 const GUARDED_VERIFICATION_GUIDANCE =
   "- Guarded verification: run `pnpm agent-native:doctor`; fix findings before done.\n";
 
-/**
- * Keep the portable guard contract attached to every app/workspace created by
- * the CLI, including community templates whose package.json was not authored
- * by this repository. The scanners stay versioned in @agent-native/core; a
- * generated project only receives the small command/config/instructions
- * surface needed to run them locally and in hosted builds.
- */
 function ensureGuardedScaffold(appDir: string): void {
   const packagePath = path.join(appDir, "package.json");
   if (!fs.existsSync(packagePath)) return;
@@ -1969,8 +2044,6 @@ function ensureGuardedScaffold(appDir: string): void {
   }
   const scripts = existingScripts ?? {};
 
-  // Keep an existing project-specific `doctor` script intact while providing
-  // a collision-free framework entry point that every generated project has.
   const existingNativeDoctor = scripts["agent-native:doctor"];
   scripts["agent-native:doctor"] =
     typeof existingNativeDoctor === "string" &&
@@ -1982,9 +2055,6 @@ function ensureGuardedScaffold(appDir: string): void {
     scripts.doctor = AGENT_NATIVE_DOCTOR;
   }
 
-  // Community templates may use vite/next/another build command instead of
-  // `agent-native build`, so attach the strict check to the package lifecycle.
-  // Agent-Native builds already run doctor and get strictness from the config.
   if (
     typeof scripts.build === "string" &&
     !/\bagent-native\s+build\b/.test(scripts.build) &&
@@ -2018,8 +2088,6 @@ function ensureGuardedScaffold(appDir: string): void {
     !Array.isArray(manifest.doctor)
       ? (manifest.doctor as Record<string, unknown>)
       : {};
-  // An explicit false remains an intentional, reviewable opt-out. Missing
-  // configuration is strict so a hosted build cannot publish a finding.
   if (typeof doctor.failOnBuild !== "boolean") doctor.failOnBuild = true;
   manifest.doctor = doctor;
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
@@ -2042,10 +2110,6 @@ function ensureGuardedScaffold(appDir: string): void {
   }
 }
 
-/**
- * Post-process a standalone scaffold: replace placeholders, strip
- * workspace:* deps, set up agent symlinks, etc.
- */
 function postProcessStandalone(
   name: string,
   targetDir: string,
@@ -2079,14 +2143,6 @@ function postProcessStandalone(
 
   renameGitignore(targetDir);
 
-  // No monorepo-only files to drop for standalone scaffolds.
-  // DEVELOPING.md is intentionally kept: it documents local run commands,
-  // DATABASE_URL defaults, and other local-run instructions that are equally
-  // valid for standalone apps.
-
-  // Resolve workspace:* and catalog: deps for standalone projects.
-  // catalog: references only resolve inside a pnpm workspace with a catalog
-  // defined in pnpm-workspace.yaml — standalone scaffolds don't have one.
   const catalog = loadCatalog();
   let hasNodePty = false;
   const pkgPath = path.join(targetDir, "package.json");
@@ -2128,6 +2184,7 @@ function postProcessStandalone(
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+      addConfiguredFeatureDependencies(targetDir);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
@@ -2136,61 +2193,71 @@ function postProcessStandalone(
     }
   }
 
-  // Write pnpm-workspace.yaml for pnpm v11 compatibility. pnpm v11 no longer
-  // reads the pnpm field in package.json, so allowBuilds and overrides must
-  // live here. Merge into any existing file (e.g. from the default template)
-  // without creating duplicate section headers.
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
-  try {
-    const existing = fs.existsSync(wsPath)
-      ? fs.readFileSync(wsPath, "utf-8")
-      : "";
-    const sections: Record<string, Record<string, string>> = {
-      allowBuilds: {
-        esbuild: "true",
-        "node-pty": "true",
-        "tesseract.js": "true",
-      },
+  const existing = fs.existsSync(wsPath)
+    ? fs.readFileSync(wsPath, "utf-8")
+    : "";
+  const sections: Record<string, Record<string, string>> = {
+    allowBuilds: {
+      esbuild: "true",
+      // Its postinstall downloads the binary. Without this it installs empty
+      // and the deploy silently bundles no ffmpeg.
+      "ffmpeg-static": "true",
+      "node-pty": "true",
+      "tesseract.js": "true",
+    },
+  };
+  if (templateName !== "headless") {
+    sections.overrides = {
+      '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
+      '"@assistant-ui/tap"': '"^0.5.14"',
+      nf3: '"0.3.17"',
     };
-    if (templateName !== "headless") {
-      sections.overrides = {
-        '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
-        '"@assistant-ui/tap"': '"^0.5.14"',
-        nf3: '"0.3.17"',
-      };
-    }
-    if (templateName && getTemplate(templateName)) {
-      sections.overrides = {
-        ...sections.overrides,
-        ...TIPTAP_WORKSPACE_OVERRIDES,
-      };
-    }
-    const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
-    if (Object.keys(localFrameworkOverrides).length > 0) {
-      sections.overrides ??= {};
-      Object.assign(sections.overrides, localFrameworkOverrides);
-    }
-    const localRecapCli = localRecapCliOverride();
-    if (localRecapCli) {
-      sections.overrides ??= {};
-      sections.overrides['"@agent-native/recap-cli"'] =
-        JSON.stringify(localRecapCli);
-    }
-    let updated = mergeWorkspaceYamlSections(existing, sections);
-    updated = mergeWorkspaceYamlListItems(
-      updated,
-      "minimumReleaseAgeExclude",
-      MINIMUM_RELEASE_AGE_EXCLUDES,
-    );
-    if (updated !== existing) {
-      fs.writeFileSync(wsPath, updated);
-    }
-  } catch {}
+  }
+  if (templateName && getTemplate(templateName)) {
+    sections.overrides = {
+      ...sections.overrides,
+      ...TIPTAP_WORKSPACE_OVERRIDES,
+    };
+  }
+  const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
+  if (Object.keys(localFrameworkOverrides).length > 0) {
+    sections.overrides ??= {};
+    Object.assign(sections.overrides, localFrameworkOverrides);
+  }
+  const localRecapCli = localRecapCliOverride();
+  if (localRecapCli) {
+    sections.overrides ??= {};
+    sections.overrides['"@agent-native/recap-cli"'] =
+      JSON.stringify(localRecapCli);
+  }
+  let updated = mergeWorkspaceYamlSections(existing, sections);
+  updated = mergeWorkspaceYamlListItems(
+    updated,
+    "minimumReleaseAgeExclude",
+    MINIMUM_RELEASE_AGE_EXCLUDES,
+  );
+  if (updated !== existing) {
+    fs.writeFileSync(wsPath, updated);
+  }
   if (hasNodePty) ensureNodePtyBuildDependency(targetDir);
 
   fixStandaloneTsconfig(targetDir, templateName);
 
   setupAgentSymlinks(targetDir);
+}
+
+function addConfiguredFeatureDependencies(
+  appDir: string,
+  workspaceRoot = appDir,
+): void {
+  const packageFile = path.join(appDir, "package.json");
+  if (!fs.existsSync(packageFile)) return;
+  addConfiguredMigrationDependencies({
+    root: workspaceRoot,
+    kind: workspaceRoot === appDir ? "standalone" : "workspace",
+    packageFiles: [packageFile],
+  });
 }
 
 function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
@@ -2239,19 +2306,11 @@ function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
       paths["@/*"] ??= ["./app/*"];
       paths["@shared/*"] ??= ["./shared/*"];
     }
-    // baseUrl is deprecated/errors in TS 6 (TS5101/TS5102) and removed in TS 7
-    // (tsc, which CI runs). paths already resolve relative to this tsconfig,
-    // and the "*": ["./*"] entry replaces baseUrl's bare-specifier resolution,
-    // so never emit baseUrl into scaffolds.
     delete tsconfig.compilerOptions.baseUrl;
     tsconfig.compilerOptions.paths = paths;
     fs.writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
   } catch {}
 }
-
-/* ─────────────────────────────────────────────────────────────────────────
- * Prompting helpers
- * ───────────────────────────────────────────────────────────────────────── */
 
 async function promptNameIfMissing(
   name: string | undefined,
@@ -2318,12 +2377,8 @@ async function promptTemplatePicker(
           : t.hint,
     }));
 
-  // If there's nothing left to pick, the caller gets an empty selection —
-  // they decide how to handle it.
   if (options.length === 0) return [];
 
-  // Default pre-selection: what the user passed via --template, falling
-  // back to caller defaults, then to "chat" when available.
   const defaults =
     preselected.length > 0
       ? preselected.filter((p) => options.some((o) => o.value === p))
@@ -2366,15 +2421,6 @@ function listInstalledApps(workspaceRoot: string): string[] {
     .map((e) => e.name);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Workspace detection
- * ───────────────────────────────────────────────────────────────────────── */
-
-/**
- * Walk up from startDir looking for a package.json with
- * `agent-native.workspaceCore` set. Returns the workspace root and core
- * package name, or null if not inside a workspace.
- */
 export function detectWorkspace(
   startDir: string,
 ): { workspaceRoot: string; workspaceCoreName: string } | null {
@@ -2401,7 +2447,11 @@ export { parseWorkspaceScope };
 
 /** @internal — exported for E2E tests */
 export {
+  mergeWorkspaceYamlSections as _mergeWorkspaceYamlSections,
   scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
+  mergeWorkspaceYamlListItems as _mergeWorkspaceYamlListItems,
+  scaffoldOneAppIntoWorkspace as _scaffoldOneAppIntoWorkspace,
+  CreateWizardCancelledError as _CreateWizardCancelledError,
   ensureGuardedScaffold as _ensureGuardedScaffold,
   scaffoldAppTemplate as _scaffoldAppTemplate,
   scaffoldRequiredPackages as _scaffoldRequiredPackages,
@@ -2415,6 +2465,7 @@ export {
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
   getAgentKitDependencyVersion as _getAgentKitDependencyVersion,
+  prepareLocalWorkspaceOverrides as _prepareLocalWorkspaceOverrides,
   ensureLocalPackageBuildOutputs as _ensureLocalPackageBuildOutputs,
   getCorePackageVersion as _getCorePackageVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
@@ -2453,10 +2504,6 @@ export {
   REPO as _REPO,
   TEMPLATES_DIR as _TEMPLATES_DIR,
 };
-
-/* ─────────────────────────────────────────────────────────────────────────
- * Download / copy helpers
- * ───────────────────────────────────────────────────────────────────────── */
 
 function validateRepoName(repo: string): void {
   const parts = repo.split("/");
@@ -2597,8 +2644,6 @@ function materializeArchiveSymlinks(
     }
   };
 
-  // Resolve deeper links first so links such as `.claude/skills` see the
-  // regularized skill directories they point at.
   for (const relativeLinkPath of [...links.keys()].sort(
     (a, b) => b.length - a.length,
   )) {
@@ -2665,11 +2710,6 @@ async function downloadAndExtract(
   } = {},
 ): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
-  // --fail-with-body so curl exits non-zero on HTTP 4xx/5xx instead of writing
-  // the error body (HTML/JSON) to disk where tar then fails with the opaque
-  // "Unrecognized archive format" message.
-  // Keep this asynchronous: a synchronous curl blocks the event loop, which
-  // makes the create command's spinner look frozen during the GitHub fetch.
   const tarball = await execFileBuffer(
     "curl",
     [
@@ -2738,7 +2778,6 @@ function isCanonicalAgentSymlinkListing(line: string): boolean {
   );
 }
 
-/** Resolves to the ref that actually succeeded so callers can record it. */
 async function downloadGitHubSubdir(
   repo: string,
   subdir: string,
@@ -2970,13 +3009,23 @@ function discoverCommunityWorkspaceApps(
       return [
         {
           name: entry.name,
-          label: sourceIdentity.appTitle,
+          label: sanitizeTerminalLabel(sourceIdentity.appTitle),
           dir: appDir,
           sourceIdentity,
         },
       ];
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function sanitizeTerminalLabel(value: string): string {
+  return value
+    .replace(
+      /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+      "�",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function readPackageJsonObject(
@@ -3292,15 +3341,24 @@ function mergeWorkspaceYamlSections(
   let result = yaml;
   for (const [section, entries] of Object.entries(sections)) {
     for (const [key, value] of Object.entries(entries)) {
-      if (result.includes(key)) continue;
-      const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
-      const match = sectionHeader.exec(result);
-      if (match) {
-        const insertAt = match.index + match[0].length;
+      const existingSection = findWorkspaceYamlSection(result, section);
+      if (existingSection?.kind === "flow") {
+        if (workspaceYamlFlowMappingHasEntry(existingSection, section, key)) {
+          continue;
+        }
+        result = appendWorkspaceYamlFlowEntry(
+          result,
+          existingSection,
+          `${formatWorkspaceYamlString(normalizeYamlScalar(key))}: ${formatWorkspaceYamlScalar(value)}`,
+        );
+      } else if (existingSection?.kind === "scalar") {
+        throw unsupportedWorkspaceYamlSection(section, "mapping");
+      } else if (existingSection) {
+        if (workspaceYamlSectionHasEntry(existingSection, key)) continue;
         result =
-          result.slice(0, insertAt) +
-          `\n  ${key}: ${value}` +
-          result.slice(insertAt);
+          result.slice(0, existingSection.insertAt) +
+          `\n${existingSection.indent}${key}: ${value}` +
+          result.slice(existingSection.insertAt);
       } else {
         result =
           result.trimEnd() +
@@ -3312,6 +3370,321 @@ function mergeWorkspaceYamlSections(
   return result;
 }
 
+function workspaceYamlSectionHasEntry(
+  existingSection: Extract<WorkspaceYamlSection, { kind: "block" }>,
+  key: string,
+): boolean {
+  return existingSection.body.split(/\r?\n/).some((line) => {
+    const entry = parseYamlMappingKey(line, existingSection.indent);
+    return (
+      entry !== undefined &&
+      normalizeYamlScalar(entry) === normalizeYamlScalar(key)
+    );
+  });
+}
+
+type WorkspaceYamlSection =
+  | { kind: "block"; body: string; indent: string; insertAt: number }
+  | {
+      kind: "flow";
+      collection: "mapping" | "sequence";
+      value: Record<string, unknown> | unknown[];
+      start: number;
+      end: number;
+    }
+  | { kind: "scalar" };
+
+function findWorkspaceYamlSection(
+  yaml: string,
+  section: string,
+): WorkspaceYamlSection | undefined {
+  const sectionHeader = new RegExp(`^${escapeRegExp(section)}:[ \\t]*`, "m");
+  const match = sectionHeader.exec(yaml);
+  if (!match) return undefined;
+
+  const valueStart = match.index + match[0].length;
+  const remainingValue = yaml.slice(valueStart);
+  if (remainingValue.startsWith("{") || remainingValue.startsWith("[")) {
+    let end: number;
+    try {
+      end = findFlowCollectionEnd(remainingValue);
+    } catch (error) {
+      throw new Error(
+        `Cannot update flow-style ${section} in pnpm-workspace.yaml. Convert it to block style before scaffolding.`,
+        { cause: error },
+      );
+    }
+    const source = remainingValue.slice(0, end + 1);
+    let parsed: unknown;
+    try {
+      parsed = parseYaml(source);
+    } catch (error) {
+      throw new Error(
+        `Cannot update flow-style ${section} in pnpm-workspace.yaml. Convert it to block style before scaffolding.`,
+        { cause: error },
+      );
+    }
+    if (source.startsWith("{") && isPlainRecord(parsed)) {
+      return {
+        kind: "flow",
+        collection: "mapping",
+        value: parsed,
+        start: valueStart,
+        end: valueStart + end + 1,
+      };
+    }
+    if (source.startsWith("[") && Array.isArray(parsed)) {
+      return {
+        kind: "flow",
+        collection: "sequence",
+        value: parsed,
+        start: valueStart,
+        end: valueStart + end + 1,
+      };
+    }
+    throw unsupportedWorkspaceYamlSection(section, "mapping or sequence");
+  }
+  const lineEnd = yaml.indexOf("\n", valueStart);
+  const scalar = yaml
+    .slice(valueStart, lineEnd === -1 ? yaml.length : lineEnd)
+    .trim();
+  if (scalar && !scalar.startsWith("#")) {
+    return { kind: "scalar" };
+  }
+
+  const insertAt = lineEnd === -1 ? yaml.length : lineEnd;
+  const remaining = yaml.slice(insertAt);
+  const nextSection = /^(?!#)\S[^:\n]*:[^\n]*$/m.exec(remaining);
+  const body = remaining.slice(0, nextSection?.index ?? remaining.length);
+  const indent = body
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+    .map((line) => line.match(/^[ \t]+/)?.[0])
+    .filter((value): value is string => value !== undefined)
+    .sort((a, b) => a.length - b.length)[0];
+  return {
+    kind: "block",
+    body,
+    indent: indent ?? "  ",
+    insertAt,
+  };
+}
+
+function findFlowCollectionEnd(source: string): number {
+  const closingFor: Record<string, string> = { "{": "}", "[": "]" };
+  const first = source[0];
+  const firstClose = first ? closingFor[first] : undefined;
+  if (!firstClose) throw new Error("Expected a flow-style YAML collection.");
+
+  const stack = [firstClose];
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (let index = 1; index < source.length; index++) {
+    const char = source[index]!;
+    if (quote === '"' && char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (quote && char === quote) {
+      if (quote === "'" && source[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (!escaped) quote = undefined;
+    } else if (!quote && (char === "'" || char === '"')) {
+      quote = char;
+    } else if (!quote && (char === "{" || char === "[")) {
+      stack.push(closingFor[char]!);
+    } else if (!quote && (char === "}" || char === "]")) {
+      if (stack.pop() !== char) {
+        throw new Error("Cannot update an invalid flow-style YAML collection.");
+      }
+      if (stack.length === 0) return index;
+    } else if (
+      !quote &&
+      char === "#" &&
+      (index === 0 || /[ \t\r\n]/.test(source[index - 1]!))
+    ) {
+      const newline = source.indexOf("\n", index);
+      if (newline < 0) break;
+      index = newline;
+    }
+    escaped = false;
+  }
+  throw new Error("Cannot update an unterminated flow-style YAML collection.");
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function unsupportedWorkspaceYamlSection(
+  section: string,
+  expected: string,
+): Error {
+  return new Error(
+    `Cannot merge ${section} in pnpm-workspace.yaml because its value is not a supported flow-style ${expected}. Convert it to block style before scaffolding.`,
+  );
+}
+
+function workspaceYamlFlowMappingHasEntry(
+  section: Extract<WorkspaceYamlSection, { kind: "flow" }>,
+  sectionName: string,
+  key: string,
+): boolean {
+  if (section.collection !== "mapping" || Array.isArray(section.value)) {
+    throw unsupportedWorkspaceYamlSection(sectionName, "mapping");
+  }
+  return Object.keys(section.value).some(
+    (existingKey) =>
+      normalizeYamlScalar(existingKey) === normalizeYamlScalar(key),
+  );
+}
+
+function appendWorkspaceYamlFlowEntry(
+  yaml: string,
+  section: Extract<WorkspaceYamlSection, { kind: "flow" }>,
+  entry: string,
+): string {
+  const collection = yaml.slice(section.start, section.end);
+  const inner = collection.slice(1, -1);
+  if (hasUnquotedFlowComment(inner)) {
+    throw new Error(
+      "Cannot update a flow-style YAML collection with comments. Convert it to block style before scaffolding.",
+    );
+  }
+  const content = inner.trimEnd();
+  const trailing = inner.slice(content.length);
+  const separator = !content.trim()
+    ? ""
+    : content.endsWith(",")
+      ? " "
+      : inner.includes("\n")
+        ? `,\n${inner.match(/(?:^|\r?\n)([ \t]*)\S/)?.[1] ?? "  "}`
+        : ", ";
+  const nextCollection = `${collection[0]}${content}${separator}${entry}${trailing}${collection.at(-1)}`;
+  return (
+    yaml.slice(0, section.start) + nextCollection + yaml.slice(section.end)
+  );
+}
+
+function hasUnquotedFlowComment(source: string): boolean {
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]!;
+    if (quote === '"' && char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (quote && char === quote) {
+      if (quote === "'" && source[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (!escaped) quote = undefined;
+    } else if (!quote && (char === "'" || char === '"')) {
+      quote = char;
+    } else if (
+      !quote &&
+      char === "#" &&
+      (index === 0 || /[ \t\r\n]/.test(source[index - 1]!))
+    ) {
+      return true;
+    }
+    escaped = false;
+  }
+  return false;
+}
+
+function formatWorkspaceYamlScalar(value: string): string {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(value);
+  } catch (error) {
+    throw new Error(
+      "Cannot merge an invalid YAML scalar into pnpm-workspace.yaml.",
+      {
+        cause: error,
+      },
+    );
+  }
+  if (parsed !== null && typeof parsed === "object") {
+    throw new Error(
+      "Cannot merge a non-scalar value into pnpm-workspace.yaml.",
+    );
+  }
+  return stringifyYaml(parsed).trim();
+}
+
+function formatWorkspaceYamlString(value: string): string {
+  return stringifyYaml(value).trim();
+}
+
+function parseYamlMappingKey(line: string, indent: string): string | undefined {
+  if (!line.startsWith(indent)) return undefined;
+  const content = line.slice(indent.length);
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (let index = 0; index < content.length; index++) {
+    const char = content[index];
+    if (quote === '"' && char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (quote && char === quote) {
+      if (quote === "'" && content[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (!escaped) quote = undefined;
+    } else if (!quote && (char === "'" || char === '"')) {
+      quote = char;
+    } else if (
+      !quote &&
+      char === ":" &&
+      (index === content.length - 1 || /[ \t]/.test(content[index + 1]!))
+    ) {
+      return content.slice(0, index).trim();
+    }
+    escaped = false;
+  }
+  return undefined;
+}
+
+function normalizeYamlScalar(value: string): string {
+  let scalar = value.trim();
+  let quote: "'" | '"' | undefined;
+  for (let index = 0; index < scalar.length; index++) {
+    const char = scalar[index];
+    if (quote === '"' && char === "\\") {
+      index++;
+      continue;
+    }
+    if (quote && char === quote) quote = undefined;
+    else if (!quote && (char === "'" || char === '"')) quote = char;
+    else if (
+      !quote &&
+      char === "#" &&
+      (index === 0 || /[ \t]/.test(scalar[index - 1]!))
+    ) {
+      scalar = scalar.slice(0, index).trimEnd();
+      break;
+    }
+  }
+  if (scalar.startsWith('"') && scalar.endsWith('"')) {
+    try {
+      return JSON.parse(scalar);
+    } catch {
+      return scalar.slice(1, -1);
+    }
+  }
+  if (scalar.startsWith("'") && scalar.endsWith("'")) {
+    return scalar.slice(1, -1).replace(/''/g, "'");
+  }
+  return scalar;
+}
+
 function mergeWorkspaceYamlListItems(
   yaml: string,
   section: string,
@@ -3319,30 +3692,55 @@ function mergeWorkspaceYamlListItems(
 ): string {
   let result = yaml;
   for (const item of items) {
-    const rendered = `  - ${item}`;
-    if (result.includes(rendered)) continue;
-    const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
-    const match = sectionHeader.exec(result);
-    if (match) {
-      const insertAt = match.index + match[0].length;
+    const existingSection = findWorkspaceYamlSection(result, section);
+    if (existingSection?.kind === "flow") {
+      if (
+        existingSection.collection !== "sequence" ||
+        !Array.isArray(existingSection.value)
+      ) {
+        throw unsupportedWorkspaceYamlSection(section, "sequence");
+      }
+      const normalizedItem = normalizeYamlScalar(item);
+      const isPresent = existingSection.value.some(
+        (value) => normalizeYamlScalar(String(value)) === normalizedItem,
+      );
+      if (isPresent) continue;
+      result = appendWorkspaceYamlFlowEntry(
+        result,
+        existingSection,
+        formatWorkspaceYamlString(normalizedItem),
+      );
+      continue;
+    }
+    if (existingSection?.kind === "scalar") {
+      throw unsupportedWorkspaceYamlSection(section, "sequence");
+    }
+    const isPresent = existingSection?.body.split(/\r?\n/).some((line) => {
+      if (!line.startsWith(existingSection.indent)) return false;
+      const entry = line
+        .slice(existingSection.indent.length)
+        .match(/^-[ \t]+(.+)$/);
+      return (
+        entry !== null &&
+        normalizeYamlScalar(entry[1]!) === normalizeYamlScalar(item)
+      );
+    });
+    if (isPresent) continue;
+    if (existingSection) {
       result =
-        result.slice(0, insertAt) + `\n${rendered}` + result.slice(insertAt);
+        result.slice(0, existingSection.insertAt) +
+        `\n${existingSection.indent}- ${item}` +
+        result.slice(existingSection.insertAt);
     } else {
       result =
         result.trimEnd() +
         (result ? "\n" : "") +
-        `\n${section}:\n${rendered}\n`;
+        `\n${section}:\n  - ${item}\n`;
     }
   }
   return result;
 }
 
-/**
- * Load the pnpm workspace catalog.
- * First tries the build-time snapshot at dist/catalog.json (works when
- * running as a published npm package). Falls back to parsing the monorepo
- * pnpm-workspace.yaml (works during local framework development).
- */
 function loadCatalog(): Record<string, string> {
   try {
     // Build-time snapshot generated by finalize-build.mjs
@@ -3351,8 +3749,6 @@ function loadCatalog(): Record<string, string> {
       return JSON.parse(fs.readFileSync(snapshotPath, "utf-8"));
     }
 
-    // Fallback: parse pnpm-workspace.yaml from the monorepo root
-    // From dist/cli/ or src/cli/: 4 levels up → packages/core → packages → repo root
     const repoRoot = path.resolve(__dirname, "../../../..");
     const wsPath = path.join(repoRoot, "pnpm-workspace.yaml");
     if (!fs.existsSync(wsPath)) return {};
@@ -3422,10 +3818,6 @@ function fixPackageJsonName(
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.name = name;
     const appTitle = appTitleForScaffold(name);
-    // When the user picked a custom name (e.g. `add-app todo --template=chat`)
-    // the template's displayName would otherwise leak into the workspace apps
-    // grid as the new app's label. Overwrite it so the app shows up as "Todo"
-    // instead of the source template's branding.
     if (templateName && name !== templateName) {
       pkg.displayName = appTitle;
     }
@@ -3578,21 +3970,6 @@ function getCoreDependencyVersion(): string {
     if (localCore) return localPackageTarball(localCore);
   }
 
-  // Pin to the exact core version running this CLI rather than the npm
-  // `latest` dist-tag. `latest` can drift forward after `create` runs (a
-  // stale/cached CLI invocation, or simply time passing before `npm
-  // install`), installing a newer core release whose internal toolkit
-  // dependency no longer matches the toolkit range this CLI just wrote into
-  // the scaffold via getOwnPackageDependencyVersion() — reintroducing the
-  // exact duplicate/mismatched-toolkit class of bug this pinning exists to
-  // prevent. For the common case — `npx @agent-native/core@<version> create`
-  // against the public registry — this exact version is guaranteed
-  // installable, since npx just fetched it. Private/offline mirrors with a
-  // retention window narrower than "every historical version" are a known
-  // gap; `getCorePackageVersion()` returning undefined (e.g. malformed own
-  // package.json) falls back to `latest` rather than failing scaffolding
-  // outright. Local file deps stay opt-in so scaffolded repos remain
-  // portable by default.
   return getCorePackageVersion() ?? "latest";
 }
 
@@ -3602,9 +3979,6 @@ function getDispatchDependencyVersion(): string {
     if (localDispatch) return pathToFileURL(localDispatch).href;
   }
 
-  // Unlike toolkit, core's own package.json does not declare
-  // @agent-native/dispatch as a dependency, so there is no published
-  // compatible range to read here — "latest" is the best available signal.
   return "latest";
 }
 
@@ -3614,7 +3988,17 @@ function getToolkitDependencyVersion(): string {
     if (localToolkit) return localPackageTarball(localToolkit);
   }
 
-  return getOwnPackageDependencyVersion("@agent-native/toolkit");
+  const publishedRange = getOwnPackageDependencyVersion(
+    "@agent-native/toolkit",
+  );
+  if (publishedRange !== "latest") return publishedRange;
+
+  // Changesets publishes Toolkit at Core's version from the fixed release group.
+  const coreVersion = getCorePackageVersion();
+  if (coreVersion) return `^${coreVersion}`;
+  throw new Error(
+    "Cannot determine a compatible @agent-native/toolkit version from @agent-native/core.",
+  );
 }
 
 function getAgentKitDependencyVersion(): string {
@@ -3642,19 +4026,16 @@ function getAgentKitDependencyVersion(): string {
   );
 }
 
-/**
- * Toolkit is versioned and published independently of core, so its npm
- * `latest` dist-tag can briefly point to an incompatible release relative to
- * the core version currently running this CLI. The published core
- * `package.json` already carries the exact compatible range changesets
- * resolved at release time — read it from there instead of trusting
- * `latest`, which is only safe for pinning `core` itself.
- */
 function getOwnPackageDependencyVersion(depName: string): string {
   try {
     const ownPkgPath = path.join(__dirname, "../../package.json");
     const ownPkg = JSON.parse(fs.readFileSync(ownPkgPath, "utf-8"));
-    const range = ownPkg.dependencies?.[depName];
+    const range = [
+      ownPkg.dependencies,
+      ownPkg.optionalDependencies,
+      ownPkg.peerDependencies,
+      ownPkg.devDependencies,
+    ].find((dependencies) => dependencies?.[depName])?.[depName];
     const isPublishedRange =
       typeof range === "string" &&
       range.length > 0 &&
@@ -3697,11 +4078,18 @@ function localRecapCliOverride(): string | null {
   return localRecapCli ? pathToFileURL(localRecapCli).href : null;
 }
 
-function applyLocalWorkspaceOverrides(targetDir: string): void {
-  const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
-  const localRecapCli = localRecapCliOverride();
+interface PreparedWorkspaceOverrides {
+  path: string;
+  content: string;
+}
+
+function prepareLocalWorkspaceOverrides(
+  targetDir: string,
+  localFrameworkOverrides = getLocalFrameworkPackageOverrides(),
+  localRecapCli = localRecapCliOverride(),
+): PreparedWorkspaceOverrides | undefined {
   if (Object.keys(localFrameworkOverrides).length === 0 && !localRecapCli)
-    return;
+    return undefined;
 
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
   const existing = fs.existsSync(wsPath)
@@ -3715,7 +4103,14 @@ function applyLocalWorkspaceOverrides(targetDir: string): void {
         : {}),
     },
   });
-  if (updated !== existing) fs.writeFileSync(wsPath, updated);
+  return updated === existing ? undefined : { path: wsPath, content: updated };
+}
+
+function applyLocalWorkspaceOverrides(
+  targetDir: string,
+  prepared = prepareLocalWorkspaceOverrides(targetDir),
+): void {
+  if (prepared) fs.writeFileSync(prepared.path, prepared.content);
 }
 
 function getCorePackageVersion(): string | undefined {
@@ -3730,20 +4125,6 @@ function getCorePackageVersion(): string | undefined {
   }
 }
 
-/**
- * Git refs to try, in priority order, when downloading templates from the
- * framework repo. The release tag scheme has shifted over time:
- *
- *   - ≤ 0.7.83: single repo-wide tag `v<version>` (legacy).
- *   - ≥ 0.8.0:  changesets per-package tags
- *               `@agent-native/core@<version>` (current).
- *
- * Published CLIs intentionally use only immutable version tags. Falling back
- * to mutable `main` can copy a template that imports exports not present in
- * the installed core package, leaving a generated app broken at SSR startup.
- * Local framework development uses the checkout's templates and packages
- * before this downloader runs, so it does not need a mutable fallback.
- */
 function getGitHubTemplateRefCandidates(): string[] {
   const version = getCorePackageVersion();
   const candidates: string[] = [];
@@ -3904,10 +4285,6 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    // Tolerate escaped quotes inside the command. Every template's build
-    // command now contains `\"` (the release-migration step's CONTEXT test),
-    // and a naive [^"]* stops at the first one — which silently dropped the
-    // NETLIFY_DATABASE_URL_UNPOOLED override for the four templates that use it.
     const originalCommand = content.match(
       /^\s*command = "((?:[^"\\]|\\.)*)"$/m,
     )?.[1];
@@ -3925,11 +4302,6 @@ function rewriteNetlifyToml(
     const releaseDatabasePrefix = usesUnpooledDatabase
       ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
       : "";
-    // Migrate at RELEASE, never on the request path. On serverless "migrate on
-    // first use" means migrate on every cold start; a production incident
-    // traced a multi-hour outage to schema introspection running concurrently
-    // on requests. Generated for every app so a fresh `create` + Netlify
-    // connect just works, with no flag to remember.
     const releaseMigrations =
       ' && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then ' +
       releaseDatabasePrefix +
@@ -4212,9 +4584,6 @@ function copyDir(
     const srcPath = path.join(src, entry.name);
     if (shouldSkipScaffoldEntry(entry.name, srcPath)) continue;
     const destPath = path.join(dest, entry.name);
-    // Preserve anything already at the destination (in-place scaffold merges
-    // into a directory the user may already own). Directories still recurse so
-    // new files land inside a pre-existing folder.
     if (skipExisting && !entry.isDirectory() && fs.existsSync(destPath)) {
       continue;
     }
@@ -4264,9 +4633,6 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   ) {
     return true;
   }
-  // `.generated/bridge` is committed source, not a build artifact: the design
-  // app imports it at module load, so skipping it yields a workspace that 500s
-  // on every page. Everything else under `.generated` is regenerated at dev time.
   if (pathParts?.at(-2) === ".generated") {
     return name !== "bridge";
   }

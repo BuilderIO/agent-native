@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
+const mockGetRecordingAccessTokenResourceId = vi.fn(
+  (..._args: unknown[]) => "rec-1:access-version",
+);
+
 vi.mock("@agent-native/core/server", () => ({
   signShortLivedToken: vi.fn(() => "signed-token"),
+}));
+vi.mock("./share-password", () => ({
+  getRecordingAccessTokenResourceId: (...args: unknown[]) =>
+    mockGetRecordingAccessTokenResourceId(...args),
 }));
 
 import { resolvePlayerVideoUrl } from "./player-video-url";
@@ -85,11 +93,17 @@ describe("resolvePlayerVideoUrl", () => {
         {
           id: "rec-1",
           password: "encrypted",
+          sharePasswordVersion: "initial",
           videoUrl: "/api/uploads/rec-1/blob",
         },
         { addPasswordToken: true },
       ),
     ).toBe("/api/video/rec-1?t=signed-token");
+    expect(mockGetRecordingAccessTokenResourceId).toHaveBeenCalledWith(
+      "rec-1",
+      "encrypted",
+      "initial",
+    );
 
     expect(
       resolvePlayerVideoUrl(

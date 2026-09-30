@@ -1,6 +1,7 @@
 import { emailToName } from "@agent-native/core/client/collab";
-import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   closestCenter,
   DndContext,
@@ -22,7 +23,9 @@ import type {
   BindContentDatabaseSourceFieldRequest,
   ContentDatabaseResponse,
   ContentDatabaseSource,
+  ContentDatabaseSummary,
   DocumentProperty,
+  DocumentPropertyRelationTarget,
 } from "@shared/api";
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
@@ -35,6 +38,7 @@ import {
   isEmptyPropertyValue,
   isComputedPropertyType,
   isOnlyBlocksFieldDeletion,
+  MAX_RELATION_TARGETS,
   normalizeDatePropertyValue,
   type DocumentPropertyDateValue,
   type DocumentPropertyOption,
@@ -56,6 +60,7 @@ import {
   IconCircleDotted,
   IconClockFilled,
   IconCopy,
+  IconDatabase,
   IconEdit,
   IconEye,
   IconEyeOff,
@@ -66,6 +71,7 @@ import {
   IconLink,
   IconList,
   IconMapPin,
+  IconMinus,
   IconNumber,
   IconNumber123,
   IconPaperclip,
@@ -80,8 +86,8 @@ import {
   IconUserCircle,
   type Icon,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -91,8 +97,10 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -118,6 +126,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -128,10 +137,17 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useAddContentDatabaseSourceFieldProperty } from "@/hooks/use-content-database";
+import { useContentActionMutation } from "@/hooks/use-content-action-mutation";
+import {
+  contentDatabaseConstrainedQueryFilter,
+  useAddContentDatabaseSourceFieldProperty,
+  useAddDatabaseItem,
+  useContentDatabases,
+} from "@/hooks/use-content-database";
 import {
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
+  useContentDatabaseRowSearch,
   useDeleteDocumentProperty,
   useDocumentProperties,
   useDuplicateDocumentProperty,
@@ -344,6 +360,7 @@ export function displayValue(
   property: DocumentProperty,
   t?: TFunction,
   presentation: PropertyValuePresentation = "compact",
+  displayOptions: { interactiveRelations?: boolean } = {},
 ) {
   const value = property.value;
   const type = property.definition.type;
@@ -411,23 +428,35 @@ export function displayValue(
   }
 
   if (type === "relation") {
-    const items = relationItems(value);
-    if (items.length === 0) {
+    const ids = relationItems(value);
+    if (ids.length === 0) {
       return <span className="text-muted-foreground/70">{empty}</span>;
     }
+    const targets = property.relationTargets ?? [];
+    const unavailable = ids.length - targets.length;
     return (
-      <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
-        <IconLink className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate">
-          {tWithFallback(
-            t,
-            items.length === 1
-              ? "editor.properties.pageCount_one"
-              : "editor.properties.pageCount_other",
-            `${items.length} page${items.length === 1 ? "" : "s"}`,
-            { count: items.length },
-          )}
-        </span>
+      <span className="inline-flex max-w-full flex-wrap gap-1">
+        {targets.map((target) => (
+          <RelationPill
+            key={target.documentId}
+            target={target}
+            interactive={!!displayOptions.interactiveRelations}
+            t={t}
+          />
+        ))}
+        {unavailable > 0 ? (
+          <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+            <IconLink className="size-3.5 shrink-0" />
+            <span className="truncate">
+              {tWithFallback(
+                t,
+                "editor.properties.unavailablePageCount",
+                `${unavailable} unavailable`,
+                { count: unavailable },
+              )}
+            </span>
+          </span>
+        ) : null}
       </span>
     );
   }
@@ -633,6 +662,65 @@ export function relationItems(value: DocumentProperty["value"]) {
       : [];
 }
 
+export function relationTargetPath(target: DocumentPropertyRelationTarget) {
+  if (!target.databaseId || !target.databaseDocumentId) {
+    return `/page/${target.documentId}`;
+  }
+  const search = new URLSearchParams({
+    databaseId: target.databaseId,
+    databaseDocumentId: target.databaseDocumentId,
+  });
+  return `/page/${target.documentId}?${search.toString()}`;
+}
+
+function RelationPill({
+  target,
+  interactive,
+  t,
+}: {
+  target: DocumentPropertyRelationTarget;
+  interactive: boolean;
+  t?: TFunction;
+}) {
+  const content = (
+    <>
+      {target.icon ? (
+        <span className="shrink-0 text-[0.8rem] leading-none">
+          {target.icon}
+        </span>
+      ) : (
+        <IconFileText className="size-3.5 shrink-0 text-muted-foreground" />
+      )}
+      <span className="truncate">{target.title}</span>
+    </>
+  );
+  const className =
+    "inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground";
+  if (!interactive) return <span className={className}>{content}</span>;
+  return (
+    <Link
+      to={relationTargetPath(target)}
+      aria-label={tWithFallback(
+        t,
+        "editor.properties.openPage",
+        `Open ${target.title}`,
+        { name: target.title },
+      )}
+      className={cn(
+        className,
+        "underline-offset-2 hover:bg-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      )}
+      // Keep the click on the link: the surrounding cell opens the value
+      // editor, and table rows / cards have their own click handlers.
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      {content}
+    </Link>
+  );
+}
+
 function FilesMediaPill({ value }: { value: string }) {
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
@@ -743,11 +831,6 @@ export function updatePropertyOptionDescription(
   );
 }
 
-/**
- * Keeps successive option edits based on the same local truth until the
- * server catches up. A rename followed immediately by a usage-description
- * edit must not let either request erase the other.
- */
 export function createPropertyOptionUpdateQueue(
   initialOptions: DocumentPropertyOption[],
   persist: (options: DocumentPropertyOption[]) => Promise<unknown>,
@@ -775,12 +858,6 @@ type PropertyMetadataSnapshot = Pick<
   "name" | "type" | "description" | "visibility" | "options" | "icon"
 >;
 
-/**
- * Serializes property-definition edits against one local snapshot. The action
- * accepts the complete definition, so composing each request from render-time
- * props would let a fast description save restore the name from before an
- * overlapping rename completed.
- */
 export function createPropertyMetadataUpdateQueue(
   initialMetadata: PropertyMetadataSnapshot,
   persist: (metadata: PropertyMetadataSnapshot) => Promise<unknown>,
@@ -889,8 +966,6 @@ export function DocumentProperties({
     databaseId !== null &&
     databaseDocumentId !== null &&
     data.canManageSchema === true;
-  // Blocks fields are rendered as body content (below the database/title), not
-  // as scalar property rows in this panel — exclude them here.
   const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
@@ -1058,7 +1133,7 @@ function PropertyRow({
   const Icon = TYPE_ICONS[property.definition.type];
   const value = (
     <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
-      {displayValue(property, t)}
+      {displayValue(property, t, "compact", { interactiveRelations: true })}
     </div>
   );
 
@@ -1115,8 +1190,6 @@ function PropertyRow({
   );
 }
 
-// Mirror of the server's propertyTypeForSourceField — keep in sync. Used to
-// gate which source fields can bind into a column (type compatibility).
 export function propertyTypeForSourceFieldType(
   sourceFieldType: string,
 ): DocumentPropertyType {
@@ -1203,27 +1276,17 @@ export function PropertyManagementPopover({
     documentId,
     databaseId,
   );
-  const bindQueryClient = useQueryClient();
-  const bindSourceField = useActionMutation<
+  const bindSourceField = useContentActionMutation<
     ContentDatabaseResponse,
     BindContentDatabaseSourceFieldRequest
   >("bind-content-database-source-field", {
-    onSuccess: () => {
-      void bindQueryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void bindQueryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "list-document-properties",
-          { documentId, databaseId },
-        ],
-      });
-    },
+    invalidates: [
+      ["action", "get-content-database"],
+      ["action", "list-document-properties", { documentId, databaseId }],
+      ["action", "get-content-database-source"],
+      contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+    ],
   });
-  // Per-source field bindings for THIS column (row-union): which source fields
-  // feed it, and which unmapped, type-compatible fields could be bound into it
-  // (at most one field per source per column).
   const allSourceFieldEntries = (sources ?? []).flatMap((src) =>
     src.fields.map((field) => ({ source: src, field })),
   );
@@ -1248,8 +1311,6 @@ export function PropertyManagementPopover({
       "tags",
       "multi_select",
     ].includes(entry.field.sourceFieldType.trim().toLowerCase());
-    // text columns accept any SCALAR field but not multi-value ones (lossy);
-    // otherwise the derived type must match the column type.
     return columnType === "text"
       ? !fieldIsMultiValue
       : columnType ===
@@ -1259,8 +1320,6 @@ export function PropertyManagementPopover({
     !isComputedPropertyType(columnType) &&
     columnType !== "blocks" &&
     (boundSourceFields.length > 0 || bindableSourceFields.length > 0);
-  // Whether deleting THIS property removes the last Blocks field of the type —
-  // i.e. the body. Drives the yellow warning in the delete dialog.
   const blocksFieldCount = (propertiesData?.properties ?? []).filter(
     (item) => item.definition.type === "blocks",
   ).length;
@@ -1711,6 +1770,7 @@ export function PropertyManagementPopover({
                   />
                 </button>
                 <Input
+                  size="sm"
                   ref={propertyNameInputRef}
                   value={name}
                   aria-label={t("editor.properties.propertyName")}
@@ -1722,7 +1782,6 @@ export function PropertyManagementPopover({
                       event.currentTarget.blur();
                     }
                   }}
-                  className="h-8"
                 />
               </div>
 
@@ -1753,7 +1812,13 @@ export function PropertyManagementPopover({
                   className="z-[310] max-h-80 w-56 overflow-auto"
                   container={popoverContainer}
                 >
-                  {CREATABLE_DOCUMENT_PROPERTY_TYPES.map((propertyType) => {
+                  {CREATABLE_DOCUMENT_PROPERTY_TYPES.filter(
+                    // Converting into a relation needs a target database;
+                    // relations are added from "Add property" instead.
+                    (propertyType) =>
+                      propertyType !== "relation" ||
+                      property.definition.type === "relation",
+                  ).map((propertyType) => {
                     const TypeIcon = TYPE_ICONS[propertyType];
                     const selected = property.definition.type === propertyType;
                     const disabled = typeIsLocked && !selected;
@@ -1858,11 +1923,11 @@ export function PropertyManagementPopover({
                     }}
                   >
                     <Input
+                      size="sm"
                       value={newOption}
                       placeholder={t("editor.properties.addOption")}
                       onChange={(event) => setNewOption(event.target.value)}
                       onKeyDown={(event) => event.stopPropagation()}
-                      className="h-8"
                     />
                     <Button
                       type="submit"
@@ -2019,6 +2084,7 @@ export function PropertyManagementPopover({
 
       <EmojiPicker
         icon={property.definition.icon ?? null}
+        assetScopeDocumentId={databaseDocumentId}
         open={iconPickerOpen}
         onOpenChange={setIconPickerOpen}
         anchored
@@ -2048,11 +2114,16 @@ export function PropertyManagementPopover({
             </div>
           ) : null}
           <AlertDialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
-            <AlertDialogCancel className="mt-0 h-8 px-3 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1">
+            <AlertDialogCancel
+              size="sm"
+              className="mt-0 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+            >
               {t("editor.properties.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
-              className="h-8 bg-destructive px-3 text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+              variant="destructive"
+              size="sm"
+              className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
               onClick={() => void deleteProperty()}
             >
               {t("editor.properties.deleteProperty")}
@@ -2242,19 +2313,48 @@ export function PropertyValuePopover({
   const t = useT();
   const [open, setOpen] = useState(false);
 
+  const editLabel = t("editor.properties.editProperty", {
+    name: property.definition.name,
+  });
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("editor.properties.editProperty", {
-            name: property.definition.name,
-          })}
-          className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {children}
-        </button>
-      </PopoverTrigger>
+      {property.definition.type === "relation" ? (
+        // Relation values render links, so the picker gets its own trigger
+        // button beside them rather than wrapping them in button semantics.
+        <PopoverAnchor asChild>
+          <div
+            className="group flex min-h-6 w-full min-w-0 cursor-pointer items-center gap-1 rounded px-1 hover:bg-accent"
+            onClick={(event) => {
+              // Mouse convenience only: keyboard and assistive tech use the
+              // trigger button, and the links keep their own behaviour.
+              if ((event.target as HTMLElement).closest("a, button")) return;
+              setOpen(true);
+            }}
+          >
+            <div className="min-w-0 flex-1">{children}</div>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={editLabel}
+                className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 aria-expanded:opacity-100"
+              >
+                <IconEdit className="size-3.5" />
+              </button>
+            </PopoverTrigger>
+          </div>
+        </PopoverAnchor>
+      ) : (
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={editLabel}
+            className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {children}
+          </button>
+        </PopoverTrigger>
+      )}
       <PopoverContent
         align="start"
         portalled={portalled}
@@ -2320,6 +2420,17 @@ function PropertyValueEditor({
   if (type === "person") {
     return (
       <PersonValueEditor
+        property={property}
+        documentId={documentId}
+        databaseDocumentId={databaseDocumentId}
+        onDone={onDone}
+      />
+    );
+  }
+
+  if (type === "relation") {
+    return (
+      <RelationValueEditor
         property={property}
         documentId={documentId}
         databaseDocumentId={databaseDocumentId}
@@ -2551,7 +2662,7 @@ function PersonValueEditor({
   );
 }
 
-function FilesMediaValueEditor({
+function RelationValueEditor({
   property,
   documentId,
   databaseDocumentId,
@@ -2568,11 +2679,441 @@ function FilesMediaValueEditor({
     property.definition.databaseId!,
     databaseDocumentId,
   );
+  const targetDatabaseId = property.definition.options.relation?.databaseId;
+  // Every pick and removal saves at once. Saves run one at a time and always
+  // send the latest list, so a slow or failed save can't undo a newer one.
+  // `savedRef` is the last value the server accepted, for rolling back.
+  const [selected, setSelected] = useState(() => relationItems(property.value));
+  const selectedRef = useRef(selected);
+  const savedRef = useRef(selected);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const changeSeqRef = useRef(0);
+  const savingRef = useRef(false);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [known, setKnown] = useState(
+    () =>
+      new Map(
+        (property.relationTargets ?? []).map((target) => [
+          target.documentId,
+          { title: target.title, icon: target.icon },
+        ]),
+      ),
+  );
+  const knownRef = useRef(known);
+  knownRef.current = known;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const search = useContentDatabaseRowSearch(
+    targetDatabaseId,
+    debouncedQuery,
+    true,
+  );
+  const firstPage = search.data?.pages[0];
+  const rows = useMemo(
+    () => search.data?.pages.flatMap((page) => page.rows) ?? [],
+    [search.data?.pages],
+  );
+  // Results kept from the previous search stay visible but can't be picked.
+  const searchIsCurrent = query === debouncedQuery && !search.isPlaceholderData;
+  const addRow = useAddDatabaseItem(firstPage?.databaseDocumentId ?? "");
+  const rowDragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 150);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    setKnown((current) => {
+      const next = new Map(current);
+      for (const row of rows) {
+        next.set(row.documentId, { title: row.title, icon: row.icon });
+      }
+      return next;
+    });
+  }, [rows]);
+
+  // Adopt a newer value from the server (polling or another editor) while
+  // no save of ours is waiting to run.
+  const serverValueKey = relationItems(property.value).join("\n");
+  useEffect(() => {
+    if (savingRef.current) return;
+    const serverValue = serverValueKey ? serverValueKey.split("\n") : [];
+    if (serverValue.join("\n") === savedRef.current.join("\n")) return;
+    savedRef.current = serverValue;
+    selectedRef.current = serverValue;
+    setSelected(serverValue);
+  }, [serverValueKey]);
+
+  useEffect(() => {
+    const targets = property.relationTargets ?? [];
+    if (targets.length === 0) return;
+    setKnown((current) => {
+      const changed = targets.some((target) => {
+        const row = current.get(target.documentId);
+        return row?.title !== target.title || row?.icon !== target.icon;
+      });
+      if (!changed) return current;
+      const next = new Map(current);
+      for (const target of targets) {
+        next.set(target.documentId, { title: target.title, icon: target.icon });
+      }
+      return next;
+    });
+  }, [property.relationTargets]);
+
+  function save(value: string[]) {
+    return mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: value.length > 0 ? value : null,
+      relationTargets: value.flatMap((id) => {
+        const row = knownRef.current.get(id);
+        return row
+          ? [
+              {
+                documentId: id,
+                title: row.title,
+                icon: row.icon,
+                databaseId: null,
+                databaseDocumentId: null,
+              },
+            ]
+          : [];
+      }),
+    });
+  }
+
+  function commit(next: string[]) {
+    selectedRef.current = next;
+    setSelected(next);
+    const seq = ++changeSeqRef.current;
+    savingRef.current = true;
+    saveQueueRef.current = saveQueueRef.current.then(async () => {
+      // A newer change is queued behind this one and will send the latest list.
+      if (seq !== changeSeqRef.current) return;
+      const value = selectedRef.current;
+      try {
+        await save(value);
+        savedRef.current = value;
+      } catch {
+        // coercion-ok: the mutation hook already shows the error.
+        if (seq === changeSeqRef.current) {
+          selectedRef.current = savedRef.current;
+          setSelected(savedRef.current);
+        }
+      } finally {
+        if (seq === changeSeqRef.current) savingRef.current = false;
+      }
+    });
+  }
+
+  function add(id: string) {
+    const current = selectedRef.current;
+    if (current.includes(id) || current.length >= MAX_RELATION_TARGETS) {
+      return;
+    }
+    commit([...current, id]);
+  }
+
+  function remove(id: string) {
+    commit(selectedRef.current.filter((selectedId) => selectedId !== id));
+  }
+
+  function handleRowDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const current = selectedRef.current;
+    const fromIndex = current.indexOf(String(active.id));
+    const toIndex = current.indexOf(String(over.id));
+    if (fromIndex < 0 || toIndex < 0) return;
+    commit(arrayMove(current, fromIndex, toIndex));
+  }
+
+  async function createRow(title: string) {
+    const rowCreation = firstPage?.rowCreation;
+    if (!rowCreation || addRow.isPending) return;
+    try {
+      const result = await addRow.mutateAsync({
+        target: rowCreation.target,
+        expectedSchemaRevision: rowCreation.schemaRevision,
+        idempotencyKey: `relation-create-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+        title,
+      });
+      const newId = result.receipt.row.documentId;
+      setKnown((current) => new Map(current).set(newId, { title, icon: null }));
+      setQuery("");
+      // Build on the latest list: other rows may have been picked meanwhile.
+      add(newId);
+    } catch {
+      // coercion-ok: useActionMutation surfaces the failure; keep the typed title.
+    }
+  }
+
+  if (!targetDatabaseId) {
+    return (
+      <div className="px-2 py-3 text-sm text-muted-foreground">
+        {t("editor.properties.noRelatedDatabase")}
+      </div>
+    );
+  }
+
+  const unselectedRows = rows.filter(
+    (row) => !selected.includes(row.documentId),
+  );
+  const needle = query.trim().toLowerCase();
+  const canCreate =
+    searchIsCurrent &&
+    !!firstPage?.rowCreation &&
+    !!needle &&
+    selected.length < MAX_RELATION_TARGETS &&
+    !rows.some((row) => row.title.trim().toLowerCase() === needle);
+  const visibleSelected = selected.filter((id) => {
+    if (!needle) return true;
+    const title = known.get(id)?.title ?? "";
+    return title.toLowerCase().includes(needle);
+  });
+
+  return (
+    <div className="grid gap-1">
+      <div className="flex h-8 items-center gap-1 border-b border-border px-1 pb-1">
+        <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          aria-label={t("editor.properties.searchPages")}
+          value={query}
+          placeholder={t("editor.properties.linkAPage")}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onDone();
+            }
+            if (!searchIsCurrent && event.key === "Enter") {
+              event.preventDefault();
+            } else if (event.key === "Enter" && unselectedRows[0]) {
+              event.preventDefault();
+              add(unselectedRows[0].documentId);
+              setQuery("");
+            } else if (event.key === "Enter" && canCreate) {
+              event.preventDefault();
+              void createRow(query.trim());
+            }
+          }}
+          className="h-7 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+      </div>
+      <div className="max-h-80 overflow-auto">
+        {visibleSelected.length > 0 ? (
+          <>
+            <div className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+              {t("editor.properties.selectedCount", {
+                count: selected.length,
+              })}
+            </div>
+            <DndContext
+              sensors={rowDragSensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleRowDragEnd}
+            >
+              <SortableContext
+                items={visibleSelected}
+                strategy={verticalListSortingStrategy}
+              >
+                {visibleSelected.map((id) => {
+                  const row = known.get(id);
+                  return (
+                    <SortableRelationRow
+                      key={id}
+                      id={id}
+                      title={
+                        row?.title ?? t("editor.properties.unavailablePage")
+                      }
+                      icon={row?.icon ?? null}
+                      // Reordering a filtered list would be ambiguous.
+                      dragDisabled={!!needle}
+                      onRemove={() => remove(id)}
+                    />
+                  );
+                })}
+              </SortableContext>
+            </DndContext>
+          </>
+        ) : null}
+        {selected.length > 0 &&
+        !needle &&
+        !search.isLoading &&
+        unselectedRows.length === 0 ? null : (
+          <>
+            <div className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+              {selected.length > 0
+                ? t("editor.properties.selectMore")
+                : t("editor.properties.selectAPage")}
+            </div>
+            {canCreate ? (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                disabled={addRow.isPending}
+                onClick={() => void createRow(query.trim())}
+              >
+                {addRow.isPending ? (
+                  <Spinner className="size-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <IconPlus className="size-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className="min-w-0 flex-1 truncate">
+                  {t("editor.properties.createPage", { name: query.trim() })}
+                </span>
+              </button>
+            ) : null}
+            {search.isLoading ? (
+              <div className="flex items-center px-2 py-3 text-muted-foreground">
+                <Spinner className="size-4" />
+              </div>
+            ) : unselectedRows.length === 0 ? (
+              canCreate ? null : (
+                <div className="px-2 py-2 text-sm text-muted-foreground">
+                  {t("editor.properties.noMatchingPages")}
+                </div>
+              )
+            ) : (
+              unselectedRows.map((row) => (
+                <button
+                  type="button"
+                  key={row.documentId}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                  disabled={
+                    !searchIsCurrent || selected.length >= MAX_RELATION_TARGETS
+                  }
+                  onClick={() => add(row.documentId)}
+                >
+                  <RelationRowIcon icon={row.icon} />
+                  <span className="min-w-0 flex-1 truncate">{row.title}</span>
+                </button>
+              ))
+            )}
+            {search.hasNextPage ? (
+              <button
+                type="button"
+                disabled={!searchIsCurrent || search.isFetchingNextPage}
+                onClick={() => void search.fetchNextPage()}
+                className="flex w-full items-center justify-center gap-2 rounded px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent disabled:opacity-50"
+              >
+                {search.isFetchingNextPage ? (
+                  <Spinner className="size-4 shrink-0" />
+                ) : null}
+                {t("sidebar.showMore")}
+              </button>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SortableRelationRow({
+  id,
+  title,
+  icon,
+  dragDisabled,
+  onRemove,
+}: {
+  id: string;
+  title: string;
+  icon: string | null;
+  dragDisabled: boolean;
+  onRemove: () => void;
+}) {
+  const t = useT();
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled: dragDisabled });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "group flex items-center gap-1.5 rounded px-1 py-1 text-sm hover:bg-accent",
+        isDragging && "relative z-10 bg-accent",
+      )}
+    >
+      <button
+        type="button"
+        disabled={dragDisabled}
+        aria-label={t("editor.properties.reorderRelation", { name: title })}
+        className="flex size-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/60 hover:text-muted-foreground active:cursor-grabbing disabled:cursor-default disabled:opacity-30"
+        {...attributes}
+        {...listeners}
+      >
+        <IconGripVertical className="size-3.5" />
+      </button>
+      <RelationRowIcon icon={icon} />
+      <span className="min-w-0 flex-1 truncate">{title}</span>
+      <button
+        type="button"
+        aria-label={t("editor.properties.removeRelation", { name: title })}
+        className="flex size-6 shrink-0 items-center justify-center rounded border border-border text-muted-foreground opacity-0 hover:bg-background hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 max-sm:opacity-100"
+        onClick={onRemove}
+      >
+        <IconMinus className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function RelationRowIcon({ icon }: { icon: string | null }) {
+  return icon ? (
+    <span className="w-4 shrink-0 text-center leading-none">{icon}</span>
+  ) : (
+    <IconFileText className="size-4 shrink-0 text-muted-foreground" />
+  );
+}
+
+function FilesMediaValueEditor({
+  property,
+  documentId,
+  databaseDocumentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  databaseDocumentId: string;
+  onDone: () => void;
+}) {
+  const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const [items, setItems] = useState(() => filesMediaItems(property.value));
   const [linkValue, setLinkValue] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const linkInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingUploadFilesRef = useRef<File[] | null>(null);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -2609,31 +3150,47 @@ function FilesMediaValueEditor({
     onDone();
   }
 
-  async function uploadFiles(files: FileList | null) {
-    const selectedFiles = Array.from(files ?? []);
-    if (selectedFiles.length === 0) return;
-    setUploading(true);
-    try {
-      const uploadedUrls: string[] = [];
-      for (const file of selectedFiles) {
-        uploadedUrls.push(await uploadImageFile(file));
+  const uploadFiles = useCallback(
+    async (files: FileList | File[] | null) => {
+      const selectedFiles = Array.from(files ?? []);
+      if (selectedFiles.length === 0) return;
+      if (!fileStorageConfigured) {
+        pendingUploadFilesRef.current = selectedFiles;
+        setStorageSetupOpen(true);
+        return;
       }
-      setItems((current) => [...current, ...uploadedUrls]);
-      toast.success(
-        t(
-          uploadedUrls.length === 1
-            ? "editor.properties.imageUploaded_one"
-            : "editor.properties.imageUploaded_other",
-          { count: uploadedUrls.length },
-        ),
-      );
-    } catch (error) {
-      toast.error(imageUploadErrorMessage(error));
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
+      setUploading(true);
+      try {
+        const uploadedUrls: string[] = [];
+        for (const file of selectedFiles) {
+          uploadedUrls.push(await uploadImageFile(file));
+        }
+        setItems((current) => [...current, ...uploadedUrls]);
+        toast.success(
+          t(
+            uploadedUrls.length === 1
+              ? "editor.properties.imageUploaded_one"
+              : "editor.properties.imageUploaded_other",
+            { count: uploadedUrls.length },
+          ),
+        );
+      } catch (error) {
+        toast.error(imageUploadErrorMessage(error));
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [fileStorageConfigured, t],
+  );
+
+  useEffect(() => {
+    if (!fileStorageConfigured) return;
+    setStorageSetupOpen(false);
+    const pendingFiles = pendingUploadFilesRef.current;
+    pendingUploadFilesRef.current = null;
+    if (pendingFiles) void uploadFiles(pendingFiles);
+  }, [fileStorageConfigured, uploadFiles]);
 
   return (
     <form
@@ -2720,15 +3277,32 @@ function FilesMediaValueEditor({
         type="file"
         accept="image/*"
         multiple
+        disabled={!fileStorageConfigured}
         className="sr-only"
         onChange={(event) => void uploadFiles(event.currentTarget.files)}
+      />
+      <FileStorageStatusGate
+        status={fileUploadStatus}
+        open={storageSetupOpen}
+        onOpenChange={(open, reason) => {
+          if (!open && reason === "dismiss") {
+            pendingUploadFilesRef.current = null;
+          }
+          setStorageSetupOpen(open);
+        }}
       />
       <div className="flex justify-end gap-2">
         <Button
           type="button"
           variant="secondary"
           size="sm"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            if (fileStorageConfigured) {
+              fileInputRef.current?.click();
+            } else {
+              setStorageSetupOpen(true);
+            }
+          }}
           disabled={mutation.isPending || uploading}
         >
           <IconUpload className="size-3.5" />
@@ -2837,9 +3411,6 @@ function DateValueEditor({
         const submittedStartValue = formData.get("property-start-value");
         const submittedEndValue = formData.get("property-end-value");
 
-        // Native date controls can update their displayed DOM value before
-        // React receives the corresponding change event. Read the submitted
-        // form so Save never clears a date that is visibly present.
         void save(
           buildValue(
             typeof submittedStartValue === "string" ? submittedStartValue : "",
@@ -2854,7 +3425,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({
@@ -2872,7 +3443,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({
@@ -3479,6 +4050,16 @@ export function AddProperty({
     string | null
   >(null);
   const [addPropertyError, setAddPropertyError] = useState<string | null>(null);
+  const [relationStep, setRelationStep] = useState(false);
+  const [relationDatabaseQuery, setRelationDatabaseQuery] = useState("");
+  const relationDatabases = useContentDatabases({
+    enabled: open && relationStep,
+  });
+  const relationDatabaseChoices = relationDatabaseChoicesFor(
+    relationDatabases.data?.databases ?? [],
+    databaseId,
+    relationDatabaseQuery,
+  );
   const isAddingProperty =
     configure.isPending ||
     addSourceFieldProperty.isPending ||
@@ -3509,6 +4090,8 @@ export function AddProperty({
     if (isAddingProperty) return;
     setTypeQuery("");
     setAddPropertyError(null);
+    setRelationStep(false);
+    setRelationDatabaseQuery("");
     setOpen(false);
   }
 
@@ -3516,15 +4099,25 @@ export function AddProperty({
     if (!onConnectSource || isAddingProperty) return;
     setTypeQuery("");
     setAddPropertyError(null);
-    // Radix keeps closing popovers mounted for their exit animation. Remove
-    // this one immediately so opening Sources cannot stack over it.
     setSourceHandoffClosing(true);
     setOpen(false);
     onConnectSource();
   }
 
-  async function add(type: DocumentPropertyType) {
-    const label = t(`editor.propertyTypes.${type}`);
+  async function add(
+    type: DocumentPropertyType,
+    relationTarget?: { databaseId: string; title: string },
+  ) {
+    if (type === "relation" && !relationTarget) {
+      // A relation needs its target database before it can be created.
+      setAddPropertyError(null);
+      setRelationDatabaseQuery("");
+      setRelationStep(true);
+      return;
+    }
+    const label = relationTarget
+      ? relationTarget.title
+      : t(`editor.propertyTypes.${type}`);
     setPendingPropertyType(type);
     setPendingSourceFieldId(null);
     setAddPropertyError(null);
@@ -3533,9 +4126,15 @@ export function AddProperty({
         documentId,
         name: label,
         type,
-        options: defaultPropertyOptions(type),
+        options: relationTarget
+          ? { relation: { databaseId: relationTarget.databaseId } }
+          : type === "blocks"
+            ? undefined
+            : defaultPropertyOptions(type),
       });
       setTypeQuery("");
+      setRelationStep(false);
+      setRelationDatabaseQuery("");
       setOpen(false);
     } catch (error) {
       setAddPropertyError(error instanceof Error ? error.message : "");
@@ -3635,181 +4234,301 @@ export function AddProperty({
             "data-[state=closed]:hidden data-[state=closed]:animate-none",
         )}
       >
-        <div className="grid gap-2">
-          <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
-            <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
-            <Input
-              ref={addPropertySearchInputRef}
-              autoFocus
-              value={typeQuery}
-              placeholder={t("editor.properties.searchPropertyTypes")}
-              aria-label={t("editor.properties.searchPropertyTypes")}
-              onChange={(event) => setTypeQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && firstFilteredPropertyType) {
-                  event.preventDefault();
-                  void add(firstFilteredPropertyType);
-                } else if (event.key === "Enter" && connectSourceMatches) {
-                  event.preventDefault();
-                  connectSource();
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  closeAddPropertyPicker();
-                }
-              }}
-              className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <div className="max-h-80 overflow-auto rounded border p-1">
-            {connectSourceMatches ? (
+        {relationStep ? (
+          <div className="grid gap-2">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
-                className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={connectSource}
+                aria-label={t("editor.properties.back")}
+                className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                disabled={isAddingProperty}
+                onClick={() => {
+                  setRelationStep(false);
+                  setAddPropertyError(null);
+                }}
               >
-                <IconPlugConnected className="size-4 shrink-0 text-muted-foreground" />
-                <span className="flex-1">{connectSourceLabel}</span>
+                <IconArrowLeft className="size-4" />
               </button>
-            ) : null}
-            {sourceFieldGroups.map((group) => (
-              <div
-                key={group.source.id}
-                className="mb-1 border-b border-border pb-1"
-              >
-                <div className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
-                  {t("editor.properties.fromSource", {
-                    name: group.source.sourceName,
+              <span className="text-sm font-medium">
+                {t("editor.properties.relatedDatabase")}
+              </span>
+            </div>
+            <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
+              <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+              <Input
+                autoFocus
+                value={relationDatabaseQuery}
+                placeholder={t("editor.properties.searchDatabases")}
+                aria-label={t("editor.properties.searchDatabases")}
+                onChange={(event) =>
+                  setRelationDatabaseQuery(event.target.value)
+                }
+                onKeyDown={(event) => {
+                  const first = relationDatabaseChoices[0];
+                  if (event.key === "Enter" && first) {
+                    event.preventDefault();
+                    void add("relation", first);
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeAddPropertyPicker();
+                  }
+                }}
+                className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+              />
+            </div>
+            <div className="max-h-80 overflow-auto rounded border p-1">
+              {relationDatabases.isLoading ? (
+                <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground">
+                  <Spinner className="size-4" />
+                </div>
+              ) : relationDatabaseChoices.length === 0 ? (
+                <div className="px-2 py-3 text-sm text-muted-foreground">
+                  {t("editor.properties.noDatabases")}
+                </div>
+              ) : (
+                relationDatabaseChoices.map((choice) => (
+                  <button
+                    key={choice.databaseId}
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                    disabled={isAddingProperty}
+                    onClick={() => void add("relation", choice)}
+                  >
+                    {pendingPropertyType === "relation" ? (
+                      <Spinner className="size-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <IconDatabase className="size-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">
+                      {choice.title}
+                    </span>
+                    {choice.isCurrent ? (
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {t("editor.properties.thisDatabase")}
+                      </span>
+                    ) : null}
+                  </button>
+                ))
+              )}
+              {addPropertyError !== null ? (
+                <div
+                  role="alert"
+                  className="px-2 py-1.5 text-xs text-destructive"
+                >
+                  {t("editor.properties.addPropertyFailed")}
+                  {addPropertyError ? ` ${addPropertyError}` : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
+              <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+              <Input
+                ref={addPropertySearchInputRef}
+                autoFocus
+                value={typeQuery}
+                placeholder={t("editor.properties.searchPropertyTypes")}
+                aria-label={t("editor.properties.searchPropertyTypes")}
+                onChange={(event) => setTypeQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && firstFilteredPropertyType) {
+                    event.preventDefault();
+                    void add(firstFilteredPropertyType);
+                  } else if (event.key === "Enter" && connectSourceMatches) {
+                    event.preventDefault();
+                    connectSource();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeAddPropertyPicker();
+                  }
+                }}
+                className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+              />
+            </div>
+            <div className="max-h-80 overflow-auto rounded border p-1">
+              {connectSourceMatches ? (
+                <button
+                  type="button"
+                  className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={connectSource}
+                >
+                  <IconPlugConnected className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1">{connectSourceLabel}</span>
+                </button>
+              ) : null}
+              {sourceFieldGroups.map((group) => (
+                <div
+                  key={group.source.id}
+                  className="mb-1 border-b border-border pb-1"
+                >
+                  <div className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
+                    {t("editor.properties.fromSource", {
+                      name: group.source.sourceName,
+                    })}
+                  </div>
+                  {group.fields.map((field) => {
+                    const SourceFieldIcon =
+                      TYPE_ICONS[
+                        propertyTypeForSourceFieldType(field.sourceFieldType)
+                      ];
+                    return (
+                      <button
+                        key={field.id}
+                        type="button"
+                        aria-label={t("editor.properties.sourceField", {
+                          name: field.sourceFieldLabel,
+                        })}
+                        disabled={isAddingProperty}
+                        aria-busy={pendingSourceFieldId === field.id}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                        onPointerDownCapture={(event) =>
+                          activateAddPropertyItem(
+                            event,
+                            `source:${field.id}`,
+                            () => {
+                              void addFromSourceField(field.id);
+                            },
+                          )
+                        }
+                        onClick={(event) =>
+                          activateAddPropertyItem(
+                            event,
+                            `source:${field.id}`,
+                            () => {
+                              void addFromSourceField(field.id);
+                            },
+                          )
+                        }
+                        onKeyDown={(event) =>
+                          activateAddPropertyItemFromKeyboard(
+                            event,
+                            `source:${field.id}`,
+                            () => {
+                              void addFromSourceField(field.id);
+                            },
+                          )
+                        }
+                      >
+                        {pendingSourceFieldId === field.id ? (
+                          <Spinner className="size-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <SourceFieldIcon className="size-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="min-w-0 flex-1 truncate">
+                          {field.sourceFieldLabel}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {group.source.metadata.federation?.role ===
+                          "secondary"
+                            ? t("editor.properties.federated")
+                            : t("editor.properties.source")}
+                        </span>
+                      </button>
+                    );
                   })}
                 </div>
-                {group.fields.map((field) => {
-                  const SourceFieldIcon =
-                    TYPE_ICONS[
-                      propertyTypeForSourceFieldType(field.sourceFieldType)
-                    ];
-                  return (
-                    <button
-                      key={field.id}
-                      type="button"
-                      aria-label={t("editor.properties.sourceField", {
-                        name: field.sourceFieldLabel,
-                      })}
-                      disabled={isAddingProperty}
-                      aria-busy={pendingSourceFieldId === field.id}
-                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
-                      onPointerDownCapture={(event) =>
-                        activateAddPropertyItem(
-                          event,
-                          `source:${field.id}`,
-                          () => {
-                            void addFromSourceField(field.id);
-                          },
-                        )
-                      }
-                      onClick={(event) =>
-                        activateAddPropertyItem(
-                          event,
-                          `source:${field.id}`,
-                          () => {
-                            void addFromSourceField(field.id);
-                          },
-                        )
-                      }
-                      onKeyDown={(event) =>
-                        activateAddPropertyItemFromKeyboard(
-                          event,
-                          `source:${field.id}`,
-                          () => {
-                            void addFromSourceField(field.id);
-                          },
-                        )
-                      }
-                    >
-                      {pendingSourceFieldId === field.id ? (
-                        <Spinner className="size-4 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <SourceFieldIcon className="size-4 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">
-                        {field.sourceFieldLabel}
-                      </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {group.source.metadata.federation?.role === "secondary"
-                          ? t("editor.properties.federated")
-                          : t("editor.properties.source")}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-            {filteredPropertyTypes.length === 0 && !connectSourceMatches ? (
-              <div className="px-2 py-3 text-sm text-muted-foreground">
-                {t("editor.properties.noMatchingPropertyTypes")}
-              </div>
-            ) : null}
-            {filteredPropertyTypes.map((type) => {
-              const Icon = TYPE_ICONS[type];
-              return (
-                <button
-                  key={type}
-                  type="button"
-                  aria-label={t("editor.properties.addPropertyType", {
-                    type: t(`editor.propertyTypes.${type}`),
-                  })}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
-                  disabled={isAddingProperty}
-                  aria-busy={pendingPropertyType === type}
-                  onPointerDownCapture={(event) =>
-                    activateAddPropertyItem(event, `type:${type}`, () => {
-                      void add(type);
-                    })
-                  }
-                  onClick={(event) =>
-                    activateAddPropertyItem(event, `type:${type}`, () => {
-                      void add(type);
-                    })
-                  }
-                  onKeyDown={(event) =>
-                    activateAddPropertyItemFromKeyboard(
-                      event,
-                      `type:${type}`,
-                      () => {
+              ))}
+              {filteredPropertyTypes.length === 0 && !connectSourceMatches ? (
+                <div className="px-2 py-3 text-sm text-muted-foreground">
+                  {t("editor.properties.noMatchingPropertyTypes")}
+                </div>
+              ) : null}
+              {filteredPropertyTypes.map((type) => {
+                const Icon = TYPE_ICONS[type];
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    aria-label={t("editor.properties.addPropertyType", {
+                      type: t(`editor.propertyTypes.${type}`),
+                    })}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    disabled={isAddingProperty}
+                    aria-busy={pendingPropertyType === type}
+                    onPointerDownCapture={(event) =>
+                      activateAddPropertyItem(event, `type:${type}`, () => {
                         void add(type);
-                      },
-                    )
-                  }
-                >
-                  {pendingPropertyType === type ? (
-                    <Spinner className="size-4 text-muted-foreground" />
-                  ) : (
-                    <Icon className="size-4 text-muted-foreground" />
-                  )}
-                  <span className="flex-1">
-                    {t(`editor.propertyTypes.${type}`)}
-                  </span>
-                  {isComputedPropertyType(type) ? (
-                    <span className="text-xs text-muted-foreground">
-                      {t("editor.properties.computed")}
+                      })
+                    }
+                    onClick={(event) =>
+                      activateAddPropertyItem(event, `type:${type}`, () => {
+                        void add(type);
+                      })
+                    }
+                    onKeyDown={(event) =>
+                      activateAddPropertyItemFromKeyboard(
+                        event,
+                        `type:${type}`,
+                        () => {
+                          void add(type);
+                        },
+                      )
+                    }
+                  >
+                    {pendingPropertyType === type ? (
+                      <Spinner className="size-4 text-muted-foreground" />
+                    ) : (
+                      <Icon className="size-4 text-muted-foreground" />
+                    )}
+                    <span className="flex-1">
+                      {t(`editor.propertyTypes.${type}`)}
                     </span>
-                  ) : null}
-                </button>
-              );
-            })}
-            {addPropertyError !== null ? (
-              <div
-                role="alert"
-                className="px-2 py-1.5 text-xs text-destructive"
-              >
-                {t("editor.properties.addPropertyFailed")}
-                {addPropertyError ? ` ${addPropertyError}` : null}
-              </div>
-            ) : null}
+                    {isComputedPropertyType(type) ? (
+                      <span className="text-xs text-muted-foreground">
+                        {t("editor.properties.computed")}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+              {addPropertyError !== null ? (
+                <div
+                  role="alert"
+                  className="px-2 py-1.5 text-xs text-destructive"
+                >
+                  {t("editor.properties.addPropertyFailed")}
+                  {addPropertyError ? ` ${addPropertyError}` : null}
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
       </PopoverContent>
     </Popover>
   );
+}
+
+/**
+ * Databases a new relation property may target: those in the same space as
+ * the current database (the server enforces this too), current one first.
+ */
+export function relationDatabaseChoicesFor(
+  databases: readonly ContentDatabaseSummary[],
+  currentDatabaseId: string,
+  query: string,
+) {
+  const current = databases.find(
+    (database) => database.databaseId === currentDatabaseId,
+  );
+  const needle = query.trim().toLowerCase();
+  return databases
+    .filter(
+      (database) =>
+        !current || (database.spaceId ?? null) === (current.spaceId ?? null),
+    )
+    .filter(
+      (database) => !needle || database.title.toLowerCase().includes(needle),
+    )
+    .map((database) => ({
+      databaseId: database.databaseId,
+      title: database.title || "Untitled",
+      isCurrent: database.databaseId === currentDatabaseId,
+    }))
+    .sort((a, b) => Number(b.isCurrent) - Number(a.isCurrent));
 }
 
 export function filterDocumentPropertyTypes(

@@ -1,10 +1,9 @@
-import { appPath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   isBuilderCreditsExhaustedMessage,
@@ -22,6 +21,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useAiSetupHref } from "@/components/settings/settings-links";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -54,9 +54,7 @@ export interface TranscriptPanelProps {
   failureReason?: string | null;
   recordingTitle?: string;
   audience?: "creator" | "viewer";
-  /** Called when the user asks us to retry transcription after fixing an error. */
   onRetry?: () => void;
-  /** Called when the user asks for a fresh transcript from the recording media. */
   onRegenerate?: () => void;
   isRegenerating?: boolean;
 }
@@ -233,9 +231,6 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     URL.revokeObjectURL(url);
   }
 
-  // Surface the setup card when transcription failed due to a provider
-  // configuration issue — missing key, quota error, rejected key, etc.
-  // Builder connection is the recommended fix in all these cases.
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
@@ -346,11 +341,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         <div className="relative flex-1">
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            size="sm"
             value={query}
             aria-label={t("transcriptPanel.searchPlaceholder")}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("transcriptPanel.searchPlaceholder")}
-            className="pl-8 h-8 text-xs"
+            className="pl-8 text-xs"
           />
         </div>
         <div className="flex items-center gap-0.5">
@@ -528,6 +524,7 @@ function BuilderCreditsPausedNotice({
   className?: string;
 }) {
   const t = useT();
+  const aiSetupHref = useAiSetupHref();
   return (
     <div
       className={cn(
@@ -559,7 +556,7 @@ function BuilderCreditsPausedNotice({
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-0.5">
-            <Button asChild size="sm" className="h-8">
+            <Button asChild size="sm">
               <a
                 href={BUILDER_CREDITS_UPGRADE_URL}
                 target="_blank"
@@ -574,16 +571,13 @@ function BuilderCreditsPausedNotice({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8"
                 onClick={onRetry}
               >
                 {t("builderCredits.retryAfterUpgrade")}
               </Button>
             ) : null}
-            <Button asChild variant="ghost" size="sm" className="h-8">
-              <a href={appPath("/settings/general#ai-providers")}>
-                {t("builderCredits.openAiSetup")}
-              </a>
+            <Button asChild variant="ghost" size="sm">
+              <a href={aiSetupHref}>{t("builderCredits.openAiSetup")}</a>
             </Button>
           </div>
         </div>
@@ -592,11 +586,6 @@ function BuilderCreditsPausedNotice({
   );
 }
 
-/**
- * Returns true when the transcription failure is due to a provider
- * configuration problem — missing key, quota exceeded, key rejected,
- * no provider at all. Builder connection fixes all of these.
- */
 function isTranscriptionSetupNeeded(
   reason: string | null | undefined,
 ): boolean {
@@ -667,13 +656,6 @@ function friendlyTranscriptFailure(
   return reason;
 }
 
-/**
- * Inline card shown when transcription needs a provider set up.
- *
- * Builder.io is the only cloud fallback — free, one-click, no separate API
- * key required (uses BUILDER_PRIVATE_KEY once the user connects). Clips does
- * not route recording transcription to BYOK speech providers.
- */
 function TranscriptSetupCard({
   failureReason,
   onRetry,

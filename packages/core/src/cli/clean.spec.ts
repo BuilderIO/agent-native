@@ -39,8 +39,6 @@ function captureIo(): { io: CleanIo; out: string[]; err: string[] } {
   return { out, err, io: { log: (m) => out.push(m), err: (m) => err.push(m) } };
 }
 
-/** A workspace with one cache dir per app, plus everything clean must not
- * touch: real user data, git internals, env files, installed packages. */
 const WORKSPACE_FILES: Record<string, string> = {
   "package.json": JSON.stringify({ name: "workspace" }),
   ".env": "SECRET=placeholder\n",
@@ -85,9 +83,6 @@ const AGENT_NATIVE_PACKAGE_JSON = JSON.stringify({
   dependencies: { "@agent-native/core": "1.0.0" },
 });
 
-/** macOS APFS is case-insensitive and case-preserving; ext4 and most CI
- * runners are not. The `Build/` case only exists on the former, so probe
- * rather than assert a pass that means nothing on the other. */
 const CASE_INSENSITIVE_FS = (() => {
   const probe = fs.mkdtempSync(path.join(os.tmpdir(), "an-clean-case-"));
   try {
@@ -122,8 +117,6 @@ describe("parseCleanArgs", () => {
   });
 
   it("errors on an unrecognized argument rather than degrading quietly", () => {
-    // `--aply` silently ignored is the difference between a dry run and a
-    // real delete.
     expect(parseCleanArgs(["--builds", "--aply"]).error).toMatch(
       /Unknown argument: --aply/,
     );
@@ -143,10 +136,6 @@ describe("isSafeTarget", () => {
   });
 
   it("protects data/ whatever its casing, while targets stay case-exact", () => {
-    // On a case-insensitive filesystem `Data/` and `data/` are one directory,
-    // so case-exact protection walks into the app's data through the other
-    // spelling. The two directions are deliberately asymmetric: widening
-    // protection can only spare a cache, widening targets deletes files.
     expect(isSafeTarget(root, "/ws/Data/node_modules/.vite")).toBe(false);
     expect(isSafeTarget(root, "/ws/apps/mail/DATA/uploads")).toBe(false);
     expect(isSafeTarget(root, "/ws/.GIT/objects")).toBe(false);
@@ -236,8 +225,6 @@ describe("scanCleanTargets", () => {
       ".netlify/functions-internal/server/bundle.js": "x".repeat(1000),
       ".netlify/functions-internal/server/meta.json": "y".repeat(1000),
     });
-    // The deploy step hard-links the server bundle into each function
-    // directory, so the tree holds 2000 bytes however many links point at it.
     const bundle = path.join(
       root,
       ".netlify/functions-internal/server/bundle.js",
@@ -257,9 +244,6 @@ describe("scanCleanTargets", () => {
   });
 
   it("counts a hard link shared by two targets once across the whole run", () => {
-    // The workspace deploy hard-links apps/<app>/.netlify/functions-internal/
-    // server into <root>/.netlify/functions-internal/<app>-server and
-    // <app>-agent-background — two separate top-level targets, one inode.
     const root = makeTempRoot({
       "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
       "package.json": JSON.stringify({ name: "workspace" }),
@@ -283,14 +267,10 @@ describe("scanCleanTargets", () => {
       ".netlify/functions-internal",
       path.join("apps", "mail", ".netlify", "functions-internal"),
     ]);
-    // The run frees 1000 bytes, whichever target is deleted first.
     expect(scan.targets.reduce((total, t) => total + t.bytes, 0)).toBe(1000);
   });
 
   it("counts nothing for a file still hard-linked outside the delete set", () => {
-    // Deleting one link of a file whose other link lives in node_modules
-    // returns zero bytes to the disk, so promising them is a lie about the
-    // one number this command exists to report.
     const root = makeTempRoot({
       "package.json": JSON.stringify({ name: "solo-app" }),
       "node_modules/@acme/cli/blob.bin": "x".repeat(1000),
@@ -314,7 +294,6 @@ describe("scanCleanTargets", () => {
     const vite = scanCleanTargets({ root }).targets.find(
       (t) => path.relative(root, t.path) === "node_modules/.vite",
     );
-    // deps/chunk.js (100) + deps_temp_a1b2/orphan.js (50), each counted once.
     expect(vite?.bytes).toBe(150);
   });
 });
@@ -354,7 +333,6 @@ describe("performClean", () => {
     ).toBe(true);
     expect(fs.existsSync(path.join(root, ".git/HEAD"))).toBe(true);
     expect(fs.existsSync(path.join(root, ".env"))).toBe(true);
-    // Build outputs need --builds.
     expect(fs.existsSync(path.join(root, "apps/mail/build"))).toBe(true);
   });
 
@@ -368,8 +346,6 @@ describe("performClean", () => {
         dependencies: { "@agent-native/core": "1.0.0" },
       }),
     });
-    // Lexically apps/mail/build is inside the root; physically it is not, and
-    // the delete lands on the physical one.
     fs.symlinkSync(outside, path.join(root, "apps"));
 
     const report = performClean({ root, builds: true, apply: true });
@@ -391,9 +367,6 @@ describe("performClean", () => {
       "apps/b/build/out.js": "x".repeat(20),
     });
 
-    // Swap apps/b for a symlink out of the root while the first target is
-    // being removed — rmSync lstats only the last component, so the kernel
-    // resolves the swapped parent and the delete lands outside.
     const rmSync = fs.rmSync;
     let swapped = false;
     const spy = vi.spyOn(fs, "rmSync").mockImplementation(((
@@ -418,7 +391,6 @@ describe("performClean", () => {
         path.join(root, "apps", "b", "build"),
       ]);
       expect(fs.existsSync(path.join(outside, "build/victim.txt"))).toBe(true);
-      // The swapped target's bytes are not claimed as reclaimed.
       expect(report.bytesReclaimed).toBe(10);
     } finally {
       spy.mockRestore();
@@ -455,8 +427,6 @@ describe("performClean", () => {
       expect(report.failures[0].path).toBe(stuck);
       expect(report.failures[0].remainingBytes).toBe(120);
       expect(fs.existsSync(stuck)).toBe(true);
-      // The stuck 120 bytes are not counted; the .nitro cache that really
-      // went away still is.
       expect(report.bytesFound).toBe(150);
       expect(report.bytesReclaimed).toBe(30);
     } finally {
@@ -465,14 +435,7 @@ describe("performClean", () => {
   });
 });
 
-/**
- * One rule, checked from every side it can be broken: a byte is credited only
- * where the run observed it removed. Anything it could not observe — a tree
- * someone else deleted, a directory it could not read, a mount point, a scan
- * cut short — is a typed outcome, never a number.
- */
 describe("performClean byte accounting", () => {
-  /** A `.vite` holding 64 KB nobody can read, and a `.nitro` it can. */
   function lockedViteRoot(): { root: string; locked: string } {
     const root = makeTempRoot({
       "package.json": AGENT_NATIVE_PACKAGE_JSON,
@@ -488,10 +451,6 @@ describe("performClean byte accounting", () => {
     const root = makeTempRoot(APP_FILES);
     const vite = path.join(root, "node_modules", ".vite");
     const realRm = fs.rmSync;
-    // Two `clean --apply` runs on one root, or one racing the delete-and-
-    // recreate of a Vite re-optimize: the loser's rmSync finds nothing.
-    // `force: true` swallowed that ENOENT, so both runs credited the same
-    // bytes and the two reports summed to more than the disk ever held.
     const spy = vi.spyOn(fs, "rmSync").mockImplementationOnce(((
       target: fs.PathLike,
       opts?: fs.RmOptions,
@@ -505,7 +464,6 @@ describe("performClean byte accounting", () => {
 
       expect(report.failures).toEqual([]);
       expect(report.bytesFound).toBe(150);
-      // The 120 belong to whoever actually freed them. Only .nitro is ours.
       expect(report.bytesReclaimed).toBe(30);
     } finally {
       spy.mockRestore();
@@ -528,9 +486,6 @@ describe("performClean byte accounting", () => {
     try {
       const report = performClean({ root, apply: true });
 
-      // ENOENT at re-verify means the directory is gone, which is what this
-      // run wanted. Exiting 1 with "could not re-check" was over-loud in
-      // exactly the spot the delete one line later was over-quiet.
       expect(report.failures).toEqual([]);
       expect(report.bytesFound).toBe(150);
       expect(report.bytesReclaimed).toBe(120);
@@ -546,7 +501,6 @@ describe("performClean byte accounting", () => {
     try {
       report = performClean({ root, apply: true });
     } finally {
-      // Restore first: nothing inside a 0o000 directory can even be stat'd.
       fs.chmodSync(locked, 0o700);
     }
     const failure = report.failures.find(
@@ -555,7 +509,6 @@ describe("performClean byte accounting", () => {
 
     expect(failure).toBeDefined();
     expect(failure?.remainingBytes).toBeUndefined();
-    // 64 KB is still there, so no byte of this target is creditable.
     expect(report.bytesReclaimed).toBe(0);
     expect(fs.existsSync(path.join(locked, "big.bin"))).toBe(true);
   });
@@ -583,10 +536,6 @@ describe("performClean byte accounting", () => {
 
     try {
       const report = performClean({ root, builds: true, apply: true });
-      // The cache walk, the measure pass and the post-delete re-measure all
-      // reach the one unreadable directory in this tree. Three lines — one of
-      // them naming it /private/var/… because that pass walks the realpath —
-      // read as three separate problems.
       const reads = report.failures.filter((f) =>
         f.message.startsWith("could not read"),
       );
@@ -603,8 +552,6 @@ describe("performClean byte accounting", () => {
   });
 
   it("reports the depth cap instead of silently truncating the scan", () => {
-    // The last directory the walk scans sits MAX_WALK_DEPTH below the root;
-    // the first one it refuses sits one deeper.
     const scanned = Array.from({ length: 64 }, (_, i) => `d${i + 1}`).join("/");
     const truncated = `${scanned}/d65`;
     const root = makeTempRoot({
@@ -618,8 +565,6 @@ describe("performClean byte accounting", () => {
     expect(targetPaths(root, scan.targets)).toEqual([
       path.join(scanned, "node_modules", ".vite"),
     ]);
-    // Returning quietly here made the 22 bytes below the cap look like
-    // nothing found — no target, no bytes, and no failure saying so.
     expect(scan.failures).toContainEqual({
       path: path.join(root, truncated),
       message: "not scanned: more than 64 directories below the root",
@@ -627,9 +572,6 @@ describe("performClean byte accounting", () => {
   });
 
   it("does not trip the depth cap on a workspace-nested app source tree", () => {
-    // apps/<app>/ plus the 19 levels this repo's deepest template actually
-    // reaches. A cap that fires here would make every real workspace exit 1,
-    // and a failure block users learn to ignore reports nothing at all.
     const source = Array.from({ length: 19 }, (_, i) => `s${i + 1}`).join("/");
     const root = makeTempRoot({
       "package.json": JSON.stringify({ name: "workspace" }),
@@ -649,15 +591,11 @@ describe("performClean byte accounting", () => {
     });
     const mount = path.join(root, "build", "vol");
     const realLstat = fs.lstatSync;
-    // A unit test cannot mount an APFS image, so report the one thing a mount
-    // point actually changes about a directory: its st_dev.
     const spy = vi.spyOn(fs, "lstatSync").mockImplementation(((
       target: fs.PathLike,
       opts?: fs.StatSyncOptions,
     ) => {
       const stat = realLstat(target, opts as undefined) as fs.Stats;
-      // Both spellings: the cache walk reaches it through the root as given,
-      // the measure pass through the target's realpath.
       if (String(target).endsWith(path.join("build", "vol"))) stat.dev += 1;
       return stat;
     }) as typeof fs.lstatSync);
@@ -669,7 +607,6 @@ describe("performClean byte accounting", () => {
       expect(report.bytesFound).toBe(0);
       expect(report.failures.map((f) => f.path)).toContain(mount);
       expect(fs.existsSync(path.join(mount, "image.bin"))).toBe(true);
-      // build/ is not deleted around the mount either.
       expect(fs.existsSync(path.join(root, "build/client/bundle.js"))).toBe(
         true,
       );
@@ -681,9 +618,6 @@ describe("performClean byte accounting", () => {
 
 describe("apps/ scoping", () => {
   it("one Agent-Native app does not license cleaning its neighbours", async () => {
-    // `build/`, `dist/` and `.output/` are ordinary directory names. A Rust
-    // project and a personal folder can sit beside the app that authorized
-    // the run, and neither is Agent-Native build output.
     const root = makeTempRoot({
       "package.json": JSON.stringify({ name: "workspace" }),
       "apps/realapp/package.json": AGENT_NATIVE_PACKAGE_JSON,
@@ -787,8 +721,6 @@ describe("runClean (CLI)", () => {
   });
 
   it("refuses a directory with no project marker instead of deleting build/", async () => {
-    // `~/Documents/build` is a plausible personal folder, and isSafeTarget
-    // only vouches for the name.
     const root = makeTempRoot({ "build/notes/draft.txt": "x".repeat(400) });
     const { io, err } = captureIo();
 
@@ -814,7 +746,6 @@ describe("runClean (CLI)", () => {
   });
 
   it("refuses a bare apps/ directory with no manifest at all", async () => {
-    // Any `~/Documents` with an `apps` folder in it would otherwise qualify.
     const root = makeTempRoot({
       "apps/mail/build/client/bundle.js": "x".repeat(40),
     });
@@ -828,8 +759,6 @@ describe("runClean (CLI)", () => {
   });
 
   it("refuses a pnpm-workspace.yaml root with no Agent-Native app under it", async () => {
-    // A workspace marker says "monorepo", not "Agent-Native monorepo" — every
-    // pnpm repo on the machine has one, `$HOME` included for some setups.
     const root = makeTempRoot({
       "package.json": JSON.stringify({ name: "other-monorepo" }),
       "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
@@ -886,8 +815,6 @@ describe("runClean (CLI)", () => {
   });
 
   it("refuses a package.json it cannot parse or read rather than assuming a project", async () => {
-    // "I could not read this manifest" must not become "yes, delete this
-    // project's build output".
     const broken: Array<[string, (root: string) => void]> = [
       [
         "invalid JSON",
@@ -997,9 +924,6 @@ describe("runClean (CLI)", () => {
       expect(await runClean(["--cwd", root, "--apply"], io)).toBe(1);
       const printed = out.join("\n");
 
-      // 1048586 found against 1048576 reclaimed: both round to "1.0 MB", so
-      // the headline said the run succeeded while the block below said it did
-      // not. The shortfall is exact because rounding is what hid it.
       expect(printed).not.toMatch(/^Reclaimed 1\.0 MB of 1\.0 MB\.$/m);
       expect(printed).toContain("10 bytes not reclaimed");
     } finally {

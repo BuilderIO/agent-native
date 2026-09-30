@@ -77,7 +77,6 @@ export default defineAction({
       ? resolvePlanOwnerEmailForWrite(requesterEmail)
       : requesterEmail;
 
-    // Commenting requires a real account — same identity checks as update-visual-plan.
     if (isAnonymousPublicViewer(requesterEmail)) {
       throw new ForbiddenError(
         "Replying to a comment requires an agent-native account. Sign in to reply.",
@@ -94,7 +93,6 @@ export default defineAction({
       );
     }
 
-    // Commenter-level access is sufficient for commenting.
     const access = await resolveAccess(
       "plan",
       args.planId,
@@ -113,7 +111,6 @@ export default defineAction({
     const db = getDb();
     const now = nowIso();
 
-    // Verify the parent comment exists on this plan.
     const [parentComment] = await db
       .select({
         id: schema.planComments.id,
@@ -140,8 +137,6 @@ export default defineAction({
       );
     }
 
-    // Replies must target the thread root (not a nested reply's id).
-    // If the supplied commentId is itself a reply, walk to the root.
     const threadRootId = parentComment.parentCommentId
       ? parentComment.parentCommentId
       : parentComment.id;

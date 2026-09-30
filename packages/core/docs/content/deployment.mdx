@@ -77,6 +77,54 @@ verification, password resets, invitations, or share notifications. Set
 also needs `EMAIL_FROM`. See [Authentication](/docs/authentication) for the
 available authentication modes.
 
+### Customize framework emails {#email-templates}
+
+Every email the framework sends has a default template. To use your own
+design, register an override from a server plugin. The framework still picks
+the recipient and sender and delivers the message. Your override decides what
+the message says and how it looks.
+
+```ts
+// server/plugins/email-templates.ts
+import {
+  escapeEmailHtml,
+  overrideTransactionalEmail,
+} from "@agent-native/core/server";
+
+export default function registerEmailTemplates(): void {
+  overrideTransactionalEmail("core.resource-shared", (props) => ({
+    subject: `${props.sender.name} shared "${props.resource.title}"`,
+    html: `<p>${escapeEmailHtml(props.sender.name)} invited you to
+      <a href="${escapeEmailHtml(props.resource.url)}">${escapeEmailHtml(props.resource.title)}</a>
+      in ${escapeEmailHtml(props.app.name)}.</p>`,
+  }));
+}
+```
+
+| Email id                         | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+
+Every override also receives `app` (`name`, `logoUrl`). A second argument holds
+the default rendering, so you can reuse its subject or text.
+
+- Props are raw values. Escape them with `escapeEmailHtml` before putting them
+  in an HTML string.
+- Return `react` with a React element instead of `html` to render a component.
+  React escapes props for you.
+- Leave out `subject` to keep the default subject. Leave out `text` to derive
+  the plain-text body from your HTML.
+- If an override throws, the send fails. The framework does not fall back to
+  the default design. The transactional email preview renders your override,
+  so check it there.
+
 ## Supported deployment targets
 
 Set a Nitro preset for the target you choose. The app code and database
@@ -84,7 +132,7 @@ contract stay the same.
 
 <!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
 
-<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS Amplify, AWS Lambda, Deno Deploy, Azure Static Web Apps, Koyeb, and Render." frame="hide" renderMode="design">
+<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Workers, AWS Amplify, AWS Lambda, Deno Deploy, Azure Static Web Apps, Koyeb, and Render." frame="hide" renderMode="design">
 
 ```html
 <!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
@@ -141,12 +189,6 @@ contract stay the same.
       />
     </span>
     <strong>Netlify</strong>
-  </a>
-  <a class="deployment-target" href="/docs/cloudflare#cloudflare-pages">
-    <span class="deployment-target-mark">
-      <img src="/integration-logos/cloudflare.svg" alt="" />
-    </span>
-    <strong>Cloudflare Pages</strong>
   </a>
   <a class="deployment-target" href="/docs/cloudflare#cloudflare-workers">
     <span class="deployment-target-mark">
@@ -293,7 +335,7 @@ settings or production controls:
 
 - [**Node.js**](/docs/node-js) - run the default Nitro server preset
 - [**Docker**](/docs/docker) - package the Node.js server in a container
-- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare Pages**](/docs/cloudflare#cloudflare-pages), and [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - configure hosted targets
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), and [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - configure hosted targets
 - [**AWS Amplify**](/docs/aws-amplify) and [**AWS Lambda**](/docs/aws-lambda) - deploy Nitro's serverless output on AWS
 - [**Deno Deploy**](/docs/deno-deploy) - deploy to the Deno runtime
 - [**Azure Static Web Apps**](/docs/azure-static-web-apps), [**Koyeb**](/docs/koyeb), and [**Render**](/docs/render) - use additional Nitro providers

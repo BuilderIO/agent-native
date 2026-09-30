@@ -1,10 +1,10 @@
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { DESKTOP_LOCAL_CODE_CHANGE_EVENT } from "@agent-native/core/client/host";
 import {
   AgentChatMemoryRouter as MemoryRouter,
   AgentSidebar,
-  preloadAgentChatSurface,
-} from "@agent-native/core/client/agent-chat";
-import { DESKTOP_LOCAL_CODE_CHANGE_EVENT } from "@agent-native/core/client/chat";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+} from "@agent-native/toolkit/app/chat";
+import { preloadAgentChatSurface } from "@agent-native/toolkit/app/chat/AgentSidebar";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,

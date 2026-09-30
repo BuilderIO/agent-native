@@ -1,7 +1,10 @@
 import path from "path";
 
 import { uploadFile } from "@agent-native/core/file-upload";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { and, desc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -19,7 +22,7 @@ import {
 
 type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
 
-export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024;
 
 export interface UploadedAsset {
   url: string;
@@ -233,19 +236,9 @@ export function canSaveAsUploadedAsset(args: {
   );
 }
 
-/**
- * Upload an image asset through the framework's `uploadFile()` provider chain.
- *
- * All uploads go to the configured remote provider — Builder.io by default,
- * or any provider registered via `registerFileUploadProvider()` (S3, R2, etc.).
- * There is intentionally NO local-disk fallback: writing into the source tree
- * (`public/uploads/`) pollutes git, doesn't persist on serverless deploys,
- * and isn't reachable across nodes. If no provider is configured, the request
- * fails with a clear 503 instructing the caller to configure one — connect
- * Builder.io or register a custom provider.
- */
 export async function uploadImageAsset(args: {
   email: string;
+  orgId?: string | null;
   originalName: string;
   data: Uint8Array;
   type?: string;
@@ -270,18 +263,22 @@ export async function uploadImageAsset(args: {
 
   const mimeType = ext === ".svg" ? "image/svg+xml" : args.type;
 
-  const result = await runWithRequestContext({ userEmail: args.email }, () =>
-    uploadFile({
-      data: args.data,
-      filename: args.originalName,
-      mimeType,
-      ownerEmail: args.email,
-    }),
+  const orgId =
+    args.orgId === undefined ? getRequestOrgId() : (args.orgId ?? undefined);
+  const result = await runWithRequestContext(
+    { userEmail: args.email, ...(orgId === undefined ? {} : { orgId }) },
+    () =>
+      uploadFile({
+        data: args.data,
+        filename: args.originalName,
+        mimeType,
+        ownerEmail: args.email,
+      }),
   );
 
   if (!result) {
     const err: Error & { statusCode?: number } = new Error(
-      "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+      "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
     );
     err.statusCode = 503;
     throw err;
@@ -295,8 +292,6 @@ export async function uploadImageAsset(args: {
     provider: result.provider,
   };
 
-  // Record the upload so it shows up in GET /api/assets — only the URL and
-  // metadata are stored, never the file bytes (those live with the provider).
   const db = getDb();
   await db.insert(schema.uploadedAssets).values({
     id: nanoid(),
@@ -312,10 +307,6 @@ export async function uploadImageAsset(args: {
   return asset;
 }
 
-/**
- * POST /api/assets/upload — receive a single image file, route it through the
- * framework provider chain, return its hosted URL.
- */
 export const uploadAsset = defineEventHandler(async (event) => {
   const { session, error: authError } = await requireSession(event);
   if (!session) {
@@ -337,6 +328,7 @@ export const uploadAsset = defineEventHandler(async (event) => {
   try {
     return await uploadImageAsset({
       email: session.email,
+      orgId: session.orgId,
       originalName: filePart.filename || "upload",
       data: filePart.data,
       type: filePart.type,
@@ -350,9 +342,6 @@ export const uploadAsset = defineEventHandler(async (event) => {
   }
 });
 
-/**
- * GET /api/assets — list assets this user has uploaded, most recent first.
- */
 export const listAssets = defineEventHandler(async (event) => {
   const { session, error } = await requireSession(event);
   if (!session) {
@@ -373,13 +362,6 @@ export const listAssets = defineEventHandler(async (event) => {
   return rows;
 });
 
-/**
- * DELETE /api/assets/:id — removes the upload from this user's asset library
- * index. Keyed by the row's unique id (not filename) since two uploads can
- * share the same original filename. The underlying file may still exist with
- * the storage provider (Builder.io, S3, etc.) — deleting it there requires
- * that provider's own API — but it no longer appears in this app's library.
- */
 export const deleteAsset = defineEventHandler(async (event) => {
   const { session, error } = await requireSession(event);
   if (!session) {

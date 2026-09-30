@@ -6,14 +6,12 @@ import {
   formatMcpConnectError,
   McpConfigUnreadableError,
   mountMcpServersRoutes,
-  startMcpConfigRefresh,
 } from "./routes.js";
 
 const mockedSettings = vi.hoisted(() => ({
   all: {} as Record<string, Record<string, unknown>>,
   readError: null as Error | null,
-  reads: 0,
-  emitter: null as null | import("node:events").EventEmitter,
+  readKeys: [] as string[],
 }));
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
@@ -30,11 +28,15 @@ vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: (app: any) => app.h3,
 }));
 
-vi.mock("../settings/store.js", async () => {
-  const { EventEmitter } = await import("node:events");
-  mockedSettings.emitter = new EventEmitter();
+vi.mock("../settings/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../settings/store.js")>();
   return {
-    getSetting: async (key: string) => mockedSettings.all[key] ?? null,
+    ...actual,
+    getSetting: async (key: string) => {
+      mockedSettings.readKeys.push(key);
+      if (mockedSettings.readError) throw mockedSettings.readError;
+      return mockedSettings.all[key] ?? null;
+    },
     putSetting: async (key: string, value: Record<string, unknown>) => {
       mockedSettings.all[key] = value;
     },
@@ -43,12 +45,6 @@ vi.mock("../settings/store.js", async () => {
       delete mockedSettings.all[key];
       return existed;
     },
-    getAllSettings: async () => {
-      mockedSettings.reads += 1;
-      if (mockedSettings.readError) throw mockedSettings.readError;
-      return mockedSettings.all;
-    },
-    getSettingsEmitter: () => mockedSettings.emitter,
   };
 });
 
@@ -72,7 +68,7 @@ vi.mock("./workspace-servers.js", () => ({
 beforeEach(() => {
   mockedSettings.all = {};
   mockedSettings.readError = null;
-  mockedSettings.reads = 0;
+  mockedSettings.readKeys = [];
   getSessionMock.mockReset();
   getOrgContextMock.mockReset();
 });
@@ -171,82 +167,6 @@ describe("formatMcpConnectError", () => {
   });
 });
 
-describe("startMcpConfigRefresh", () => {
-  it("re-reads the settings table only on a write or the backstop", async () => {
-    // `buildMergedConfig` scans the whole settings table. On an idle app that
-    // used to be a full-table round trip every 60s per app, forever, just to
-    // diff a signature that had not changed since boot.
-    vi.useFakeTimers();
-    const manager = {
-      getConfig: () => ({ servers: {} }),
-      reconfigure: vi.fn(async () => {}),
-    };
-    const stop = startMcpConfigRefresh(manager as never)!;
-    try {
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(mockedSettings.reads).toBe(1);
-
-      // Idle: no settings write, no scan.
-      await vi.advanceTimersByTimeAsync(120_000);
-      expect(mockedSettings.reads).toBe(1);
-
-      mockedSettings.emitter!.emit("settings", { source: "settings" });
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(mockedSettings.reads).toBe(2);
-
-      // Backstop still catches a write made by another process.
-      await vi.advanceTimersByTimeAsync(6 * 60_000);
-      expect(mockedSettings.reads).toBe(3);
-    } finally {
-      stop();
-      vi.useRealTimers();
-    }
-  });
-
-  it("starts no timer where in-process sweeps are disabled", async () => {
-    // Billed per warm container, and the first tick always scans the whole
-    // settings table because it starts dirty.
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NETLIFY", "true");
-    vi.useFakeTimers();
-    const manager = {
-      getConfig: () => ({ servers: {} }),
-      reconfigure: vi.fn(async () => {}),
-    };
-    try {
-      expect(startMcpConfigRefresh(manager as never)).toBeNull();
-      await vi.advanceTimersByTimeAsync(10 * 60_000);
-      expect(mockedSettings.reads).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("retries a failed refresh on the next interval", async () => {
-    vi.useFakeTimers();
-    const reconfigure = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("temporary manager failure"))
-      .mockResolvedValue(undefined);
-    const manager = {
-      getConfig: () => ({ servers: { stale: {} } }),
-      reconfigure,
-    };
-    const stop = startMcpConfigRefresh(manager as never)!;
-    try {
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(mockedSettings.reads).toBe(1);
-
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(mockedSettings.reads).toBe(2);
-      expect(reconfigure).toHaveBeenCalledTimes(2);
-    } finally {
-      stop();
-      vi.useRealTimers();
-    }
-  });
-});
-
 describe("buildMergedConfig built-in MCP capabilities", () => {
   it("merges enabled user and org built-ins with scoped visibility keys", async () => {
     mockedSettings.all = {
@@ -258,7 +178,10 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
       },
     };
 
-    const cfg = await buildMergedConfig();
+    const cfg = await buildMergedConfig({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
     const userKey = `user_${hashEmail("alice@example.com")}_chrome-devtools`;
     expect(cfg?.servers[userKey]).toEqual({
       type: "stdio",
@@ -286,7 +209,10 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
       },
     };
 
-    const cfg = await buildMergedConfig();
+    const cfg = await buildMergedConfig({
+      userEmail: "alice@example.com",
+      orgId: null,
+    });
     const chromeKey = `user_${hashEmail("alice@example.com")}_chrome-devtools`;
     const playwrightKey = `user_${hashEmail("alice@example.com")}_playwright`;
     expect(cfg?.servers[chromeKey]).toBeUndefined();
@@ -303,22 +229,127 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
       },
     };
 
-    await expect(buildMergedConfig()).resolves.toBeNull();
+    await expect(
+      buildMergedConfig({ userEmail: "alice@example.com", orgId: "acme" }),
+    ).resolves.toBeNull();
+    expect(mockedSettings.readKeys).toEqual([
+      "u:alice@example.com:mcp-servers-remote",
+      "o:acme:mcp-servers-remote",
+    ]);
   });
 
   it("reports an unreadable settings table instead of an empty config", async () => {
     mockedSettings.readError = new Error("connect ECONNREFUSED");
 
-    // `null` means "zero MCP servers configured". An unreachable settings table
-    // must not be able to produce that answer.
-    await expect(buildMergedConfig()).rejects.toThrow(McpConfigUnreadableError);
+    await expect(
+      buildMergedConfig({ userEmail: "alice@example.com", orgId: null }),
+    ).rejects.toThrow(McpConfigUnreadableError);
+  });
+
+  it("reads only the caller and active organization settings", async () => {
+    mockedSettings.all = {
+      "u:alice@example.com:mcp-servers-remote": {
+        servers: [
+          {
+            id: "alice-server",
+            name: "alice-server",
+            url: "https://alice.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+      "u:bob@example.com:mcp-servers-remote": {
+        servers: [
+          {
+            id: "bob-server",
+            name: "bob-server",
+            url: "https://bob.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+      "o:acme:mcp-servers-remote": {
+        servers: [
+          {
+            id: "org-server",
+            name: "org-server",
+            url: "https://org.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+    };
+
+    const cfg = await buildMergedConfig({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
+    expect(Object.keys(cfg?.servers ?? {})).toEqual([
+      `user_${hashEmail("alice@example.com")}_alice-server`,
+      "org_acme_org-server",
+    ]);
+    expect(mockedSettings.readKeys).toEqual([
+      "u:alice@example.com:mcp-servers-remote",
+      "o:acme:mcp-servers-remote",
+      "u:alice@example.com:mcp-builtin-capabilities",
+      "o:acme:mcp-builtin-capabilities",
+    ]);
+    expect(mockedSettings.readKeys).not.toContain(
+      "u:bob@example.com:mcp-servers-remote",
+    );
+  });
+
+  it("does not create settings reads for anonymous identities", async () => {
+    await expect(
+      buildMergedConfig({
+        userEmail: "anon-session@agent-native.com",
+        orgId: "acme",
+      }),
+    ).rejects.toThrow("Authenticated MCP principal required");
+    expect(mockedSettings.readKeys).toEqual([]);
   });
 });
 
 describe("MCP server routes", () => {
-  it("serializes route access behind deferred manager hydration", async () => {
+  it("invalidates same-scope managers when built-in MCP settings change", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "owner",
+    });
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    const invalidateScope = vi.fn(async () => {});
+    mountMcpServersRoutes(nitroApp, manager as any, { invalidateScope });
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/builtin",
+      "POST",
+      { scope: "org", enabledIds: [] },
+    );
+
+    expect(response.status).toBe(200);
+    expect(invalidateScope).toHaveBeenCalledWith("org", "acme", manager);
+  });
+
+  it("rejects anonymous mutations before waiting for manager readiness", async () => {
     getSessionMock.mockResolvedValue(null);
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
     let release!: () => void;
     const ready = new Promise<void>((resolve) => {
       release = resolve;
@@ -333,22 +364,50 @@ describe("MCP server routes", () => {
       })),
       reconfigure: vi.fn(),
     };
+    const waitUntilReady = vi.fn(() => ready);
     mountMcpServersRoutes(nitroApp, manager as any, {
-      waitUntilReady: () => ready,
+      waitUntilReady,
     });
 
     const pending = dispatchMountedRoute(
       nitroApp,
-      "/_agent-native/mcp/servers/test",
+      "/_agent-native/mcp/servers",
       "POST",
-      { url: "https://mcp.example.test/mcp" },
+      { scope: "user", name: "private", url: "https://mcp.example.test/mcp" },
     );
-    await Promise.resolve();
-    expect(getSessionMock).not.toHaveBeenCalled();
-
-    release();
     await expect(pending).resolves.toMatchObject({ status: 401 });
+    release();
     expect(getSessionMock).toHaveBeenCalledOnce();
+    expect(getOrgContextMock).not.toHaveBeenCalled();
+    expect(waitUntilReady).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous removals before waiting for manager readiness", async () => {
+    getSessionMock.mockResolvedValue(null);
+    const waitUntilReady = vi.fn(async () => {});
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: vi.fn(() => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      })),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any, { waitUntilReady });
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/private?scope=user",
+      "DELETE",
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(getOrgContextMock).not.toHaveBeenCalled();
+    expect(waitUntilReady).not.toHaveBeenCalled();
+    expect(manager.reconfigure).not.toHaveBeenCalled();
   });
 
   it("reconnects a scoped existing server by reconfiguring the manager", async () => {
@@ -502,7 +561,11 @@ describe("MCP server routes", () => {
 
   it("requires an active org to reconnect an org-scoped server", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     mockedSettings.all["o:acme:mcp-servers-remote"] = {
       servers: [
@@ -576,7 +639,11 @@ describe("MCP server routes", () => {
       },
     };
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -605,7 +672,11 @@ describe("MCP server routes", () => {
 
   it("mediates MCP App tool calls through the same server only", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -664,7 +735,11 @@ describe("MCP server routes", () => {
 
   it("requires authentication for MCP App routes outside production too", async () => {
     getSessionMock.mockResolvedValue(null);
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -693,7 +768,11 @@ describe("MCP server routes", () => {
 
   it("blocks MCP App calls to model-only tools", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -742,7 +821,11 @@ describe("MCP server routes", () => {
 
   it("allows MCP Apps to read only ui:// resources from visible servers", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -803,7 +886,11 @@ describe("MCP server routes", () => {
 
   it("blocks MCP App resource reads when the server has no app-visible tools", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -907,5 +994,6 @@ async function dispatchMountedRoute(
   return {
     body: responseBody,
     status: event.res.status || event.node.res.statusCode,
+    headers: event.res.headers,
   };
 }

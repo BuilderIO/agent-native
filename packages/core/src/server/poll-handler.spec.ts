@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publishActionChangeFastPath } from "../action-change-fast-path.js";
 
 const mockExecute = vi.hoisted(() => vi.fn());
+const mockIsProductionServerlessFunctionRuntime = vi.hoisted(() =>
+  vi.fn(() => false),
+);
+const mockAppMigratesAtRelease = vi.hoisted(() => vi.fn(() => false));
 const mockGetSession = vi.hoisted(() =>
   vi.fn(
     async (): Promise<{ email: string; orgId?: string }> => ({
@@ -19,6 +23,12 @@ vi.mock("h3", () => ({
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
+  isProductionServerlessFunctionRuntime:
+    mockIsProductionServerlessFunctionRuntime,
+}));
+
+vi.mock("../db/migration-policy.js", () => ({
+  appMigratesAtRelease: mockAppMigratesAtRelease,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -27,14 +37,27 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Stub auth so the handler doesn't try to read a real session cookie. Tests
-// that need a different session (e.g. an org membership) override this via
-// `mockGetSession.mockResolvedValueOnce(...)` before importing poll.js.
 vi.mock("./auth.js", () => ({
   getSession: mockGetSession,
 }));
 
+vi.mock("./http-response-telemetry.js", () => ({
+  getHttpRequestTelemetryId: () => "poll-request-id",
+}));
+
 describe("poll handler", () => {
+  it("fails closed when session resolution throws", async () => {
+    mockGetSession.mockImplementation(() => {
+      throw new Error("auth unavailable");
+    });
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    await expect(handler({ query: { since: "0" } })).resolves.toEqual({
+      error: "Unauthenticated",
+    });
+  });
+
   beforeEach(() => {
     vi.resetModules();
     vi.useFakeTimers();
@@ -42,6 +65,8 @@ describe("poll handler", () => {
     process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE = "1";
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
     mockExecute.mockReset();
+    mockIsProductionServerlessFunctionRuntime.mockReturnValue(false);
+    mockAppMigratesAtRelease.mockReturnValue(false);
     mockGetSession.mockReset();
     mockGetSession.mockResolvedValue({ email: "test@example.com" });
   });
@@ -52,7 +77,52 @@ describe("poll handler", () => {
     vi.useRealTimers();
   });
 
-  it("returns durable sync events without running the legacy watermark scan", async () => {
+  it("logs the request id and stack when the poll handler throws", async () => {
+    const error = new Error("poll database read failed");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler({
+      seedVersionFromDb: async () => {
+        throw error;
+      },
+    } as any);
+
+    try {
+      await expect(handler({ query: { since: "0" } })).rejects.toBe(error);
+      expect(log).toHaveBeenCalledWith(
+        "[agent-native] Poll handler failed (request_id=poll-request-id)",
+        error,
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs a rejected final change read before rethrowing it", async () => {
+    const error = new Error("poll change read failed");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler({
+      seedVersionFromDb: async () => {},
+      ensureSyncEventsTable: async () => true,
+      checkExternalDbChanges: async () => {},
+      getCombinedChangesSinceForUser: async () => {
+        throw error;
+      },
+    } as any);
+
+    try {
+      await expect(handler({ query: { since: "0" } })).rejects.toBe(error);
+      expect(log).toHaveBeenCalledWith(
+        "[agent-native] Poll handler failed (request_id=poll-request-id)",
+        error,
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("returns durable sync events after the throttled legacy watermark scan", async () => {
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
     const durableEvent = {
@@ -116,6 +186,197 @@ describe("poll handler", () => {
       events: [expect.objectContaining(durableEvent)],
     });
     expect(executedSql()).toContain("FROM sync_events WHERE version > ?");
+    expect(executedSql()).toMatch(/MAX\(updated_at\)/);
+    expect(executedSql()).not.toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+  });
+
+  it("uses one indexed durable read on an idle poll without initialization work", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockExecute.mockResolvedValue({ rows: [] });
+
+    const { createPollHandler, getDefaultAppSyncState } =
+      await import("./poll.js");
+    const state = getDefaultAppSyncState();
+    await state.seedVersionFromDb();
+    mockExecute.mockClear();
+    const handler = createPollHandler(state) as any;
+
+    await expect(handler({ query: { since: "1000" } })).resolves.toEqual({
+      version: 1_000,
+      events: [],
+    });
+    const queries = mockExecute.mock.calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("FROM sync_events WHERE version > ?");
+  });
+
+  it("keeps a cold release-owned serverless poll on the durable cursor query", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockIsProductionServerlessFunctionRuntime.mockReturnValue(true);
+    mockAppMigratesAtRelease.mockReturnValue(true);
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql === "SELECT MAX(version) as max_version FROM sync_events") {
+        return { rows: [{ max_version: 4_200 }] };
+      }
+      if (sql.includes("FROM sync_events WHERE version > ?")) {
+        return {
+          rows: [
+            {
+              id: "next-event",
+              version: 4_201,
+              event_json: JSON.stringify({
+                source: "action",
+                type: "change",
+                key: "update-record",
+                owner: "test@example.com",
+              }),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const initial = await handler({ query: { since: "0" } });
+    expect(initial).toEqual({ version: 4_200, events: [] });
+    expect(executedSql()).toBe(
+      "SELECT MAX(version) as max_version FROM sync_events",
+    );
+
+    const next = await handler({ query: { since: String(initial.version) } });
+    expect(next.version).toBe(4_201);
+    expect(next.events).toEqual([
+      expect.objectContaining({
+        cursorId: "next-event",
+        version: 4_201,
+        source: "action",
+        key: "update-record",
+      }),
+    ]);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(executedSql()).toContain("FROM sync_events WHERE version > ?");
+    expect(executedSql()).not.toMatch(
+      /information_schema|MAX\(updated_at\)|FROM settings/i,
+    );
+  });
+
+  it("surfaces a missing durable table in release-owned serverless polling", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockIsProductionServerlessFunctionRuntime.mockReturnValue(true);
+    mockAppMigratesAtRelease.mockReturnValue(true);
+    mockExecute.mockRejectedValue(
+      Object.assign(new Error("missing relation"), { code: "42P01" }),
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    try {
+      await expect(handler({ query: { since: "0" } })).rejects.toThrow(
+        "Durable sync events are unavailable until their table exists.",
+      );
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(executedSql()).toBe(
+        "SELECT MAX(version) as max_version FROM sync_events",
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("seeds cold watermarks before reading the initial durable cursor", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockExecute.mockResolvedValue({ rows: [{ max_version: 4_200 }] });
+
+    const { createPollHandler, getDefaultAppSyncState } =
+      await import("./poll.js");
+    const state = getDefaultAppSyncState();
+    (state as any).lastDbCheck = Date.now();
+    const handler = createPollHandler(state) as any;
+
+    await expect(handler({ query: {} })).resolves.toEqual({
+      version: 4_200,
+      events: [],
+    });
+    const queries = mockExecute.mock.calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    expect(queries.filter((sql) => sql.includes("FROM sync_events"))).toEqual([
+      "SELECT MAX(version) as max_version FROM sync_events",
+      "SELECT MAX(version) as max_version FROM sync_events",
+    ]);
+  });
+
+  it("seeds legacy watermarks before the first durable poll", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql.includes("sync_events")) {
+        return { rows: [{ max_version: 5_000 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        !sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 5_000 }] };
+      }
+      if (sql.includes("MAX(updated_at)")) return { rows: [{ max_ts: 0 }] };
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    await expect(handler({ query: { since: "0" } })).resolves.toEqual({
+      version: 5_000,
+      events: [],
+    });
+    expect(executedSql()).not.toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+  });
+
+  it("falls back to the seeded memory watermark when sync_events is unavailable", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql.includes("sync_events")) {
+        throw Object.assign(new Error("missing relation"), { code: "42P01" });
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        !sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 5_000 }] };
+      }
+      if (sql.includes("MAX(updated_at)")) return { rows: [{ max_ts: 0 }] };
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    await expect(handler({ query: { since: "0" } })).resolves.toEqual({
+      version: 5_000,
+      events: [],
+    });
     expect(executedSql()).not.toContain(
       "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
     );
@@ -727,6 +988,46 @@ describe("poll handler", () => {
     );
   });
 
+  it("sets a missing extension watermark from MAX(updated_at) without scanning tools", async () => {
+    let extensionsTs: unknown = null;
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      return { rows: [] };
+    });
+
+    const { AppSyncState } = await import("./poll.js");
+    const state = new AppSyncState({
+      getDb: () => ({ execute: mockExecute }) as any,
+    });
+    await state.seedVersionFromDb();
+
+    extensionsTs = 1_800;
+    await vi.advanceTimersByTimeAsync(1_001);
+    await state.checkExternalDbChanges({ durableEvents: false });
+
+    const toolRowQueries = mockExecute.mock.calls.filter(([query]) => {
+      const sql = typeof query === "string" ? query : query?.sql;
+      return (
+        typeof sql === "string" &&
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      );
+    });
+    expect(toolRowQueries).toEqual([]);
+  });
+
   it("emits action changes from durable markers for child-process actions", async () => {
     let appStateTs = 1_000;
     let settingsTs = 900;
@@ -849,9 +1150,6 @@ describe("poll handler", () => {
       ]),
     );
 
-    // The marker can advance while the table-wide MAX stays ahead of it due
-    // to clock skew between action and web processes. Its own max probe must
-    // still make the marker row visible.
     appStateTs = 3_000;
     actionMarkerTs = 2_600;
     actionMarkerRows.push({
@@ -1106,9 +1404,6 @@ describe("poll handler", () => {
     expect(extensionScan?.[0]).toMatchObject({
       args: ["__extensions_change__", 700],
     });
-    // The extension-marker scan is bounded by the same watermark clause, so
-    // match on the key argument rather than the SQL text: this asserts the
-    // screen-refresh scan did not run, not that no bounded scan ran.
     expect(executedBoundedScanKeys()).not.toContain("__screen_refresh__");
   });
 
@@ -1116,12 +1411,8 @@ describe("poll handler", () => {
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
 
-    // Deliberately more than DURABLE_READ_LIMIT (1000) so an unscoped query
-    // would fill the entire page with another tenant's events and never
-    // reach this caller's own/global/resource-scoped events in one poll —
-    // exactly the bug this fix closes.
     const noiseRows = Array.from({ length: 1_500 }, (_, index) => {
-      const version = 1_001 + index; // 1001..2500
+      const version = 1_001 + index;
       return {
         version,
         owner: "other-tenant@example.com",
@@ -1154,8 +1445,6 @@ describe("poll handler", () => {
         owner: "test@example.com",
       },
     };
-    // Owned by yet another user, but resource-scoped — must still reach the
-    // access-aware `getChangeVisibilityForUser` branch regardless of owner.
     const resourceRow = {
       version: 2_503,
       owner: "someone-else@example.com",
@@ -1331,15 +1620,6 @@ describe("poll handler", () => {
     expect(syncQuery.args).toEqual([1_000, "test@example.com", "org-1", 1_001]);
   });
 
-  // ─── Idle cost ────────────────────────────────────────────────────────────
-  // The legacy watermark scan used to read `application_state` four separate
-  // times per check whether or not anything had changed, and that cost repeats
-  // per app per connected client. These two tests pin the marker gate: one
-  // independent max probes when nothing moved, the full read the moment it
-  // does. The action marker has its own watermark, so it must stay independent
-  // from the table-wide max under cross-process clock skew.
-
-  /** Serves the legacy watermark scan with a settable application_state max. */
   function mockLegacyScan(appStateMax: () => number): void {
     mockExecute.mockImplementation(async (query: any) => {
       const sql: string = typeof query === "string" ? query : query.sql;
@@ -1347,8 +1627,6 @@ describe("poll handler", () => {
         sql.includes("MAX(updated_at)") &&
         sql.includes("application_state")
       ) {
-        // Marker reads (`WHERE key = ?`) share the table's max here; the gate
-        // must not depend on them being lower.
         return { rows: [{ max_ts: appStateMax() }] };
       }
       if (sql.includes("MAX(updated_at)")) return { rows: [{ max_ts: 0 }] };
@@ -1370,7 +1648,6 @@ describe("poll handler", () => {
     const { createPollHandler } = await import("./poll.js");
     const handler = createPollHandler() as any;
 
-    // First poll seeds the watermarks; the throttle defers the scan itself.
     await handler({ query: { since: "0" } });
     vi.setSystemTime(102_000);
     mockExecute.mockClear();
@@ -1405,17 +1682,6 @@ describe("poll handler", () => {
   });
 });
 
-/**
- * Simulates the SQL-level scope filter the durable `sync_events` query now
- * applies (see poll.ts `getDurableChangesSinceForUser`): a row surfaces only
- * when it is deployment-global (no owner, no org), owned by the caller,
- * scoped to the caller's org, or resource-scoped (any `resourceType`,
- * regardless of owner — the in-memory access-aware check downstream decides
- * those). Filtering here — instead of returning the whole `store` and relying
- * on `getChangeVisibilityForUser` alone — is what proves the SQL scoping
- * itself keeps unrelated-tenant rows out of the page, not just out of the
- * final `events` array.
- */
 function scopedSyncEventsRows(
   store: Array<{
     version: number;
@@ -1444,7 +1710,6 @@ function scopedSyncEventsRows(
     }));
 }
 
-/** Key arguments of every `WHERE key = ? AND updated_at > ?` scan executed. */
 function executedBoundedScanKeys(): string[] {
   return mockExecute.mock.calls
     .filter(

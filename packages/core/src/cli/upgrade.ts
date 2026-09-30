@@ -1,25 +1,18 @@
-/**
- * `agent-native upgrade` — bring an existing Agent-Native app/workspace current.
- *
- * Older branches often break after a core bump. Agents then invent
- * `pnpm.overrides` / patches against `@agent-native/*` (especially dispatch),
- * which makes things worse. This command is the supported path:
- *
- *   1. Doctor: refuse or warn on framework overrides/patches
- *   2. Bump `@agent-native/*` deps to `latest` (unless file:/link:/workspace:)
- *   3. Install
- *   4. Pin `latest` back to the exact versions the install resolved
- *   5. Refresh scaffold skills (`skills update scaffold --project`)
- *   6. Verify with typecheck when available
- *
- * On failure: print the error and stop. Do not patch framework packages.
- */
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import dotenv from "dotenv";
+
+import {
+  isMigrationManifestActive,
+  loadMigrationManifestsForProject,
+  type MigrationDependency,
+  type MigrationDependencyCondition,
+} from "../package-lifecycle/migration-manifest.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import type { MigrationCodemodResult } from "./migration-codemod.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
@@ -43,7 +36,6 @@ export interface UpgradeCliOptions {
   skipSkills?: boolean;
   json?: boolean;
   help?: boolean;
-  /** Force past doctor findings that would otherwise block (not recommended). */
   force?: boolean;
 }
 
@@ -62,6 +54,7 @@ export interface PackageJsonLike {
   resolutions?: Record<string, string>;
   scripts?: Record<string, string>;
   workspaces?: string[] | { packages?: string[] };
+  "agent-native"?: { workspaceCore?: string };
 }
 
 export interface FrameworkOverrideFinding {
@@ -86,11 +79,17 @@ export interface AgentNativeDepPin {
   version: string;
 }
 
+export interface UpgradeDependencyAddition {
+  file: string;
+  name: string;
+  version: string;
+  action: "add" | "promote" | "update";
+  from?: string;
+}
+
 export interface AgentNativePinResult {
   pins: AgentNativeDepPin[];
-  /** `<relative package.json> <package>` for every spec left floating. */
   unresolved: string[];
-  /** `<relative package.json>: <parse error>` for manifests we could not read. */
   unreadable: string[];
 }
 
@@ -104,7 +103,6 @@ export interface UpgradeDoctorReport {
   project: UpgradeProject;
   findings: FrameworkOverrideFinding[];
   bumps: AgentNativeDepBump[];
-  /** `<relative package.json>: <parse error>` for manifests we could not read. */
   unreadable: string[];
   installedCoreVersion: string | null;
   cliCoreVersion: string | null;
@@ -205,12 +203,13 @@ export function printUpgradeHelp(io: Pick<UpgradeIo, "log"> = defaultIo): void {
       "  agent-native upgrade              Bring this app/workspace to current @agent-native/*",
       "  agent-native upgrade check        Doctor only: overrides, patches, pending bumps",
       "  agent-native upgrade --dry-run    Show the plan without writing or installing",
-      "  agent-native upgrade --codemods   Preview manifest-driven import migrations",
+      "  agent-native upgrade --codemods   Apply manifest-driven import migrations",
       "",
       "Options:",
       "  --skip-install   Bump package.json only; do not run the package manager",
-      "  --codemods       Rewrite moved Agent-Native imports and exports (preview by default)",
-      "  --yes            Apply codemods; without this flag --codemods is a dry run",
+      "  --codemods       Rewrite moved Agent-Native imports and exports",
+      "  --dry-run        Preview the upgrade and codemods without writing files",
+      "  --yes            Accepted for compatibility; codemods apply by default",
       "  --skip-skills    Skip `skills update scaffold --project`",
       "  --skip-verify    Skip typecheck after upgrade",
       "  --force          Continue even when framework overrides/patches are present",
@@ -229,11 +228,6 @@ type JsonFileRead =
   | { ok: true; value: PackageJsonLike }
   | { ok: false; reason: "missing" | "unreadable"; message: string };
 
-/**
- * "Not there" and "there but unparseable" are different answers. Collapsing
- * them into `null` drops the manifest a report most needs to name — the one
- * whose contents nobody could check.
- */
 function readJsonFile(filePath: string): JsonFileRead {
   let text: string;
   try {
@@ -301,8 +295,6 @@ function collectOverrideFindings(
   for (const table of tables) {
     if (!table.map) continue;
     for (const [key, value] of Object.entries(table.map)) {
-      // Keys may be bare (`@agent-native/core`) or versioned
-      // (`@agent-native/core@1.2.3` for patchedDependencies).
       if (key.includes(AGENT_NATIVE_SCOPE) || isAgentNativePackageName(key)) {
         findings.push({ file, field: table.field, key, value: String(value) });
       }
@@ -334,15 +326,285 @@ function collectBumps(
   return bumps;
 }
 
-/**
- * Rewrite the `latest` specs this run just installed back to the exact
- * versions the package manager resolved.
- *
- * `latest` left behind in a committed manifest is not a pin: every later
- * install mints a fresh resolution while pnpm's orphan retention keeps the
- * superseded ones, and each distinct `@agent-native/core` resolution is
- * another ~175 MB physical copy in the virtual store.
- */
+function firstConfigured(...values: Array<string | undefined>): boolean {
+  return values.some((value) => Boolean(value?.trim()));
+}
+
+function hasSentryKeyTuple(environment: NodeJS.ProcessEnv): boolean {
+  return (
+    firstConfigured(
+      environment.SENTRY_CLIENT_KEY,
+      environment.VITE_SENTRY_CLIENT_KEY,
+    ) &&
+    firstConfigured(
+      environment.SENTRY_PROJECT_ID,
+      environment.VITE_SENTRY_PROJECT_ID,
+    ) &&
+    firstConfigured(
+      environment.SENTRY_INGEST_HOST,
+      environment.VITE_SENTRY_INGEST_HOST,
+    )
+  );
+}
+
+function isEnabled(value: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
+}
+
+export function selectMigrationDependencies(
+  dependencies: MigrationDependency[],
+  environment: NodeJS.ProcessEnv,
+): MigrationDependency[] {
+  const appName =
+    environment.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+    environment.VITE_AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+    environment.APP_NAME?.trim();
+  const appDatabaseUrl = appName
+    ? environment[
+        `${appName.toUpperCase().replace(/-/g, "_")}_DATABASE_URL`
+      ]?.trim()
+    : undefined;
+  const databaseUrl = appDatabaseUrl || environment.DATABASE_URL?.trim();
+  const sentryKeyTuple = hasSentryKeyTuple(environment);
+  const enabled = new Set<MigrationDependencyCondition>();
+
+  if (!databaseUrl || /^pglite:/i.test(databaseUrl)) {
+    enabled.add("pglite-database");
+  }
+  if (
+    firstConfigured(environment.SENTRY_SERVER_DSN, environment.SENTRY_DSN) ||
+    sentryKeyTuple
+  ) {
+    enabled.add("server-sentry");
+  }
+  if (
+    firstConfigured(
+      environment.SENTRY_CLIENT_DSN,
+      environment.VITE_SENTRY_CLIENT_DSN,
+      environment.VITE_SENTRY_DSN,
+      environment.SENTRY_DSN,
+    ) ||
+    sentryKeyTuple
+  ) {
+    enabled.add("browser-sentry");
+  }
+  if (
+    firstConfigured(environment.SENTRY_AUTH_TOKEN) &&
+    firstConfigured(environment.SENTRY_ORG, environment.SENTRY_ORG_SLUG) &&
+    firstConfigured(
+      environment.SENTRY_PROJECT,
+      environment.SENTRY_CLIENT_PROJECT,
+    )
+  ) {
+    enabled.add("sentry-source-map-upload");
+  }
+  if (isEnabled(environment.AUTH_SSO)) enabled.add("sso");
+  if (isEnabled(environment.AUTH_SCIM)) enabled.add("scim");
+  if (firstConfigured(environment.VITE_AMPLITUDE_API_KEY)) {
+    enabled.add("amplitude");
+  }
+  if (
+    firstConfigured(environment.MICROSOFT_TEAMS_APP_ID) &&
+    firstConfigured(environment.MICROSOFT_TEAMS_APP_PASSWORD)
+  ) {
+    enabled.add("microsoft-teams");
+  }
+
+  const selected = new Map<string, MigrationDependency>();
+  for (const dependency of dependencies) {
+    if (enabled.has(dependency.when)) selected.set(dependency.name, dependency);
+  }
+  return [...selected.values()];
+}
+
+function isDirectCoreDependency(pkg: PackageJsonLike): boolean {
+  return [pkg.dependencies, pkg.devDependencies, pkg.optionalDependencies].some(
+    (dependencies) => Boolean(dependencies?.["@agent-native/core"]),
+  );
+}
+
+function findWorkspaceEnvironmentRoot(
+  packageDir: string,
+  fallbackRoot: string,
+): string {
+  let dir = packageDir;
+  while (true) {
+    const packageRead = readJsonFile(path.join(dir, "package.json"));
+    const isWorkspaceRoot =
+      fs.existsSync(path.join(dir, "pnpm-workspace.yaml")) ||
+      (packageRead.ok &&
+        (packageWorkspacePatterns(packageRead.value).length > 0 ||
+          Boolean(packageRead.value["agent-native"]?.workspaceCore)));
+    if (isWorkspaceRoot) return dir;
+
+    const parent = path.dirname(dir);
+    if (parent === dir) return fallbackRoot;
+    dir = parent;
+  }
+}
+
+export function readUpgradeEnvironment(
+  projectRoot: string,
+  packageDir: string,
+  shellEnvironment: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const workspaceRoot = findWorkspaceEnvironmentRoot(packageDir, projectRoot);
+  const directories = [...new Set([workspaceRoot, projectRoot, packageDir])]
+    .filter((directory) => {
+      const relative = path.relative(directory, packageDir);
+      return (
+        !path.isAbsolute(relative) &&
+        relative !== ".." &&
+        !relative.startsWith(`..${path.sep}`)
+      );
+    })
+    .sort(
+      (left, right) =>
+        left.split(path.sep).length - right.split(path.sep).length,
+    );
+  const environment: NodeJS.ProcessEnv = {};
+  for (const directory of directories) {
+    for (const file of [".env", ".env.local"]) {
+      const filePath = path.join(directory, file);
+      let contents: string;
+      try {
+        contents = fs.readFileSync(filePath, "utf-8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw new Error(
+          `Could not read ${path.relative(projectRoot, filePath)}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      Object.assign(environment, dotenv.parse(contents));
+    }
+  }
+  Object.assign(environment, shellEnvironment);
+  return environment;
+}
+
+export function loadActiveMigrationDependencies(
+  projectRoot: string,
+  packageVersion: string | null,
+  manifests = loadMigrationManifestsForProject(projectRoot),
+): MigrationDependency[] {
+  return manifests
+    .filter((manifest) => isMigrationManifestActive(manifest, packageVersion))
+    .flatMap((manifest) => manifest.dependencies ?? []);
+}
+
+export function planMigrationDependencyAdditions(
+  project: UpgradeProject,
+  shellEnvironment: NodeJS.ProcessEnv = process.env,
+): UpgradeDependencyAddition[] {
+  const cliCoreVersion = readCliCoreVersion();
+  if (!cliCoreVersion) {
+    throw new Error(
+      "Could not read the Core version for dependency migration.",
+    );
+  }
+  const dependencies = loadActiveMigrationDependencies(
+    project.root,
+    cliCoreVersion,
+  );
+  if (dependencies.length === 0) return [];
+
+  const additions: UpgradeDependencyAddition[] = [];
+  for (const file of project.packageFiles) {
+    const read = readJsonFile(file);
+    if (!read.ok || !isDirectCoreDependency(read.value)) continue;
+    const packageJson = read.value;
+    const packageDependencies = selectMigrationDependencies(
+      dependencies,
+      readUpgradeEnvironment(
+        project.root,
+        path.dirname(file),
+        shellEnvironment,
+      ),
+    );
+    for (const dependency of packageDependencies) {
+      const runtimeVersion = packageJson.dependencies?.[dependency.name];
+      const otherVersions = [
+        packageJson.devDependencies?.[dependency.name],
+        packageJson.optionalDependencies?.[dependency.name],
+        packageJson.peerDependencies?.[dependency.name],
+      ];
+      const existingVersion = runtimeVersion ?? otherVersions.find(Boolean);
+      const version = preserveCompatibleMigrationVersion(
+        existingVersion,
+        dependency.version,
+      );
+      const hasOtherDeclarations = otherVersions.some(Boolean);
+      if (runtimeVersion === version && !hasOtherDeclarations) continue;
+      additions.push({
+        file,
+        name: dependency.name,
+        version,
+        action: runtimeVersion ? "update" : existingVersion ? "promote" : "add",
+        ...(existingVersion && existingVersion !== version
+          ? { from: existingVersion }
+          : {}),
+      });
+    }
+  }
+  return additions;
+}
+
+function preserveCompatibleMigrationVersion(
+  existing: string | undefined,
+  required: string,
+): string {
+  if (!existing) return required;
+  return required.split("||").some((range) => range.trim() === existing.trim())
+    ? existing
+    : required;
+}
+
+function applyMigrationDependencyAdditions(
+  additions: UpgradeDependencyAddition[],
+): void {
+  const byFile = new Map<string, UpgradeDependencyAddition[]>();
+  for (const addition of additions) {
+    const list = byFile.get(addition.file) ?? [];
+    list.push(addition);
+    byFile.set(addition.file, list);
+  }
+  for (const [file, fileAdditions] of byFile) {
+    const read = readJsonFile(file);
+    if (!read.ok) continue;
+    const dependencies = (read.value.dependencies ??= {});
+    for (const addition of fileAdditions) {
+      dependencies[addition.name] = addition.version;
+      for (const section of [
+        read.value.devDependencies,
+        read.value.optionalDependencies,
+        read.value.peerDependencies,
+      ]) {
+        if (section) delete section[addition.name];
+      }
+      for (const field of [
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+      ] as const) {
+        const section = read.value[field];
+        if (section && Object.keys(section).length === 0) {
+          delete read.value[field];
+        }
+      }
+    }
+    writeJsonFile(file, read.value);
+  }
+}
+
+export function addConfiguredMigrationDependencies(
+  project: UpgradeProject,
+  shellEnvironment: NodeJS.ProcessEnv = process.env,
+): void {
+  applyMigrationDependencyAdditions(
+    planMigrationDependencyAdditions(project, shellEnvironment),
+  );
+}
+
 export function pinResolvedAgentNativeVersions(
   project: UpgradeProject,
 ): AgentNativePinResult {
@@ -408,9 +670,6 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
       const hasWorkspaceYaml = fs.existsSync(workspaceYaml);
       const workspacePatterns = packageWorkspacePatterns(pkg);
       const isWorkspace = hasWorkspaceYaml || workspacePatterns.length > 0;
-      // A manifest we cannot parse cannot be ruled out as the project root:
-      // stop here so the doctor reports the parse error instead of walking past
-      // it and claiming no Agent-Native project exists.
       const unreadable = !read.ok && read.reason === "unreadable";
       if (hasCore || isWorkspace || unreadable) {
         const packageFiles = [pkgPath];
@@ -551,7 +810,7 @@ function isYarnPnpProject(projectRoot: string): boolean {
   }
 }
 
-function resolveInstalledPackageVersion(
+export function resolveInstalledPackageVersion(
   projectRoot: string,
   packageName: string,
 ): string | null {
@@ -565,8 +824,6 @@ function resolveInstalledPackageVersion(
     );
     if (fs.existsSync(candidate)) {
       const read = readJsonFile(candidate);
-      // An installed manifest we cannot parse is reported by the caller the
-      // same way a missing version is: the spec stays floating on `latest`.
       if (!read.ok) return null;
       return typeof read.value.version === "string" ? read.value.version : null;
     }
@@ -575,13 +832,6 @@ function resolveInstalledPackageVersion(
     dir = parent;
   }
 
-  // Yarn Plug'n'Play has no node_modules tree. Its resolver is exposed through
-  // a require rooted at the project's manifest, so use that after retaining
-  // the filesystem walk for pnpm/npm projects.
-  //
-  // Only for a real PnP project: elsewhere this require answers from NODE_PATH
-  // or a global folder and reports a version the project never installed, which
-  // pins a spec to a package that is not there.
   if (!isYarnPnpProject(projectRoot)) return null;
   try {
     const requireFromProject = createRequire(
@@ -595,8 +845,6 @@ function resolveInstalledPackageVersion(
       ? read.value.version
       : null;
   } catch {
-    // Package exports can hide package.json even when the package itself is
-    // resolvable. Resolve its entry point and walk back to its manifest.
     try {
       const requireFromProject = createRequire(
         path.join(projectRoot, "package.json"),
@@ -625,7 +873,7 @@ function resolveInstalledPackageVersion(
   return null;
 }
 
-function readCliCoreVersion(): string | null {
+export function readCliCoreVersion(): string | null {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pkgPath = path.resolve(here, "../../package.json");
@@ -641,7 +889,6 @@ function detectPackageManager(projectRoot: string): "pnpm" | "npm" | "yarn" {
   if (fs.existsSync(path.join(projectRoot, "pnpm-lock.yaml"))) return "pnpm";
   if (fs.existsSync(path.join(projectRoot, "yarn.lock"))) return "yarn";
   if (fs.existsSync(path.join(projectRoot, "package-lock.json"))) return "npm";
-  // Prefer pnpm for Agent-Native scaffolds.
   return "pnpm";
 }
 
@@ -778,8 +1025,6 @@ export async function runUpgrade(
   }
 
   const doctor = buildUpgradeDoctorReport(project);
-  // A manifest the doctor could not parse was never scanned, so a clean
-  // findings list says nothing about it.
   const doctorOk =
     doctor.findings.length === 0 && doctor.unreadable.length === 0;
   if (opts.command === "check") {
@@ -795,7 +1040,7 @@ export async function runUpgrade(
     return doctorOk ? 0 : 1;
   }
 
-  const dryRun = Boolean(opts.dryRun || (opts.codemods && !opts.yes));
+  const dryRun = Boolean(opts.dryRun);
   const result: UpgradeRunResult = {
     ok: true,
     dryRun,
@@ -805,8 +1050,6 @@ export async function runUpgrade(
     exitCode: 0,
   };
 
-  // --force means "continue past overrides", not "upgrade a manifest we cannot
-  // parse": a bump can neither be read nor written there.
   if (doctor.unreadable.length > 0) {
     result.ok = false;
     result.exitCode = 1;
@@ -851,7 +1094,63 @@ export async function runUpgrade(
         : "No framework overrides/patches",
   });
 
-  // Apply package.json bumps.
+  let dependencyAdditions: UpgradeDependencyAddition[];
+  try {
+    dependencyAdditions = planMigrationDependencyAdditions(project);
+  } catch (error) {
+    result.ok = false;
+    result.exitCode = 1;
+    result.message =
+      error instanceof Error
+        ? error.message
+        : "Could not plan feature dependency migrations.";
+    result.steps.push({
+      id: "feature-dependencies",
+      status: "failed",
+      detail: result.message,
+    });
+    emitResult(io, opts, result);
+    return result.exitCode;
+  }
+
+  const conditionalPeers = [
+    ...new Set(
+      loadActiveMigrationDependencies(project.root, doctor.cliCoreVersion).map(
+        ({ name }) => name,
+      ),
+    ),
+  ];
+  const deploymentEnvironmentNote = `Remote deployment environment and database-backed feature settings cannot be inspected by this command; verify configured features against these conditional peers: ${conditionalPeers.join(", ") || "none declared"}.`;
+
+  if (dependencyAdditions.length === 0) {
+    result.steps.push({
+      id: "feature-dependencies",
+      status: "skipped",
+      detail: `No local dependency additions are pending. ${deploymentEnvironmentNote}`,
+    });
+  } else {
+    const detail = dependencyAdditions
+      .map(
+        (addition) =>
+          `${addition.action} ${relativeTo(project.root, addition.file)} ${addition.name}${addition.from ? ` ${addition.from} →` : ""} ${addition.version}`,
+      )
+      .join("; ");
+    if (dryRun) {
+      result.steps.push({
+        id: "feature-dependencies",
+        status: "planned",
+        detail: `Would align ${detail}. ${deploymentEnvironmentNote}`,
+      });
+    } else {
+      applyMigrationDependencyAdditions(dependencyAdditions);
+      result.steps.push({
+        id: "feature-dependencies",
+        status: "ok",
+        detail: `Aligned ${detail}. ${deploymentEnvironmentNote}`,
+      });
+    }
+  }
+
   if (doctor.bumps.length === 0) {
     result.steps.push({
       id: "bump",
@@ -877,8 +1176,6 @@ export async function runUpgrade(
       byFile.set(bump.file, list);
     }
     for (const [file, bumps] of byFile) {
-      // Only files the doctor parsed can produce bumps, and it blocks the run
-      // on any it could not.
       const read = readJsonFile(file);
       if (!read.ok) continue;
       applyBumps(read.value, bumps);
@@ -899,7 +1196,10 @@ export async function runUpgrade(
     | undefined;
 
   if (opts.codemods) {
-    const codemodModule = await import("./migration-codemod.js");
+    const codemodModule = await loadOptionalPeer(
+      "ts-morph",
+      () => import("./migration-codemod.js"),
+    );
     const codemodResult = codemodModule.runMigrationCodemods({
       root: project.root,
       targetExists: codemodModule.createMigrationPlanningTargetResolver(
@@ -948,7 +1248,6 @@ export async function runUpgrade(
     }
   }
 
-  // Install.
   if (opts.skipInstall) {
     result.steps.push({
       id: "install",
@@ -1006,7 +1305,6 @@ export async function runUpgrade(
     result.steps.push({ id: "install", status: "ok", detail: `${pm} install` });
   }
 
-  // Pin.
   if (opts.skipInstall) {
     result.steps.push({
       id: "pin",
@@ -1100,7 +1398,6 @@ export async function runUpgrade(
     }
   }
 
-  // Skills refresh.
   if (opts.skipSkills) {
     result.steps.push({
       id: "skills",
@@ -1135,7 +1432,6 @@ export async function runUpgrade(
     }
   }
 
-  // Verify.
   if (opts.skipVerify) {
     result.steps.push({
       id: "verify",
@@ -1187,8 +1483,8 @@ export async function runUpgrade(
   }
 
   result.message = dryRun
-    ? opts.codemods && !opts.yes
-      ? "Codemod preview complete. Re-run with --codemods --yes to apply."
+    ? opts.codemods
+      ? "Codemod preview complete. Re-run without --dry-run to apply."
       : "Dry run complete. Re-run without --dry-run to apply."
     : "Upgrade complete. If the app still fails to run, fix app-level code — do not patch @agent-native/*.";
   emitResult(io, opts, result);

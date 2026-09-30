@@ -1,20 +1,4 @@
-/**
- * create-fusion-app — start a brand-new full-app (fusion) design.
- *
- * Provisions a Builder Fusion branch (one branch per design) in the
- * configured Builder branch project and hands the user's prompt to the
- * Builder cloud agent to scaffold the app. The branch/container is not
- * necessarily ready immediately — call `sync-fusion-app` to poll the
- * container and pick up the preview URL once it boots.
- *
- * Gated behind the full-app-building runtime feature flag. When Builder is not configured
- * (no credentials or no branch project ID), returns the same graceful
- * `{ status: "not-configured", cta, message }` shape as
- * `migrate-inline-design-to-app` instead of throwing.
- */
-
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -24,14 +8,11 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import "../server/db/index.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
 import { resolveBuilderStatus } from "../shared/builder-app.js";
-import {
-  FULL_APP_BUILDING,
-  readFusionApp,
-  writeFusionApp,
-} from "../shared/full-app.js";
+import { readFusionApp, writeFusionApp } from "../shared/full-app.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 
@@ -75,14 +56,13 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, prompt, branchName }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");
     }
 
     const access = await assertAccess("design", designId, "editor");
     const design = access.resource as typeof schema.designs.$inferSelect;
 
-    // Already app-backed: don't create a second branch.
     const existingApp = readFusionApp(design.data);
     if (existingApp) {
       return {

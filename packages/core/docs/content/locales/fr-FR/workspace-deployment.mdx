@@ -81,7 +81,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-En interne, chaque application est construite avec son propre **chemin de base**, un préfixe d'URL comme `/mail` défini via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, puis empaqueté pour le préréglage Nitro cible. Cloudflare Pages achemine via un **worker répartiteur** généré, un petit script à `dist/_worker.js` qui lit le chemin entrant et transfère la requête vers l'application correspondante. Netlify utilise une fonction par application plus des redirections générées. Vercel écrit une sortie `.vercel/output` au niveau du workspace en utilisant la Build Output API.
+En coulisses, chaque application est construite avec son propre **chemin de base**, un préfixe d'URL comme `/mail` défini via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, puis empaquetée pour le préréglage Nitro cible. **Netlify** est le choix par défaut : une fonction par application plus des redirections générées. **Vercel** écrit un `.vercel/output` au niveau du workspace avec la Build Output API.
 
 </Callout>
 
@@ -91,25 +91,14 @@ Publiez le build pour votre plateforme :
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (par défaut)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (par défaut)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -123,7 +112,7 @@ Publiez le build pour votre plateforme :
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -346,6 +335,30 @@ agents.example.com {
   public vers le conteneur proxy.
 
 </Callout>
+
+## Configurer Dispatch pour un workspace auto-hébergé {#dispatch-workspace-apps}
+
+Les images Dispatch de production ne contiennent souvent que `.output/`; le serveur ne peut donc pas détecter les répertoires d’apps au moment de l’exécution. Configurez ce manifeste sur le service Dispatch. Utilisez le même JSON dans les deux variables : la variable Vite est lue lors de la compilation de Dispatch, et l’autre au démarrage du serveur. N’incluez que les apps de ce workspace. Chaque `path` doit correspondre à `APP_BASE_PATH` et à la route du proxy. Définissez également APP_URL sur l’origine publique de votre proxy inverse.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## Activer les invitations dans un nouveau workspace {#workspace-invites}
+
+Pour un workspace où l’inscription nécessite une invitation, définissez ces paramètres sur chaque conteneur d’apps qui partage la base de données et l’authentification :
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+Remplacez l’adresse d’exemple par l’adresse vérifiée du premier administrateur de chaque workspace. Sur une base de données vide, cet administrateur se connecte d’abord, devient propriétaire de l’organisation initiale et peut inviter son équipe dans Settings → Organization → Members. Consultez [Déploiements administrés](/docs/administered-deployments) pour le processus complet d’amorçage.
 
 ## Et ensuite
 

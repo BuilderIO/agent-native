@@ -1,24 +1,9 @@
-/**
- * Standard remote MCP OAuth 2.1 endpoints.
- *
- * These routes let MCP hosts such as Claude Code and ChatGPT authenticate
- * through their native remote-MCP OAuth flow instead of pasting bearer tokens.
- * The issued access tokens are audience-bound to the public `/mcp` route or
- * its legacy alias, carry
- * the same user/org identity as the existing connect flow, and are mediated by
- * `verifyAuth` before any MCP tool/resource request runs.
- */
-
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
-import {
-  getActiveOrgSettingForEvent,
-  getOrgDomain,
-  listOrgMembershipsForEvent,
-} from "../org/context.js";
+import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -46,6 +31,7 @@ import {
   normalizeOAuthScope,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { resolveMcpOrgChoices } from "./org-choice.js";
 import {
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
@@ -227,8 +213,6 @@ export function getMcpOAuthAudiences(event: H3Event): string[] {
   const configuredIssuer = (() => {
     const base = configuredPublicBaseUrl();
     if (!base) return undefined;
-    // Re-apply base path if present so the configured resource is also
-    // base-path-aware, consistent with how getMcpOAuthResource computes it.
     return appendConfiguredBasePath(base);
   })();
   const seen = new Set<string>();
@@ -255,9 +239,6 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer) return undefined;
   const metadataUrl = new URL(`${issuer}/.well-known/oauth-protected-resource`);
-  // The public and legacy endpoints share one host-level metadata route. Keep
-  // the legacy resource identity in the challenge so OAuth clients that verify
-  // an exact resource URL can authenticate old MCP configurations.
   if (normalizeMcpResourcePath(routePath) === MCP_LEGACY_ROUTE_PREFIX) {
     metadataUrl.searchParams.set("resource", MCP_LEGACY_ROUTE_PREFIX);
   }
@@ -585,8 +566,6 @@ function isValidCodeVerifier(value: unknown): value is string {
   );
 }
 
-// Shared styling for the browser-facing OAuth pages (consent + post-authorize
-// confirmation) so they read as one coherent dark surface.
 const OAUTH_PAGE_BASE_STYLE = `
   :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #09090b; color: #f4f4f5; }
   body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; }
@@ -672,11 +651,6 @@ function renderConsentPage(params: {
 </html>`;
 }
 
-// Shown after the user approves a native/desktop client (cursor://, vscode://, …)
-// whose redirect is a private-use scheme. A bare 302 to a custom scheme hands the
-// code to the OS app but leaves the browser tab dangling on a blank/error page, so
-// we render a friendly confirmation that also re-fires the deep link (so the client
-// still receives the code) and tells the user they can return to their agent.
 function renderAuthorizedPage(params: {
   appName: string;
   clientName: string | null;
@@ -832,9 +806,9 @@ async function handleAuthorize(
         error: "login_required",
       });
     }
-    const loginHtml = getConfiguredLoginHtml(event);
-    return loginHtml
-      ? html(loginHtml, 200)
+    const loginPage = getConfiguredLoginHtml(event);
+    return loginPage
+      ? html(loginPage.html, loginPage.status)
       : oauthError("login_required", "Sign in required", 401);
   }
 
@@ -848,42 +822,13 @@ async function handleAuthorize(
     });
   }
 
-  const activeOrgSetting = await getActiveOrgSettingForEvent(
+  const { organizations, defaultOrganizationId } = await resolveMcpOrgChoices(
     event,
-    session.email,
-  );
-  const explicitPersonal = activeOrgSetting?.orgId === null;
-  const requestedOrganizationId =
+    session,
     method === "POST" && params.organization_id !== undefined
       ? params.organization_id || null
-      : explicitPersonal
-        ? null
-        : (activeOrgSetting?.orgId ?? session.orgId ?? null);
-  const memberships = await listOrgMembershipsForEvent(
-    event,
-    session.email,
-    requestedOrganizationId,
+      : undefined,
   );
-  const organizations =
-    memberships?.map((membership) => ({
-      id: membership.orgId,
-      name: membership.orgName,
-      domain: membership.allowedDomain,
-    })) ??
-    (!explicitPersonal && session.orgId
-      ? [{ id: session.orgId, name: "Organization", domain: null }]
-      : []);
-  const organizationOptions = explicitPersonal
-    ? [{ id: "", name: "Personal", domain: null }, ...organizations]
-    : organizations;
-  const defaultOrganizationId = explicitPersonal
-    ? ""
-    : activeOrgSetting?.orgId &&
-        organizations.some(({ id }) => id === activeOrgSetting.orgId)
-      ? activeOrgSetting.orgId
-      : session.orgId && organizations.some(({ id }) => id === session.orgId)
-        ? session.orgId
-        : organizations[0]?.id;
 
   if (method === "GET") {
     return html(
@@ -893,7 +838,7 @@ async function handleAuthorize(
         clientName: client.clientName || client.clientId,
         redirectUri,
         scopes: scope.split(/\s+/),
-        organizations: organizationOptions,
+        organizations,
         fields: {
           response_type: "code",
           client_id: clientId,
@@ -946,10 +891,7 @@ async function handleAuthorize(
   const selectedOrganization = organizations.find(
     ({ id }) => id === selectedOrganizationId,
   );
-  const selectedPersonal =
-    selectedOrganizationId === "" &&
-    (explicitPersonal || organizations.length === 0);
-  if (organizations.length > 0 && !selectedPersonal && !selectedOrganization) {
+  if (organizations.length > 0 && !selectedOrganization) {
     return oauthError(
       "invalid_request",
       "A valid organization selection is required",
@@ -971,11 +913,6 @@ async function handleAuthorize(
     resource,
   });
 
-  // Native/desktop clients register a private-use scheme (cursor://, vscode://, …).
-  // A 302 to that scheme opens the app but leaves the browser tab dangling, so we
-  // render a friendly confirmation page that re-fires the deep link instead. For
-  // https/loopback callbacks the client (or its local server) renders its own page,
-  // so keep the standard redirect there.
   let isDeepLinkRedirect = false;
   try {
     const protocol = new URL(redirectUri).protocol;

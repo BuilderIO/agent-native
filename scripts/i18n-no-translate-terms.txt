@@ -10,6 +10,7 @@ Ease
 Ease In
 Ease In/Out
 Ease Out
+Error 403
 JetBrains Mono
 Playfair Display
 ~/.claude/ on a local disk
@@ -133,6 +134,7 @@ threads · application_state · settings · sessions · runs
 Tool-call journal
 UI
 Universal CLI
+UTC
 useActionQuery/Mutation
 Webhook URL
 WWW-Authenticate

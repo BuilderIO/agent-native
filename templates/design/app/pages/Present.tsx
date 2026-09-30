@@ -4,14 +4,14 @@ import {
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { useReviewComments } from "@agent-native/core/client/review";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   buildReviewThreads,
-  ReviewStatusBadge,
-  useReviewComments,
   type ReviewThread,
-} from "@agent-native/core/client/review";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
-import { normalizeDocumentTitle } from "@agent-native/core/shared";
+} from "@agent-native/toolkit/app/review";
+import { ReviewStatusBadge } from "@agent-native/toolkit/app/review";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -197,7 +197,6 @@ export default function Present() {
     searchParams,
   ]);
 
-  // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -210,12 +209,8 @@ export default function Present() {
         );
         if (action === "close-comments") setCommentsOpen(false);
         if (action === "exit-presentation") void navigate(`/design/${id}`);
-        // ReviewCanvasPins owns "defer-to-comment-mode" so it can dismiss an
-        // active draft before it exits the tool.
         return;
       }
-      // Freeze slide navigation while review UI is active so typing a space
-      // or using arrow keys in the sheet cannot change the anchored screen.
       if (shouldBlockPresentPageNavigation({ commentsOpen, commentMode }))
         return;
       if (files.length <= 1) return;

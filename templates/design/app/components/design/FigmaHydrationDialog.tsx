@@ -1,10 +1,3 @@
-/**
- * FigmaHydrationDialog — shown after a no-token local-kiwi clipboard import
- * when IMAGE fills couldn't be resolved. Collects a Figma access token, saves
- * it, then calls `hydrate-figma-paste-images` for each imported file to
- * replace the `url("about:blank")` placeholders with real durable images.
- */
-
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useRef, useState } from "react";
@@ -191,6 +184,7 @@ export function FigmaHydrationDialog({
               ) : null}
             </div>
             <Input
+              size="sm"
               id="figma-hydration-token"
               type="password"
               value={token}
@@ -198,7 +192,7 @@ export function FigmaHydrationDialog({
               placeholder={t("designEditor.import.figmaTokenPlaceholder")}
               autoComplete="new-password"
               aria-invalid={error ? true : undefined}
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={busy}
             />
             {error ? (

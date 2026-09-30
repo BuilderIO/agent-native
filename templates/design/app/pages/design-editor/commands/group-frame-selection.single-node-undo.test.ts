@@ -11,13 +11,6 @@ import type { DesignFile } from "@/pages/design-editor/types";
 import { runFrameSelection } from "./frame-selection";
 import { runGroupSelection } from "./group-selection";
 
-/**
- * Figma parity: Cmd+G on a single object (canGroup allows 1+, "Figma groups
- * a single object too") and Cmd+Alt+G on a single object both wrap it in a
- * container. Undoing that must restore the canvas/inspector selection to
- * the element that was wrapped, not clear it — group/frame are only a true
- * multi-select gesture (selectedElement: null) when 2+ nodes were selected.
- */
 const FIXTURE = `<body>
   <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
 </body>`;
@@ -130,14 +123,6 @@ describe("runFrameSelection: single-layer Cmd+Alt+G undo selection restore", () 
   });
 });
 
-/**
- * Figma parity: a true multi-select Cmd+G (2+ nodes) has no single canonical
- * element (selectedElement stays null, unlike the single-node case above),
- * but undo must still restore BOTH original layer ids so the group can be
- * undone back to its exact pre-group multi-selection — never an empty
- * selection. Regression coverage for the e2e "redo re-selects the group
- * Cmd+G produced, not the pre-group selection it undid back to" scenario.
- */
 const MULTI_FIXTURE = `<body>
   <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
   <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B" style="position:absolute;left:140px;top:20px;width:100px;height:80px"></div>

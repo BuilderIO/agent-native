@@ -1,5 +1,84 @@
 # @agent-native/pinpoint
 
+## 0.1.65
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.64
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.63
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.62
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.61
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.60
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+
+## 0.1.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.54
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.53
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.52
 
 ### Patch Changes

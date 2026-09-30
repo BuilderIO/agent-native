@@ -1,19 +1,5 @@
-/**
- * Core script: source-search
- *
- * Search and read version-matched framework source.
- * First-party templates are generated into @agent-native/core/corpus during
- * package build; Core and Toolkit source are read from their installed roots.
- *
- * Usage:
- *   pnpm action source-search --query "defineAction"
- *   pnpm action source-search --path templates/chat/actions/hello.ts
- *   pnpm action source-search --path core/src/action.ts
- *   pnpm action source-search --path templates/plan/AGENTS.md
- *   pnpm action source-search --list
- */
-
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,6 +19,8 @@ const MAX_FILE_BYTES = 1_000_000;
 const MAX_READ_CHARS = 40_000;
 const MAX_RESULTS = 20;
 const MAX_SNIPPETS_PER_FILE = 3;
+const CORPUS_PACKAGE_NAME = "@agent-native/core-corpus";
+export const SOURCE_CORPUS_INSTALL_HINT = `Install ${CORPUS_PACKAGE_NAME} at the same version as @agent-native/core to search first-party template source.`;
 const TEXT_EXTENSIONS = new Set([
   ".bash",
   ".cjs",
@@ -66,18 +54,63 @@ const TEXT_EXTENSIONS = new Set([
   ".zsh",
 ]);
 
-function getCorpusRoot(): string {
-  // Resolve from the package root:
-  //   src/scripts/docs/source-search.ts -> corpus/
-  //   dist/scripts/docs/source-search.js -> corpus/
-  return path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "../../../corpus",
-  );
+function getCorePackageRoot(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 }
 
-function getPackageRoot(): string {
-  return path.dirname(getCorpusRoot());
+function resolveInstalledCorpusRoot(): string | null {
+  const corePackageRoot = getCorePackageRoot();
+  const resolvers = [
+    createRequire(import.meta.url),
+    createRequire(path.join(corePackageRoot, "package.json")),
+    createRequire(path.join(process.cwd(), "package.json")),
+  ];
+  for (const resolve of resolvers) {
+    let manifestPath: string;
+    try {
+      manifestPath = resolve.resolve(`${CORPUS_PACKAGE_NAME}/package.json`);
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? error.code
+          : undefined;
+      if (
+        code === "MODULE_NOT_FOUND" &&
+        error instanceof Error &&
+        error.message.includes(CORPUS_PACKAGE_NAME)
+      ) {
+        continue;
+      }
+      throw error;
+    }
+
+    const corpusRoot = path.join(path.dirname(manifestPath), "corpus");
+    if (!fs.existsSync(path.join(corpusRoot, "README.md"))) {
+      throw new Error(
+        `Installed ${CORPUS_PACKAGE_NAME} package is missing its generated corpus.`,
+      );
+    }
+    return corpusRoot;
+  }
+  return null;
+}
+
+function getCorpusRoot(): string | null {
+  const installed = resolveInstalledCorpusRoot();
+  if (installed) return installed;
+
+  const localPackageCorpus = path.resolve(
+    getCorePackageRoot(),
+    "../core-corpus/corpus",
+  );
+  if (fs.existsSync(path.join(localPackageCorpus, "README.md"))) {
+    return localPackageCorpus;
+  }
+
+  const legacyCorpus = path.join(getCorePackageRoot(), "corpus");
+  return fs.existsSync(path.join(legacyCorpus, "README.md"))
+    ? legacyCorpus
+    : null;
 }
 
 interface SourceRoot {
@@ -88,7 +121,7 @@ interface SourceRoot {
 
 function getToolkitSourceRoot(): string | null {
   const candidates = [
-    path.resolve(getPackageRoot(), "../toolkit/src"),
+    path.resolve(getCorePackageRoot(), "../toolkit/src"),
     path.resolve(process.cwd(), "node_modules/@agent-native/toolkit/src"),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
@@ -96,21 +129,24 @@ function getToolkitSourceRoot(): string | null {
 
 function getSourceRoots(): SourceRoot[] {
   const corpusRoot = getCorpusRoot();
-  const roots: SourceRoot[] = [
-    {
-      prefix: "templates",
-      directory: path.join(corpusRoot, "templates"),
-      visibilityRoot: corpusRoot,
-    },
-  ];
+  const roots: SourceRoot[] = corpusRoot
+    ? [
+        {
+          prefix: "templates",
+          directory: path.join(corpusRoot, "templates"),
+          visibilityRoot: corpusRoot,
+        },
+      ]
+    : [];
 
-  // A monorepo checkout has the authored Core source. Published packages do
-  // not carry the whole source tree, so use their readable dist output.
-  const coreSourceRoot = path.join(getPackageRoot(), "src");
+  const coreSourceRoot = path.join(getCorePackageRoot(), "src");
   roots.push(
     fs.existsSync(path.join(coreSourceRoot, "server"))
       ? { prefix: "core/src", directory: coreSourceRoot }
-      : { prefix: "core/dist", directory: path.join(getPackageRoot(), "dist") },
+      : {
+          prefix: "core/dist",
+          directory: path.join(getCorePackageRoot(), "dist"),
+        },
   );
 
   const toolkitSourceRoot = getToolkitSourceRoot();
@@ -123,14 +159,8 @@ function getSourceRoots(): SourceRoot[] {
   return roots;
 }
 
-/**
- * The corpus is a sibling of the package root, so a bundled serverless deploy
- * never carries it. Callers register this tool conditionally: advertising a
- * search tool whose only possible answer is "not found" costs the agent a turn
- * and reads to it like the code genuinely does not exist.
- */
 export function hasSourceCorpus(): boolean {
-  return fs.existsSync(getCorpusRoot());
+  return getCorpusRoot() !== null;
 }
 
 function isProbablyTextFile(filePath: string): boolean {
@@ -430,24 +460,27 @@ Options:
     return;
   }
 
-  if (!hasSourceCorpus()) {
-    console.log(
-      "Version-matched source is not available. Build or reinstall @agent-native/core so its source corpus and readable package sources are present.",
-    );
-    return;
-  }
-
   if (parsed.list === "true") {
+    if (!hasSourceCorpus()) console.log(SOURCE_CORPUS_INSTALL_HINT);
     console.log(JSON.stringify(listSourceRoots(), null, 2));
     return;
   }
 
   if (parsed.path) {
+    if (
+      !hasSourceCorpus() &&
+      (parsed.path === "templates" || parsed.path.startsWith("templates/"))
+    ) {
+      console.log(SOURCE_CORPUS_INSTALL_HINT);
+      return;
+    }
+    if (!hasSourceCorpus()) console.log(SOURCE_CORPUS_INSTALL_HINT);
     console.log(readSourcePath(parsed.path));
     return;
   }
 
   if (parsed.query) {
+    if (!hasSourceCorpus()) console.log(SOURCE_CORPUS_INSTALL_HINT);
     const results = searchCorpus(parsed.query);
     if (results.length === 0) {
       console.log(`No source files found matching "${parsed.query}".`);

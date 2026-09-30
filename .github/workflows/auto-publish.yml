@@ -2,8 +2,10 @@ name: Publish packages
 
 # npm packages have two separate release trains:
 #
-#   1. Every matching ordinary merge to `main` publishes a `nightly` snapshot.
-#      It never changes the repository or moves npm's `latest` dist-tag.
+#   1. Every three hours, a scheduled run publishes a `nightly` snapshot of
+#      `main` when a publishable path (the `push.paths` list) changed since
+#      the last successful scheduled run. It never changes the repository or
+#      moves npm's `latest` dist-tag. Ordinary merges publish nothing.
 #   2. A maintainer dispatches this workflow with a patch/minor/major choice.
 #      That creates the normal all-package Version Packages PR. Its marked
 #      merge is the only path that publishes a stable release.
@@ -19,11 +21,13 @@ name: Publish packages
 # package trains intentionally keep this workflow path.
 
 on:
+  schedule:
+    - cron: "17 */3 * * *"
+  # Only a verified stable-release merge does work on push; the nightly
+  # change check reuses this list, so keep them identical.
   push:
     branches: [main]
     paths:
-      # npm-published packages — any source change reaches here via the
-      # Version Packages PR merge bumping their package.json.
       - "packages/agentkit/**"
       - "packages/core/**"
       - "packages/creative-context/**"
@@ -33,15 +37,12 @@ on:
       - "packages/scheduling/**"
       - "packages/skills/**"
       - "packages/toolkit/**"
-      # Ignored internal packages are not versioned by changesets, but changes
-      # here should still exercise release preflight/publish no-op behavior.
       - "packages/code-agents-ui/**"
       - "packages/embedding/**"
       - "packages/frame/**"
       - "packages/migrate/**"
       - "packages/shared-app-config/**"
       - ".changeset/**"
-      # Release workflow plumbing changes should exercise the npm release job.
       - ".github/workflows/auto-publish.yml"
       - "scripts/changeset-publish-sequential.ts"
       - "scripts/create-release-changeset.ts"
@@ -73,17 +74,14 @@ on:
 permissions: {}
 
 concurrency:
-  # Stable preparation and publication must not wait behind, or be replaced
-  # by, the ordinary push-driven nightly lane. A dev snapshot dispatch gets
-  # its own lane keyed by branch (github.ref) AND devTag, so two developers
-  # (or one developer with two tags) can publish dev snapshots at the same
-  # time without waiting on each other or on the nightly/stable lanes.
   group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' && inputs.devTag) && format('dev-{0}', inputs.devTag) || (github.event_name == 'workflow_dispatch' && 'stable-preparation') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication') || 'nightly' }}
   cancel-in-progress: false
 
 jobs:
   verify-stable-merge:
     name: Verify stable release merge
+    # An unmarked push can never verify, so skip the runner entirely.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -128,12 +126,82 @@ jobs:
           echo "Stable release merge verified: $verified"
           echo "verified=$verified" >> "$GITHUB_OUTPUT"
 
+  detect-nightly-changes:
+    name: Check for package changes since the last nightly
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      # A failed or cancelled scheduled run is not a baseline, so its changes
+      # are retried by the next run. A lookup failure fails this job instead
+      # of skipping or forcing a publish.
+      - name: Compare main with the last successful scheduled nightly
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          NIGHTLY_PATHS: |
+            packages/agentkit/**
+            packages/core/**
+            packages/creative-context/**
+            packages/dispatch/**
+            packages/pinpoint/**
+            packages/recap-cli/**
+            packages/scheduling/**
+            packages/skills/**
+            packages/toolkit/**
+            packages/code-agents-ui/**
+            packages/embedding/**
+            packages/frame/**
+            packages/migrate/**
+            packages/shared-app-config/**
+            .changeset/**
+            .github/workflows/auto-publish.yml
+            scripts/changeset-publish-sequential.ts
+            scripts/create-release-changeset.ts
+            scripts/guard-no-major-changeset.mjs
+            scripts/guard-public-packages.ts
+            scripts/prebuild-workspace-packages.ts
+        run: |
+          set -euo pipefail
+          last_sha="$(gh api \
+            "repos/$REPOSITORY/actions/workflows/auto-publish.yml/runs?event=schedule&branch=main&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""')"
+
+          pathspec=()
+          while IFS= read -r path; do
+            [ -n "$path" ] && pathspec+=(":(glob)$path")
+          done <<< "$NIGHTLY_PATHS"
+
+          if [ -z "$last_sha" ]; then
+            echo "No earlier successful scheduled nightly; publishing."
+            changed=true
+          elif ! git merge-base --is-ancestor "$last_sha" HEAD 2>/dev/null; then
+            echo "::warning::Last scheduled nightly $last_sha is not in main's history; publishing."
+            changed=true
+          elif git diff --quiet "$last_sha" HEAD -- "${pathspec[@]}"; then
+            echo "No publishable changes since the last scheduled nightly ($last_sha)."
+            changed=false
+          else
+            echo "Publishable changes since the last scheduled nightly ($last_sha):"
+            git diff --name-only "$last_sha" HEAD -- "${pathspec[@]}" | sed -n '1,50p'
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
   publish-nightly:
     name: Publish nightly snapshot
-    needs: [verify-stable-merge]
-    # A stable Version Packages merge is intentionally stable-only. All other
-    # matching main pushes get the automatic nightly package snapshot.
-    if: ${{ github.event_name == 'push' && needs.verify-stable-merge.outputs.verified != 'true' }}
+    needs: [detect-nightly-changes]
+    if: ${{ github.event_name == 'schedule' && needs.detect-nightly-changes.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -193,8 +261,6 @@ jobs:
         if: steps.snapshot.outputs.changed == 'true'
         env:
           AGENT_NATIVE_NPM_DIST_TAG: nightly
-          # Match the stable lane's one-time escape hatch for a package that
-          # has not been created on npm yet. Existing packages still use OIDC.
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
         run: node scripts/changeset-publish-sequential.ts
@@ -248,14 +314,6 @@ jobs:
             echo "The builder-workspace nightly deploy was requested after the npm publish completed."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # On-demand publish for any developer to test a real npm install of their
-  # feature branch's packages before merging to main. Runs from whatever
-  # branch dispatched it — no `needs: [verify-stable-merge]` and no push
-  # trigger — and publishes under npm dist-tag `dev-<devTag>` instead of
-  # `latest`/`nightly`. npm's trusted publisher for these packages is keyed on
-  # repo + workflow filename only (no branch restriction), so this reuses the
-  # same `npm-publish` environment/OIDC handshake as the other two lanes with
-  # no new token or npm-side config.
   publish-dev-snapshot:
     name: Publish dev snapshot
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.devTag != '' }}
@@ -280,10 +338,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Rejects reserved/confusing tag values (latest, nightly, beta, ...).
-      # If this branch has no pending changeset, synthesizes one covering
-      # every publishable package so `changeset version --snapshot` has
-      # something to act on.
       - name: Validate dev tag and prepare a changeset
         env:
           DEV_TAG: ${{ inputs.devTag }}
@@ -303,8 +357,6 @@ jobs:
         id: publish
         env:
           AGENT_NATIVE_NPM_DIST_TAG: dev-${{ inputs.devTag }}
-          # Same one-time escape hatch as the other lanes, for a package that
-          # has not been created on npm yet. Existing packages still use OIDC.
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
         run: node scripts/changeset-publish-sequential.ts
@@ -312,9 +364,6 @@ jobs:
       - name: Summarize dev snapshot publish
         env:
           DEV_DIST_TAG: dev-${{ inputs.devTag }}
-          # Sourced from the publish step's own output — the packages it
-          # actually attempted, already filtered to the public allowlist —
-          # not reconstructed by re-scanning `packages/*` directory names.
           PUBLISHED_PACKAGES: ${{ steps.publish.outputs.published-packages }}
         run: |
           set -euo pipefail
@@ -333,14 +382,7 @@ jobs:
 
   release:
     name: Prepare or publish stable npm packages
-    # Ordinary main pushes are nightly-only. A manual dispatch creates the
-    # marked Version Packages PR; only that PR's merge can enter stable npm
-    # publication. A downstream redispatch only re-sends a notification for
-    # versions that are already on npm, so it must not re-enter build/publish.
     needs: [verify-stable-merge]
-    # A dev snapshot dispatch must never fall through to a stable release,
-    # even if verify-stable-merge reports verified (it always does for
-    # workflow_dispatch runs).
     if: ${{ !inputs.redispatchDownstream && !inputs.devTag && needs.verify-stable-merge.outputs.verified == 'true' }}
     runs-on: ubuntu-latest
     environment: npm-publish
@@ -423,6 +465,7 @@ jobs:
             | select(any(.releases[]?.name;
                 . == "@agent-native/agentkit" or
                 . == "@agent-native/core" or
+                . == "@agent-native/core-corpus" or
                 . == "@agent-native/creative-context" or
                 . == "@agent-native/dispatch" or
                 . == "@agent-native/pinpoint" or
@@ -439,41 +482,33 @@ jobs:
       - name: Validate changesets
         run: node scripts/check-changeset.mjs
 
-      # The dispatch only prepares a Version Packages PR. Build everything
-      # once on the marked PR merge so stable publication does not rebuild per
-      # package. The publish wrapper also packs each package independently.
-      - name: Build all packages
+      - name: Build publishable packages
         if: github.event_name == 'push'
-        run: pnpm -r build
+        run: >-
+          pnpm -r
+          --filter '@agent-native/agentkit...'
+          --filter '@agent-native/core...'
+          --filter '@agent-native/core-corpus...'
+          --filter '@agent-native/creative-context...'
+          --filter '@agent-native/dispatch...'
+          --filter '@agent-native/pinpoint...'
+          --filter '@agent-native/recap-cli...'
+          --filter '@agent-native/scheduling...'
+          --filter '@agent-native/skills...'
+          --filter '@agent-native/toolkit...'
+          run build
 
       - name: Create stable Release PR or publish to npm
         id: changesets
         uses: changesets/action@3841a0683d3cfa6dae0f9bb335290003010fe3f0 # v1.9.0, compatible with Changesets CLI v2
         with:
-          # When changesets/action finds no pending changesets, it runs
-          # `publish`. @changesets/cli publishes packages concurrently, which
-          # can make several npm OIDC trusted-publishing handshakes race in the
-          # same job. The wrapper keeps changesets' version-PR behavior but
-          # serializes the actual npm publishes.
           publish: node scripts/changeset-publish-sequential.ts
-          # On dispatch, the generated all-package changeset opens this PR
-          # with version bumps + changelogs. Its marker survives squash merge
-          # and is required before this workflow can publish stable packages.
-          # The custom version script also keeps package CHANGELOG.md files
-          # short and archives older sections under changelog/archive/.
           version: pnpm changeset:release-version
           title: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
           commit: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # `npm publish` (called by `changeset publish`) requests an OIDC
-          # token when --provenance is set. publishConfig.provenance in
-          # package.json isn't honored everywhere, so set the env var —
-          # both npm and pnpm read NPM_CONFIG_PROVENANCE.
           NPM_CONFIG_PROVENANCE: "true"
-          # Optional one-time escape hatch for brand-new public packages. The
-          # publish wrapper uses this only when npm returns 404 for the package
-          # name itself; existing packages still publish through OIDC/provenance.
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Consume concurrent public-package changesets
@@ -522,7 +557,14 @@ jobs:
                 echo "Concurrent changesets were consumed by another main update."
                 exit 0
               fi
-              git rebase origin/main
+              git rebase --autostash origin/main
+              conflicted_paths="$(git diff --name-only --diff-filter=U)"
+              if [ -n "$conflicted_paths" ]; then
+                echo "::error::Autostash restoration conflicted after rebase." >&2
+                echo "$conflicted_paths" >&2
+                git status --short >&2
+                exit 1
+              fi
               sleep $((attempt * 2))
             fi
           done
@@ -547,20 +589,9 @@ jobs:
             done
           fi
 
-  # Downstream notification lives in its own job so it can (a) run on a manual
-  # redispatch without re-entering build/publish and (b) still run — and say so
-  # in the job summary — when it decides NOT to notify. As a gated step inside
-  # `release` it was invisible when skipped: a dispatch lost to a GitHub 5xx made
-  # every later run report "no unpublished packages", skip silently, and go green
-  # while production stopped receiving releases.
   notify-downstream:
     name: Notify downstream repos
     needs: [release, verify-stable-merge]
-    # A normal main push has no stable release job. Manual dispatches (including
-    # redispatch) and marked stable merges still need a written notification
-    # result even when the release job fails or is intentionally skipped. A
-    # dev snapshot dispatch is never a real release, so it's excluded outright
-    # rather than reported as a skipped one.
     if: |
       always() &&
       !inputs.devTag &&
@@ -586,8 +617,6 @@ jobs:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
           owner: BuilderIO
-          # Consumer workflow lives in the workspace repo. The starter mirror is
-          # dispatched to this repo's own workflow (see below), not from here.
           repositories: |
             builder-agent-native-workspace
 

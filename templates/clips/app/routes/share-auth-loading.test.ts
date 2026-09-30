@@ -62,6 +62,17 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
+  it("checks that a recording exists before verifying a scoped share token", () => {
+    const route = readRoute("share.$shareId.tsx");
+    const missingRecordGuard = route.indexOf(
+      "if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);",
+    );
+    const tokenVerification = route.indexOf("const tokenGrantsAgentAccess =");
+
+    expect(missingRecordGuard).toBeGreaterThanOrEqual(0);
+    expect(tokenVerification).toBeGreaterThan(missingRecordGuard);
+  });
+
   it("renders signed-in share viewers in the app shell with breadcrumbs", () => {
     const route = readRoute("share.$shareId.tsx");
     const root = readFileSync(resolve(process.cwd(), "app/root.tsx"), "utf8");
@@ -215,8 +226,8 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain(
       "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
     );
-    expect(route).toContain(
-      "recording.enableComments &&\n                    viewerCanUseFullscreenInteractions",
+    expect(route).toMatch(
+      /recording\.enableComments &&\s+viewerCanUseFullscreenInteractions/,
     );
     expect(route).toContain("recording.enableReactions &&");
     expect(route).toContain("viewerCanUseFullscreenInteractions");
@@ -235,6 +246,9 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("pendingAccountActionRef");
     expect(route).toContain("disabled={Boolean(session) && !viewerCanComment}");
     expect(route).toContain("onReact={reactToRecording}");
+    expect(route).toMatch(
+      /portalContainer={\s*isPlayerFullscreen \? playerRef\.current\?\.container : undefined\s*}/,
+    );
   });
 
   it("keeps public comments in flow and consolidates recording insights", () => {
@@ -320,9 +334,6 @@ describe("authenticated recording route loading", () => {
   it("opens the comments panel on the public share page for ?panel=comments links", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // The signed-in recording route supports a ?panel=comments deep link
-    // (used by search results and the command menu); the public share route
-    // rendered the same param unread and always defaulted to "transcript".
     expect(shareRoute).toContain(
       'const panelParam = searchParams.get("panel")',
     );
@@ -330,27 +341,24 @@ describe("authenticated recording route loading", () => {
       "if (recording && !recording.enableComments) {",
     );
     expect(effectStart).toBeGreaterThan(-1);
-    const effect = shareRoute.slice(effectStart, effectStart + 700);
+    // Window widened when the screenshot fallback was added to this branch.
+    const effect = shareRoute.slice(effectStart, effectStart + 900);
     expect(effect).toContain('if (panelParam === "comments") {');
     expect(effect).toContain("selectCommentsPanel();");
 
-    // A share whose owner disabled comments after the link was shared must
-    // land back on transcript - the comments tab and its content are both
-    // conditionally rendered on recording.enableComments, so leaving `panel`
-    // set to "comments" here would strand the Tabs value on nothing.
     expect(effect).toContain(
-      'setPanel((current) => (current === "comments" ? "transcript" : current));',
+      'setPanel((current) => (current === "comments" ? fallback : current));',
+    );
+    // ...and a screenshot has no transcript tab either, so its fallback is
+    // the agent rather than a tab that is never rendered for it.
+    expect(effect).toContain(
+      'const fallback = isImageRecording(recording) ? "agent" : "transcript";',
     );
   });
 
   it("does not re-select comments every time the viewer changes tabs", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // `panel` must not be a dependency of the deep-link effect: if it were,
-    // switching to Transcript/Agent would re-run the effect, and
-    // `panelParam === "comments"` (still true, since it's read from the URL)
-    // would immediately call selectCommentsPanel() again, trapping the
-    // viewer on the deep link for the whole share session.
     const effectStart = shareRoute.indexOf(
       "if (recording && !recording.enableComments) {",
     );
@@ -365,10 +373,6 @@ describe("authenticated recording route loading", () => {
   it("re-runs the comments deep link when navigating between shares", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // Without `shareId` in the effect's dependency array, navigating from
-    // /share/A?panel=comments to /share/B?panel=comments would not re-run the
-    // effect when both recordings have the same enableComments value, leaving
-    // the new share on whatever `panel` the previous share was left at.
     const effectStart = shareRoute.indexOf(
       "if (recording && !recording.enableComments) {",
     );
@@ -385,9 +389,6 @@ describe("authenticated recording route loading", () => {
   it("preserves ?panel in the sign-in continuation URL for public shares", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // Anonymous viewers who open a ?panel=comments share and then sign in
-    // must return to the comments panel, not lose it because shareReturnTo
-    // only forwarded attribution and `at`.
     expect(shareRoute).toContain(
       "buildShareContinuationQuery(attribution, startAt, panelParam)",
     );
@@ -397,5 +398,25 @@ describe("authenticated recording route loading", () => {
       "utf8",
     );
     expect(attributionSrc).toContain('if (panel) params.set("panel", panel);');
+  });
+
+  it("sends signed-in viewers to the app shell instead of the marketing page", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    expect(shareRoute).toContain(
+      'const homeHref = session ? appPath("/home") : appPath("/");',
+    );
+
+    expect(shareRoute).toContain("homeHref: string;");
+    expect(shareRoute).toContain(
+      '<a href={homeHref}>{t("clipsFinalRaw.goHome")}</a>',
+    );
+    expect(shareRoute).not.toContain('<a href={appPath("/")}>');
+
+    expect(shareRoute.match(/homeHref=\{homeHref\}/g)).toHaveLength(6);
+
+    expect(shareRoute).toContain(
+      'to={appPath("/")}\n              aria-label={t("navigation.brand")}',
+    );
   });
 });

@@ -504,9 +504,6 @@ describe("rendered-source provenance in the iframe bridges", () => {
           (message: any) => message.phase === "start",
         ),
       );
-      // Simulate the bridge's current document proof changing after gesture
-      // start. The packet must stay bound to the proof/selector captured with
-      // the original pointer-down rather than reading a later revision.
       await page.evaluate(() => {
         (window as any).__agentNativeSourceProvenance = {
           versionHash: "source-v2",

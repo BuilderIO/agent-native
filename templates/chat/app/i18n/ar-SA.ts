@@ -1,10 +1,6 @@
 const messages = {
   settings: {
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     workspaceTitle: "مساحة العمل",
     workspaceDescription:
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
@@ -32,6 +28,9 @@ const messages = {
     pinChat: "تثبيت المحادثة",
     pinned: "المثبتة",
     recents: "الأخيرة",
+    retryPreviousRequest: "أعِد محاولة طلبي السابق الآن بعد توصيل مزود النموذج.",
+    retryAttachmentUnavailable:
+      "لا يمكن للدردشة إعادة فتح هذا المرفق لإعادة المحاولة. أضف عنوان URL يمكن الوصول إليه للملف، ثم أعد المحاولة.",
     renameChat: "إعادة تسمية المحادثة",
     renameFailed: "فشلت إعادة التسمية",
     renameThread: "إعادة تسمية السلسلة",

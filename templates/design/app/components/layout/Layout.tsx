@@ -1,13 +1,9 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useGuidedQuestionFlow,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
@@ -18,6 +14,10 @@ import {
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   createContext,
@@ -39,6 +39,7 @@ import {
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import { cn } from "@/lib/utils";
 
+import { DesignComposerContextProvider } from "../editor/DesignComposerContextProvider";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -56,14 +57,8 @@ export function useOpenMobileSidebar() {
   return useContext(MobileSidebarContext);
 }
 
-/** Routes that render with no app shell at all (no sidebar, no header). */
 const BARE_PREFIXES = ["/present/"];
 
-/**
- * Routes where the page renders its own toolbar instead of the global Header
- * on a standalone page. Embedded surfaces opt into this mode when they own
- * the canvas chrome.
- */
 const EDITOR_PREFIXES = ["/design/", "/visual-edit/", "/extensions"];
 
 type DesignLayoutMode = "host-bare" | "standalone-editor" | "app-shell";
@@ -113,17 +108,17 @@ export function Layout({ children }: LayoutProps) {
     isDesignEditor,
   });
   const standaloneEditor = layoutMode === "standalone-editor";
-  const showMobileTopBar = !standaloneEditor;
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(location.pathname);
+  const showAppNav = !standaloneEditor && !isSettingsRoute;
+  const showMobileTopBar = showAppNav;
   const browserTabId = getBrowserTabId();
   const {
     link: detectedFigmaComposerLink,
     onComposerTextChange: handleComposerTextChange,
   } = useDetectedFigmaComposerLink();
 
-  // Bind chat to the currently-open design. Same pattern as slides — the
-  // route is `/design/:id` for the editor and `/present/:id` for preview
-  // (which we already short-circuit as BARE). Anywhere else (list,
-  // design-systems, settings) leaves scope null so general chats keep working.
   const designScope = useMemo(() => {
     const designId = designEditorRoute(location.pathname)?.designId;
     if (!designId) return null;
@@ -159,7 +154,7 @@ export function Layout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -191,6 +186,7 @@ export function Layout({ children }: LayoutProps) {
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
     enabled: hasSession,
+    providerStatusChecksEnabled: false,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,
@@ -214,14 +210,18 @@ export function Layout({ children }: LayoutProps) {
 
   const hideHeader =
     isChatRoute ||
+    isSettingsRoute ||
     (!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p)));
 
-  function openAgentChatFullscreen() {
+  function openAgentChatFullscreen(threadId?: string) {
     focusAgentChat();
     const designQuery = designScope
       ? `?designId=${encodeURIComponent(designScope.id)}`
       : "";
-    navigateWithAgentChatViewTransition(navigate, `/chat${designQuery}`);
+    const chatPath = threadId
+      ? `/chat/${encodeURIComponent(threadId)}`
+      : "/chat";
+    navigateWithAgentChatViewTransition(navigate, `${chatPath}${designQuery}`);
   }
 
   if (layoutMode === "host-bare") {
@@ -261,13 +261,13 @@ export function Layout({ children }: LayoutProps) {
 
   const shell = (
     <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
-      {!standaloneEditor && mobileSidebarOpen && (
+      {showAppNav && mobileSidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-foreground/50 md:hidden"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
-      {!standaloneEditor && (
+      {showAppNav && (
         <div
           className={cn(
             "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none motion-reduce:transition-none",
@@ -304,7 +304,7 @@ export function Layout({ children }: LayoutProps) {
         <main
           className={cn(
             "agent-native-app-main min-h-0 flex-1",
-            isDesignEditor || isChatRoute
+            isDesignEditor || isChatRoute || isSettingsRoute
               ? "overflow-hidden"
               : "overflow-y-auto",
           )}
@@ -324,6 +324,7 @@ export function Layout({ children }: LayoutProps) {
           shell
         ) : (
           <AgentSidebar
+            composerContextProvider={DesignComposerContextProvider}
             position="right"
             chatViewTransition
             chatViewTransitionHandoff={chatHomeHandoffPending}

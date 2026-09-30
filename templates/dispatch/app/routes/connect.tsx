@@ -1,7 +1,7 @@
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import ConnectRoute, {
   meta,
 } from "@agent-native/dispatch/routes/pages/connect";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import type { ClientLoaderFunction } from "react-router";
 
 async function requireConnectAppsFlag(request: Request): Promise<void> {
@@ -29,8 +29,6 @@ async function requireConnectAppsFlag(request: Request): Promise<void> {
     throw new Response(null, { status: 404 });
 }
 
-// Keep the feature gate client-only. Server loaders are part of the public,
-// shared SSR shell and must not branch on session cookies.
 export const clientLoader: ClientLoaderFunction = async ({ request }) => {
   await requireConnectAppsFlag(request);
   return null;

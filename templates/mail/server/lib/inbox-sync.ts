@@ -1,14 +1,8 @@
-/**
- * The inbox sync engine: keeps `mail_inbox_threads` fresh from Gmail via a
- * resumable full sync (first run) followed by incremental `history.list`
- * deltas. Gmail traffic per call is bounded — history.list (2 units) plus
- * batched threads.get for changed threads only — instead of the live
- * messages.list page every list/count used to cost (see google-api.ts's
- * quota bucket / cooldown for why that mattered).
- */
 import type { InboxSyncAccountStatus } from "@shared/inbox-threads.js";
 
 import {
+  GmailQuotaCooldownError,
+  gmailGetLabel,
   gmailGetProfile,
   gmailListHistory,
   gmailListLabels,
@@ -28,11 +22,13 @@ import {
 import { classifyAutomated } from "./inbox-classify.js";
 import {
   claimSyncAccount,
+  countInboxThreads,
   deleteInboxThreadRow,
   ensureSyncAccountRow,
   markThreadsOutOfInboxBeforeSync,
   patchSyncAccount,
   readInboxPushGeneration,
+  readInboxThreadIds,
   readSyncAccounts,
   releaseSyncAccount,
   resetSyncAccountProgress,
@@ -49,12 +45,17 @@ const DEFAULT_MAX_AGE_MS = 15_000;
 const DEFAULT_BUDGET_MS = 6_000;
 const CLAIM_TTL_MS = 90_000;
 const LABELS_TTL_MS = 5 * 60 * 1000;
-const FULL_SYNC_PAGE_SIZE = 100;
+const EAGER_PAGE_SIZE = 50;
+// Use interactive quota for the 74-thread eager slice so its first backfill page still fits.
+const EAGER_COMPLETION_SIZE = 24;
+// 49 reads and one threads.list call use 1,970 of the 2,000-unit backfill budget.
+const BACKFILL_PAGE_SIZE = 49;
+const RECONCILE_PAGE_SIZE = 500;
+const RECONCILE_HYDRATE_SIZE = 45;
+const RECONCILE_MAX_PASSES = 2;
+const HISTORY_PAGE_SIZE = 50;
 const HYDRATE_CHUNK = 50;
 
-// Requested on every thread hydrate (full + incremental) — the fields
-// classifyAutomated and the row derivation need without paying for `full`
-// format (bodies).
 const METADATA_HEADERS = [
   "From",
   "To",
@@ -72,6 +73,20 @@ const METADATA_HEADERS = [
 type SyncStepResult = {
   status: InboxSyncAccountStatus;
   changed: boolean;
+  retryAfterSeconds?: number;
+  restartedFullSync?: boolean;
+};
+
+export type SyncInboxAccountProgress = InboxSyncAccountStatus & {
+  changed: boolean;
+  pushGeneration: number;
+  lastPushGeneration: number;
+  pushPending: boolean;
+  retryAfterSeconds?: number;
+};
+
+export type SyncInboxResult = {
+  accounts: SyncInboxAccountProgress[];
 };
 
 function boundedErrorMessage(err: unknown): string {
@@ -80,7 +95,6 @@ function boundedErrorMessage(err: unknown): string {
   return msg.replace(/Bearer [^\s"]+/gi, "Bearer [redacted]").slice(0, 240);
 }
 
-/** Fenced progress write: throws {@link SyncClaimLostError} instead of silently no-oping. */
 async function patchProgress(
   ownerEmail: string,
   accountEmail: string,
@@ -94,25 +108,86 @@ async function patchProgress(
 }
 
 function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
+  const backfillPending =
+    row.fullSyncPageToken != null || row.fullSyncPhase === "reconcile";
   if (row.status === "needs_reauth" || row.status === "error") {
     return {
       accountEmail: row.accountEmail,
       state: row.status,
       lastSyncedAt: row.lastSyncedAt,
       error: row.lastError ?? undefined,
+      ...(backfillPending ? { backfillPending: true } : {}),
     };
   }
   return {
     accountEmail: row.accountEmail,
-    state: row.historyId == null ? "initial" : "ready",
+    state:
+      row.historyId == null || row.status === "syncing" ? "initial" : "ready",
     lastSyncedAt: row.lastSyncedAt,
+    ...(backfillPending ? { backfillPending: true } : {}),
   };
 }
 
-// Self-address set for the "latest received message" pick. Must include the
-// account being synced explicitly: a managed-only workspace grant has no
-// per-user OAuth row; the selected account must remain present even when the
-// workspace account inventory is incomplete.
+function cachedGmailLabels(result: any): CachedGmailLabel[] {
+  return (result.labels ?? []).map((label: any) => ({
+    id: label.id,
+    name: label.name,
+    type: label.type,
+    color: label.color?.backgroundColor,
+    messagesTotal: label.messagesTotal,
+    messagesUnread: label.messagesUnread,
+    threadsTotal: label.threadsTotal,
+    threadsUnread: label.threadsUnread,
+  }));
+}
+
+function inboxThreadTotal(labels: CachedGmailLabel[]): number {
+  const rawTotal = labels.find(
+    (label) => label.id.toUpperCase() === "INBOX",
+  )?.threadsTotal;
+  const total = Number(rawTotal);
+  if (rawTotal == null || !Number.isSafeInteger(total) || total < 0) {
+    throw new Error("Gmail did not return a valid INBOX thread total");
+  }
+  return total;
+}
+
+async function readFreshInboxTotal(
+  accessToken: string,
+): Promise<{ labels: CachedGmailLabel[]; total: number; updatedAt: number }> {
+  const labels = cachedGmailLabels(
+    await gmailListLabels(accessToken, "backfill"),
+  );
+  const inboxLabel = await gmailGetLabel(accessToken, "INBOX", "backfill");
+  const detailedInbox = cachedGmailLabels({ labels: [inboxLabel] })[0];
+  const existingInboxIndex = labels.findIndex(
+    (label) => label.id.toUpperCase() === "INBOX",
+  );
+  if (existingInboxIndex >= 0) {
+    labels[existingInboxIndex] = {
+      ...labels[existingInboxIndex],
+      ...detailedInbox,
+    };
+  } else {
+    labels.push(detailedInbox);
+  }
+  return { labels, total: inboxThreadTotal(labels), updatedAt: Date.now() };
+}
+
+function reconciliationStatus(
+  accountEmail: string,
+  lastSyncedAt: number,
+  error?: string,
+): InboxSyncAccountStatus {
+  return {
+    accountEmail,
+    state: error ? "error" : "ready",
+    lastSyncedAt,
+    ...(error ? { error } : {}),
+    backfillPending: true,
+  };
+}
+
 async function connectedEmailsLower(
   ownerEmail: string,
   accountEmail: string,
@@ -131,11 +206,6 @@ function messageLabels(m: any): string[] {
   return m.labelIds || [];
 }
 
-/**
- * Turns one Gmail thread (format=metadata) into an upsertable row, or null
- * for a degenerate thread with no usable messages (never upserted — any
- * stale row for it should be dropped by the caller instead).
- */
 function deriveRowFromThread(
   thread: any,
   ownerEmail: string,
@@ -167,10 +237,6 @@ function deriveRowFromThread(
     if (labels.includes("INBOX") && !labels.includes("TRASH")) inInbox = true;
   }
 
-  // Classification target: the latest message NOT sent from one of the
-  // owner's own connected accounts, so replying to your own thread never
-  // reclassifies it. Falls back to the latest message if every message in
-  // the thread was self-sent.
   const bySentDateDesc = [...relevant].sort(
     (a, b) => Number(b.internalDate ?? 0) - Number(a.internalDate ?? 0),
   );
@@ -189,9 +255,6 @@ function deriveRowFromThread(
     fromEmail: from.email,
   });
 
-  // metadata format omits `parts` on most responses — this only ever
-  // reports true when Gmail happens to include them; false means "unknown",
-  // never a guess.
   const hasAttachments = relevant.some((m) =>
     (m.payload?.parts || []).some((p: any) => !!p.filename),
   );
@@ -223,43 +286,6 @@ function deriveRowFromThread(
   };
 }
 
-/** Hydrates thread ids in chunks of ≤50; a per-thread 404 is skipped (the thread never existed as a row). */
-async function hydrateThreads(
-  accessToken: string,
-  ids: string[],
-  ownerEmail: string,
-  accountEmail: string,
-  connected: Set<string>,
-): Promise<ThreadUpsertInput[]> {
-  const rows: ThreadUpsertInput[] = [];
-  for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
-    const chunk = ids.slice(i, i + HYDRATE_CHUNK);
-    const readStartedAt = Date.now();
-    const results = await gmailBatchGetThreads(
-      accessToken,
-      chunk,
-      "metadata",
-      METADATA_HEADERS,
-    );
-    for (const part of results) {
-      if (part.error) {
-        if (/HTTP 404/.test(part.error)) continue;
-        throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
-      }
-      const derived = deriveRowFromThread(
-        part.data,
-        ownerEmail,
-        accountEmail,
-        connected,
-        readStartedAt,
-      );
-      if (derived) rows.push(derived);
-    }
-  }
-  return rows;
-}
-
-/** Same as hydrateThreads, but a 404 means "delete the existing row" (incremental path — the thread was known before). */
 async function hydrateAndApply(
   accessToken: string,
   ids: string[],
@@ -267,17 +293,20 @@ async function hydrateAndApply(
   accountEmail: string,
   connected: Set<string>,
   claimId: string,
+  lane: "interactive" | "incremental" | "backfill",
+  onChanged?: () => void,
 ): Promise<void> {
-  const upserts: ThreadUpsertInput[] = [];
-  const deletes: Array<{ id: string; readStartedAt: number }> = [];
   for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
     const chunk = ids.slice(i, i + HYDRATE_CHUNK);
     const readStartedAt = Date.now();
+    const upserts: ThreadUpsertInput[] = [];
+    const deletes: Array<{ id: string; readStartedAt: number }> = [];
     const results = await gmailBatchGetThreads(
       accessToken,
       chunk,
       "metadata",
       METADATA_HEADERS,
+      lane,
     );
     for (const part of results) {
       if (part.error) {
@@ -297,18 +326,19 @@ async function hydrateAndApply(
       if (derived) upserts.push(derived);
       else deletes.push({ id: part.id, readStartedAt });
     }
+    await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
+      if (upserts.length > 0) await upsertInboxThreadRows(upserts, tx);
+      for (const { id, readStartedAt } of deletes)
+        await deleteInboxThreadRow(
+          ownerEmail,
+          accountEmail,
+          id,
+          readStartedAt,
+          tx,
+        );
+    });
+    if (upserts.length > 0 || deletes.length > 0) onChanged?.();
   }
-  await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
-    if (upserts.length > 0) await upsertInboxThreadRows(upserts, tx);
-    for (const { id, readStartedAt } of deletes)
-      await deleteInboxThreadRow(
-        ownerEmail,
-        accountEmail,
-        id,
-        readStartedAt,
-        tx,
-      );
-  });
 }
 
 async function runFullSyncStep(
@@ -316,14 +346,18 @@ async function runFullSyncStep(
   accountEmail: string,
   accessToken: string,
   row: SyncAccountRow,
-  deadline: number,
   claimId: string,
   connectedAccountEmails?: readonly string[],
+  onChanged?: () => void,
 ): Promise<SyncStepResult> {
+  const initialSync = row.historyId == null;
   let fullSyncHistoryId = row.fullSyncHistoryId;
   let fullSyncStartedAt = row.fullSyncStartedAt;
   if (fullSyncHistoryId == null) {
-    const profile = await gmailGetProfile(accessToken);
+    const profile = await gmailGetProfile(
+      accessToken,
+      initialSync ? "interactive" : "incremental",
+    );
     fullSyncHistoryId = String(profile.historyId);
     fullSyncStartedAt = Date.now();
     await patchProgress(ownerEmail, accountEmail, claimId, {
@@ -338,64 +372,279 @@ async function runFullSyncStep(
     accountEmail,
     connectedAccountEmails,
   );
-
-  while (Date.now() < deadline) {
-    const page = await gmailListThreads(accessToken, {
+  const completingEagerSlice = row.historyId == null && pageToken != null;
+  const lane = initialSync ? "interactive" : "backfill";
+  const page = await gmailListThreads(
+    accessToken,
+    {
       q: "in:inbox",
-      maxResults: FULL_SYNC_PAGE_SIZE,
+      maxResults: initialSync
+        ? completingEagerSlice
+          ? EAGER_COMPLETION_SIZE
+          : EAGER_PAGE_SIZE
+        : BACKFILL_PAGE_SIZE,
       pageToken,
-    });
-    const ids: string[] = (page.threads ?? []).map((t: any) => t.id);
-    if (ids.length > 0) {
-      const rows = await hydrateThreads(
-        accessToken,
-        ids,
-        ownerEmail,
-        accountEmail,
-        connected,
-      );
-      await withSyncClaim(ownerEmail, accountEmail, claimId, (tx) =>
-        upsertInboxThreadRows(rows, tx),
-      );
-    }
-    pageToken = page.nextPageToken;
-    await patchProgress(ownerEmail, accountEmail, claimId, {
-      fullSyncPageToken: pageToken ?? null,
-    });
-
-    if (!pageToken) {
-      await withSyncClaim(ownerEmail, accountEmail, claimId, (tx) =>
-        markThreadsOutOfInboxBeforeSync(
-          ownerEmail,
-          accountEmail,
-          fullSyncStartedAt!,
-          tx,
-        ),
-      );
-      await patchProgress(ownerEmail, accountEmail, claimId, {
-        historyId: fullSyncHistoryId,
-        fullSyncPageToken: null,
-        fullSyncHistoryId: null,
-        fullSyncStartedAt: null,
-        lastError: null,
-        lastSyncedAt: Date.now(),
-      });
-      return {
-        status: { accountEmail, state: "ready", lastSyncedAt: Date.now() },
-        changed: true,
-      };
-    }
+    },
+    lane,
+  );
+  const ids: string[] = (page.threads ?? []).map((thread: any) => thread.id);
+  if (ids.length > 0) {
+    await hydrateAndApply(
+      accessToken,
+      ids,
+      ownerEmail,
+      accountEmail,
+      connected,
+      claimId,
+      lane,
+      onChanged,
+    );
   }
 
-  // Budget exhausted mid-walk. The page token is already persisted above,
-  // so the next call resumes from here.
+  const nextPageToken = page.nextPageToken ?? null;
+  const syncedAt = Date.now();
+  if (initialSync && !completingEagerSlice && nextPageToken) {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncPageToken: nextPageToken,
+      lastError: null,
+      lastSyncedAt: syncedAt,
+    });
+    return {
+      status: {
+        accountEmail,
+        state: "initial",
+        lastSyncedAt: syncedAt,
+        backfillPending: true,
+      },
+      changed: ids.length > 0,
+    };
+  }
+
+  const historyId = initialSync ? fullSyncHistoryId : row.historyId;
+  if (nextPageToken) {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      historyId,
+      fullSyncPageToken: nextPageToken,
+      fullSyncHistoryId,
+      fullSyncStartedAt,
+      lastError: null,
+      lastSyncedAt: syncedAt,
+    });
+    return {
+      status: {
+        accountEmail,
+        state: "ready",
+        lastSyncedAt: syncedAt,
+        backfillPending: true,
+      },
+      changed: ids.length > 0,
+    };
+  }
+
+  const snapshot = await readFreshInboxTotal(accessToken);
+  if (fullSyncStartedAt != null) {
+    await withSyncClaim(ownerEmail, accountEmail, claimId, (tx) =>
+      markThreadsOutOfInboxBeforeSync(
+        ownerEmail,
+        accountEmail,
+        fullSyncStartedAt!,
+        tx,
+      ),
+    );
+    onChanged?.();
+  }
+  const localInboxTotal = await countInboxThreads(ownerEmail, accountEmail);
+  const reconciled = localInboxTotal === snapshot.total;
   await patchProgress(ownerEmail, accountEmail, claimId, {
+    historyId,
+    fullSyncPageToken: null,
+    fullSyncHistoryId: null,
+    fullSyncStartedAt: null,
+    fullSyncPhase: reconciled ? null : "reconcile",
+    fullSyncReconcilePageToken: reconciled ? null : "",
+    fullSyncReconcilePendingIds: reconciled ? null : [],
+    fullSyncReconcilePasses: reconciled ? 0 : 1,
+    labels: snapshot.labels,
+    labelsUpdatedAt: snapshot.updatedAt,
     lastError: null,
-    lastSyncedAt: Date.now(),
+    lastSyncedAt: syncedAt,
   });
   return {
-    status: { accountEmail, state: "initial", lastSyncedAt: Date.now() },
+    status: reconciled
+      ? { accountEmail, state: "ready", lastSyncedAt: syncedAt }
+      : reconciliationStatus(accountEmail, syncedAt),
     changed: true,
+  };
+}
+
+async function finishReconciliationPass(
+  ownerEmail: string,
+  accountEmail: string,
+  accessToken: string,
+  row: SyncAccountRow,
+  claimId: string,
+): Promise<SyncStepResult> {
+  const snapshot = await readFreshInboxTotal(accessToken);
+  const localInboxTotal = await countInboxThreads(ownerEmail, accountEmail);
+  const syncedAt = Date.now();
+  const matches = localInboxTotal === snapshot.total;
+  if (matches) {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncPhase: null,
+      fullSyncReconcilePageToken: null,
+      fullSyncReconcilePendingIds: null,
+      fullSyncReconcilePasses: 0,
+      fullSyncHistoryId: null,
+      fullSyncStartedAt: null,
+      labels: snapshot.labels,
+      labelsUpdatedAt: snapshot.updatedAt,
+      lastError: null,
+      lastSyncedAt: syncedAt,
+    });
+    return {
+      status: { accountEmail, state: "ready", lastSyncedAt: syncedAt },
+      changed: true,
+    };
+  }
+
+  if (row.fullSyncReconcilePasses < RECONCILE_MAX_PASSES) {
+    const passes = row.fullSyncReconcilePasses + 1;
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncPhase: "reconcile",
+      fullSyncReconcilePageToken: "",
+      fullSyncReconcilePendingIds: [],
+      fullSyncReconcilePasses: passes,
+      labels: snapshot.labels,
+      labelsUpdatedAt: snapshot.updatedAt,
+      lastError: null,
+      lastSyncedAt: syncedAt,
+    });
+    return {
+      status: reconciliationStatus(accountEmail, syncedAt),
+      changed: true,
+    };
+  }
+
+  console.warn("[inbox-sync] Inbox reconciliation ended with count mismatch", {
+    accountEmail,
+    localInboxTotal,
+    gmailInboxTotal: snapshot.total,
+  });
+  await patchProgress(ownerEmail, accountEmail, claimId, {
+    fullSyncPhase: null,
+    fullSyncReconcilePageToken: null,
+    fullSyncReconcilePendingIds: null,
+    fullSyncReconcilePasses: 0,
+    fullSyncHistoryId: null,
+    fullSyncStartedAt: null,
+    labels: snapshot.labels,
+    labelsUpdatedAt: snapshot.updatedAt,
+    lastError: null,
+    lastSyncedAt: syncedAt,
+  });
+  return {
+    status: { accountEmail, state: "ready", lastSyncedAt: syncedAt },
+    changed: true,
+  };
+}
+
+async function runReconciliationStep(
+  ownerEmail: string,
+  accountEmail: string,
+  accessToken: string,
+  row: SyncAccountRow,
+  claimId: string,
+  connectedAccountEmails?: readonly string[],
+  onChanged?: () => void,
+): Promise<SyncStepResult> {
+  let pendingIds = row.fullSyncReconcilePendingIds ?? [];
+  let nextPageToken = row.fullSyncReconcilePageToken;
+  let idsToHydrate = pendingIds.slice(0, RECONCILE_HYDRATE_SIZE);
+
+  if (pendingIds.length === 0 && nextPageToken === null) {
+    return finishReconciliationPass(
+      ownerEmail,
+      accountEmail,
+      accessToken,
+      row,
+      claimId,
+    );
+  }
+
+  if (pendingIds.length === 0) {
+    const page = (await gmailListThreads(
+      accessToken,
+      {
+        q: "in:inbox",
+        maxResults: RECONCILE_PAGE_SIZE,
+        pageToken: nextPageToken || undefined,
+      },
+      "backfill",
+    )) as {
+      threads?: Array<{ id?: string | null }>;
+      nextPageToken?: string | null;
+    };
+    const pageIds = [
+      ...new Set(
+        (page.threads ?? []).flatMap((thread) =>
+          typeof thread.id === "string" ? [thread.id] : [],
+        ),
+      ),
+    ];
+    const localIds = await readInboxThreadIds(
+      ownerEmail,
+      accountEmail,
+      pageIds,
+    );
+    pendingIds = pageIds.filter((id) => !localIds.has(id));
+    nextPageToken = page.nextPageToken ?? null;
+    idsToHydrate = pendingIds.slice(0, RECONCILE_HYDRATE_SIZE);
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncReconcilePageToken: nextPageToken,
+      fullSyncReconcilePendingIds: pendingIds,
+    });
+  }
+
+  if (idsToHydrate.length > 0) {
+    const connected = await connectedEmailsLower(
+      ownerEmail,
+      accountEmail,
+      connectedAccountEmails,
+    );
+    await hydrateAndApply(
+      accessToken,
+      idsToHydrate,
+      ownerEmail,
+      accountEmail,
+      connected,
+      claimId,
+      "backfill",
+      onChanged,
+    );
+    pendingIds = pendingIds.slice(idsToHydrate.length);
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncReconcilePendingIds: pendingIds,
+    });
+  }
+
+  if (pendingIds.length === 0 && nextPageToken === null) {
+    const verifiedRow = {
+      ...row,
+      fullSyncReconcilePageToken: null,
+      fullSyncReconcilePendingIds: [],
+    };
+    return finishReconciliationPass(
+      ownerEmail,
+      accountEmail,
+      accessToken,
+      verifiedRow,
+      claimId,
+    );
+  }
+
+  return {
+    status: reconciliationStatus(accountEmail, Date.now()),
+    changed: idsToHydrate.length > 0,
   };
 }
 
@@ -404,121 +653,108 @@ async function runIncrementalSyncStep(
   accountEmail: string,
   accessToken: string,
   row: SyncAccountRow,
-  deadline: number,
   claimId: string,
   connectedAccountEmails?: readonly string[],
+  onChanged?: () => void,
 ): Promise<SyncStepResult> {
-  // Gmail's response `historyId` is the mailbox's *current* id, identical on
-  // every page, so it is only a safe watermark once every page has been
-  // consumed. When the budget runs out mid-way we persist the last processed
-  // record's own id instead; records arrive in ascending order, so the next
-  // call resumes exactly there rather than skipping the unread pages.
-  let pageToken: string | undefined;
-  let lastRecordId: string | null = null;
-  let caughtUp = false;
-  let currentHistoryId: string | null = null;
-  let changed = false;
-  do {
-    let history: any;
-    try {
-      history = await gmailListHistory(accessToken, {
+  let history: any;
+  try {
+    history = await gmailListHistory(
+      accessToken,
+      {
         startHistoryId: row.historyId!,
-        maxResults: 500,
-        pageToken,
-      });
-    } catch (err: any) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (/\(404\)/.test(message)) {
-        // Gmail expired our watermark (commonly after >7 days without a
-        // sync) — the only recovery is a fresh full sync. Fenced like every
-        // other progress write in this claimed step.
-        const reset = await resetSyncAccountProgress(ownerEmail, accountEmail, {
-          claimId,
-        });
-        if (!reset) throw new SyncClaimLostError(accountEmail);
-        const freshRow: SyncAccountRow = {
-          ...row,
-          historyId: null,
-          fullSyncPageToken: null,
-          fullSyncHistoryId: null,
-          fullSyncStartedAt: null,
-        };
-        return runFullSyncStep(
-          ownerEmail,
-          accountEmail,
-          accessToken,
-          freshRow,
-          deadline,
-          claimId,
-          connectedAccountEmails,
-        );
-      }
-      throw err;
-    }
-
-    const records = history.history ?? [];
-    if (records.length > 0) changed = true;
-    const threadIds = new Set<string>();
-    for (const record of records) {
-      if (record?.id != null) lastRecordId = String(record.id);
-      for (const bucket of [
-        record.messagesAdded,
-        record.messagesDeleted,
-        record.labelsAdded,
-        record.labelsRemoved,
-      ]) {
-        for (const entry of bucket ?? []) {
-          if (entry?.message?.threadId) threadIds.add(entry.message.threadId);
-        }
-      }
-    }
-
-    if (threadIds.size > 0) {
-      const connected = await connectedEmailsLower(
-        ownerEmail,
-        accountEmail,
-        connectedAccountEmails,
-      );
-      await hydrateAndApply(
-        accessToken,
-        [...threadIds],
-        ownerEmail,
-        accountEmail,
-        connected,
+        maxResults: HISTORY_PAGE_SIZE,
+      },
+      "incremental",
+    );
+  } catch (err: any) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/\(404\)/.test(message)) {
+      const reset = await resetSyncAccountProgress(ownerEmail, accountEmail, {
         claimId,
-      );
-    }
-
-    currentHistoryId =
-      history.historyId != null ? String(history.historyId) : null;
-    pageToken = history.nextPageToken || undefined;
-    caughtUp = !pageToken;
-    if (lastRecordId) {
-      await patchProgress(ownerEmail, accountEmail, claimId, {
-        historyId: lastRecordId,
       });
+      if (!reset) throw new SyncClaimLostError(accountEmail);
+      const freshRow: SyncAccountRow = {
+        ...row,
+        historyId: null,
+        fullSyncPageToken: null,
+        fullSyncHistoryId: null,
+        fullSyncStartedAt: null,
+        fullSyncPhase: null,
+        fullSyncReconcilePageToken: null,
+        fullSyncReconcilePendingIds: null,
+        fullSyncReconcilePasses: 0,
+      };
+      const restarted = await runFullSyncStep(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        freshRow,
+        claimId,
+        connectedAccountEmails,
+        onChanged,
+      );
+      return { ...restarted, restartedFullSync: true };
     }
-  } while (pageToken && Date.now() < deadline);
-
-  if (!caughtUp) {
-    await patchProgress(ownerEmail, accountEmail, claimId, {
-      lastError: null,
-      lastSyncedAt: Date.now(),
-    });
-    return {
-      status: { accountEmail, state: "initial", lastSyncedAt: Date.now() },
-      changed,
-    };
+    throw err;
   }
 
+  const records = history.history ?? [];
+  let lastRecordId: string | null = null;
+  const threadIds = new Set<string>();
+  for (const record of records) {
+    if (record?.id != null) lastRecordId = String(record.id);
+    for (const bucket of [
+      record.messagesAdded,
+      record.messagesDeleted,
+      record.labelsAdded,
+      record.labelsRemoved,
+    ]) {
+      for (const entry of bucket ?? []) {
+        if (entry?.message?.threadId) threadIds.add(entry.message.threadId);
+      }
+    }
+  }
+
+  if (threadIds.size > 0) {
+    const connected = await connectedEmailsLower(
+      ownerEmail,
+      accountEmail,
+      connectedAccountEmails,
+    );
+    await hydrateAndApply(
+      accessToken,
+      [...threadIds],
+      ownerEmail,
+      accountEmail,
+      connected,
+      claimId,
+      "incremental",
+      onChanged,
+    );
+  }
+
+  const caughtUp = !history.nextPageToken;
+  const syncedAt = Date.now();
   await patchProgress(ownerEmail, accountEmail, claimId, {
-    historyId: currentHistoryId ?? lastRecordId ?? row.historyId!,
+    historyId: caughtUp
+      ? ((history.historyId != null ? String(history.historyId) : null) ??
+        lastRecordId ??
+        row.historyId)
+      : (lastRecordId ?? row.historyId),
     lastError: null,
-    lastSyncedAt: Date.now(),
+    lastSyncedAt: syncedAt,
   });
   return {
-    status: { accountEmail, state: "ready", lastSyncedAt: Date.now() },
-    changed,
+    status: {
+      accountEmail,
+      state: caughtUp ? "ready" : "initial",
+      lastSyncedAt: syncedAt,
+      ...(row.fullSyncPageToken || row.fullSyncPhase === "reconcile"
+        ? { backfillPending: true }
+        : {}),
+    },
+    changed: threadIds.size > 0,
   };
 }
 
@@ -532,14 +768,8 @@ async function failAccount(
   const status: SyncAccountRow["status"] = isPermanentRefreshError(raw)
     ? "needs_reauth"
     : "error";
-  // Earlier pages may already have changed the local mirror when a later
-  // Gmail page fails. Do not leave shared provider/list caches describing the
-  // pre-sync mirror while the account is reported as failed.
   invalidateHistoryCacheForAccount(row.accountEmail);
   invalidateListCacheForOwner(row.ownerEmail);
-  // Fenced: a claim already lost to a newer worker must not stomp its
-  // progress with this stale failure. If the fence no-ops, releaseSyncAccount
-  // below (also fenced) no-ops too — nothing left to reconcile.
   await patchSyncAccount(
     row.ownerEmail,
     row.accountEmail,
@@ -555,6 +785,23 @@ async function failAccount(
   };
 }
 
+function progressFromStatus(
+  status: InboxSyncAccountStatus,
+  pushGeneration: number,
+  lastPushGeneration: number,
+  changed = false,
+  retryAfterSeconds?: number,
+): SyncInboxAccountProgress {
+  return {
+    ...status,
+    changed,
+    pushGeneration,
+    lastPushGeneration,
+    pushPending: pushGeneration > lastPushGeneration,
+    ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+  };
+}
+
 export async function syncInboxAccount(
   ownerEmail: string,
   accountEmail: string,
@@ -564,50 +811,48 @@ export async function syncInboxAccount(
     connectedAccountEmails?: readonly string[];
     pushGeneration?: number;
   },
-): Promise<InboxSyncAccountStatus> {
+): Promise<SyncInboxAccountProgress> {
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
   const deadline = Date.now() + budgetMs;
 
   await ensureSyncAccountRow(ownerEmail, accountEmail);
+  const targetPushGeneration =
+    opts?.pushGeneration ??
+    (await readInboxPushGeneration(ownerEmail, accountEmail));
   const claim = await claimSyncAccount(ownerEmail, accountEmail, CLAIM_TTL_MS);
   if (!claim) {
     const current = (await readSyncAccounts(ownerEmail)).find(
       (r) => r.accountEmail === accountEmail.toLowerCase(),
     );
-    return current
-      ? statusFromRow(current)
-      : { accountEmail, state: "initial", lastSyncedAt: null };
+    return progressFromStatus(
+      current
+        ? statusFromRow(current)
+        : { accountEmail, state: "initial", lastSyncedAt: null },
+      await readInboxPushGeneration(ownerEmail, accountEmail),
+      current?.lastPushGeneration ?? 0,
+    );
   }
 
   let row = claim.row;
+  let changed = false;
   try {
-    const pushGeneration =
-      opts?.pushGeneration ??
-      (await readInboxPushGeneration(ownerEmail, accountEmail));
-    let client: { accessToken: string; email: string } | null;
-    try {
-      client = await getClientForConnectedAccount(ownerEmail, accountEmail);
-    } catch (err) {
-      return await failAccount(row, claim.claimId, err);
-    }
+    const client = await getClientForConnectedAccount(ownerEmail, accountEmail);
     if (!client) {
-      return await failAccount(
-        row,
-        claim.claimId,
-        new Error("Google account not connected"),
-      );
+      throw new Error("Google account not connected");
     }
     const accessToken = client.accessToken;
 
-    // Labels: refresh + persist independently of thread sync, so a later
-    // thread-sync failure below never loses a label refresh that already
-    // succeeded.
     const labelsStale =
       opts?.force ||
       row.labelsUpdatedAt == null ||
       Date.now() - row.labelsUpdatedAt > LABELS_TTL_MS;
-    if (labelsStale && Date.now() < deadline) {
-      const result = await gmailListLabels(accessToken);
+    if (
+      labelsStale &&
+      row.historyId != null &&
+      row.fullSyncPhase !== "reconcile" &&
+      Date.now() < deadline
+    ) {
+      const result = await gmailListLabels(accessToken, "incremental");
       const labels: CachedGmailLabel[] = (result.labels ?? []).map(
         (l: any) => ({
           id: l.id,
@@ -621,37 +866,124 @@ export async function syncInboxAccount(
         }),
       );
       const labelsUpdatedAt = Date.now();
-      await patchSyncAccount(
-        ownerEmail,
-        accountEmail,
-        { labels, labelsUpdatedAt },
-        { claimId: claim.claimId },
-      );
+      await patchProgress(ownerEmail, accountEmail, claim.claimId, {
+        labels,
+        labelsUpdatedAt,
+      });
       row = { ...row, labels, labelsUpdatedAt };
+      changed = true;
     }
 
-    const syncResult =
-      row.historyId == null
-        ? await runFullSyncStep(
-            ownerEmail,
-            accountEmail,
-            accessToken,
-            row,
-            deadline,
-            claim.claimId,
-            opts?.connectedAccountEmails,
-          )
-        : await runIncrementalSyncStep(
-            ownerEmail,
-            accountEmail,
-            accessToken,
-            row,
-            deadline,
-            claim.claimId,
-            opts?.connectedAccountEmails,
-          );
+    if (Date.now() >= deadline) {
+      await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, "idle");
+      const latest = (await readSyncAccounts(ownerEmail)).find(
+        (account) => account.accountEmail === accountEmail.toLowerCase(),
+      );
+      return progressFromStatus(
+        latest
+          ? statusFromRow(latest)
+          : { accountEmail, state: "initial", lastSyncedAt: row.lastSyncedAt },
+        await readInboxPushGeneration(ownerEmail, accountEmail),
+        latest?.lastPushGeneration ?? row.lastPushGeneration,
+        changed,
+      );
+    }
+
+    let syncResult: SyncStepResult;
+    if (row.fullSyncPhase === "reconcile") {
+      syncResult = await runIncrementalSyncStep(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        row,
+        claim.claimId,
+        opts?.connectedAccountEmails,
+        () => {
+          changed = true;
+        },
+      );
+      if (!syncResult.restartedFullSync && Date.now() < deadline) {
+        const incrementalResult = syncResult;
+        const reconciliationResult = await runReconciliationStep(
+          ownerEmail,
+          accountEmail,
+          accessToken,
+          row,
+          claim.claimId,
+          opts?.connectedAccountEmails,
+          () => {
+            changed = true;
+          },
+        );
+        syncResult = {
+          ...reconciliationResult,
+          status: {
+            ...reconciliationResult.status,
+            state:
+              incrementalResult.status.state === "initial"
+                ? "initial"
+                : reconciliationResult.status.state,
+          },
+          changed: incrementalResult.changed || reconciliationResult.changed,
+        };
+      }
+    } else if (row.historyId == null) {
+      syncResult = await runFullSyncStep(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        row,
+        claim.claimId,
+        opts?.connectedAccountEmails,
+        () => {
+          changed = true;
+        },
+      );
+    } else {
+      syncResult = await runIncrementalSyncStep(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        row,
+        claim.claimId,
+        opts?.connectedAccountEmails,
+        () => {
+          changed = true;
+        },
+      );
+      if (
+        !syncResult.restartedFullSync &&
+        row.fullSyncPageToken != null &&
+        Date.now() < deadline
+      ) {
+        const incrementalResult = syncResult;
+        const backfillResult = await runFullSyncStep(
+          ownerEmail,
+          accountEmail,
+          accessToken,
+          row,
+          claim.claimId,
+          opts?.connectedAccountEmails,
+          () => {
+            changed = true;
+          },
+        );
+        syncResult = {
+          ...backfillResult,
+          status: {
+            ...backfillResult.status,
+            state:
+              incrementalResult.status.state === "initial"
+                ? "initial"
+                : backfillResult.status.state,
+          },
+          changed: incrementalResult.changed || backfillResult.changed,
+        };
+      }
+    }
 
     const accountStatus = syncResult.status;
+    changed ||= syncResult.changed;
     const dbStatus: SyncAccountRow["status"] =
       accountStatus.state === "error" || accountStatus.state === "needs_reauth"
         ? accountStatus.state
@@ -660,26 +992,62 @@ export async function syncInboxAccount(
     invalidateListCacheForOwner(ownerEmail);
     if (
       accountStatus.state === "ready" &&
-      pushGeneration > row.lastPushGeneration
+      targetPushGeneration > row.lastPushGeneration
     ) {
       await patchProgress(ownerEmail, accountEmail, claim.claimId, {
-        lastPushGeneration: pushGeneration,
+        lastPushGeneration: targetPushGeneration,
       });
     }
     await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
-    return accountStatus;
+    const latest = (await readSyncAccounts(ownerEmail)).find(
+      (account) => account.accountEmail === accountEmail.toLowerCase(),
+    );
+    return progressFromStatus(
+      accountStatus,
+      await readInboxPushGeneration(ownerEmail, accountEmail),
+      latest?.lastPushGeneration ?? row.lastPushGeneration,
+      changed,
+    );
   } catch (err) {
+    if (err instanceof GmailQuotaCooldownError) {
+      await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, "idle");
+      const latest = (await readSyncAccounts(ownerEmail)).find(
+        (account) => account.accountEmail === accountEmail.toLowerCase(),
+      );
+      const status: InboxSyncAccountStatus = {
+        ...statusFromRow(latest ?? row),
+        state: "initial",
+      };
+      return progressFromStatus(
+        status,
+        await readInboxPushGeneration(ownerEmail, accountEmail),
+        latest?.lastPushGeneration ?? row.lastPushGeneration,
+        changed,
+        err.details.retryAfterSeconds,
+      );
+    }
     if (err instanceof SyncClaimLostError) {
       invalidateHistoryCacheForAccount(accountEmail);
       invalidateListCacheForOwner(ownerEmail);
-      // A newer worker already owns this account's row — this worker's
-      // progress is stale by definition, so report "still syncing" and stop
-      // quietly rather than calling failAccount (which would stomp the new
-      // worker's row with an unfenced status write) or releaseSyncAccount
-      // (a no-op anyway: our claimId no longer matches).
-      return { accountEmail, state: "initial", lastSyncedAt: row.lastSyncedAt };
+      const latest = (await readSyncAccounts(ownerEmail)).find(
+        (account) => account.accountEmail === accountEmail.toLowerCase(),
+      );
+      return progressFromStatus(
+        latest
+          ? statusFromRow(latest)
+          : { accountEmail, state: "initial", lastSyncedAt: row.lastSyncedAt },
+        await readInboxPushGeneration(ownerEmail, accountEmail),
+        latest?.lastPushGeneration ?? row.lastPushGeneration,
+        changed,
+      );
     }
-    return await failAccount(row, claim.claimId, err);
+    const status = await failAccount(row, claim.claimId, err);
+    return progressFromStatus(
+      status,
+      await readInboxPushGeneration(ownerEmail, accountEmail),
+      row.lastPushGeneration,
+      changed,
+    );
   }
 }
 
@@ -690,8 +1058,6 @@ export async function ensureInboxFresh(
   const maxAgeMs = opts?.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
 
-  // The structured account result keeps usable OAuth accounts available when
-  // a managed workspace grant cannot be resolved, while surfacing that gap.
   const { accounts, errors: lookupErrors } =
     await getConnectedAccountsWithErrors(ownerEmail);
   const requested = opts?.accountEmails?.length
@@ -721,17 +1087,13 @@ export async function ensureInboxFresh(
         now - row.lastSyncedAt < maxAgeMs;
       if (fresh) return statusFromRow(row);
       try {
-        // Accounts run concurrently and share nothing — each has its own
-        // token bucket in google-api.ts, so there's no reason to serialize.
-        return await syncInboxAccount(ownerEmail, accountEmail, {
+        const result = await syncInboxAccount(ownerEmail, accountEmail, {
           budgetMs,
           connectedAccountEmails: accounts,
           pushGeneration,
         });
+        return result;
       } catch (err) {
-        // Belt-and-suspenders: syncInboxAccount already records failures on
-        // the row and never throws, but a single account's bug must never
-        // take the whole call down.
         return {
           accountEmail,
           state: "error" as const,
@@ -752,6 +1114,67 @@ export async function ensureInboxFresh(
   ];
 }
 
+export async function syncInbox(
+  ownerEmail: string,
+  opts?: { accountEmails?: string[]; budgetMs?: number },
+): Promise<SyncInboxResult> {
+  const { accounts, errors: lookupErrors } =
+    await getConnectedAccountsWithErrors(ownerEmail);
+  const requested = opts?.accountEmails?.length
+    ? new Set(opts.accountEmails.map((email) => email.toLowerCase()))
+    : null;
+  const emails = accounts
+    .map((email) => email.toLowerCase())
+    .filter((email) => !requested || requested.has(email));
+  const relevantLookupErrors =
+    requested && [...requested].every((email) => emails.includes(email))
+      ? []
+      : lookupErrors;
+
+  const progress = await Promise.all(
+    emails.map((accountEmail) =>
+      syncInboxAccount(ownerEmail, accountEmail, {
+        budgetMs: opts?.budgetMs ?? 1_800,
+        connectedAccountEmails: accounts,
+      }),
+    ),
+  );
+  const disconnected = requested
+    ? [...requested]
+        .filter((email) => !emails.includes(email))
+        .map((accountEmail) =>
+          progressFromStatus(
+            {
+              accountEmail,
+              state: "error",
+              lastSyncedAt: null,
+              error: "Account is not connected",
+            },
+            0,
+            0,
+          ),
+        )
+    : [];
+  return {
+    accounts: [
+      ...progress,
+      ...disconnected,
+      ...relevantLookupErrors.map(({ email, error }) =>
+        progressFromStatus(
+          {
+            accountEmail: email,
+            state: "error",
+            lastSyncedAt: null,
+            error: boundedErrorMessage(error),
+          },
+          0,
+          0,
+        ),
+      ),
+    ],
+  };
+}
+
 export async function resetInboxSync(
   ownerEmail: string,
   accountEmail?: string,
@@ -760,9 +1183,6 @@ export async function resetInboxSync(
     await resetSyncAccountProgress(ownerEmail, accountEmail);
     return;
   }
-  // Same "which accounts exist" source as ensureInboxFresh — a managed
-  // grant has no sync-account row until its first ensureInboxFresh call, so
-  // resetting only existing readSyncAccounts rows would silently skip it.
   const { accounts: emails, errors } =
     await getConnectedAccountsWithErrors(ownerEmail);
   await Promise.all(

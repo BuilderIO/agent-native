@@ -95,9 +95,6 @@ describe("LayoutContextProperties", () => {
   });
 
   it("leaves an untouched grid axis alone so stylesheet-authored tracks survive", () => {
-    // Columns are inline-authored (fill); rows are stylesheet-authored —
-    // no inline gridTemplateRows, so their sizing is unknown and a change
-    // that doesn't touch them must not fabricate a rows template.
     const previous = gridValueForElement(
       element({
         isGridContainer: true,
@@ -115,17 +112,12 @@ describe("LayoutContextProperties", () => {
         },
       }),
     );
-    // Gap-only change: neither template is written.
     expect(
       gridTemplatePatchForChange(previous, { ...previous, columnGap: 16 }),
     ).toEqual({});
-    // Column count change on the inline-authored axis: only columns write;
-    // the stylesheet-authored rows axis stays untouched.
     expect(
       gridTemplatePatchForChange(previous, { ...previous, columns: 3 }),
     ).toEqual({ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" });
-    // First grid conversion (no previous value) writes both axes — with no
-    // prior state, `skipAxis` has nothing to skip on.
     expect(gridTemplatePatchForChange(undefined, previous)).toEqual({
       gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
       gridTemplateRows: "repeat(2, minmax(0, 1fr))",
@@ -133,11 +125,6 @@ describe("LayoutContextProperties", () => {
   });
 
   it("marks an unauthored grid axis unknown — never reads track sizing off a computed template", () => {
-    // Without an inline template the browser's resolved px list is all there
-    // is; a matrix or sizing commit built on it froze fill/hug tracks into
-    // fixed px ("repeat(2, 50px)", "40px 60px"). Only the track COUNT is
-    // browser-resolved fact, so sizing is reported "custom" + unknown rather
-    // than guessed as "fill".
     const grid = gridValueForElement(
       element({
         isGridContainer: true,
@@ -231,14 +218,10 @@ describe("LayoutContextProperties", () => {
     expect(markup).toContain("Flow");
     expect(markup).toContain("Normal flow");
     expect(markup).toContain("Padding");
-    // Clipping belongs to containers. A rectangle has nothing to clip, so the
-    // control is not offered here — see the frame case below.
     expect(markup).not.toContain("Clip content");
   });
 
   it("offers Clip content on a frame, not on a drawn shape or text", () => {
-    // Clipping is a container's decision. A screen is clipped from birth (see
-    // blankScreenHtml) rather than through this toggle.
     const shown = (info: Parameters<typeof element>[0]) =>
       renderToStaticMarkup(
         createElement(LayoutContextProperties, {
@@ -251,17 +234,11 @@ describe("LayoutContextProperties", () => {
     expect(shown({ primitiveKind: "rectangle", sourceId: "rect-1" })).toBe(
       false,
     );
-    // What a board-drawn rectangle actually looks like here: no primitiveKind,
-    // so a container-tag test cannot tell it apart from a generated `div`.
     expect(shown({ tagName: "div", sourceId: "draft-rect-1" })).toBe(false);
     expect(shown({ primitiveKind: "text", sourceId: "text-1" })).toBe(false);
   });
 
   it("maps gap-mode Auto to space-between and restores the last packed alignment on Fixed", () => {
-    // Auto gap mode IS justify-content:space-between. Switching back to
-    // Fixed must restore whatever packed (start/center/end) alignment was
-    // in effect before Auto was turned on, not hard-reset to flex-start —
-    // see the lastPackedJustifyRef comment in FlexContainerControls.
     expect(justifyContentForGapMode("auto", "center")).toBe("space-between");
     expect(justifyContentForGapMode("fixed", "center")).toBe("center");
     expect(justifyContentForGapMode("fixed", "flex-end")).toBe("flex-end");
@@ -296,8 +273,6 @@ describe("LayoutContextProperties", () => {
       createElement(LayoutContextProperties, {
         element: element({
           tagName: "div",
-          // A frame, so the mixed overflow this asserts on has a control to
-          // render into — clipping is offered on containers only.
           primitiveKind: "frame",
           computedStyles: {
             display: "Mixed",
@@ -326,9 +301,6 @@ describe("LayoutContextProperties", () => {
   });
 
   it("marks an unauthored grid axis unknown and refuses a bare count edit on it", () => {
-    // No inline template, but the element already renders as a grid: the
-    // tracks are authored somewhere this inspector cannot read (a
-    // stylesheet rule, a class). Only the computed track count is fact.
     const previous = gridValueForElement(
       element({
         isGridContainer: true,
@@ -347,9 +319,6 @@ describe("LayoutContextProperties", () => {
       columnSizingUnknown: true,
     });
 
-    // A bare count edit doesn't pick a sizing — nothing is written, so the
-    // matrix visibly snaps back to the authored tracks instead of
-    // overwriting them with a fabricated fill template.
     expect(
       gridTemplatePatchForChange(previous, { ...previous, columns: 3 }),
     ).toEqual({});
@@ -357,7 +326,6 @@ describe("LayoutContextProperties", () => {
       gridTemplatePatchForChange(previous, { ...previous, columnGap: 16 }),
     ).toEqual({});
 
-    // Picking a sizing explicitly is the user's intent and writes as usual.
     expect(
       gridTemplatePatchForChange(previous, {
         ...previous,
@@ -404,9 +372,6 @@ describe("LayoutContextProperties", () => {
       ...gridValue,
       columnGap: 8,
     });
-    // An authored inline-grid (or a stylesheet-authored gridAutoFlow like
-    // "dense") must survive a track/gap edit, not get clobbered back to
-    // display:"grid"/gridAutoFlow:"row".
     expect(gridPatch).not.toHaveProperty("display");
     expect(gridPatch).not.toHaveProperty("gridAutoFlow");
 
@@ -472,8 +437,6 @@ describe("LayoutContextProperties", () => {
       ...denseValue,
       rows: 2,
     });
-    // Only the edited axis is written: the authored flow and the untouched
-    // column template stay out of the patch entirely.
     expect(rowWrite).not.toHaveProperty("gridAutoFlow");
     expect(rowWrite).not.toHaveProperty("gridTemplateColumns");
     expect(rowWrite.gridTemplateRows).toBe("repeat(2, max-content)");
@@ -485,10 +448,6 @@ describe("LayoutContextProperties", () => {
       gridTemplateRows: "repeat(2, max-content)",
     });
 
-    // A leftover authored "column" on an element that is no longer a grid IS
-    // overwritten by the conversion's gridAutoFlow:"row", so the snapshot has
-    // to record the newly authored value — otherwise the panel keeps reporting
-    // "column" for an element the canvas now lays out in rows.
     const convertedBack = element({
       isFlexContainer: true,
       inlineStyles: { gridAutoFlow: "column" },
@@ -509,15 +468,6 @@ describe("LayoutContextProperties", () => {
   });
 
   it("re-committing Grid on an existing grid is a pure no-op, applies full defaults only when converting", () => {
-    // Already a grid: the whole patch is empty, regardless of what
-    // currentStyles carries — a computed/resolved template ("80px 80px"),
-    // an authored gridAutoFlow ("dense"), or the multi-selection
-    // MIXED_VALUE sentinel on any key. Nothing here is safe to echo back:
-    // currentStyles merges computed under inline, so an unauthored
-    // (stylesheet/class) template would otherwise serialize as its
-    // resolved px list, and a differing multi-selection value as the
-    // literal string "Mixed". This also means an existing inline-grid is
-    // preserved — by touching nothing (including display) at all.
     expect(
       autoLayoutStylesForFlow(
         "grid",
@@ -544,8 +494,6 @@ describe("LayoutContextProperties", () => {
       ),
     ).toEqual({});
 
-    // Converting a non-grid element (flex -> grid) still needs the full
-    // defaults.
     expect(autoLayoutStylesForFlow("grid", { display: "flex" }, false)).toEqual(
       {
         display: "grid",
@@ -558,9 +506,6 @@ describe("LayoutContextProperties", () => {
   });
 
   it("marks a mixed grid axis unknown from the sentinel, not a plain unauthored one", () => {
-    // mixedElementFromSelection puts MIXED_VALUE ("Mixed") in inlineStyles
-    // when a multi-selection's elements differ on this axis — parsing it as
-    // a template would fabricate a bogus single-track custom grid.
     const previous = gridValueForElement(
       element({
         isGridContainer: true,
@@ -584,13 +529,10 @@ describe("LayoutContextProperties", () => {
       columnSizingUnknown: true,
       columnSizing: "custom",
     });
-    // The non-mixed rows axis reads normally — inline-authored, known.
     expect(previous.rowsMixed).toBeFalsy();
     expect(previous.rowSizingUnknown).toBeFalsy();
     expect(previous.rowSizing).toBe("hug");
 
-    // Picking a sizing on the mixed axis still writes nothing: the count
-    // is unknowable per element in the selection.
     expect(
       gridTemplatePatchForChange(previous, {
         ...previous,
@@ -598,16 +540,12 @@ describe("LayoutContextProperties", () => {
         columnSizing: "fill",
       }),
     ).toEqual({});
-    // A change on the non-mixed rows axis writes as usual.
     expect(
       gridTemplatePatchForChange(previous, { ...previous, rows: 3 }),
     ).toEqual({ gridTemplateRows: "repeat(3, max-content)" });
   });
 
   it("trusts isGridContainer over a Mixed computed display", () => {
-    // A multi-selection where display itself differs per element carries
-    // MIXED_VALUE in computedStyles.display; the bridge's isGridContainer
-    // (every selected element is a grid container) is still authoritative.
     const grid = gridValueForElement(
       element({
         isGridContainer: true,
@@ -626,12 +564,6 @@ describe("LayoutContextProperties", () => {
   });
 
   it("trusts a shared inline template over differing computed templates across a multi-selection", () => {
-    // Two multi-selected grids can share the same authored
-    // "repeat(2, minmax(0, 1fr))" while sitting at different widths, which
-    // resolves to different computed px lists ("100px 100px" vs
-    // "150px 150px" -> sameOrMixed collapses that to "Mixed"). That
-    // per-element resolved difference must not mark the AUTHORED template
-    // mixed — only a differing INLINE template does that.
     const merged = gridValueForElement(
       element({
         isGridContainer: true,
@@ -662,10 +594,6 @@ describe("LayoutContextProperties", () => {
   });
 
   it("refuses a bare count edit on a known non-uniform custom template, writes with an explicit sizing pick", () => {
-    // Unlike the stylesheet-unknown case above, this axis IS inline-authored
-    // and known — but still non-uniform, so there is no formula to
-    // regenerate a new track count from without discarding the authored
-    // tracks.
     const previous = gridValueForElement(
       element({
         isGridContainer: true,

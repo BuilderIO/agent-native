@@ -12,5 +12,4 @@ export const envKeys: EnvKeyConfig[] = [
     label: "Turnstile Site Key",
     required: false,
   },
-  { key: "GEMINI_API_KEY", label: "Gemini AI", required: false },
 ];

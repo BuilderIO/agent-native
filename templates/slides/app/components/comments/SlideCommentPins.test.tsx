@@ -46,7 +46,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     })[key] ?? key,
 }));
 
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => <span>{content}</span>,
 }));
 
@@ -190,6 +190,30 @@ describe("SlideCommentPins", () => {
         anchor: { x: 50, y: 50 },
       }),
     );
+  });
+
+  it("keeps the pending pin comment open while IME keys are composing", async () => {
+    renderWithCanvas({ active: true });
+    const plane = await waitFor(() => {
+      const element = document.querySelector(
+        "[data-slide-comment-click-plane]",
+      );
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    fireEvent.click(plane, { clientX: 300, clientY: 150 });
+    const input = screen.getByPlaceholderText("Add a comment...");
+    fireEvent.change(input, { target: { value: "candidate" } });
+    fireEvent.keyDown(input, {
+      key: "Enter",
+      ctrlKey: true,
+      isComposing: true,
+    });
+    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+
+    expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 
   it("persists object-relative coordinates when a component is clicked", async () => {

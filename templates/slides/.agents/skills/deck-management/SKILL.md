@@ -78,9 +78,13 @@ Never write the `decks` table directly -- no `db-exec` (this app has no such
 action), no raw SQL. Every write goes through an action so ids, access checks,
 `notifyClients` events, and version snapshots stay correct.
 
-- `create-deck` -- create a deck (the agent's only creation path; `add-deck`
-  is the browser editor's optimistic client-id flow and is hidden from the
-  agent)
+- `create-deck` -- create a deck for generation; `add-deck` is the browser
+  editor's optimistic client-id flow and is hidden from the agent
+- `list-deck-templates` / `get-deck-template` -- browse built-in starters or
+  read their complete editable slide HTML (`content`) and speaker notes
+- `create-deck-from-template` -- copy a starter into a new deck without AI,
+  provider setup, or a default design system; optional `newId` retries the
+  same owner/org/template/title request without overwriting subsequent edits
 - `add-slide` -- append one slide
 - `update-slide` -- edit one slide (see `slide-editing`)
 - `patch-deck` -- delete/reorder slides, deck-wide or multi-slide changes

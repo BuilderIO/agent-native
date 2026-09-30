@@ -13,6 +13,7 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
   resolveAccess: vi.fn(async () => ({ role: "owner" })),
+  accessFilter: vi.fn(() => ({ op: "accessFilter" })),
 }));
 const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
 const unrestrictedScope = vi.hoisted(() => ({
@@ -27,8 +28,6 @@ vi.mock("../server/lib/library-access.js", () => ({
   assertCanApprove: libraryAccessMock,
   assertCanDraftAuthoredBy: libraryAccessMock,
   assertCanDeleteAsset: libraryAccessMock,
-  // The draft-input guards have their own tests; these specs exercise the
-  // surrounding behavior with an approver's unrestricted scope.
   draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
   resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
   unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
@@ -50,8 +49,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
   inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),
+  or: vi.fn((...conditions) => ({ op: "or", conditions })),
 }));
 
 vi.mock("nanoid", () => ({
@@ -71,7 +72,6 @@ vi.mock("../server/lib/json.js", () => ({
   }),
 }));
 
-// Echo the row back so we can inspect what each action persisted/returned.
 vi.mock("./_helpers.js", () => ({
   serializeGenerationPreset: vi.fn((row: unknown) => row),
   serializeTemplate: vi.fn((row: unknown) => row),
@@ -90,6 +90,7 @@ vi.mock("../server/db/index.js", () => ({
     },
     assetCollections: { id: "collections.id" },
     assetGenerationPresets: { id: "presets.id" },
+    assetLibraries: { id: "libraries.id" },
     assetTemplates: { id: "templates.id", libraryId: "templates.libraryId" },
     assetTemplateShares: {},
     assetLibraryShares: {},
@@ -132,18 +133,22 @@ describe("generation preset includeLogo option", () => {
 
   it("merges includeLogo into existing settings on update without clobbering", async () => {
     const setMock = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
+    const template = {
+      id: "preset-1",
+      libraryId: "lib-1",
+      settings: JSON.stringify({ tier: "best" }),
+    };
     getDbMock.mockReturnValue({
-      select: vi.fn(() => ({
+      select: vi.fn((selection?: Record<string, unknown>) => ({
         from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn(async () => [
-              {
-                id: "preset-1",
-                libraryId: "lib-1",
-                settings: JSON.stringify({ tier: "best" }),
-              },
-            ]),
-          })),
+          where: vi.fn(() => {
+            const rows = selection?.id === "libraries.id" ? [] : [template];
+            return {
+              limit: vi.fn(async () => rows),
+              then: (resolve: (value: unknown[]) => unknown) =>
+                Promise.resolve(rows).then(resolve),
+            };
+          }),
         })),
       })),
       update: vi.fn(() => ({ set: setMock })),
@@ -431,6 +436,9 @@ describe("generation preset includeLogo option", () => {
         })),
       })
       .mockReturnValueOnce({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      })
+      .mockReturnValueOnce({
         from: vi.fn(() => ({
           where: vi.fn(async () => [
             {
@@ -484,6 +492,9 @@ describe("generation preset includeLogo option", () => {
             ]),
           })),
         })),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
       })
       .mockReturnValueOnce({
         from: vi.fn(() => ({

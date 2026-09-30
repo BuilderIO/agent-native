@@ -9,15 +9,6 @@ import { createEventEmitter } from "../shared/optional-node-builtins.js";
 
 let _initPromise: Promise<void> | undefined;
 
-// Per-request memoization of settings reads, keyed on the active
-// AsyncLocalStorage RequestContext (WeakMap → freed with the request). One
-// action request can read the same setting several times (org resolution,
-// guards, the action body), and each read is a network round trip on
-// serverless Postgres. Mirrors the per-request session/org caches on
-// event.context. The cache holds the raw JSON string and re-parses per hit
-// so callers can't mutate a shared object; writes in the same request are
-// written through, while other in-flight requests keep their snapshot for
-// their own (short) lifetime.
 const _requestSettingsCache = new WeakMap<object, Map<string, string | null>>();
 
 function requestSettingsCache(): Map<string, string | null> | null {
@@ -31,31 +22,6 @@ function requestSettingsCache(): Map<string, string | null> | null {
   return cache;
 }
 
-/**
- * Per-request memo of the WHOLE settings table for `getAllSettings`.
- *
- * The single-key path above was already request-cached; the full-table read was
- * not, and production showed 98,479 of them — an entire `SELECT key, value FROM
- * settings` per call, several times per request via the MCP client routes and
- * org settings.
- *
- * Holds raw JSON strings, like the single-key cache, so callers can't mutate a
- * shared parsed object. Dropped by every write path, because a request that
- * writes a setting and then re-reads all of them must see its own write.
- */
-const _requestAllSettingsCache = new WeakMap<
-  object,
-  Promise<Map<string, string>>
->();
-
-function invalidateRequestAllSettings(): void {
-  const ctx = getRequestContext();
-  if (ctx && typeof ctx === "object") _requestAllSettingsCache.delete(ctx);
-}
-
-// Created lazily so this module can be evaluated in the browser dev graph
-// without a top-level `new EventEmitter()` tripping Vite's externalized
-// `node:events` stub. The emitter drives server-side SSE fan-out only.
 let _emitter: EventEmitter | undefined;
 
 function settingsEmitter(): EventEmitter {
@@ -90,7 +56,6 @@ export async function ensureTable(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
       );
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -125,16 +90,8 @@ export async function getSetting(
   return raw == null ? null : JSON.parse(raw);
 }
 
-// Keeps the IN-list under Postgres's bind-parameter ceiling and out of
-// pathological query-planning territory for the rare caller (a huge org
-// roster, or a flag registry with hundreds of keys) that requests more keys
-// than fit in one statement.
 const SETTINGS_IN_LIST_CHUNK_SIZE = 500;
 
-// Batch reads only: one corrupt row must not fail every other key in the
-// batch (a whole feature-flag registry reads through one call). The bad key is
-// captured and comes back like a missing one, which is what per-key callers
-// already did with a failed read. Single-key getSetting still throws.
 function parseSettingValue(
   key: string,
   raw: string,
@@ -150,16 +107,6 @@ function parseSettingValue(
   }
 }
 
-/**
- * Batched read of several settings keys in as few round trips as possible.
- * Serves per-request cache hits directly (same cache as {@link getSetting}),
- * then issues one `key IN (...)` query — chunked above
- * {@link SETTINGS_IN_LIST_CHUNK_SIZE} — for the rest. Every requested key is
- * cached, including a miss as `null`, so a later {@link getSetting} for the
- * same key in this request is free. A key absent from production but present
- * in the request is indistinguishable from a key never asked for other than
- * by looking it up, matching `getSetting`'s null-for-missing contract.
- */
 export async function getSettings(
   keys: readonly string[],
   options?: StoreReadOptions,
@@ -204,19 +151,11 @@ export async function getSettings(
 }
 
 export interface StoreWriteOptions {
-  /** Tag identifying who initiated this write (e.g. a tab ID). */
   requestSource?: string;
 }
 
 const SETTINGS_MUTATION_ATTEMPTS = 25;
 
-/**
- * Atomically derive and persist one setting with an optimistic raw-value CAS.
- * This remains safe across
- * horizontally scaled processes where an in-memory mutex would not.
- * The updater may run more than once after contention and must not perform
- * external side effects.
- */
 export async function mutateSetting(
   key: string,
   updater: (
@@ -228,8 +167,6 @@ export async function mutateSetting(
   const client = getDbExec();
   const table = settingsTable();
   for (let attempt = 0; attempt < SETTINGS_MUTATION_ATTEMPTS; attempt += 1) {
-    // Deliberately bypass the request cache: a failed CAS means another
-    // request committed a newer value and the next attempt must reread it.
     const snapshot = await client.execute({
       sql: `SELECT value FROM ${table} WHERE key = ?`,
       args: [key],
@@ -252,7 +189,6 @@ export async function mutateSetting(
           });
     if (result.rowsAffected === 0) continue;
     requestSettingsCache()?.set(key, nextRaw);
-    invalidateRequestAllSettings();
     settingsEmitter().emit("settings", {
       source: "settings",
       type: "change",
@@ -277,7 +213,6 @@ export async function putSetting(
     args: [key, JSON.stringify(value), Date.now()],
   });
   requestSettingsCache()?.set(key, JSON.stringify(value));
-  invalidateRequestAllSettings();
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "change",
@@ -298,7 +233,6 @@ export async function deleteSetting(
     args: [key],
   });
   requestSettingsCache()?.set(key, null);
-  invalidateRequestAllSettings();
   if (result.rowsAffected > 0) {
     settingsEmitter().emit("settings", {
       source: "settings",
@@ -311,7 +245,6 @@ export async function deleteSetting(
   return false;
 }
 
-/** Delete a setting only when its stored value still matches the inspected value. */
 export async function deleteSettingIfValue(
   key: string,
   expected: Record<string, unknown>,
@@ -327,7 +260,6 @@ export async function deleteSettingIfValue(
   if (result.rowsAffected === 0) return false;
 
   requestSettingsCache()?.set(key, null);
-  invalidateRequestAllSettings();
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "delete",
@@ -337,11 +269,6 @@ export async function deleteSettingIfValue(
   return true;
 }
 
-/**
- * Delete every setting whose key starts with `prefix`. Returns the number of
- * rows removed. Used when an owning entity is deleted (e.g. an organization
- * takes its `o:<orgId>:*` keys with it).
- */
 export async function deleteSettingsByPrefix(
   prefix: string,
   options?: StoreWriteOptions,
@@ -355,7 +282,6 @@ export async function deleteSettingsByPrefix(
     args: [`${escaped}%`],
   });
   requestSettingsCache()?.clear();
-  invalidateRequestAllSettings();
   if (result.rowsAffected > 0) {
     settingsEmitter().emit("settings", {
       source: "settings",
@@ -367,75 +293,27 @@ export async function deleteSettingsByPrefix(
   return result.rowsAffected;
 }
 
-/**
- * Read every setting whose key starts with `prefix`. Callers that only need
- * one namespace must not use {@link getAllSettings} — that loads the whole
- * table.
- */
 export async function listSettingsByPrefix(
   prefix: string,
+  options?: { limit?: number },
 ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();
   const escaped = prefix.replace(/[!%_]/g, (c) => `!${c}`);
+  const limit = options?.limit;
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
+    throw new RangeError(
+      "Settings prefix limit must be a non-negative integer.",
+    );
+  }
   const { rows } = await client.execute({
-    sql: `SELECT key, value FROM ${table} WHERE key LIKE ? ESCAPE '!'`,
-    args: [`${escaped}%`],
+    sql: `SELECT key, value FROM ${table} WHERE key LIKE ? ESCAPE '!'
+      ${limit === undefined ? "" : "ORDER BY key ASC LIMIT ?"}`,
+    args: limit === undefined ? [`${escaped}%`] : [`${escaped}%`, limit],
   });
   return rows.map((row) => ({
     key: String(row.key),
     value: JSON.parse(String(row.value)) as Record<string, unknown>,
   }));
-}
-
-export async function getAllSettings(): Promise<
-  Record<string, Record<string, unknown>>
-> {
-  const raw = await loadAllSettingsRaw();
-  const result: Record<string, Record<string, unknown>> = {};
-  for (const [key, value] of raw) result[key] = JSON.parse(value);
-  return result;
-}
-
-async function loadAllSettingsRaw(): Promise<Map<string, string>> {
-  const ctx = getRequestContext();
-  const cached =
-    ctx && typeof ctx === "object"
-      ? _requestAllSettingsCache.get(ctx)
-      : undefined;
-  if (cached) return cached;
-
-  const load = (async () => {
-    await ensureTable();
-    const client = getDbExec();
-    const table = settingsTable();
-    const { rows } = await client.execute(`SELECT key, value FROM ${table}`);
-    const raw = new Map<string, string>();
-    for (const row of rows) raw.set(row.key as string, row.value as string);
-    // Seed the single-key cache so a `getSetting` after `getAllSettings` in the
-    // same request is free rather than another round trip. Only fills keys it
-    // does not already hold: a value written earlier in this request is already
-    // written through there and must win over this snapshot.
-    const perKey = requestSettingsCache();
-    if (perKey) {
-      for (const [key, value] of raw) {
-        if (!perKey.has(key)) perKey.set(key, value);
-      }
-    }
-    return raw;
-  })();
-
-  if (ctx && typeof ctx === "object") {
-    // Evicted on failure so one transient error is not memoized as the answer
-    // for the rest of the request.
-    _requestAllSettingsCache.set(
-      ctx,
-      load.catch((err) => {
-        _requestAllSettingsCache.delete(ctx);
-        throw err;
-      }),
-    );
-  }
-  return load;
 }

@@ -1,7 +1,7 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
 import {
   useEffect,
@@ -98,15 +98,11 @@ export function extensionOptionsWithSelectedFallback(
   return [{ id, name: id }, ...extensions];
 }
 
-/** Parsed shape of a `program` panel's `sql` field: {programId, params?}. */
 function parseProgramDescriptor(sql: string): {
   programId: string;
   paramsText: string;
 } {
   if (!sql.trim()) return { programId: "", paramsText: "" };
-  // A panel may be stored as the bare program id — the server accepts that as a
-  // complete descriptor, so the editor has to show it rather than blanking the
-  // picker on a JSON.parse it was never going to satisfy.
   if (/^dp_[A-Za-z0-9]+$/.test(sql.trim())) {
     return { programId: sql.trim(), paramsText: "" };
   }
@@ -133,8 +129,6 @@ function serializeProgramDescriptor(
   try {
     params = JSON.parse(trimmedParams);
   } catch {
-    // Preserve the raw text so the user's edits aren't discarded; the save
-    // attempt will surface the same JSON error from the server.
     throw new Error("Params must be valid JSON.");
   }
   return JSON.stringify({ programId, params });
@@ -154,11 +148,7 @@ export interface PanelFormValues {
   title: string;
   chartType: ChartType;
   source: DataSourceType;
-  /** Legacy storage field retained for existing dashboards. Row widths are
-   *  now inferred from how many panels share the row. */
   width: number;
-  /** Section panels only: number of grid columns the panels following this
-   *  section should use. Ignored when `chartType` is not `"section"`. */
   columns: number;
   sql: string;
   description: string;
@@ -245,13 +235,8 @@ export function formToPanel(
 interface PanelEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Existing panel when editing; null when adding. */
   panel: SqlPanel | null;
-  /** Async save. Should throw on error; dialog stays open and surfaces the
-   *  message inline. On success the dialog closes. */
   onSave: (panel: SqlPanel) => Promise<void>;
-  /** Dashboard id + existing panel titles used in the agent-chat prompt context
-   *  when the user describes a panel instead of writing it manually. */
   dashboardId: string;
   existingPanelTitles: string[];
 }
@@ -287,13 +272,11 @@ function PanelEditorContent({
   const [tab, setTab] = useState<"describe" | "manual">("describe");
   const { send, isGenerating } = useSendToAgentChat();
 
-  // Reset form whenever the dialog opens or the target panel changes.
   useEffect(() => {
     if (open) {
       setForm(panelToForm(panel));
       setError(null);
       setSaving(false);
-      // Editing an existing panel always goes straight to the manual form.
       setTab(panel ? "manual" : "describe");
     }
   }, [open, panel]);
@@ -393,6 +376,8 @@ function PanelEditorContent({
     const titlesLine = existingPanelTitles.length
       ? `Existing panels on this dashboard: ${existingPanelTitles.join(", ")}.`
       : "This dashboard has no panels yet.";
+    const firstPartyTimeFilter =
+      "event_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}'))";
     send({
       message: trimmed,
       context:
@@ -400,8 +385,9 @@ function PanelEditorContent({
         `REAL_DATA_REQUIRED: before saving or answering with a data panel, run at least one real data-source query action for this panel; \`data-source-status\`, \`list-data-dictionary\`, \`update-dashboard\`, \`mutate-dashboard\`, and dry-run validation do not count as data queries. Embedding an existing extension without presenting new data does not require a data-source query. ` +
         `The \`demo\` source is reserved for the built-in Node Exporter demo and does not satisfy REAL_DATA_REQUIRED unless the user explicitly asks to work on that demo dashboard. ` +
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
-        `Use the \`mutate-dashboard\` action with code like \`dashboard.insertPanel({"id":"new-panel","title":"New Panel","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atBottom();\` ` +
-        `to append, or \`.nextTo("panel-id")\`, \`.atRow(2)\`, \`.atRowStart(2)\`, \`.before("panel-id")\`, \`.after("panel-id")\`, or \`.atIndex(n)\` to place the panel. Prefer \`.nextTo("panel-id")\` or \`.atRow(rowNumber)\` for visible row placement requests; they keep the chart in the intended rendered row and expand/rebalance that row when needed. ` +
+        `Inspect the dashboard's declared filters and use their exact ids in first-party SQL. The seeded dashboard uses \`{{timeRange}}\`, with \`{{timeRangeStart}}\` and \`{{timeRangeEnd}}\` for the custom range. ` +
+        `Use the \`mutate-dashboard\` action with one structured operation like {op:"insertPanel",panel:{id:"new-panel",title:"New Panel",source:"first-party",chartType:"metric",width:1,config:{timeScope:"dashboard"},sql:"SELECT COUNT(*) AS value FROM analytics_events WHERE ${firstPartyTimeFilter}"},position:"bottom"}. The width must be a JSON integer from 1 to 6, never a string. ` + // i18n-ignore i18n-copy-ignore: Internal agent context is not displayed as UI copy.
+        `For placement, use position, index, beforePanelId, afterPanelId, nextToPanelId, rowNumber, or rowPosition. Prefer nextToPanelId or rowNumber for visible row placement requests; they keep the chart in the intended rendered row and expand/rebalance that row when needed. ` +
         `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'|'program'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'funnel'|'heatmap'|'callout'|'section'|'extension'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
         `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
@@ -456,7 +442,7 @@ function PanelEditorContent({
               setForm((f) => ({ ...f, chartType: v }))
             }
           >
-            <SelectTrigger id="panel-chart-type" className="h-9 text-sm">
+            <SelectTrigger id="panel-chart-type" className="text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -478,7 +464,7 @@ function PanelEditorContent({
                 setForm((f) => ({ ...f, source: v }))
               }
             >
-              <SelectTrigger id="panel-source" className="h-9 text-sm">
+              <SelectTrigger id="panel-source" className="text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -537,7 +523,7 @@ function PanelEditorContent({
                 }))
               }
             >
-              <SelectTrigger id="panel-extension-mode" className="h-9 text-sm">
+              <SelectTrigger id="panel-extension-mode" className="text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -562,7 +548,7 @@ function PanelEditorContent({
                   setForm((current) => ({ ...current, extensionId }))
                 }
               >
-                <SelectTrigger id="panel-extension" className="h-9 text-sm">
+                <SelectTrigger id="panel-extension" className="text-sm">
                   <SelectValue
                     placeholder={
                       extensionsLoading
@@ -624,7 +610,7 @@ function PanelEditorContent({
               value={selectedProgramId || undefined}
               onValueChange={(v) => setSelectedProgramId(v)}
             >
-              <SelectTrigger id="panel-program" className="h-9 text-sm">
+              <SelectTrigger id="panel-program" className="text-sm">
                 <SelectValue
                   placeholder={
                     programsLoading

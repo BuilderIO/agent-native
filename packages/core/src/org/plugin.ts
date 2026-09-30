@@ -56,10 +56,39 @@ import {
   setOrgVisualIdentityHandler,
 } from "./handlers.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
+import {
+  readWorkspacePrivateIconHandler,
+  uploadWorkspacePrivateIconHandler,
+} from "./private-icon-handlers.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
+
+async function workspaceIconUploadResponse(event: H3Event) {
+  try {
+    return await uploadWorkspacePrivateIconHandler(event);
+  } catch (error) {
+    const statusCode =
+      error &&
+      typeof error === "object" &&
+      "statusCode" in error &&
+      typeof error.statusCode === "number"
+        ? error.statusCode
+        : 500;
+    setResponseStatus(event, statusCode);
+    return {
+      message:
+        statusCode < 500 &&
+        error &&
+        typeof error === "object" &&
+        "message" in error &&
+        typeof error.message === "string"
+          ? error.message
+          : "Workspace icon upload failed.",
+    };
+  }
+}
 
 /**
  * Mounts the org REST routes under `/_agent-native/org/*` and runs the org
@@ -103,6 +132,27 @@ export function createOrgPlugin(): NitroPluginDef {
 
     const app = getH3App(nitroApp);
 
+    app.use(
+      `${ORG_PREFIX}/private-icons`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (
+          tail === "/" ||
+          tail === "" ||
+          tail === `${ORG_PREFIX}/private-icons` ||
+          tail === `${ORG_PREFIX}/private-icons/`
+        ) {
+          if (method === "POST") return workspaceIconUploadResponse(event);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        if (method === "GET") return readWorkspacePrivateIconHandler(event);
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
+
     // GET /me
     app.use(
       `${ORG_PREFIX}/me`,
@@ -115,7 +165,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // /app-roles and /app-roles/:email — per-app role overlay on the roster.
     app.use(
       `${ORG_PREFIX}/app-roles`,
       defineEventHandler(async (event: H3Event) => {
@@ -136,8 +185,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // /app-permissions/:appId — organization admins may inspect, remap, or
-    // reset the role grants for a code-declared permission.
     app.use(
       `${ORG_PREFIX}/app-permissions`,
       defineEventHandler(async (event: H3Event) => {
@@ -155,9 +202,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // Organization-managed SSO provider catalog. Better Auth owns the actual
-    // callback endpoints under /_agent-native/auth/ba; these routes are the
-    // owner/admin setup surface and never return provider secrets.
     app.use(
       `${ORG_PREFIX}/sso/providers`,
       defineEventHandler(async (event: H3Event) => {
@@ -188,8 +232,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // Administer framework-managed SCIM connection credentials. Inbound SCIM
-    // protocol requests are handled by Better Auth at /auth/ba/scim/v2.
     app.use(
       `${ORG_PREFIX}/scim`,
       defineEventHandler(async (event: H3Event) => {
@@ -213,15 +255,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // /members, /members/:email, /members/:email/role — dispatch by path-
-    // tail + method in a single handler so H3's prefix-based `app.use`
-    // doesn't route a DELETE for /members/alice@example.com to the
-    // GET-only /members handler.
-    //
-    // NOTE: the framework request handler (packages/core/src/server/
-    // framework-request-handler.ts) strips the mount prefix from
-    // event.url.pathname before calling the handler, so inside here
-    // `url.pathname` is ALREADY the tail relative to this mount point.
     app.use(
       `${ORG_PREFIX}/members`,
       defineEventHandler(async (event: H3Event) => {
@@ -234,7 +267,6 @@ export function createOrgPlugin(): NitroPluginDef {
           }
           return listMembersHandler(event);
         }
-        // Tail is /:email/role
         if (/^\/[^/]+\/role\/?$/.test(tail)) {
           if (method !== "PUT") {
             setResponseStatus(event, 405);
@@ -242,7 +274,6 @@ export function createOrgPlugin(): NitroPluginDef {
           }
           return changeMemberRoleHandler(event);
         }
-        // Tail is /:email
         if (method !== "DELETE") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
@@ -251,8 +282,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // POST /federation-removal/retry — the caller is already excluded from
-    // normal org context; this route only permits authority-confirmed self cleanup.
     app.use(
       `${ORG_PREFIX}/federation-removal/retry`,
       defineEventHandler(async (event: H3Event) => {
@@ -264,8 +293,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /workspace-app-default-visibility — org admins choose the default
-    // for newly created workspace apps. Existing apps retain their setting.
     app.use(
       `${ORG_PREFIX}/workspace-app-default-visibility`,
       defineEventHandler(async (event: H3Event) => {
@@ -277,7 +304,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // /invitations and /invitations/:id/accept — same pattern.
     app.use(
       `${ORG_PREFIX}/invitations`,
       defineEventHandler(async (event: H3Event) => {
@@ -289,7 +315,6 @@ export function createOrgPlugin(): NitroPluginDef {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        // Tail is /:id/accept
         if (/^\/[^/]+\/accept\/?$/.test(tail)) {
           if (method !== "POST") {
             setResponseStatus(event, 405);
@@ -302,7 +327,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // POST /join-by-domain
     app.use(
       `${ORG_PREFIX}/join-by-domain`,
       defineEventHandler(async (event: H3Event) => {
@@ -348,9 +372,6 @@ export function createOrgPlugin(): NitroPluginDef {
       `${ORG_PREFIX}/a2a-secret`,
       defineEventHandler(async (event: H3Event) => {
         const tail = getRequestURL(event).pathname || "/";
-        // The sub-route handlers above intercept these tails first; if we
-        // see them here it means the method didn't match (e.g. GET) and
-        // we should 405 rather than fall into the PUT handler.
         if (
           tail === "/sync" ||
           tail === "/sync/" ||
@@ -369,7 +390,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /domain
     app.use(
       `${ORG_PREFIX}/domain`,
       defineEventHandler(async (event: H3Event) => {
@@ -381,7 +401,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /workspace-url
     app.use(
       `${ORG_PREFIX}/workspace-url`,
       defineEventHandler(async (event: H3Event) => {
@@ -404,7 +423,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /auth-provider
     app.use(
       `${ORG_PREFIX}/auth-provider`,
       defineEventHandler(async (event: H3Event) => {
@@ -416,7 +434,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /switch
     app.use(
       `${ORG_PREFIX}/switch`,
       defineEventHandler(async (event: H3Event) => {
@@ -428,8 +445,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // POST / (create) + PATCH / (rename) + DELETE / (delete) — mounted last
-    // so the more specific routes match first
     app.use(
       ORG_PREFIX,
       defineEventHandler(async (event: H3Event) => {
@@ -444,11 +459,4 @@ export function createOrgPlugin(): NitroPluginDef {
   };
 }
 
-/**
- * Default org plugin — mount with no configuration needed.
- *
- * Auto-mounted by the framework when a template doesn't ship `server/plugins/org.ts`.
- * To override, create your own plugin file using `createOrgPlugin()` or a
- * completely custom implementation.
- */
 export const defaultOrgPlugin: NitroPluginDef = createOrgPlugin();

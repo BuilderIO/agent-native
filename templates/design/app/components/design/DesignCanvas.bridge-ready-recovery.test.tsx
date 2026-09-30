@@ -6,11 +6,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resolveCrossScreenMoveFailureRecovery } from "@/pages/design-editor/commands/cross-screen-element-drop";
+
 import { DesignCanvas } from "./DesignCanvas";
 
 let container: HTMLDivElement;
 let root: Root;
 let iframeServer: Server | null = null;
+let pendingIframeResponseReleases: Array<() => void> = [];
 
 beforeEach(() => {
   (
@@ -30,6 +33,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  for (const release of pendingIframeResponseReleases.splice(0)) release();
   await act(async () => root.unmount());
   if (iframeServer) {
     await new Promise<void>((resolve) => iframeServer!.close(() => resolve()));
@@ -41,13 +45,381 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas one-shot bridge queue", () => {
-  /**
-   * A live-edit screen keeps its already-loaded iframe when the canvas
-   * remounts, so the replacement instance can see ordinary bridge traffic
-   * before the editor-chrome listener has attached. Runtime inserts must not
-   * flush on that traffic: the board→live drop would otherwise be posted into
-   * an empty document and disappear before the explicit ready handshake.
-   */
+  it("keeps local layers immediate and captures shared HTML after its reservation", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      pendingIframeResponseReleases.push(() =>
+        response.end("<!doctype html><html><body>Runtime</body></html>"),
+      );
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    let documentId = "runtime-document-live";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    const reservations: Array<{
+      promise: Promise<{ reservationToken: string }>;
+      resolve: (value: { reservationToken: string }) => void;
+    }> = [];
+    const onRuntimeLayerSnapshot = vi.fn();
+    const onRuntimeLayerSnapshotReadinessChange = vi.fn();
+    const onRuntimeReload = vi.fn();
+    const onReserveVisualEditSnapshot = vi.fn(() => {
+      let resolve!: (value: { reservationToken: string }) => void;
+      const promise = new Promise<{ reservationToken: string }>((done) => {
+        resolve = done;
+      });
+      reservations.push({ promise, resolve });
+      return promise;
+    });
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/"
+          contentKey="screen-live"
+          screenId="screen-live"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="ready-recovery-preview-token"
+          liveEditCapability="ready-recovery-live-edit-capability"
+          onRuntimeLayerSnapshot={onRuntimeLayerSnapshot}
+          onRuntimeLayerSnapshotReadinessChange={
+            onRuntimeLayerSnapshotReadinessChange
+          }
+          onRuntimeReload={onRuntimeReload}
+          onReserveVisualEditSnapshot={onReserveVisualEditSnapshot}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+      expect(pendingIframeResponseReleases).toHaveLength(1);
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframePostMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
+
+    const sendBridgeMessage = async (data: Record<string, unknown>) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data,
+            origin: bridgeUrl,
+            source: iframe.contentWindow,
+          }),
+        );
+      });
+    };
+    const requestReservation = (requestId: number) =>
+      sendBridgeMessage({
+        type: "agent-native:runtime-layer-snapshot-reservation-request",
+        requestId,
+        documentId,
+      });
+    const sendSnapshot = (
+      requestId: number,
+      html: string,
+      reservationToken?: string,
+      options: { documentId?: string; readinessRequestId?: number } = {},
+    ) =>
+      sendBridgeMessage({
+        type: "agent-native:runtime-layer-snapshot",
+        payload: {
+          requestId,
+          documentId: options.documentId ?? documentId,
+          html,
+          nodeCount: 2,
+          ...(reservationToken ? { reservationToken } : {}),
+          ...(options.readinessRequestId !== undefined
+            ? { readinessRequestId: options.readinessRequestId }
+            : {}),
+        },
+      });
+    const expectImmediateSnapshot = async (requestId: number, html: string) => {
+      await sendSnapshot(requestId, html);
+      expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+        html,
+        nodeCount: 2,
+        documentId,
+        reservationToken: undefined,
+      });
+    };
+    const resolveReservation = async (index: number, token: string) => {
+      await act(async () => {
+        reservations[index]!.resolve({ reservationToken: token });
+        await reservations[index]!.promise;
+      });
+    };
+
+    await sendSnapshot(40, "<body>Before ready</body>");
+    expect(onRuntimeLayerSnapshot).not.toHaveBeenCalled();
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
+
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    expect(
+      iframePostMessage.mock.calls.some(
+        ([message]) =>
+          (message as { type?: string })?.type ===
+          "request-runtime-layer-snapshot",
+      ),
+    ).toBe(true);
+    const readinessRequests = iframePostMessage.mock.calls
+      .map(
+        ([message]) =>
+          message as { type?: string; readinessRequestId?: number },
+      )
+      .filter((message) => message.type === "request-runtime-layer-snapshot");
+    const readinessRequest = readinessRequests[readinessRequests.length - 1];
+    expect(readinessRequest?.readinessRequestId).toEqual(expect.any(Number));
+    const readinessRequestId = readinessRequest!.readinessRequestId!;
+    const readinessChangeCount =
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.length;
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    expect(
+      iframePostMessage.mock.calls.filter(
+        ([message]) =>
+          (message as { type?: string })?.type ===
+          "request-runtime-layer-snapshot",
+      ),
+    ).toHaveLength(readinessRequests.length);
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenCalledTimes(
+      readinessChangeCount,
+    );
+    await sendSnapshot(40, "<body>Old iframe</body>", undefined, {
+      documentId: "runtime-document-old",
+      readinessRequestId,
+    });
+    expect(onRuntimeLayerSnapshot).not.toHaveBeenCalled();
+    await sendSnapshot(
+      40,
+      "<body>Uncorrelated current iframe</body>",
+      undefined,
+      {
+        readinessRequestId: readinessRequestId + 1,
+      },
+    );
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-unchanged",
+      payload: { requestId: 40, documentId },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-unchanged",
+      payload: { requestId: 40, documentId, readinessRequestId },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
+    await sendSnapshot(40, "<body>Current iframe</body>", undefined, {
+      readinessRequestId,
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
+    const releaseInitialIframeLoad = pendingIframeResponseReleases.shift();
+    expect(releaseInitialIframeLoad).toBeDefined();
+    await act(async () => releaseInitialIframeLoad?.());
+    await vi.waitFor(() => {
+      expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+        status: "ready",
+        documentId,
+      });
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "ready",
+      documentId,
+    });
+    await requestReservation(41);
+    await requestReservation(42);
+    expect(onReserveVisualEditSnapshot).toHaveBeenCalledTimes(2);
+    expect(onReserveVisualEditSnapshot).toHaveBeenNthCalledWith(
+      1,
+      "screen-live",
+    );
+    expect(onReserveVisualEditSnapshot).toHaveBeenNthCalledWith(
+      2,
+      "screen-live",
+    );
+
+    await expectImmediateSnapshot(41, "<body>First</body>");
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "ready",
+      documentId,
+    });
+    await expectImmediateSnapshot(42, "<body>Second</body>");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
+
+    await resolveReservation(1, "reservation-for-42");
+    expect(
+      iframePostMessage.mock.calls
+        .map(([message]) => message)
+        .filter(
+          (message) =>
+            (message as { type?: string })?.type ===
+            "grant-runtime-layer-snapshot-reservation",
+        ),
+    ).toContainEqual({
+      type: "grant-runtime-layer-snapshot-reservation",
+      requestId: 42,
+      documentId,
+      reservationToken: "reservation-for-42",
+    });
+    await sendSnapshot(
+      42,
+      "<body>Fresh after reservation</body>",
+      "reservation-for-42",
+    );
+    expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+      html: "<body>Fresh after reservation</body>",
+      nodeCount: 2,
+      documentId,
+      reservationToken: "reservation-for-42",
+    });
+
+    await resolveReservation(0, "reservation-for-41");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(5);
+    expect(onRuntimeLayerSnapshot.mock.calls[4]?.[0]).toEqual({
+      html: "<body>Fresh after reservation</body>",
+      nodeCount: 2,
+      documentId,
+      reservationToken: "reservation-for-42",
+    });
+
+    await requestReservation(43);
+    await expectImmediateSnapshot(43, "<body>Third</body>");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(6);
+    await resolveReservation(2, "reservation-for-43");
+    await sendSnapshot(43, "<body>Fresh third</body>", "reservation-for-43");
+    expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+      html: "<body>Fresh third</body>",
+      nodeCount: 2,
+      documentId,
+      reservationToken: "reservation-for-43",
+    });
+    await sendBridgeMessage({ type: "agent-native:runtime-reloading" });
+    expect(onRuntimeReload).not.toHaveBeenCalled();
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "loading",
+    });
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    expect(onRuntimeReload).not.toHaveBeenCalled();
+    documentId = "runtime-document-reloaded";
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    expect(onRuntimeReload).toHaveBeenCalledExactlyOnceWith();
+    const postReloadReadinessRequests = iframePostMessage.mock.calls
+      .map(
+        ([message]) =>
+          message as { type?: string; readinessRequestId?: number },
+      )
+      .filter((message) => message.type === "request-runtime-layer-snapshot");
+    const postReloadReadinessRequest =
+      postReloadReadinessRequests[postReloadReadinessRequests.length - 1];
+    expect(postReloadReadinessRequest?.readinessRequestId).toEqual(
+      expect.any(Number),
+    );
+    const postReloadReadinessRequestId =
+      postReloadReadinessRequest!.readinessRequestId!;
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-error",
+      payload: {
+        documentId,
+        readinessRequestId: postReloadReadinessRequestId + 1,
+      },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "loading",
+      documentId,
+    });
+    const readyCallCountBeforeMatchingError =
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
+        ([readiness]) => readiness.status === "ready",
+      ).length;
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-error",
+      payload: {
+        documentId,
+        readinessRequestId: postReloadReadinessRequestId,
+      },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "loading",
+      documentId,
+    });
+    await act(async () => {
+      iframe.dispatchEvent(new Event("load"));
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "error",
+      documentId,
+    });
+    expect(
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
+        ([readiness]) => readiness.status === "ready",
+      ),
+    ).toHaveLength(readyCallCountBeforeMatchingError);
+    await sendSnapshot(43, "<body>Current iframe after recovery</body>");
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "ready",
+      documentId,
+    });
+  });
+
   it("holds runtime inserts until the explicit editor-chrome handshake", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -105,6 +477,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
         rollbackSelector?: string;
         rollbackSourceId?: string;
         cancelRequested?: boolean;
+        cancellationRetryCount?: number;
       } | null,
     ) => {
       await act(async () => {
@@ -152,8 +525,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
     iframeWindow.postMessage = ((message: unknown) => {
       posted.push(message);
     }) as Window["postMessage"];
-
-    // Queue the command while the canvas has never seen a ready handshake.
     await render({
       requestId: 1,
       transactionId: "move-1",
@@ -201,8 +572,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       ),
     ).toHaveLength(0);
 
-    // Ordinary bridge traffic proves the document is reachable, but not that
-    // the editor-chrome message listener is attached yet.
     posted.length = 0;
     await act(async () => {
       window.dispatchEvent(
@@ -238,13 +607,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       );
     });
 
-    expect(
-      posted.filter(
-        (message) =>
-          (message as { type?: unknown }).type ===
-          "agent-native:editor-chrome-ready-probe",
-      ),
-    ).toHaveLength(1);
     expect(posted).toContainEqual({
       type: "set-text-editing-enabled",
       enabled: true,
@@ -279,6 +641,61 @@ describe("DesignCanvas one-shot bridge queue", () => {
     ]);
     expect(onRuntimeStructureInsertRejected).not.toHaveBeenCalled();
     posted.length = 0;
+    await render(null, null, "move-rejected", {
+      screenId: "screen-live",
+      requestId: "move-rejected:source",
+      transactionId: "move-rejected",
+      selector: "#source",
+      waitForInsertTransaction: true,
+    });
+    expect(
+      posted.some(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "pending-delete-element",
+      ),
+    ).toBe(false);
+    posted.length = 0;
+    await render(null);
+    expect(
+      posted.some((message) =>
+        [
+          "pending-delete-element",
+          "delete-element",
+          "cancel-pending-delete-element",
+        ].includes((message as { type?: string }).type ?? ""),
+      ),
+    ).toBe(false);
+
+    posted.length = 0;
+    await render(null, null, "move-1", {
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      selector: "#source",
+      waitForInsertTransaction: true,
+    });
+    expect(
+      posted.some(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "pending-delete-element",
+      ),
+    ).toBe(false);
+
+    posted.length = 0;
+    await render(null, null, "move-1", {
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      selector: "#source",
+      waitForInsertTransaction: false,
+    });
+    expect(
+      posted.slice(-2).map((message) => (message as { type?: string }).type),
+    ).toEqual(["pending-delete-element", "delete-element"]);
+
+    posted.length = 0;
     await render(null, null, "move-1", {
       screenId: "screen-live",
       requestId: "move-1:source",
@@ -305,13 +722,64 @@ describe("DesignCanvas one-shot bridge queue", () => {
         type: "visual-structure-ack",
         requestId: "move-1:source",
         applied: false,
+        cancelRuntimeStructureDelete: {
+          transactionId: "move-1",
+          selector: "#source",
+          selectorCandidates: [],
+        },
       },
     ]);
+    expect(onRuntimeStructureDeleteRejected).not.toHaveBeenCalled();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "runtime-structure-delete-cancelled",
+            requestId: "move-1:source",
+            transactionId: "move-1",
+            sourcePresent: true,
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
     expect(onRuntimeStructureDeleteRejected).toHaveBeenCalledExactlyOnceWith({
       screenId: "screen-live",
       requestId: "move-1:source",
       transactionId: "move-1",
+      routePath: "/",
       reason: "cancelled",
+      sourcePresent: true,
+    });
+    posted.length = 0;
+    await render(null, null, "move-1", {
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      selector: "#source",
+      waitForInsertTransaction: true,
+      cancelRequested: true,
+      cancellationRetryCount: 1,
+      rollbackScreenId: "screen-target",
+      rollbackSelector: "#inserted",
+    });
+    expect(posted).toContainEqual({
+      type: "cancel-pending-delete-element",
+      selector: "#source",
+      selectorCandidates: [],
+      requestId: "move-1:source",
+      transactionId: "move-1",
+    });
+    expect(posted).toContainEqual({
+      type: "visual-structure-ack",
+      requestId: "move-1:source",
+      applied: false,
+      cancelRuntimeStructureDelete: {
+        transactionId: "move-1",
+        selector: "#source",
+        selectorCandidates: [],
+      },
     });
     await act(async () => root.render(null));
     expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(
@@ -402,6 +870,140 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(onRuntimeStructureRollbackResult).not.toHaveBeenCalled();
   });
 
+  it("releases the matching move admission when the target rejects its insert", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const pendingTransactionRef = { current: "move-rejected" as string | null };
+    const sourceDeleteRequest = {
+      requestId: "move-rejected:source",
+      transactionId: "move-rejected",
+      screenId: "screen-source",
+      selector: "#source",
+      waitForInsertTransaction: true,
+      rollbackScreenId: "screen-target",
+    };
+    let recovery:
+      | ReturnType<typeof resolveCrossScreenMoveFailureRecovery>
+      | undefined;
+    const onRejected = vi.fn((reason: string, transactionId?: string) => {
+      if (!transactionId) return;
+      recovery = resolveCrossScreenMoveFailureRecovery({
+        reason,
+        transactionId,
+        insertRequest: {
+          requestId: 1,
+          transactionId: "move-rejected",
+          screenId: "screen-target",
+          sourceScreenId: "screen-source",
+          html: '<button data-agent-native-node-id="clone">Move</button>',
+          anchor: { selector: "body" },
+          placement: "inside",
+        },
+        sourceDeleteRequest,
+        rollbackRequestId: "move-rejected:rollback",
+        pendingTransactionRef,
+      });
+    });
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/target"
+          contentKey="screen-target"
+          screenId="screen-target"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="ready-recovery-preview-token"
+          liveEditCapability="ready-recovery-live-edit-capability"
+          runtimeStructureInsertRequest={{
+            requestId: 1,
+            transactionId: "move-rejected",
+            screenId: "screen-target",
+            sourceScreenId: "screen-source",
+            html: '<button data-agent-native-node-id="clone">Move</button>',
+            anchor: { selector: "body" },
+            placement: "inside",
+          }}
+          onRuntimeStructureInsertRejected={onRejected}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?"),
+    );
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    iframeWindow.postMessage = vi.fn() as Window["postMessage"];
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/target",
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "runtime-structure-insert-rejected",
+            reason: "target-unresolved",
+            transactionId: "move-rejected",
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(onRejected).toHaveBeenCalledExactlyOnceWith(
+      "target-unresolved",
+      "move-rejected",
+    );
+    expect(recovery?.sourceDeleteRequest).toBeNull();
+    expect(recovery?.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBeNull();
+  });
+
   it("cancels an acknowledged insert when the destination document reloads before source ack", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -438,8 +1040,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
           bridgeUrl={bridgeUrl}
           previewToken="ready-recovery-preview-token"
           liveEditCapability="ready-recovery-live-edit-capability"
-          // The editor supplies this only after insert ack while the source
-          // delete request is still awaiting its own ack.
           runtimeStructureTargetTransactionId="move-reload"
           onRuntimeStructureInsertRejected={onRuntimeStructureInsertRejected}
           zoom={100}
@@ -747,13 +1347,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
     ).toEqual([]);
   });
 
-  /**
-   * The recovery above is passive — it needs the frame to speak first. An idle
-   * live-edit frame never does, so an inspector style commit into a canvas
-   * that missed the ready handshake queued forever: the inspector showed the
-   * new value, the running app kept the old one, and nothing reported a
-   * failure. Queueing must now ASK the bridge whether it is there.
-   */
   it("probes the bridge when a style commit has to queue, and delivers it on the reply", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -880,7 +1473,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       probesAfterQueue,
     );
 
-    // The bridge answers the probe — that reply is the readiness proof.
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -966,15 +1558,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(typesOf("style-change")).toHaveLength(0);
   });
 
-  /**
-   * The probe above is only a recovery if it repeats. A frame that is
-   * mid-navigation (or has not attached its bridge listener yet) silently
-   * drops the first probe, and an otherwise-idle frame never speaks again —
-   * so a single fire-and-forget probe strands the queue permanently while
-   * every queued command still reports success. Undo of a live style edit is
-   * the visible case: handleUndo runs, the revert reports sent, and the
-   * running app never changes.
-   */
   it("keeps probing when the frame ignores the first probe, and delivers once it answers", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -1052,7 +1635,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       }
     ).__designCanvasSendStyleForScreen!;
 
-    // An undo revert: empty value means "drop the inline override".
     await act(async () => {
       sendStyleChangeForScreen("screen-live", "#card", "borderRadius", "", {
         selectorCandidates: ["#card"],
@@ -1060,7 +1642,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
     });
     expect(typesOf("style-change")).toHaveLength(0);
 
-    // The frame stays silent. The probe must repeat rather than give up.
     await vi.waitFor(
       () => {
         expect(typesOf("agent-native:text-edit-status").length).toBeGreaterThan(

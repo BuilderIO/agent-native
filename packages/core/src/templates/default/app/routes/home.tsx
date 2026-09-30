@@ -1,6 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { docsUrl } from "@agent-native/core/shared";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { useTheme } from "next-themes";
 import { Link } from "react-router";
 
@@ -15,7 +16,11 @@ export default function HomePage() {
   const { data } = useActionQuery("hello", { name: "{{APP_TITLE}}" });
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen px-6">
+    <div className="relative flex flex-col items-center justify-center min-h-screen px-6">
+      {/* The account menu holds Log out; Settings has no Log out row. */}
+      <div className="absolute end-4 top-4">
+        <OrgSwitcher compact />
+      </div>
       <div className="max-w-md w-full space-y-8 text-center">
         <div className="space-y-3">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">

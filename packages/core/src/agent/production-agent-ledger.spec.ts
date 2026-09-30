@@ -1,12 +1,3 @@
-/**
- * Specs for the tool-call result ledger (P1 fix):
- *
- *   1. Late zombie completion writes a ledger entry.
- *   2. Continuation with matching (toolName + inputHash) returns the ledger
- *      result without re-executing the action.
- *   3. Different input executes normally (no ledger match).
- *   4. Read-only tools never consult the ledger.
- */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
@@ -18,7 +9,8 @@ import {
   type ActionEntry,
 } from "./production-agent.js";
 
-// ─── Mock run-store so DB is never touched ───────────────────────────────────
+const recoveredResultPrefix =
+  "(Recovered from prior interrupted chunk — action already completed.)\n\n";
 
 const writeLedgerMock = vi.hoisted(() =>
   vi.fn<
@@ -27,6 +19,8 @@ const writeLedgerMock = vi.hoisted(() =>
       toolKey: string,
       result: string,
       artifacts: unknown[],
+      resultIsString?: boolean,
+      chatUIResultJson?: string,
     ) => Promise<void>
   >(),
 );
@@ -34,6 +28,8 @@ const readLedgerMock = vi.hoisted(() =>
   vi.fn<
     () => Promise<{
       result: string;
+      resultIsString?: boolean;
+      chatUIResult?: unknown;
       artifacts: Array<{
         kind: "image";
         id: string;
@@ -53,7 +49,6 @@ vi.mock("./run-store.js", () => ({
   readLedgerEntry: readLedgerMock,
   clearLedgerForThread: clearLedgerMock,
   getCurrentTurnEventsForThread: currentTurnEventsMock,
-  // Other run-store functions used by production-agent during abort handling:
   insertRun: vi.fn(),
   updateRunHeartbeat: vi.fn(),
   getRunAbortState: vi.fn(async () => ({ aborted: false, reason: null })),
@@ -73,8 +68,6 @@ vi.mock("./run-store.js", () => ({
     details: "",
   },
 }));
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeWriteAction(): ActionEntry {
   return {
@@ -98,7 +91,6 @@ function makeReadAction(): ActionEntry {
   };
 }
 
-/** Engine that emits a single tool call then ends. */
 function singleToolEngine(
   toolName: string,
   input: Record<string, unknown> = {},
@@ -137,24 +129,49 @@ function singleToolEngine(
   };
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe("tool-call result ledger", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: no prior ledger entry
     readLedgerMock.mockResolvedValue(null);
     clearLedgerMock.mockResolvedValue(undefined);
     writeLedgerMock.mockResolvedValue(undefined);
     currentTurnEventsMock.mockResolvedValue([]);
   });
 
-  it("writes a ledger entry when a zombie write-tool call completes", async () => {
+  it("writes a ledger entry for a dynamically classified write", async () => {
     // Simulate the zombie path: the action promise resolves normally (no race),
     // meaning the zombie .then() fires. With threadId set, writeLedgerEntry
     // must be called with the thread + tool key.
     const action = makeWriteAction();
-    (action.run as ReturnType<typeof vi.fn>).mockResolvedValue("zombie-result");
+    action.readOnly = true;
+    action.planMode = {
+      effect: (input) =>
+        (input as { payload?: string }).payload === "x" ? "write" : "read",
+    };
+    const actionResult = {
+      draft: {
+        subject: "Launch notes",
+        to: "ana@example.test",
+        body: "x".repeat(70_000),
+      },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    const widgetResult = {
+      draft: { subject: "Launch notes", to: "ana@example.test" },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    (action.run as ReturnType<typeof vi.fn>).mockResolvedValue(actionResult);
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, result) => Boolean(result && typeof result === "object"),
+      projectResult: (_args, result) => {
+        const record = result as typeof actionResult;
+        return {
+          draft: { subject: record.draft.subject, to: record.draft.to },
+          deepLink: record.deepLink,
+        };
+      },
+    };
 
     await runAgentLoop({
       engine: singleToolEngine("save-data", { payload: "x" }),
@@ -168,13 +185,13 @@ describe("tool-call result ledger", () => {
       threadId: "thread-zombie",
     });
 
-    // writeLedgerEntry must have been called with the thread and a key
-    // that encodes the tool name + stable input hash.
     expect(writeLedgerMock).toHaveBeenCalledWith(
       "thread-zombie",
       expect.stringContaining("save-data"),
-      "zombie-result",
+      JSON.stringify(actionResult, null, 2),
       [],
+      false,
+      JSON.stringify(widgetResult),
     );
   });
 
@@ -251,6 +268,8 @@ describe("tool-call result ledger", () => {
       expect.stringContaining("generate-asset"),
       expect.stringContaining('"payload"'),
       [receipt],
+      false,
+      undefined,
     );
     const zombieWrite = writeLedgerMock.mock.calls.find(
       ([threadId]) => threadId === "thread-artifact",
@@ -258,8 +277,169 @@ describe("tool-call result ledger", () => {
     expect(zombieWrite?.[2]).not.toContain("_agentImages");
   });
 
+  it("keeps a draft delete as ordinary tool work when chatUI.when does not match", async () => {
+    const events: any[] = [];
+    const action = makeReadAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (args, result) =>
+        args.action === "create" &&
+        Boolean(result) &&
+        typeof result === "object" &&
+        typeof (result as Record<string, unknown>).deepLink === "string",
+    };
+    action.run = vi.fn(async () => ({ message: "Deleted draft draft-1" }));
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", {
+        action: "delete",
+        id: "draft-1",
+      }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Delete the draft" }] },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const toolDone = events.find(
+      (event) => event.type === "tool_done" && event.tool === "manage-draft",
+    );
+    expect(toolDone).toMatchObject({
+      type: "tool_done",
+      tool: "manage-draft",
+      result: JSON.stringify({ message: "Deleted draft draft-1" }, null, 2),
+    });
+    expect(toolDone.chatUI).toBeUndefined();
+    expect(events.some((event) => event.type === "widget.created")).toBe(false);
+  });
+
+  it("opts actions with a standard change result into the shared card", async () => {
+    const result = {
+      draft: { id: "draft-1", subject: "Launch notes" },
+      change: {
+        verb: "created",
+        kind: "email-draft",
+        title: "Launch notes",
+        detail: "ana@example.test",
+        url: "/_agent-native/open?composeDraftId=draft-1",
+      },
+    };
+    const action = makeWriteAction();
+    action.run = vi.fn(async () => result);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", { action: "create" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-standard-change-widget",
+    });
+
+    expect(events.find((event) => event.type === "tool_done")).toMatchObject({
+      result: JSON.stringify(result, null, 2),
+      chatUI: { renderer: "core.record-change" },
+      chatUIResult: { change: result.change },
+    });
+  });
+
+  it("emits raw structured results for matching action widgets", async () => {
+    const result = {
+      draft: { subject: "Launch notes", to: "ana@example.test", body: "x" },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    const widgetResult = {
+      draft: { subject: "Launch notes", to: "ana@example.test" },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    const action = makeWriteAction();
+    action.run = vi.fn(async () => result);
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, value) =>
+        Boolean(value) && typeof value === "object" && "deepLink" in value,
+      projectResult: (_args, value) => {
+        const record = value as typeof result;
+        return {
+          draft: { subject: record.draft.subject, to: record.draft.to },
+          deepLink: record.deepLink,
+        };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", { action: "create" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-structured-widget",
+    });
+
+    expect(events.find((event) => event.type === "tool_done")).toMatchObject({
+      result: JSON.stringify(result, null, 2),
+      chatUI: { renderer: "mail.draft-created" },
+      chatUIResult: widgetResult,
+    });
+    expect(writeLedgerMock).toHaveBeenCalledWith(
+      "thread-structured-widget",
+      expect.stringContaining("manage-draft"),
+      JSON.stringify(result, null, 2),
+      [],
+      false,
+      JSON.stringify(widgetResult),
+    );
+  });
+
+  it("emits widgets when the transcript result is truncated", async () => {
+    const result = {
+      deepLink: "/_agent-native/open",
+      summary: "x".repeat(200),
+    };
+    const action = makeWriteAction();
+    action.maxResultChars = 32;
+    action.run = vi.fn(async () => result);
+    action.chatUI = { renderer: "mail.draft-created" };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", { action: "create" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events.find((event) => event.type === "tool_done")).toMatchObject({
+      result: expect.stringContaining("...[truncated"),
+      chatUI: { renderer: "mail.draft-created" },
+      chatUIResult: result,
+    });
+  });
+
   it("returns the ledger result without re-executing on continuation match", async () => {
-    // readLedgerEntry returns a cached result — the action must NOT run again.
     const PRIOR_RESULT =
       `{"payload":"${"x".repeat(8_000)}` +
       "\n...[ledger truncated at 8000 chars]";
@@ -271,13 +451,15 @@ describe("tool-call result ledger", () => {
         runId: "generation-recovered",
       },
     ];
-    readLedgerMock.mockResolvedValue({ result: PRIOR_RESULT, artifacts });
+    readLedgerMock.mockResolvedValue({
+      result: PRIOR_RESULT,
+      resultIsString: true,
+      artifacts,
+    });
 
     const action = makeWriteAction();
     const events: any[] = [];
 
-    // Build a continuation turn: the same save-data was interrupted once,
-    // so priorInterruptions > 0, which triggers the ledger check.
     await runAgentLoop({
       engine: singleToolEngine("save-data", { content: "big" }),
       model: "test-model",
@@ -324,23 +506,18 @@ describe("tool-call result ledger", () => {
       threadId: "thread-resume",
     });
 
-    // The action must NOT have been called again — the ledger result was used.
     expect(action.run).not.toHaveBeenCalled();
 
-    // The tool_done event must contain the recovered result.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
         tool: "save-data",
-        result: expect.stringContaining(PRIOR_RESULT),
+        result: `${recoveredResultPrefix}${PRIOR_RESULT}`,
       }),
     );
-    // The result must indicate recovery.
     const toolDone = events.find((e: any) => e.type === "tool_done");
-    expect(toolDone?.result).toContain(
-      "Recovered from prior interrupted chunk",
-    );
     expect(toolDone?.completedSideEffect).toBe(true);
+    expect(toolDone?.replayed).toBe(true);
     expect(toolDone?.artifacts).toEqual(artifacts);
 
     const toolResults = events
@@ -363,6 +540,283 @@ describe("tool-call result ledger", () => {
     expect(assembled.finalText).toContain("Artifacts:");
     expect(assembled.finalText).toContain(
       "https://assets.agent-native.com/asset/asset-recovered",
+    );
+  });
+
+  it("does not treat successful output mentioning the interruption marker as interrupted", async () => {
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "retry" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "save this" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-marker-text",
+              name: "save-data",
+              input: { content: "retry" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-marker-text",
+              toolName: "save-data",
+              toolInput: '{"content":"retry"}',
+              content:
+                "Saved successfully; earlier note said Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-marker-text",
+    });
+
+    expect(readLedgerMock).not.toHaveBeenCalled();
+    expect(action.run).toHaveBeenCalledOnce();
+  });
+
+  it("restores a projected widget result without re-evaluating its predicate", async () => {
+    const input = {
+      action: "create",
+      subject: "Launch notes",
+      to: "ana@example.test",
+    };
+    const result = {
+      draft: { subject: input.subject, to: input.to },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    readLedgerMock.mockResolvedValue({
+      result: '{"draft":[ledger truncated at 8000 chars]',
+      resultIsString: false,
+      artifacts: [],
+      chatUIResult: result,
+    });
+
+    const action = makeWriteAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: vi.fn(() => false),
+      projectResult: vi.fn(() => {
+        throw new Error("stored widget result must not be projected again");
+      }),
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", input),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-draft-1",
+              name: "manage-draft",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-draft-1",
+              toolName: "manage-draft",
+              toolInput: JSON.stringify(input),
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-resume",
+    });
+
+    expect(action.run).not.toHaveBeenCalled();
+    expect(action.chatUI.when).not.toHaveBeenCalled();
+    expect(action.chatUI.projectResult).not.toHaveBeenCalled();
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
+    expect(toolDone?.chatUIResult).toEqual(result);
+  });
+
+  it("keeps a JSON-looking string result as a string during recovery", async () => {
+    const input = { action: "create" };
+    const result = '{"deepLink":"/_agent-native/open?composeDraftId=draft-1"}';
+    readLedgerMock.mockResolvedValue({
+      result,
+      resultIsString: true,
+      artifacts: [],
+    });
+
+    const action = makeWriteAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, recovered) => typeof recovered === "string",
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", input),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-draft-string-1",
+              name: "manage-draft",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-draft-string-1",
+              toolName: "manage-draft",
+              toolInput: JSON.stringify(input),
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-resume-string",
+    });
+
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(action.run).not.toHaveBeenCalled();
+    expect(toolDone?.result).toBe(`${recoveredResultPrefix}${result}`);
+    expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
+    expect(toolDone?.chatUIResult).toBe(result);
+  });
+
+  it("does not guess widget eligibility for legacy ledger results", async () => {
+    const input = { action: "create" };
+    const result = JSON.stringify({
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    });
+    readLedgerMock.mockResolvedValue({ result, artifacts: [] });
+
+    const action = makeWriteAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, recovered) =>
+        Boolean(recovered) &&
+        typeof recovered === "object" &&
+        typeof (recovered as Record<string, unknown>).deepLink === "string",
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", input),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-draft-legacy-1",
+              name: "manage-draft",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-draft-legacy-1",
+              toolName: "manage-draft",
+              toolInput: JSON.stringify(input),
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-resume-legacy",
+    });
+
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(action.run).not.toHaveBeenCalled();
+    expect(toolDone?.result).toBe(`${recoveredResultPrefix}${result}`);
+    expect(toolDone?.chatUI).toBeUndefined();
+    expect(events.some((event: any) => event.type === "widget.created")).toBe(
+      false,
     );
   });
 
@@ -438,13 +892,79 @@ describe("tool-call result ledger", () => {
     );
   });
 
+  it("recovers a timed out dynamically classified write from its ledger", async () => {
+    readLedgerMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ result: "late zombie result", artifacts: [] });
+
+    const action = makeWriteAction();
+    action.readOnly = true;
+    action.planMode = {
+      effect: (input) =>
+        (input as { content?: string }).content === "slow" ? "write" : "read",
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "slow" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "save this" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-timeout",
+              name: "save-data",
+              input: { content: "slow" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-timeout",
+              toolName: "save-data",
+              toolInput: '{"content":"slow"}',
+              content:
+                "Error running save-data: Tool call timed out after 12 seconds",
+              isError: true,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-late-timeout",
+    });
+
+    expect(readLedgerMock).toHaveBeenCalledTimes(2);
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        result: expect.stringContaining("late zombie result"),
+      }),
+    );
+  });
+
   it("does not re-execute a write tool when the run is aborted during the ledger wait", async () => {
-    // Regression: waitForInterruptedToolLedgerEntry returns null both when no
-    // entry exists AND when the run is aborted mid-wait. The caller must not
-    // treat an aborted wait as a cache miss and start a fresh execution — that
-    // would spawn a duplicate zombie side effect (e.g. a second image
-    // generation / double charge). Abort the run while the ledger is being
-    // polled and assert the action never runs.
     const controller = new AbortController();
     readLedgerMock.mockImplementation(async () => {
       controller.abort();
@@ -507,6 +1027,7 @@ describe("tool-call result ledger", () => {
   });
 
   it("returns a completed journal result without re-executing a write tool", async () => {
+    const chatUIResult = { subject: "Launch notes", to: "ana@example.test" };
     currentTurnEventsMock.mockResolvedValue([
       {
         type: "tool_start",
@@ -517,10 +1038,14 @@ describe("tool-call result ledger", () => {
         type: "tool_done",
         tool: "save-data",
         result: "journaled-result",
+        chatUI: { renderer: "mail.draft-created" },
+        chatUIResult,
       },
     ]);
 
     const action = makeWriteAction();
+    const when = vi.fn(() => true);
+    action.chatUI = { renderer: "mail.draft-created", when };
     const events: any[] = [];
 
     await runAgentLoop({
@@ -545,14 +1070,18 @@ describe("tool-call result ledger", () => {
     );
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.result).toContain("Already completed");
+    expect(toolDone?.replayed).toBe(true);
+    expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
+    expect(toolDone?.chatUIResult).toEqual(chatUIResult);
+    expect(when).not.toHaveBeenCalled();
   });
 
-  it("executes normally when the ledger has no entry for the tool input", async () => {
-    // readLedgerEntry returns null → action must run as usual.
+  it("does not retry an interrupted write when its result is missing from the ledger", async () => {
     readLedgerMock.mockResolvedValue(null);
 
     const action = makeWriteAction();
     (action.run as ReturnType<typeof vi.fn>).mockResolvedValue("fresh-result");
+    const events: any[] = [];
 
     await runAgentLoop({
       engine: singleToolEngine("save-data", { content: "different-payload" }),
@@ -595,21 +1124,26 @@ describe("tool-call result ledger", () => {
         },
       ],
       actions: { "save-data": action },
-      send: () => {},
+      send: (event) => events.push(event),
       signal: new AbortController().signal,
       threadId: "thread-resume-no-match",
     });
 
-    // Action should have run once since ledger returned null (cache miss).
-    expect(action.run).toHaveBeenCalledOnce();
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        isError: true,
+        result: expect.stringContaining("could not recover its result"),
+      }),
+    );
   });
 
   it("records a write tool rejected by a run abort as interrupted, not failed", async () => {
-    // The request may already have reached the provider when the run stops
-    // waiting on it. An "Error running" result tells the resuming chunk the
-    // write did not happen, and it re-dispatches it.
     const controller = new AbortController();
     const action = makeWriteAction();
+    action.chatUI = { renderer: "mail.draft-created" };
     (action.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       controller.abort();
       throw new Error("socket closed");
@@ -633,12 +1167,10 @@ describe("tool-call result ledger", () => {
       "Interrupted before this tool returned a result.",
     );
     expect(toolDone?.completedSideEffect).not.toBe(true);
+    expect(toolDone?.chatUI).toBeUndefined();
   });
 
   it("does not count an aborted write toward the repeated-error breaker", async () => {
-    // Two earlier chunks of this turn recorded the same abort as an error
-    // (the pre-fix history shape). A third identical error trips the breaker;
-    // an interruption is not an error and must not.
     const priorAbort = [
       { type: "tool_start", tool: "save-data", input: { content: "x" } },
       {
@@ -704,8 +1236,6 @@ describe("tool-call result ledger", () => {
   });
 
   it("never consults the ledger for read-only tools", async () => {
-    // Even if readLedger were to return something, read-only tools should
-    // bypass the ledger entirely — they have no side effects to protect.
     readLedgerMock.mockResolvedValue({
       result: "should-not-be-used",
       artifacts: [],
@@ -714,8 +1244,6 @@ describe("tool-call result ledger", () => {
     const action = makeReadAction();
     const events: any[] = [];
 
-    // Simulate a continuation with an "interrupted" read-only tool result
-    // (unusual, but the ledger must not be consulted regardless).
     await runAgentLoop({
       engine: singleToolEngine("get-data", { id: "123" }),
       model: "test-model",
@@ -762,11 +1290,8 @@ describe("tool-call result ledger", () => {
       threadId: "thread-read-only",
     });
 
-    // readLedgerEntry must never be called for read-only tools.
     expect(readLedgerMock).not.toHaveBeenCalled();
 
-    // The read-only per-turn cache handles the retry instead of the durable
-    // write-tool ledger, so the read action is not re-executed either.
     expect(action.run).not.toHaveBeenCalled();
     expect(events).toContainEqual(
       expect.objectContaining({

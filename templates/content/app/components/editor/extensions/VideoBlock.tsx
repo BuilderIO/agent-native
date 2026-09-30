@@ -1,6 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -25,6 +26,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -150,7 +152,11 @@ export function VideoBlock({
   getPos,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -387,7 +393,7 @@ export function VideoBlock({
   async function handleVideoFilePicked(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file || !canMutateMediaNow()) return;
+    if (!file || !fileStorageConfigured || !canMutateMediaNow()) return;
 
     const toastId = toast.loading(t("editor.media.uploadingVideo"));
     try {
@@ -405,6 +411,15 @@ export function VideoBlock({
     } catch (error) {
       toast.error(videoUploadErrorMessage(error), { id: toastId });
     }
+  }
+
+  function requestVideoFilePicker() {
+    if (!isEditable || isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
+    fileInputRef.current?.click();
   }
 
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
@@ -475,10 +490,15 @@ export function VideoBlock({
               type="button"
               variant="outline"
               className="w-full"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={requestVideoFilePicker}
             >
               {t("editor.media.uploadFile")}
             </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : (
           <form className="media-source-panel__body" onSubmit={handleEmbedLink}>
@@ -541,6 +561,7 @@ export function VideoBlock({
             ref={fileInputRef}
             type="file"
             accept="video/*"
+            disabled={!fileStorageConfigured}
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"
@@ -584,6 +605,7 @@ export function VideoBlock({
           ref={fileInputRef}
           type="file"
           accept="video/*"
+          disabled={!fileStorageConfigured}
           className="hidden"
           tabIndex={-1}
           aria-hidden="true"

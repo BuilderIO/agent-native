@@ -6,12 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useShellSettled } from "./shell-ready";
 
 const {
+  agentSidebarProps,
   agentSidebarSpy,
   docsWebMcpActions,
   navigateMock,
   revalidateMock,
   routerRootHref,
 } = vi.hoisted(() => ({
+  agentSidebarProps: [] as Array<Record<string, unknown>>,
   agentSidebarSpy: vi.fn(),
   docsWebMcpActions: [] as Array<{ run: (args: unknown) => unknown }>,
   navigateMock: vi.fn(),
@@ -28,19 +30,26 @@ function ShellSettledProbe() {
   );
 }
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: ({ children }: { children: React.ReactNode }) => {
-    agentSidebarSpy();
-    return <div data-testid="real-sidebar">{children}</div>;
+vi.mock("@agent-native/toolkit/app/chat", () => ({
+  AgentSidebar: (props: {
+    children: React.ReactNode;
+    defaultOpen?: boolean;
+    screenRefreshEnabled?: boolean;
+  }) => {
+    agentSidebarSpy(props);
+    agentSidebarProps.push(props);
+    return <div data-testid="real-sidebar">{props.children}</div>;
   },
 }));
-vi.mock("@agent-native/core/client/host", () => ({
+vi.mock("@agent-native/core/client/route-warmup", () => ({
   AgentNativeRouteWarmup: () => null,
-  defineClientAction: (action: unknown) => action,
   isClientRouteUrl: (url: { pathname: string }) =>
     !url.pathname.startsWith("/cdn-cgi/"),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/host", () => ({
+  defineClientAction: (action: unknown) => action,
+}));
+vi.mock("@agent-native/toolkit/app/providers", () => ({
   AgentNativeWebMcpActionRegistration: () => null,
 }));
 vi.mock("@agent-native/core/client/webmcp", () => ({
@@ -55,8 +64,6 @@ vi.mock("@agent-native/core/client/webmcp", () => ({
     return { start: vi.fn(async () => {}), stop: vi.fn() };
   },
 }));
-// Only the core boundary is stubbed; the app's own modules stay real so this
-// exercises the shell React actually renders.
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
   useLocale: () => "en-US",
@@ -102,6 +109,7 @@ vi.mock("./components/website-redesign/footer", () => ({ Footer: () => null }));
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  agentSidebarProps.length = 0;
   agentSidebarSpy.mockClear();
   docsWebMcpActions.length = 0;
   navigateMock.mockClear();
@@ -110,10 +118,6 @@ afterEach(() => {
 });
 
 describe("RootShell tree stability", () => {
-  // The bug: page content lived at one tree position before `mounted` and a
-  // different one after, so React destroyed and rebuilt every element on the
-  // page. The hero's WebGPU renderer was built twice and its fade restarted
-  // mid-animation, which is what read as the background flashing on load.
   it("keeps page content mounted across the mounted flip", async () => {
     const { RootShell } = await import("./root");
     const { rerender } = render(<RootShell mounted={false} />);
@@ -121,17 +125,25 @@ describe("RootShell tree stability", () => {
 
     rerender(<RootShell mounted />);
 
-    // React keeps a suspended subtree in the DOM behind the fallback, so query
-    // all of them: the placeholder's node must be the same object it was.
     expect(screen.getAllByTestId("page")[0]).toBe(before);
+  });
+
+  it("keeps Docs sidebars out of screen-refresh sync", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+    await vi.dynamicImportSettled();
+
+    await vi.waitFor(() => expect(agentSidebarProps.length).toBeGreaterThan(0));
+    expect(agentSidebarProps.at(-1)).toMatchObject({
+      defaultOpen: false,
+      screenRefreshEnabled: false,
+    });
   });
 
   it("only marks the shell settled inside the real sidebar subtree", async () => {
     const { RootShell } = await import("./root");
     render(<RootShell mounted={false} />);
 
-    // The placeholder subtree is the one React throws away. Anything that waits
-    // on the settled signal must not see it as settled here.
     expect(screen.queryByTestId("real-sidebar")).toBeNull();
     expect(screen.getByTestId("settled").textContent).toBe("false");
   });

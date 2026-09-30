@@ -1,4 +1,3 @@
-import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
 import {
   getClientSurface,
   isInBuilderFrame,
@@ -8,6 +7,7 @@ import {
   resolveEnvironmentTargets,
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
+import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/toolkit/app/chat/chat-first";
 
 import {
   CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
@@ -18,6 +18,7 @@ export interface WorkspaceAppSummary {
   id: string;
   name: string;
   description?: string;
+  defaultDescriptionKey?: string;
   path: string;
   homePath?: string;
   url?: string | null;
@@ -41,6 +42,18 @@ export interface WorkspaceAppSummary {
   agentSkillsCount?: number | null;
   archived?: boolean;
   workspaceSso?: boolean;
+  source?: WorkspaceAppSource;
+}
+
+export type WorkspaceAppSource = "workspace" | "builtin" | "connected";
+
+/** Maps list-connected-agents' `source` onto the sidebar grouping. */
+export function workspaceAppSourceFromConnected(
+  source: string | undefined,
+): WorkspaceAppSource {
+  if (source === "builtin") return "builtin";
+  if (source === "custom") return "connected";
+  return "workspace";
 }
 
 interface WorkspaceAppHrefSource {
@@ -94,11 +107,6 @@ function clientEnvironmentLane(): "production" | "beta" {
   return targets?.betaHost === hostname ? "beta" : "production";
 }
 
-/**
- * The workspace SSO action only accepts an exact registered app identity and
- * origin. The catalog's boolean is a server-derived projection for custom
- * registrations; the URL check keeps malformed metadata out of the action.
- */
 export function isWorkspaceSsoApp(
   app: WorkspaceAppHrefSource & { id: string },
 ): boolean {
@@ -133,11 +141,6 @@ function isCanonicalWorkspaceSsoOrigin(rawUrl: string): boolean {
   }
 }
 
-/**
- * A mounted app URL leaves Dispatch's `/apps/:id` host route. Canonical
- * first-party origins can stay inline even at `/`, while external published
- * apps must open at their own origin regardless of their path.
- */
 export function isPathMountedWorkspaceApp(
   app: WorkspaceAppHrefSource,
 ): boolean {
@@ -165,6 +168,32 @@ export function isWorkspaceAppVisibleInDefaultLaunchers(
 ): boolean {
   return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
 }
+
+const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
+  string,
+  { text: string; key: string }
+> = {
+  calendar: {
+    text: "Agent-Native Google Calendar — manage events, sync, and public booking",
+    key: "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+  },
+  clips: {
+    text: "Screen recording, meeting notes, and voice dictation — all with AI",
+    key: "dispatch.pages.chatFirstDefaultDescriptionClips",
+  },
+  content: {
+    text: "Open-source Obsidian for MDX — edit local docs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionContent",
+  },
+  design: {
+    text: "Agent-Native design tool — create and edit visual designs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionDesign",
+  },
+  mail: {
+    text: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+    key: "dispatch.pages.chatFirstDefaultDescriptionMail",
+  },
+};
 
 function defaultWorkspaceAppUrl(rawUrl: string): string {
   if (typeof window === "undefined") return rawUrl;
@@ -236,11 +265,6 @@ function workspaceAppMountPath(
   return normalizedWorkspaceAppMountPath(app.path?.trim() || "/");
 }
 
-/**
- * Convert a child app route into Dispatch's shareable workspace-app route.
- * Mounted workspace apps may report their full mount path, while hosted apps
- * normally report only the app-local path, so accept both forms here.
- */
 export function workspaceAppRouteForChildPath(
   app: Pick<WorkspaceAppSummary, "id" | "path" | "url">,
   childPath: string,
@@ -326,6 +350,15 @@ export function workspaceAppTargetPath(app: {
   return normalizeWorkspaceAppHomePath(undefined);
 }
 
+export function workspaceAppDirectLaunchHref(app: {
+  path?: string | null;
+  url?: string | null;
+  homePath?: string | null;
+}): string | null {
+  if (app.path?.trim()) return null;
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
 export function workspaceAppEmbedTarget(
   app: Pick<WorkspaceAppSummary, "path" | "url">,
 ): { path?: string; url?: string } {
@@ -336,10 +369,6 @@ export function workspaceAppEmbedTarget(
   return path.startsWith("/") ? { path } : path ? { url: path } : {};
 }
 
-/**
- * Resolve an app route without an embed ticket so the target can render its
- * own error document when session setup fails.
- */
 export function workspaceAppDirectHref(
   app: WorkspaceAppHrefSource,
   targetPath: string,
@@ -409,8 +438,6 @@ export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
 
 export function shouldOpenWorkspaceAppInTopWindow(): boolean {
   if (typeof window === "undefined") return false;
-  // Standard browser iframes stay inline; Builder and native shells need the
-  // app as the top-level document so browser APIs such as WebMCP bind to it.
   return isInBuilderFrame() || getClientSurface() !== "web";
 }
 
@@ -433,27 +460,75 @@ export function navigateToWorkspaceApp(href: string): boolean {
 }
 
 /**
- * Keep the chat-first rail useful before a workspace manifest is populated.
- * Mounted workspace rows still win, so custom names and routes remain the
- * source of truth once an app exists in the workspace.
+ * Mounted workspace apps plus the chat-first default built-ins that are part
+ * of this workspace. `enabledBuiltinAppIds` must come from the server
+ * (list-connected-agents entries with source "builtin"), which already applies
+ * the builder's `agent-native.builtinAgents` config. While it is unknown, no
+ * default is added. `extraApps` are appended only when no entry has that id.
  */
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
+  enabledBuiltinAppIds: readonly string[] | undefined,
+  extraApps: readonly {
+    id: string;
+    name: string;
+    description?: string | null;
+    url?: string | null;
+    source?: WorkspaceAppSource;
+  }[] = [],
 ): WorkspaceAppSummary[] {
+  const enabledBuiltins = new Set(
+    (enabledBuiltinAppIds ?? []).map((id) => id.trim().toLowerCase()),
+  );
   const merged = new Map<string, WorkspaceAppSummary>();
   for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    if (!enabledBuiltins.has(id)) continue;
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
-      // The five default rows are hosted sibling apps, not routes owned by
-      // Dispatch. Keep a mounted path for legacy callers, but give embed
-      // session resolution the exact canonical origin.
+      description: fallback?.text,
+      defaultDescriptionKey: fallback?.key,
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
+      source: "builtin",
     });
   }
-  for (const app of apps ?? []) merged.set(app.id, app);
+  for (const app of apps ?? []) {
+    const id = app.id.trim().toLowerCase();
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
+    merged.set(id, {
+      ...app,
+      id,
+      source: app.source ?? "workspace",
+      description: app.description ?? fallback?.text,
+      defaultDescriptionKey:
+        app.description === undefined ||
+        app.description === null ||
+        app.description === fallback?.text
+          ? fallback?.key
+          : undefined,
+    });
+  }
+
+  const existingIds = new Set(
+    [...merged.values()].map((app) => app.id.trim().toLowerCase()),
+  );
+  for (const app of extraApps) {
+    const id = app.id.trim().toLowerCase();
+    if (!id || existingIds.has(id)) continue;
+    existingIds.add(id);
+    merged.set(id, {
+      id,
+      name: app.name.trim() || id,
+      description: app.description ?? undefined,
+      path: "",
+      url: app.url?.trim() || null,
+      status: "ready",
+      source: app.source ?? "connected",
+    });
+  }
 
   return [...merged.values()];
 }

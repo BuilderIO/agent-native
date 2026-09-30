@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
@@ -34,6 +29,10 @@ const messages = {
     pinChat: "Chat anheften",
     pinned: "Angepinnt",
     recents: "Kürzlich",
+    retryPreviousRequest:
+      "Wiederhole meine vorherige Anfrage, jetzt wo der KI-Anbieter verbunden ist.",
+    retryAttachmentUnavailable:
+      "Chat kann diesen Anhang für einen erneuten Versuch nicht öffnen. Füge eine zugängliche Datei-URL hinzu und versuche es erneut.",
     renameChat: "Chat umbenennen",
     renameFailed: "Umbenennen fehlgeschlagen",
     renameThread: "Thread umbenennen",

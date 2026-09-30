@@ -11,7 +11,9 @@ import {
 } from "@/components/sidebar/select-content-space";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
 import {
+  removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument,
+  seedCreatedDocumentNavigation,
   useCreateDocument,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -99,6 +101,11 @@ export function useCreatePage(opts?: {
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
 
       if (shouldNavigate) {
+        seedCreatedDocumentNavigation(
+          queryClient,
+          tempDoc,
+          selectedSpace?.filesDatabaseId ?? null,
+        );
         void navigate(`/page/${id}`, { flushSync: true });
         onAfterNavigate?.();
       }
@@ -114,8 +121,6 @@ export function useCreatePage(opts?: {
           ["action", "get-document", { id: created.id }],
           created,
         );
-        // Replace optimistic doc with real server doc + clear any 404 error
-        // state from the in-flight fetch that ran before create completed.
         void queryClient.invalidateQueries(documentQueryFilter(id));
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
@@ -133,6 +138,7 @@ export function useCreatePage(opts?: {
         });
         queryClient.removeQueries(documentQueryFilter(id));
         if (shouldNavigate) {
+          removeCreatedDocumentNavigation(queryClient, tempDoc);
           void navigate(previousPath, { replace: true, flushSync: true });
         }
         toast.error("Failed to create page", {

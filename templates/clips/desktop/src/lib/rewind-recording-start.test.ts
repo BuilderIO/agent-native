@@ -1,19 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { prepareRewindRecordingStart } from "./rewind-recording-start";
 
 function deferred<T = void>() {
   let resolve!: (value: T) => void;
-  let reject!: (error: Error) => void;
-  const promise = new Promise<T>((res, rej) => {
+  const promise = new Promise<T>((res) => {
     resolve = res;
-    reject = rej;
   });
-  return { promise, resolve, reject };
+  return { promise, resolve };
 }
 
 describe("prepareRewindRecordingStart", () => {
-  it("shows the countdown immediately and activates only after both settle", async () => {
+  it("prepares before countdown and plays the cue before activation", async () => {
     const events: string[] = [];
     const prepareGate = deferred();
     const countdownGate = deferred();
@@ -30,39 +28,40 @@ describe("prepareRewindRecordingStart", () => {
         await countdownGate.promise;
         events.push("countdown-done");
       },
-      cancelCountdown() {
-        events.push("cancel-countdown");
+      async beforeActivate() {
+        events.push("play-cue");
       },
       async activate(prepared) {
         events.push(`activate:${prepared}`);
         return "started";
       },
-      onActivated() {
-        events.push("acknowledged");
-      },
     });
 
     await Promise.resolve();
-    expect(events).toEqual(["prepare-start", "countdown-start"]);
-
-    // Countdown reaching zero must not activate while prepare is pending.
-    countdownGate.resolve();
-    await Promise.resolve();
-    expect(events).not.toContain("activate:prepared");
+    expect(events).toEqual(["prepare-start"]);
 
     prepareGate.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(events).toEqual([
+      "prepare-start",
+      "prepare-done",
+      "countdown-start",
+    ]);
+
+    countdownGate.resolve();
     await expect(startPromise).resolves.toBe("started");
     expect(events).toEqual([
       "prepare-start",
+      "prepare-done",
       "countdown-start",
       "countdown-done",
-      "prepare-done",
+      "play-cue",
       "activate:prepared",
-      "acknowledged",
     ]);
   });
 
-  it("waits out a prepare that outlasts the countdown before activating", async () => {
+  it("does not start the countdown while preparation is pending", async () => {
     const events: string[] = [];
     const prepareGate = deferred();
 
@@ -73,10 +72,7 @@ describe("prepareRewindRecordingStart", () => {
         return "prepared";
       },
       async countdown() {
-        events.push("countdown-done");
-      },
-      cancelCountdown() {
-        events.push("cancel-countdown");
+        events.push("countdown");
       },
       async activate() {
         events.push("activate");
@@ -86,16 +82,15 @@ describe("prepareRewindRecordingStart", () => {
 
     await Promise.resolve();
     await Promise.resolve();
-    expect(events).toEqual(["countdown-done"]);
+    expect(events).toEqual([]);
 
     prepareGate.resolve();
     await expect(startPromise).resolves.toBe("started");
-    expect(events).toEqual(["countdown-done", "prepare-done", "activate"]);
+    expect(events).toEqual(["prepare-done", "countdown", "activate"]);
   });
 
-  it("cancels a live countdown when prepare fails, then surfaces the prepare error", async () => {
+  it("does not start a countdown when preparation fails", async () => {
     const events: string[] = [];
-    const countdownGate = deferred();
 
     await expect(
       prepareRewindRecordingStart({
@@ -103,12 +98,7 @@ describe("prepareRewindRecordingStart", () => {
           throw new Error("create recording failed");
         },
         async countdown() {
-          events.push("countdown-start");
-          await countdownGate.promise;
-        },
-        cancelCountdown() {
-          events.push("cancel-countdown");
-          countdownGate.reject(new Error("countdown cancelled"));
+          events.push("countdown");
         },
         async activate() {
           events.push("activate");
@@ -117,10 +107,10 @@ describe("prepareRewindRecordingStart", () => {
       }),
     ).rejects.toThrow("create recording failed");
 
-    expect(events).toEqual(["countdown-start", "cancel-countdown"]);
+    expect(events).toEqual([]);
   });
 
-  it("surfaces a countdown cancel after prepare settles, without activating", async () => {
+  it("surfaces a countdown cancel without activating", async () => {
     const events: string[] = [];
     const prepareGate = deferred();
 
@@ -133,17 +123,12 @@ describe("prepareRewindRecordingStart", () => {
       async countdown() {
         throw new Error("Recording cancelled during countdown");
       },
-      cancelCountdown() {
-        events.push("cancel-countdown");
-      },
       async activate() {
         events.push("activate");
         return "started";
       },
     });
 
-    // The cancel must wait for prepare to settle so backend cleanup never
-    // races an in-flight prepare.
     prepareGate.resolve();
     await expect(startPromise).rejects.toThrow(
       "Recording cancelled during countdown",
@@ -151,8 +136,8 @@ describe("prepareRewindRecordingStart", () => {
     expect(events).toEqual(["prepare-done"]);
   });
 
-  it("does not acknowledge a start when activation fails", async () => {
-    const onActivated = vi.fn();
+  it("surfaces activation failure after playing the cue", async () => {
+    const events: string[] = [];
 
     await expect(
       prepareRewindRecordingStart({
@@ -160,14 +145,16 @@ describe("prepareRewindRecordingStart", () => {
           return undefined;
         },
         async countdown() {},
-        cancelCountdown() {},
+        async beforeActivate() {
+          events.push("cue");
+        },
         async activate() {
+          events.push("activate");
           throw new Error("sink unavailable");
         },
-        onActivated,
       }),
     ).rejects.toThrow("sink unavailable");
 
-    expect(onActivated).not.toHaveBeenCalled();
+    expect(events).toEqual(["cue", "activate"]);
   });
 });

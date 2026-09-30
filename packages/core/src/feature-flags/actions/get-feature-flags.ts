@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getLabForLegacyFlag } from "../../labs/registry.js";
+import { getUserLabStates } from "../../labs/store.js";
 import { captureError } from "../../server/capture-error.js";
 import { listFeatureFlags } from "../registry.js";
 import {
@@ -19,10 +21,6 @@ export default defineAction({
   run: async (_args, ctx) => {
     const scope = { userEmail: ctx?.userEmail, orgId: ctx?.orgId };
     const definitions = listFeatureFlags();
-    // One batched rules read for the whole registry instead of up to 2
-    // settings queries per flag. If the batch itself fails, fall back to the
-    // pre-batching per-flag reads instead of collapsing every flag to off —
-    // a failure reading one flag's rules must not black out the rest.
     const rules = await getFeatureFlagRulesForKeys(
       definitions.map(({ key }) => key),
       scope,
@@ -56,11 +54,25 @@ export default defineAction({
             ),
           ];
         } catch {
-          // A feature flag must never become an availability dependency.
           return [key, false];
         }
       }),
     );
+    const migratedKeys = definitions
+      .map(({ key }) => key)
+      .filter((key) => getLabForLegacyFlag(key));
+    if (migratedKeys.length === 0 || !scope.userEmail) return values;
+    const labStates = await getUserLabStates(scope.userEmail, scope);
+    for (const key of migratedKeys) {
+      const lab = getLabForLegacyFlag(key);
+      if (!lab) continue;
+      const state = labStates[lab.key];
+      if (!state) throw new Error(`Missing migrated lab state: ${lab.key}`);
+      values[key] =
+        state.source === "choice"
+          ? state.enabled
+          : (state.legacyValues?.[key] ?? false);
+    }
     return values;
   },
 });

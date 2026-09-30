@@ -3,9 +3,6 @@
 
 import type { Pin, OutputFormat } from "../types/index.js";
 
-/**
- * Format pins into a human/agent-readable markdown string.
- */
 export function formatPins(
   pins: Pin[],
   format: OutputFormat = "standard",
@@ -77,7 +74,6 @@ function formatStandard(pins: Pin[], pageUrl: string): string {
 function formatDetailed(pins: Pin[], pageUrl: string): string {
   const lines = [formatStandard(pins, pageUrl)];
 
-  // Append detailed info for each pin
   for (let i = 0; i < pins.length; i++) {
     const pin = pins[i];
     const detailLines: string[] = [];

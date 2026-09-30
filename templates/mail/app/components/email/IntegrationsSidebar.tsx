@@ -1,6 +1,6 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import {
   IconPlus,
   IconCheck,
@@ -51,8 +51,6 @@ function safeExternalHref(value?: string | null): string | null {
     return null;
   }
 }
-
-// ─── Integration definitions ────────────────────────────────────────────────
 
 type ProviderId = "apollo" | "hubspot" | "gong" | "pylon";
 
@@ -181,8 +179,6 @@ const INTEGRATIONS: IntegrationDef[] = [
   },
 ];
 
-// ─── Main Sidebar Component ─────────────────────────────────────────────────
-
 export function IntegrationsSidebar({
   email,
   displayName,
@@ -204,7 +200,7 @@ export function IntegrationsSidebar({
     statuses.apollo || statuses.hubspot || statuses.gong || statuses.pylon;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div data-an-mask className="flex h-full flex-col overflow-y-auto">
       {/* Integration data sections */}
       {statuses.apollo && <ApolloSection email={email} />}
       {statuses.hubspot && <HubSpotSection email={email} />}
@@ -277,8 +273,6 @@ export function IntegrationsSidebar({
     </div>
   );
 }
-
-// ─── Integration Setup ──────────────────────────────────────────────────────
 
 function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
   const [expanded, setExpanded] = useState(false);
@@ -607,8 +601,6 @@ function IntegrationKeyEntry({
   );
 }
 
-// ─── Integration Notice (error / no-data) ──────────────────────────────────
-
 function IntegrationNotice({
   email,
   error,
@@ -710,8 +702,6 @@ function IntegrationNotice({
   );
 }
 
-// ─── Apollo Section ─────────────────────────────────────────────────────────
-
 function ApolloSection({ email }: { email: string }) {
   const t = useT();
   const { data: person, isLoading, error } = useApolloPerson(email);
@@ -723,7 +713,6 @@ function ApolloSection({ email }: { email: string }) {
     );
   }
   if (!person) {
-    // No enrichment data — show basic info (email + domain)
     return (
       <div className="px-4 pt-4 pb-3">
         <h3 className="text-[14px] font-semibold text-foreground truncate">
@@ -753,6 +742,7 @@ function ApolloSection({ email }: { email: string }) {
       <div className="px-4 pt-4 pb-3 flex items-start gap-3">
         {shouldLoadRemotePhoto ? (
           <img
+            data-an-block
             src={person.photo_url}
             alt=""
             className="h-9 w-9 rounded-full object-cover shrink-0 mt-0.5"
@@ -792,6 +782,7 @@ function ApolloSection({ email }: { email: string }) {
             <div className="flex items-center gap-2 mb-1.5">
               {shouldLoadRemoteLogo ? (
                 <img
+                  data-an-block
                   src={person.organization.logo_url}
                   alt=""
                   className="h-4 w-4 rounded object-contain shrink-0"
@@ -839,6 +830,7 @@ function ApolloSection({ email }: { email: string }) {
           <div className="px-4 py-2 flex flex-wrap gap-3">
             {safeExternalHref(person.linkedin_url) && (
               <a
+                data-an-block
                 href={safeExternalHref(person.linkedin_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -849,6 +841,7 @@ function ApolloSection({ email }: { email: string }) {
             )}
             {safeExternalHref(person.twitter_url) && (
               <a
+                data-an-block
                 href={safeExternalHref(person.twitter_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -859,6 +852,7 @@ function ApolloSection({ email }: { email: string }) {
             )}
             {safeExternalHref(person.github_url) && (
               <a
+                data-an-block
                 href={safeExternalHref(person.github_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -869,6 +863,7 @@ function ApolloSection({ email }: { email: string }) {
             )}
             {safeExternalHref(person.organization?.website_url) && (
               <a
+                data-an-block
                 href={
                   safeExternalHref(person.organization?.website_url) ??
                   undefined
@@ -931,8 +926,6 @@ function ApolloSection({ email }: { email: string }) {
     </>
   );
 }
-
-// ─── HubSpot Section ────────────────────────────────────────────────────────
 
 function HubSpotSection({ email }: { email: string }) {
   const t = useT();
@@ -1030,8 +1023,6 @@ function HubSpotSection({ email }: { email: string }) {
   );
 }
 
-// ─── Gong Section ───────────────────────────────────────────────────────────
-
 function GongSection({ email }: { email: string }) {
   const t = useT();
   const {
@@ -1087,8 +1078,6 @@ function GongSection({ email }: { email: string }) {
     </>
   );
 }
-
-// ─── Pylon Section ──────────────────────────────────────────────────────────
 
 function PylonSection({ email }: { email: string }) {
   const { data, isLoading, error } = usePylonContact(email) as {
@@ -1170,8 +1159,6 @@ function PylonSection({ email }: { email: string }) {
     </>
   );
 }
-
-// ─── Shared ─────────────────────────────────────────────────────────────────
 
 function SectionHeader({
   logo,

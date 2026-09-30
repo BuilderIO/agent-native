@@ -1,16 +1,3 @@
-/**
- * Live transcription hook — runs the browser's Web Speech API alongside
- * any recording to produce an instant transcript with no API key required.
- *
- * Designed to pair with a MediaRecorder: start when recording begins,
- * stop when the user hits stop. The accumulated transcript is available
- * immediately — no round-trip to Whisper needed.
- *
- * Builder can transcribe the original recording afterward if native capture
- * produces no text, but this gives users something useful from second zero
- * without a cloud transcription request.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const NETWORK_RESTART_BASE_MS = 1_000;
@@ -35,22 +22,13 @@ export interface UseLiveTranscriptionOptions {
 export interface LiveTranscriptionApi {
   supported: boolean;
   isActive: boolean;
-  /** Accumulated final transcript text so far. */
   transcript: string;
-  /** Current interim (unconfirmed) text being spoken. */
   interimText: string;
   start: () => void;
   stop: () => string;
   stopAndWait: (timeoutMs?: number) => Promise<string>;
   pause: () => void;
   resume: () => void;
-  /**
-   * Non-null when recognition died before the caller asked it to stop, so the
-   * returned transcript covers only part of the session. Callers must pass it
-   * along rather than storing a partial transcript as a finished one. Read
-   * through a getter (not state) so a stop handler can never observe a stale
-   * "everything was fine" value from an earlier render.
-   */
   getIncompleteReason: () => string | null;
 }
 
@@ -77,8 +55,6 @@ export function useLiveTranscription(
   const restartFailureCountRef = useRef(0);
   const incompleteReasonRef = useRef<string | null>(null);
 
-  // First reason wins: it names what actually broke the capture, and later
-  // teardown noise must not overwrite it.
   const markIncomplete = useCallback((reason: string) => {
     if (incompleteReasonRef.current) return;
     incompleteReasonRef.current = reason;
@@ -103,7 +79,6 @@ export function useLiveTranscription(
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) return;
 
-    // Clean up any prior session.
     if (restartTimerRef.current !== null) {
       window.clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
@@ -177,8 +152,6 @@ export function useLiveTranscription(
     };
 
     recognition.onend = () => {
-      // Web Speech sometimes stops on its own (silence timeout, network
-      // hiccup). Restart automatically unless we stopped intentionally.
       if (
         !stoppedManuallyRef.current &&
         recognitionRef.current === recognition
@@ -195,11 +168,6 @@ export function useLiveTranscription(
             recognition.start();
             restartFailureCountRef.current = 0;
           } catch {
-            // Chrome throws InvalidStateError while the previous session is
-            // still releasing. `onend` has already fired and will not fire
-            // again, so this timer is the only thing left that can revive
-            // recognition — giving up here freezes the transcript mid-recording
-            // and the partial text then looks like the whole recording.
             const attempt = ++restartFailureCountRef.current;
             if (attempt >= MAX_RESTART_ATTEMPTS) {
               markIncomplete(
@@ -214,8 +182,6 @@ export function useLiveTranscription(
             );
           }
         };
-        // Never call start() synchronously from inside onend — Chrome still
-        // has the session marked as running during dispatch and throws.
         restartTimerRef.current = window.setTimeout(
           restart,
           restartDelayRef.current,
@@ -233,8 +199,6 @@ export function useLiveTranscription(
       recognition.start();
       setIsActive(true);
     } catch (err) {
-      // Browser may block without user gesture. Nothing was captured, and the
-      // caller must not treat the resulting empty text as "no speech".
       markIncomplete(
         `Browser speech recognition could not start (${(err as Error)?.message || "unknown error"}).`,
       );
@@ -336,7 +300,6 @@ export function useLiveTranscription(
     }
   }, []);
 
-  // Clean up on unmount
   const startRef = useRef(start);
   const stopRef = useRef(stop);
   startRef.current = start;

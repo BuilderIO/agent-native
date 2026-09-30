@@ -23,14 +23,22 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 const getSessionMock = vi.fn();
-const getConfiguredLoginHtmlMock = vi.fn(() => "<form>Sign in</form>");
+const getConfiguredLoginHtmlMock = vi.fn(() => ({
+  html: "<form>Sign in</form>",
+  status: 200,
+}));
 vi.mock("../server/auth.js", () => ({
   getSession: (...a: any[]) => getSessionMock(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
 }));
 
 const getOrgDomainMock = vi.fn(async () => "builder.io");
-const getActiveOrgSettingMock = vi.fn(async () => ({ orgId: "org_123" }));
+const getActiveOrgSettingMock = vi.fn(
+  async (): Promise<{ orgId: string | null } | null> => ({ orgId: "org_123" }),
+);
+const getOrgContextMock = vi.fn(
+  async (): Promise<{ orgId: string | null }> => ({ orgId: null }),
+);
 const listOrgMembershipsForEventMock = vi.fn(async () => [
   {
     orgId: "org_123",
@@ -42,6 +50,7 @@ const listOrgMembershipsForEventMock = vi.fn(async () => [
   },
 ]);
 vi.mock("../org/context.js", () => ({
+  getOrgContext: (...args: any[]) => getOrgContextMock(...args),
   getOrgDomain: (...args: any[]) => getOrgDomainMock(...args),
   listOrgMembershipsForEvent: (...args: any[]) =>
     listOrgMembershipsForEventMock(...args),
@@ -167,6 +176,32 @@ function event(
 
 function challenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
+}
+
+async function openConsent(): Promise<string> {
+  const client = await (
+    await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: { redirect_uris: ["http://localhost:5555/callback"] } as any,
+      }),
+      "/register",
+    )
+  ).json();
+  const consent = await handleMcpOAuth(
+    event({
+      query: {
+        response_type: "code",
+        client_id: client.client_id,
+        redirect_uri: "http://localhost:5555/callback",
+        resource: "https://mail.agent-native.com/mcp",
+        code_challenge: challenge("v".repeat(50)),
+        code_challenge_method: "S256",
+      },
+    }),
+    "/authorize",
+  );
+  return consent.text();
 }
 
 describe("MCP OAuth route", () => {
@@ -889,6 +924,58 @@ describe("MCP OAuth route", () => {
     );
   });
 
+  it("gives an account without an organization its default one before offering the choice", async () => {
+    getSessionMock.mockResolvedValue({ email: "new@example.com" });
+    getActiveOrgSettingMock.mockResolvedValue(null);
+    getOrgContextMock.mockResolvedValueOnce({ orgId: "org_new" });
+    listOrgMembershipsForEventMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          orgId: "org_new",
+          orgName: "New's workspace",
+          allowedDomain: null,
+          role: "owner",
+          identityAuthority: null,
+          identityId: null,
+        },
+      ]);
+
+    const html = await openConsent();
+
+    expect(html).toContain('value="org_new"');
+    expect(html).not.toContain("Personal");
+  });
+
+  it("does not offer Personal to a member who picked it in the app", async () => {
+    getActiveOrgSettingMock.mockResolvedValue({ orgId: null });
+    getSessionMock.mockResolvedValue({ email: "steve@example.com" });
+    listOrgMembershipsForEventMock.mockResolvedValue([
+      {
+        orgId: "org_123",
+        orgName: "Builder",
+        allowedDomain: "builder.io",
+        role: "owner",
+        identityAuthority: null,
+        identityId: null,
+      },
+      {
+        orgId: "org_456",
+        orgName: "Acme",
+        allowedDomain: "acme.example",
+        role: "member",
+        identityAuthority: null,
+        identityId: null,
+      },
+    ]);
+
+    const html = await openConsent();
+
+    expect(html).not.toContain("Personal");
+    expect(html).toContain('<option value="org_123" selected>Builder');
+    expect(getOrgContextMock).not.toHaveBeenCalled();
+  });
+
   it("lets multi-organization users choose the organization bound to the connection", async () => {
     listOrgMembershipsForEventMock.mockResolvedValue([
       {
@@ -1138,13 +1225,11 @@ describe("MCP OAuth route", () => {
       "/authorize",
       { appName: "Mail" },
     );
-    // The browser tab gets a real HTML page instead of dangling on cursor://…
     expect(authorize.status).toBe(200);
     expect(authorize.headers.get("content-type")).toContain("text/html");
     const page = await authorize.text();
     expect(page).toContain("You're all set");
     expect(page).toContain("Open Cursor");
-    // The deep link (carrying the auth code + state) is still handed to the client.
     const link = (
       page.match(/id="return-link" href="([^"]+)"/)?.[1] ?? ""
     ).replace(/&amp;/g, "&");
@@ -1687,7 +1772,6 @@ describe("MCP OAuth route", () => {
       "/token",
     );
     const body = await tokenRes.json();
-    // expires_in must equal the TTL seconds constant (30d = 2592000s), not 3600.
     expect(body.expires_in).toBe(30 * 86400);
     expect(body.expires_in).not.toBe(3600);
   });
@@ -1838,7 +1922,6 @@ describe("MCP OAuth route", () => {
     expect(rowBefore).toBeTruthy();
     const expiryBefore = rowBefore.expiresAt;
 
-    // Simulate time passing and use the refresh token.
     const laterTime = Date.now() + 1000;
     vi.spyOn(Date, "now").mockReturnValue(laterTime);
     await handleMcpOAuth(
@@ -1854,7 +1937,6 @@ describe("MCP OAuth route", () => {
     );
 
     const rowAfter = refreshRows.get(firstToken.refresh_token);
-    // Expiry must have slid forward from the original creation expiry.
     expect(rowAfter.expiresAt).toBeGreaterThan(expiryBefore);
     expect(rowAfter.lastUsedAt).toBe(laterTime);
   });

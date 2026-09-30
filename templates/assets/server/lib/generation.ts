@@ -2,11 +2,27 @@ import { createHash } from "node:crypto";
 
 import {
   FeatureNotConfiguredError,
+  GEMINI_API_KEY,
   getBuilderImageGenerationBaseUrl,
   resolveBuilderGatewayAuth,
+  readServiceProviderChoice,
+  resolveGeminiApiKey,
   resolveSecret,
+  type ServiceProviderId,
 } from "@agent-native/core/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  like,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import sharp from "sharp";
 
 import type {
@@ -27,7 +43,11 @@ import {
 } from "../../shared/provider-error.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./json.js";
-import { canReadDraftAsset, type DraftReadScope } from "./library-access.js";
+import {
+  canReadDraftAsset,
+  draftReadFilter,
+  type DraftReadScope,
+} from "./library-access.js";
 import { getObject } from "./storage.js";
 
 export interface ReferenceForGeneration {
@@ -45,8 +65,6 @@ export interface ReferenceForGeneration {
     | `preset-ref:${string}`;
 }
 
-// Keep automatic reference context compact for Gemini. Explicit
-// referenceAssetIds bypass this cap because the caller made a deliberate set.
 export const DEFAULT_GENERATION_REFERENCE_LIMIT = 6;
 const STYLE_ANALYSIS_REFERENCE_LIMIT = 8;
 const STYLE_ANALYSIS_MODEL =
@@ -85,30 +103,13 @@ export interface GenerateProviderOutput {
 const MANAGED_PROVIDER_MAX_ATTEMPTS = 3;
 const MANAGED_PROVIDER_RETRY_DELAY_MS =
   process.env.NODE_ENV === "test" ? 0 : 2500;
-// A single managed image generation can legitimately run longer than one
-// request's abort window (pro models routinely exceed 90s). The request always
-// carries the run id as an idempotency key, so re-POSTing the same key replays
-// the finished result (or answers 409 "request in progress") instead of
-// starting a second, double-charged generation. When a request aborts client
-// side, hits an upstream gateway timeout, or reports in-progress, we poll the
-// same key until it resolves rather than failing. ~40 polls * 6s ≈ 4 min.
 const MANAGED_PROVIDER_INFLIGHT_MAX_POLLS =
   process.env.NODE_ENV === "test" ? 6 : 40;
 const MANAGED_PROVIDER_INFLIGHT_POLL_MS =
   process.env.NODE_ENV === "test" ? 0 : 6000;
-// Slow image models (e.g. gpt-image-*) return the finished image synchronously
-// but can take several minutes end-to-end (generate + encode the large PNG +
-// transfer). The old 90s window was tuned for Gemini and aborted these mid-
-// response, so the request just needs a longer budget rather than the poll-and-
-// replay fallback. Override per deployment with ASSETS_IMAGE_GENERATION_TIMEOUT_MS.
 const IMAGE_GENERATION_REQUEST_TIMEOUT_MS =
   Number(process.env.ASSETS_IMAGE_GENERATION_TIMEOUT_MS) || 300_000;
 
-// Lightweight structured logging for the image-generation providers. Slow
-// models (e.g. gpt-image-*) can exceed the 90s per-request abort window and get
-// converted into an in-flight poll, so these logs make the provider, model,
-// elapsed time, and abort/poll outcome visible when a generation "completes on
-// the provider but times out in the app". Silenced under NODE_ENV=test.
 function logGeneration(
   event: string,
   fields: Record<string, unknown> = {},
@@ -134,10 +135,10 @@ function formatLogValue(value: unknown): string {
 }
 
 export async function getGeminiApiKey(): Promise<string> {
-  const key = await resolveSecret("GEMINI_API_KEY");
+  const key = await resolveGeminiApiKey();
   if (!key) {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY",
+      requiredCredential: GEMINI_API_KEY,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
@@ -148,7 +149,8 @@ export async function getGeminiApiKey(): Promise<string> {
 }
 
 export async function isGeminiImageGenerationConfigured(): Promise<boolean> {
-  return !!(await resolveSecret("GEMINI_API_KEY").catch(() => null));
+  // coercion-ok: unchanged from the resolveSecret("GEMINI_API_KEY") read it replaces; an unreadable store still lets generation try the next provider, matching the OpenAI check below.
+  return !!(await resolveGeminiApiKey().catch(() => null));
 }
 
 async function getOpenAIImageApiKey(): Promise<string> {
@@ -225,10 +227,6 @@ function isRetryableBuilderImageGenerationError(err: unknown): boolean {
   );
 }
 
-// A client-side abort, an upstream gateway timeout, or the service's explicit
-// 409 "request_in_progress" all mean the generation is still running under this
-// idempotency key. Re-POSTing the same key replays the finished result once the
-// service completes, so these are polled rather than surfaced as failures.
 function isInFlightImageGenerationError(err: unknown): boolean {
   if (!(err instanceof BuilderImageGenerationError)) return false;
   return (
@@ -271,10 +269,6 @@ interface BuilderImageGenerationResponse {
 export async function generateWithBuilderImageApi(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
-  // Gateway lane: a published site paying with Builder credits carries the
-  // injected gateway pair and no identity credential at all, and image
-  // generation is metered rather than identity-bearing. The resolver still
-  // prefers a connected Builder account, so a site that has one is unaffected.
   const builderAuth = await resolveBuilderGatewayAuth();
   if (!builderAuth) {
     throw new BuilderImageGenerationError(
@@ -352,12 +346,6 @@ export async function generateWithBuilderImageApi(
     body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS),
   }).catch((err) => {
-    // `AbortSignal.timeout()` rejects with a `TimeoutError` DOMException, while a
-    // manual `AbortController.abort()` rejects with `AbortError` — treat both as
-    // "socket gave up, but the service keeps generating under this idempotency
-    // key". Flag it so the retry loop polls the key instead of starting a fresh
-    // (double-charged) generation. Matching only "AbortError" silently let the
-    // per-request timeout escape as a hard failure for slow models.
     const name = (err as Error)?.name;
     if (name === "AbortError" || name === "TimeoutError") {
       logGeneration("builder.abort", {
@@ -395,10 +383,6 @@ export async function generateWithBuilderImageApi(
     const text = await response.text().catch(() => "");
     const detail = builderErrorDetailForUser(text, input.model);
     const code = extractBuilderErrorCode(text);
-    // Shape, not values: the rest of this file already logs `promptChars` and
-    // hashed reference data rather than the payloads themselves, and a
-    // provider error can echo prompt-derived content back to us. `detail` is
-    // the string the user is about to see anyway.
     logGeneration("builder.error", {
       model: requestModel,
       requestedModel: input.model,
@@ -587,10 +571,6 @@ async function generateWithRetryingBuilderImageApi(
     try {
       return await generateWithBuilderImageApi(input);
     } catch (err) {
-      // The generation is still running under this idempotency key. Poll the
-      // same key — a pending request returns 409 immediately and the final
-      // poll returns the stored image as an idempotent replay (no re-charge) —
-      // until it resolves or we exhaust the polling budget.
       if (isInFlightImageGenerationError(err)) {
         if (inFlightPolls >= MANAGED_PROVIDER_INFLIGHT_MAX_POLLS) {
           logGeneration("builder.poll_exhausted", {
@@ -621,7 +601,6 @@ async function generateWithRetryingBuilderImageApi(
         await generationPollDelay();
         continue;
       }
-      // Fresh transient server errors get a few quick retries with backoff.
       if (
         isRetryableBuilderImageGenerationError(err) &&
         transientAttempts < MANAGED_PROVIDER_MAX_ATTEMPTS - 1
@@ -642,23 +621,59 @@ async function generateWithRetryingBuilderImageApi(
   }
 }
 
+/**
+ * The organization's Image generation provider (Settings › Infrastructure)
+ * when it is Gemini or OpenAI, has a key, and can serve this run. Otherwise
+ * null, and generation keeps the Builder-first path with its fallbacks: mask
+ * edits need Builder, Gemini can't run gpt-* models, and OpenAI can't attach
+ * reference boards or source images.
+ */
+async function chosenImageProvider(
+  choice: ServiceProviderId<"images"> | null,
+  input: GenerateProviderInput,
+): Promise<
+  ((input: GenerateProviderInput) => Promise<GenerateProviderOutput>) | null
+> {
+  if (!choice || choice === "builder" || input.mode === "edit") return null;
+  if (choice === "gemini") {
+    if (input.model.startsWith("gpt-")) return null;
+    return (await isGeminiImageGenerationConfigured())
+      ? generateWithGemini
+      : null;
+  }
+  if (
+    input.hasBoardReferences ||
+    input.intent === "restyle" ||
+    input.intent === "edit"
+  ) {
+    return null;
+  }
+  return (await isOpenAIImageGenerationConfigured())
+    ? generateWithOpenAI
+    : null;
+}
+
 export async function generateWithManagedImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  const orgProvider = await readServiceProviderChoice("images");
   logGeneration("dispatch", {
     model: input.model,
     mode: input.mode,
     intent: input.intent,
     background: input.background,
     builderEnabled: isBuilderImageGenerationEnabled(),
+    orgProvider,
     runId: input.runId,
   });
+  const chosen = await chosenImageProvider(orgProvider, input);
+  if (chosen) return chosen(input);
   if (!isBuilderImageGenerationEnabled()) {
     if (await isManualImageGenerationConfigured()) {
       return generateWithManualImageProvider(input);
     }
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY or OPENAI_API_KEY",
+      requiredCredential: `${GEMINI_API_KEY} or OPENAI_API_KEY`,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
@@ -703,7 +718,7 @@ function createBuilderImageGenerationFallbackError(
       requiredCredential:
         input?.mode === "edit" || err.status === 401
           ? "BUILDER_PRIVATE_KEY"
-          : "GEMINI_API_KEY",
+          : GEMINI_API_KEY,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message,
@@ -751,10 +766,6 @@ function builderImageGenerationFallbackMessage(
   }
 }
 
-// This string is rendered verbatim in the candidate tray, so it must never
-// carry the upstream payload. The managed service wraps the provider failure
-// in a JSON string, which wraps the Vertex failure in another JSON string;
-// returning the first value found put an escaped 404 body in front of users.
 function builderErrorDetailForUser(text: string, model: ImageModel): string {
   const detail = readableProviderErrorDetail(text);
   if (!detail) return "";
@@ -764,8 +775,6 @@ function builderErrorDetailForUser(text: string, model: ImageModel): string {
   return detail;
 }
 
-// The managed service tags errors with a stable machine code (e.g.
-// "request_in_progress") in the JSON body. It drives retry vs. poll decisions.
 function extractBuilderErrorCode(text: string): string | undefined {
   const trimmed = text.trim();
   if (!trimmed) return undefined;
@@ -957,16 +966,13 @@ async function generateWithManualImageProvider(
         "Mask inpainting runs need Builder-managed image generation because the manual fallback cannot pass the image-edit mask.",
     });
   }
-  // Board-reference runs on gpt-* models must not reroute into the Gemini
-  // fallback: Gemini rejects GPT model ids, which would surface a cryptic
-  // provider error instead of this setup guidance.
   if (input.hasBoardReferences && input.model.startsWith("gpt-")) {
     throw new FeatureNotConfiguredError({
       requiredCredential: "BUILDER_PRIVATE_KEY",
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a Gemini API key.",
     });
   }
   if (await isGeminiImageGenerationConfigured()) {
@@ -974,16 +980,16 @@ async function generateWithManualImageProvider(
   }
   if (input.hasBoardReferences) {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      requiredCredential: `BUILDER_PRIVATE_KEY or ${GEMINI_API_KEY}`,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a Gemini API key.",
     });
   }
   if (input.intent === "restyle" || input.intent === "edit") {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY",
+      requiredCredential: GEMINI_API_KEY,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
@@ -998,11 +1004,11 @@ export async function generateWithOpenAI(
 ): Promise<GenerateProviderOutput> {
   if (input.hasBoardReferences) {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      requiredCredential: `BUILDER_PRIVATE_KEY or ${GEMINI_API_KEY}`,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a Gemini API key.",
     });
   }
   const startedAt = Date.now();
@@ -1182,12 +1188,6 @@ export function resolveImageModelForRequest(input: {
 }): ImageModel {
   if (input.explicitModel) return input.explicitModel;
 
-  // Exact embedded text is materially better on Gemini Pro, so upgrade to it by
-  // default for text requests — but never override a model or tier the caller
-  // or a tagged preset already chose (presets "own" model/tier per the action
-  // docs). Only auto-upgrade when there is no tier (explicit or preset-derived)
-  // and no preset model in play; this still upgrades a bare text request over
-  // the composer default.
   const textAccurateModel: ImageModel | undefined =
     input.embeddedText?.trim() &&
     !input.explicitTier &&
@@ -1196,19 +1196,6 @@ export function resolveImageModelForRequest(input: {
       ? "gemini-3-pro-image"
       : undefined;
 
-  // Precedence: explicit per-request model (handled above) > embedded-text
-  // upgrade > an EXPLICIT per-request tier > the preset's saved model > the
-  // preset-DERIVED tier mapping > the sticky composer default > the floor.
-  //
-  // Two subtleties:
-  //   - An explicit per-request tier outranks the preset's saved model (the
-  //     caller is deliberately overriding the preset this turn).
-  //   - The preset's explicit saved model outranks its OWN derived tier: a
-  //     preset's `model` column and `settings.tier` can drift out of sync
-  //     (update-generation-preset can change one without the other), and the
-  //     explicitly saved model is the authoritative choice.
-  //   - The composer default ranks LAST of the real signals: it is a global
-  //     stored preference and must not defeat a tagged preset or a tier request.
   return (
     textAccurateModel ??
     resolveModelForTier(input.explicitTier, input.category) ??
@@ -1484,9 +1471,6 @@ function formatRenderedDesignEvidence(style: StyleBrief): string {
   ].join("\n");
 }
 
-// A content-only reference is an image the user attached as subject/content for
-// a single request (not a reusable brand/style reference). It should never count
-// as a brand-kit style reference.
 function isContentOnlyReferenceAsset(asset: {
   role: string;
   metadata: string;
@@ -1495,6 +1479,19 @@ function isContentOnlyReferenceAsset(asset: {
   const metadata = parseJson<{ intent?: string }>(asset.metadata, {});
   return metadata.intent === "subject";
 }
+
+type ScoredReferenceCandidate = {
+  asset: typeof schema.assets.$inferSelect;
+  metadata: {
+    category?: string;
+    isStyleAnchor?: boolean;
+    intent?: string;
+  };
+  score: number;
+  isAnchor: boolean;
+  isSubject: boolean;
+  isSource: boolean;
+};
 
 export async function selectReferences(input: {
   libraryId: string;
@@ -1506,12 +1503,6 @@ export async function selectReferences(input: {
   subjectAssetId?: string;
   intent?: GenerationIntent;
   limit?: number;
-  /**
-   * Drafts are private to their author, and the pool below scores every asset
-   * in the kit — including unsaved candidates. Without this scope an automatic
-   * selection would quietly send another drafter's candidate to the provider.
-   * Required: pass `unrestrictedDraftReadScope()` for an approver.
-   */
   draftScope: DraftReadScope;
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
@@ -1559,12 +1550,6 @@ export async function selectReferences(input: {
           : undefined,
       () => "explicit",
     );
-    // When every caller-requested reference is a content-only attachment (a
-    // subject/content image dropped in for this one request), it should ADD to —
-    // not replace — the library's curated brand style. Otherwise attaching a
-    // content image silently strips every style/anchor reference and the
-    // generation ignores the brand kit entirely. `edit` keeps exact control
-    // because the edit target must stand alone.
     const requestedContentAssets = explicitAssets.filter((asset) =>
       requestedExplicitIds.has(asset.id),
     );
@@ -1593,13 +1578,13 @@ export async function selectReferences(input: {
   const [library] = await db
     .select({ settings: schema.assetLibraries.settings })
     .from(schema.assetLibraries)
-    .where(eq(schema.assetLibraries.id, input.libraryId))
+    .where(
+      and(
+        eq(schema.assetLibraries.id, input.libraryId),
+        accessFilter(schema.assetLibraries, schema.assetLibraryShares),
+      ),
+    )
     .limit(1);
-  const rows = await db
-    .select()
-    .from(schema.assets)
-    .where(eq(schema.assets.libraryId, input.libraryId));
-
   const categories = new Set(input.categories ?? []);
   const intent = input.intent ?? "generate";
   const limit = input.limit ?? DEFAULT_GENERATION_REFERENCE_LIMIT;
@@ -1609,85 +1594,209 @@ export async function selectReferences(input: {
   const canonicalStyleAssetIds = Array.isArray(settings.canonicalStyleAssetIds)
     ? settings.canonicalStyleAssetIds.filter((id) => typeof id === "string")
     : [];
-  const candidates = rows
-    .filter((asset) => {
-      const metadata = parseJson<{ category?: string }>(asset.metadata, {});
-      return (
-        asset.mimeType.startsWith("image/") &&
-        asset.status !== "archived" &&
-        asset.status !== "failed" &&
-        metadata.category !== "skeleton" &&
-        canReadDraftAsset(input.draftScope, asset) &&
-        !excludedAssetIds.has(asset.id)
-      );
-    })
-    .map((asset) => {
-      const metadata = parseJson<{
-        category?: string;
-        isStyleAnchor?: boolean;
-        intent?: string;
-      }>(asset.metadata, {});
-      let score = 0;
-      const isSubject = asset.id === input.subjectAssetId;
-      const isSource = asset.id === input.sourceAssetId;
-      const isAnchor =
-        metadata.isStyleAnchor === true ||
-        canonicalStyleAssetIds.includes(asset.id);
-      if (isSubject) score += 120;
-      if (isSource) score += 100;
-      if (isAnchor) score += 30;
-      if (asset.collectionId && asset.collectionId === input.collectionId)
-        score += 20;
-      if (
-        metadata.category &&
-        categories.has(metadata.category as ImageCategory)
-      )
-        score += 10;
-      if (asset.role !== "generated") score += 4;
-      if (asset.role === "logo_reference") score += 3;
-      if (asset.role === "product_reference") score += 3;
-      if (intent === "restyle" && asset.role === "style_reference") score += 5;
-      if (intent === "restyle" && asset.role === "generated") score -= 4;
-      return { asset, metadata, score, isAnchor, isSubject, isSource };
-    })
-    .filter(
-      (item) =>
-        item.isSubject ||
-        item.isSource ||
-        item.isAnchor ||
-        (item.metadata.intent !== "subject" &&
-          item.asset.role !== "subject_reference"),
+  const anchorLimit =
+    intent === "restyle"
+      ? Math.min(4, Math.max(1, Math.ceil(limit * 0.6)))
+      : Math.max(1, Math.ceil(limit * 0.6));
+  const canonicalAnchorIds = [...new Set(canonicalStyleAssetIds)].slice(
+    0,
+    anchorLimit,
+  );
+  const canonicalStyleAssetIdSet = new Set(canonicalStyleAssetIds);
+  const reservedIds = [
+    ...new Set(
+      (intent === "edit"
+        ? [input.subjectAssetId]
+        : [input.subjectAssetId, input.sourceAssetId, ...canonicalAnchorIds]
+      ).filter((id): id is string => !!id),
+    ),
+  ];
+  const candidatePoolLimit = Math.max(0, limit) + 2 + anchorLimit;
+  const metadataAnchorPoolLimit = anchorLimit + canonicalAnchorIds.length;
+  const metadataCategory = sql<
+    string | null
+  >`CASE WHEN ${schema.assets.metadata} IS JSON THEN (${schema.assets.metadata}::jsonb ->> 'category') END`;
+  const metadataIntent = sql<
+    string | null
+  >`CASE WHEN ${schema.assets.metadata} IS JSON THEN (${schema.assets.metadata}::jsonb ->> 'intent') END`;
+  const metadataStyleAnchor = sql<boolean>`CASE WHEN ${schema.assets.metadata} IS JSON THEN (${schema.assets.metadata}::jsonb -> 'isStyleAnchor') = 'true'::jsonb ELSE false END`;
+  const canonicalAnchorFilter = canonicalStyleAssetIds.length
+    ? inArray(schema.assets.id, canonicalStyleAssetIds)
+    : sql<boolean>`false`;
+  const subjectFilter = input.subjectAssetId
+    ? eq(schema.assets.id, input.subjectAssetId)
+    : sql<boolean>`false`;
+  const sourceFilter = input.sourceAssetId
+    ? eq(schema.assets.id, input.sourceAssetId)
+    : sql<boolean>`false`;
+  const anchorFilter = or(metadataStyleAnchor, canonicalAnchorFilter);
+  const baseFilters = [
+    eq(schema.assets.libraryId, input.libraryId),
+    like(schema.assets.mimeType, "image/%"),
+    notInArray(schema.assets.status, ["archived", "failed"]),
+    sql`${metadataCategory} IS DISTINCT FROM 'skeleton'`,
+    ...(excludedAssetIds.size
+      ? [notInArray(schema.assets.id, [...excludedAssetIds])]
+      : []),
+  ];
+  if (!input.draftScope.unrestricted) {
+    baseFilters.push(
+      or(
+        ne(schema.assets.role, "generated"),
+        ne(schema.assets.status, "candidate"),
+        draftReadFilter(input.draftScope, schema.assets) ?? sql`false`,
+      ) ?? sql`false`,
     );
+  }
+  const contentEligibility = or(
+    and(
+      sql`${metadataIntent} IS DISTINCT FROM 'subject'`,
+      ne(schema.assets.role, "subject_reference"),
+    ),
+    subjectFilter,
+    sourceFilter,
+    anchorFilter,
+  );
+  const categoryFilter = categories.size
+    ? inArray(metadataCategory, [...categories])
+    : sql<boolean>`false`;
+  const collectionScoreFilter = input.collectionId
+    ? and(
+        ne(schema.assets.collectionId, ""),
+        eq(schema.assets.collectionId, input.collectionId),
+      )
+    : sql<boolean>`false`;
+  const scoreExpression = sql<number>`(
+    CASE WHEN ${subjectFilter} THEN 120 ELSE 0 END +
+    CASE WHEN ${sourceFilter} THEN 100 ELSE 0 END +
+    CASE WHEN ${anchorFilter} THEN 30 ELSE 0 END +
+    CASE WHEN ${collectionScoreFilter} THEN 20 ELSE 0 END +
+    CASE WHEN ${categoryFilter} THEN 10 ELSE 0 END +
+    CASE WHEN ${ne(schema.assets.role, "generated")} THEN 4 ELSE 0 END +
+    CASE WHEN ${eq(schema.assets.role, "logo_reference")} THEN 3 ELSE 0 END +
+    CASE WHEN ${eq(schema.assets.role, "product_reference")} THEN 3 ELSE 0 END +
+    CASE WHEN ${intent === "restyle" ? eq(schema.assets.role, "style_reference") : sql`false`} THEN 5 ELSE 0 END -
+    CASE WHEN ${intent === "restyle" ? eq(schema.assets.role, "generated") : sql`false`} THEN 4 ELSE 0 END
+  )`;
+  const idForStableOrdering = sql<string>`${schema.assets.id} COLLATE "C"`;
+  const orderByScore = [
+    desc(scoreExpression),
+    desc(schema.assets.createdAt),
+    asc(idForStableOrdering),
+  ];
+  const reservedRows = reservedIds.length
+    ? await db
+        .select()
+        .from(schema.assets)
+        .where(and(...baseFilters, inArray(schema.assets.id, reservedIds)))
+    : [];
+  if (intent === "edit") {
+    const [subject] = reservedRows;
+    if (
+      !subject ||
+      !subject.mimeType.startsWith("image/") ||
+      subject.status === "archived" ||
+      subject.status === "failed" ||
+      !canReadDraftAsset(input.draftScope, subject) ||
+      excludedAssetIds.has(subject.id) ||
+      parseJson<{ category?: string }>(subject.metadata, {}).category ===
+        "skeleton"
+    ) {
+      return [];
+    }
+    return loadReferenceData(
+      [subject],
+      () => "edit_target",
+      () => "subject",
+    );
+  }
+  const rankedRows = await db
+    .select()
+    .from(schema.assets)
+    .where(and(...baseFilters, contentEligibility))
+    .orderBy(...orderByScore)
+    .limit(candidatePoolLimit);
+  const metadataAnchorRows = await db
+    .select()
+    .from(schema.assets)
+    .where(and(...baseFilters, metadataStyleAnchor))
+    .orderBy(...orderByScore)
+    .limit(metadataAnchorPoolLimit);
+  const candidatesById = new Map<string, ScoredReferenceCandidate>();
+  for (const asset of [...reservedRows, ...rankedRows, ...metadataAnchorRows]) {
+    if (candidatesById.has(asset.id)) continue;
+    if (
+      !asset.mimeType.startsWith("image/") ||
+      asset.status === "archived" ||
+      asset.status === "failed" ||
+      !canReadDraftAsset(input.draftScope, asset) ||
+      excludedAssetIds.has(asset.id)
+    ) {
+      continue;
+    }
+    const metadata = parseJson<{
+      category?: string;
+      isStyleAnchor?: boolean;
+      intent?: string;
+    }>(asset.metadata, {});
+    if (metadata.category === "skeleton") continue;
 
-  const byId = new Map(candidates.map((item) => [item.asset.id, item]));
-  const selected: typeof candidates = [];
+    const isSubject = asset.id === input.subjectAssetId;
+    const isSource = asset.id === input.sourceAssetId;
+    const isCanonicalAnchor = canonicalStyleAssetIdSet.has(asset.id);
+    const isAnchor = metadata.isStyleAnchor === true || isCanonicalAnchor;
+    if (
+      !isSubject &&
+      !isSource &&
+      !isAnchor &&
+      (metadata.intent === "subject" || asset.role === "subject_reference")
+    ) {
+      continue;
+    }
+    let score = 0;
+    if (isSubject) score += 120;
+    if (isSource) score += 100;
+    if (isAnchor) score += 30;
+    if (asset.collectionId && asset.collectionId === input.collectionId)
+      score += 20;
+    if (metadata.category && categories.has(metadata.category as ImageCategory))
+      score += 10;
+    if (asset.role !== "generated") score += 4;
+    if (asset.role === "logo_reference") score += 3;
+    if (asset.role === "product_reference") score += 3;
+    if (intent === "restyle" && asset.role === "style_reference") score += 5;
+    if (intent === "restyle" && asset.role === "generated") score -= 4;
+    candidatesById.set(asset.id, {
+      asset,
+      metadata,
+      score,
+      isAnchor,
+      isSubject,
+      isSource,
+    });
+  }
+  const candidates = [...candidatesById.values()];
+  const metadataAnchorCandidates = metadataAnchorRows
+    .map((asset) => candidatesById.get(asset.id))
+    .filter(
+      (candidate): candidate is ScoredReferenceCandidate =>
+        candidate?.metadata.isStyleAnchor === true,
+    );
+  const byId = candidatesById;
+  const selected: ScoredReferenceCandidate[] = [];
   const selectedIds = new Set<string>();
-  const push = (item: (typeof candidates)[number] | undefined) => {
+  const push = (item: ScoredReferenceCandidate | undefined) => {
     if (!item || selectedIds.has(item.asset.id)) return;
     selected.push(item);
     selectedIds.add(item.asset.id);
   };
 
   push(input.subjectAssetId ? byId.get(input.subjectAssetId) : undefined);
-  if (intent === "edit") {
-    return loadReferenceData(
-      selected.map((item) => item.asset),
-      () => "edit_target",
-      () => "subject",
-    );
-  }
   push(input.sourceAssetId ? byId.get(input.sourceAssetId) : undefined);
 
-  const anchorLimit =
-    intent === "restyle"
-      ? Math.min(4, Math.max(1, Math.ceil(limit * 0.6)))
-      : Math.max(1, Math.ceil(limit * 0.6));
   const anchorIds = [
-    ...canonicalStyleAssetIds,
-    ...candidates
-      .filter((item) => item.metadata.isStyleAnchor === true)
-      .sort(compareReferenceCandidates)
-      .map((item) => item.asset.id),
+    ...canonicalAnchorIds,
+    ...metadataAnchorCandidates.map((item) => item.asset.id),
   ];
   for (const id of [...new Set(anchorIds)].slice(0, anchorLimit)) {
     push(byId.get(id));
@@ -1696,7 +1805,6 @@ export async function selectReferences(input: {
   const remainingLimit = Math.max(0, limit - selected.length);
   const fill = candidates
     .filter((item) => !selectedIds.has(item.asset.id))
-    .sort(compareReferenceCandidates)
     .slice(0, remainingLimit);
   for (const item of fill) push(item);
 

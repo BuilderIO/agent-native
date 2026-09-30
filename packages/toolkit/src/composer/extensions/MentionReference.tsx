@@ -49,6 +49,9 @@ const MentionReferenceComponent = ({ node }: { node: any }) => {
       <span
         className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 max-w-[200px] select-none"
         title={node.attrs.refPath || node.attrs.refId || node.attrs.label}
+        data-mention-reference=""
+        data-mention-ref-type={node.attrs.refType || undefined}
+        data-mention-ref-id={node.attrs.refId || undefined}
       >
         <MentionItemMedia
           icon={node.attrs.icon}

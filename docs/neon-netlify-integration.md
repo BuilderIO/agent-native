@@ -1,17 +1,13 @@
 # GitHub Actions Netlify PR previews
 
-Same-repository pull requests get prebuilt Netlify previews from GitHub
-Actions for the app sites touched by the change. GitHub Actions builds the
-pull request revision, uploads the artifact to the canonical Netlify site with
-a PR alias, smoke-tests it, and comments the openable URL on the pull request.
-Netlify is only the artifact host and CDN for this flow.
-
-Fork pull requests skip the deployment lane because GitHub withholds
-deployment secrets from untrusted fork code. The trusted workflow coordinates
-the preview from the base revision, while a separate build job checks out the
-PR revision without deployment credentials. The upload job checks out only the
-trusted base revision, builds its trusted Functions, and receives the PR's
-static artifact. PR-controlled Functions are never deployed.
+PRs do not deploy previews automatically. To preview one site, an organization
+owner or member comments `/preview <site>` on an open, same-repository PR
+targeting `main`, for example `/preview analytics`. GitHub runs the workflow
+from the default branch. It checks that both the commenter and PR author are
+organization members or owners. The build job has no deployment secrets; the
+upload job checks out the trusted base revision, builds its trusted Functions,
+and receives only the PR's static artifact. PR-controlled Functions are never
+deployed.
 
 Preview deploys do not create an isolated database. Before each GitHub Actions
 upload, the workflow copies the production PostgreSQL URL from the matching
@@ -26,12 +22,12 @@ cleans up branch resources left by the former isolation flow.
 
 ## How it works
 
-1. **PR opened/updated** - no Neon branch or Netlify database override is
-   created. GitHub Actions builds the changed app sites and publishes PR
-   aliases.
+1. **Manual preview** - comment `/preview <site>` on an open PR targeting
+   `main`. The workflow validates the internal commenter and PR author, then
+   builds the exact PR head revision and publishes a PR alias for that app.
 
-2. **Preview URL** - the workflow smoke-tests each uploaded deploy and adds a
-   per-app link to the pull request.
+2. **Preview URL** - the workflow smoke-tests the uploaded deploy and records
+   its URL as a GitHub deployment on the PR commit.
 
 3. **PR closed** - the workflow deletes any matching
    `GitHub Actions PR preview #*` Netlify deploys. The separate legacy cleanup
@@ -40,23 +36,53 @@ cleans up branch resources left by the former isolation flow.
 
 `@agent-native/core` uses PostgreSQL through `DATABASE_URL`.
 The Netlify specifics live in the workflow and each template's `netlify.toml`.
-Every canonical app site in `scripts/netlify-production-sites.json`, including
-Factory, can receive an artifact-only PR alias.
+Only sites returned by `previewEligibleSiteNames()` in
+`scripts/netlify-pr-preview-targets.ts` can receive an artifact-only PR alias.
+
+## Functions region
+
+Netlify Functions run in a single AWS region per site (`functions_region`).
+When a site's functions run in a different region than its Neon database, every
+request pays cross-region round-trip latency on top of query time, even when
+the query itself is fast. `deploy-netlify-prebuilt.yml` closes that gap for
+every beta and production deploy that has a `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>`
+secret:
+
+- **Place Functions near the database** (before upload) reads that secret and
+  derives its AWS region with `scripts/netlify-database-region.ts`, which
+  parses Neon's pooler and direct endpoint hostnames (for example
+  `ep-x-pooler.us-east-1.aws.neon.tech`). If the secret is empty or the host
+  isn't a Neon region Netlify Functions supports, the step logs a notice and
+  leaves the site's region unchanged instead of guessing. Otherwise it PATCHes
+  the site's `functions_region` to match and re-reads the site to confirm the
+  change persisted. It never logs the database URL itself, only the derived
+  region.
+- **Verify Functions deployed near the database** (after the publish wait)
+  reads the same published deploy back from the Netlify API and fails the
+  workflow if any function named `server` or ending in `-background` is not
+  reported in that region.
+
+`@agent-native/docs` and any target without a matching database secret are
+skipped; their Functions region is left as configured in Netlify.
 
 ## Preview access requirements
 
-Keep public preview access gated with Netlify team login, SSO, or an equivalent
-visitor gate, and do not use previews for workflows that can create real
-external side effects.
+The GitHub workflow restricts who can create previews; it does not restrict
+who can visit their URLs. The Builder.io Netlify team currently has no visitor
+protection on these sites. Team protection and protection for non-production
+deploys are unavailable on the current plan; Basic protection would also cover
+production. Anyone with a preview URL can visit it. Do not put sensitive data
+in a preview or use preview workflows that can create real external side
+effects.
 
 ## Required GitHub secrets
 
-| Secret                                    | Where to get it                                                                                  |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `NEON_API_KEY`                            | Neon dashboard → Account → API Keys                                                              |
-| `NETLIFY_AUTH_TOKEN`                      | Netlify User Settings → Personal Access Token                                                    |
-| `NETLIFY_ACCOUNT_ID`                      | Netlify team settings → Team ID                                                                  |
-| `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` | Matching production `templates/<template>/.env` URL; `CHAT` uses the production Netlify database |
+| Secret                                    | Where to get it                                                                                                                                     |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEON_API_KEY`                            | Neon dashboard → Account → API Keys                                                                                                                 |
+| `NETLIFY_AUTH_TOKEN`                      | Netlify User Settings → Personal Access Token                                                                                                       |
+| `NETLIFY_ACCOUNT_ID`                      | Netlify team settings → Team ID                                                                                                                     |
+| `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` | Matching production `templates/<template>/.env` URL; `CHAT` uses the production Netlify database. Used only by a manually requested preview upload. |
 
 ## Restoring production env vars
 

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+let originalEnv: NodeJS.ProcessEnv;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
@@ -20,10 +21,10 @@ const rawClient = {
   }),
 };
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => rawClient,
-  isProductionServerlessFunctionRuntime: () => false,
-}));
+vi.mock("../db/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/client.js")>();
+  return { ...actual, getDbExec: () => rawClient };
+});
 
 const {
   getSetting,
@@ -36,6 +37,13 @@ const {
 const { runWithRequestContext } = await import("../server/request-context.js");
 
 beforeEach(async () => {
+  originalEnv = { ...process.env };
+  process.env.NODE_ENV = "test";
+  delete process.env.NETLIFY_FUNCTION_NAME;
+  delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  delete process.env.LAMBDA_TASK_ROOT;
+  delete process.env.VERCEL_FUNCTION_ID;
+  delete process.env.VERCEL_REGION;
   pglite = await createTestPglite();
   await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -45,15 +53,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  process.env = originalEnv;
   await pglite.close();
   vi.clearAllMocks();
 });
 
 describe("settings store", () => {
   it("issues the poll-path index DDL on init", async () => {
-    // The first store call triggers ensureTable(), which must create the
-    // settings_updated_at_idx index so MAX(updated_at) poll queries avoid
-    // full table scans. Capture which SQL strings are executed and assert.
     const seen: string[] = [];
     const orig = rawClient.execute.getMockImplementation()!;
     rawClient.execute.mockImplementation(
@@ -71,6 +77,9 @@ describe("settings store", () => {
     expect(seen).toContain(
       "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON public.settings (updated_at)",
     );
+    expect(
+      seen.filter((sql) => /information_schema|pg_indexes|pg_class/i.test(sql)),
+    ).toHaveLength(6);
   });
 
   it("round-trips a value via put/get", async () => {
@@ -100,15 +109,9 @@ describe("settings store", () => {
         )
         .run("corrupt-cached", "{not valid json", Date.now());
 
-      // Seed the request cache with the raw corrupt string via the batch
-      // path, which isolates it as null instead of throwing.
       await getSettings(["corrupt-cached"]);
       rawClient.execute.mockClear();
 
-      // getSetting must still throw when serving that same cached raw value,
-      // not silently return the batch path's null. Asserting no DB call
-      // happened confirms this is the cache-hit branch throwing, not a
-      // fallback re-query that happens to also throw.
       await expect(getSetting("corrupt-cached")).rejects.toThrow(SyntaxError);
       expect(rawClient.execute).not.toHaveBeenCalled();
     });
@@ -178,6 +181,21 @@ describe("settings store", () => {
       "builder-connect-pending:a",
       "builder-connect-pending:b",
     ]);
+  });
+
+  it("bounds and orders prefix reads when requested", async () => {
+    await putSetting("dashboard:c", { id: "c" });
+    await putSetting("dashboard:a", { id: "a" });
+    await putSetting("dashboard:b", { id: "b" });
+
+    const { listSettingsByPrefix } = await import("./store.js");
+    const rows = await listSettingsByPrefix("dashboard:", { limit: 2 });
+
+    expect(rows.map((row) => row.key)).toEqual(["dashboard:a", "dashboard:b"]);
+    expect(rawClient.execute).toHaveBeenLastCalledWith({
+      sql: expect.stringContaining("ORDER BY key ASC LIMIT ?"),
+      args: ["dashboard:%", 2],
+    });
   });
 });
 
@@ -277,8 +295,6 @@ describe("getSettings (batched read)", () => {
   });
 
   it("bypasses and does not populate the request cache when bypassCache is set", async () => {
-    // Write directly, bypassing putSetting's own cache write-through, so
-    // entering the request context finds this key genuinely uncached.
     await pglite
       .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
       .run("k", JSON.stringify({ v: 1 }), Date.now());
@@ -289,8 +305,6 @@ describe("getSettings (batched read)", () => {
       await getSettings(["k"], { bypassCache: true });
       rawClient.execute.mockClear();
 
-      // A later plain getSetting must not see a cache entry seeded by the
-      // bypassed read.
       await getSetting("k");
       expect(rawClient.execute).toHaveBeenCalledTimes(1);
     });

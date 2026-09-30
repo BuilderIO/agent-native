@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink, captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -24,16 +24,59 @@ function parseJsonProjection(value: unknown, label: string): unknown {
   }
 }
 
-// Postgres 22P02 ("invalid_text_representation") is what the `::jsonb` cast
-// below throws for a row whose `data` isn't valid JSON. Drizzle wraps the
-// driver error in a DrizzleQueryError with the original on `.cause`.
+// Thumbnails render from the first slide only; a slide beyond this size is
+// reported as too large instead of inflating every gallery page.
+const MAX_PREVIEW_SLIDE_CHARS = 128 * 1024;
+
+const firstSlideText = sql`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
+const previewProjection = {
+  previewSlide: sql<
+    string | null
+  >`(case when length(${firstSlideText}) <= ${MAX_PREVIEW_SLIDE_CHARS} then ${firstSlideText} end)`,
+  previewTooLarge: sql<
+    boolean | null
+  >`(length(${firstSlideText}) > ${MAX_PREVIEW_SLIDE_CHARS})`,
+  aspectRatio: sql<
+    string | null
+  >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`,
+};
+
+function previewFromRawData(data: string, deckId: string) {
+  let previewSlide: string | null = null;
+  let previewTooLarge: boolean | null = null;
+  let aspectRatio: string | null = null;
+  try {
+    const parsed = JSON.parse(data);
+    const firstSlide = Array.isArray(parsed?.slides)
+      ? parsed.slides[0]
+      : undefined;
+    if (firstSlide !== undefined) {
+      const text = JSON.stringify(firstSlide);
+      if (text.length <= MAX_PREVIEW_SLIDE_CHARS) previewSlide = text;
+      else previewTooLarge = true;
+    }
+    if (typeof parsed?.aspectRatio === "string") {
+      aspectRatio = parsed.aspectRatio;
+    }
+  } catch (parseError) {
+    captureError(parseError, {
+      route: "list-decks",
+      extra: { deckId },
+    });
+  }
+  return { previewSlide, previewTooLarge, aspectRatio };
+}
+
 const INVALID_TEXT_REPRESENTATION = "22P02";
+const UNSUPPORTED_UNICODE_ESCAPE = "22P05";
 
 function isInvalidJsonCastError(error: unknown): boolean {
   const err = error as { code?: unknown; cause?: { code?: unknown } };
   return (
     err?.code === INVALID_TEXT_REPRESENTATION ||
-    err?.cause?.code === INVALID_TEXT_REPRESENTATION
+    err?.cause?.code === INVALID_TEXT_REPRESENTATION ||
+    err?.code === UNSUPPORTED_UNICODE_ESCAPE ||
+    err?.cause?.code === UNSUPPORTED_UNICODE_ESCAPE
   );
 }
 
@@ -68,7 +111,7 @@ function decodeDeckCursor(value: string): { updatedAt: string; id: string } {
 
 export default defineAction({
   description:
-    "List decks from the database with metadata. Use updatedSince, limit, and cursor for bounded incremental sync; paged responses are metadata-only, so use get-deck for slide content.",
+    "List accessible decks with metadata. Use updatedSince, limit, and cursor for bounded incremental sync, includePreview for the first slide, or get-deck for full slide content.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -84,7 +127,7 @@ export default defineAction({
       .enum(["true", "false"])
       .optional()
       .describe(
-        "Set to 'true' with light mode to include only the first slide preview",
+        "Set to 'true' with light mode or a bounded page to include only the first slide preview",
       ),
     light: z
       .enum(["true", "false"])
@@ -99,6 +142,14 @@ export default defineAction({
       .enum(["all", "me"])
       .optional()
       .describe("Set to 'me' to list only decks created by the current user"),
+    search: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .describe(
+        "Optional case-insensitive substring search against deck titles, before pagination.",
+      ),
     updatedSince: z
       .string()
       .datetime({ offset: true })
@@ -144,13 +195,15 @@ export default defineAction({
     }
 
     const visibleDecks = accessFilter(schema.decks, schema.deckShares);
-    const where =
+    const where = and(
+      visibleDecks,
       args.createdBy === "me" && normalizedOwnerEmail !== null
-        ? and(
-            visibleDecks,
-            sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`,
-          )
-        : visibleDecks;
+        ? sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`
+        : undefined,
+      args.search
+        ? sql`strpos(lower(${schema.decks.title}), ${args.search.toLowerCase()}) > 0`
+        : undefined,
+    );
 
     const paged =
       args.updatedSince !== undefined ||
@@ -175,20 +228,77 @@ export default defineAction({
         ? and(where, ...pageConditions)
         : where;
       const pageSize = args.limit ?? DEFAULT_PAGE_SIZE;
-      const rows = await db
+      const previewRequested = args.includePreview === "true";
+      const pagedMeta = {
+        id: schema.decks.id,
+        title: schema.decks.title,
+        ownerEmail: schema.decks.ownerEmail,
+        designSystemId: schema.decks.designSystemId,
+        createdAt: schema.decks.createdAt,
+        updatedAt: schema.decks.updatedAt,
+        visibility: schema.decks.visibility,
+      };
+      const pagedQuery = db
         .select({
-          id: schema.decks.id,
-          title: schema.decks.title,
-          ownerEmail: schema.decks.ownerEmail,
-          designSystemId: schema.decks.designSystemId,
-          createdAt: schema.decks.createdAt,
-          updatedAt: schema.decks.updatedAt,
-          visibility: schema.decks.visibility,
+          ...pagedMeta,
+          previewSlide: previewRequested
+            ? previewProjection.previewSlide
+            : sql<null>`null`,
+          previewTooLarge: previewRequested
+            ? previewProjection.previewTooLarge
+            : sql<null>`null`,
+          aspectRatio: previewRequested
+            ? previewProjection.aspectRatio
+            : sql<null>`null`,
         })
         .from(schema.decks)
         .where(pagedWhere)
         .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
         .limit(pageSize + 1);
+      let rows: Awaited<typeof pagedQuery>;
+      try {
+        rows = await pagedQuery;
+      } catch (error) {
+        if (!previewRequested || !isInvalidJsonCastError(error)) throw error;
+        captureError(error, {
+          route: "list-decks",
+          extra: { includePreview: true, paged: true },
+        });
+        const metaRows = await db
+          .select(pagedMeta)
+          .from(schema.decks)
+          .where(pagedWhere)
+          .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
+          .limit(pageSize + 1);
+        // Only a row whose own projection fails pays for a full body read.
+        rows = await Promise.all(
+          metaRows.map(async (meta) => {
+            const rowWhere = eq(schema.decks.id, meta.id);
+            try {
+              const [preview] = await db
+                .select(previewProjection)
+                .from(schema.decks)
+                .where(rowWhere);
+              return {
+                ...meta,
+                previewSlide: preview?.previewSlide ?? null,
+                previewTooLarge: preview?.previewTooLarge ?? null,
+                aspectRatio: preview?.aspectRatio ?? null,
+              };
+            } catch (rowError) {
+              if (!isInvalidJsonCastError(rowError)) throw rowError;
+              const [raw] = await db
+                .select({ data: schema.decks.data })
+                .from(schema.decks)
+                .where(rowWhere);
+              return {
+                ...meta,
+                ...previewFromRawData(raw?.data ?? "", meta.id),
+              };
+            }
+          }),
+        );
+      }
       const hasNextPage = rows.length > pageSize;
       const visibleRows = hasNextPage ? rows.slice(0, pageSize) : rows;
       const lastRow = visibleRows[visibleRows.length - 1];
@@ -214,6 +324,20 @@ export default defineAction({
           normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        ...(args.includePreview === "true"
+          ? {
+              ...(row.previewSlide !== null
+                ? {
+                    previewSlide: parseJsonProjection(
+                      row.previewSlide,
+                      "first slide preview",
+                    ),
+                  }
+                : {}),
+              ...(row.previewTooLarge ? { previewTooLarge: true } : {}),
+              aspectRatio: row.aspectRatio,
+            }
+          : {}),
       }));
       return {
         count: decks.length,
@@ -223,22 +347,7 @@ export default defineAction({
     }
 
     if (args.light === "true") {
-      // Column-projected listing for cheap add/remove diffing (the client's
-      // background poll and SSE-reconnect resync). The `data` column holds
-      // each deck's entire slide JSON and can be large. The client requests
-      // the preview projection below only while showing the grid, where
-      // DeckCard renders it; while a deck is open it uses the metadata-only
-      // path, since previewSlide is never displayed there.
       if (args.includePreview === "true") {
-        // Keep the list bounded at the database boundary. `data` is an opaque
-        // full-deck blob, so selecting it and parsing it here scales with every
-        // slide even though the caller only needs the first one.
-        const previewSlideProjection = sql<
-          string | null
-        >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
-        const aspectRatioProjection = sql<
-          string | null
-        >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`;
         const previewQuery = db
           .select({
             id: schema.decks.id,
@@ -246,8 +355,7 @@ export default defineAction({
             updatedAt: schema.decks.updatedAt,
             visibility: schema.decks.visibility,
             ownerEmail: schema.decks.ownerEmail,
-            previewSlide: previewSlideProjection,
-            aspectRatio: aspectRatioProjection,
+            ...previewProjection,
           })
           .from(schema.decks)
           .where(where)
@@ -257,15 +365,6 @@ export default defineAction({
         try {
           rows = await previewQuery;
         } catch (error) {
-          // The `::jsonb` cast above runs per row inside the query itself, so
-          // one deck whose `data` isn't valid JSON (a legacy/corrupted row)
-          // fails this cast and 500s the whole listing, not just that deck's
-          // owner. Fall back to reading `data` as plain text and parsing it
-          // per row in JS, so one bad deck loses only its own preview. Only
-          // that specific failure gets the fallback — a timeout, a dropped
-          // connection, or pool exhaustion is a real failure, and retrying it
-          // as a second, heavier full-`data` scan would double the load on
-          // the DB at the worst possible moment.
           if (!isInvalidJsonCastError(error)) throw error;
           captureError(error, {
             route: "list-decks",
@@ -283,31 +382,10 @@ export default defineAction({
             .from(schema.decks)
             .where(where)
             .orderBy(desc(schema.decks.updatedAt));
-          rows = rawRows.map(({ data, ...meta }) => {
-            let previewSlide: string | null = null;
-            let aspectRatio: string | null = null;
-            try {
-              const parsed = JSON.parse(data);
-              const firstSlide = Array.isArray(parsed?.slides)
-                ? parsed.slides[0]
-                : undefined;
-              if (firstSlide !== undefined) {
-                previewSlide = JSON.stringify(firstSlide);
-              }
-              if (typeof parsed?.aspectRatio === "string") {
-                aspectRatio = parsed.aspectRatio;
-              }
-            } catch (parseError) {
-              // This is the specific deck that broke the fast path above —
-              // surface its id so it can be fixed instead of silently
-              // missing its preview on every future listing too.
-              captureError(parseError, {
-                route: "list-decks",
-                extra: { deckId: meta.id },
-              });
-            }
-            return { ...meta, previewSlide, aspectRatio };
-          });
+          rows = rawRows.map(({ data, ...meta }) => ({
+            ...meta,
+            ...previewFromRawData(data, meta.id),
+          }));
         }
 
         return {
@@ -329,6 +407,7 @@ export default defineAction({
               ...(previewSlide && typeof previewSlide === "object"
                 ? { previewSlide }
                 : {}),
+              ...(row.previewTooLarge ? { previewTooLarge: true } : {}),
               ...(typeof row.aspectRatio === "string"
                 ? { aspectRatio: row.aspectRatio }
                 : {}),
@@ -364,9 +443,6 @@ export default defineAction({
     }
 
     if (args.includeSlides !== "true") {
-      // The deck body is an opaque JSON blob containing every slide's HTML.
-      // Metadata callers must opt into it explicitly; the frontend opens one
-      // deck at a time through get-deck instead of downloading every body.
       const rows = await db
         .select({
           id: schema.decks.id,

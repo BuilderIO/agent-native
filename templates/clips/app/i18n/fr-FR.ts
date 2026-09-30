@@ -1,4 +1,13 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
+    },
+    common: { retry: "Réessayer" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Cliquez d'abord sur cette section, puis faites glisser la ligne rouge vers la droite.",
@@ -67,7 +76,6 @@ const messages = {
     create: "Créer",
     save: "Enregistrer",
     saving: "Enregistrement…",
-    saveChanges: "Enregistrer les modifications",
     connected: "Connecté",
     notConnected: "Non connecté",
     disconnect: "Déconnecter",
@@ -112,6 +120,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Bibliothèque",
+    screenshots: "Captures d’écran",
     sharedWithMe: "Partagés avec moi",
     spaces: "Espaces",
     meetings: "Réunions",
@@ -434,13 +443,10 @@ const messages = {
     agentEmptyTitle: "Rejoignez la conversation",
     agentEmptyDescription:
       "Créez un compte Clips gratuit pour commenter, réagir et poser des questions sur ce clip.",
-    commentSignupTitle: "Donnez tout le contexte à votre agent IA",
-    commentSignupContext:
-      "Partagez la transcription et les images horodatées dans un seul lien",
-    commentSignupFeedback:
-      "Transformez les retours enregistrés en prochaines étapes concrètes",
-    commentSignupDebug:
-      "Capturez les erreurs de console et les requêtes échouées",
+    commentSignupTitle:
+      "Des enregistrements d’écran que votre agent IA peut voir et entendre",
+    commentSignupDescription:
+      "Clips est un enregistreur d’écran gratuit et open source pour partager des bugs, des retours et des démonstrations pas à pas avec des agents IA.",
     agentEmptySignInPrompt: "Vous avez déjà un compte ?",
     signUp: "S’inscrire",
     ownerInsights: "Insights du propriétaire",
@@ -581,6 +587,9 @@ const messages = {
     saveThumbnail: "Enregistrer la miniature",
   },
   shareDialog: {
+    redactionsPendingTitle: "Terminer les masquages avant le partage",
+    redactionsPendingBody:
+      "Masquages en attente : {{count}}. Appliquez-les dans l’éditeur avant de partager ; la vidéo contient encore le contenu d’origine.",
     publicDescription:
       "Toute personne disposant du lien peut voir — connectez-vous pour commenter ou réagir",
     shareRecording: "Partager l'enregistrement",
@@ -636,9 +645,6 @@ const messages = {
     customizeEmbed: "Personnaliser l’intégration",
     more: "Plus",
     sharePlainTitle: "Partager {{title}}",
-    redactionsPendingBody:
-      "{{count}} masquage(s) sont dessinés sur cet enregistrement mais n'ont pas été appliqués à la vidéo : le fichier montre donc toujours tout ce qui se trouve dessous. Ouvrez l'éditeur, appliquez-les, et le partage redeviendra disponible.",
-    redactionsPendingTitle: "Terminez d'abord les masquages",
   },
   shareUi: {
     owner: "Propriétaire : {{email}}",
@@ -810,9 +816,13 @@ const messages = {
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
     agentTitle: "Gérer l’agent",
-    title: "Paramètres",
     pageTitle: "Paramètres · Clips",
     labs: "Labs",
+    labResilientRecording: "Enregistrement fiable",
+    labResilientRecordingDescription:
+      "Essayez des transferts d’enregistrements plus rapides et une meilleure récupération après une interruption.",
+    labResilientRecordingMixedDescription:
+      "Les anciens réglages d’enregistrement sont toujours actifs. Choisissez Activé ou Désactivé pour utiliser un seul réglage.",
     labsIntro:
       "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
     labVideoEditing: "Montage vidéo",
@@ -823,12 +833,6 @@ const messages = {
     labWisprFlow: "Dictée vocale",
     labWisprFlowDescription:
       "Afficher ou masquer la dictée vocale dans Clips Desktop.",
-    intro: "Préférences et services connectés pour cet espace Clips.",
-    preferencesTitle: "Préférences",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface pour ce compte. Clips s’en souviendra sur tous vos appareils.",
-    languageLabel: "Langue de l’interface",
     uploadWorkspaceTitle: "Espace actif",
     uploadWorkspaceDescription:
       "Choisissez l’espace utilisé par Clips pour les nouveaux enregistrements, y compris ceux importés depuis le bureau.",
@@ -841,13 +845,15 @@ const messages = {
     uploadWorkspaceSaveFailed: "Impossible de mettre à jour l’espace actif",
     whatsNew: "Nouveautés",
     changelogEmpty: "Aucune mise à jour pour le moment.",
+    changelogCommentSignup:
+      "Le panneau de commentaires vide explique brièvement pourquoi essayer Clips et propose un moyen simple de s’inscrire.",
+    changelogCommentsEmptyState:
+      "L’état vide des commentaires explique désormais comment les enregistrements d’écran aident les agents IA.",
+    changelogShareLink:
+      "Les utilisateurs connectés qui ouvrent un lien de partage indisponible, expiré ou privé accèdent désormais à leur bibliothèque en choisissant « Retour à l’accueil », au lieu de la page marketing publique.",
     viewAllUpdates: "Voir toutes les mises à jour",
     expand: "Développer",
     collapse: "Replier",
-    playback: "Lecture",
-    defaultPlaybackSpeed: "Vitesse de lecture par défaut",
-    playbackDescription:
-      "Appliquée automatiquement quand vous ouvrez un enregistrement.",
     transcript: "Transcription",
     transcriptCleanup: "Nettoyage en arrière-plan",
     transcriptCleanupDescription:
@@ -855,27 +861,17 @@ const messages = {
     notifications: "Alertes",
     monthlyRecap: "Récapitulatif mensuel",
     sharing: "Partage",
-    defaultVisibility: "Visibilité par défaut des nouveaux enregistrements",
-    defaultVisibilityDescription:
-      "Appliquée à chaque enregistrement que vous créez. Vous pouvez toujours la modifier enregistrement par enregistrement.",
     visibilityPrivate: "Privé - vous uniquement",
     visibilityOrg: "Organisation - tout le monde dans votre espace",
     visibilityPublic: "Public - toute personne disposant du lien",
     emailNotifications: "Notifications par e-mail",
     emailNotificationsDescription:
       "Choisissez les e-mails Clips facultatifs que vous souhaitez recevoir.",
-    saved: "Paramètres enregistrés",
     saveFailed: "Échec de l’enregistrement",
-    builderConnectedToast: "Builder.io connecté",
-    videoStorage: "Stockage vidéo",
     videoStorageDescription:
       "Builder.io est le chemin de stockage principal pour les téléversements Clips. S3 est disponible si vous devez utiliser votre propre bucket.",
-    checkingBuilder: "Vérification de Builder.io",
     builderConnected: "Builder.io connecté",
     connectBuilder: "Utiliser Builder.io",
-    builderConnectedFor: "Utilisation de Builder.io pour {{orgName}}.",
-    builderConnectedGeneric:
-      "Les nouveaux clips utilisent le fournisseur Builder.io connecté.",
     builderIncludes:
       "Le niveau gratuit de Builder.io inclut le stockage objet, les téléversements et la transcription gérée pour les nouveaux clips.",
     s3Title: "Stockage compatible S3",
@@ -883,11 +879,8 @@ const messages = {
     active: "Actif",
     s3BuilderConnectedDescription:
       "À utiliser uniquement si cet espace doit téléverser vers votre propre bucket plutôt que Builder.io.",
-    s3CurrentProvider: "Utilisation actuelle de {{providerName}}.",
     s3OwnBucketDescription:
       "Utilisez votre propre bucket si vous ne voulez pas du stockage Builder.io.",
-    configureS3: "Configurer S3",
-    hideS3: "Masquer S3",
     saveStorage: "Enregistrer le stockage",
     storageSaved: "Paramètres de stockage enregistrés",
     storageRequired:
@@ -903,7 +896,6 @@ const messages = {
     s3BucketInvalid:
       "Le nom du bucket doit contenir 3–63 lettres minuscules, chiffres ou tirets",
     s3RegionInvalid: 'Doit être une région valide (ex. us-east-1) ou "auto"',
-    apiSetup: "Configuration IA",
     apiSetupDescription: "Choisissez comment Clips se connecte à l’IA.",
     builderEasySetup: "Crédits gratuits Builder.io",
     builderAiAvailable:
@@ -914,18 +906,11 @@ const messages = {
     providerKeyDescription:
       "Choisissez Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere ou Ollama pour une utilisation facturée par fournisseur.",
     providerKeysSet: "{{count}} définies",
-    providerActionTitle: "Fournisseur d’IA",
-    providerActionDescription:
-      "Builder.io inclut un niveau gratuit, ou utilisez vos propres clés.",
-    providerManage: "Gérer",
-    providerCustomKeys: "Clés personnalisées",
-    checkingProviderKeys: "Vérification des clés fournisseur…",
     keySet: "Définie",
     keyCleared: "Identifiants de stockage effacés",
     clearAllS3: "Effacer les identifiants",
     replaceKey: "Remplacer la clé…",
     pasteProviderKey: "Collez d’abord une clé fournisseur.",
-    apiKeySaved: "Clé API enregistrée",
     apiKeyFailed: "Échec de l’enregistrement de la clé",
     slackTitle: "Agent-Native Clips pour Slack",
     slackDescription:
@@ -954,6 +939,53 @@ const messages = {
       "Clips supprimera le token bot stocké pour {{team}} et cessera d’envoyer des aperçus Slack lisibles.",
     thisWorkspace: "cet espace",
     slackConnected: "Slack connecté",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "Le navigateur a bloqué la fenêtre contextuelle. Autorisez les fenêtres contextuelles pour ce site, puis réessayez.",
+    recordingsTab: "Enregistrements",
+    meetingsTab: "Réunions",
+    yourDefaults: "Vos valeurs par défaut",
+    orgDefault: "Valeur par défaut de {{org}}",
+    playbackSpeed: "Vitesse de lecture",
+    playbackSpeedDescription: "S'applique quand vous ouvrez un enregistrement.",
+    visibility: "Visibilité",
+    visibilityDescription:
+      "S'applique aux enregistrements que vous créez. Vous pouvez la modifier sur chaque enregistrement.",
+    useOrgDefault: "Utiliser la valeur par défaut de {{org}} ({{visibility}})",
+    useDefault: "Utiliser la valeur par défaut ({{visibility}})",
+    transcriptExport: "Export des transcriptions",
+    logoDescription:
+      "Affiché dans les e-mails de partage et sur les pages publiques des clips.",
+    change: "Modifier",
+    adminsOnly:
+      "Seuls les propriétaires et les administrateurs peuvent modifier ce réglage.",
+    brandColorInvalid: "Saisissez un code couleur hexadécimal.",
+    loadFailed: "Impossible de charger ces réglages.",
+    emailGroup: "E-mail",
+    calendarGroup: "Calendrier",
+    googleCalendar: "Google Calendar",
+    connect: "Connecter",
+    reconnect: "Reconnecter",
+    connectedAs: "Connecté en tant que {{account}}",
+    needsReconnect: "{{account}} doit être reconnecté.",
+    disconnectFailed: "Impossible de déconnecter le calendrier.",
+    disconnectCalendarDescription:
+      "Clips ne synchronise plus les réunions à venir de {{account}}.",
+    calendarApp: "Application Google Calendar",
+    desktopGroup: "Bureau",
+    meetingCapture: "Capture des réunions",
+    meetingCaptureDescription:
+      "Les notes, le démarrage automatique et les notifications se règlent sur chaque appareil dans Clips Desktop.",
+    openClipsDesktop: "Ouvrir Clips Desktop",
+    keySaved: "Enregistrée",
+    keyNotSaved: "Non enregistrée",
+    manage: "Gérer",
+    add: "Ajouter",
+    linkPreviews: "Aperçus de liens",
+    addWorkspace: "Ajouter un espace de travail",
+    storageAskAdmin:
+      "Demandez à un propriétaire ou à un administrateur de configurer le stockage.",
   },
   insightsHub: {
     title: "Insights",
@@ -999,8 +1031,6 @@ const messages = {
       "Aucune organisation pour le moment. Créez-en une depuis le sélecteur d’organisation pour commencer.",
     description:
       "Administration de l’organisation : marque, membres, invitations.",
-    adminsOnlyBranding: "Seuls les administrateurs peuvent modifier la marque.",
-    brandingLoadFailed: "Impossible de charger l'identité de l'organisation.",
     members: "Membres",
     pendingInvites: "Invitations en attente",
     noPendingInvites: "Aucune invitation en attente.",
@@ -1454,11 +1484,22 @@ const messages = {
     disconnected: "Microphone déconnecté.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Impossible d’ouvrir Builder.io. Si cette application est intégrée à une conversation, ouvrez-la dans un onglet de navigateur ; sinon, autorisez les fenêtres contextuelles pour ce site, puis réessayez.",
+    builderConnectError:
+      "Impossible de connecter Builder.io. Réessayez ou contactez l’assistance.",
+    checkingBuilderConnection: "Vérification de la connexion à Builder…",
     builderTimeout:
       "Aucune réponse de Builder après 5 minutes. Vérifiez la fenêtre contextuelle et réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
     connectBuilder: "Utiliser Builder.io",
+    createBuilderAccount: "Créer un compte Builder.io",
+    signInWithBuilderAccount: "Se connecter avec un compte Builder.io",
+    builderConsentPrefix: "En créant un compte Builder.io, vous acceptez nos",
+    builderTerms: "Conditions d’utilisation",
+    builderConsentAnd: "et",
+    builderPrivacy: "Politique de confidentialité",
     free: "Gratuit",
     configureS3: "configurer un stockage compatible S3",
     whyPrompt: "Pourquoi vois-je ceci ?",
@@ -1564,7 +1605,7 @@ const messages = {
     deleteKey: "Suppr",
     exportUnredactedTitle: "Appliquez d'abord les masquages",
     exportUnredactedWarning:
-      "{{count}} masquage(s) sont dessinés sur cet enregistrement mais n'ont pas été appliqués à la vidéo : le fichier montre donc toujours tout ce qui se trouve dessous — et cette copie ferait de même. Appliquez-les et cette option redeviendra disponible.",
+      "{{count}} masquage(s) sont dessinés sur cet enregistrement mais n’ont pas encore été appliqués : le fichier montre donc toujours tout ce qu’ils recouvrent, et cette copie aussi. Appliquez-les et ceci sera de nouveau disponible.",
     redact: "Masquer",
     redactHint:
       "Couvrir quelque chose dans l'image. Rien n'est caché tant que vous ne l'appliquez pas.",
@@ -1625,10 +1666,98 @@ const messages = {
     startWithoutMic: "Enregistrer sans audio",
     unmuteMicrophone: "Réactiver le micro",
     uploadVideo: "Upload video (Localisé)",
+    takeScreenshot: "Faire une capture d’écran",
     importLoom: "Import Loom (Localisé)",
     importing: "Importing... (Localisé)",
     import: "Import (Localisé)",
     recordNew: "Nouvel enregistrement",
+  },
+  screenshot: {
+    capturing: "Capture en cours...",
+    saving: "Enregistrement de la capture...",
+    saved: "Capture enregistrée",
+    failed: "Échec de la capture",
+    dragToSelect: "Faites glisser pour sélectionner une zone",
+    blur: "Masquer",
+    box: "Cadre",
+    arrow: "Flèche",
+    text: "Texte",
+    edit: "Modifier",
+    deleteMark: "Supprimer",
+    textFont: "Police",
+    textSize: "Taille de police",
+    textSizeHint: "Taille de police, en pixels de la capture elle-même",
+    textSmaller: "Texte plus petit",
+    textLarger: "Texte plus grand",
+    alignLeft: "Aligner à gauche",
+    alignCenter: "Centrer",
+    alignRight: "Aligner à droite",
+    editSave: "Enregistrer",
+    editSaved: "Capture mise à jour",
+    editConfirm:
+      "L’enregistrement remplace l’image partagée, donc tout le monde verra ces annotations. Vous pourrez toujours les déplacer ou les supprimer plus tard. Enregistrer ?",
+    textPlaceholder: "Saisissez ici. Cliquez à l’extérieur pour terminer",
+    undo: "Annuler",
+    redo: "Rétablir",
+    redactSaving: "Enregistrement...",
+    redactFailed: "Impossible d’enregistrer la capture",
+    captureInsecure:
+      "La capture d’écran nécessite HTTPS ou localhost. Ouvrez Clips sur une URL sécurisée, puis réessayez.",
+    captureUnavailable:
+      "La capture d’écran n’est pas disponible dans ce navigateur.",
+    captureUnsupported:
+      "Votre navigateur ne prend pas en charge la capture d’écran. Essayez une version récente de Brave, Chrome, Edge, Safari ou Firefox.",
+    captureNoScreen: "Aucun écran n’a été partagé.",
+    captureNoCanvas: "Ce navigateur n’a pas pu préparer l’image.",
+    captureNoPicture:
+      "L’écran partagé n’a jamais envoyé d’image. Réessayez, ou partagez plutôt l’écran entier.",
+    redactLoadFailed: "Impossible d’ouvrir la capture pour la modifier",
+    saveSelection: "Enregistrer la sélection",
+    saveWholeScreen: "Enregistrer tout l’écran",
+    fullscreen: "Plein écran",
+    exitFullscreen: "Quitter le plein écran",
+    resizeHandle: "Faites glisser pour redimensionner",
+    textWidthHandle: "Faites glisser pour définir la largeur",
+    crop: "Rogner",
+    cropApply: "Appliquer le rognage",
+    cropApplyHint:
+      "N’afficher que cette partie. Le reste est conservé, vous pourrez donc élargir le rognage plus tard",
+    cropReset: "Afficher toute l’image",
+    kind: {
+      box: "cadre",
+      arrow: "flèche",
+      text: "texte",
+      redact: "masquage",
+    },
+    markToolbar: "Modifier cet élément ({{kind}})",
+    duplicate: "Dupliquer ({{kind}})",
+    addText: "Ajouter un texte",
+    addArrow: "Ajouter une flèche",
+    addBox: "Ajouter un cadre",
+    addRedaction: "Ajouter un masquage",
+    colour: "Couleur",
+    fillBox: "Remplir le cadre",
+    shadow: "Ombre",
+    thickness: "Épaisseur du trait",
+    thin: "Fin",
+    thick: "Épais",
+    align: "Alignement",
+    redactionStyle: "Style de masquage",
+    background: "Arrière-plan",
+    backgroundTitle: "Ajouter un arrière-plan",
+    backgroundNone: "Aucun",
+    notYetBurned:
+      "{{count}} masquage(s) sont placés mais pas encore appliqués. Rien n’est encore masqué, et personne d’autre ne peut voir cette capture tant que vous ne les avez pas appliqués.",
+    editsUnreadable:
+      "Clips n’a pas pu lire les modifications enregistrées de la capture.",
+    burnInHint:
+      "Détruire définitivement ce que recouvrent les masquages et supprimer l’original",
+    burnInTitle: "Appliquer {{count}} masquage(s) à cette capture ?",
+    burnInWarning:
+      "Les zones recouvertes seront détruites dans une nouvelle copie de la capture, et le fichier original sera supprimé. Cette action est irréversible. Vos cadres, flèches et textes restent déplaçables. Les copies déjà téléchargées conservent leur contenu.",
+    burning: "Application…",
+    burned: "Masquages appliqués",
+    burnFailed: "Impossible d’appliquer les masquages",
   },
   playerSettings: {
     title: "Settings (Localisé)",
@@ -1864,6 +1993,8 @@ const messages = {
     retry: "Réessayer",
     retrying: "Nouvelle tentative…",
     retryFailed: "Impossible de réessayer cet envoi.",
+    retryCheckFailed:
+      "Impossible de vérifier si ce transfert peut être relancé. Actualisez la page pour réessayer.",
     retryUnavailableHere:
       "Réessayer n'est possible que sur l'appareil ou le navigateur ayant servi à l'enregistrement.",
     viewsCount: "{{count}} vues",

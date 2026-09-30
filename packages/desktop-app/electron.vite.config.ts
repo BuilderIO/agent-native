@@ -2,8 +2,24 @@ import { resolve } from "path";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
+
+import desktopPackage from "./package.json";
+
+function desktopDependencyExternal(
+  exclude: string[],
+  alwaysExternal: string[],
+) {
+  const packages = [
+    ...Object.keys(desktopPackage.dependencies).filter(
+      (name) => !exclude.includes(name),
+    ),
+    ...alwaysExternal,
+  ];
+  return (id: string) =>
+    packages.some((name) => id === name || id.startsWith(`${name}/`));
+}
 
 const workspaceRendererPackages = [
   "@agent-native/code-agents-ui",
@@ -82,7 +98,6 @@ function inlinePreloadChunksPlugin(): Plugin {
   return {
     name: "agent-native:inline-preload-chunks",
     generateBundle(_options, bundle) {
-      // Sandboxed Electron preloads need to be self-contained inside app.asar.
       const preloadBundle = bundle as PreloadOutputBundle;
       const sharedChunks = Object.entries(preloadBundle).flatMap(
         ([fileName, output]) =>
@@ -201,9 +216,6 @@ const desktopSentryDefines = {
   ),
 };
 
-// Local packaged builds should behave like development builds. Release CI
-// sets CI=true, while AGENT_NATIVE_DESKTOP_BUILD_CHANNEL lets packaging jobs
-// override that default explicitly when they need to.
 const desktopBuildChannel =
   firstNonEmpty(process.env.AGENT_NATIVE_DESKTOP_BUILD_CHANNEL) ||
   (process.env.CI === "true" || process.env.CI === "1" ? "release" : "dev");
@@ -216,28 +228,27 @@ const desktopDefines = {
 export default defineConfig({
   main: {
     define: desktopDefines,
-    plugins: [
-      externalizeDepsPlugin({
-        exclude: [
-          "@agent-native/code-agents-ui",
-          "@agent-native/code-agents-ui/code-agents",
-          "@agent-native/shared-app-config",
-          "@modelcontextprotocol/sdk",
-          "@sentry/electron",
-          "electron-updater",
-          "zod",
-        ],
-      }),
-      assertElectronIsExternalPlugin(),
-    ],
+    plugins: [assertElectronIsExternalPlugin()],
     resolve: {
       alias: {
         "@shared": resolve("shared"),
       },
     },
     build: {
-      rollupOptions: {
-        external: ["electron", /^electron\/.+/, "node-pty"],
+      externalizeDeps: false,
+      rolldownOptions: {
+        external: desktopDependencyExternal(
+          [
+            "@agent-native/code-agents-ui",
+            "@agent-native/code-agents-ui/code-agents",
+            "@agent-native/shared-app-config",
+            "@modelcontextprotocol/sdk",
+            "@sentry/electron",
+            "electron-updater",
+            "zod",
+          ],
+          ["electron", "node-pty"],
+        ),
         input: {
           index: resolve("src/main/index.ts"),
           "browser-control-host": resolve(
@@ -250,24 +261,23 @@ export default defineConfig({
   },
   preload: {
     define: desktopDefines,
-    plugins: [
-      externalizeDepsPlugin({
-        exclude: [
-          "@agent-native/code-agents-ui",
-          "@agent-native/code-agents-ui/code-agents",
-          "@agent-native/shared-app-config",
-        ],
-      }),
-      inlinePreloadChunksPlugin(),
-    ],
+    plugins: [inlinePreloadChunksPlugin()],
     resolve: {
       alias: {
         "@shared": resolve("shared"),
       },
     },
     build: {
-      rollupOptions: {
-        external: ["electron"],
+      externalizeDeps: false,
+      rolldownOptions: {
+        external: desktopDependencyExternal(
+          [
+            "@agent-native/code-agents-ui",
+            "@agent-native/code-agents-ui/code-agents",
+            "@agent-native/shared-app-config",
+          ],
+          ["electron"],
+        ),
         input: {
           index: resolve("src/preload/index.ts"),
           webview: resolve("src/preload/webview.ts"),

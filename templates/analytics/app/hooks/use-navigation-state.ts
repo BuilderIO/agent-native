@@ -91,7 +91,6 @@ export function useNavigationState() {
         } else {
           const statusPage = searchParams.get("statuspage");
           if (statusPage) {
-            // "list" | "new" | <id> - the status-pages config sub-view.
             state.statusPageId = statusPage;
           } else {
             const monitor = searchParams.get("monitor");
@@ -183,8 +182,6 @@ export function preserveActiveDashboardTab(
   const activeTab = new URLSearchParams(currentSearch).get("tab");
   if (!activeTab) return targetPath;
 
-  // Agent navigation identifies the dashboard, but the active tab is UI state
-  // held in the URL and is not part of the navigate action payload.
   targetUrl.searchParams.set("tab", activeTab);
   return `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
 }

@@ -474,6 +474,49 @@ export function mergeRenderedEdits(input: MergeRenderedEditsInput): {
 }
 
 /**
+ * Replays an edit of `stored` (`edited`, its merged result) onto `next`, a
+ * newer version of the slide someone else wrote. The edit moves as the
+ * smallest stored element around it that `next` still holds exactly once.
+ * Null when `next` changed that element too: both cannot be kept.
+ */
+export function rebaseSlideEdit(
+  stored: string,
+  ranges: readonly SlideSourceRange[],
+  edited: string,
+  next: string,
+): string | null {
+  if (edited === stored) return next;
+  if (next === stored) return edited;
+  const shorter = Math.min(stored.length, edited.length);
+  let start = 0;
+  while (start < shorter && stored[start] === edited[start]) start += 1;
+  let tail = 0;
+  while (
+    tail < shorter - start &&
+    stored[stored.length - 1 - tail] === edited[edited.length - 1 - tail]
+  ) {
+    tail += 1;
+  }
+  const end = stored.length - tail;
+  const growth = edited.length - stored.length;
+  const enclosing = ranges
+    .filter((range) => range.openStart <= start && range.closeEnd >= end)
+    .sort((a, b) => a.closeEnd - a.openStart - (b.closeEnd - b.openStart));
+  for (const range of enclosing) {
+    const before = stored.slice(range.openStart, range.closeEnd);
+    const at = next.indexOf(before);
+    if (at < 0) return null;
+    if (next.indexOf(before, at + 1) >= 0) continue;
+    return (
+      next.slice(0, at) +
+      edited.slice(range.openStart, range.closeEnd + growth) +
+      next.slice(at + before.length)
+    );
+  }
+  return null;
+}
+
+/**
  * The stored-form HTML of one live element (or a detached copy of one): its
  * stored source with its own changes applied, free of stamps and of anything
  * the renderer added. Clipboard copies use this, so a pasted logo does not
@@ -525,6 +568,16 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         el.setAttribute(SOURCE_STAMP_ATTR, `${nonce}:${block.ordinal}`);
       }
     }
+  }
+  // A clone of a stored element (Enter copying a row) carries its stamps; the
+  // first live copy in document order is the stored element, the rest are new.
+  const firstCopy = new Map<number, Element>();
+  for (const el of [
+    live,
+    ...Array.from(live.querySelectorAll(`[${SOURCE_STAMP_ATTR}]`)),
+  ]) {
+    const ordinal = stampOf(el);
+    if (ordinal !== null && !firstCopy.has(ordinal)) firstCopy.set(ordinal, el);
   }
   const baseBy = new Map<number, Element>();
   for (const el of Array.from(
@@ -670,8 +723,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
           false,
         );
 
-  const seen = new Set<number>();
-
   const openTag = (tag: string, attrs: Iterable<[string, string]>) => {
     let out = `<${tag}`;
     for (const [name, value] of attrs) out += ` ${name}="${escapeAttr(value)}"`;
@@ -713,7 +764,7 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         if (value === null) storedAttrs.delete(name);
         else storedAttrs.set(name, value);
       }
-      storedAttrs.delete(SOURCE_STAMP_ATTR);
+      for (const name of TRANSIENT_ATTRS) storedAttrs.delete(name);
       return openTag(tag, storedAttrs);
     }
     const loc = node.sourceCodeLocation!;
@@ -879,8 +930,7 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         (VOID_TAGS.has(tag) ? "" : `${emitKids(kids(kid), undefined)}</${tag}>`)
       );
     }
-    const first = !seen.has(ordinal);
-    seen.add(ordinal);
+    const first = firstCopy.get(ordinal) === kid;
     // A second live copy of one stored element (a split that cloned it) gets
     // its own tag; copying the stored slice again would duplicate what the
     // slice holds beyond the live children, such as svg and comments.
@@ -890,9 +940,9 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     const trusted = isTrusted(ordinal);
     const sameTag = kid.tagName === base.tagName;
     const open =
-      trusted && sameTag && sameAttrs(kid, base)
+      first && trusted && sameTag && sameAttrs(kid, base)
         ? stored.slice(range.openStart, range.openEnd)
-        : mergedOpenTag(ordinal, base, kid, tag, trusted && sameTag);
+        : mergedOpenTag(ordinal, base, kid, tag, first && trusted && sameTag);
     if (VOID_TAGS.has(tag)) return open;
     // An implied end stays implied: closing an unclosed `<b>` explicitly
     // would stop the parser reopening it in the paragraphs after it.

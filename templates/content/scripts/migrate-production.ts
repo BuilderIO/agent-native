@@ -1,6 +1,7 @@
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
 import { loadEnv } from "@agent-native/core/scripts";
 import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+import { creativeContextDbPlugin } from "@agent-native/creative-context/server";
 
 import {
   runContentMigrations,
@@ -9,16 +10,10 @@ import {
 
 loadEnv();
 
-/**
- * Release-time schema entrypoint for Content.
- *
- * This script is the production owner of schema changes. It runs against the
- * direct migration endpoint selected by core, while request functions skip
- * all migration and ensure-table work automatically.
- */
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
     await runFrameworkReleaseMigrations(null);
+    await creativeContextDbPlugin(null);
     await runContentMigrations(null);
     await runContentSourceMigrations(null);
   });

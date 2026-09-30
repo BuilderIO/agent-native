@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-内部的には、各アプリは `APP_BASE_PATH`/`VITE_APP_BASE_PATH` で設定される `/mail` のような URL プレフィックス、すなわち独自の**ベースパス**でビルドされ、その後ターゲットの Nitro プリセット向けにパッケージ化されます。Cloudflare Pages は、生成された**ディスパッチャーワーカー**、つまり受信したパスを読み取って一致するアプリにリクエストを転送する `dist/_worker.js` の小さなスクリプトを経由してルーティングします。Netlify はアプリごとに 1 つの function と、生成されたリダイレクトを使用します。Vercel は Build Output API を使って、ワークスペースレベルの `.vercel/output` を書き出します。
+内部的には、各アプリは `APP_BASE_PATH`/`VITE_APP_BASE_PATH` で設定される `/mail` のような URL プレフィックス、すなわち独自の**ベースパス**でビルドされ、その後ターゲットの Nitro プリセット向けにパッケージ化されます。**Netlify** がデフォルトです。アプリごとに 1 つの function と、生成されたリダイレクトを使用します。Vercel は Build Output API を使って、ワークスペースレベルの `.vercel/output` を書き出します。
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (デフォルト)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify（デフォルト）",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -340,6 +329,30 @@ agents.example.com {
   ヘッダーを送信し、公開ホストをプロキシコンテナにルーティングするよう Cloudflare を設定してください。
 
 </Callout>
+
+## セルフホスト workspace の Dispatch を設定する {#dispatch-workspace-apps}
+
+本番用 Dispatch イメージには通常 `.output/` しか含まれないため、実行時にアプリのディレクトリを検出できません。このマニフェストを Dispatch サービスに設定してください。両方の変数には同じ JSON を指定します。Vite 変数は Dispatch のビルド時に、もう一方はサーバー起動時に読み込まれます。この workspace のアプリだけを列挙し、各 `path` を `APP_BASE_PATH` とプロキシのルートに合わせてください。 APP_URL には、リバースプロキシが提供する公開オリジンも設定してください。
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## 新しい workspace で招待を有効にする {#workspace-invites}
+
+招待制の workspace では、同じデータベースと認証を共有するすべてのアプリコンテナに、次のアクセス設定を行います。
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+例のメールアドレスを、各 workspace の最初の管理者の確認済みアドレスに置き換えてください。空のデータベースでは、その管理者が最初にサインインすると初期組織のオーナーになり、Settings → Organization → Members からメンバーを招待できます。初期設定の詳しい手順は[管理対象デプロイ](/docs/administered-deployments)を参照してください。
 
 ## 次は何ですか
 

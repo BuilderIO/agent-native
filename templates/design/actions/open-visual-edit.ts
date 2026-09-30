@@ -15,10 +15,18 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  nextCanvasFramePosition,
+  nextFreeCanvasRowY,
+  parseCanvasFrameGeometryById,
+} from "../shared/canvas-frames.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import {
   DESIGN_BRIDGE_OPERATIONS,
   makeLocalhostRouteId,
@@ -73,8 +81,6 @@ const capabilitySchema = z.object({
 });
 
 const VIEWPORT_PRESETS = {
-  // `desktop` deliberately matches add-localhost-screens' 1280x900 fallback so
-  // asking for it never resizes frames placed by an earlier default call.
   desktop: { label: "Desktop", width: 1280, height: 900 },
   laptop: { label: "Laptop", width: 1440, height: 900 },
   tablet: { label: "Tablet", width: 834, height: 1112 },
@@ -112,25 +118,38 @@ function resolveViewports(
   );
 }
 
-/**
- * Expand one screen request per (route x viewport) and lay them out as a grid:
- * one row per route, one column per viewport. Explicit x/y/width/height are
- * what make add-localhost-screens treat each pair as its own frame instead of
- * refreshing a single shared one, so they are always set here.
- */
 function expandRoutesAcrossViewports(args: {
   routes: Array<z.infer<typeof screenRouteSchema>>;
   viewports: ResolvedViewport[];
   startX: number;
   startY: number;
   gap: number;
+  breakpointWidths: readonly number[];
 }): Array<z.infer<typeof screenRouteSchema>> {
   const labelViewports = args.viewports.length > 1;
   const expanded: Array<z.infer<typeof screenRouteSchema>> = [];
   let rowY = args.startY;
-  for (const route of args.routes) {
+  for (const [routeIndex, route] of args.routes.entries()) {
     let columnX = args.startX;
-    for (const viewport of args.viewports) {
+    const rowFrames: Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    > = {};
+    const rowMetadataByFileId: Record<string, Record<string, unknown>> = {};
+    const rowScreenFileIds: string[] = [];
+    for (const [viewportIndex, viewport] of args.viewports.entries()) {
+      const frameId = `${routeIndex}-${viewportIndex}`;
+      const metadata = {
+        ...route.metadata,
+        width: viewport.width,
+        height: viewport.height,
+      };
+      const frame = {
+        x: columnX,
+        y: rowY,
+        width: viewport.width,
+        height: viewport.height,
+      };
       expanded.push({
         ...route,
         title: labelViewports
@@ -141,10 +160,24 @@ function expandRoutesAcrossViewports(args: {
         x: columnX,
         y: rowY,
       });
-      columnX += viewport.width + args.gap;
+      rowFrames[frameId] = frame;
+      rowMetadataByFileId[frameId] = metadata;
+      rowScreenFileIds.push(frameId);
+      columnX = nextCanvasFramePosition({ [frameId]: frame }, args.gap, {
+        responsiveLayout: {
+          screenFileIds: [frameId],
+          screenMetadataByFileId: { [frameId]: metadata },
+          breakpointWidths: args.breakpointWidths,
+        },
+      }).x;
     }
-    rowY +=
-      Math.max(...args.viewports.map((viewport) => viewport.height)) + args.gap;
+    rowY = nextFreeCanvasRowY(rowFrames, args.gap, {
+      responsiveLayout: {
+        screenFileIds: rowScreenFileIds,
+        screenMetadataByFileId: rowMetadataByFileId,
+        breakpointWidths: args.breakpointWidths,
+      },
+    });
   }
   return expanded;
 }
@@ -194,12 +227,6 @@ const LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN =
 const VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX =
   "capability:visual-edit-bootstrap:";
 
-/**
- * Stable owner partition for local visual-edit calls when no account session
- * exists. This value is never installed as a browser session; it only lets the
- * trusted local host compose the existing owner-scoped actions before minting
- * a narrow embed capability.
- */
 export function localVisualEditWorkspacePrincipal(
   workspacePath = process.cwd(),
 ): string {
@@ -432,8 +459,6 @@ function routeManifestFromScreens(args: {
 export default defineAction({
   description:
     "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, creates or reuses a design, places URL-backed screens, stores the active visual-edit context, and navigates the current Design session to the canvas. Use this from the local /visual-edit skill and for follow-up requests like adding a mobile-size screen.",
-  // The public /visual-edit page calls this through the frontend transport.
-  // Its run() guard still limits anonymous callers to loopback + public mode.
   requiresAuth: false,
   capabilityScopes: ["visual-edit-bootstrap"],
   schema: z.object({
@@ -522,8 +547,18 @@ export default defineAction({
       .positive()
       .optional()
       .describe("Default screen height. Defaults to 900 when omitted."),
-    startX: z.number().optional().default(0),
-    startY: z.number().optional().default(0),
+    startX: z
+      .number()
+      .optional()
+      .describe(
+        "Left edge for new screens. Defaults to the right of existing frames.",
+      ),
+    startY: z
+      .number()
+      .optional()
+      .describe(
+        "Top edge for new screens. Defaults to the topmost existing frame.",
+      ),
     gap: z.number().optional().default(160),
     navigate: z
       .boolean()
@@ -601,9 +636,6 @@ export default defineAction({
             generatedAt: new Date().toISOString(),
           };
       const connection = await connectLocalhostAction.run({
-        // Let connect-localhost be the single source of truth for stable
-        // per-user/per-org id derivation. Duplicating it here can create a second
-        // tokenless row after the CLI self-registers the bridge token.
         id: args.connectionId,
         name: args.name,
         devServerUrl,
@@ -662,6 +694,55 @@ export default defineAction({
         );
       }
 
+      let viewportStartX = args.startX;
+      let viewportStartY = args.startY;
+      let viewportBreakpointWidths: number[] = [];
+      if (viewports) {
+        await assertAccess("design", designId, "editor");
+        const [[design], screenFiles] = await Promise.all([
+          getDb()
+            .select({ data: schema.designs.data })
+            .from(schema.designs)
+            .where(eq(schema.designs.id, designId))
+            .limit(1),
+          getDb()
+            .select({
+              id: schema.designFiles.id,
+              filename: schema.designFiles.filename,
+              fileType: schema.designFiles.fileType,
+            })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, designId)),
+        ]);
+        if (!design) throw new Error(`Design "${designId}" not found.`);
+        const designData: unknown = design.data ? JSON.parse(design.data) : {};
+        const designDataRecord =
+          designData &&
+          typeof designData === "object" &&
+          !Array.isArray(designData)
+            ? (designData as Record<string, unknown>)
+            : {};
+        const frameData = designDataRecord.canvasFrames;
+        viewportBreakpointWidths = getResponsiveBreakpointWidths(
+          designDataRecord.breakpointSet,
+        );
+        if (viewportStartX === undefined || viewportStartY === undefined) {
+          const defaultPosition = nextCanvasFramePosition(
+            parseCanvasFrameGeometryById(frameData),
+            args.gap ?? 160,
+            {
+              responsiveLayout: {
+                screenFileIds: getOverviewScreenFileIds(screenFiles),
+                screenMetadataByFileId: designDataRecord.screenMetadata,
+                breakpointWidths: viewportBreakpointWidths,
+              },
+            },
+          );
+          viewportStartX ??= defaultPosition.x;
+          viewportStartY ??= defaultPosition.y;
+        }
+      }
+
       const screens = await addLocalhostScreensAction.run(
         {
           designId,
@@ -671,12 +752,14 @@ export default defineAction({
               ? expandRoutesAcrossViewports({
                   routes: requestedRoutes,
                   viewports,
-                  startX: args.startX ?? 0,
-                  startY: args.startY ?? 0,
+                  startX: viewportStartX ?? 0,
+                  startY: viewportStartY ?? 0,
                   gap: args.gap ?? 160,
+                  breakpointWidths: viewportBreakpointWidths,
                 })
               : args.routes,
           paths: viewports ? undefined : args.paths,
+          preserveExistingFramePositions: Boolean(viewports),
           defaultWidth: args.defaultWidth,
           defaultHeight: args.defaultHeight,
           startX: args.startX,
@@ -729,19 +812,11 @@ export default defineAction({
         placedFrames: screens.placedFrames,
         overview: true,
         urlPath,
-        // Safe for model-visible action text and retained links. The MCP App
-        // receives the one-time launcher separately through hidden metadata.
         openUrl: deepLink,
-        // Minted/stored by connect-localhost; the skill starts the bridge with
-        // `design connect --bridge-token <this>` so bridge and row agree.
         bridgeToken: connection.bridgeToken,
         previewToken: connection.previewToken,
       };
       if (embedStartUrl) {
-        // The browser page needs the one-time launcher to replace its landing
-        // route. Keep it non-enumerable for CLI/MCP callers so generic object
-        // serialization cannot copy the bearer into model-visible output; the
-        // frontend transport is the trusted same-origin handoff that needs it.
         Object.defineProperty(result, "embedStartUrl", {
           value: embedStartUrl,
           enumerable: ctx?.caller === "frontend",
@@ -788,8 +863,6 @@ export default defineAction({
     };
     if (!designId) return null;
     return {
-      // The single-use embed ticket stays in MCP result metadata. Keep the
-      // model-visible link credential-free.
       url: localVisualEditDeepLink(designId),
       label: "Open overview",
       view: "editor",

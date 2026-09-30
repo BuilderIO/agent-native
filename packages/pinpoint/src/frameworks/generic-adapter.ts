@@ -13,17 +13,14 @@ export const genericAdapter: FrameworkAdapter = {
   name: "generic",
 
   detect(): boolean {
-    // Always matches as the last resort
     return true;
   },
 
   getComponentInfo(_element: Element): ComponentInfo | null {
-    // No framework = no component info
     return null;
   },
 
   getSourceLocation(_element: Element): SourceLocation | null {
-    // No framework = no source location
     return null;
   },
 };

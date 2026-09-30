@@ -1,8 +1,8 @@
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
   deleteClientAppState,
 } from "@agent-native/core/client/hooks";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import { nanoid } from "nanoid";
@@ -25,6 +25,9 @@ import { TAB_ID } from "@/lib/tab-id";
 
 export const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
   "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
+
+export const NO_UPLOADED_FILES_CONTEXT =
+  "No uploaded files are attached to this run. Use source text already present in the user message or supplied reference context. For a supplied URL, follow its dedicated import instructions. Never invent a local file path or call `import-file` for an unattached file. If the referenced content is not present or retrievable from a supplied reference, ask the user to upload the file or paste its contents.";
 
 interface DesignSystemGenerationContextResult {
   agentContext?: string;
@@ -133,14 +136,6 @@ export function isSourceImprovementRequest(
     /\b(copy|slide[- ]for[- ]slide|preserv\w*|same order|before\s*\/?\s*after|placeholder\w*|out of order)\b/.test(
       normalized,
     );
-  // A source deck attachment is the object being improved even when the
-  // prompt uses an implicit phrase such as "make this prettier" or asks to
-  // copy and restyle it. Requiring a source noun here silently falls back to
-  // reference-only generation and can discard the uploaded deck's slide IDs
-  // and content.
-  // A conversion request names the attached deck as the thing being turned
-  // into slides. Only an explicit reference-only qualifier keeps it in the
-  // new-deck/reference workflow.
   return asksToImprove || asksToPreserveSource || asksToConvertSource;
 }
 
@@ -149,7 +144,9 @@ export function describeUploadedFilesForAgent(
   deckId: string,
   importedSourceDeck: ImportedSourceDeck | null = null,
 ): string {
-  if (files.length === 0) return "";
+  if (files.length === 0) {
+    return ["", NO_UPLOADED_FILES_CONTEXT].join("\n");
+  }
   const hasDocumentReferences = files.some((file) =>
     referenceDocumentFormat(file),
   );
@@ -287,6 +284,7 @@ export interface StartDeckGenerationOptions {
 
 export interface DeckGenerationContext {
   originalPrompt: string;
+  additionalContext?: string;
   files: Array<{
     path: string;
     url?: string;
@@ -296,6 +294,8 @@ export interface DeckGenerationContext {
   designSystemId: string | null;
   referenceDeckId: string | null;
   referenceSource?: NewDeckReferenceSelection["referenceSource"];
+  composerContext?: NewDeckReferenceSelection["composerContext"];
+  contextItems?: NewDeckReferenceSelection["contextItems"];
   mode: "new" | "source-preserving";
   targetSlideCount?: number;
   generationAttemptId?: string;
@@ -324,7 +324,6 @@ export function requestedSlideCount(prompt: string): number | undefined {
   return Number.isInteger(count) && count > 0 ? count : undefined;
 }
 
-/** Create the optimistic deck, hydrate references, and start the agent run. */
 export async function startDeckGeneration({
   session,
   prompt,
@@ -407,10 +406,6 @@ export async function startDeckGeneration({
     }
   }
 
-  // Only the document that actually became the reference deck is already
-  // represented; the import controls accept several files but import one, so
-  // excluding all of `referenceFilePaths` would drop the rest entirely while
-  // telling the agent every attachment had been read.
   const referenceHydration = await hydrateReferenceDocuments(
     filesForGeneration,
     {
@@ -433,13 +428,6 @@ export async function startDeckGeneration({
   }
   const referenceDocumentContext =
     referenceHydration.status === "hydrated" ? referenceHydration.context : "";
-  // An attached document reference never sets `referenceDeckId`, so without
-  // this the no-design-system branch below prescribed the same generic
-  // fallback look a reference-less prompt gets — which is how a styled PDF
-  // produced a deck indistinguishable from one generated with no reference.
-  // Keyed on a measured design, not merely a successful read: a DOCX, or a PDF
-  // whose digest could not be built, would otherwise suppress both the
-  // workspace default and the fallback and leave no styling guidance at all.
   const hasHydratedReferenceDesign =
     referenceHydration.status === "hydrated" &&
     referenceHydration.measuredDesignCount > 0;
@@ -586,12 +574,6 @@ export async function startDeckGeneration({
 
   onPromptClosed();
 
-  // A guided-question card from the previous deck's still-finishing agent run
-  // shares this browser tab's single "guided-questions" slot. Without
-  // clearing it here, a late answer to that stale question can render on top
-  // of the deck we're about to navigate to. Best-effort: if the previous
-  // run's question arrives after this clear, it can still reappear, but this
-  // closes the common case where it's already pending when a new deck starts.
   deleteClientAppState(
     appStateKeyForBrowserTab("guided-questions", TAB_ID),
   ).catch(() => {});

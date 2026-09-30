@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
 import type { ActionRunContext } from "../action.js";
@@ -81,8 +81,6 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "alice+qa@agent-native.test",
   getRequestOrgId: () => "org-qa",
   getRequestRunContext: () => ({ model: "claude-opus-4-8" }),
-  // `track()` reads the ambient browser session through this getter, so a mock
-  // that omits it makes every tracked event throw inside a best-effort catch.
   getRequestContext: () => ({ userEmail: "alice+qa@agent-native.test" }),
   isIntegrationCallerRequest: () => true,
   getIntegrationRequestContext: integrationRequestContextMock,
@@ -97,14 +95,6 @@ vi.mock("../integrations/a2a-continuation-processor.js", () => ({
   dispatchA2AContinuation: dispatchA2AContinuationMock,
 }));
 
-// Full mock of run-store.js so the real run-manager.js can be imported and
-// driven end-to-end in the "progress heartbeat" tests below (see that
-// describe block for why: shouldBumpProgressForEvent, the predicate that
-// decides whether an event counts as real progress, is an unexported closure
-// inside run-manager.ts's startRun(), so the only faithful way to assert
-// against the REAL predicate — not a reimplemented copy — is to run a real
-// managed run and observe whether the mocked bumpRunProgress gets called.
-// This mirrors the mock shape in agent/run-manager.spec.ts.
 vi.mock("../agent/run-store.js", () => ({
   insertRun: vi.fn(() => Promise.resolve()),
   insertRunEvent: vi.fn(() => Promise.resolve()),
@@ -153,7 +143,21 @@ vi.mock("../agent/run-store.js", () => ({
   },
 }));
 
+// Cleared after each test too, not only before: a marker the last test sets
+// would otherwise outlive this file, and the next spec in the same worker
+// would run as a Lambda invocation that refuses local PGlite.
+function clearHostedRuntimeEnv() {
+  delete process.env.NETLIFY;
+  delete process.env.NETLIFY_LOCAL;
+  delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
+  delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  delete process.env.VERCEL;
+  delete process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS;
+}
+
 describe("call-agent action", () => {
+  afterEach(clearHostedRuntimeEnv);
+
   beforeEach(() => {
     vi.clearAllMocks();
     findAgentMock.mockResolvedValue({
@@ -162,12 +166,7 @@ describe("call-agent action", () => {
     });
     resolveRemoteAgentTokenMock.mockResolvedValue(undefined);
     managedHandlerMock.mockReset();
-    delete process.env.NETLIFY;
-    delete process.env.NETLIFY_LOCAL;
-    delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
-    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
-    delete process.env.VERCEL;
-    delete process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS;
+    clearHostedRuntimeEnv();
     integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
     insertA2AContinuationMock.mockResolvedValue({ id: "cont-1" });
     getA2AContinuationsMock.mockResolvedValue([]);
@@ -178,6 +177,10 @@ describe("call-agent action", () => {
     const { tool } = await import("./call-agent.js");
 
     expect(tool.description).toContain("Use message by default");
+    expect(tool.description).toContain(
+      "ONLY use it when the user's requested outcome depends on data or a capability only that app can provide",
+    );
+    expect(tool.description).toContain("availability alone is not a reason");
     expect(tool.description).toContain(
       "The receiver owns provider, schema, query, join, and SQL decisions",
     );
@@ -466,7 +469,6 @@ describe("call-agent action", () => {
         parentTurnId: "turn-qa",
         delegationDepth: 1,
         visitedApps: ["mail"],
-        // Preference hint: the receiver only uses it when it has no model.
         callerModel: "claude-opus-4-8",
       },
       idempotencyKey: expect.stringMatching(/^v1:[a-f0-9]{64}$/),
@@ -707,6 +709,50 @@ describe("call-agent action", () => {
     },
   );
 
+  it("contains a child turn stop and blocks retrying that target", async () => {
+    callAgentMock.mockRejectedValueOnce(
+      Object.assign(new Error("remote task failed"), {
+        name: "A2ATaskTerminalError",
+        taskId: "task-child-stop",
+        state: "failed",
+        responseText:
+          "I stopped because get-capture needs an editor role.\n" +
+          "code: permanent_precondition",
+        errorCode: "permanent_precondition",
+      }),
+    );
+    const { run } = await import("./call-agent.js");
+    const blockedA2ATargets = new Map<string, string>();
+    const context = { send: vi.fn(), blockedA2ATargets } as any;
+
+    let firstError: unknown;
+    try {
+      await run(
+        { agent: "analytics", message: "inspect the account" },
+        context,
+      );
+    } catch (error) {
+      firstError = error;
+    }
+
+    expect(firstError).toMatchObject({
+      errorCode: "a2a_child_permanent_precondition",
+    });
+    expect((firstError as Error).message).toContain(
+      "Do not call Slides again this turn",
+    );
+    expect((firstError as Error).message).toContain("<<<diagnostic-snippet");
+    expect((firstError as Error).message).toContain(
+      "code: permanent_precondition",
+    );
+    expect(blockedA2ATargets.has("slides")).toBe(true);
+
+    await expect(
+      run({ agent: "analytics", message: "retry with raw content" }, context),
+    ).rejects.toThrow("Not calling Slides again this turn");
+    expect(callAgentMock).toHaveBeenCalledOnce();
+  });
+
   it("emits error when a direct semantic read returns a failed status", async () => {
     invokeActionMock.mockResolvedValueOnce({
       action: "gong-calls",
@@ -733,9 +779,6 @@ describe("call-agent action", () => {
     expect(send).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent_call", status: "done" }),
     );
-    // The reason has to ride on the event, not only on the telemetry call.
-    // This event is what lands in agent_run_events, and without a code the
-    // stored record says a cross-app call failed after N ms and never why.
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent_call",
@@ -822,8 +865,6 @@ describe("call-agent action", () => {
 
     try {
       const { run } = await import("./call-agent.js");
-      // A returned "Error: ..." string is scored as a SUCCESSFUL tool call,
-      // which is what let the model retell an unresolved target as downtime.
       const outcome = await run(
         { agent: "nosuchapp", message: "Create the rollout plan" },
         { send: vi.fn(), threadId: "t", runId: "r", turnId: "u" } as any,
@@ -839,8 +880,6 @@ describe("call-agent action", () => {
       expect(error.errorCode).toBe("agent_not_found");
       expect(error.message).toContain("nosuchapp");
       expect(error.message).toContain("plan");
-      // The reported production failure: the model narrated a resolution
-      // failure as "The Plans app is temporarily unavailable."
       expect(error.message).toMatch(/not an outage/i);
 
       expect(
@@ -871,9 +910,6 @@ describe("call-agent action", () => {
   ])(
     "reports the caller's own mode when a $label target cannot be resolved",
     async ({ args, mode }) => {
-      // Target resolution runs before the action/taskId dispatch, so this
-      // branch is reachable in every mode and must not label them all
-      // "message" — that would misattribute the failure in $a2a_invocation.
       const discovery = await import("../server/agent-discovery.js");
       vi.mocked(discovery.findAgent).mockResolvedValueOnce(undefined);
       vi.mocked(discovery.discoverAgents).mockResolvedValueOnce([]);
@@ -1145,7 +1181,6 @@ describe("call-agent action", () => {
   });
 
   describe("poll-driven progress", () => {
-    // Minimal A2A Task shaped like what callAgent()'s poll passes to onUpdate.
     const makeTask = (
       state: string,
       detailText?: string,
@@ -1183,7 +1218,6 @@ describe("call-agent action", () => {
       expect(
         events.filter((e: any) => e.type === "agent_call_progress"),
       ).toHaveLength(0);
-      // The normal start/done bracket still fires unchanged.
       expect(events).toContainEqual(
         expect.objectContaining({ type: "agent_call", status: "start" }),
       );
@@ -1210,11 +1244,8 @@ describe("call-agent action", () => {
           send,
         } as any);
 
-        // Flush setup awaits (findAgent, org lookups, token signing) until
-        // callAgent has been invoked and registered onUpdate.
         while (!onUpdate) await vi.advanceTimersByTimeAsync(1);
 
-        // 40 successful poll round-trips at 2s each = 80s of live remote work.
         for (let i = 0; i < 40; i++) {
           await vi.advanceTimersByTimeAsync(2_000);
           onUpdate!(makeTask("working", "Generating slides…"));
@@ -1225,12 +1256,9 @@ describe("call-agent action", () => {
         const progress = send.mock.calls
           .map(([e]) => e)
           .filter((e: any) => e.type === "agent_call_progress");
-        // 80s under a 30s throttle -> ticks at ~30s and ~60s only.
         expect(progress.length).toBeGreaterThanOrEqual(2);
         expect(progress.length).toBeLessThanOrEqual(3);
-        // Emphatically NOT one-per-poll: far fewer than the 40 round-trips.
         expect(progress.length).toBeLessThan(10);
-        // Carries the real remote state and surfaced detail, not a bare tick.
         expect(progress[0]).toMatchObject({
           type: "agent_call_progress",
           agent: "Slides",
@@ -1296,11 +1324,6 @@ describe("call-agent action", () => {
         const { run: callAgentAction } = await import("./call-agent.js");
         const { startRun } = await import("../agent/run-manager.js");
 
-        // shouldBumpProgressForEvent is an unexported closure inside
-        // startRun(); the only faithful way to assert against the REAL
-        // predicate is to run a real managed run and observe whether the
-        // (mocked) bumpRunProgress fires. softTimeoutMs:0 keeps the run from
-        // auto-continuing during our time advances.
         const managedRun = startRun(
           "run-progress-1",
           "thread-progress-1",
@@ -1317,7 +1340,6 @@ describe("call-agent action", () => {
 
         while (!onUpdate) await vi.advanceTimersByTimeAsync(1);
 
-        // Two well-spaced successful polls -> two emitted progress events.
         await vi.advanceTimersByTimeAsync(30_000);
         onUpdate!(makeTask("working"));
         await vi.advanceTimersByTimeAsync(30_000);
@@ -1326,9 +1348,6 @@ describe("call-agent action", () => {
         resolveCall!("final");
         await vi.advanceTimersByTimeAsync(2_000);
 
-        // start + 2 progress + done = 4 events. A start+done-only run (zero
-        // progress) can bump at most twice, so >=4 proves the two
-        // agent_call_progress events themselves moved last_progress_at.
         expect(bumpRunProgressMock.mock.calls.length).toBeGreaterThanOrEqual(4);
       } finally {
         vi.useRealTimers();
@@ -1336,10 +1355,6 @@ describe("call-agent action", () => {
     });
 
     it("emits NOTHING when the remote hangs so the stuck-detector can still fire (onUpdate never called)", async () => {
-      // Remote is unresponsive: callAgent's poll fetch keeps throwing, so the
-      // client never invokes onUpdate. callAgent ultimately returns a
-      // took-too-long message. The regression this guards: a wall-clock
-      // heartbeat would keep emitting progress here and mask the hang.
       callAgentMock.mockImplementation(async (_url, _msg, opts) => {
         expect(typeof opts.onUpdate).toBe("function");
         return "The Slides agent is taking longer than expected and didn't reply in time.";
@@ -1353,7 +1368,6 @@ describe("call-agent action", () => {
       expect(
         events.filter((e: any) => e.type === "agent_call_progress"),
       ).toHaveLength(0);
-      // The call still bracketed start/done so the parent knows it ran.
       expect(events).toContainEqual(
         expect.objectContaining({ type: "agent_call", status: "start" }),
       );
@@ -1437,8 +1451,6 @@ describe("call-agent action", () => {
         const p = run({ agent: "slides", message: "x" }, { send } as any);
         while (!onUpdate) await vi.advanceTimersByTimeAsync(1);
 
-        // Advance well past the 30s throttle so a working state WOULD emit —
-        // proving it's the terminal-state gate, not the throttle, suppressing.
         await vi.advanceTimersByTimeAsync(40_000);
         onUpdate!(makeTask("completed"));
         resolveCall!("done");
@@ -1540,7 +1552,6 @@ describe("call-agent action", () => {
         send: vi.fn(),
       } as any);
 
-      // NETLIFY_INTEGRATION_A2A_TIMEOUT_MS unchanged; onUpdate now threaded.
       expect(callAgentMock).toHaveBeenCalledWith(
         "https://slides.agent-native.test",
         expect.any(String),

@@ -19,11 +19,11 @@ components when you can, and drop down a layer when you need custom product UI.
 Import browser UI from focused client subpaths:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { AgentConversation } from "@agent-native/core/client/conversation";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
+import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { ResourcesPanel } from "@agent-native/core/client/resources";
 ```
 
@@ -119,26 +119,102 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## Prompt Home And Template Libraries {#prompt-home}
+
+`PromptHome`, `PromptHomeLibrary`, `TemplateLibraryGrid`, and `TemplateLibraryCard` are exported from `@agent-native/toolkit/app-shell`. They share home spacing, a centered 700px composer, and a responsive four-column library. The app shell keeps its main landmark. Apps supply real data, localized labels, previews, actions, and routing.
+
+`PromptHome` accepts `title`, `composer`, optional `mobileToolbar`, `connection`, `quickActions`, and library `children`. `PromptHomeLibrary` takes controlled `value` (`templates` or `recent`), `onValueChange`, `labels`, `showRecent`, `templates`, and optional `recent`, `browseAll`, and `recentActions`. With no recents it displays templates without a fake tab. `browseAll` is a real link supplied by the app. The semantic `Tabs.headerActions` slot keeps active actions beside the tabs.
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` accepts typed `items` with `id`, `title`, optional stored `description` and `disabled`, plus `renderPreview`. It supports `selectedId`, `pendingId`, `disabled`, `loading`, `error`, `onRetry`, optional `empty`, and injected `labels` for loading, empty, and retry. Choose `onSelect(item, element)` or `renderLink(item, children)`, never both. Image and caption share one activation target. `renderActions` stays outside the activation target, inline beside the title and optional description. Cards share fixed preview and caption dimensions; direct activation uses or copies the template, while Preview belongs only in the caption menu. Loaded items remain visible after refresh errors. `TemplateLibraryCard` exposes the same behavior for one `item`, with `preview`, optional `actions`, `selected`, `pending`, and `disabled`.
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+`TemplatePreviewDialog`, exported from the same entry point, uses the semantic `Dialog` with `size="viewport"` by default or `size="large"`. It takes controlled `open`, `onOpenChange`, `title`, and app-rendered `children`; the header has no use action. Optional `thumbnails` contain `{ id, title, preview, disabled? }` and require `selectedId` plus `onSelectedIdChange`. The rail becomes horizontal on narrow screens and supports arrow keys, Home, and End.
+
+The `viewport` size is an inset, centered modal: 90dvh tall, capped at 96rem wide, with 1rem mobile side margins and 1.5rem on wider screens. It preserves the standard dialog border, radius, shadow, and backdrop. Caption menus appear on card hover or keyboard focus on hover-capable devices and remain visible on touch devices; their reserved space never changes.
+
+Pass localized `labels` (`close`, `loading`, `empty`, `retry`, `thumbnails`), optional `loading`, `error`, `empty`, and `onRetry` for exclusive readiness states. `initialFocusRef` and `restoreFocusRef` control focus. Open the viewer from the caption menu after its close handoff; keep reads, cancellation, authorization, and safe isolated rendering in the app.
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit styles include the shared geometry. `@agent-native/toolkit/app-shell/prompt-home.css` is the focused stylesheet export. The existing `toolkit/app-shell` ejection unit includes the layout and stylesheet. Data loading, authorization, import workflows, and composer state stay app-owned.
+
 ## Agent And Chat UI {#agent-chat-ui}
 
-| API                                  | Import path                                   | Use when                                                                                         |
-| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`                     | `@agent-native/core/client` or `/client/chat` | You want the complete sidebar around your app.                                                   |
-| `<AgentToggleButton>`                | `@agent-native/core/client` or `/client/chat` | You render your own header button for the sidebar.                                               |
-| `<AgentPanel>`                       | `@agent-native/core/client` or `/client/chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` or `/client/chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
-| `<AssistantChat>`                    | `@agent-native/core/client` or `/client/chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` or `/client/chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` or `/client/chat` | You have a BYO agent endpoint that streams normalized chat events.                               |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` or `/client/chat` | You have an OpenAI Agents SDK stream and want the standard chat UI around it.                    |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` or `/client/chat` | You have an OpenAI Responses event stream and want it normalized into the chat UI.               |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` or `/client/chat` | You have an AG-UI event stream and want it normalized into the chat UI.                          |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` or `/client/chat` | You have a Claude Agent SDK stream and want it normalized into the chat UI.                      |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` or `/client/chat` | You have a Vercel AI SDK stream and want it normalized into the chat UI.                         |
-| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` or `/client/chat` | You need to adapt an `AgentChatRuntime` into assistant-ui yourself.                              |
-| `createAgentChatAdapter()`           | `@agent-native/core/client` or `/client/chat` | You need the built-in Agent-Native SSE transport as a low-level assistant-ui adapter.            |
-| `useChatThreads()`                   | `@agent-native/core/client` or `/client/chat` | You need a custom thread list, history picker, or scoped chat UI.                                |
-| `sendToAgentChat()`                  | `@agent-native/core/client` or `/client/chat` | A product action should hand work to the agent chat.                                             |
+| API                                  | Import path                            | Use when                                                                                         |
+| ------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat`       | You want the complete sidebar around your app.                                                   |
+| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat`       | You render your own header button for the sidebar.                                               |
+| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat`       | You want the full panel in your own layout, route, dialog, or side column.                       |
+| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat`       | You want chat in panel or page mode without the sidebar wrapper.                                 |
+| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat`       | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
+| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat`       | You want the framework's thread tabs without `AgentPanel` chrome.                                |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | You have a BYO agent endpoint that streams normalized chat events.                               |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | You have an OpenAI Agents SDK stream and want the standard chat UI around it.                    |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | You have an OpenAI Responses event stream and want it normalized into the chat UI.               |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | You have an AG-UI event stream and want it normalized into the chat UI.                          |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | You have a Claude Agent SDK stream and want it normalized into the chat UI.                      |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | You have a Vercel AI SDK stream and want it normalized into the chat UI.                         |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | You need a custom thread list, history picker, or scoped chat UI.                                |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | A product action should hand work to the agent chat.                                             |
 
 `AgentChatRuntime` is the BYO-agent contract for the standard chat shell. Pass
 `runtime` to `<AssistantChat>` when an external agent should power the
@@ -152,7 +228,7 @@ full app shapes, see [Agent Surfaces](/docs/agent-surfaces).
 The shortest custom route is still a pre-wired surface:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -162,7 +238,8 @@ export default function ChatRoute() {
 For custom chrome around the standard runtime:
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -189,11 +266,11 @@ for the connector usage, the normalized event stream, and when to reach for
 
 ## Chat Field And Composer {#composer}
 
-Use `@agent-native/core/client/composer` when you need to place the same chat
+Use `@agent-native/toolkit/app/chat/composer` when you need to place the same chat
 field used by the sidebar inside custom UI.
 
 Toolkit owns the shared Tiptap and composer UI implementation. The
-`@agent-native/core/client/composer` entry is its framework-wired wrapper: it
+`@agent-native/toolkit/app/chat/composer` entry is its framework-wired wrapper: it
 binds the Core runtime adapters used by attachments, mentions, skills, voice,
 and model selection. Reusable packages that need portable bare UI can import
 `@agent-native/toolkit/composer` instead, but must render it inside
@@ -210,7 +287,7 @@ and model selection. Reusable packages that need portable bare UI can import
 Most custom UIs should start with `PromptComposer`:
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 <PromptComposer
   placeholder="Ask the agent..."
@@ -223,9 +300,150 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 Use `TiptapComposer` only if you are already wiring assistant-ui primitives
 yourself. It is the field, not the whole chat runtime.
 
+### Staged composer context {#composer-context}
+
+`PromptComposer` and `TiptapComposer` accept `submissionDisabled` to block sending while leaving draft, file, and context staging enabled. Missing provider setup blocks submission, not staging. `disabled` still disables the full composer.
+
+`PromptComposer`, `TiptapComposer`, and `AgentKitComposer` accept `contextItems` and `contextMenuItems`. Apps own source reads and localized menu labels.
+
+Each `AgentChatContextItem` has `key`, `title`, and `context`. Optional `status` is `ready`, `pending`, or `error`. `statusMessage` explains failures. `onRemoveContextItem`, `onInspectContextItem`, and `onRetryContextItem` receive the item key. `removable: false` hides removal. Pending or failed items block submission unless `blocksSubmission: false` explicitly keeps them informational.
+
+A host can stage already-authorized context and receive the frozen snapshot on submission:
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+Context sources register `picker` on a `ComposerContextMenuItem`. `ComposerContextMenu` owns connected shadcn/Radix cascading submenus, not replacement panels: the root offers file upload, then Add context → host categories → source pickers. Add context is omitted when there are no host entries. Arrow keys and Escape navigate the menu hierarchy. Back within a link picker only returns from results to link entry in the same flyout. The shared picker owns search, list rows, loading, empty and error states, retry, pagination, and link entry. Apps provide authorized data and selection callbacks, not their own picker JSX.
+
+The picker configuration accepts:
+
+- `searchPlaceholder` and optional `emptyMessage` as localized app labels. `selectedIds` marks selected rows. Items have `id`, `title`, optional `disabled`, and optional `url`.
+- Either local `items` with optional `loading`, `error`, and `onRetry()`, or remote `load(request)`. These modes cannot be combined.
+- `load(request)` receives `search`, one-based `page`, optional `cursor` and `url`, and an `AbortSignal`. It returns `{ items, hasMore?, nextCursor? }`. Failures must reject, not return an empty result.
+- `onSelect(item, request)` stages the source. It may be asynchronous. Returning `false` keeps the picker open. Throwing shows an error with retry. Optional `clearSelection` supplies a localized `label` and an `onSelect()` callback.
+- Optional `link` supplies localized `placeholder` and `submitLabel` strings. `validate(url)` may return an error string. The shared form owns link input and navigation.
+- `scopeKey` resets all picker state when identity or access scope changes. `refreshKey` invalidates the current query when a source/version token changes without resetting the URL. Search changes return to page one. Apps pass refreshed tokens when agent writes change their source data.
+
+An app can register already-authorized choices. Here, `labels` contains localized app copy and `stageReference` updates the host's staged context:
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/toolkit/app/chat/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+For a searchable or linked source, the app supplies its authenticated loader. `loadAuthorizedReferences` implements the request/result contract above. It preserves access checks and forwards the abort signal to its client helper:
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
+      link: {
+        label: labels.referenceUrl,
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+`presentation` defaults to `"submenu"`. With `{ type: "dialog", mode: "multiple", onAttach }`, an ordinary menu item opens a shared dialog titled by the entry label. `link.label` labels its URL input. Continue validates an HTTP(S) URL without credentials before loading results. Blank or invalid submission never calls the provider. `link.validate()` can enforce provider-specific rules. Dialog buttons use shared localized labels, not `link.submitLabel`.
+
+`presentation.onAttach(items, request)` receives one frozen batch of newly checked items. This mode excludes `onSelect`. Choices survive search and pagination, and `selectedIds` are checked, disabled, and omitted from the batch. IDs must distinguish different source files. Returning `false` preserves the dialog. A rejection displays a retryable error. Cancellation or a `scopeKey` change aborts pending work and ignores late completion. Reopening starts with a fresh URL. Hosts must honor `request.signal` before asynchronous callbacks commit changes. `footerAction` and `clearSelection` remain submenu controls.
+
+`{ type: "dialog", mode: "url" }` uses Attach directly, without a results loader. Its `onSelect(item, request)` receives `{ id: url, title: url, url }` and `request.url`:
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`readComposerWebsiteSource(url, extractCallback)` from `@agent-native/core/server` builds website references through the host's existing SSRF-safe extractor. `composerSourceRequestSchema` from `@agent-native/core/shared` accepts `source: "website"` only with `operation: "read"` and a credential-free HTTP(S) `url` of at most 2,048 characters. The helper returns `{ id, title, url, context }` with a stable URL-hash ID and at most 20,000 context characters. Extraction status, warnings, rendering provenance, and any `[truncated]` marker remain in the context text. Partial extraction stays explicit. Failed extraction or missing usable `designMd` throws a typed failure. Authorization still belongs in the host's [action](/docs/actions-overview).
+
+Picker entries do not also define `render` or entry-level `onSelect`. Categories use `children`. The root and every category keep a searchable header. Categories can supply a localized `searchPlaceholder`; without it they use the shared context-search placeholder. `picker.searchPlaceholder` labels the source list's search input. Registration does not grant source access. The shared picker ignores superseded load responses.
+
+Optional `footerAction` stays below the results even during loading, errors, or an empty list. It accepts a localized `label`, optional `icon` and `disabled`, and either `onSelect()` or `renderLink(children)`. Use a callback for a modal or another stateful workflow: `false` keeps the menu open, `true` or `void` closes it, and rejection displays an error with retry. For pure navigation, return a real React Router `Link` or native anchor from `renderLink`; the shared menu supplies the row through `asChild`, preserving its `href` and browser navigation semantics. Wire existing authorized workflows, not placeholder actions.
+
+Passing `addAttachment` to `ComposerContextMenu` adds the standard upload action first and preserves the host's file callback.
+
+`PromptComposer` and `AgentKitComposer` accept `attachmentAdapter`, using the public `AttachmentAdapter` type from `@assistant-ui/react`. Supply the host's file-acceptance, size-validation, and staging policy through this adapter; omit it to retain the default adapters. The shared composer still owns the upload control, file picker, context picker, and attachment chips. Do not replace those controls to customize file staging.
+
+`inlineTextAttachments` defaults to `true` on `PromptComposer` and `AgentKitComposer`. Set it to `false` when the host already extracts ordinary text files: the composer passes the original files to the host without reading and appending their contents to the prompt. Synthetic pasted-text attachments still become prompt text. This opt-out does not change attachment acceptance or the shared controls.
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+The snapshot preserves `undefined` versus an explicit empty array. It rejects more than 32 items or 64 KiB of serialized UTF-8 data without truncation. `AgentKitComposer.beforeSend(submission)` is awaited before send or queue and receives frozen context, references, uploaded attachments, and run options. Rejection preserves the draft. Context is included in message text and metadata.
+
+`composerRef.current.submitWithText(text)` uses the same submission path with current files and model settings without replacing the editor first. It resolves to `true` after acceptance or `false` when blocked or rejected. Context selection is not an access grant. Apps must resolve and recheck source access through their authenticated actions.
+
 ## Conversation Rendering {#conversation}
 
-Use `@agent-native/core/client/conversation` for transcript-style rendering
+Use `@agent-native/toolkit/app/chat/conversation` for transcript-style rendering
 outside the full agent runtime.
 
 | API                                             | Use when                                                         |
@@ -248,7 +466,7 @@ component yourself — an action builds its result with a server-safe helper
 `@agent-native/core/data-widgets`, and the runtime picks the matching built-in
 React renderer automatically. `DataTableWidget`, `DataChartWidget`, and
 `DataWidgetResult` are the **result-shape types** — exported from
-`@agent-native/core/client/chat` and the root client entry for typing action
+`@agent-native/core/client/widgets` and the root client entry for typing action
 results, not renderable components. See
 [Native Chat UI](/docs/native-chat-ui#action-declared-widgets) for the full action result
 contract and a worked example.
@@ -351,7 +569,7 @@ import {
 
 ## Rich Editor {#rich-editor}
 
-Use `@agent-native/core/client/editor` when you need the shared markdown editor
+Use `@agent-native/toolkit/editor` when you need the shared markdown editor
 surface used by plans, content, resources, and collaborative document
 experiences.
 
@@ -369,7 +587,7 @@ experiences.
 The basic controlled editor is just markdown in and markdown out:
 
 ```tsx
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 <SharedRichEditor
   value={markdown}
@@ -386,7 +604,7 @@ import {
   emailToColor,
   useCollaborativeDoc,
 } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 const editorUser = {
   name: user.name,
@@ -482,9 +700,9 @@ function WorkspaceResources() {
 | Notifications | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
 | Progress      | `<RunsTray>`, progress hooks and types                 | `@agent-native/core/client/progress`      |
 | Onboarding    | `useOnboarding()`, onboarding panel hooks              | `@agent-native/core/client/onboarding`    |
-| Observability | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/core/client/observability` |
+| Observability | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/toolkit/app/observability` |
 | Resources     | `<ResourcesPanel>`, `<ResourceTree>`, resource hooks   | `@agent-native/core/client/resources`     |
-| Rich editor   | `<SharedRichEditor>`, slash commands, block node hooks | `@agent-native/core/client/editor`        |
+| Rich editor   | `<SharedRichEditor>`, slash commands, block node hooks | `@agent-native/toolkit/editor`            |
 
 ## One-Off Text Completion {#one-off-text-completion}
 

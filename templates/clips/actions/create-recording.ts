@@ -1,14 +1,3 @@
-/**
- * Create a new recording row in 'uploading' status.
- *
- * Returns the new recording id plus a chunk upload URL template the
- * frontend fills in per-chunk. The chunk route accepts a binary body
- * with query params index/total/isFinal and calls finalize when isFinal=true.
- *
- * Usage:
- *   pnpm action create-recording --title="Quick demo"
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
@@ -18,6 +7,12 @@ import { eq } from "drizzle-orm";
 import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  normalizeRecordingFailureCode,
+  trackRecordingFailure,
+  type RecordingFailureCode,
+} from "../server/lib/recording-failures.js";
+import { snapshotUploadRecoveryPolicy } from "../server/lib/recording-policy.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -32,9 +27,67 @@ import {
   allowsSqlRecordingChunkScratch,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
-import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
+
+export function classifyInitialUploadFailure(error: unknown): {
+  failureCode: RecordingFailureCode;
+  failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
+  httpStatus?: number;
+} {
+  const details =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : {};
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof details.message === "string"
+        ? details.message
+        : typeof error === "string"
+          ? error
+          : "";
+  const messageStatus = /\b(?:failed|failure|error)\s*\((\d{3})\)/i.exec(
+    message,
+  )?.[1];
+  const status =
+    (Number.isInteger(details.status) && Number(details.status)) ||
+    (Number.isInteger(details.statusCode) && Number(details.statusCode)) ||
+    (messageStatus ? Number(messageStatus) : undefined);
+  const httpStatus =
+    status && status >= 100 && status <= 599 ? status : undefined;
+  const failureStage =
+    details.failureStage === "multipart_start" ||
+    details.failureStage === "chunk_upload" ||
+    details.failureStage === "reset_chunks"
+      ? details.failureStage
+      : "multipart_start";
+  const failureCode = normalizeRecordingFailureCode(details.failureCode);
+  const storageSetupRequired =
+    failureCode === "storage_setup_required" ||
+    details.errorCode === "builder_oauth_reauthorization_required" ||
+    httpStatus === 401 ||
+    httpStatus === 403 ||
+    /credentials?[^.\n]*(?:not configured|missing)|not connected|reconnect builder(?:\.io)?|scope mismatch|missing its space id/i.test(
+      message,
+    );
+
+  if (storageSetupRequired) {
+    return {
+      failureCode: "storage_setup_required",
+      failureStage,
+      ...(httpStatus ? { httpStatus } : {}),
+    };
+  }
+
+  return {
+    failureCode:
+      failureCode === "unknown" ? "multipart_start_failed" : failureCode,
+    failureStage,
+    ...(httpStatus ? { httpStatus } : {}),
+  };
+}
 
 export default defineAction({
   description:
@@ -65,6 +118,8 @@ export default defineAction({
       folderId: args.folderId,
     });
 
+    await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
+
     await db.insert(schema.recordings).values({
       id,
       organizationId,
@@ -74,11 +129,10 @@ export default defineAction({
       title,
       titleSource,
       sourceAppName: args.sourceAppName?.trim() || null,
+      recordingPlatform: args.recordingPlatform ?? "unknown",
       sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
       status: "uploading",
       uploadProgress: 0,
-      // Take the upload lease at creation. A row that never gets one is
-      // invisible to the reaper and can sit in 'uploading' forever.
       uploadLeaseExpiresAt: uploadLeaseExpiry(),
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
@@ -100,9 +154,6 @@ export default defineAction({
 
     console.log(`Created recording "${title}" (${id})`);
 
-    // Initialize a resumable upload session so chunks are streamed to the
-    // provider during recording (no post-stop assembly). Hosted deployments
-    // have no SQL chunk fallback, so never return a buffered target there.
     let uploadMode: UploadMode = "buffered";
     const uploadProvider = await getActiveFileUploadProviderForRequest();
     const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
@@ -113,12 +164,28 @@ export default defineAction({
     });
     const streamingRequired = !bufferedFallbackAvailable;
 
-    const failUploadSetup = async (reason: string): Promise<never> => {
+    const failUploadSetup = async (
+      reason: string,
+      failure: ReturnType<typeof classifyInitialUploadFailure> = {
+        failureCode: "storage_setup_required",
+      },
+    ): Promise<never> => {
       const failedAt = new Date().toISOString();
       await db
         .update(schema.recordings)
-        .set({ status: "failed", failureReason: reason, updatedAt: failedAt })
+        .set({
+          status: "failed",
+          failureCode: failure.failureCode,
+          failureReason: reason,
+          updatedAt: failedAt,
+        })
         .where(eq(schema.recordings.id, id));
+      trackRecordingFailure({
+        recordingId: id,
+        userId: ownerEmail,
+        platform: args.recordingPlatform,
+        ...failure,
+      });
       await writeAppState(`recording-upload-${id}`, {
         recordingId: id,
         status: "failed",
@@ -176,15 +243,12 @@ export default defineAction({
         );
       } catch (err) {
         if (streamingRequired) {
-          // Keep the underlying reason. A Builder connection that needs
-          // re-authorizing is not fixed by refreshing, and replacing its
-          // message with a retry prompt is why that case looked like a
-          // random failure.
           const reason = err instanceof Error ? err.message.trim() : "";
           await failUploadSetup(
             reason
               ? `Video storage could not start an upload: ${reason}`
               : "Video storage could not start a resumable upload session. Refresh and try again.",
+            classifyInitialUploadFailure(err),
           );
         }
         console.warn(
@@ -200,7 +264,6 @@ export default defineAction({
       status: "uploading" as const,
       uploadChunkUrl: `/api/uploads/${id}/chunk`,
       abortUrl: `/api/uploads/${id}/abort`,
-      // Frontend substitutes {index}/{total}/{isFinal}
       uploadChunkUrlTemplate: `/api/uploads/${id}/chunk?index={index}&total={total}&isFinal={isFinal}`,
       uploadMode,
     };

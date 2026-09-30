@@ -18,12 +18,6 @@ import {
   signA2AToken,
 } from "./client.js";
 
-// ssrfSafeFetch does a REAL node:dns lookup before calling fetch. Under fake
-// timers that wall-clock work can take seconds on CI resolvers (agent.test is
-// not a real host), so fake time races past request timeouts and deadlines
-// before the stubbed fetch is ever reached. Keep the synchronous private-host
-// check (the blocking test relies on it; IP literals need no DNS) and skip
-// only the DNS phase — full SSRF behavior is covered by url-safety's own spec.
 vi.mock("../extensions/url-safety.js", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("../extensions/url-safety.js")>();
@@ -592,8 +586,6 @@ describe("A2AClient", () => {
       { role: "user", parts: [{ type: "text", text: "hello" }] },
       { timeoutMs: 5_000, pollIntervalMs: 1_000 },
     );
-    // Attach a handler before advancing timers so the intentional rejection is
-    // never reported as unhandled while the fake clock is moving.
     void result.catch(() => undefined);
 
     const hasTaskRead = () =>
@@ -602,9 +594,6 @@ describe("A2AClient", () => {
           init?.method === "POST" &&
           JSON.parse(String(init.body)).method === "tasks/get",
       );
-    // waitFor advances fake time in coarse intervals. Stepping the clock 1ms at
-    // a time performs 1,000 async flushes and can exceed Vitest's real 5s test
-    // timeout when the full suite is under load.
     await vi.waitFor(() => expect(hasTaskRead()).toBe(true), {
       interval: 100,
       timeout: 5_000,
@@ -667,11 +656,8 @@ describe("A2AClient", () => {
       { role: "user", parts: [{ type: "text", text: "hello" }] },
       { timeoutMs: 60_000, pollIntervalMs: 1_000 },
     );
-    // Attach a handler before advancing timers so an unexpected rejection is
-    // never reported as unhandled while the fake clock is moving.
     void result.catch(() => undefined);
 
-    // Same coarse-interval pacing rationale as the hung-poll test above.
     await vi.waitFor(() => expect(taskReads).toBeGreaterThan(0), {
       interval: 100,
       timeout: 5_000,
@@ -773,6 +759,50 @@ describe("A2AClient", () => {
       ).rejects.toBeInstanceOf(A2ATaskTerminalError);
     },
   );
+
+  it("reads a structured agent error code from failed task message metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-coded-failure",
+              status: {
+                state: "failed",
+                message: {
+                  role: "agent",
+                  parts: [
+                    {
+                      type: "text",
+                      text: "The provider connection is missing.",
+                    },
+                  ],
+                  metadata: { agentNativeErrorCode: "missing_credentials" },
+                },
+              },
+              history: [],
+              artifacts: [],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "read the provider data"),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTerminalError",
+      taskId: "task-coded-failure",
+      state: "failed",
+      errorCode: "missing_credentials",
+      responseText: "The provider connection is missing.",
+    });
+  });
 
   it("rejects completed tasks with neither text nor a verified artifact", async () => {
     vi.stubGlobal(
@@ -1495,6 +1525,9 @@ describe("A2AClient", () => {
     await expect(
       callAgent("https://slides.agent.test", "make a deck", {
         timeoutMs: 3,
+        // A 3 ms budget shared with submission can expire before the task
+        // exists, which fails with a request deadline instead of the timeout.
+        submissionTimeoutMs: 1_000,
         pollIntervalMs: 1,
         returnRecoverableArtifactsOnTimeout: false,
       }),

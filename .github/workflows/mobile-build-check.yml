@@ -1,31 +1,80 @@
 name: Mobile Build Check
 
-# Compile the generated Android and iOS projects without signing or publishing.
-# Release credentials and the complete extension/provisioning path stay in EAS.
 on:
   pull_request:
     branches: [main]
+    # What Metro bundles, not everything the app depends on.
+    # guard:mobile-build-paths traces the bundle's imports and fails when
+    # either list misses one or the two lists differ.
     paths:
       - "packages/mobile-app/**"
-      - "packages/core/**"
-      - "packages/toolkit/**"
-      - "packages/recap-cli/**"
+      - "packages/agentkit/package.json"
+      - "packages/agentkit/src/**"
+      - "packages/agentkit/tsconfig*.json"
       - "packages/shared-app-config/**"
+      - "packages/core/package.json"
+      - "packages/core/tsconfig*.json"
+      - "packages/core/scripts/finalize-build.mjs"
+      - "packages/core/scripts/check-dist-imports.mjs"
+      - "packages/core/src/client/**"
+      - "packages/core/src/shared/**"
+      - "packages/core/src/localization/**"
+      - "packages/core/src/data-widgets/**"
+      - "packages/core/src/action-ui.ts"
+      - "packages/core/src/session-replay-iframe-protocol.ts"
+      - "packages/core/src/agent/engine/credential-errors.ts"
+      - "packages/core/src/agent/engine/error-detail.ts"
+      - "packages/core/src/agent/engine/openai-compatible-endpoint.ts"
+      - "packages/core/src/agent/engine/provider-env-vars.ts"
+      - "packages/core/src/app-config/run-lifecycle-invariants.ts"
+      - "packages/core/src/observability/tracing.ts"
+      - "packages/core/src/package-lifecycle/migration-message.ts"
+      - "packages/core/src/tracking/posthog-exception.ts"
+      - "packages/core/src/tracking/redaction.ts"
+      - "!packages/**/*.spec.ts"
+      - "!packages/**/*.spec.tsx"
+      - "!packages/**/*.test.ts"
+      - "!packages/**/*.test.tsx"
+      - "package.json"
+      - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
       - ".github/workflows/mobile-build-check.yml"
-  # Actions caches are branch-scoped: a cache written on a PR merge ref is only
-  # visible to that PR, so PR-only runs never warm each other. Running on push
-  # to main writes caches on the default branch, which every PR can read. This
-  # is the trusted cache-warming path that keeps new PRs from starting cold.
   push:
     branches: [main]
     paths:
       - "packages/mobile-app/**"
-      - "packages/core/**"
-      - "packages/toolkit/**"
-      - "packages/recap-cli/**"
+      - "packages/agentkit/package.json"
+      - "packages/agentkit/src/**"
+      - "packages/agentkit/tsconfig*.json"
       - "packages/shared-app-config/**"
+      - "packages/core/package.json"
+      - "packages/core/tsconfig*.json"
+      - "packages/core/scripts/finalize-build.mjs"
+      - "packages/core/scripts/check-dist-imports.mjs"
+      - "packages/core/src/client/**"
+      - "packages/core/src/shared/**"
+      - "packages/core/src/localization/**"
+      - "packages/core/src/data-widgets/**"
+      - "packages/core/src/action-ui.ts"
+      - "packages/core/src/session-replay-iframe-protocol.ts"
+      - "packages/core/src/agent/engine/credential-errors.ts"
+      - "packages/core/src/agent/engine/error-detail.ts"
+      - "packages/core/src/agent/engine/openai-compatible-endpoint.ts"
+      - "packages/core/src/agent/engine/provider-env-vars.ts"
+      - "packages/core/src/app-config/run-lifecycle-invariants.ts"
+      - "packages/core/src/observability/tracing.ts"
+      - "packages/core/src/package-lifecycle/migration-message.ts"
+      - "packages/core/src/tracking/posthog-exception.ts"
+      - "packages/core/src/tracking/redaction.ts"
+      - "!packages/**/*.spec.ts"
+      - "!packages/**/*.spec.tsx"
+      - "!packages/**/*.test.ts"
+      - "!packages/**/*.test.tsx"
+      - "package.json"
+      - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
       - ".github/workflows/mobile-build-check.yml"
   workflow_dispatch:
 
@@ -39,8 +88,6 @@ permissions:
 env:
   MOBILE_APP_PATH: packages/mobile-app
   CI: "1"
-  # PR builds do not exercise push entitlements or the separately provisioned
-  # widget, keyboard, broadcast, and watch targets. EAS release builds do.
   AGENT_NATIVE_MOBILE_DISABLE_APP_EXTENSIONS: "1"
   AGENT_NATIVE_MOBILE_DISABLE_REMOTE_PUSH: "1"
 
@@ -51,6 +98,27 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # A pull request checks out its merge commit, whose first parent is
+          # the base; diffing against it isolates what the PR changes.
+          fetch-depth: 2
+
+      - name: Detect native build input changes
+        id: native
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Shared JavaScript packages reach the app only through the Metro
+          # bundle, which the export step still checks on every run.
+          native_paths="$(git diff --name-only HEAD^1 HEAD -- packages/mobile-app pnpm-lock.yaml .github/workflows/mobile-build-check.yml)"
+          if [ -n "$native_paths" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No native build input changed; skipping the Gradle compile."
+          fi
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -59,17 +127,27 @@ jobs:
           node-version: "22"
           cache: pnpm
 
+      - name: Install native canvas build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            pkg-config \
+            libcairo2-dev \
+            libpixman-1-dev \
+            libpango1.0-dev \
+            libjpeg-dev \
+            libgif-dev \
+            librsvg2-dev
+
       - run: pnpm install --frozen-lockfile
 
       - name: Generate Android project
+        if: steps.native.outputs.changed == 'true'
         working-directory: ${{ env.MOBILE_APP_PATH }}
         run: pnpm exec expo prebuild --platform android --no-install
 
-      # Persist the Gradle user home so dependencies and the build cache
-      # (org.gradle.caching is enabled by with-gradle-properties.ts) survive
-      # between runs instead of being downloaded and recompiled from scratch.
-      # Keyed after prebuild so the generated Gradle files feed the hash.
       - name: Cache Gradle home
+        if: steps.native.outputs.changed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -91,25 +169,12 @@ jobs:
         working-directory: ${{ env.MOBILE_APP_PATH }}
         run: pnpm exec expo export --platform android --output-dir .expo-ci-export
 
-      # Every native module resolves `reactNativeArchitectures` as a project
-      # property and defaults to all four ABIs, so an unqualified build compiles
-      # armeabi-v7a/x86/x86_64/arm64-v8a of every .so and then merges, strips
-      # and packages all of them. `:app:packageDebug` is the disk peak of that
-      # sequence, and it is where this job intermittently died on both main and
-      # PR branches. One ABI still proves the Java/Kotlin, JS bundle, native
-      # compile and packaging path this gate exists to check; EAS release builds
-      # are unaffected because they do not run this workflow.
-      # `--stacktrace` because Gradle otherwise reports only "a failure occurred
-      # while executing ..." and discards the cause, which is what made the
-      # earlier failures undiagnosable.
       - name: Compile Android debug APK
+        if: steps.native.outputs.changed == 'true'
         working-directory: ${{ env.MOBILE_APP_PATH }}/android
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace -PreactNativeArchitectures=arm64-v8a
 
   ios:
-    # Expo SDK 57.0.6 does not currently compile reliably with the Xcode 26.x
-    # toolchains available to hosted CI. Keep the bundle/config gate truthful
-    # until the app upgrades to a compatible Expo patch.
     name: iOS production bundle
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -122,6 +187,18 @@ jobs:
         with:
           node-version: "22"
           cache: pnpm
+
+      - name: Install native canvas build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            pkg-config \
+            libcairo2-dev \
+            libpixman-1-dev \
+            libpango1.0-dev \
+            libjpeg-dev \
+            libgif-dev \
+            librsvg2-dev
 
       - run: pnpm install --frozen-lockfile
 

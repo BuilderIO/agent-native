@@ -1,16 +1,8 @@
-/**
- * OAuth 2.1 client support for remote MCP servers.
- *
- * MCP servers advertise their OAuth endpoints through the standard protected
- * resource and authorization-server metadata documents. The SDK handles the
- * protocol details; this module owns the framework-specific encrypted storage
- * and refresh boundary.
- */
-
 import crypto from "node:crypto";
 
 import {
   auth,
+  discoverOAuthServerInfo,
   refreshAuthorization,
   validateAuthorizationResponseIssuer,
   type AuthorizationServerMetadata,
@@ -320,13 +312,6 @@ async function finishGoogleMcpOAuthAuthorization(
   };
 }
 
-/**
- * RFC 8707 resource identifiers are exact strings. WHATWG `URL` origin-only
- * values stringify with a trailing slash (`https://api.builder.io/` vs
- * `https://api.builder.io`), and the MCP SDK puts `resource.href` on authorize
- * and token requests. Servers that registered the unsuffixed identifier reject
- * the canonical form as unregistered.
- */
 class Rfc8707ResourceUrl extends URL {
   readonly identifier: string;
 
@@ -517,6 +502,7 @@ export interface McpOAuthProviderOptions {
   serverUrl: string;
   redirectUrl: string;
   state: string;
+  tokenEndpointAuthMethod?: OAuthClientMetadata["token_endpoint_auth_method"];
   clientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   discoveryState?: McpOAuthDiscoveryState;
@@ -531,6 +517,20 @@ export interface McpOAuthProviderOptions {
     state: McpOAuthDiscoveryState,
     clientMetadataUrl: string | undefined,
   ) => void;
+}
+
+function dynamicClientAuthMethod(
+  metadata: AuthorizationServerMetadata | undefined,
+): OAuthClientMetadata["token_endpoint_auth_method"] {
+  const methods = metadata?.token_endpoint_auth_methods_supported;
+  if (!Array.isArray(methods)) return "client_secret_basic";
+  if (methods.includes("none")) return "none";
+  for (const method of ["client_secret_basic", "client_secret_post"] as const) {
+    if (methods.includes(method)) return method;
+  }
+  throw new Error(
+    "MCP OAuth server does not support a client authentication method this connector can register with.",
+  );
 }
 
 function issuerForDiscovery(
@@ -612,11 +612,6 @@ function brandedOAuthClientMetadata(): Pick<
   return metadata;
 }
 
-/**
- * A small adapter around the MCP SDK's OAuth provider interface. The route
- * stores the adapter's state in an encrypted, short-lived browser cookie; the
- * durable credential bundle is written only after the callback succeeds.
- */
 export class McpOAuthClientProvider implements OAuthClientProvider {
   private readonly redirectUrlValue: string;
   private readonly stateValue: string;
@@ -630,12 +625,6 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     state: McpOAuthDiscoveryState,
     clientMetadataUrl: string | undefined,
   ) => void;
-  /**
-   * Part of the SDK's provider contract, deliberately unset: this app hosts no
-   * client metadata document, so the SDK's SEP-991 path stays out of reach and
-   * every start still needs a registered client. Setting this must also make
-   * `assertRegisterableClient` stop refusing CIMD-only servers.
-   */
   readonly clientMetadataUrl?: string;
 
   constructor(options: McpOAuthProviderOptions) {
@@ -660,7 +649,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     this.metadata = {
       ...brandedOAuthClientMetadata(),
       redirect_uris: [options.redirectUrl],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method: options.tokenEndpointAuthMethod ?? "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       application_type: applicationTypeForRedirect(options.redirectUrl),
@@ -798,10 +787,6 @@ export class McpOAuthRegistrationUnsupportedError extends Error {
   }
 }
 
-/**
- * Accept either an authorization-server URL or a URL to its discovery document.
- * The SDK needs the issuer, while the document may live at an arbitrary path.
- */
 export async function resolveMcpOAuthAuthorizationServerUrl(
   value: string,
 ): Promise<string> {
@@ -858,9 +843,6 @@ function assertRegisterableClient(
     | undefined;
   if (!metadata) return;
   if (metadata.registration_endpoint) return;
-  // The SDK takes its registration-free CIMD path only when the server
-  // advertises it AND the provider supplies a client metadata URL. The flag
-  // alone still falls through to dynamic registration.
   if (
     metadata.client_id_metadata_document_supported === true &&
     clientMetadataUrl
@@ -876,9 +858,6 @@ function assertRegisterableClient(
 export async function startMcpOAuthAuthorization(
   options: McpOAuthProviderOptions & {
     scope?: string;
-    // Override the protected-resource metadata URL for servers whose metadata
-    // is not at the RFC 9728 default path; the SDK still discovers the resource
-    // and authorization-server endpoints from it live.
     resourceMetadataUrl?: string;
   },
 ): Promise<McpOAuthStartResult> {
@@ -890,13 +869,40 @@ export async function startMcpOAuthAuthorization(
       googleScopes,
     );
   }
-  // A caller-supplied client never reaches registration, so only a start
-  // without one can be blocked by a missing registration path.
-  if (!options.clientInformation && options.discoveryState) {
-    assertRegisterableClient(options.discoveryState, undefined);
+  const resourceMetadataUrl = options.resourceMetadataUrl
+    ? checkedRemoteUrl(options.resourceMetadataUrl, "resource metadata").href
+    : undefined;
+  const discoveredState =
+    !options.clientInformation && !options.discoveryState
+      ? await discoverOAuthServerInfo(serverUrl, {
+          fetchFn: guardedOAuthFetch(),
+          ...(resourceMetadataUrl
+            ? { resourceMetadataUrl: new URL(resourceMetadataUrl) }
+            : {}),
+        })
+      : undefined;
+  const discoveryState =
+    options.discoveryState ??
+    (discoveredState
+      ? {
+          ...discoveredState,
+          ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
+        }
+      : undefined);
+  if (discoveryState) validateDiscoveryUrls(discoveryState);
+  if (!options.clientInformation && discoveryState) {
+    assertRegisterableClient(discoveryState, undefined);
   }
   const provider = new McpOAuthClientProvider({
     ...options,
+    ...(discoveryState ? { discoveryState } : {}),
+    ...(!options.clientInformation
+      ? {
+          tokenEndpointAuthMethod: dynamicClientAuthMethod(
+            discoveryState?.authorizationServerMetadata,
+          ),
+        }
+      : {}),
     ...(options.clientInformation
       ? {}
       : { onDiscoveryState: assertRegisterableClient }),

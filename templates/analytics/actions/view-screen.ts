@@ -12,18 +12,50 @@ import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
 import {
   getSessionReplaySummary,
-  listSessionRecordings,
+  listSessionRecordingsPage,
   replayRangeToIso,
   type ReplayRange,
+  type SessionReplayListFilters,
 } from "../server/lib/session-replay.js";
 import {
   getStatusPagePreview,
   listStatusPages,
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
+import { sessionDateBound } from "../shared/session-date-bounds";
+import { readSessionPage, SESSION_PAGE_SIZE } from "../shared/session-page";
 
-const SESSION_FILTER_KEYS = new Set(["range", "app", "q"]);
+const SESSION_FILTER_KEYS = new Set([
+  "range",
+  "app",
+  "q",
+  "fromDate",
+  "toDate",
+  "from",
+  "to",
+  "sort",
+  "page",
+  "triage",
+  "includeZeroMinuteSessions",
+  "minDurationMs",
+  "hideEmpty",
+  "hideInternal",
+  "visitorType",
+  "emailDomain",
+  "hasErrors",
+  "hasNetworkErrors",
+  "hasRageClicks",
+]);
 const REPLAY_RANGES = new Set(["24h", "7d", "30d", "90d", "all"]);
+const SESSION_SORTS = new Set([
+  "newest",
+  "longest",
+  "errors",
+  "events",
+  "rage",
+]);
+const SESSION_DURATIONS = new Set([0, 60_000, 300_000, 900_000, 1_800_000]);
+const SESSION_EXCERPT_SIZE = 25;
 const DASHBOARD_PATH_RE = /^\/(?:adhoc|dashboards)\/([^/]+)\/?$/;
 
 function dashboardIdFromPathname(pathname: string): string | null {
@@ -74,9 +106,6 @@ export default defineAction({
       ? dashboardIdFromPathname(pathname)
       : null;
     const navigationDashboardId = normalizedDashboardId(rawNav?.dashboardId);
-    // The URL is authoritative during route transitions in both directions.
-    // A stale Ask navigation object must not hide the dashboard selection or
-    // trigger Ask-only behavior after the URL has moved to a dashboard.
     const isAskView = hasAuthoritativePathname
       ? isAskPathname(pathname)
       : rawNav?.view === "ask";
@@ -111,9 +140,6 @@ export default defineAction({
     if (url?.pathname) screen.pathname = url.pathname;
     if (selectedObject) screen.selectedObject = selectedObject;
 
-    // Surface the active URL filter params (f_*) so the agent doesn't have
-    // to reason about the URL string or go hunting in settings for them.
-    // To change a filter, use the `set-search-params` tool with these keys.
     if (url?.searchParams) {
       const activeFilters: Record<string, string> = {};
       for (const [k, v] of Object.entries(url.searchParams)) {
@@ -205,14 +231,76 @@ export default defineAction({
             );
           } else {
             const params = url?.searchParams ?? {};
-            const sessions = await listSessionRecordings(scope, {
-              from:
-                replayRangeToIso(readReplayRange(params.range)) ?? undefined,
-              app: params.app,
-              query: params.q,
-              limit: 25,
+            const customRange = params.range === "custom";
+            const page = readSessionPage(params.page);
+            const minDurationMs = Number(params.minDurationMs);
+            const offset = (page - 1) * SESSION_PAGE_SIZE;
+            const filters: SessionReplayListFilters = {
+              from: customRange
+                ? (params.from ?? sessionDateBound(params.fromDate))
+                : (replayRangeToIso(readReplayRange(params.range)) ??
+                  undefined),
+              to: customRange
+                ? (params.to ?? sessionDateBound(params.toDate, true))
+                : undefined,
+              app: params.app || undefined,
+              query: params.q || undefined,
+              minDurationMs: SESSION_DURATIONS.has(minDurationMs)
+                ? minDurationMs || undefined
+                : undefined,
+              hideEmpty:
+                params.hideEmpty === "true" ||
+                (params.hideEmpty !== "false" &&
+                  params.includeZeroMinuteSessions !== "true"),
+              hideInternal: params.hideInternal === "true",
+              hasErrors: params.hasErrors === "true",
+              hasNetworkErrors: params.hasNetworkErrors === "true",
+              hasRageClicks: params.hasRageClicks === "true",
+              emailDomain: params.emailDomain || undefined,
+              visitorType:
+                params.visitorType === "internal" ||
+                params.visitorType === "work" ||
+                params.visitorType === "personal"
+                  ? params.visitorType
+                  : undefined,
+              sort: SESSION_SORTS.has(params.sort ?? "")
+                ? (params.sort as
+                    | "newest"
+                    | "longest"
+                    | "errors"
+                    | "events"
+                    | "rage")
+                : ("newest" as const),
+              offset,
+            };
+            const result = await listSessionRecordingsPage(scope, {
+              ...filters,
+              limit: SESSION_EXCERPT_SIZE,
             });
-            screen.sessionReplays = sessions;
+            screen.sessionReplays = result.recordings;
+            screen.sessionReplayPage = {
+              filters: {
+                range: customRange ? "custom" : readReplayRange(params.range),
+                ...filters,
+              },
+              page: Math.floor(offset / SESSION_PAGE_SIZE) + 1,
+              pageSize: SESSION_PAGE_SIZE,
+              offset,
+              total: result.total,
+              returnedCount: result.recordings.length,
+              excerptLimit: SESSION_EXCERPT_SIZE,
+              truncated:
+                result.recordings.length <
+                Math.min(SESSION_PAGE_SIZE, Math.max(0, result.total - offset)),
+              fullPageAction: {
+                name: "list-session-recordings",
+                args: {
+                  paginated: true,
+                  ...filters,
+                  limit: SESSION_PAGE_SIZE,
+                },
+              },
+            };
           }
         } catch (error: any) {
           screen.sessionReplayError = error?.message || String(error);
@@ -319,7 +407,6 @@ export default defineAction({
               }));
             }
           } else if (nav?.statusPageId) {
-            // Status pages are a config sub-view under the uptime panel.
             screen.uptimeSubview = "status-pages";
             if (nav.statusPageId === "new") {
               screen.statusPageMode = "create";

@@ -23,9 +23,40 @@ const limitFn = vi.fn(async (limit: number) => rowsForQuery.slice(0, limit));
 const orderByFn = vi.fn(() =>
   Object.assign(Promise.resolve(rowsForQuery), { limit: limitFn }),
 );
-const whereFn = vi.fn(() => ({ orderBy: orderByFn }));
+let currentSelection: Record<string, unknown> | undefined;
+const badPreviewIds = new Set<string>();
+const previewFor = (data: string) => {
+  const parsed = JSON.parse(data);
+  const first = parsed.slides?.[0];
+  return {
+    previewSlide: first === undefined ? null : JSON.stringify(first),
+    previewTooLarge: false,
+    aspectRatio: parsed.aspectRatio ?? null,
+  };
+};
+const whereFn = vi.fn((condition?: { column?: unknown; value?: unknown }) => {
+  const isRowLookup = condition?.column === "id_col";
+  const rows = isRowLookup
+    ? rowsForQuery.filter((row) => row.id === condition?.value)
+    : rowsForQuery;
+  const result: Promise<unknown[]> = !isRowLookup
+    ? Promise.resolve(rows)
+    : currentSelection && "data" in currentSelection
+      ? Promise.resolve(rows.map((row) => ({ data: row.data })))
+      : rows.some((row) => badPreviewIds.has(row.id))
+        ? Promise.reject(
+            Object.assign(new Error("invalid input syntax for type json"), {
+              code: "22P02",
+            }),
+          )
+        : Promise.resolve(rows.map((row) => previewFor(row.data)));
+  return Object.assign(result, { orderBy: orderByFn });
+});
 const fromFn = vi.fn(() => ({ where: whereFn }));
-const selectFn = vi.fn(() => ({ from: fromFn }));
+const selectFn = vi.fn((selection?: Record<string, unknown>) => {
+  currentSelection = selection;
+  return { from: fromFn };
+});
 const mockDb = { select: selectFn };
 
 vi.mock("../server/db/index.js", () => ({
@@ -47,8 +78,6 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => requestUserEmail,
-  // `captureError` (real, unmocked, used by the fallback preview-parse path)
-  // reads this to skip synthetic-traffic events; no request context in tests.
   getRequestContext: () => undefined,
 }));
 
@@ -67,12 +96,96 @@ import action from "./list-decks";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  badPreviewIds.clear();
   requestUserEmail = "alice@example.com";
   rowsForQuery = deckRows;
   vi.stubEnv("APP_URL", "https://slides.agent.test");
 });
 
 describe("list-decks", () => {
+  it("returns a bounded preview gallery without selecting complete decks", async () => {
+    const result = await action.run({ limit: 12, includePreview: "true" });
+    expect(limitFn).toHaveBeenCalledWith(13);
+    expect(selectFn.mock.calls[0][0]).not.toHaveProperty("data");
+    expect(selectFn.mock.calls[0][0]).toHaveProperty("previewSlide");
+    expect(result.decks[0]).toMatchObject({
+      previewSlide: { id: "slide-1" },
+      aspectRatio: "4:3",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slides");
+  });
+  it("keeps a paged gallery readable when one legacy deck has malformed JSON", async () => {
+    const goodRow = {
+      ...deckRows[0],
+      data: JSON.stringify({
+        slides: [{ id: "slide-1" }],
+        aspectRatio: "16:9",
+      }),
+    };
+    const badRow = { ...deckRows[0], id: "deck_bad", data: "not json" };
+    rowsForQuery = [goodRow, badRow];
+    badPreviewIds.add("deck_bad");
+    limitFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("invalid input syntax for type json"), {
+          code: "22P02",
+        }),
+      ),
+    );
+    const captured: unknown[] = [];
+    const unregister = registerErrorCaptureProvider("test", (error) => {
+      captured.push(error);
+    });
+    try {
+      const result = await action.run({ limit: 12, includePreview: "true" });
+      expect(result.count).toBe(2);
+      expect(result.decks[0]).toMatchObject({
+        previewSlide: { id: "slide-1" },
+        aspectRatio: "16:9",
+      });
+      expect(result.decks[1]).toMatchObject({ id: "deck_bad" });
+      expect(result.decks[1]).not.toHaveProperty("previewSlide");
+      expect(captured.length).toBeGreaterThan(0);
+      const bodyReads = whereFn.mock.calls.filter(
+        (_call, index) => "data" in (selectFn.mock.calls[index]?.[0] ?? {}),
+      );
+      expect(bodyReads).toHaveLength(1);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("flags a first slide that is too large for a gallery preview", async () => {
+    const hugeSlide = { id: "slide-1", content: "x".repeat(200 * 1024) };
+    rowsForQuery = [
+      { ...deckRows[0], data: JSON.stringify({ slides: [hugeSlide] }) },
+    ];
+    badPreviewIds.add("deck_123");
+    limitFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("invalid input syntax for type json"), {
+          code: "22P02",
+        }),
+      ),
+    );
+    const result = await action.run({ limit: 12, includePreview: "true" });
+    expect(result.decks[0]).toMatchObject({ previewTooLarge: true });
+    expect(result.decks[0]).not.toHaveProperty("previewSlide");
+  });
+
+  it("applies title search before pagination without reading slide bodies", async () => {
+    await action.run({ limit: 30, search: "Road%_map" });
+    expect(whereFn).toHaveBeenCalledWith({
+      and: [
+        { allowed: true },
+        undefined,
+        expect.objectContaining({ values: ["title_col", "road%_map"] }),
+      ],
+    });
+    expect(selectFn.mock.calls[0][0]).not.toHaveProperty("data");
+    expect(limitFn).toHaveBeenCalledWith(31);
+  });
+
   it("returns canonical deck URLs for A2A artifact verification", async () => {
     const result = await action.run({});
 
@@ -117,8 +230,6 @@ describe("list-decks", () => {
   it("projects only metadata columns and never selects the deck body for light mode", async () => {
     const result = await action.run({ light: "true" });
 
-    // The `data` column (each deck's full slide JSON) must never appear in
-    // the light-mode projection — this is the poll/diff path's whole point.
     expect(selectFn).toHaveBeenCalledWith({
       id: "id_col",
       title: "title_col",
@@ -147,7 +258,13 @@ describe("list-decks", () => {
       visibility: "visibility_col",
       ownerEmail: "owner_email_col",
       previewSlide: expect.objectContaining({
-        strings: expect.arrayContaining(["::jsonb -> 'slides' -> 0)::text"]),
+        strings: expect.arrayContaining([
+          "(case when length(",
+          expect.stringContaining(" then "),
+        ]),
+      }),
+      previewTooLarge: expect.objectContaining({
+        strings: expect.arrayContaining(["(length(", expect.any(String)]),
       }),
       aspectRatio: expect.objectContaining({
         strings: expect.arrayContaining(["::jsonb ->> 'aspectRatio')"]),
@@ -162,9 +279,6 @@ describe("list-decks", () => {
   });
 
   it("keeps the list alive when one deck's data fails the SQL preview cast", async () => {
-    // The `::jsonb` cast in the preview projection runs per row inside the
-    // query itself, so one deck with corrupted `data` used to fail the whole
-    // statement and 500 the list for every deck, not just that one.
     const goodRow = {
       ...deckRows[0],
       id: "deck_good",
@@ -185,10 +299,6 @@ describe("list-decks", () => {
     rowsForQuery = [goodRow, badRow];
     orderByFn.mockImplementationOnce(() =>
       Promise.reject(
-        // Postgres 22P02 ("invalid_text_representation") is what the real
-        // `::jsonb` cast throws for a non-JSON row; drizzle wraps it as
-        // `.cause` on a DrizzleQueryError, so a driver-level `.code` here
-        // exercises the same check `.cause.code` would.
         Object.assign(new Error("invalid input syntax for type json"), {
           code: "22P02",
         }),
@@ -216,8 +326,6 @@ describe("list-decks", () => {
         title: "Corrupted Deck",
       });
       expect(badDeck).not.toHaveProperty("previewSlide");
-      // The bad row is visible, not silently dropped: once for the cast
-      // failure, once more naming the specific deck it belongs to.
       expect(captured).toHaveLength(2);
       expect(captured[1]?.extra).toMatchObject({ deckId: "deck_bad" });
     } finally {
@@ -225,12 +333,34 @@ describe("list-decks", () => {
     }
   });
 
+  it("falls back when Postgres rejects an unsupported Unicode escape", async () => {
+    rowsForQuery = [
+      {
+        ...deckRows[0],
+        data: JSON.stringify({ slides: [{ id: "slide-1", text: "\u0000" }] }),
+      },
+    ];
+    orderByFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("unsupported Unicode escape sequence"), {
+          code: "22P05",
+        }),
+      ),
+    );
+
+    const result = await action.run({
+      light: "true",
+      includePreview: "true",
+    });
+
+    expect(result.decks[0]?.previewSlide).toEqual({
+      id: "slide-1",
+      text: "\u0000",
+    });
+    expect(selectFn).toHaveBeenCalledTimes(2);
+  });
+
   it("does not fall back on a non-JSON-cast failure, so a real outage isn't doubled with a heavier full-data scan", async () => {
-    // Only 22P02 (invalid JSON text) should trigger the fallback. A timeout,
-    // a dropped connection, or pool exhaustion is a real failure — retrying
-    // it as a second query that reads every visible deck's full `data` blob
-    // would double the load on the DB during exactly the incident this guard
-    // exists for.
     orderByFn.mockImplementationOnce(() =>
       Promise.reject(Object.assign(new Error("timeout"), { code: "57014" })),
     );
@@ -238,7 +368,6 @@ describe("list-decks", () => {
     await expect(
       action.run({ light: "true", includePreview: "true" }),
     ).rejects.toThrow("timeout");
-    // The fallback's full-`data` scan never ran.
     expect(selectFn).toHaveBeenCalledTimes(1);
   });
 
@@ -252,6 +381,7 @@ describe("list-decks", () => {
           strings: ["lower(trim(", ")) = ", ""],
           values: ["owner_email_col", "alice@example.com"],
         },
+        undefined,
       ],
     });
   });

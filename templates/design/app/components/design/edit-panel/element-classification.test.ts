@@ -1,16 +1,3 @@
-/**
- * isTextElement classification tests (B5-12 regression).
- *
- * The real-world payload that regressed: selecting a T-tool text primitive
- * nested inside a canvas-drawn rectangle (board/overview layer-panel
- * selection) produces an ElementInfo parsed from source HTML — it has NO
- * `primitiveKind` field even though the DOM node carries
- * data-an-primitive="text", and it has `isFlexContainer: true` because the
- * T-tool's text divs use `display: flex` for their own vertical alignment.
- * The old fallback heuristic excluded flex containers, so both branches
- * failed and the Typography section vanished for exactly these nodes.
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 import type { AutoLayoutSizingAxis } from "../inspector";
@@ -25,6 +12,7 @@ import {
   elementHasComponentAnnotation,
   inferElementSizing,
   inspectorObjectTitle,
+  isBoxlessText,
   isContainerElement,
   measuredElementSize,
   parentFlexDirection,
@@ -46,9 +34,6 @@ function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
 
 describe("isTextElement — B5-12 nested board text regression", () => {
   it("classifies the exact real-design payload (flex text primitive without primitiveKind) as text", () => {
-    // Mirrors the persisted design-selection payload captured from the real
-    // AI-generated todo design: div tag, draft-text-* source id, no
-    // primitiveKind, flex container, childless, own text content.
     const element = makeElement({
       tagName: "div",
       sourceId: "draft-text-1783385467477-aur5b5",
@@ -77,8 +62,6 @@ describe("isTextElement — B5-12 nested board text regression", () => {
   });
 
   it("classifies a childless flex div with its own text as text (no primitive markers at all)", () => {
-    // The flex-container exclusion was the bug: T-tool text divs ARE flex
-    // containers, so "is flex" must not imply "not text" for a leaf node.
     const element = makeElement({
       isFlexContainer: true,
       childElementCount: 0,
@@ -150,6 +133,67 @@ describe("isTextElement — B5-12 nested board text regression", () => {
       isFlexContainer: true,
     });
     expect(isTextElement(element)).toBe(true);
+  });
+});
+
+describe("isBoxlessText — corner radius on text", () => {
+  const text = (computedStyles: Record<string, string> = {}) =>
+    makeElement({ tagName: "h1", hasOwnText: true, computedStyles });
+
+  it("treats plain text like Figma: no box to round", () => {
+    expect(
+      isBoxlessText(
+        text({
+          backgroundColor: "rgba(0, 0, 0, 0)",
+          backgroundImage: "none",
+          borderTopWidth: "0px",
+          borderTopStyle: "none",
+          outlineWidth: "3px",
+          outlineStyle: "none",
+          outlineColor: "rgb(21, 24, 27)",
+          boxShadow: "none",
+          backdropFilter: "none",
+          textShadow: "0px 4px 12px rgba(30, 158, 73, 0.57)",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not count a gradient clipped to the glyphs as a box", () => {
+    expect(
+      isBoxlessText(
+        text({
+          backgroundImage: "linear-gradient(red, blue)",
+          backgroundClip: "text",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps corner radius when HTML text paints a box", () => {
+    expect(isBoxlessText(text({ backgroundColor: "rgb(255, 0, 0)" }))).toBe(
+      false,
+    );
+    expect(
+      isBoxlessText(text({ backgroundImage: "linear-gradient(red, blue)" })),
+    ).toBe(false);
+    expect(
+      isBoxlessText(
+        text({
+          borderLeftWidth: "1px",
+          borderLeftStyle: "solid",
+          borderLeftColor: "rgb(0, 0, 0)",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isBoxlessText(text({ boxShadow: "rgb(0, 0, 0) 0px 2px 4px 0px" })),
+    ).toBe(false);
+    expect(isBoxlessText(text({ backdropFilter: "blur(8px)" }))).toBe(false);
+  });
+
+  it("never disables corner radius on non-text layers", () => {
+    expect(isBoxlessText(makeElement({ tagName: "div" }))).toBe(false);
   });
 });
 
@@ -323,16 +367,6 @@ describe("isContainerElement — primitive inspector layout semantics", () => {
     }
   });
 
-  // Regression: the `isTextElement(element)) return false` short-circuit
-  // added to fix the flex-backed T-tool text primitive case above (a real
-  // `primitiveKind: "text"` marker) was too broad — it also ran
-  // `isTextElement`'s generic childless-div-with-text fallback, which has
-  // nothing to do with the T-tool and matches any ordinary content div with
-  // no primitive/tag/id marker at all. That silently stripped the
-  // Flow/Padding/Auto-layout sections from ordinary Tailwind pill/badge/
-  // button-label divs — ubiquitous in generated markup — even though they
-  // hit `isFlexContainer`/`CONTAINER_TAGS` and were correctly treated as
-  // containers before that short-circuit existed.
   it("still treats a childless flex div with its own text as a container (no primitive markers at all)", () => {
     expect(
       isContainerElement(
@@ -358,13 +392,6 @@ describe("isContainerElement — primitive inspector layout semantics", () => {
   });
 });
 
-// ─── commitElementMinMax — scrub gesture meta threading (B5-14 follow-up) ────
-//
-// Min/max constraint fields are ScrubInputs; dropping their gesture meta on
-// the way to onStyleChange forces every preview tick down the slow persist
-// path (same class of bug as the padding/gap chain). The helper must forward
-// the meta verbatim so preview ticks hit the host's live fast path and only
-// the release commit persists.
 describe("commitElementMinMax — meta forwarding", () => {
   it("forwards preview-phase meta on a set", () => {
     const onStyleChange = vi.fn();
@@ -403,12 +430,6 @@ describe("commitElementMinMax — meta forwarding", () => {
   });
 });
 
-// Clip B 16:39-16:46 (7xCLOlVaAj3n): the reviewer repeatedly sets "Hug
-// contents" on the `1W` button of a 1D/1W/1M/1Y segmented control and the
-// inspector keeps reading W 42px, X 754, Y 340, Grow 0 / Shrink 1 /
-// Basis auto across four sampled frames six seconds apart. `button` is in
-// neither the container nor the text tag set, so Hug was never in the
-// offered options at all.
 describe("availableSizingForElement — hug availability", () => {
   const hugFor = (element: ElementInfo, axis: AutoLayoutSizingAxis) =>
     availableSizingForElement(element)[axis]?.includes("hug") ?? false;
@@ -498,9 +519,6 @@ describe("availableSizingForElement — fill eligibility", () => {
 
 describe("inferElementSizing — authored vs resolved size", () => {
   it("reads hug from the authored width when computedStyles resolved it to px", () => {
-    // A bridge selection payload: getComputedStyle always resolves
-    // width:fit-content to a pixel value, so computedStyles alone can never
-    // report hug.
     const element = makeElement({
       computedStyles: { width: "68px" },
       inlineStyles: { width: "fit-content" },
@@ -547,9 +565,6 @@ describe("inferElementSizing — authored vs resolved size", () => {
   });
 
   it("reads Hug from an auto-layout container with no authored height", () => {
-    // The bridge reports the resolved pixel height even when the source has
-    // no height declaration. For a flex container that is the source's
-    // intrinsic sizing intent, so the inspector must not relabel it Fixed.
     const element = makeElement({
       isFlexContainer: true,
       computedStyles: {
@@ -591,7 +606,6 @@ describe("inferElementSizing — authored vs resolved size", () => {
   });
 
   it("reads a stretch child of a row parent as filling the cross axis", () => {
-    // An undeclared flex direction is a row, so height IS the cross axis here.
     const element = makeElement({
       isFlexChild: true,
       parentDisplay: "flex",
@@ -746,9 +760,6 @@ describe("commitElementSizing — hug must undo a previous fill", () => {
   });
 });
 
-// The W field showed "437 Hug" — the mode was right, the number was the
-// pre-commit boundingRect. Figma re-measures and shows the real width; without
-// a fresh measurement the only honest readout is none.
 describe("measuredElementSize", () => {
   it("reports the resolved px when the payload has one", () => {
     const element = makeElement({
@@ -798,10 +809,6 @@ describe("measuredElementSize", () => {
   });
 });
 
-// PR #3585 review: `<div class="flex">` is the most common row container there
-// is, and the projection reports no direction for it because CSS already
-// defaults to row. Treating that as unknown sent horizontal Fill down the
-// cross-axis path and wrote align-self:stretch instead of flex: 1 0 0.
 describe("parentFlexDirection — unknown parent vs unknown direction", () => {
   it("defaults a flex parent with no authored direction to row", () => {
     const element = makeElement({
@@ -845,7 +852,6 @@ describe("parentFlexDirection — unknown parent vs unknown direction", () => {
   });
 });
 
-// PR #3585 review round 2.
 describe("measuredElementSize — zero is a size, not an absence", () => {
   it("reports 0 for a collapsed layer", () => {
     const element = makeElement({
@@ -856,7 +862,6 @@ describe("measuredElementSize — zero is a size, not an absence", () => {
   });
 
   it("still reports null for the projection's placeholder rect", () => {
-    // No computed size at all plus an all-zero rect is "never measured".
     const element = makeElement({
       computedStyles: {},
       boundingRect: { x: 0, y: 0, width: 0, height: 0 },
@@ -910,7 +915,6 @@ describe("canHugContent — Hug availability", () => {
   });
 
   it("treats an absent content signal as unknown, not empty", () => {
-    // Older/hover payloads omit both; denying hug there would be a guess.
     expect(canHugContent(makeElement({ tagName: "div" }))).toBe(true);
   });
 });
@@ -961,9 +965,6 @@ describe("isVectorShapeElement", () => {
   });
 
   it("rejects a board-migrated polygon, which is a div painted with background", () => {
-    // board-file.ts serializes polygon/star as plain divs carrying the same
-    // data-an-primitive, so keying on the kind alone would send fill/stroke
-    // declarations to an element that renders neither.
     expect(
       isVectorShapeElement(
         makeElement({ tagName: "div", primitiveKind: "polygon" }),

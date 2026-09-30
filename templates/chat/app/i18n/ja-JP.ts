@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -33,6 +28,10 @@ const messages = {
     pinChat: "チャットをピン留め",
     pinned: "ピン留め",
     recents: "最近",
+    retryPreviousRequest:
+      "モデルプロバイダーに接続できたので、前のリクエストを再試行してください。",
+    retryAttachmentUnavailable:
+      "Chat ではこの添付ファイルを再試行のために開けません。アクセス可能なファイル URL を追加して、もう一度お試しください。",
     renameChat: "チャット名を変更",
     renameFailed: "名前の変更に失敗しました",
     renameThread: "スレッド名を変更",

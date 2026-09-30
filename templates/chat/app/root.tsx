@@ -1,16 +1,12 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useDbSync } from "@agent-native/core/client/hooks";
-import {
-  AppProviders,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client/hooks";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/theme";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -57,7 +53,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content"
         />
         <script
           suppressHydrationWarning
@@ -123,7 +119,11 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        chatStorageKey="chat"
+      >
         <CommandMenu.Group heading={t("root.commandActions")}>
           {isChatThread ? (
             <CommandMenu.Item
@@ -167,26 +167,18 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingPath}
+        skeletonLayout="assistant"
         i18n={{ catalog: i18nCatalog }}
       >
-        {isMarketingPath ? (
-          <Outlet />
-        ) : (
-          <>
-            <DbSyncSetup />
-            <AppContent />
-          </>
-        )}
+        <DbSyncSetup />
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/error-boundary";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared/ErrorBoundary";

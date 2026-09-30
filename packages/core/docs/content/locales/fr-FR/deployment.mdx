@@ -38,9 +38,48 @@ Un fournisseur d'e-mails n'est pas nécessaire pour l'authentification par e-mai
 
 Connectez Resend ou SendGrid avant le déploiement si vous voulez des liens magiques, la vérification des e-mails, la réinitialisation des mots de passe, les invitations ou les notifications de partage. Définissez `RESEND_API_KEY` ou `SENDGRID_API_KEY`; SendGrid nécessite aussi `EMAIL_FROM`. Consultez [Authentification](/docs/authentication) pour les modes d'authentification disponibles.
 
+### Personnaliser les e-mails du framework {#email-templates}
+
+Chaque e-mail envoyé par le framework a un modèle par défaut. Pour utiliser votre propre design, enregistrez un override depuis un plugin serveur. Le framework choisit toujours le destinataire et l'expéditeur et remet le message ; votre override décide de ce que dit le message et de son apparence.
+
+```ts
+// server/plugins/email-templates.ts
+import {
+  escapeEmailHtml,
+  overrideTransactionalEmail,
+} from "@agent-native/core/server";
+
+export default function registerEmailTemplates(): void {
+  overrideTransactionalEmail("core.resource-shared", (props) => ({
+    subject: `${props.sender.name} shared "${props.resource.title}"`,
+    html: `<p>${escapeEmailHtml(props.sender.name)} invited you to
+      <a href="${escapeEmailHtml(props.resource.url)}">${escapeEmailHtml(props.resource.title)}</a>
+      in ${escapeEmailHtml(props.app.name)}.</p>`,
+  }));
+}
+```
+
+| ID de l'e-mail                   | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+
+Chaque override reçoit aussi `app` (`name`, `logoUrl`). Le second argument contient le rendu par défaut, pour réutiliser son objet ou son texte.
+
+- Les props sont des valeurs brutes. Échappez-les avec `escapeEmailHtml` avant de les insérer dans une chaîne HTML.
+- Renvoyez `react` avec un élément React au lieu de `html` pour rendre un composant. React échappe les props pour vous.
+- Omettez `subject` pour conserver l'objet par défaut. Omettez `text` pour dériver le texte brut de votre HTML.
+- Si un override lève une erreur, l'envoi échoue. Le framework ne revient pas au design par défaut. L'aperçu des e-mails transactionnels rend votre override : vérifiez-le là.
+
 ## Cibles prises en charge
 
-Agent-Native prend en charge [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) et [Render](/docs/render).
+Agent-Native prend en charge [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) et [Render](/docs/render).
 
 Consultez la [référence des variables d'environnement de déploiement](/docs/deployment-environment-variables) pour les réglages avancés, les secrets et la production.
 

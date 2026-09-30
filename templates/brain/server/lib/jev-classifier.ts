@@ -10,7 +10,6 @@ import {
   type BrainSensitivityScoreKey,
 } from "./search-index-contracts.js";
 import {
-  MAX_CLASSIFIER_OUTPUT_CHARS,
   sanitizeSensitiveText,
   screenSensitivityDeterministically,
 } from "./sensitivity-policy.js";
@@ -18,17 +17,12 @@ import {
 const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 const JEV_MODEL = "jev-latest";
 const JEV_MAX_INPUT_CHARS = 40_000;
+const JEV_MAX_WINDOWS = 8;
 const MAX_TITLE_CHARS = 1_000;
 
-// The ingest worker is not an interactive surface, so this is far more
-// generous than core's 750ms tool-prefetch budget.
 const JEV_TIMEOUT_MS = 5_000;
 
-// A capture is blocked when any category clears the block bar, and released
-// only when every category stays under the allow bar. The gap between them is
-// the deliberate fail-closed middle: Jev is unsure, so the capture is held.
 const JEV_BLOCK_PROBABILITY = 0.6;
-const JEV_ALLOW_PROBABILITY = 0.2;
 const JEV_HIGH_CONFIDENCE_PROBABILITY = 0.85;
 
 const SCORE_CACHE_LIMIT = 500;
@@ -73,9 +67,7 @@ export interface JevClassificationOutcome {
    */
   configured: boolean;
   decision?: BrainSensitivityDecision;
-  /** Allow-listed diagnostic code when Jev could not produce a usable verdict. */
   failureReason?: JevFailureReason;
-  /** Which credential path answered, for settings and support surfaces. */
   authSource?: JevAuthSource;
 }
 
@@ -280,18 +272,10 @@ export async function resolveJevAuth(identity: {
     import("./source-credentials.js"),
   ]);
 
-  // The caller's identity is authoritative. Falling back to the ambient
-  // request context would let an editor of a shared source classify the
-  // owner's content with the editor's credential and gateway identity.
   const ctx = identity.ownerEmail
     ? { userEmail: identity.ownerEmail, orgId: identity.orgId ?? null }
     : core.getCredentialContext();
   if (!ctx?.userEmail) return null;
-  // Both halves of the ladder read ambient request scope internally --
-  // resolveSourceCredential for workspace-connection discovery, and
-  // resolveBuilderGatewayAuth for the whole lookup -- so run them under the
-  // capture owner's identity. Otherwise a shared-source editor or a queue
-  // worker resolves the owner's content against their own credential.
   const owned = <T>(fn: () => Promise<T>) =>
     core.runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
@@ -364,10 +348,6 @@ function jevRequestTarget(auth: JevAuth) {
   };
 }
 
-/**
- * One request carries every category, because the Builder gateway bills per
- * request rather than per question.
- */
 export async function requestJevSensitivityScores(
   auth: JevAuth,
   state: { title: string; body: string },
@@ -435,11 +415,6 @@ export async function requestJevSensitivityScores(
   return scores;
 }
 
-/**
- * A partial answer set cannot clear a capture, and clamping an out-of-range
- * value would turn a malformed response into a confident "not sensitive".
- * Both are outages, so neither may score as zero.
- */
 function readProbability(
   answers: Record<string, { noul?: number } | undefined>,
   key: string,
@@ -459,18 +434,16 @@ function readProbability(
 export function jevSensitivityDecision(
   scores: JevCategoryScores,
   context: {
-    /** Exactly the text Jev scored. A verdict may not cover unseen content. */
     judgedContent: string;
     capturedAt: string;
-    /** True when the capture was too long to send in full. */
     truncated: boolean;
   },
 ): BrainSensitivityDecision {
   const screen = screenSensitivityDeterministically(context.judgedContent);
-  const safeContent = sanitizeSensitiveText(screen.safeLines.join("\n")).slice(
-    0,
-    MAX_CLASSIFIER_OUTPUT_CHARS,
-  );
+  // Not capped at MAX_CLASSIFIER_OUTPUT_CHARS: this is the content Jev
+  // judged, and an allowed capture is stored from it, so a cap would silently
+  // drop the tail of a long capture Jev cleared.
+  const safeContent = sanitizeSensitiveText(screen.safeLines.join("\n"));
   const entries = BRAIN_SENSITIVITY_CATEGORIES.map(
     (category) => [category, scores[category] ?? 0] as const,
   ).sort((a, b) => b[1] - a[1]);
@@ -482,9 +455,11 @@ export function jevSensitivityDecision(
     .filter(([, score]) => score >= JEV_BLOCK_PROBABILITY)
     .map(([category]) => category);
 
-  const clearlySafe = highest < JEV_ALLOW_PROBABILITY;
   const disposition =
-    safeContent && clearlySafe && !categories.length && !context.truncated
+    safeContent &&
+    highest < JEV_BLOCK_PROBABILITY &&
+    !categories.length &&
+    !context.truncated
       ? "allowed"
       : "quarantined";
   const confidenceBand =
@@ -524,10 +499,6 @@ export function jevSensitivityDecision(
   };
 }
 
-/**
- * Jev owns the verdict only. It answers questions and cannot rewrite a
- * document, so `safeContent` still comes from the deterministic line screen.
- */
 export async function classifyWithJev(
   input: JevClassificationInput,
 ): Promise<JevClassificationOutcome> {
@@ -537,7 +508,6 @@ export async function classifyWithJev(
   return runJevClassification(input);
 }
 
-/** `classifyWithJev` without the ambient test-environment guard. */
 export async function runJevClassification(
   input: JevClassificationInput,
 ): Promise<JevClassificationOutcome> {
@@ -554,42 +524,57 @@ export async function runJevClassification(
       failureReason: jevFailureReason(error, "credential"),
     };
   }
-  if (!auth) return { configured: false };
+  if (!auth) {
+    return { configured: false, failureReason: "jev-credential-unavailable" };
+  }
 
-  // Redact before the payload leaves the process: the line screen drops whole
-  // sensitive lines but leaves emails, phone numbers, and links inside
-  // otherwise-safe ones, and Jev is a third-party service.
   const screenedTitle = sanitizeSensitiveText(
     screenSensitivityDeterministically(input.title).safeLines.join(" "),
   ).slice(0, MAX_TITLE_CHARS);
   const fullBody = sanitizeSensitiveText(
     screenSensitivityDeterministically(input.content).safeLines.join("\n"),
   );
-  const judgedBody = fullBody.slice(0, JEV_MAX_INPUT_CHARS);
-  const truncated = judgedBody.length < fullBody.length;
-  // The workspace rule is admin-authored free text on the same egress path as
-  // the capture, so it gets the same redaction rather than being trusted.
+  const judgedLimit = JEV_MAX_INPUT_CHARS * JEV_MAX_WINDOWS;
+  const judgedBody = fullBody.slice(0, judgedLimit);
+  const truncated = fullBody.length > judgedLimit;
   const workspaceRule =
     sanitizeSensitiveText(
       input.settings.sensitivityCustomInstructions?.trim() ?? "",
     ) || undefined;
-  const key = cacheKey(screenedTitle, judgedBody, workspaceRule);
 
-  let scores = readCachedScores(key);
-  if (!scores) {
-    try {
-      scores = await requestJevSensitivityScores(
-        auth,
-        { title: screenedTitle, body: judgedBody },
-        workspaceRule,
-      );
-      writeCachedScores(key, scores);
-    } catch (error) {
-      return {
-        configured: true,
-        authSource: auth.source,
-        failureReason: jevFailureReason(error, "request"),
-      };
+  const windows = [judgedBody.slice(0, JEV_MAX_INPUT_CHARS)];
+  for (
+    let offset = JEV_MAX_INPUT_CHARS;
+    offset < judgedBody.length;
+    offset += JEV_MAX_INPUT_CHARS
+  ) {
+    windows.push(judgedBody.slice(offset, offset + JEV_MAX_INPUT_CHARS));
+  }
+
+  const scores: JevCategoryScores = {};
+  for (const window of windows) {
+    const key = cacheKey(screenedTitle, window, workspaceRule);
+    let windowScores = readCachedScores(key);
+    if (!windowScores) {
+      try {
+        windowScores = await requestJevSensitivityScores(
+          auth,
+          { title: screenedTitle, body: window },
+          workspaceRule,
+        );
+        writeCachedScores(key, windowScores);
+      } catch (error) {
+        return {
+          configured: true,
+          authSource: auth.source,
+          failureReason: jevFailureReason(error, "request"),
+        };
+      }
+    }
+    for (const [scoreKey, score] of Object.entries(windowScores) as Array<
+      [BrainSensitivityScoreKey, number]
+    >) {
+      scores[scoreKey] = Math.max(scores[scoreKey] ?? 0, score);
     }
   }
 

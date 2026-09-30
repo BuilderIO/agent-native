@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Conectar",
@@ -5,7 +7,6 @@ export default {
     connecting: "Conectando...",
     clipboardUnavailable: "El acceso al portapapeles no está disponible",
     disconnect: "Desconectar",
-    notConnected: "No conectado",
     loadFailed: "No se pudieron cargar estos datos.",
     retry: "Reintentar",
     saving: "Guardando...",
@@ -206,10 +207,6 @@ export default {
   },
   settings: {
     title: "Ajustes",
-    description: "Configura tu calendario e integraciones.",
-    languageTitle: "Idioma",
-    languageDescription: "Elige el idioma de la interfaz de Calendar.",
-    languageLabel: "Idioma de la interfaz",
     agentTitle: "Gestionar agente",
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
@@ -223,13 +220,8 @@ export default {
     zoomConnectFailed: "No se pudo conectar Zoom",
     zoomDisconnected: "Zoom desconectado",
     zoomDisconnectFailed: "No se pudo desconectar Zoom",
-    general: "General",
-    generalDescription: "Valores predeterminados del calendario y reservas.",
-    timezone: "Zona horaria",
-    saveSettings: "Guardar ajustes",
     saved: "Ajustes guardados",
     saveFailed: "No se pudieron guardar los ajustes",
-    appearance: "Apariencia",
     appearanceDescription:
       "Elige un tema de color para tu workspace o pídeselo al agente.",
     desktopNotifications: "Notificaciones de escritorio",
@@ -244,23 +236,86 @@ export default {
       "Sincroniza eventos y gestiona todo en un solo lugar.",
     zoomDescription:
       "Conecta Zoom para crear enlaces de reunión para eventos y reservas.",
-    zoomNotConfigured: "No configurado",
     zoomCredentialsPrompt:
       "Añade credenciales OAuth de Zoom para habilitar la conexión.",
-    bookingTitleLabel: "Título alternativo de la página de reserva",
     bookingTitlePlaceholder: "Reservar una reunión",
-    bookingTitleHelp:
-      "Se usa solo cuando un enlace de reserva no tiene título. Crea, abre y copia URL públicas desde Enlaces de reserva.",
-    bookingDescriptionLabel: "Descripción alternativa de la página de reserva",
     bookingDescriptionPlaceholder: "Elige una hora que te venga bien.",
-    bookingDescriptionHelp:
-      "Se usa solo cuando un enlace de reserva no tiene descripción propia.",
-    defaultDurationLabel: "Duración predeterminada del evento (minutos)",
-    defaultDurationHelp:
-      "Duración predeterminada para eventos nuevos y franjas de reserva. Cada enlace de reserva puede anularla.",
     weekStartLabel: "La semana empieza el",
     weekStartSunday: "Domingo - sábado",
     weekStartMonday: "Lunes - domingo",
+    eventRules: "Reglas de invitación",
+    eventRulesAutomationLink: "Para otras acciones, crea una automatización.",
+    eventRulesConnectJev: "Conecta Jev para usar las reglas de invitación",
+    eventRulesFreeBuilderOrApiKey:
+      "Gratis con Builder.io o añade una clave de API.",
+    eventRulesConnectBuilder: "Conectar Builder.io",
+    eventRulesAddJevApiKey: "Añadir clave de API",
+    eventRulesTabRules: "Reglas",
+    eventRulesHelpLabel: "Acerca de las instrucciones de invitación",
+    eventRulesHelp:
+      "Escribe instrucciones para que Jev acepte, rechace u oculte invitaciones.",
+    eventRuleAccept: "Aceptar automáticamente",
+    eventRuleDecline: "Rechazar automáticamente",
+    eventRuleHide: "Ocultar automáticamente",
+    eventRulePlaceholderAccept:
+      "Ejemplo: Aceptar reuniones individuales con mi equipo",
+    eventRulePlaceholderDecline:
+      "Ejemplo: Rechazar demostraciones comerciales y eventos fuera de horario",
+    eventRulePlaceholderHide:
+      "Ejemplo: Ocultar bloques de concentración y avisos",
+    eventRulesSave: "Guardar reglas",
+    eventRulesClearSaved: "Borrar reglas guardadas",
+    eventRulesRecentActivity: "Actividad reciente",
+    eventRulesNoActivity: "Aún no hay actividad",
+    eventRuleActivityAccepted: "Aceptado",
+    eventRuleActivityDeclined: "Rechazado",
+    eventRuleActivityHidden: "Oculto",
+    eventRuleUndoDone: "Acción deshecha",
+    eventRuleUndoFailed: "No se pudo deshacer esta acción",
+    eventRulesActive:
+      "Las reglas se ejecutan cada 5 minutos en los calendarios principales de las cuentas conectadas.",
+    eventRulesDisabled:
+      "Activa RUN_BACKGROUND_JOBS=1 en un proceso de Calendar que permanezca activo.",
+    eventRulesDeploymentDisabled:
+      "La automatización programada está desactivada en esta implementación.",
+    eventRulesChecking: "Comprobando el estado de la automatización…",
+    eventRulesConflict:
+      "Se omitió una invitación porque coincidieron las reglas de aceptar y rechazar.",
+    eventRulesUnregistered:
+      "La automatización de Calendar no está registrada en este servidor.",
+  },
+  calendarSettings: {
+    calendarsTab: "Calendarios",
+    bookingTab: "Reservas",
+    eventsGroup: "Eventos",
+    appearanceGroup: "Apariencia",
+    colorTheme: "Tema de color",
+    timezone: "Zona horaria del calendario",
+    timezoneDescription: "Se usa para mostrar eventos y crear otros nuevos.",
+    defaultDuration: "Duración predeterminada de los eventos",
+    defaultDurationDescription:
+      "En minutos. Los enlaces de reserva pueden tener la suya.",
+    durationInvalid: "Introduce una duración de 5 a 480 minutos.",
+    zoom: "Zoom",
+    connectedAs: "Conectado como {{accounts}}",
+    setUp: "Configurar",
+    disconnectGoogleTitle: "¿Desconectar Google Calendar?",
+    disconnectGoogleDescription:
+      "Calendar deja de mostrar y sincronizar los eventos de tus cuentas de Google.",
+    disconnectZoomTitle: "¿Desconectar Zoom?",
+    disconnectZoomDescription:
+      "Los nuevos eventos y reservas no tendrán enlaces de reunión de Zoom hasta que vuelvas a conectarlo.",
+    manage: "Gestionar",
+    edit: "Editar",
+    cancel: "Cancelar",
+    save: "Guardar",
+    fallbackBookingPage: "Página de reserva predeterminada",
+    fallbackBookingPageDescription:
+      "Se usa cuando un enlace de reserva no tiene título ni descripción propios.",
+    fallbackTitle: "Título",
+    fallbackDescription: "Descripción",
+    bookingLinksDescription:
+      "Crea enlaces de reserva y copia sus URL públicas.",
   },
   eventDialog: {
     eventUpdated: "Evento actualizado",
@@ -498,8 +553,18 @@ export default {
     confirmBooking: "Confirmar reserva",
     confirmation: "confirmación",
     confirmationSent: "Todo listo. Se ha enviado una confirmación a tu correo.",
+    meetingDetailsPending:
+      "Tu horario está reservado. El anfitrión te enviará los detalles de la reunión.",
     confirmed: "Confirmada",
     confirmedCount: "Confirmadas ({{count}})",
+    zoomNeedsReview: "Verifica Zoom antes de volver a intentarlo",
+    zoomCancellationNeedsReview: "Comprueba Zoom antes de cancelar",
+    zoomCancellationRequiresHostReview:
+      "El organizador debe revisar la reunión de Zoom antes de poder cancelar esta reserva.",
+    zoomCancelTitle: "Comprueba Zoom antes de cancelar",
+    zoomCancelDescription:
+      "Es posible que Zoom haya creado una reunión para esta reserva. Revisa tu cuenta de Zoom y cancela allí la reunión si existe. Continúa solo cuando la reunión esté cancelada o hayas confirmado que no existe.",
+    zoomCancelConfirm: "He revisado Zoom",
     confirming: "Confirmando",
     conferencing: "conferencias",
     connectZoom: "Conectar Zoom",
@@ -549,6 +614,7 @@ export default {
     fieldRequired: "{{label}} es obligatorio",
     linkDisabled: "{{title}} deshabilitado",
     linkEnabled: "{{title}} habilitado",
+    advanced: "Avanzado",
     linkVisibility: "Visibilidad del enlace",
     linkVisibilityDescription: "Desactívelo para desactivar la página pública.",
     loadingMeetingTypes: "Cargando tipos de reuniones",
@@ -990,7 +1056,7 @@ export default {
     year: "año",
     zoom: "Zoom",
     zoomAdded: "Zoom añadido",
-    zoomAddFailed: "No se pudo agregar Zoom",
+    zoomAddFailed: zoomAddFailedMessages["es-ES"],
     zoomConnectFailed: "No se pudo conectar Zoom",
     zoomConnectionOpened: "Conexión Zoom abierta",
     zoomNotConfigured: "Zoom OAuth no está configurado.",

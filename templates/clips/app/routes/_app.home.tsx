@@ -1,5 +1,5 @@
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE = "Clips - Open Source screen recorder";
@@ -20,19 +20,6 @@ export function meta() {
   ];
 }
 
-/**
- * The private home route redirects to /library — the Library is the default
- * landing view. Everything else hangs off the pathless _app layout so the
- * sidebar + agent chat persist across navigations.
- *
- * Run the redirect on both the server and the client. A client-only
- * `useNavigate(...)` inside `useEffect` can drop during hydration (before the
- * route tree is fully attached), leaving the user stranded on `/home` with
- * a blank main area while the layout chrome around it still renders. A
- * `loader` redirect runs as part of the server response and the navigation
- * completes before the app hydrates; `clientLoader` covers SPA-style
- * navigations to `/home`.
- */
 function buildTarget(url: URL): string {
   return `/library${url.search}${url.hash}`;
 }

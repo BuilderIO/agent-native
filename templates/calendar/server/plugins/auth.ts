@@ -1,18 +1,11 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
-// Calendar keeps Google as the primary auth surface, but the first sign-in is
-// identity-only. The template-owned `/_agent-native/google/*` routes request
-// Calendar/Contacts/Directory scopes only after there is a signed-in owner, so
-// basic login stays isolated from product API verification/blocking issues.
 export default createAuthPlugin({
   googleOnly: true,
   mountGoogleOAuthRoutes: false,
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Calendar",
-    screenshotPath: "/auth-marketing/calendar.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     learnMoreUrl: "https://agent-native.com/apps/calendar",
     tagline:
       "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",

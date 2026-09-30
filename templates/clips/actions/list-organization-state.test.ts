@@ -62,7 +62,7 @@ vi.mock("drizzle-orm", () => ({
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   isNotNull: (...args: unknown[]) => ({ op: "isNotNull", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
-  notInArray: (...args: unknown[]) => ({ op: "notInArray", args }),
+  notExists: (...args: unknown[]) => ({ op: "notExists", args }),
   or: (...args: unknown[]) => ({ op: "or", args }),
   sql: () => ({ raw: "sql" }),
 }));
@@ -71,18 +71,20 @@ import action from "./list-organization-state";
 
 type Builder = Record<string, unknown> & { label: string; thenCalls: number };
 
-/**
- * A drizzle-like builder: chain methods return itself and awaiting it resolves
- * `rows`. `gate` holds every read open so a test can see which reads were
- * issued before any of them settled.
- */
 function builder(
   label: string,
   rows: unknown[] = [],
   gate: Promise<void> = Promise.resolve(),
 ): Builder {
   const b: Builder = { label, thenCalls: 0 };
-  for (const method of ["from", "where", "orderBy", "groupBy", "limit"]) {
+  for (const method of [
+    "from",
+    "leftJoin",
+    "where",
+    "orderBy",
+    "groupBy",
+    "limit",
+  ]) {
     b[method] = () => b;
   }
   b.then = (
@@ -103,10 +105,6 @@ beforeEach(() => {
 
 describe("list-organization-state action", () => {
   it("returns the personal-scope state after the caller deletes their only organization", async () => {
-    // Slack thread 1789039718.548769: deleting the last organization left
-    // Settings > Organization showing "Couldn't load organization branding."
-    // beside a create-organization card that already rendered the same state.
-    // No org is absent, not unreadable, so this must not throw.
     mockGetActiveOrganizationId.mockResolvedValue(null);
 
     const result = await action.run({}, undefined);
@@ -125,8 +123,6 @@ describe("list-organization-state action", () => {
   });
 
   it("still enforces access when an organization is resolved", async () => {
-    // An organization the caller may not read stays a real failure — the
-    // no-org branch must not swallow a denied read into an empty result.
     mockGetActiveOrganizationId.mockResolvedValue("org_1");
     mockRequireOrganizationAccess.mockRejectedValue(
       Object.assign(new Error("Organization not found or access denied"), {
@@ -173,7 +169,7 @@ describe("list-organization-state action", () => {
     expect(mockRequireOrganizationAccess).toHaveBeenCalledWith("org_explicit");
   });
 
-  it("issues every organization read in one round-trip window", async () => {
+  it("issues the reads after the member roster in one round-trip window", async () => {
     mockGetActiveOrganizationId.mockResolvedValue("org_1");
     mockRequireOrganizationAccess.mockResolvedValue({
       organizationId: "org_1",
@@ -185,21 +181,21 @@ describe("list-organization-state action", () => {
       release = resolve;
     });
     const rowsByOrder: unknown[][] = [
-      [], // meetings subquery (never awaited on its own)
-      [{ id: "m1", email: "owner@example.com", role: "owner", joinedAt: 1 }],
-      [{ id: "org_1", name: "Org", createdAt: 1 }],
-      [], // settings
+      [{ id: "m1", email: "Owner@Example.com", role: "owner", joinedAt: 1 }],
+      [{ id: "org_1", name: "Org", createdAt: 1, brandColor: "#123456" }],
       [], // invitations
       [{ id: "s1", name: "Space", isAllCompany: 0 }],
       [{ id: "f1", name: "Folder", spaceId: null, position: 0 }],
       [{ folderId: "f1", recordingCount: 2 }],
+      [], // meetings subquery (never awaited on its own)
     ];
     const builders: Builder[] = [];
     mockDb.select.mockImplementation(() => {
+      const index = builders.length;
       const b = builder(
-        `read-${builders.length}`,
-        rowsByOrder[builders.length] ?? [],
-        gate,
+        `read-${index}`,
+        rowsByOrder[index] ?? [],
+        index === 0 ? Promise.resolve() : gate,
       );
       builders.push(b);
       return b;
@@ -208,18 +204,22 @@ describe("list-organization-state action", () => {
     const pending = action.run({}, undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // All seven awaited reads are in flight before any of them has settled.
+    expect(mockRequireOrganizationAccess).toHaveBeenCalledWith("org_1");
     const awaited = builders.filter((b) => b.thenCalls > 0);
-    expect(awaited).toHaveLength(7);
-    // The members read feeds both the member list and the profile lookup,
-    // but must hit the database once.
-    expect(builders[1].thenCalls).toBe(1);
+    expect(awaited).toHaveLength(6);
+    expect(builders[6].thenCalls).toBe(0);
 
     release();
     const result = (await pending) as any;
-    expect(result.organization).toMatchObject({ id: "org_1", name: "Org" });
+    expect(result.organization).toMatchObject({
+      id: "org_1",
+      name: "Org",
+      brandColor: "#123456",
+      brandLogoUrl: null,
+      defaultVisibility: "public",
+    });
     expect(result.members).toEqual([
-      { id: "m1", email: "owner@example.com", role: "owner", joinedAt: 1 },
+      { id: "m1", email: "Owner@Example.com", role: "owner", joinedAt: 1 },
     ]);
     expect(result.folders).toEqual([
       expect.objectContaining({ id: "f1", recordingCount: 2 }),

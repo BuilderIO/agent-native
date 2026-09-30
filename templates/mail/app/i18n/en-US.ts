@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "Note to Self",
     },
     inbox: {
+      atLeastCount: "At least {{count}}",
       syncing: "Syncing inbox…",
     },
     sort: {
@@ -33,6 +34,107 @@ const messages = {
       newest: "Newest",
       priority: "Priority",
       priorityFailed: "Couldn’t rank this inbox.",
+      priorityScoreHelp:
+        "Higher scores mean Jev expects the message to be more important.",
+      priorityFeedbackSuggestion:
+        "Turn this feedback pattern into an importance or auto-archive rule.",
+      priorityFeedbackAskAgent: "Ask agent to suggest rules",
+      aiSetupTitle: "Set up your AI inbox",
+      aiSetupTagLabel: "Create an AI tag",
+      aiSetupImportanceLabel: "Important mail",
+      aiSetupSpamLabel: "Spam",
+      aiSetupArchiveLabel: "Skip inbox",
+      aiSetupSave: "Save setup",
+      aiSetupSkip: "Skip for now",
+      aiSetupImportantHeadline: "What’s important to you?",
+      aiSetupSkipInboxHeadline: "What can skip your inbox?",
+      aiSetupTagsHeadline: "Sort mail into tabs",
+      aiSetupArchiveSpamHeadline: "Skip inbox and Spam",
+      aiSetupTagReceipts: "Receipts",
+      aiSetupTagUpdates: "Product updates",
+      aiSetupTagGitHub: "GitHub humans",
+      aiSetupPromptReceipts:
+        "Receipts and order confirmations from online shops",
+      aiSetupPromptUpdates:
+        "Product updates and release notes from tools I use",
+      aiSetupPromptGitHub: "GitHub notifications where a human left a comment",
+      aiSetupImportantPrompt:
+        "Messages that need a reply or have a deadline, including comments from people on GitHub. Skip bot comments.",
+      aiSetupArchiveSpamPrompt:
+        "Skip inbox: GitHub notifications where a bot posted a comment or an automated status update.\nSpam: Clearly promotional or unwanted messages I did not ask for.",
+      aiSetupCustomTag: "Custom",
+      aiSetupDone: "Done",
+      aiSetupConnectGmailHeadline: "Connect Gmail to sort your inbox",
+      aiSetupConnectGmailDescription:
+        "Connect Google to apply your rules to recent mail.",
+      aiSetupConnectJevHeadline: "Connect Jev to sort your inbox",
+      aiSetupConnectJevDescription:
+        "Connect Jev to apply your rules to recent mail.",
+      aiSetupCustomTabName: "Tab name",
+      aiSetupCustomTabExample: "e.g. Invoices and bills from vendors",
+      aiSetupRunAgain: "Run setup again",
+      aiSetupTagCalendar: "Calendar",
+      aiSetupPromptCalendar: "Calendar invitations and event updates I need",
+      aiSetupTagTravel: "Travel",
+      aiSetupPromptTravel: "Travel confirmations and reservations I need",
+      aiSetupTagFinance: "Finance",
+      aiSetupPromptFinance: "Bills and account statements I need",
+      aiSetupArchiveExample:
+        "Bot and CI notifications from GitHub, Vercel, and Dependabot",
+      aiSetupFilteredExample:
+        "Cold sales outreach and recruiters I haven't replied to",
+      aiSetupSortingHeadline: "Sorting your inbox",
+      aiSetupSortingDescription: "Here’s what your rules found in recent mail.",
+      aiSetupFindingRecentMail: "Finding recent mail…",
+      aiSetupRetry: "Retry",
+      aiSetupGmailStatusFailed: "Couldn't check your Gmail connection",
+      aiSetupAutomationSettingsFailed: "Couldn't check your AI model settings",
+      aiSetupSortingProgress: "Sorting recent mail: {{processed}} of {{total}}",
+      aiSetupUndoing: "Undoing inbox changes…",
+      aiSetupUndoBeforeRetry: "Undo the partial changes before trying again.",
+      aiSetupSortingFailed:
+        "Could not sort your inbox. Your rules are saved; try again.",
+      aiSetupUndoComplete:
+        "Restored {{count}} messages to their previous state.",
+      aiSetupUndoFailed: "Couldn't undo these inbox changes. Try again.",
+      aiSetupUndoStatusFailed:
+        "Undo was submitted, but the latest results couldn't be loaded.",
+      aiSetupRuleCount: "{{count}} matched",
+      aiSetupNoMatches: "No messages in the last 14 days matched these rules.",
+      aiSetupChatTip: "You can refine or add rules anytime in chat.",
+      aiSetupChatPrompt: "Prioritize emails from my boss…",
+      aiSetupNoRules: "No rules were selected.",
+      aiSetupPartialFailure: "{{count}} messages could not be updated.",
+      aiSetupSortInbox: "Sort my inbox",
+      aiSetupImportantExample:
+        "Anything from my boss, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "AI tags matching mail and gives each tag its own tab next to your inbox.",
+      aiSetupImportantDescription:
+        "AI adds the Important label to matching mail so it appears in your Important tab.",
+      aiSetupSkipInboxDescription:
+        "AI archives matching mail so it never lands in your inbox. It’s still in All Mail and search.",
+      aiSetupAddTab: "Add tab",
+      aiSetupAdjustRules: "Adjust rules",
+      aiSetupImportantBoss: "Messages from my boss, ",
+      aiSetupImportantBossChip: "Messages from my boss",
+      aiSetupImportantReply: "Needs a reply",
+      aiSetupImportantDeadlines: "Deadlines",
+      aiSetupImportantCustomers: "Customers",
+      aiSetupImportantGitHub: "People on GitHub",
+      aiSetupImportantCalendar: "Calendar invitations",
+      aiSetupSkipNewsletters: "Newsletters",
+      aiSetupSkipPromotions: "Promotions",
+      aiSetupSkipBots: "Bot & CI alerts",
+      aiSetupSkipColdSales: "Cold sales outreach",
+      aiSetupSkipRecruiters: "Unanswered recruiters",
+      aiSetupSkipSocial: "Social notifications",
+      priorityFeedbackLabel: "Importance feedback",
+      priorityScoreHigh: "High importance",
+      priorityScoreMedium: "Medium importance",
+      priorityScoreLow: "Low importance",
+      priorityEditRules: "Edit importance rules",
+      aiSetupContinue: "Continue",
     },
     toolbar: {
       toggleMenu: "Toggle menu",
@@ -47,7 +149,7 @@ const messages = {
       unpinSidebar: "Unpin sidebar",
       closeSidebar: "Close sidebar",
       settings: "Settings",
-      aiSettings: "AI tags & spam",
+      aiSettings: "Manage tags and rules",
     },
     search: {
       label: "Search",
@@ -62,6 +164,7 @@ const messages = {
       filtersLimitReached: "You can save up to 20 filters.",
     },
     tabSettings: {
+      splitInbox: "Split inbox",
       views: "Views",
       categories: "Categories",
       rename: "Rename",
@@ -69,7 +172,8 @@ const messages = {
       savedFilters: "Saved filters",
       combinedInbox: "Combined inbox",
       allTab: "All tab",
-      help: "All includes every inbox thread. Checked labels split the inbox.",
+      help: "Combined inbox shows every account together; turn it off to split mail into tabs.",
+      aiSetup: "Set up AI tags and rules",
     },
     accounts: {
       remove: "Remove",
@@ -103,6 +207,7 @@ const messages = {
       deleteDraft: "Delete draft",
       deleteDrafts: "Delete drafts",
       reopenDraft: "Reopen",
+      openInMail: "Open in Mail",
       discardDraft: "Discard draft",
       enterLinkUrl: "Enter the URL for the link.",
       forward: "Forward",
@@ -224,6 +329,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Cancel scheduled send",
+      deliveryUnknownWarning:
+        "Delivery status unknown; check Mail’s Sent view before resolving.",
+      markSentAfterChecking: "I checked Sent; mark as sent",
+      sendNewCopy: "Send a new copy",
+      sendingStatus:
+        "Scheduled send is processing. Actions are temporarily unavailable.",
+      confirmSendNewCopyTitle: "Send another copy?",
+      confirmSendNewCopyDescription:
+        "The original may already have been delivered. Check Mail’s Sent view first. Sending another copy can create a duplicate email.",
       dateInput: "Date and time",
       laterToday: "Later today",
       noDateMatch: "No matching future time",
@@ -333,6 +447,10 @@ const messages = {
       scheduledSendFailed: "Failed to send scheduled email",
       scheduledCancelled: "Scheduled email cancelled.",
       scheduledCancelFailed: "Failed to cancel scheduled email",
+      uncertainScheduledMarkedSent: "Scheduled email marked as sent.",
+      uncertainScheduledResolveFailed: "Failed to resolve scheduled email.",
+      uncertainScheduledRetryStarted: "A new copy is being sent.",
+      uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToUploadImage: "Failed to upload image",
       failedToSendEmail: "Failed to send email",
@@ -380,6 +498,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Connect your Google account",
+      connectionNotConfigured:
+        "Gmail connection isn't configured for this app. Ask your administrator to enable it, or skip this step for now.",
       heroDescription:
         "Send and receive real email. Connect your Gmail account to get started.",
       setupIntro:
@@ -433,6 +553,7 @@ const messages = {
       neverSpam: "Never spam",
       neverImportant: "Never important",
       important: "Important",
+      notImportant: "Not important",
       star: "Star",
       trash: "Trash",
       applyLabel: "Apply label",
@@ -445,9 +566,6 @@ const messages = {
       deleteGmailFilter: "Delete Gmail filter",
       deleteGmailFilterDescription:
         "Delete this filter from {{account}}? This changes Gmail directly.",
-      title: "Gmail Filters",
-      description:
-        "Server-side Gmail rules for simple sender, subject, and search patterns.",
       newFilter: "New filter",
       noFilters: "No Gmail filters yet.",
     },
@@ -492,6 +610,8 @@ const messages = {
         "Adds the agent-native-filtered label and archives the conversation. You can undo it anytime.",
       learningNote:
         "Keeps the message in Inbox and teaches the filter not to repeat the mistake.",
+      learningProgress:
+        "Confirmed {{count}} of {{required}} examples. Recent mail will be checked after {{required}} are confirmed.",
       rememberLabel: "Remember for future mail (optional)",
       correctLabel: "What should it learn? (optional)",
       rememberPlaceholder:
@@ -505,10 +625,49 @@ const messages = {
       keptToast: "Kept {{count}} conversation(s) in Inbox.",
       actionFailed: "Could not update the AI filter.",
       settingsFailed: "Could not save AI filter settings.",
+      automationRulesLoadFailed: "Couldn’t load triage rules.",
       instructionFailed: "Could not save AI filter instruction.",
+      autoArchiveMode: "Auto-archive",
+      skipInboxMode: "Skip inbox",
       spamMode: "Spam",
       tagMode: "Tag",
+      aiTagsTitle: "AI tags",
+      ruleHelpLabel: "Explain {{mode}} rules",
+      aiTagRuleHelp:
+        "Write a natural-language prompt. Jev adds this tag to matching mail.",
+      importantRuleHelp:
+        "Write a natural-language prompt. Jev marks matching mail as Important.",
+      skipInboxRuleHelp:
+        "Write a natural-language prompt. Jev archives matching mail so it skips Inbox.",
+      spamRuleHelp:
+        "Write a natural-language prompt. Jev adds the agent-native-filtered label and archives matching mail. This is not Gmail Spam.",
+      filteredMode: "Filtered",
+      manageSettings: "Manage",
+      askJev: "Ask Jev",
+      askJevPrompt:
+        "Help me refine this Mail rule: {{condition}}. Ask what I want changed, then update it.",
+      composerPlaceholder: "Ask Jev to organize your inbox…",
+      chatSuggestionFilter: "Filter out messages like this",
+      chatSuggestionPriority: "Prioritize emails from…",
+      chatSuggestionArchive: "Auto-archive bot notifications",
+      ruleBackfillStarting: "Applying this rule to recent mail…",
+      ruleBackfillProgress:
+        "Applying to recent mail: {{processed}} of {{total}}",
+      ruleBackfillMatches: "{{count}} recent messages matched",
+      ruleBackfillNoMatches: "No recent messages matched this rule.",
+      ruleBackfillFailed: "Could not apply this rule to recent mail.",
+      ruleBackfillRunFailed: "Could not complete the recent mail backfill.",
+      backfillStatusLoadFailed: "Couldn't load recent rule status.",
+      ruleBackfillPartialFailure: "{{count}} messages could not be updated.",
+      ruleBackfillUndoing: "Restoring recent mail…",
+      ruleBackfillUndoComplete: "{{count}} messages restored",
+      ruleBackfillReview: "Review matches",
       importantMode: "Important",
+      notifyMode: "Notify",
+      notifyModeHelp:
+        "Marks matches Important and shows a browser popup while Mail is open and notifications are enabled from the bell. Mobile app coming soon.",
+      manageAutomationsLink: "More automation actions",
+      notImportantMode: "Not important",
       importantLabel: "AI Important",
       reviewImportant: "View important",
       ruleAdded: "AI rule added.",
@@ -517,6 +676,8 @@ const messages = {
       spamLabelHint: "Matches are labeled and moved out of Inbox.",
       spamPlaceholder: "e.g. Messages that are clearly promotional or unwanted",
       tagPlaceholder: "e.g. Receipts and order confirmations from online shops",
+      archivePlaceholder:
+        "e.g. GitHub bot notifications that do not need my attention",
       importantPlaceholder:
         "e.g. Messages that need a reply or have a deadline",
       addShortcut: "Press ⌘ Enter to add",
@@ -540,6 +701,16 @@ const messages = {
       addRuleToPreview: "Add an AI rule to preview recent mail.",
       previewEmpty: "Run a preview to see likely matches here.",
       previewFailed: "Could not preview recent mail.",
+      promptRulesCleared: "Triage rules removed.",
+      tagTabsHelp: "Each tag becomes an inbox tab",
+      addTag: "Add tag",
+      triageTitle: "AI triage",
+      connectJev: "Connect Jev",
+      connectJevToRunTriage: "Connect Jev to run triage",
+      freeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
+      jevAvailabilityFailed: "Could not check whether Jev is available.",
+      connectBuilder: "Connect Builder.io",
+      addJevApiKey: "Add API key",
     },
     draftQueue: {
       title: "Draft queue",
@@ -598,6 +769,9 @@ const messages = {
     suggestionSummarize: "Summarize my unread emails",
     suggestionReplies: "What needs my reply today?",
     suggestionWidget: "Build me a custom widget for my inbox",
+    ruleSuggestionFilter: "Filter out messages like this",
+    ruleSuggestionImportant: "Prioritize emails from my boss",
+    ruleSuggestionArchive: "Auto-archive bot notifications",
   },
   settings: {
     openAgentSettings: "Manage agent",
@@ -613,7 +787,6 @@ const messages = {
     personSingular: "{{count}} person",
     peoplePlural: "{{count}} people",
     deleteAliasDescription: 'Delete alias "{{name}}"? This cannot be undone.',
-    aliasesDescription: "Address groups you can use when composing emails.",
     newAlias: "New alias",
     noAliases: "No aliases yet. Create one to get started.",
     applyLabel: "Apply label",
@@ -621,6 +794,7 @@ const messages = {
     markRead: "Mark as read",
     star: "Star",
     trash: "Trash",
+    notify: "Notify",
     labelName: "Label name",
     addAction: "+ Add action",
     ruleName: "Rule name",
@@ -631,15 +805,6 @@ const messages = {
     actions: "Actions",
     editRule: "Edit rule",
     deleteRule: "Delete rule",
-    noEventAutomations: "No event-triggered automations for mail yet.",
-    eventAutomationsPrompt:
-      'Ask the agent to create an automation like "when I receive an email from my boss, star it and notify me."',
-    disabled: "disabled",
-    on: "on",
-    when: "when",
-    lastRun: "Last run:",
-    automationsDescription:
-      "Rules that automatically process new inbox emails using AI.",
     allowAutomationSends: "Allow automations to send emails automatically",
     allowAutomationSendsDescription:
       "Off by default. Turn this on when you want automations to send emails without asking for approval each time.",
@@ -650,16 +815,11 @@ const messages = {
     noAutomationRules: "No automation rules yet.",
     noAutomationRulesDescription:
       "Create rules to auto-label emails, archive newsletters, star important messages, and more. You can also ask the AI agent to set these up for you.",
-    eventTriggers: "Event Triggers",
-    eventTriggersDescription:
-      "Automations that fire when mail events occur (e.g. new email received). Managed by the agent.",
     importedSignature: "Imported signature from {{account}}.",
     noGmailSignature: "No Gmail signature found for {{account}}.",
     importSignatureFailed: "Failed to import Gmail signature.",
     draftingSettingsSaved: "Drafting settings saved.",
     draftingSettingsSaveFailed: "Failed to save drafting settings.",
-    draftingDescription:
-      "Preferences used when composing and generating email drafts.",
     signature: "Signature",
     importFromGmail: "Import from Gmail",
     signatureHelp:
@@ -673,43 +833,14 @@ const messages = {
     writingStylePlaceholder: "Short, specific, warm. Avoid formal filler.",
     saveDraftingSettings: "Save drafting settings",
     reset: "Reset",
-    trackingDescription:
-      "Know when recipients open your sent emails and click links. Stats appear under each sent message.",
     trackEmailOpens: "Track email opens",
     trackEmailOpensDescription:
       "Inject a 1×1 pixel into outgoing emails so you can see when recipients open them.",
     trackLinkClicks: "Track link clicks",
     trackLinkClicksDescription:
       "Rewrite external links in outgoing emails to count when recipients click them.",
-    slackLoadFailed: "Failed to load Slack status",
-    slackUpdateFailed: "Failed to update Slack intake",
-    slackConfigured: "Slack credentials are configured.",
-    slackNeedsCredentials:
-      "Legacy custom intake requires SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET. For new Slack messaging automations, connect a workspace in Settings > Messaging.",
-    slackIntake: "Slack Intake (legacy)",
-    slackDescription:
-      "Legacy custom integration that lets organization members queue email drafts from Slack.",
-    enabled: "Enabled",
-    disable: "Disable",
-    enable: "Enable",
-    slackPostEndpoint: "Slack POST endpoint",
-    slackPostEndpointHelp:
-      "Use in Slack Event Subscriptions. Browser GET may show Not Found.",
-    teamDescription:
-      "Set up a team to share email automations and settings with your colleagues.",
-    title: "Settings",
-    general: "General",
-    generalDescription: "Language and account-level preferences for Mail.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language for this account. Mail remembers it across devices.",
-    languageLabel: "Interface language",
-    whatsNew: "What's new",
-    whatsNewDescription: "Recent user-facing changes to Agent-Native Mail.",
     drafting: "Drafting",
     snippets: "Snippets",
-    snippetsDescription:
-      "Saved replies you can insert into a compose draft by typing / and the snippet name.",
     newSnippet: "New snippet",
     noSnippets: "No snippets yet. Create one to get started.",
     snippetName: "Snippet name",
@@ -720,13 +851,18 @@ const messages = {
     deleteSnippet: "Delete snippet",
     deleteSnippetDescription:
       'Delete snippet "{{name}}"? This cannot be undone.',
-    automations: "Automations",
-    aiFilter: "AI filter",
-    gmailFilters: "Gmail Filters",
+    rules: "Rules",
+    rulesModel: "Rules model",
+    rulesModelDescription: "Matches incoming mail against your rules.",
+    slackDraftRequests: "Draft requests",
+    slackDraftQueue: "Queue drafts from Slack",
+    slackDraftQueueDescription:
+      "Teammates mention the agent in Slack to request an email draft. Drafts wait in your draft queue for review.",
+    openDraftQueue: "Open draft queue",
+    aiFilter: "AI triage",
+    gmailFilters: "Gmail filters",
     aliases: "Aliases",
     tracking: "Tracking",
-    slack: "Slack",
-    team: "Team",
     deleteAlias: "Delete Alias",
     editAlias: "Edit Alias",
   },

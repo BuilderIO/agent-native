@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
+import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
 const MAX_DATA_OPERATION_SOURCES = 128;
@@ -19,6 +20,21 @@ const FORBIDDEN_DATA_PATH_SEGMENTS = new Set([
   "constructor",
   "prototype",
 ]);
+
+function tweakDefinitionsWriteError(value: unknown): string | null {
+  return tweakDefinitionsSchema.safeParse(value).success
+    ? null
+    : "tweaks must be an array of valid definitions";
+}
+
+function designDataWriteError(path: string[], value: unknown): string | null {
+  const geometryError = numericDesignDataWriteError(path, value);
+  if (geometryError) return geometryError;
+  if (path.length === 1 && path[0] === "tweaks") {
+    return tweakDefinitionsWriteError(value);
+  }
+  return null;
+}
 
 const dataPathSchema = z
   .array(
@@ -47,10 +63,7 @@ const dataOperationSchema = z
   ])
   .superRefine((operation, context) => {
     if (operation.op !== "set") return;
-    const message = numericDesignDataWriteError(
-      operation.path,
-      operation.value,
-    );
+    const message = designDataWriteError(operation.path, operation.value);
     if (message) {
       context.addIssue({ code: "custom", path: ["value"], message });
     }
@@ -82,10 +95,7 @@ const agentDataOperationSchema = z
   ])
   .superRefine((operation, context) => {
     if (operation.op !== "set") return;
-    const message = numericDesignDataWriteError(
-      operation.path,
-      operation.value,
-    );
+    const message = designDataWriteError(operation.path, operation.value);
     if (message) {
       context.addIssue({ code: "custom", path: ["value"], message });
     }
@@ -95,9 +105,6 @@ type DataOperation = z.infer<typeof dataOperationSchema>;
 
 type DataOperationRevisions = Record<string, number>;
 
-/**
- * Normalize affected-row metadata from PGlite and hosted Postgres.
- */
 function affectedRowCount(result: unknown): number | undefined {
   const candidate = result as
     | {
@@ -127,9 +134,6 @@ function parsePersistedDataRecord(
   designId: string,
   raw: string | null | undefined,
 ): Record<string, unknown> {
-  // Legacy rows may contain SQL NULL despite the current NOT NULL schema.
-  // Malformed/non-object non-null values are corruption, not an empty design:
-  // fail loud so a patch can never silently erase the unreadable payload.
   if (raw == null) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -175,8 +179,6 @@ function withDataOperationRevision(
   revision: number,
 ): DataOperationRevisions {
   const next = { ...revisions };
-  // Refresh insertion order for the active source so the bounded record keeps
-  // recently active tabs and evicts abandoned sessions first.
   delete next[source];
   next[source] = revision;
   while (Object.keys(next).length > MAX_DATA_OPERATION_SOURCES) {
@@ -187,14 +189,6 @@ function withDataOperationRevision(
   return next;
 }
 
-/**
- * Apply path-addressed map operations without mutating the parsed source.
- *
- * This is intentionally not a generic recursive merge. A missing key can mean
- * either "the caller read before a peer added it" or "delete this key", so
- * inferring deletion from omission would resurrect or erase frames. Explicit
- * set/delete operations keep both intents unambiguous and CAS-retryable.
- */
 function applyDataOperations(
   designId: string,
   raw: string | null | undefined,
@@ -244,12 +238,22 @@ function applyDataOperations(
 
 function validatePersistedDataSnapshot(
   raw: string,
+  designId: string,
   touchedMaps?: ReadonlySet<string>,
   touchedCanvasFrameIds?: ReadonlySet<string>,
 ): void {
   const parsed = JSON.parse(raw);
   if (!isRecord(parsed)) return;
   for (const [key, value] of Object.entries(parsed)) {
+    if (key === "tweaks") {
+      if (touchedMaps && !touchedMaps.has(key)) continue;
+      if (tweakDefinitionsWriteError(value)) {
+        throw new Error(
+          `Design ${designId} has invalid tweak definitions. Refusing to save them.`,
+        );
+      }
+      continue;
+    }
     if (
       touchedMaps &&
       NUMERIC_DESIGN_DATA_MAPS.has(key) &&
@@ -363,9 +367,6 @@ export default defineAction({
         });
       }
     }),
-  // Advertised to the model only; `schema` above stays the validator. Drops
-  // operationSource/operationRevision, which order writes from one browser tab
-  // and have no meaning for an agent call.
   agentInputSchema: z.object({
     id: z.string().describe("Design ID"),
     title: z.string().optional().describe("New title"),
@@ -412,6 +413,10 @@ export default defineAction({
       }
       if (isRecord(parsedSnapshot)) {
         for (const [key, value] of Object.entries(parsedSnapshot)) {
+          if (key === "tweaks") {
+            const tweakError = tweakDefinitionsWriteError(value);
+            if (tweakError) throw new Error(tweakError);
+          }
           const message = numericDesignDataWriteError([key], value);
           if (message) throw new Error(message);
         }
@@ -499,9 +504,6 @@ export default defineAction({
             })
           : data!;
       }
-      // Validate the complete post-operation snapshot. Nested set/delete
-      // operations can otherwise leave an empty canvas frame after the
-      // per-value numeric checks have passed.
       const touchedMaps = dataOperations
         ? new Set(dataOperations.map((operation) => operation.path[0]))
         : (() => {
@@ -522,17 +524,11 @@ export default defineAction({
         : undefined;
       validatePersistedDataSnapshot(
         nextData,
+        id,
         touchedMaps,
         touchedCanvasFrameIds,
       );
 
-      // Compare-and-swap on the exact data snapshot. Transactions at the
-      // default isolation level do not make a read-merge-write safe: two
-      // transactions can both read the same JSON and the later UPDATE can
-      // overwrite the first. Explicit operations are safe to re-apply to the
-      // latest row; a legacy full snapshot is ambiguous, so a conflict fails
-      // loud instead of guessing whether missing nested keys mean stale data
-      // or intentional deletion.
       const revisionCondition =
         operationSource !== undefined
           ? existing.dataOperationRevisions == null

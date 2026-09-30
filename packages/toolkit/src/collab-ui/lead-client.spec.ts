@@ -3,7 +3,6 @@ import type { Awareness } from "y-protocols/awareness";
 
 import { isReconcileLeadClient } from "./lead-client.js";
 
-/** Minimal Awareness stand-in: isReconcileLeadClient only calls getStates(). */
 function fakeAwareness(states: Map<number, unknown>): Awareness {
   return { getStates: () => states } as unknown as Awareness;
 }

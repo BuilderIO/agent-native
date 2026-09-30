@@ -1,0 +1,16 @@
+{
+  "title": "Self-anchored text boxes",
+  "notes": "Fixed-height text leaves that anchor their own text: a bottom-anchored title and a centred label, both at line-height 1, so each Enter moves the text rather than the element's box. A plain paragraph for contrast. A second slide holds icon rows whose icon is taller than the label, centred and bottom-aligned, so the element's box and its icon stay put while the label moves.",
+  "slides": [
+    {
+      "id": "self-anchored",
+      "layout": "content",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 56px 72px; background: #ffffff; color: #111827; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; gap: 28px;\"><div style=\"height: 160px; display: flex; flex-direction: column; justify-content: flex-end; font-size: 44px; font-weight: 700; line-height: 1; margin: 0;\">Quarterly planning</div><div style=\"height: 120px; width: 420px; display: flex; align-items: center; font-size: 28px; line-height: 1; background: #eef2ff; padding: 0 24px;\">Centred status label</div><p style=\"font-size: 20px; line-height: 1.5; margin: 0;\">The roadmap review moves to the second week of the month.</p></div>"
+    },
+    {
+      "id": "icon-rows",
+      "layout": "content",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 56px 72px; background: #ffffff; color: #111827; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; gap: 32px;\"><div style=\"display: flex; align-items: center; gap: 16px; font-size: 20px; line-height: 1.15;\"><span style=\"width: 56px; height: 56px; border-radius: 12px; background: #e0e7ff;\"></span><span>Launch the pilot</span></div><div style=\"display: flex; align-items: flex-end; gap: 16px; font-size: 20px; line-height: 1.15;\"><span style=\"width: 56px; height: 56px; border-radius: 12px; background: #e0e7ff;\"></span><span>Hire two account leads</span></div></div>"
+    }
+  ]
+}

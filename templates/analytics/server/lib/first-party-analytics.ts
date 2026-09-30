@@ -37,6 +37,7 @@ import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-vo
 export interface AnalyticsScope {
   userEmail: string;
   orgId: string | null;
+  credentialScope?: "org";
 }
 
 export interface IncomingAnalyticsEvent {
@@ -56,15 +57,12 @@ export interface AnalyticsQueryResult {
 }
 
 export interface AnalyticsQueryOptions {
-  /** Cache only callers with a stable dashboard-panel lifecycle. */
   cache?: boolean;
-  /** Bound the database work for callers with a smaller delivery deadline. */
   timeoutMs?: number;
 }
 
 const MAX_EVENTS_PER_REQUEST = 100;
 const MAX_QUERY_ROWS = 5_000;
-// Leave seven days for retries inside BigQuery's 3,650-day streaming limit.
 const MAX_ANALYTICS_TIMESTAMP_AGE_MS = (3_650 - 7) * 24 * 60 * 60 * 1_000;
 const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "analytics_events",
@@ -73,6 +71,81 @@ const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "session_recordings",
 ] as const;
 const FIRST_PARTY_QUERY_TABLES = new Set<string>(FIRST_PARTY_QUERY_TABLE_NAMES);
+const POSTGRES_SET_RETURNING_FUNCTIONS = new Set([
+  "generate_series",
+  "generate_subscripts",
+  "json_array_elements",
+  "json_array_elements_text",
+  "json_each",
+  "json_each_text",
+  "json_object_keys",
+  "json_populate_recordset",
+  "json_to_recordset",
+  "jsonb_array_elements",
+  "jsonb_array_elements_text",
+  "jsonb_each",
+  "jsonb_each_text",
+  "jsonb_object_keys",
+  "jsonb_path_query",
+  "jsonb_populate_recordset",
+  "jsonb_to_recordset",
+  "regexp_matches",
+  "regexp_split_to_table",
+  "string_to_table",
+  "unnest",
+]);
+const SAFE_ANALYTICS_SQL_FUNCTIONS = new Set([
+  "chr",
+  "coalesce",
+  "count",
+  "date_trunc",
+  "first_value",
+  "floor",
+  "greatest",
+  "least",
+  "lower",
+  "max",
+  "min",
+  "nullif",
+  "round",
+  "row_number",
+  "split_part",
+  "string_to_array",
+  "substr",
+  "sum",
+  "to_char",
+  "trim",
+  "upper",
+]);
+const SQL_PARENTHESIS_KEYWORDS = new Set([
+  "all",
+  "and",
+  "any",
+  "as",
+  "by",
+  "cast",
+  "distinct",
+  "else",
+  "exists",
+  "extract",
+  "filter",
+  "from",
+  "group",
+  "having",
+  "in",
+  "join",
+  "not",
+  "on",
+  "order",
+  "or",
+  "over",
+  "select",
+  "some",
+  "then",
+  "using",
+  "values",
+  "where",
+]);
 const FIRST_PARTY_ROLLUP_TABLES = new Set([
   "analytics_event_daily_rollups",
   "analytics_user_days",
@@ -305,31 +378,8 @@ export async function listAnalyticsPublicKeys(
   }));
 }
 
-/** How stale the last-used stamp must be before a request pays to refresh it. */
 const LAST_USED_AT_REFRESH_MS = 60_000;
 
-/**
- * Refresh a public key's last-used stamp without serializing ingest behind it.
- *
- * This UPDATE used to sit inside the ingest transaction, so every concurrent
- * request for one public key took an exclusive row lock on that key's row and
- * held it until the transaction committed — which meant through the rollup
- * upsert. Production stacked 36 writers on three hot rows waiting 38-57s each;
- * that exhausted the connection pool, and the whole app stopped loading while
- * Postgres reported "no server connection available, client being queued". The
- * stamp is bookkeeping: it needs neither atomicity with the events nor
- * second-precision, and losing one is harmless.
- *
- * The staleness predicate throttles in SQL rather than in the caller, because
- * Postgres only locks rows an UPDATE actually matches — a request whose key was
- * stamped seconds ago matches nothing and takes no lock at all. Doing the same
- * check in JS would reintroduce the convoy, since every racing request would
- * still issue its own unconditional write.
- *
- * `last_used_at` is TEXT holding ISO-8601 UTC (always `Z`-suffixed), so `lt` is
- * a lexicographic comparison that happens to be chronological. Storing a local
- * or offset-bearing timestamp here would silently break this ordering.
- */
 export async function touchPublicKeyLastUsedAt(
   keyId: string,
   receivedAt: string,
@@ -358,8 +408,6 @@ export async function touchPublicKeyLastUsedAt(
         ),
       );
   } catch (error) {
-    // Best-effort by design: a failed stamp must not reject an ingest whose
-    // events already committed. Loud enough to see if it starts failing always.
     console.warn(
       "[first-party-analytics] Failed to refresh key last-used stamp:",
       error,
@@ -517,12 +565,6 @@ export function resolveAnalyticsEventDimensions({
   return { app, template };
 }
 
-/**
- * The public marketing site does not have a product sign-in surface. It shares
- * the browser analytics write key, though, so its host-derived `www` dimension
- * must never enter signed-in product cohorts when a client sends session
- * telemetry.
- */
 export function isMarketingWebsiteSessionEvent({
   eventName,
   hostname,
@@ -544,8 +586,6 @@ export function isMarketingWebsiteSessionEvent({
   ) {
     return true;
   }
-  // Some older browser events do not include a URL/hostname. Their only
-  // available attribution is the host-derived app/template dimension.
   const normalizedApp = app?.trim().toLowerCase();
   const normalizedTemplate = template?.trim().toLowerCase();
   return (
@@ -724,8 +764,6 @@ export async function recordAnalyticsEvents(
         () => insertFirstPartyAnalyticsRows(rows, backend.table),
       );
     } catch (error) {
-      // Dual-write mode keeps Postgres as the recoverable source until the
-      // backfill has completed. A BigQuery outage must not lose live events.
       console.error(
         "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
         error,
@@ -737,8 +775,6 @@ export async function recordAnalyticsEvents(
   if (rows.length) {
     try {
       if (backend.sink === "bigquery") {
-        // BigQuery-mode events stay in SQL until the scheduled worker confirms
-        // delivery. This is the recoverable boundary after warehouse cutover.
         await persistBigQueryRowsWithMigrationFallback(
           db,
           rows,
@@ -764,8 +800,6 @@ export async function recordAnalyticsEvents(
         });
       }
     } catch (error) {
-      // Preserve SQL-only exception issues and public-key metadata below even
-      // when a Postgres volume reservation or insert rejects the batch.
       persistenceError = error;
     }
   }
@@ -773,10 +807,6 @@ export async function recordAnalyticsEvents(
     await touchPublicKeyLastUsedAt(key.id, receivedAt);
   }
 
-  // Fork captured exceptions into the dedicated error-capture tables. This is
-  // best-effort: a malformed `$exception` payload must never reject the whole
-  // analytics ingest (the event is still recorded in analytics_events above,
-  // which keeps alerting working).
   if (exceptionSources.length) {
     try {
       await ingestAnalyticsExceptionEvents(
@@ -806,20 +836,33 @@ function stripSqlLiterals(sql: string): string {
     const ch = sql[i];
     const next = sql[i + 1];
     if (!inSingle && !inDouble && ch === "-" && next === "-") {
+      const start = i;
       while (i < sql.length && sql[i] !== "\n") i++;
-      out += " ";
+      out += " ".repeat(i - start);
       continue;
     }
     if (!inSingle && !inDouble && ch === "/" && next === "*") {
+      const start = i;
+      let depth = 1;
       i += 2;
-      while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
-      i += 2;
-      out += " ";
+      while (i < sql.length && depth > 0) {
+        if (sql[i] === "/" && sql[i + 1] === "*") {
+          depth++;
+          i += 2;
+        } else if (sql[i] === "*" && sql[i + 1] === "/") {
+          depth--;
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+      out += " ".repeat(i - start);
       continue;
     }
     if (!inDouble && ch === "'") {
       out += " ";
       if (inSingle && next === "'") {
+        out += " ";
         i += 2;
         continue;
       }
@@ -843,13 +886,18 @@ interface AnalyticsSqlToken {
   value: string;
   quoted: boolean;
   depth: number;
+  start: number;
 }
 
 interface AnalyticsSqlSource {
   ref: string;
   quoted: boolean;
+  tableFunction: boolean;
   commaSeparated: boolean;
 }
+
+const ANALYTICS_SQL_IDENTIFIER_RE =
+  /^[A-Za-z_\u0080-\uFFFF][A-Za-z0-9_$\u0080-\uFFFF]*$/;
 
 const SQL_SOURCE_CLAUSE_ENDS = new Set([
   "where",
@@ -880,10 +928,18 @@ function tokenizeAnalyticsSql(sql: string): AnalyticsSqlToken[] {
     }
     if (ch === "/" && next === "*") {
       i += 2;
-      while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) {
-        i++;
+      let commentDepth = 1;
+      while (i < sql.length && commentDepth > 0) {
+        if (sql[i] === "/" && sql[i + 1] === "*") {
+          commentDepth++;
+          i += 2;
+        } else if (sql[i] === "*" && sql[i + 1] === "/") {
+          commentDepth--;
+          i += 2;
+        } else {
+          i++;
+        }
       }
-      i += 2;
       continue;
     }
     if (ch === "'") {
@@ -902,6 +958,7 @@ function tokenizeAnalyticsSql(sql: string): AnalyticsSqlToken[] {
       continue;
     }
     if (ch === '"' || ch === "`" || ch === "[") {
+      const start = i;
       const closing = ch === "[" ? "]" : ch;
       let value = "";
       i++;
@@ -917,30 +974,59 @@ function tokenizeAnalyticsSql(sql: string): AnalyticsSqlToken[] {
         }
         value += sql[i++];
       }
-      tokens.push({ value, quoted: true, depth });
+      tokens.push({ value, quoted: true, depth, start });
       continue;
     }
-    if (/[A-Za-z_]/.test(ch)) {
+    if (/[A-Za-z_\u0080-\uFFFF]/.test(ch)) {
       const start = i;
       i++;
-      while (i < sql.length && /[A-Za-z0-9_$]/.test(sql[i])) i++;
-      tokens.push({ value: sql.slice(start, i), quoted: false, depth });
+      while (i < sql.length && /[A-Za-z0-9_$\u0080-\uFFFF]/.test(sql[i])) i++;
+      tokens.push({
+        value: sql.slice(start, i),
+        quoted: false,
+        depth,
+        start,
+      });
+      continue;
+    }
+    if (/\d/.test(ch) || (ch === "." && /\d/.test(next ?? ""))) {
+      const start = i;
+      if (ch === ".") i++;
+      while (i < sql.length && /\d/.test(sql[i])) i++;
+      if (ch !== "." && sql[i] === ".") {
+        i++;
+        while (i < sql.length && /\d/.test(sql[i])) i++;
+      }
+      if (/[eE]/.test(sql[i] ?? "")) {
+        const exponentStart = i;
+        i++;
+        if (/[+-]/.test(sql[i] ?? "")) i++;
+        const exponentDigitsStart = i;
+        while (i < sql.length && /\d/.test(sql[i])) i++;
+        if (i === exponentDigitsStart) i = exponentStart;
+      }
+      tokens.push({
+        value: sql.slice(start, i),
+        quoted: false,
+        depth,
+        start,
+      });
       continue;
     }
     if (ch === "(") {
-      tokens.push({ value: ch, quoted: false, depth });
+      tokens.push({ value: ch, quoted: false, depth, start: i });
       depth++;
       i++;
       continue;
     }
     if (ch === ")") {
       depth = Math.max(0, depth - 1);
-      tokens.push({ value: ch, quoted: false, depth });
+      tokens.push({ value: ch, quoted: false, depth, start: i });
       i++;
       continue;
     }
     if (ch === "." || ch === ",") {
-      tokens.push({ value: ch, quoted: false, depth });
+      tokens.push({ value: ch, quoted: false, depth, start: i });
     }
     i++;
   }
@@ -982,7 +1068,7 @@ function readAnalyticsSqlSource(
     }
     return { source: null, next: Math.min(index + 1, tokens.length) };
   }
-  if (!first.quoted && !/^[A-Za-z_][A-Za-z0-9_$]*$/.test(first.value)) {
+  if (!first.quoted && !ANALYTICS_SQL_IDENTIFIER_RE.test(first.value)) {
     return { source: null, next: index + 1 };
   }
 
@@ -992,13 +1078,16 @@ function readAnalyticsSqlSource(
     tokens[index + 1]?.value === "." &&
     tokens[index + 2] &&
     (tokens[index + 2].quoted ||
-      /^[A-Za-z_][A-Za-z0-9_$]*$/.test(tokens[index + 2].value))
+      ANALYTICS_SQL_IDENTIFIER_RE.test(tokens[index + 2].value))
   ) {
     ref += `.${tokens[index + 2].value}`;
     quoted ||= tokens[index + 2].quoted;
     index += 2;
   }
-  return { source: { ref, quoted }, next: index + 1 };
+  return {
+    source: { ref, quoted, tableFunction: tokens[index + 1]?.value === "(" },
+    next: index + 1,
+  };
 }
 
 function collectAnalyticsSqlSources(sql: string): {
@@ -1066,7 +1155,42 @@ function collectAnalyticsSqlSources(sql: string): {
   return { cteNames, sources };
 }
 
-export function validateFirstPartyAnalyticsSql(sql: string): void {
+function validateAnalyticsSqlFunctions(sql: string): void {
+  const tokens = tokenizeAnalyticsSql(sql);
+  for (let i = 0; i + 1 < tokens.length; i++) {
+    const token = tokens[i];
+    if (tokens[i + 1].value !== "(") continue;
+    if (!token.quoted && !ANALYTICS_SQL_IDENTIFIER_RE.test(token.value)) {
+      continue;
+    }
+    const name = token.value.toLowerCase();
+    if (!token.quoted && SQL_PARENTHESIS_KEYWORDS.has(name)) continue;
+    if (POSTGRES_SET_RETURNING_FUNCTIONS.has(name)) {
+      throw new Error(
+        `First-party analytics queries cannot call set-returning function ${token.value}`,
+      );
+    }
+
+    const schemaQualified = tokens[i - 1]?.value === ".";
+    const schema = schemaQualified ? tokens[i - 2] : undefined;
+    const allowedSchema =
+      !schemaQualified ||
+      (schema?.quoted === false &&
+        schema.value.toLowerCase() === "pg_catalog" &&
+        tokens[i - 3]?.value !== ".");
+    if (
+      (token.quoted && token.value !== name) ||
+      !SAFE_ANALYTICS_SQL_FUNCTIONS.has(name) ||
+      !allowedSchema
+    ) {
+      throw new Error(
+        `First-party analytics queries cannot call unapproved SQL function ${token.value}`,
+      );
+    }
+  }
+}
+
+function validateFirstPartyAnalyticsSqlShape(sql: string): void {
   const stripped = stripSqlLiterals(sql).trim();
   const lowered = stripped.toLowerCase();
   if (!/^(select|with)\b/.test(lowered)) {
@@ -1100,7 +1224,6 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
       "First-party analytics queries cannot read session replay chunks",
     );
   }
-
   const { cteNames, sources } = collectAnalyticsSqlSources(sql);
   let usesAllowedTable = false;
   for (const source of sources) {
@@ -1108,6 +1231,11 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
     if (source.commaSeparated) {
       throw new Error(
         "Comma-separated table sources are not supported in first-party analytics queries; use an explicit JOIN",
+      );
+    }
+    if (source.tableFunction) {
+      throw new Error(
+        `First-party analytics queries cannot read from table function ${source.ref}`,
       );
     }
     if (FIRST_PARTY_QUERY_TABLES.has(ref)) {
@@ -1129,6 +1257,11 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
   }
 }
 
+export function validateFirstPartyAnalyticsSql(sql: string): void {
+  validateFirstPartyAnalyticsSqlShape(sql);
+  validateAnalyticsSqlFunctions(sql);
+}
+
 function scopedTableSource(
   tableName: string,
   scope: AnalyticsScope,
@@ -1139,16 +1272,27 @@ function scopedTableSource(
   args: Array<string | null>;
 } {
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
+    if (scope.credentialScope === "org" && !scope.orgId) {
+      return {
+        sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`,
+        args: [],
+      };
+    }
     const tenantKeys = scope.orgId
-      ? [`org:${scope.orgId}`, `user:${scope.userEmail}`]
-      : [`user:${scope.userEmail}`];
+      ? [
+          `org:${scope.orgId}`,
+          ...(scope.credentialScope === "org"
+            ? []
+            : [`user:${scope.userEmail}`]),
+        ]
+      : scope.credentialScope === "org"
+        ? []
+        : [`user:${scope.userEmail}`];
     const branches = tenantKeys.map((_, index) => {
       const tenantKeyParameter = parameterOffset + index * 2 + 1;
       return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}`;
     });
     return {
-      // Rollups have a tenant_key/event_date index. Keep the org and personal
-      // fallback branches separate so rollup reads stay indexable as well.
       sql: `(${branches.join(" UNION ALL ")})`,
       args: tenantKeys.flatMap((tenantKey) => [tenantKey, today]),
     };
@@ -1157,14 +1301,20 @@ function scopedTableSource(
   const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
     const orgParameter = parameterOffset + 1;
+    if (scope.credentialScope === "org") {
+      return {
+        sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)})`,
+        args: [scope.orgId, today],
+      };
+    }
     const ownerParameter = parameterOffset + 3;
     return {
-      // Keep the org and personal fallback as separate branches so Postgres can
-      // use each branch's composite tenant/date indexes instead of scanning one
-      // broad org index for an OR predicate.
       sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
+  }
+  if (scope.credentialScope === "org") {
+    return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
   }
   return {
     sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)})`,
@@ -1254,9 +1404,12 @@ export async function validateFirstPartyAnalyticsSqlForScope(
   sql: string,
   scope: AnalyticsScope,
 ): Promise<void> {
-  validateFirstPartyAnalyticsSql(sql);
+  validateFirstPartyAnalyticsSqlShape(sql);
   const backend = await getFirstPartyAnalyticsBackend(scope);
-  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") return;
+  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") {
+    validateAnalyticsSqlFunctions(sql);
+    return;
+  }
   assertFirstPartyAnalyticsBigQuerySql(sql);
 }
 
@@ -1265,23 +1418,21 @@ export async function queryFirstPartyAnalytics(
   scope: AnalyticsScope,
   options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
-  validateFirstPartyAnalyticsSql(sql);
+  validateFirstPartyAnalyticsSqlShape(sql);
   const backend = await getFirstPartyAnalyticsBackend(scope);
   if (firstPartyAnalyticsQueryTarget(sql, backend.sink) === "bigquery") {
     const table = await getFirstPartyAnalyticsTable(backend.table);
     const scoped = scopedAnalyticsSql(sql, scope);
     return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
   }
+  validateAnalyticsSqlFunctions(sql);
   const scoped = scopedAnalyticsSql(sql, scope);
   const scopedSql = scoped.sql;
-  const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
+  const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS + 1}`;
   const timeoutMs = Math.max(
     1,
     options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
   );
-  // The cache key is the fully scoped SQL + args, which already embeds
-  // org_id/owner_email (see scopeClause) — a cache hit can only ever return
-  // rows the same tenant was already entitled to query.
   const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args);
   const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   const compute = async (
@@ -1307,8 +1458,14 @@ export async function queryFirstPartyAnalytics(
           error,
         );
       });
-      const rows = result.rows as Record<string, unknown>[];
-      return { rows, schema: inferSchema(rows) };
+      const resultRows = result.rows as Record<string, unknown>[];
+      const truncated = resultRows.length > MAX_QUERY_ROWS;
+      const rows = truncated ? resultRows.slice(0, MAX_QUERY_ROWS) : resultRows;
+      return {
+        rows,
+        schema: inferSchema(rows),
+        ...(truncated ? { truncated: true } : {}),
+      };
     } catch (error) {
       void recordFirstPartyAnalyticsQueryPressure(scope, {
         durationMs: Date.now() - startedAt,

@@ -11,22 +11,6 @@ import * as Y from "yjs";
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 import { useCollabReconcile, getEditorMarkdown } from "./useCollabReconcile.js";
 
-/**
- * Concurrent-edit / lost-update coverage for the reconcile hook (non-collab
- * controlled-value path — the same guards run there, and it's deterministic
- * without a live Yjs peer). The idempotent spec covers the escalation loop;
- * these cover the OTHER lost-update hazards the hook guards against:
- *
- *  - A deliberate revert-to-a-previous-value AFTER a local edit must still land
- *    (it must not be swallowed as "our own echo").
- *  - registerEmitted must refuse to persist an empty doc in collab mode (so a
- *    pre-seed empty editor never writes "" over real stored content).
- *
- * NOTE: the "stale poll arrives WHILE the user is actively typing" guard is
- * gated on `editor.isFocused`, which is always false under happy-dom (no real
- * DOM focus). That path is verified in the browser E2E pass instead.
- */
-
 let container: HTMLDivElement;
 let root: Root;
 
@@ -1802,6 +1786,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
   });
 
   it("still clears a stale collab value when there is no local emission", async () => {
+    vi.useFakeTimers();
     const { captured, Harness } = makeCollabSeedHarness("stale persisted body");
     act(() =>
       root.render(
@@ -1815,7 +1800,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       ),
     );
     expect(getEditorMarkdown(captured.editor!)).toBe("stale persisted body");
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    await act(async () => vi.advanceTimersByTimeAsync(30));
 
     expect(getEditorMarkdown(captured.editor!)).toBe("canonical SQL body");
     expect(captured.emitted).toEqual([]);
@@ -1863,14 +1848,8 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
   });
 
   it("applies a deliberate REVERT to a previously-applied value after a local edit (not swallowed as echo)", async () => {
-    // Regression for the revert-safety carve-out: the doc-equivalence echo
-    // guards (value === lastAppliedValueRef) only fire when the editor is
-    // UNCHANGED since the last apply. If the user has since edited, an external
-    // snapshot equal to a previously-applied value is a REAL revert (e.g. the
-    // agent restored an earlier version) and must land, not be skipped.
     const { captured, Harness } = makeHarness();
 
-    // 1. Agent applies V1.
     render(root, Harness, {
       value: "# V1 content",
       contentUpdatedAt: "2024-01-01T00:00:01.000Z",
@@ -1878,7 +1857,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
     expect(getEditorMarkdown(captured.editor!)).toBe("# V1 content");
 
-    // 2. Agent applies V2 (newer). Now lastApplied tracks V2.
     render(root, Harness, {
       value: "# V2 content",
       contentUpdatedAt: "2024-01-01T00:00:02.000Z",
@@ -1886,10 +1864,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
     expect(getEditorMarkdown(captured.editor!)).toBe("# V2 content");
 
-    // 3. The agent REVERTS back to the V1 content with a NEWER timestamp (a
-    // genuine "undo my last change" external edit). Even though "# V1 content"
-    // was applied before, it must re-apply — the newer timestamp makes it a real
-    // external change, and the editor currently shows V2 (not V1).
     render(root, Harness, {
       value: "# V1 content",
       contentUpdatedAt: "2024-01-01T00:00:03.000Z",
@@ -1914,9 +1888,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
     expect(getEditorMarkdown(captured.editor!)).toBe("# V2 content");
 
-    // A collab mount/schema-normalization transaction can emit the old V1
-    // bytes even though the authoritative apply has already moved the editor
-    // to V2. Record that echo without focusing/typing in the editor.
     expect(captured.registerEmitted?.("# V1 content")).toBe(true);
 
     render(root, Harness, {
@@ -1989,9 +1960,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
   });
 
   it("refuses to persist an empty doc in collab mode (registerEmitted guard)", async () => {
-    // Directly exercise the guard contract: in collab mode an empty markdown
-    // string must not be registered/persisted (would clobber stored content
-    // before the shared Y.Doc seeds).
     const results: boolean[] = [];
 
     function Probe() {
@@ -2008,8 +1976,8 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         editable: true,
       });
       if (editor && results.length === 0) {
-        results.push(guards.registerEmitted("   ")); // whitespace-only → empty
-        results.push(guards.registerEmitted("real text")); // non-empty
+        results.push(guards.registerEmitted("   "));
+        results.push(guards.registerEmitted("real text"));
       }
       return React.createElement("div", null);
     }
@@ -2017,8 +1985,8 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     act(() => root.render(React.createElement(Probe)));
     await flush();
 
-    expect(results[0]).toBe(false); // empty in collab mode → refused
-    expect(results[1]).toBe(true); // real content → accepted
+    expect(results[0]).toBe(false);
+    expect(results[1]).toBe(true);
   });
 
   it("defers collab seed setContent to a cancellable timer task", async () => {
@@ -2153,8 +2121,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
 
     act(() => root.render(React.createElement(Probe)));
     await act(async () => vi.advanceTimersByTimeAsync(0));
-    // The document state can finish syncing before the first awareness poll.
-    // Publish the active peer after mount to cover that real transport order.
     act(() => {
       awareness.getStates().set(4_294_967_295, {
         user: { name: "Active peer" },
@@ -2300,7 +2266,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     });
     await flush();
 
-    // Blur the editor so the typing/focus guard does not defer.
     act(() => captured.editor!.commands.blur());
 
     render(root, Harness, {
@@ -2310,6 +2275,130 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
 
     expect(getEditorMarkdown(captured.editor!)).toBe("# Doc updated by agent");
+  });
+
+  it("merges typing that lands after an external reconcile decision before adopting the save baseline", async () => {
+    const { captured, Harness } = makeHarness();
+    vi.useFakeTimers();
+    const base = "Alpha base.\n\nOmega base.";
+    const external = "Alpha from server.\n\nOmega base.";
+    const initial = {
+      value: base,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    };
+
+    render(root, Harness, initial);
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    render(root, Harness, {
+      value: external,
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+
+    act(() => captured.editor!.commands.insertContentAt(base.length, " LOCAL"));
+    render(root, Harness, {
+      value: external,
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    const merged = "Alpha from server.\n\nOmega base LOCAL.";
+    expect(getEditorMarkdown(captured.editor!)).toBe(merged);
+    expect(captured.reconciled).toEqual([
+      { status: "merged", content: merged },
+    ]);
+
+    render(root, Harness, {
+      value: external,
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+      acknowledgedLocalSnapshot: {
+        value: merged,
+        revision: "revision-3",
+        updatedAt: "2024-01-01T00:00:03.000Z",
+        sequence: 1,
+      },
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(getEditorMarkdown(captured.editor!)).toBe(merged);
+    expect(captured.reconciled).toHaveLength(1);
+  });
+
+  it("supersedes a pending decision with the newest revision and preserves later typing", async () => {
+    const { captured, Harness } = makeHarness();
+    vi.useFakeTimers();
+    const base = "Alpha base.\n\nOmega base.";
+    render(root, Harness, {
+      value: base,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    render(root, Harness, {
+      value: "Alpha revision 2.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+    render(root, Harness, {
+      value: "Alpha revision 3.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+      contentRevision: "revision-3",
+    });
+    act(() => captured.editor!.commands.insertContentAt(base.length, " LOCAL"));
+    render(root, Harness, {
+      value: "Alpha revision 3.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+      contentRevision: "revision-3",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha revision 3.\n\nOmega base LOCAL.",
+    );
+    expect(captured.reconciled).toEqual([
+      {
+        status: "merged",
+        content: "Alpha revision 3.\n\nOmega base LOCAL.",
+      },
+    ]);
+  });
+
+  it("reports an overlap after the reconcile decision without replacing local typing", async () => {
+    const { captured, Harness } = makeHarness();
+    vi.useFakeTimers();
+    const base = "Alpha base.\n\nOmega base.";
+    render(root, Harness, {
+      value: base,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    render(root, Harness, {
+      value: "Alpha from server.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+    act(() =>
+      captured.editor!.commands.setContent(
+        "Alpha locally typed.\n\nOmega base.",
+      ),
+    );
+    render(root, Harness, {
+      value: "Alpha from server.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha locally typed.\n\nOmega base.",
+    );
+    expect(captured.reconciled).toEqual([
+      { status: "conflict", content: "Alpha locally typed.\n\nOmega base." },
+    ]);
   });
 
   it("does not roll back a blurred local mark while its controlled echo is queued", async () => {
@@ -2337,9 +2426,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     const localDraft = captured.emitted.at(-1)!;
     expect(localDraft).toBe("Link sample.");
 
-    // A sibling-state render can arrive before the host's deferred onChange.
-    // The toolbar input still owns focus when reconcile observes the stale
-    // controlled value; editor focus returns before its timer applies.
     render(root, Harness, props);
     editorFocused = true;
     await flush();
@@ -2353,9 +2439,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
   });
 
   it("persists a non-lead client's own local edit to a nonempty shared document", async () => {
-    // Losing the lead election only bars this client from SEEDING. Its own
-    // typing still has to reach the app's persist path, or the text lives in
-    // the CRDT alone and the next lead mount overwrites it with the SQL body.
     const persistedYdoc = new Y.Doc();
     const persistedEditor = new CoreEditor({
       extensions: createRichMarkdownExtensions({

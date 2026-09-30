@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { trackEvent } from "../analytics.js";
-import { writeClipboardText } from "../clipboard.js";
 import { useT } from "../i18n.js";
 import {
   extractShareErrorMessage,
@@ -44,6 +43,20 @@ export interface ShareDialogControllerOptions {
   resourceTitle?: string;
   shareUrl?: string;
   embedUrl?: string;
+  clipboardWriter?: (text: string) => boolean | Promise<boolean>;
+}
+
+async function writeBrowserClipboardText(text: string): Promise<boolean> {
+  if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+    return false;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // coercion-ok: the boolean copy result keeps ShareCopyRow in its uncopied state.
+    return false;
+  }
 }
 
 export interface ShareOption<TValue extends string> {
@@ -139,6 +152,7 @@ export function useShareDialogController({
   resourceTitle,
   shareUrl,
   embedUrl,
+  clipboardWriter = writeBrowserClipboardText,
 }: ShareDialogControllerOptions): ShareDialogController {
   const t = useT();
   const {
@@ -151,8 +165,6 @@ export function useShareDialogController({
     unshare: unshareMutation,
     setVisibility: visibilityMutation,
   } = useShareMutations();
-  // Hosts mount one closed dialog per list row (e.g. every deck card), so
-  // these fetches must wait for `open` or a list page fans out N requests.
   const memberSearch = useShareOrgMemberSearch("", open, {
     limit: undefined,
     debounceMs: 0,
@@ -385,7 +397,7 @@ export function useShareDialogController({
   );
   const copy = useCallback(
     async (field: string, value: string) => {
-      const copied = await writeClipboardText(value);
+      const copied = await clipboardWriter(value);
       if (!copied) {
         setCopiedField(null);
         return false;
@@ -400,7 +412,7 @@ export function useShareDialogController({
       copyResetTimer.current = setTimeout(() => setCopiedField(null), 1_400);
       return true;
     },
-    [resourceId, resourceType],
+    [clipboardWriter, resourceId, resourceType],
   );
 
   const currentVisibility = visibilityOption(visibility, t);

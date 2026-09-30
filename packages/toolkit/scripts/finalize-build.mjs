@@ -1,6 +1,3 @@
-// tsc compiles TypeScript only; it does not emit non-TS assets. Copy the CSS
-// entrypoint(s) from src into dist so the published package ships them, mirroring
-// @agent-native/core's finalize-build step.
 import {
   copyFileSync,
   existsSync,
@@ -33,6 +30,12 @@ const missing = [];
 for (const sourceFile of walk("src")) {
   const extension = extname(sourceFile);
   if (extension !== ".ts" && extension !== ".tsx" && extension !== ".css") {
+    continue;
+  }
+  if (
+    /\.(?:spec|test)\.(?:ts|tsx)$/.test(sourceFile) ||
+    sourceFile.endsWith(".e2e-host.tsx")
+  ) {
     continue;
   }
 

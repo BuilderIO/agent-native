@@ -18,7 +18,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import {
@@ -31,9 +30,9 @@ import {
   type H3Event,
 } from "h3";
 
-import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { isRetryableUploadInterruption } from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
+import { getUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import {
   listRecordingChunkKeys,
   recordingChunkIndexFromKey,
@@ -101,11 +100,11 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
 
-  const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
-    userEmail: ownerEmail,
-    userKey: ownerEmail,
+  const recoveryEnabled = await getUploadRecoveryPolicy(
+    ownerEmail,
     orgId,
-  });
+    recordingId,
+  );
   if (!recoveryEnabled) {
     return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       const [recording] = await getDb()
@@ -179,8 +178,6 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
-    // Legacy rows keep their null generation and unscoped scratch. A reset
-    // upgrades them by installing a fresh generation before it deletes data.
     const existingGenerationId = recording.uploadGenerationId ?? null;
     let generationId = existingGenerationId;
     let session = generationId
@@ -382,8 +379,6 @@ export default defineEventHandler(async (event: H3Event) => {
         .map(recordingChunkIndexFromKey)
         .filter((index): index is number => index !== null),
     );
-    // Finalize requires chunks contiguous from 0, so resume at the first gap
-    // rather than after the highest index we happen to hold.
     let nextChunkIndex = 0;
     while (stored.has(nextChunkIndex)) nextChunkIndex += 1;
 

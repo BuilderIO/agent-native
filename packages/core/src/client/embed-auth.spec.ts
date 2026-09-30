@@ -152,7 +152,6 @@ describe("embed auth client", () => {
   });
 
   it("keeps MCP chat bridge mode active when sessionStorage starts throwing mid-session", async () => {
-    // Boot with sessionStorage working so the bridge enrolls normally.
     window.history.replaceState(
       null,
       "",
@@ -163,8 +162,6 @@ describe("embed auth client", () => {
     first.ensureEmbedAuthFetchInterceptor();
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
 
-    // Mid-session, sessionStorage starts denying access (e.g. third-party-cookie
-    // policy update in a sandboxed iframe, Safari private-browsing throttling).
     const getItem = vi
       .spyOn(Storage.prototype, "getItem")
       .mockImplementation(() => {
@@ -172,11 +169,8 @@ describe("embed auth client", () => {
       });
 
     try {
-      // The flag should still be true even though sessionStorage now throws,
-      // because the in-memory bridge state was already captured.
       expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
 
-      // And it should survive even if the URL token also gets stripped.
       window.history.replaceState(null, "", "/inbox?embedded=1");
       expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
     } finally {
@@ -195,10 +189,8 @@ describe("embed auth client", () => {
     first.ensureEmbedAuthFetchInterceptor();
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
 
-    // Mimic a host that strips the bridge flag from the URL too after boot.
     window.history.replaceState(null, "", "/inbox?embedded=1");
 
-    // The in-memory bridge state should still be authoritative.
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
   });
 
@@ -381,6 +373,39 @@ describe("embed auth client", () => {
     const headers = new Headers(init?.headers);
     expect(headers.has("Authorization")).toBe(false);
     expect(headers.has(EMBED_TARGET_HEADER)).toBe(false);
+  });
+
+  it("does not let an account-only 401 block later capability-scoped reads", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/visual-edit/design-1?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=capability-token`,
+    );
+    const originalFetch = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/_agent-native/org/me")
+        ? new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+          })
+        : new Response("design", { status: 200 }),
+    );
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    const { ensureEmbedAuthFetchInterceptor } = await loadEmbedAuth();
+    ensureEmbedAuthFetchInterceptor();
+
+    const accountOnly = await window.fetch("/_agent-native/org/me");
+    const capabilityRead = await window.fetch(
+      "/_agent-native/actions/get-design?id=design-1",
+    );
+
+    expect(accountOnly.status).toBe(401);
+    expect(capabilityRead.status).toBe(200);
+    expect(await capabilityRead.text()).toBe("design");
+    expect(originalFetch).toHaveBeenCalledTimes(2);
   });
 
   it("uses location.href as the app origin when the sandbox origin is opaque", async () => {

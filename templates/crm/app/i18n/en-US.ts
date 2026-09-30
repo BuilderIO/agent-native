@@ -24,6 +24,11 @@ const messages = {
     retry: "Retry",
     search: "Search",
   },
+  chatHome: {
+    description:
+      "Explore permitted account context, follow-up work, and evidence across Native SQL and connected records.",
+    placeholder: "Ask about your CRM",
+  },
   commandMenu: {
     placeholder: "Search records, lists, and commands…",
     groupRecords: "Records",
@@ -59,19 +64,11 @@ const messages = {
     showHelp: "Show this help",
   },
   settings: {
-    title: "CRM settings",
-    description:
-      "Native SQL keeps CRM-owned records in Postgres. HubSpot and Salesforce use workspace Connections; their mirrors store only allow-listed fields, scoped metadata, and bounded evidence references.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
+    mcpAbout:
+      "Connect CRM to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in CRM for you: find records, update fields, and manage tasks. It sees only what you can see.",
   },
   connection: {
     tab: "Connection",
-    title: "CRM connection",
-    description:
-      "Where this CRM's records come from, and how much of each record it owns.",
     modesTitle: "Available modes",
     modeNative: "Native SQL",
     modeNativeHelp:
@@ -101,9 +98,6 @@ const messages = {
   },
   fields: {
     tab: "Fields",
-    title: "Fields",
-    description:
-      "The typed attributes behind every record and list. A field's api slug and type are fixed once it is created; everything else can change.",
     target: "Object or list",
     targetPlaceholder: "Select an object type or list",
     listsGroup: "Lists",
@@ -248,8 +242,6 @@ const messages = {
   },
   advanced: {
     tab: "Advanced",
-    title: "Advanced",
-    description: "Reconfiguration and data-retention behavior.",
     reconfigure: "Reconfigure CRM",
     reconfigureHelp:
       "Switch between Native SQL and a HubSpot or Salesforce companion, or re-run the initial sync.",
@@ -563,9 +555,6 @@ const messages = {
   },
   intelligence: {
     tab: "Intelligence",
-    title: "Intelligence",
-    description:
-      "Choose the moments CRM should notice in bounded call evidence. Smart trackers are evaluated through Ask CRM, never directly in the settings screen.",
     loading: "Loading trackers…",
     kindKeyword: "Keyword",
     kindSmart: "Smart",

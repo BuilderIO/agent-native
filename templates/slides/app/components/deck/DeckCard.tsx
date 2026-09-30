@@ -15,7 +15,7 @@ import {
   IconStar,
   IconStarFilled,
 } from "@tabler/icons-react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Link } from "react-router";
 
 import {
@@ -61,21 +61,10 @@ export default function DeckCard({
   const [renameValue, setRenameValue] = useState(deck.title);
   const [contextOpen, setContextOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef(false);
   const pendingDeleteRef = useRef(false);
   const pendingWorkspaceDefaultRef = useRef(false);
   const pendingShareRef = useRef(false);
-
-  useEffect(() => {
-    if (isRenaming) {
-      setRenameValue(deck.title);
-      setTimeout(() => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }, 0);
-    }
-  }, [isRenaming, deck.title]);
 
   const commitRename = () => {
     const trimmed = renameValue.trim();
@@ -86,6 +75,7 @@ export default function DeckCard({
   };
 
   const handleRenameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
@@ -103,16 +93,16 @@ export default function DeckCard({
   };
 
   return (
-    <div className="group relative">
+    <div className="agent-template-library-card group relative min-w-0">
       <Link
         to={`/deck/${deck.id}`}
-        className="block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
+        className="agent-template-library-primary block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
         onClick={(e) => {
           if (isRenaming) e.preventDefault();
         }}
       >
         {/* Slide Preview */}
-        <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-muted/30">
+        <div className="agent-template-library-preview relative flex items-center justify-center bg-muted/30">
           {firstSlide && (
             <div className="relative overflow-hidden" style={previewFrameStyle}>
               <SlideRenderer
@@ -126,15 +116,16 @@ export default function DeckCard({
         </div>
 
         {/* Info */}
-        <div className="p-4">
+        <div className="agent-template-library-caption">
           <div className="flex items-center gap-2 min-w-0">
             {isRenaming ? (
               <input
-                ref={inputRef}
+                autoFocus
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
                 onBlur={commitRename}
                 onKeyDown={handleRenameKeyDown}
+                onFocus={(e) => e.currentTarget.select()}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -202,13 +193,9 @@ export default function DeckCard({
               if (pendingRenameRef.current) {
                 e.preventDefault();
                 pendingRenameRef.current = false;
+                setRenameValue(deck.title);
                 setIsRenaming(true);
               }
-              // Opening a modal dialog while this menu is still tearing down
-              // leaves `pointer-events: none` stuck on <body>: two dismissable
-              // layers overlap and the survivor never restores the style. Wait
-              // for the menu to finish closing, and keep focus off the trigger
-              // so the dialog owns it.
               if (pendingWorkspaceDefaultRef.current) {
                 e.preventDefault();
                 pendingWorkspaceDefaultRef.current = false;

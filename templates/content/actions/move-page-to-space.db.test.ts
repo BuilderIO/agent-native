@@ -206,7 +206,6 @@ describe("moving a page between Content spaces", () => {
       createDocument.run({ title: "Notes", parentId: page.id }),
     );
 
-    // Org visibility alone only grants viewing.
     await expect(
       as(EDITOR, () =>
         moveDocument.run({
@@ -269,7 +268,6 @@ describe("moving a page between Content spaces", () => {
     const page = await as(OWNER, () =>
       createDocument.run({ title: "Nest me" }),
     );
-    // Editing someone else's page is not enough to nest under it.
     await share(othersPage.id, OWNER, "editor");
 
     await expect(
@@ -311,6 +309,45 @@ describe("moving a page between Content spaces", () => {
     expect(await documentRows([page.id])).toEqual([
       expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),
     ]);
+  });
+
+  it("refuses to move a subtree with a child the mover cannot read", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Parent" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Private child", parentId: page.id }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({
+        ownerEmail: "hidden@example.com",
+        orgId: null,
+        visibility: "private",
+      })
+      .where(eq(schema.documents.id, child.id));
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toThrow("sub-pages you can't open");
+
+    expect(await documentRows([page.id, child.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: page.id,
+          spaceId: personalContentSpaceId(OWNER),
+        }),
+        expect.objectContaining({
+          id: child.id,
+          ownerEmail: "hidden@example.com",
+          spaceId: personalContentSpaceId(OWNER),
+          parentId: page.id,
+        }),
+      ]),
+    );
   });
 });
 

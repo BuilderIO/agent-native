@@ -424,17 +424,29 @@ describe("slide object interactions", () => {
     sheet.remove();
   });
 
-  it("re-homes an object dropped outside its box and closes the box's slot", () => {
+  it("keeps the source layout slot when re-homing a dragged object", () => {
     const layer = document.createElement("div");
-    layer.innerHTML = `
-      <div id="card">
-        <div class="fmd-layout-spacer" data-slide-layout-spacer-for="text-id"></div>
-        <div id="text" data-slide-object-id="text-id" style="position:absolute;left:40px;top:300px">Text</div>
-      </div>
-    `;
+    layer.classList.add("fmd-slide");
+    const card = document.createElement("div");
+    card.id = "card";
+    const text = document.createElement("div");
+    text.id = "text";
+    text.textContent = "Text";
+    card.append(text);
+    layer.append(card);
     document.body.append(layer);
-    const card = layer.querySelector<HTMLElement>("#card")!;
-    const text = layer.querySelector<HTMLElement>("#text")!;
+    const spacer = freezeSlideElementForFreeform(
+      text,
+      { x: 40, y: 300, width: 200, height: 20 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+    preserveSlideObjectLayoutSpacer(text);
     layer.getBoundingClientRect = () =>
       DOMRect.fromRect({ width: 960, height: 540 });
     card.getBoundingClientRect = () =>
@@ -444,9 +456,13 @@ describe("slide object interactions", () => {
 
     expect(releaseSlideObjectFromLeftBoxes(text, layer)).toBe(true);
     expect(text.parentElement).toBe(layer);
-    expect(layer.querySelector(".fmd-layout-spacer")).toBeNull();
+    expect(spacer.parentElement).toBe(card);
+    expect(spacer.getAttribute("data-slide-layout-preserved")).toBe("true");
     expect(text.style.left).toBe("40px");
     expect(text.style.top).toBe("300px");
+
+    removeSlideObjectAndLayoutSpacer(text);
+    expect(layer.querySelector(".fmd-layout-spacer")).toBeNull();
     layer.remove();
   });
 
@@ -890,8 +906,6 @@ describe("slide object interactions", () => {
     const end = { x: 300, y: 250 };
     const geometry = createSlideLinePlacementGeometry(start, end);
 
-    // The bar is drawn at its true length between the two points, not the
-    // axis-aligned bounding box `createSlideObjectPlacementGeometry` returns.
     expect(geometry.width).toBeCloseTo(Math.hypot(200, 150), 5);
     expect(geometry.height).toBe(4);
     expect(geometry.rotation).toBeCloseTo(
@@ -899,8 +913,6 @@ describe("slide object interactions", () => {
       5,
     );
 
-    // Reversing the drag direction should draw the same line segment, just
-    // rotated 180 degrees, not an unrelated rectangle.
     const reversed = createSlideLinePlacementGeometry(end, start);
     expect(reversed.width).toBeCloseTo(geometry.width, 5);
     const angleDelta =
@@ -936,10 +948,6 @@ describe("slide object interactions", () => {
   });
 
   it("clamps a rotated line by its rendered footprint, not its unrotated bar length", () => {
-    // A near-vertical line dragged from the left edge: the unrotated bar is
-    // 251px long (the full drag distance) but its rendered footprint is only
-    // ~20px wide, so it must not be pushed away from the drag position as if
-    // it were a 251px-wide box.
     const start = { x: 10, y: 0 };
     const end = { x: 30, y: 250 };
     const geometry = createSlideLinePlacementGeometry(start, end);
@@ -951,8 +959,6 @@ describe("slide object interactions", () => {
       geometry.rotation,
     );
 
-    // The line's rendered center must stay at the drag midpoint; only an
-    // unrotated-box clamp would have shifted it.
     const renderedCenterX = clamped.x + geometry.width / 2;
     expect(renderedCenterX).toBeCloseTo((start.x + end.x) / 2, 5);
   });
@@ -1339,9 +1345,7 @@ describe("slide object interactions", () => {
 
     for (const handle of ["e", "w"] as const) {
       expect(isAutoHeightTextResize(textBox, handle, false)).toBe(true);
-      // Shift locks aspect ratio, deriving an explicit height on purpose.
       expect(isAutoHeightTextResize(textBox, handle, true)).toBe(false);
-      // Non-text objects have no wrapped-text reason to drop their height.
       expect(isAutoHeightTextResize(shape, handle, false)).toBe(false);
     }
 
@@ -1922,8 +1926,6 @@ describe("slide object interactions", () => {
     expect(applied.get("a")).toEqual({ x: 15, y: 25, width: 50, height: 50 });
     expect(applied.get("b")).toEqual({ x: 35, y: 45, width: 50, height: 50 });
 
-    // A second call with a different delta must still measure from `start`,
-    // not from wherever the previous call left things — no cumulative drift.
     applySlideObjectMoveDelta(members, 100, -10, applyGeometry);
     expect(applied.get("a")).toEqual({ x: 110, y: 10, width: 50, height: 50 });
     expect(applied.get("b")).toEqual({ x: 130, y: 30, width: 50, height: 50 });
@@ -2293,7 +2295,6 @@ describe("resolveSlideClipboardElement", () => {
 });
 
 describe("arrangeSlideLayerInParent", () => {
-  /** The shape DeckContext's layout templates persist: a flex-column slide. */
   function mountSlide(inner: string): HTMLElement {
     document.body.innerHTML = `
       <div data-slide-canvas="s1">
@@ -2313,7 +2314,6 @@ describe("arrangeSlideLayerInParent", () => {
     const a = slide.querySelector<HTMLElement>("#a")!;
 
     expect(arrangeSlideLayerInParent(a, "front")).toBe(true);
-    // Layout order is untouched — only the stacking index changed.
     expect(Array.from(slide.children).map((n) => n.id)).toEqual([
       "a",
       "b",
@@ -2331,7 +2331,6 @@ describe("arrangeSlideLayerInParent", () => {
     const img = slide.querySelector<HTMLElement>("#img")!;
 
     expect(arrangeSlideLayerInParent(a, "back")).toBe(true);
-    // `auto` is not 0: the image has to be lifted for the text to be behind it.
     expect(Number(zOf(a))).toBeLessThan(Number(zOf(img)));
   });
 

@@ -38,9 +38,48 @@ Standalone app को stable `BETTER_AUTH_SECRET` चाहिए। Signed cros
 
 अगर आपको magic links, email verification, password resets, invitations या share notifications चाहिए, तो deploy से पहले Resend या SendGrid connect करें। Deployment environment में `RESEND_API_KEY` या `SENDGRID_API_KEY` सेट करें; SendGrid के लिए `EMAIL_FROM` भी चाहिए। Authentication modes के लिए [Authentication](/docs/authentication) देखें।
 
+### Framework emails customize करें {#email-templates}
+
+Framework जो भी email भेजता है, उसका एक default template होता है। अपना design इस्तेमाल करने के लिए server plugin से एक override register करें। Recipient, sender और delivery framework ही तय करता है; message में क्या लिखा है और वह कैसा दिखता है, यह आपका override तय करता है।
+
+```ts
+// server/plugins/email-templates.ts
+import {
+  escapeEmailHtml,
+  overrideTransactionalEmail,
+} from "@agent-native/core/server";
+
+export default function registerEmailTemplates(): void {
+  overrideTransactionalEmail("core.resource-shared", (props) => ({
+    subject: `${props.sender.name} shared "${props.resource.title}"`,
+    html: `<p>${escapeEmailHtml(props.sender.name)} invited you to
+      <a href="${escapeEmailHtml(props.resource.url)}">${escapeEmailHtml(props.resource.title)}</a>
+      in ${escapeEmailHtml(props.app.name)}.</p>`,
+  }));
+}
+```
+
+| Email id                         | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+
+हर override को `app` (`name`, `logoUrl`) भी मिलता है। दूसरे argument में default rendering होती है, ताकि आप उसका subject या text दोबारा इस्तेमाल कर सकें।
+
+- Props raw values हैं। HTML string में डालने से पहले उन्हें `escapeEmailHtml` से escape करें।
+- Component render करने के लिए `html` की जगह React element के साथ `react` लौटाएं। React props को खुद escape करता है।
+- Default subject रखने के लिए `subject` छोड़ दें। अपने HTML से plain-text body बनाने के लिए `text` छोड़ दें।
+- अगर override error throw करता है, तो send fail हो जाता है। Framework default design पर वापस नहीं जाता। Transactional email preview आपका override render करता है, इसलिए उसे वहीं जांचें।
+
 ## Supported targets
 
-Agent-Native [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) और [Render](/docs/render) को support करता है।
+Agent-Native [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) और [Render](/docs/render) को support करता है।
 
 Advanced settings, secrets और production values के लिए [Deployment environment variables reference](/docs/deployment-environment-variables) देखें।
 

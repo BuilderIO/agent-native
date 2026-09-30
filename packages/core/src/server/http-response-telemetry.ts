@@ -33,8 +33,6 @@ import { runWithRequestContext } from "./request-context.js";
 
 const TELEMETRY_EVENT_NAME = "http.response";
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
-// Provider delivery posts back to these collectors. Recording the collector
-// response would feed another `http.response` event into the same collector.
 const TRACKING_INGEST_PATHS = new Set([
   "/track",
   "/api/analytics/track",
@@ -367,7 +365,6 @@ function runtimeProvider(): string {
   return "node";
 }
 
-/** Module evaluation → this request starting, i.e. idle boot the app paid for. */
 function moduleToRequestMs(state: HttpRequestTelemetryState): number {
   return Math.max(
     0,
@@ -392,12 +389,6 @@ async function emitTelemetry(
       runWithRequestContext({ trackingScope: state.trackingScope }, () => {
         track(TELEMETRY_EVENT_NAME, {
           source: "server",
-          // getAppConfig().app.name is an optional display name (APP_NAME or
-          // npm_package_name) that Lambda never sets, so it silently dropped
-          // `app`/`template` from every deployed row. trackingIdentityProperties
-          // resolves the same dimensions from the deploy URL/env the way every
-          // other tracking event in this codebase already does, and leaves the
-          // keys absent (not a guessed default) when nothing resolves.
           ...trackingIdentityProperties(),
           organization: organizationForHost(host),
           method: getMethod(event),
@@ -442,6 +433,9 @@ async function emitTelemetry(
           db_neon_pooled: db.neon?.pooled,
           db_operation_count: state.db.operationCount,
           db_query_count: state.db.queryCount,
+          db_rows_returned: state.db.rowsReturned,
+          db_catalog_query_count: state.db.catalogQueryCount,
+          db_migration_table_query_count: state.db.migrationTableQueryCount,
           db_connect_count: state.db.connectCount,
           db_retry_count: state.db.retryCount,
           db_error_count: state.db.errorCount,
@@ -453,6 +447,10 @@ async function emitTelemetry(
           db_slowest_operation_ms: Math.round(state.db.slowestOperationMs),
           startup_db_operation_count: state.startupDb?.operationCount,
           startup_db_query_count: state.startupDb?.queryCount,
+          startup_db_rows_returned: state.startupDb?.rowsReturned,
+          startup_db_catalog_query_count: state.startupDb?.catalogQueryCount,
+          startup_db_migration_table_query_count:
+            state.startupDb?.migrationTableQueryCount,
           startup_db_connect_count: state.startupDb?.connectCount,
           startup_db_retry_count: state.startupDb?.retryCount,
           startup_db_error_count: state.startupDb?.errorCount,
@@ -497,12 +495,10 @@ function requestTelemetryState(
   ] as HttpRequestTelemetryState | undefined;
 }
 
-/** Return the durable request id while a request is still being handled. */
 export function getHttpRequestTelemetryId(event: H3Event): string | undefined {
   return requestTelemetryState(event)?.requestId;
 }
 
-/** Record a route name supplied by the registered action router, not the URL. */
 export function setHttpRequestTelemetryActionName(
   event: H3Event,
   actionName: string,
@@ -543,13 +539,6 @@ function appendServerTiming(
   }
 }
 
-/**
- * Does this response get stored in a shared (CDN) cache and replayed?
- *
- * SSR HTML and React Router `.data` are one impersonal shell hard-cached for
- * every visitor, so their headers are written ONCE by the origin render and
- * then handed unchanged to everyone who hits the cache afterwards.
- */
 function isSharedCacheable(response: Response): boolean {
   const cacheControl =
     response.headers.get("cache-control")?.toLowerCase() ?? "";
@@ -560,18 +549,6 @@ function isSharedCacheable(response: Response): boolean {
   );
 }
 
-/**
- * Per-phase `server-timing` entries do NOT belong on a shared-cacheable
- * response. `app;dur=2159` on a cached shell describes one origin render from
- * an arbitrary point in the past, yet every later visitor reads it as the cost
- * of their own request — a stale number wearing a live number's name.
- *
- * So a cacheable response gets exactly one entry, `origin`, whose description
- * leads with the absolute wall-clock time of the render that produced it. Two
- * visitors comparing notes see the identical timestamp, which is what a replay
- * is. The live per-invocation breakdown goes to the slow-request log line and
- * to tracking instead; neither is ever cached.
- */
 function originSnapshotDesc(state: HttpRequestTelemetryState): string {
   const parts = [new Date(state.startedAt).toISOString()];
   if (state.requestSequence === 1) {
@@ -584,23 +561,33 @@ function originSnapshotDesc(state: HttpRequestTelemetryState): string {
   if (state.frameworkReadyWaitMs > 0) {
     parts.push(`startup=${Math.round(state.frameworkReadyWaitMs)}`);
   }
+  parts.push(
+    `dbq=${state.db.queryCount}`,
+    `dbrows=${state.db.rowsReturned}`,
+    `dbcatalog=${state.db.catalogQueryCount}`,
+    `dbmigrations=${state.db.migrationTableQueryCount}`,
+    `dbconnects=${state.db.connectCount}`,
+  );
   if (state.db.operationCount > 0) {
     parts.push(
       `db=${Math.round(state.db.operationWallMs)}`,
       `dbops=${state.db.operationCount}`,
     );
   }
+  if (state.startupDb) {
+    parts.push(
+      `startupdbq=${state.startupDb.queryCount}`,
+      `startupdbrows=${state.startupDb.rowsReturned}`,
+      `startupdbcatalog=${state.startupDb.catalogQueryCount}`,
+      `startupdbmigrations=${state.startupDb.migrationTableQueryCount}`,
+      `startupdbconnects=${state.startupDb.connectCount}`,
+    );
+  } else {
+    parts.push("startupdb=unavailable");
+  }
   return parts.join(" ");
 }
 
-/**
- * One structured line per cold or slow request, straight to stdout.
- *
- * Function logs are the only timing surface readable without a deploy, and
- * `track()` silently no-ops when no tracking provider is registered — which is
- * the common case. Deliberately NOT wrapped in a catch: a swallowed emit would
- * leave a slow request indistinguishable from a fast one.
- */
 function logSlowRequest(
   event: H3Event,
   state: HttpRequestTelemetryState,
@@ -613,7 +600,6 @@ function logSlowRequest(
   console.log(
     JSON.stringify({
       event: SLOW_REQUEST_LOG_EVENT,
-      // See emitTelemetry: getAppConfig().app.name is unset on Lambda.
       ...trackingIdentityProperties(),
       method: getMethod(event),
       path: normalizeHttpTelemetryPath(pathname),
@@ -681,15 +667,6 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
     (event.context as Record<PropertyKey, unknown>)[REQUEST_TELEMETRY_KEY] =
       state;
     enterDatabaseRequestTelemetry(state.db);
-    // Written now, before the handler (and any guard it calls) runs — and to
-    // BOTH header buckets h3 keeps. A thrown createError() (every 401/403
-    // action guard) builds its Response from `res.errHeaders`, a bucket
-    // separate from `res.headers`; h3's own CORS helpers write the same
-    // header to both for exactly this reason. Writing only `res.headers`
-    // here (as the "response" hook below still also does, for the ordinary
-    // success path) left every guard-rejected request with no
-    // x-agent-native-request-id on the wire, breaking the client<->server
-    // join for the failure class that needs it most.
     try {
       event.res.headers.set(REQUEST_ID_HEADER, state.requestId);
       event.res.errHeaders.set(REQUEST_ID_HEADER, state.requestId);
@@ -703,6 +680,7 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
   hooks.hook("response", async (response: Response, event: H3Event) => {
     const state = requestTelemetryState(event);
     if (!state) return;
+    state.startupDb ??= claimStartupDatabaseTelemetry();
 
     const durationMs = Math.max(0, Date.now() - state.startedAt);
     try {
@@ -761,7 +739,24 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         state.db.slowestOperationMs,
       );
     }
-    if (state.startupDb && state.startupDb.operationCount > 0) {
+    // db-ops counts a pool connect and its query separately, so statement
+    // budgets read these counters even when the observed value is zero.
+    appendServerTiming(response, event, "db-queries", state.db.queryCount);
+    appendServerTiming(response, event, "db-connects", state.db.connectCount);
+    appendServerTiming(response, event, "db-rows", state.db.rowsReturned);
+    appendServerTiming(
+      response,
+      event,
+      "db-catalog",
+      state.db.catalogQueryCount,
+    );
+    appendServerTiming(
+      response,
+      event,
+      "db-migrations",
+      state.db.migrationTableQueryCount,
+    );
+    if (state.startupDb) {
       appendServerTiming(
         response,
         event,
@@ -773,6 +768,30 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         event,
         "startup-db-connect",
         state.startupDb.connectTotalMs,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-queries",
+        state.startupDb.queryCount,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-rows",
+        state.startupDb.rowsReturned,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-catalog",
+        state.startupDb.catalogQueryCount,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-migrations",
+        state.startupDb.migrationTableQueryCount,
       );
     }
 

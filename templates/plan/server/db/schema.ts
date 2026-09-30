@@ -50,11 +50,7 @@ export const plans = table("plans", {
   usageCostCentsX100: integer("usage_cost_cents_x100"),
   usageCostSource: text("usage_cost_source"),
   usageRecordedAt: text("usage_recorded_at"),
-  // URL of the source PR, issue, or page that triggered this recap (e.g. the
-  // GitHub PR URL). Nullable — only populated when the caller supplies it.
   sourceUrl: text("source_url"),
-  // Structured source metadata for recap/product-knowledge search. Nullable so
-  // older imported recaps and non-PR recaps keep working unchanged.
   sourceType: text("source_type"),
   sourceRepo: text("source_repo"),
   sourcePrNumber: integer("source_pr_number"),
@@ -63,9 +59,32 @@ export const plans = table("plans", {
   sourceAuthorEmail: text("source_author_email"),
   sourceAuthorName: text("source_author_name"),
   sourceAuthorLogin: text("source_author_login"),
-  // Stable key used by PR Visual Recap publish retries to replace the recap
-  // created by an earlier attempt instead of creating duplicate recap rows.
   recapIdempotencyKey: text("recap_idempotency_key"),
+  // Edition (`kind="edition"`) window identity. `editionDateKey` is the
+  // idempotency key a scheduled run derives from its own timezone, and the
+  // partial unique index on it is what stops a retry publishing twice.
+  editionDateKey: text("edition_date_key"),
+  editionWindowStart: text("edition_window_start"),
+  editionWindowEnd: text("edition_window_end"),
+  editionTimezone: text("edition_timezone"),
+  editionCoverageJson: text("edition_coverage_json"),
+  // Sequential issue number, assigned per owner/org at publish time. Makes an
+  // edition a citable object ("No. 214") rather than just a date.
+  editionIssueNumber: integer("edition_issue_number"),
+  /**
+   * Which recurring edition this issue belongs to — `daily`, `internal-weekly`,
+   * `design-daily`. Part of an edition's identity alongside the window, so two
+   * differently-scoped editions covering the same day coexist instead of one
+   * silently replacing the other. NULL reads as `daily` for rows written before
+   * series existed.
+   */
+  editionSeries: text("edition_series"),
+  /**
+   * The day's through-line, written once per edition: what connects the
+   * stories, and what to read sceptically. This is the editorial voice the
+   * stories themselves cannot carry.
+   */
+  editionNotes: text("edition_notes"),
   deletedAt: text("deleted_at"),
   deletedBy: text("deleted_by"),
   ...ownableColumns(),
@@ -165,11 +184,6 @@ export const planVersions = table("plan_versions", {
     .default("agent"),
   createdAt: text("created_at").notNull(),
   chatContext: text("chat_context"),
-  // Denormalized copies of summarizePlanVersion's derived fields, populated at
-  // snapshot-write time so list-plan-versions can project just these small
-  // columns instead of fetching + JSON.parsing every row's full snapshot_json
-  // blob. Nullable so pre-existing rows (written before this column existed)
-  // fall back to parsing snapshot_json lazily — see summarizePlanVersionRow.
   status: text("summary_status", { enum: PLAN_STATUSES }),
   source: text("summary_source", { enum: PLAN_SOURCES }),
   blockCount: integer("block_count"),
@@ -177,6 +191,39 @@ export const planVersions = table("plan_versions", {
   hasCanvas: boolean("has_canvas"),
   hasPrototype: boolean("has_prototype"),
   previewText: text("preview_text"),
+});
+
+/**
+ * One story per row for an `edition` plan, mirroring how `plan_sections` and
+ * `plan_comments` hang off a plan. Stories are generated, never hand-edited, so
+ * they deliberately stay out of `plans.content` and the MDX round-trip.
+ *
+ * `recapsJson` holds `EditionStoryRecapRef[]` — the recaps the story was written
+ * from, so a headline can link back to `/recaps/:id`. Its per-PR diff stats are
+ * nullable on purpose: a missing stat must stay distinguishable from zero.
+ */
+export const planEditionStories = table("plan_edition_stories", {
+  id: text("id").primaryKey(),
+  editionId: text("edition_id")
+    .notNull()
+    .references(() => plans.id),
+  storyId: text("story_id").notNull(),
+  order: integer("sort_order").notNull().default(0),
+  isLead: boolean("is_lead").notNull().default(false),
+  headline: text("headline").notNull(),
+  dek: text("dek").notNull().default(""),
+  tagsJson: text("tags_json"),
+  recapsJson: text("recaps_json").notNull(),
+  /**
+   * `EditionStoryCohort[]` — the sub-themes a story spans, each carrying its
+   * own PR count and aggregate diff. This is what a story shows instead of one
+   * row per pull request: a reader gets 2-4 named cohorts, not 11 citations.
+   */
+  cohortsJson: text("cohorts_json"),
+  whatShipped: text("what_shipped"),
+  why: text("why"),
+  howItWorks: text("how_it_works"),
+  createdAt: text("created_at").notNull(),
 });
 
 export const planShares = createSharesTable("plan_shares");
@@ -194,7 +241,6 @@ export const planAssets = table("plan_assets", {
     .references(() => plans.id),
   filename: text("filename").notNull(),
   mimeType: text("mime_type").notNull(),
-  /** Base64-encoded image data. Used as SQL-fallback when no upload provider is configured. */
   data: text("data").notNull(),
   byteSize: integer("byte_size").notNull(),
   createdAt: text("created_at").notNull(),

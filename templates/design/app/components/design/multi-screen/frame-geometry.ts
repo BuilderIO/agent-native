@@ -1,4 +1,11 @@
 import {
+  getInitialCanvasFrameGeometry,
+  getOverviewFrameHeight as getSharedOverviewFrameHeight,
+  getResponsiveInitialCanvasFrameGeometries,
+  OVERVIEW_FRAME_LABEL_HEIGHT,
+  OVERVIEW_FRAME_WIDTH,
+} from "../../../../shared/canvas-frames";
+import {
   BREAKPOINT_FRAME_GAP,
   deviceViewportFloorForWidth,
   getResponsiveGroupHeight,
@@ -11,9 +18,8 @@ import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
 import { SURFACE_PADDING } from "./overview-layout";
 import type { FrameGeometry, FrameGeometryById, Point } from "./types";
 
-const SCREEN_WIDTH = 320;
-const SCREEN_GAP = 56;
-const FRAME_LABEL_HEIGHT = 28;
+const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
+const FRAME_LABEL_HEIGHT = OVERVIEW_FRAME_LABEL_HEIGHT;
 
 export {
   BREAKPOINT_FRAME_GAP,
@@ -63,8 +69,6 @@ export function getResponsiveScreenGroupSize(
   ).scale;
   const breakpoints = visibleBreakpointWidths(
     screen.breakpointWidths,
-    // The immutable device width, not the resizable on-canvas box width — a
-    // primary resized to a breakpoint width must not hide that breakpoint.
     screen.metadata?.width ?? primaryGeometry?.width,
   );
   return {
@@ -84,15 +88,6 @@ export function getResponsiveScreenGroupSize(
   };
 }
 
-/**
- * Bounds used by viewport culling for a screen and every responsive preview
- * painted to its right. Culling only the persisted primary frame can evict a
- * breakpoint that is still visibly on-screen after the user pans right.
- *
- * Rotated groups pivot around the primary frame, not around the wider row.
- * Return an unrotated AABB so the generic culler cannot rotate around the
- * wrong center and underestimate the painted region.
- */
 export function getResponsiveScreenCullGeometry(
   screen: ResponsiveLayoutScreen,
   primaryGeometry: FrameGeometry,
@@ -129,66 +124,31 @@ export function getResponsiveScreenCullGeometry(
   };
 }
 
-/** Legacy three-column lineup with each cell reserving its complete responsive
- * row. This prevents one generated variation's breakpoint frames from
- * painting over the next variation while preserving the familiar grid. */
 export function getResponsiveInitialFrameGeometry(
   index: number,
   screens: readonly ResponsiveLayoutScreen[],
   primaryGeometryById: Record<string, Partial<FrameGeometry> | undefined> = {},
 ): FrameGeometry {
-  const columnCount = Math.min(3, Math.max(1, screens.length));
-  const column = index % columnCount;
-  const row = Math.floor(index / columnCount);
-  const primaryGeometryFor = (screen: ResponsiveLayoutScreen) =>
-    screen.id ? primaryGeometryById[screen.id] : undefined;
-  const sizes = screens.map((screen) =>
-    getResponsiveScreenGroupSize(screen, primaryGeometryFor(screen)),
+  const screenIds = screens.map(
+    (screen, screenIndex) => screen.id ?? `__screen_${screenIndex}`,
   );
-  const columnWidths = Array.from({ length: columnCount }, (_, columnIndex) =>
-    Math.max(
-      0,
-      ...sizes
-        .filter((_, screenIndex) => screenIndex % columnCount === columnIndex)
-        .map((size) => size.width),
-    ),
+  const geometryById = getResponsiveInitialCanvasFrameGeometries(
+    screens.map((screen, screenIndex) => ({
+      id: screenIds[screenIndex]!,
+      metadata: screen.metadata
+        ? { width: screen.metadata.width, height: screen.metadata.height }
+        : undefined,
+      breakpointWidths: screen.breakpointWidths,
+    })),
+    primaryGeometryById,
   );
-  const rowCount = Math.ceil(screens.length / columnCount);
-  const rowHeights = Array.from({ length: rowCount }, (_, rowIndex) =>
-    Math.max(
-      0,
-      ...sizes
-        .slice(rowIndex * columnCount, (rowIndex + 1) * columnCount)
-        .map((size) => size.height),
-    ),
+  return (
+    geometryById[screenIds[index] ?? ""] ?? getInitialCanvasFrameGeometry(index)
   );
-  const own = screens[index];
-  const ownGeometry = own ? primaryGeometryFor(own) : undefined;
-  const ownWidth = Math.max(1, ownGeometry?.width ?? SCREEN_WIDTH);
-  const ownHeight = Math.max(
-    1,
-    ownGeometry?.height ?? getOverviewFrameHeight(ownWidth, own?.metadata),
-  );
-  return {
-    x: columnWidths
-      .slice(0, column)
-      .reduce((total, width) => total + width + SCREEN_GAP, 0),
-    y: rowHeights
-      .slice(0, row)
-      .reduce(
-        (total, height) => total + height + FRAME_LABEL_HEIGHT + SCREEN_GAP,
-        0,
-      ),
-    width: ownWidth,
-    height: ownHeight,
-  };
 }
 
 const GENERATED_VARIANT_GAP = 96;
 
-/** The present-design-variants action's historical three-column placement.
- * Matching this exactly distinguishes untouched generated lineups from a
- * designer's intentional custom arrangement. */
 function getGeneratedVariantInitialFrameGeometry(
   index: number,
   screens: readonly ResponsiveLayoutScreen[],
@@ -254,10 +214,6 @@ function getResponsiveVariantGroupOriginY(
   return originY;
 }
 
-/** Canonical bottom-to-top screen stack. Persisted frame `z` wins; screens
- * without one retain their source order, which is also the canvas DOM paint
- * order. This is shared by the overview canvas and Layers projection so the
- * two surfaces can never disagree about which screen is above another. */
 export function getCanonicalScreenStack(
   screens: ReadonlyArray<{ id: string }>,
   geometryById: Record<string, Partial<FrameGeometry> | undefined>,
@@ -274,9 +230,6 @@ export function getCanonicalScreenStack(
     .map(({ id }) => id);
 }
 
-/** Reorders a canonical bottom-to-top stack using DOM placement semantics:
- * `before` paints below the target and `after` paints above it. `inside` is
- * not a screen-stack operation (it remains the layer-into-screen drop path). */
 export function reorderCanonicalScreenStack(args: {
   orderedIds: readonly string[];
   draggedIds: readonly string[];
@@ -311,11 +264,7 @@ export function getBreakpointFrameGeometry(args: {
   widthPx: number;
   naturalAspect: number;
   primaryScale: number;
-  /** Measured content height at this width; wins over the primary-aspect
-   * projection, which clipped narrower frames (they reflow taller). */
   contentHeightPx?: number;
-  /** A height the user set. Content measurement must never overwrite it, or
-   * the frame grows out from under them and 100vh content chases itself. */
   pinnedHeightPx?: number;
 }): {
   frameWidth: number;
@@ -331,8 +280,6 @@ export function getBreakpointFrameGeometry(args: {
     args.contentHeightPx && args.contentHeightPx > 0
       ? Math.round(args.contentHeightPx)
       : undefined;
-  // Until the frame's own content is measured, use the pure aspect projection;
-  // the device-viewport floor only applies once a real height is known.
   const pinned =
     args.pinnedHeightPx && args.pinnedHeightPx > 0
       ? Math.round(args.pinnedHeightPx)
@@ -352,26 +299,14 @@ export function getInitialFrameGeometry(
   index: number,
   metadata?: ScreenViewportSize,
 ): FrameGeometry {
-  const column = index % 3;
-  const row = Math.floor(index / 3);
-  const height = getOverviewFrameHeight(SCREEN_WIDTH, metadata);
-  return {
-    x: column * (SCREEN_WIDTH + SCREEN_GAP),
-    y: row * (height + FRAME_LABEL_HEIGHT + SCREEN_GAP),
-    width: SCREEN_WIDTH,
-    height,
-  };
+  return getInitialCanvasFrameGeometry(index, metadata);
 }
 
 export function getOverviewFrameHeight(
   width: number,
   metadata?: ScreenViewportSize,
 ) {
-  const sourceWidth =
-    metadata?.width && metadata.width > 0 ? metadata.width : 1280;
-  const sourceHeight =
-    metadata?.height && metadata.height > 0 ? metadata.height : 2560;
-  return Math.max(80, Math.round((width * sourceHeight) / sourceWidth));
+  return getSharedOverviewFrameHeight(width, metadata);
 }
 
 export function sameFrameGeometry(a: FrameGeometry, b: FrameGeometry): boolean {
@@ -698,15 +633,6 @@ export function geometryContainsGeometry(
   );
 }
 
-/** Decides which screen wins a hit-test tie for `findTopFrameEntryAtPoint`'s
- *  `foregroundId`. Must mirror `topScreenId` in MultiScreenCanvas exactly —
- *  that's the id the canvas gives an additive z-index boost when painting
- *  (selected screen, else the sticky `activeId`, else the first screen), so
- *  whichever screen is visually on top of an overlapping neighbour is also
- *  the one a mousedown/draw at that point resolves to. Do not special-case
- *  "fresh gesture" callers with a different fallback — that desyncs hit
- *  testing from paint order and routes a gesture into the frame *under* the
- *  one the user is actually looking at. */
 export function resolveHitTestForegroundId(options: {
   selectedIds: readonly string[];
   hasGeometry: (id: string) => boolean;

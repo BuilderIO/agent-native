@@ -14,6 +14,7 @@ import { loadDashboardSeed } from "./dashboard-seeds";
 import { validateFirstPartyDashboardTimeScope } from "./dashboard-time-scope";
 import { parseDemoDescriptor } from "./demo-source";
 import { validateFirstPartyAnalyticsSql } from "./first-party-analytics";
+import { assertFirstPartyAnalyticsBigQuerySql } from "./first-party-analytics-backend";
 import {
   buildPanel,
   DEPLOYED_RECURRING_USERS_BY_TEMPLATE_SQL,
@@ -33,6 +34,7 @@ import {
   PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
   LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
   PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
+  PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
   repairFirstPartyObservedRetentionPanels,
   scopeFirstPartyPanelSql,
 } from "./first-party-metric-catalog";
@@ -183,16 +185,17 @@ describe("dashboard catalog", () => {
       "agent-native-templates-first-party",
     );
     expect(entry?.dataSources).toEqual(["first-party"]);
-    expect(entry?.panelCount).toBe(42);
+    expect(entry?.panelCount).toBe(43);
 
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent-Native Templates (First-party)");
-    expect(config.panels).toHaveLength(46);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(46);
+    expect(config.panels).toHaveLength(47);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(47);
     for (const id of [
       "activation-funnel",
       "signup-method-conversion",
       "onboarding-step-dropoff",
+      "onboarding-setup-choice",
       "sharing-actions-by-app",
     ]) {
       expect(config.panels.find((panel) => panel.id === id)).toEqual(
@@ -252,6 +255,22 @@ describe("dashboard catalog", () => {
     }
   });
 
+  it("ships the onboarding panels with catalog SQL and columns", () => {
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanels = seed?.panels as Array<{
+      id?: string;
+      sql?: string;
+      config?: { columns?: unknown };
+    }>;
+
+    for (const id of ["onboarding-step-dropoff", "onboarding-setup-choice"]) {
+      const catalogPanel = buildPanel(id)!;
+      const seedPanel = seedPanels.find((panel) => panel.id === id);
+      expect(seedPanel?.sql).toBe(catalogPanel.sql);
+      expect(seedPanel?.config?.columns).toEqual(catalogPanel.config.columns);
+    }
+  });
+
   it("keeps observed first-seen retention scans bounded in the seed and catalog", () => {
     const seed = loadDashboardSeed("agent-native-templates-first-party");
     const seedPanels = seed?.panels as Array<{
@@ -267,31 +286,43 @@ describe("dashboard catalog", () => {
     ]) {
       const catalogPanel = requiredFirstPartyPanel(id);
       const seedPanel = seedPanels.find((panel) => panel.id === id);
-      // retention-over-time's spine reaches 365 days back and each anchor
-      // needs the six first-seen days before it, so its base looks back 371.
-      const lookbackFilter =
+      const seedLookbackFilter =
         id === "retention-over-time"
-          ? "event_date >= to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD')"
+          ? "ELSE to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD') END"
           : "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
-      expect(seedPanel?.sql).toContain(lookbackFilter);
-      // retention-over-time's description dropped the "previous 365 days"
-      // wording when it switched to describing per-row return-window
-      // maturity instead of the cohort lookback; the other two panels are
-      // unaffected by that copy change.
+      expect(seedPanel?.sql).toContain(seedLookbackFilter);
       if (id !== "retention-over-time") {
         expect(seedPanel?.config?.description).toContain("previous 365 days");
       }
       const sql = catalogPanel.sql;
-      const baseEnd = sql.indexOf(
-        id === "retention-over-time"
-          ? "), first_seen"
-          : id === "one-day-retention-by-template"
+      if (id === "retention-over-time") {
+        const customLookbackFilter =
+          "event_date >= to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD')";
+        const presetLookbackFilter =
+          "event_date >= to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD')";
+        expect(sql).toContain("WITH digits AS");
+        expect(sql).toContain("), base AS (");
+        const baseStart = sql.indexOf("base AS (");
+        const baseEnd = sql.indexOf("), cohort_history");
+        for (const lookbackFilter of [
+          customLookbackFilter,
+          presetLookbackFilter,
+        ]) {
+          const lookback = sql.indexOf(lookbackFilter);
+          expect(lookback).toBeGreaterThan(baseStart);
+          expect(lookback).toBeLessThan(baseEnd);
+        }
+      } else {
+        const lookbackFilter = seedLookbackFilter;
+        const baseEnd = sql.indexOf(
+          id === "one-day-retention-by-template"
             ? "), observed"
             : "), ranked_first_seen",
-      );
-      const lookback = sql.indexOf(lookbackFilter);
-      expect(lookback).toBeGreaterThan(sql.indexOf("WITH base AS"));
-      expect(lookback).toBeLessThan(baseEnd);
+        );
+        const lookback = sql.indexOf(lookbackFilter);
+        expect(lookback).toBeGreaterThan(sql.indexOf("WITH base AS"));
+        expect(lookback).toBeLessThan(baseEnd);
+      }
       if (id !== "retention-over-time") {
         expect(catalogPanel.config?.description).toContain("previous 365 days");
       }
@@ -346,6 +377,19 @@ describe("dashboard catalog", () => {
     expect(panel.config?.description).toBe(current.config?.description);
   });
 
+  it("repairs the exact prior capped-spine retention query", () => {
+    const current = requiredFirstPartyPanel("retention-over-time");
+    const repaired = repairFirstPartyObservedRetentionPanels({
+      panels: [
+        { ...current, sql: PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL },
+      ],
+    });
+    const panel = (repaired.config.panels as Array<typeof current>)[0]!;
+
+    expect(repaired.changed).toBe(true);
+    expect(panel.sql).toBe(current.sql);
+  });
+
   it("repairs the materialized one-day retention self-join to one analytics scan", () => {
     const current = requiredFirstPartyPanel("one-day-retention-by-template");
     const repaired = repairFirstPartyObservedRetentionPanels({
@@ -366,23 +410,34 @@ describe("dashboard catalog", () => {
     expect(sql).not.toContain("JOIN base");
   });
 
-  it("uses a fixed 800-day generator for signup date fill in catalog and seed", () => {
+  it("uses the selected custom range as its signup date spine", () => {
     const catalogPanel = requiredFirstPartyPanel("signups-over-time");
     const seed = loadDashboardSeed("agent-native-templates-first-party");
     const seedPanel = (
       seed?.panels as Array<{ id?: string; sql?: string }>
     ).find((panel) => panel.id === "signups-over-time");
 
-    expect(catalogPanel.sql).toContain("WITH digits AS");
+    expect(catalogPanel.sql).toContain("'{{timeRange}}' = 'custom'");
+    expect(catalogPanel.sql).toContain("'{{timeRangeStart}}'");
+    expect(catalogPanel.sql).toContain("'{{timeRangeEnd}}'");
     expect(catalogPanel.sql).toContain(
-      "SELECT ones.n + tens.n * 10 + hundreds.n * 100 AS n",
+      "offsets AS (SELECT ones.n + tens.n * 10 + hundreds.n * 100 + thousands.n * 1000 AS n",
     );
-    expect(catalogPanel.sql).toContain("WHERE hundreds.n < 8");
-    expect(catalogPanel.sql).not.toContain("ROW_NUMBER() OVER");
-    expect(catalogPanel.sql).not.toContain("FROM analytics_events LIMIT 800");
+    expect(catalogPanel.sql).toContain(
+      "GREATEST(bounds.start_date, (bounds.end_date - INTERVAL '3659 days')::date)",
+    );
+    expect(catalogPanel.sql).toContain("SELECT 'unknown' WHERE NOT EXISTS");
     expect(seedPanel?.sql).toBe(catalogPanel.sql);
     expect(() =>
       validateFirstPartyAnalyticsSql(catalogPanel.sql),
+    ).not.toThrow();
+    expect(() =>
+      assertFirstPartyAnalyticsBigQuerySql(catalogPanel.sql),
+    ).not.toThrow();
+
+    const retentionPanel = requiredFirstPartyPanel("retention-over-time");
+    expect(() =>
+      assertFirstPartyAnalyticsBigQuerySql(retentionPanel.sql),
     ).not.toThrow();
   });
 
@@ -551,9 +606,6 @@ describe("dashboard catalog", () => {
   });
 
   it("repairs a retention panel persisted with the app-filter scope already injected", () => {
-    // Persisted panels store SQL after scopeFirstPartyPanelSql injects the
-    // {{appFilter}} predicate, so the registered legacySql (unscoped) must
-    // still match already-deployed (scoped) panels.
     const deployedScopedRetention = scopeFirstPartyPanelSql(
       PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
     );

@@ -330,6 +330,13 @@ await callAction(
           description: "輪詢端點 URL。",
         },
         {
+          name: "realtime",
+          type: "{ reason: string }",
+          optional: true,
+          description:
+            "為此頁面啟用背景同步。簡短原因會讓決策和成本在程式碼中清楚可見。未啟用時不會建立背景連線。",
+        },
+        {
           name: "sseUrl",
           type: "string | false",
           optional: true,
@@ -341,7 +348,8 @@ await callAction(
           type: "number",
           optional: true,
           default: "2000",
-          description: "輪詢間隔（毫秒）。",
+          description:
+            "代理執行期間的輪詢間隔，單位為毫秒。閒置時依序延長至 1、2、5 分鐘。",
         },
         {
           name: "fallbackInterval",
@@ -349,15 +357,14 @@ await callAction(
           optional: true,
           default: "60000",
           description:
-            "SSE 已連線時的輪詢間隔，作為漏接事件時的備援。已斷線的分頁會以較快的 `interval`（或固定的閒置節奏）輪詢。",
+            "SSE 連線期間的最小輪詢間隔，單位為毫秒。成功的空輪詢會將間隔延長至 1、2、5 分鐘。",
         },
         {
           name: "pauseWhenHidden",
           type: "boolean",
           optional: true,
-          default: "false",
-          description:
-            "當瀏覽器分頁隱藏時暫停輪詢。隱藏的分頁會保持 SSE 連線，並在活動時最多每 10 秒輪詢一次，閒置後每 60 秒一次。",
+          default: "true",
+          description: "瀏覽器分頁隱藏時暫停背景同步。",
         },
         {
           name: "ignoreSource",
@@ -370,7 +377,7 @@ await callAction(
           name: "onEvent",
           type: "(data) => void",
           optional: true,
-          description: "當 SSE 或輪詢收到變更事件時的選用回呼。",
+          description: "遠端同步事件與本機聊天執行期間工具完成時的選用回呼。",
         },
         {
           name: "actionInvalidatePredicate",
@@ -398,7 +405,7 @@ await callAction(
   returns={{ type: "void" }}
 />
 
-此掛鉤旨在讓 UI 與發生在您自己的 actions 之外的資料庫變更保持同步，例如代理的寫入、webhook，或來自另一個瀏覽器分頁的變更。它透過伺服器傳送事件監聽變更，並在伺服器傳送事件不可用時回退為輪詢。在正式環境無伺服器部署上，應用程式自身的 `/_agent-native/events` 串流依設計不可用——伺服器會立即回應 204，而不是讓函式實例保持開啟——因此該環境下所有同步都以相同節奏交由輪詢負責，除非應用程式已啟用[託管即時同步閘道](/docs/real-time-collaboration#hosted-gateway)。
+`useDbSync()` 一律處理本機聊天執行期間的工具完成事件，並在執行結束時更新。因此，單一使用者的代理變更不需要背景請求也能保持最新。其他分頁、使用者、webhook 或工作帶來的變更預設不會背景同步，除非此頁面提供簡短原因並明確啟用。每個分頁共用一個連線，隱藏時暫停，閒置輪詢間隔依序延長至 1、2、5 分鐘。
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";
@@ -409,6 +416,7 @@ function App() {
 
   useDbSync({
     queryClient,
+    realtime: { reason: "teammates can edit this shared record" },
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -417,7 +425,7 @@ function App() {
 }
 ```
 
-對於一般的 CRUD，優先使用 `useActionQuery()` 和 `useActionMutation()`。變異 actions 會發出 `source: "action"`，因此這些掛鉤會立即重新取得。來自代理、webhook 或另一個分頁的變更則透過 `useDbSync()` 到來，經由 SSE 或輪詢備援。若原始的 `useQuery()` 呼叫需要以自訂鍵同步，請參閱[同步內部機制](/docs/client-sync-internals)。若您需要直接寫入 `application_state`，請參閱[進階](/docs/client-advanced)。
+只有在資料可能於目前使用者未操作時變更，而且使用者需要在重新整理前看到變更時，才啟用即時同步。Slides 協作編輯和 Mail 收件匣是適合的例子。公開頁面、Docs、設定、表單、不常變更的清單及單一使用者的代理編輯都應保持關閉；可在重新取得焦點或導覽時重新取得資料。每個已訂閱的開啟分頁會在每個閒置間隔增加一次輪詢。
 
 ## 下一步是什麼
 

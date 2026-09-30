@@ -1,26 +1,105 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
+import { isImageRecording } from "@shared/recording-kind";
 import { useQuery } from "@tanstack/react-query";
+import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useParams, useSearchParams } from "react-router";
 
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
+import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
 import { useViewTracking } from "@/hooks/use-view-tracking";
+import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 
+import { getDb, schema } from "../../server/db";
+import { isRecordingExpired } from "../../server/lib/recording-page-access";
 import { isLoomEmbedBackedRecording } from "../../shared/loom";
-import { clipsSharePageTitle } from "../../shared/share-meta";
+import {
+  buildClipsShareMeta,
+  clipsSharePageTitle,
+  type ClipsShareMetaRecording,
+} from "../../shared/share-meta";
 
-export function meta() {
-  return [{ title: "Clip" }];
+type EmbedMetaLoaderData = {
+  recording: ClipsShareMetaRecording | null;
+  origin: string;
+  basePath: string;
+  shareUrl: string;
+};
+
+export async function loader({ params, request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  const basePath = getConfiguredAppBasePath();
+  const [row] = params.shareId
+    ? await getDb()
+        .select({
+          id: schema.recordings.id,
+          title: schema.recordings.title,
+          description: schema.recordings.description,
+          thumbnailUrl: schema.recordings.thumbnailUrl,
+          animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+          visibility: schema.recordings.visibility,
+          status: schema.recordings.status,
+          updatedAt: schema.recordings.updatedAt,
+          sourceAppName: schema.recordings.sourceAppName,
+          videoUrl: schema.recordings.videoUrl,
+          expiresAt: schema.recordings.expiresAt,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, params.shareId),
+            eq(schema.recordings.visibility, "public"),
+            isNull(schema.recordings.password),
+            isNull(schema.recordings.archivedAt),
+            isNull(schema.recordings.trashedAt),
+          ),
+        )
+        .limit(1)
+    : [];
+  const recording =
+    row && !isRecordingExpired(row.expiresAt)
+      ? {
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          thumbnailUrl: row.thumbnailUrl,
+          animatedThumbnailUrl: row.animatedThumbnailUrl,
+          visibility: "public" as const,
+          status: row.status,
+          updatedAt: row.updatedAt,
+          hasPassword: false,
+          archivedAt: null,
+          trashedAt: null,
+          isLoomEmbedBacked: isLoomEmbedBackedRecording(row),
+        }
+      : null;
+
+  return {
+    recording,
+    origin: url.origin,
+    basePath,
+    shareUrl: `${url.origin}${url.pathname}`,
+  } satisfies EmbedMetaLoaderData;
 }
+
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) =>
+  buildClipsShareMeta({
+    recording: loaderData?.recording ?? null,
+    origin: loaderData?.origin ?? null,
+    basePath: loaderData?.basePath ?? "",
+    shareUrl: loaderData?.shareUrl ?? null,
+  });
 
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
@@ -40,12 +119,6 @@ export default function EmbedRoute() {
     [searchParams],
   );
 
-  // Same hydration trap the share route had: reading sessionStorage in the
-  // initializer makes the first client render disagree with the server's,
-  // which has no storage and always renders the locked state. React discards
-  // the hydrated tree and re-renders from scratch, so an embedded player goes
-  // blank for a returning viewer. Start where the server started and adopt the
-  // stored password after mount.
   const [password, setPassword] = useState<string | null>(null);
 
   useEffect(() => {
@@ -107,10 +180,17 @@ export default function EmbedRoute() {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
       const rec = payload?.recording;
       if (!rec) return false;
-      if (rec.status !== "ready" || !rec.videoUrl) {
+      // A screenshot never gets a video file; waiting for one polls forever.
+      const recHasMedia = isImageRecording(rec)
+        ? Boolean(rec.imageUrl || rec.thumbnailUrl)
+        : Boolean(rec.videoUrl);
+      if (rec.status !== "ready" || !recHasMedia) {
         readyMediaPollRef.current = null;
         return 2000;
       }
+      // Nothing else about a finished screenshot changes on its own; the
+      // settle poll below is for a video's repaired file.
+      if (isImageRecording(rec)) return false;
       if (rec.seekableRepairPending === true) {
         readyMediaPollRef.current = null;
         return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
@@ -210,6 +290,36 @@ export default function EmbedRoute() {
     return (
       <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black text-white">
         <p className="text-sm">{t("embedRoute.unavailable")}</p>
+      </div>
+    );
+  }
+
+  if (isImageRecording(recording)) {
+    return (
+      // guard:allow-raw-color — standalone embeds match the black player backdrop
+      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black">
+        <ClipAgentWebMcp
+          recordingId={recording.id}
+          agentContextUrl={
+            typeof dataQ.data?.data?.agentContextUrl === "string"
+              ? dataQ.data.data.agentContextUrl
+              : null
+          }
+          recordingStatus={recording.status}
+          frameAvailable
+        />
+        {/* Through the same gated route as the share page, so the password
+            and expiry cover the picture, not just this page. */}
+        <ScreenshotStage
+          src={withMediaVersion(
+            recording.imageUrl ?? recording.thumbnailUrl ?? "",
+            recording.mediaUpdatedAt ?? null,
+          )}
+          alt={recording.title}
+          width={recording.width}
+          height={recording.height}
+          className="max-h-full w-full"
+        />
       </div>
     );
   }

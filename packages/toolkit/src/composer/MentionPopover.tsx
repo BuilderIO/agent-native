@@ -48,6 +48,11 @@ interface MentionPopoverProps {
   onSelectSkill: (skill: SkillResult) => void;
   onSelectCommand?: (command: SlashCommand) => void;
   onClose: () => void;
+  /**
+   * "stacked" shows a larger avatar with the description under the label, for
+   * people and agent pickers where the description is an identity (an email).
+   */
+  density?: "default" | "stacked";
 }
 
 const iconProps = { size: 16, className: "shrink-0 text-muted-foreground" };
@@ -74,7 +79,6 @@ function CommandIcon({ icon }: { icon?: string }) {
 
 function HintWithLink({ hint }: { hint: string }) {
   const t = useComposerRuntimeAdapters().translate!;
-  // If hint contains a URL, split it and render the URL as a link
   const urlMatch = hint.match(/(https?:\/\/\S+)/);
   if (!urlMatch) return <>{hint}</>;
   const before = hint.slice(0, urlMatch.index);
@@ -159,7 +163,9 @@ export const MentionPopover = forwardRef<
     onSelectSkill,
     onSelectCommand,
     onClose,
+    density = "default",
   } = props;
+  const stacked = density === "stacked";
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -190,8 +196,14 @@ export const MentionPopover = forwardRef<
 
   const itemCount =
     type === "@" ? mentionItems.length : commands.length + skills.length;
+  const itemIdentitySignature =
+    type === "@"
+      ? mentionItems.map((item) => item.id).join("\0")
+      : [
+          ...commands.map((command) => `command:${command.name}`),
+          ...skills.map((skill) => `skill:${skill.path}`),
+        ].join("\0");
 
-  // Group mention items by section for @ popover
   const groupedMentions = React.useMemo(() => {
     if (type !== "@") return [];
     const groups = new Map<string, MentionItem[]>();
@@ -200,8 +212,6 @@ export const MentionPopover = forwardRef<
       if (!groups.has(section)) groups.set(section, []);
       groups.get(section)!.push(item);
     }
-    // Sort: Agents first, then Connected Agents, then template-specific,
-    // then Files, then Other
     const sorted: { section: string; items: MentionItem[] }[] = [];
     const knownSections = new Set([
       "Agents",
@@ -209,7 +219,6 @@ export const MentionPopover = forwardRef<
       "Files",
       "Other",
     ]);
-    // Agents first
     if (groups.has("Agents")) {
       sorted.push({ section: "Agents", items: groups.get("Agents")! });
       groups.delete("Agents");
@@ -221,38 +230,31 @@ export const MentionPopover = forwardRef<
       });
       groups.delete("Connected Agents");
     }
-    // Template-specific sections (anything not in knownSections)
     for (const [section, items] of groups) {
       if (!knownSections.has(section)) {
         sorted.push({ section, items });
       }
     }
-    // Files
     if (groups.has("Files")) {
       sorted.push({ section: "Files", items: groups.get("Files")! });
     }
-    // Other
     if (groups.has("Other")) {
       sorted.push({ section: "Other", items: groups.get("Other")! });
     }
     return sorted;
   }, [type, mentionItems]);
 
-  // Flat list of mention items in section order for keyboard index tracking
   const flatMentionItems = React.useMemo(() => {
     return groupedMentions.flatMap((g) => g.items);
   }, [groupedMentions]);
 
-  // Reset selection when items change
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [commands, mentionItems, skills, query]);
+    setSelectedIndex((current) => (current === 0 ? current : 0));
+  }, [itemIdentitySignature, query]);
 
-  // Scroll selected item into view
   useEffect(() => {
     const container = listRef.current;
     if (!container) return;
-    // Find the actual item element by data attribute
     const selected = container.querySelector(
       `[data-mention-index="${selectedIndex}"]`,
     ) as HTMLElement | undefined;
@@ -299,7 +301,10 @@ export const MentionPopover = forwardRef<
             ),
           ),
           width: Math.min(position.width ?? 640, window.innerWidth - 32),
-          maxHeight: Math.max(0, Math.min(440, position.top - 16)),
+          maxHeight: Math.max(
+            0,
+            Math.min(440, position.top - COMPOSER_POPOVER_GAP - 16),
+          ),
         }}
       >
         {isLoading && itemCount === 0 ? (
@@ -332,7 +337,13 @@ export const MentionPopover = forwardRef<
                   let flatIndex = 0;
                   return groupedMentions.map((group) => (
                     <div key={group.section}>
-                      <div className="px-3 pb-2 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                      <div
+                        className={
+                          stacked
+                            ? "px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70"
+                            : "px-3 pb-2 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground/70"
+                        }
+                      >
                         {sectionLabel(group.section)}
                       </div>
                       {group.items.map((item) => {
@@ -341,25 +352,47 @@ export const MentionPopover = forwardRef<
                           <button
                             key={item.id}
                             data-mention-index={idx}
-                            className={`flex min-h-14 w-full items-center gap-4 rounded-xl px-3 py-2.5 text-start ${
+                            data-mention-density={density}
+                            className={`flex w-full items-center text-start ${
+                              stacked
+                                ? "min-h-12 gap-3 rounded-lg px-2.5 py-1.5"
+                                : "min-h-14 gap-4 rounded-xl px-3 py-2.5"
+                            } ${
                               idx === selectedIndex
                                 ? "bg-muted text-foreground"
                                 : "hover:bg-accent/50"
                             }`}
                             onMouseEnter={() => setSelectedIndex(idx)}
+                            onMouseDown={(event) => event.preventDefault()}
                             onClick={() => onSelectMention(item)}
                           >
                             <MentionItemMedia
                               icon={item.icon}
                               media={item.media}
+                              size={stacked ? "lg" : "md"}
                             />
-                            <span className="truncate text-[15px]">
-                              {item.label}
-                            </span>
-                            {item.description && (
-                              <span className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground">
-                                {item.description}
+                            {stacked ? (
+                              <span className="flex min-w-0 flex-col">
+                                <span className="truncate text-sm font-medium leading-5">
+                                  {item.label}
+                                </span>
+                                {item.description && (
+                                  <span className="truncate text-[13px] leading-4 text-muted-foreground">
+                                    {item.description}
+                                  </span>
+                                )}
                               </span>
+                            ) : (
+                              <>
+                                <span className="truncate text-[15px]">
+                                  {item.label}
+                                </span>
+                                {item.description && (
+                                  <span className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground">
+                                    {item.description}
+                                  </span>
+                                )}
+                              </>
                             )}
                           </button>
                         );

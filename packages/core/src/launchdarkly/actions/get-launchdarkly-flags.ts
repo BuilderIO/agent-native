@@ -1,9 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { isLaunchDarklyFlagEnabled } from "../evaluate.js";
 
-/** Keeps one call from fanning out into an unbounded number of evaluations. */
 const MAX_KEYS = 50;
 
 export default defineAction({
@@ -15,6 +13,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async ({ keys, defaultValue = false }, ctx) => {
+    const { isLaunchDarklyFlagEnabled } = await import("../evaluate.js");
     const actor = { userEmail: ctx?.userEmail, orgId: ctx?.orgId };
     const uniqueKeys = [...new Set(keys)];
     const entries = await Promise.all(

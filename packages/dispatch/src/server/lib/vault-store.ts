@@ -18,6 +18,7 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+import { asc, gt } from "drizzle-orm";
 
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -50,11 +51,6 @@ export interface VaultCtx {
   orgId: string | null;
 }
 
-/**
- * Build a VaultCtx from the current request. Throws if the request is
- * unauthenticated — the previous behavior of falling back to "local@localhost"
- * leaked rows across tenants when a misconfigured environment skipped auth.
- */
 export function requireVaultCtx(): VaultCtx {
   const ownerEmail = currentOwnerEmail();
   if (!ownerEmail) {
@@ -63,7 +59,6 @@ export function requireVaultCtx(): VaultCtx {
   return { ownerEmail, orgId: currentOrgId() };
 }
 
-/** WHERE clause that limits a vault row to the caller's ownership scope. */
 function ctxScope<T extends { ownerEmail: any; orgId: any }>(
   table: T,
   ctx: VaultCtx,
@@ -83,9 +78,6 @@ function tenantScope<T extends { ownerEmail: any; orgId: any }>(
   return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
 }
 
-/** Build a ctx that scopes to a specific row's owner/org (used when a
- * request approver acts on behalf of the original requester so the
- * created secret lands in the request's org). */
 function ctxForRow(row: {
   ownerEmail: string;
   orgId: string | null;
@@ -151,11 +143,6 @@ function scopedFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
   return ctxScope(table, requireVaultCtx());
 }
 
-/**
- * Shared vault values and grants are organization administration data. Keep
- * the member path available for request creation and safe key metadata, but
- * fail closed before a member can read or mutate a raw secret.
- */
 export async function assertCanManageVault(): Promise<void> {
   const orgId = currentOrgId();
   if (!orgId) return;
@@ -246,8 +233,6 @@ export async function setVaultAccessSettings(input: {
   return getVaultAccessSettings();
 }
 
-// ─── Vault Audit ──────────────────────────────────────────────────
-
 export async function recordVaultAudit(input: {
   action: string;
   secretId?: string | null;
@@ -282,8 +267,6 @@ export async function listVaultAudit(limit = 50) {
     .limit(limit);
 }
 
-// ─── Secrets ──────────────────────────────────────────────────────
-
 export async function listSecrets() {
   await assertCanManageVault();
   const db = getDb();
@@ -294,7 +277,6 @@ export async function listSecrets() {
     .orderBy(desc(schema.vaultSecrets.updatedAt));
 }
 
-/** Safe metadata for app creation and integration readiness checks. */
 export async function listSecretOptions() {
   const db = getDb();
   return db
@@ -561,7 +543,6 @@ export async function deleteSecret(
   const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
 
-  // Revoke all active grants first
   const grants = await listGrants({ secretId });
   for (const grant of grants) {
     if (grant.status === "active") {
@@ -596,8 +577,6 @@ export async function deleteSecret(
 
   return existing;
 }
-
-// ─── Grants ──────────────────────────────────────────────────────
 
 export async function listGrants(filter?: {
   secretId?: string;
@@ -813,8 +792,6 @@ export async function revokeGrant(
   return getGrant(grantId, ctx);
 }
 
-// ─── Shared Credential Store Sync ─────────────────────────────────
-
 type VaultSecretRow = typeof schema.vaultSecrets.$inferSelect;
 
 export interface VaultSecretMetadata {
@@ -829,7 +806,6 @@ export interface VaultSecretMetadata {
   updatedAt: number;
 }
 
-/** Return the fields safe to expose to clients, agents, and action callers. */
 export function toVaultSecretMetadata(
   secret: VaultSecretRow | null,
 ): VaultSecretMetadata | null {
@@ -905,34 +881,56 @@ function groupSecretsByTenant(
 }
 
 /**
- * Re-sync every vault secret across every tenant into the shared credential
- * store, regardless of which request/ctx is currently active.
+ * Re-sync one bounded page of vault secrets across tenants into the shared
+ * credential store. Continue with `nextCursor` only from an explicit
+ * maintenance caller; this must not run automatically during process startup.
  *
  * `syncSecretsToCredentialStore` normally only runs on `createSecret` /
  * `updateSecret`, so it only re-encrypts the rows a user happens to touch.
  * When the shared `app_secrets` encryption format changes underneath it
  * (e.g. a new dual-write format, or a change to how key material is
  * derived), existing rows are stuck on the old format until someone
- * manually re-saves each vault secret. This walks every `vault_secrets`
- * row directly — bypassing the ctx-scoped `listSecrets()` — groups them by
- * their (orgId, ownerEmail) tenant, and re-runs the sync per group so every
- * row regains fresh ciphertext.
+ * manually re-saves each vault secret. This reads a keyset page directly —
+ * bypassing the ctx-scoped `listSecrets()` — groups the rows by their
+ * (orgId, ownerEmail) tenant, and re-runs the sync per group.
  *
  * A failure syncing one tenant's group is caught and logged (key NAMES
- * only, never values) so it can't block the rest of the resync.
+ * only, never values) so it can't block the rest of the resync. If a group
+ * fails, `nextCursor` rewinds to before its first row so the next pass retries
+ * it; check `failedGroups` before treating a null cursor as completion.
  */
-export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
+export async function resyncVaultSecretsToCredentialStorePage(
+  options: {
+    afterId?: string;
+    limit?: number;
+  } = {},
+): Promise<{
   groups: number;
   failedGroups: number;
   syncedKeys: number;
+  nextCursor: string | null;
 }> {
+  const requestedLimit = options.limit ?? 100;
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.min(500, Math.max(1, Math.floor(requestedLimit)))
+    : 100;
   const db = getDb();
-  const rows = await db.select().from(schema.vaultSecrets);
+  const rowsWithNext = await db
+    .select()
+    .from(schema.vaultSecrets)
+    .where(
+      options.afterId ? gt(schema.vaultSecrets.id, options.afterId) : undefined,
+    )
+    .orderBy(asc(schema.vaultSecrets.id))
+    .limit(limit + 1);
+  const hasMore = rowsWithNext.length > limit;
+  const rows = hasMore ? rowsWithNext.slice(0, limit) : rowsWithNext;
 
   const groups = groupSecretsByTenant(rows, ctxForRow);
 
   let failedGroups = 0;
   let syncedKeys = 0;
+  let firstFailedRowIndex = Number.POSITIVE_INFINITY;
 
   for (const { ctx, rows: groupRows } of groups) {
     try {
@@ -940,6 +938,10 @@ export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
       syncedKeys += result.keys.length;
     } catch (error) {
       failedGroups++;
+      const firstRowIndex = rows.findIndex(
+        (row) => row.id === groupRows[0]?.id,
+      );
+      firstFailedRowIndex = Math.min(firstFailedRowIndex, firstRowIndex);
       const keyNames = groupRows.map((row) => row.credentialKey).join(", ");
       console.warn(
         `[dispatch] vault boot resync failed for org=${ctx.orgId ?? "(solo)"} owner=${ctx.ownerEmail}; affected keys: ${keyNames}`,
@@ -948,7 +950,17 @@ export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
     }
   }
 
-  return { groups: groups.length, failedGroups, syncedKeys };
+  return {
+    groups: groups.length,
+    failedGroups,
+    syncedKeys,
+    nextCursor:
+      failedGroups > 0
+        ? (rows[firstFailedRowIndex - 1]?.id ?? options.afterId ?? null)
+        : hasMore
+          ? (rows.at(-1)?.id ?? null)
+          : null,
+  };
 }
 
 export async function cleanupSyncedCredentialKeysIfUnused(
@@ -985,8 +997,6 @@ export async function cleanupSyncedCredentialKeysIfUnused(
     }
   }
 }
-
-// ─── Sync ──────────────────────────────────────────────────────
 
 export async function syncGrantsToApp(
   appId: string,
@@ -1029,9 +1039,6 @@ export async function syncGrantsToApp(
     };
   }
 
-  // `all-apps` mode lists secrets across every org the caller can see, so each
-  // row must be written back under its own org. Syncing them all under `ctx`
-  // upserts copies of other orgs' credentials into the caller's org.
   const credentialStoreGroups = groupSecretsByTenant(secretsToSync, (row) =>
     ctxForSecretRow(row, ctx),
   );
@@ -1060,10 +1067,6 @@ export async function syncGrantsToApp(
     | { status: "skipped"; reason: string }
     | { status: "failed"; reason: string };
 
-  // Best-effort push to the app's env-vars endpoint for local/dev apps that
-  // still read process.env directly. Production/shared-DB apps intentionally
-  // reject env writes; the encrypted app_secrets sync above is the canonical
-  // path for request-scoped credentials.
   if (!isTrustedEnvVarSyncAgentUrl(agent.url)) {
     envVarSync = {
       status: "skipped",
@@ -1100,8 +1103,6 @@ export async function syncGrantsToApp(
   const syncedKeys = credentialStoreKeys;
   const timestamp = now();
 
-  // Update syncedAt on grants that were successfully pushed to the shared
-  // credential store. All-apps mode has no explicit grant rows to update.
   for (const grant of activeGrants) {
     const secret = await getSecret(grant.secretId, ctx);
     if (secret && syncedKeys.includes(secret.credentialKey)) {
@@ -1133,8 +1134,6 @@ export async function syncGrantsToApp(
     envVars: envVarSync,
   };
 }
-
-// ─── Requests ──────────────────────────────────────────────────────
 
 export async function listRequests(filter?: { status?: string }) {
   const db = getDb();
@@ -1283,7 +1282,6 @@ export async function approveRequest(
   const requestCtx = ctxForRow(claimedRequest);
 
   try {
-    // Check if secret already exists in the request's tenant for this key.
     const existingSecrets = await db
       .select()
       .from(schema.vaultSecrets)
@@ -1307,7 +1305,6 @@ export async function approveRequest(
     }
 
     if (secret) {
-      // Create the grant in the request's tenant as well.
       await createGrant(secret.id, claimedRequest.appId, requestCtx);
     }
   } catch (error) {
@@ -1396,8 +1393,6 @@ export async function denyRequest(
   return getRequestForTenant(requestId, ctx);
 }
 
-// ─── Integrations Catalog ────────────────────────────────────────
-
 export interface IntegrationEntry {
   key: string;
   label: string;
@@ -1405,7 +1400,6 @@ export interface IntegrationEntry {
   configured: boolean;
   vaultGranted: boolean;
   vaultSecretId?: string;
-  /** False for non-credential settings (flags, addresses) — see env-status's `secret`. Default true. */
   secret: boolean;
 }
 
@@ -1505,8 +1499,6 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
   return results;
 }
 
-// ─── Vault Overview (for dashboard) ──────────────────────────────
-
 export async function listVaultOverview() {
   const isAdmin = await canManageVault();
   const [secrets, grants, requests, access] = await Promise.all([
@@ -1531,8 +1523,6 @@ export async function listVaultOverview() {
   };
 }
 
-// ─── SendGrid Notifications ──────────────────────────────────────
-
 async function notifyAdminsOfRequest(
   requestId: string,
   input: { credentialKey: string; appId: string; reason?: string | null },
@@ -1542,7 +1532,6 @@ async function notifyAdminsOfRequest(
   const appUrl = process.env.APP_URL;
   if (!apiKey || !from || !appUrl) return;
 
-  // Use approval policy approver emails as admin notification targets
   const { getApprovalPolicy } = await import("./dispatch-store.js");
   const policy = await getApprovalPolicy();
   if (policy.approverEmails.length === 0) return;

@@ -16,7 +16,6 @@ import {
 
 import {
   coreMessagesForLocale,
-  englishAgentChatMessages,
   loadCoreMessagesForLocale,
   normalizeCoreMessageOverrides,
 } from "../localization/core-messages.js";
@@ -66,7 +65,6 @@ export {
   type LocalizationPreference,
 } from "../localization/shared.js";
 export { getLocaleInitScript } from "../localization/server.js";
-export { LanguagePicker } from "./LanguagePicker.js";
 
 export type LocaleMessages = Record<string, unknown>;
 
@@ -100,17 +98,10 @@ export interface AgentNativeI18nCatalog {
   sourceLocale?: LocaleCode;
   messages?: LocaleMessages;
   loadMessages?: (locale: LocaleCode) => Promise<LocaleMessages | null>;
-  /** Metadata for app-registered locales shown in the language picker. */
   locales?: readonly LocaleMetadata[];
-  /** Optional partial framework translations for app-registered locales. */
   coreMessageOverrides?: Partial<
     Record<LocaleCode, AgentNativeI18nLocaleLoader>
   >;
-  /**
-   * Locales this app actually ships translations for. Defaults to every
-   * framework-supported locale when omitted, which only matches apps whose
-   * `loadMessages` covers all of them.
-   */
   supportedLocales?: readonly LocaleCode[];
 }
 
@@ -371,12 +362,6 @@ function createI18nInstance(args: {
   return instance;
 }
 
-/**
- * Runtime half of the i18n provider. `sessionAuthenticated` only matters when
- * `persistPreference` is true: the preference read and the app-state write
- * are authenticated server calls, so a signed-out visitor skips them instead
- * of logging 401 console errors on every load.
- */
 function I18nRuntime({
   children,
   catalog,
@@ -707,15 +692,6 @@ function I18nRuntime({
   );
 }
 
-/**
- * Session-aware variant: only mounts the session hook (and therefore only
- * ever resolves the shared session) on surfaces that persist preferences.
- * AppProviders defaults public paths to the non-persisting variant, so a
- * public page never resolves the session for localization; a persisting
- * surface pays one deduped session probe and skips the preference read and
- * app-state write until the session confirms, which is what keeps anonymous
- * visits free of localization 401s.
- */
 function SessionAwareI18nRuntime(
   props: Omit<AgentNativeI18nProviderProps, "persistPreference"> & {
     persistPreference: true;
@@ -745,114 +721,6 @@ export function useLocale(): LocaleContextValue {
 export function useOptionalLocale(): LocaleContextValue | null {
   return useContext(LocaleContext);
 }
-
-const CORE_FALLBACK_MESSAGES: Record<string, string> = {
-  ...Object.fromEntries(
-    Object.entries(englishAgentChatMessages).map(([key, value]) => [
-      `agentChat.${key}`,
-      value,
-    ]),
-  ),
-  "runsTray.runs": "Runs",
-  "runsTray.agentRuns": "Agent runs",
-  "runsTray.activeRun_one": "{{count}} active run",
-  "runsTray.activeRun_other": "{{count}} active runs",
-  "runsTray.failedRun_one": "{{count}} failed run",
-  "runsTray.failedRun_other": "{{count}} failed runs",
-  "runsTray.recentRuns": "Recent runs",
-  "runsTray.noRecentRuns": "No recent runs",
-  "runsTray.ariaAgentRuns": "Agent runs, {{label}}",
-  "runsTray.summaryRunning": "{{activeCount}} running",
-  "runsTray.summaryRunningRecent":
-    "{{activeCount}} running · {{terminalCount}} recent",
-  "runsTray.summaryRecent_one": "{{count}} recent run",
-  "runsTray.summaryRecent_other": "{{count}} recent runs",
-  "runsTray.noTrackedWorkYet": "No tracked work yet",
-  "runsTray.emptyDescription":
-    "Background agent work will appear here while it runs and after it finishes.",
-  "runsTray.open": "Open",
-  "runsTray.stopRun": "Stop {{title}}",
-  "runsTray.hideRun": "Hide {{title}}",
-  "runsTray.statusRunning": "Running",
-  "runsTray.statusDone": "Done",
-  "runsTray.statusFailed": "Failed",
-  "runsTray.statusStopped": "Stopped",
-  "runsTray.statusNeedsApproval": "Needs approval",
-  "runsTray.statusNeedsInput": "Needs input",
-  "runsTray.statusPaused": "Paused",
-  "runsTray.updatedJustNow": "Updated just now",
-  "runsTray.finishedJustNow": "Finished just now",
-  "runsTray.updatedMinutes": "Updated {{count}}m ago",
-  "runsTray.finishedMinutes": "Finished {{count}}m ago",
-  "runsTray.updatedHours": "Updated {{count}}h ago",
-  "runsTray.finishedHours": "Finished {{count}}h ago",
-  "runsTray.updatedDate": "Updated {{date}}",
-  "runsTray.finishedDate": "Finished {{date}}",
-  "agentTask.spawnedAgent": "Spawned agent",
-  "agentTask.stop": "Stop spawned agent",
-  "agentTask.openThread": "Open task thread",
-  "codeRequired.fallbackDetail":
-    "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
-  "codeRequired.defaultFeature": "Make the requested code changes to this app",
-  "codeRequired.branchError": "Failed to create branch",
-  "codeRequired.title": "Code changes required",
-  "codeRequired.subtitleWithFeature":
-    '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
-  "codeRequired.subtitle":
-    "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
-  "codeRequired.desktopTitle": "Use Agent-Native Desktop",
-  "codeRequired.desktopDescription":
-    "Open the project in the desktop app to enable source edits and CLI access.",
-  "codeRequired.builderAgentTitle": "Use Builder.io Agent",
-  "codeRequired.builderAgentDescription":
-    "Let our cloud agent make the changes for you. You'll get a link to preview and deploy.",
-  "codeRequired.codeChangeTitle": "This requires a code change",
-  "codeRequired.codeChangeBadge": "Code change",
-  "codeRequired.connectBuilderTitle": "Connect Builder.io",
-  "codeRequired.connectBuilderDescription":
-    "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
-  "codeRequired.setupRequired": "Setup required",
-  "codeRequired.branchCreated": "Branch created",
-  "codeRequired.close": "Close",
-  "agentPanel.useBuilder": "Use Builder",
-  "agentPanel.openDesktopToEditCode": "Open Desktop to edit code",
-  "agentPanel.codeUnavailableDescription":
-    "Source-code changes and CLI access are available in the Agent-Native Desktop app.",
-  "agentPanel.downloadDesktop": "Download Desktop",
-  "agentPanel.chatMode": "Chat mode",
-  "agentPanel.chat": "Chat",
-  "agentPanel.cliTerminalMode": "CLI terminal mode",
-  "agentPanel.cli": "CLI",
-  "agentPanel.workspaceMode": "Files, agents, skills, and tasks",
-  "agentPanel.workspace": "Resources",
-  "agentPanel.newChat": "New chat",
-  "agentPanel.newTerminal": "New terminal",
-  "agentPanel.panelOptions": "Agent panel options",
-  "agentPanel.collapseSidebar": "Collapse sidebar",
-  "agentPanel.hideChats": "Hide chats",
-  "agentPanel.allChats": "All chats",
-  "agentPanel.settings": "Settings",
-  "agentPanel.feedback": "Feedback",
-  "agentPanel.exitFullscreen": "Exit fullscreen",
-  "agentPanel.fullscreen": "Fullscreen",
-  "agentPanel.closeTab": "Close tab",
-  "agentPanel.closeOtherTabs": "Close other tabs",
-  "agentPanel.closeAllTabs": "Close all tabs",
-  "agentPanel.clearChat": "Clear chat",
-  "agentPanel.cliRequiresDevMode": "CLI requires dev mode",
-  "agentPanel.cliRequiresDevModeDescription":
-    "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
-  "agentPanel.toggleAgent": "Toggle agent",
-  "runtimeConfig.warningTitle": "Production configuration warning",
-  "runtimeConfig.errorTitle": "Production configuration error",
-  "runtimeConfig.issue_one": "{{count}} issue",
-  "runtimeConfig.issue_other": "{{count}} issues",
-  "runtimeConfig.showDetails": "Show configuration details",
-  "runtimeConfig.hideDetails": "Hide configuration details",
-  "runtimeConfig.copyPrompt": "Copy prompt for AI",
-  "runtimeConfig.copied": "Prompt copied",
-  "runtimeConfig.copyFailed": "Copy failed",
-};
 
 function flattenMessages(
   value: unknown,
@@ -898,10 +766,7 @@ function fallbackMessage(key: string, options?: Record<string, unknown>) {
   const pluralKey =
     Number.isFinite(count) && count === 1 ? `${key}_one` : `${key}_other`;
   const template =
-    DEFAULT_ENGLISH_MESSAGES[pluralKey] ??
-    DEFAULT_ENGLISH_MESSAGES[key] ??
-    CORE_FALLBACK_MESSAGES[pluralKey] ??
-    CORE_FALLBACK_MESSAGES[key];
+    DEFAULT_ENGLISH_MESSAGES[pluralKey] ?? DEFAULT_ENGLISH_MESSAGES[key];
   return template
     ? interpolateFallbackMessage(template, options)
     : humanizeFallbackKey(key);
@@ -944,7 +809,9 @@ export function useIconPickerLabels() {
     allCategories: t("iconPicker.allCategories"),
     loadError: t("iconPicker.loadError"),
     saveError: t("iconPicker.saveError"),
+    uploadFailed: t("iconPicker.uploadFailed"),
     uploadTooLarge: t("iconPicker.uploadTooLarge"),
+    uploadUnsupportedType: t("iconPicker.uploadUnsupportedType"),
     retry: t("iconPicker.retry"),
     uploadHint: t("iconPicker.uploadHint"),
     colorNames: Object.fromEntries(

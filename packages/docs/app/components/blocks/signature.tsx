@@ -1,8 +1,8 @@
-import { defineBlock } from "@agent-native/core/blocks";
+import { defineBlock } from "@agent-native/toolkit/app/blocks";
 import type {
   BlockReadProps,
   BlockRenderContext,
-} from "@agent-native/core/blocks";
+} from "@agent-native/toolkit/app/blocks";
 import { IconChevronRight } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -43,12 +43,6 @@ function FieldRow({
   );
 }
 
-/**
- * Read-only renderer for a `signature` block. Collapsed by default to just the
- * code-style call line; clicking it reveals the parameter/return breakdown. A
- * static "Function signature" label renders as a faded caption above the
- * whole thing, separate from the clickable header inside it.
- */
 export function SignatureBlock({ data, ctx }: BlockReadProps<SignatureData>) {
   const [open, setOpen] = useState(false);
   const signatureLine = `${data.name}(${data.params

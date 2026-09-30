@@ -11,9 +11,6 @@ import {
 
 describe("coalesceMarqueeSelectionHistory", () => {
   it("records exactly one history entry for each consecutive gesture", () => {
-    // Mirrors a real marquee: mousedown selects nothing (0), then three
-    // mousemove ticks grow the hit-set as the rect crosses A, then A+B,
-    // before the mouseup (final) tick settles on the actual drop selection.
     const pendingBefore: { current: string[] | null } = { current: null };
     const ticks: Array<{ before: string[]; after: string[]; final: boolean }> =
       [
@@ -30,8 +27,6 @@ describe("coalesceMarqueeSelectionHistory", () => {
         tick.after,
       ),
     );
-    // The bug this coalescer fixes: without it, every one of the 4 ticks
-    // above would push its own history entry (4 undo steps for one drag).
     expect(recorded.filter(Boolean)).toHaveLength(1);
     expect(recorded[3]).toEqual({ before: [], after: ["a", "b"] });
     const nextRecorded = [
@@ -166,9 +161,6 @@ describe("coalesceMarqueeSelectionHistory", () => {
       ["a"],
       ["a", "b"],
     );
-    // "before" is the FIRST tick's before-snapshot ("x"), not the last
-    // intermediate tick's — a gesture undoes back to what was selected
-    // before the drag started, not to its own most recent tick.
     expect(entry).toEqual({ before: ["x"], after: ["a", "b"] });
   });
 

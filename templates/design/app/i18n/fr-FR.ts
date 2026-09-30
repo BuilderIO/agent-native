@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Intégrations" } },
   creativeContext: {
     title: "Bibliothèque",
     description:
@@ -167,14 +168,16 @@ export default {
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
     openAgentSettings: "Gérer l’agent",
-    languageTitle: "Langue",
-    languageDescription: "Choisissez la langue de l'interface de Design.",
-    languageLabel: "Langue de l'interface",
-    labs: "Labs",
-    labsIntro:
-      "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
     labTweaks: "Ajustements de design",
     labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
+    labFullAppBuilding: "Création d’applications complètes",
+    labFullAppBuildingDescription:
+      "Essayez de créer des applications fonctionnelles à partir de vos designs avec Builder.",
+    labDesignReviewTools: "Outils de révision des designs",
+    labDesignReviewToolsDescription:
+      "Vérifiez l’accessibilité de vos designs et comparez les changements visuels.",
+    mcpAbout:
+      "Connectez Design à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Design pour vous : créer des designs et les modifier. Elle ne voit que ce que vous pouvez voir.",
   },
   pages: {
     presentEmpty: "Aucun contenu à présenter",
@@ -183,8 +186,17 @@ export default {
     notFoundDescription: "La page que vous recherchez n’existe pas.",
     notFoundSignIn: "Se connecter",
     notFoundBackToDesigns: "Retour aux designs",
-    teamCreateOrgDescription:
-      "Configurez une équipe pour partager des designs avec vos collègues.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connecter un stockage pour envoyer des fichiers",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
+    },
+    common: { retry: "Réessayer" },
   },
   chat: {
     emptyState: "Décrivez un design à créer",
@@ -215,6 +227,7 @@ export default {
     },
   },
   common: {
+    loading: "Chargement...",
     genericError: "Quelque chose s'est mal passé",
   },
   editPanel: {
@@ -312,6 +325,8 @@ export default {
       bottomLeft: "BG",
       bottomRight: "BD",
       blend: "Fusion",
+      blendMode: "Mode de fusion",
+      removeBlendMode: "Supprimer le mode de fusion",
       border: "Bordure",
       outline: "Contour",
       inside: "Intérieur",
@@ -587,6 +602,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Collaboration en direct",
+      description:
+        "Permet aux personnes qui n'ont pas accès au localhost du propriétaire de voir et de modifier une copie en direct de ce design.",
+      enabled: "Activée",
+      disabled: "Désactivée",
+      saving: "Enregistrement…",
+      enableError: "Impossible de mettre à jour la collaboration en direct.",
+    },
     vectorEndpoints: {
       startPoint: "Point de départ",
       endPoint: "Point d'arrivée",
@@ -1421,6 +1445,8 @@ export default {
         "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
       reactSourceAnchorsUnavailable:
         "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
+      sourceLocationSnapshotFailed:
+        "Impossible de vérifier les emplacements du code source de cet aperçu.",
       screenSourceUpdated: "Source de l’écran mise à jour",
       screenSourceUpdateFailed:
         "Impossible de mettre à jour la source de l’écran",
@@ -1480,6 +1506,13 @@ export default {
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion après plusieurs tentatives.",
       connectionNotConfirmed:
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion. Le serveur de développement local est-il toujours en cours d’exécution ?",
+      permissionPromptTitle: "Connecter vos écrans locaux",
+      permissionPromptDescription:
+        "Choisissez Autoriser dans l’invite de Chrome pour activer la modification en direct.",
+      permissionPromptNoPrompt: "Aucune invite Chrome ?",
+      permissionPromptSettingsInstructions:
+        "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
+      permissionPromptRetry: "Réessayer la connexion",
     },
   },
   multiScreenCanvas: {
@@ -1669,7 +1702,66 @@ export default {
       "Vous avez quitté cette vue : {{count}} brouillons de commentaires non envoyés ont été supprimés.",
     staleAnchorDetail: "L’élément d’origine est introuvable sur le canevas.",
   },
+  homeContext: {
+    websiteReference: "Ajouter un site web",
+    websiteUrlLabel: "URL du site web",
+    websiteUrl: "Collez l’URL d’un site web",
+    figmaUrlLabel: "Lien Figma",
+    invalidFigmaUrl:
+      "Saisissez une URL valide de cadre ou de fichier figma.com.",
+    tooMany: "Choisissez jusqu’à 20 références.",
+    invalidWebsiteUrl: "Saisissez une URL HTTP ou HTTPS valide.",
+    createSystem: "Créer un système de design",
+    noSystems:
+      "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
+    searchSystems: "Rechercher des systèmes de design…",
+    searchFrames: "Rechercher des cadres Figma…",
+    searchDesigns: "Rechercher des designs…",
+    searchPresentations: "Rechercher des présentations…",
+    searchDesign: "Rechercher un design…",
+    useDesignSystem: "Utiliser un système de design",
+    notReady:
+      "La demande n’est pas prête. Vérifiez le contexte sélectionné et la connexion, puis réessayez.",
+    search: "Rechercher du contexte…",
+    figmaUrl: "Collez un lien Figma",
+    browse: "Parcourir les cadres",
+    loadFailed: "Impossible de charger cette référence.",
+    retry: "Réessayer",
+    empty: "Aucune référence correspondante.",
+    none: "Aucun",
+    design: "Design",
+    slides: "Diapositives",
+    referenceDesign: "Utiliser un design comme référence",
+    figmaReference: "Ajouter Figma",
+    referenceDeck: "Utiliser une présentation comme référence",
+    quickSaas: "Créer une page SaaS",
+    quickDashboard: "Créer un tableau de bord",
+    quickDeck: "Créer une présentation",
+    deckPrompt:
+      "Créez une présentation soignée avec une diapositive de titre, un récit clair, des données visuelles et une conclusion concise.",
+  },
   home: {
+    suggestedPrompts: "Prompts suggérés",
+    import: "Importer",
+    importOptions: "Options d’importation",
+    figmaLink: "Lien Figma",
+    importFromFigma: "Importer depuis Figma",
+    figmaFile: "Fichier Figma (.fig)",
+    openImport: "Ouvrir l’importation",
+    importSelectedFile: "Importer le fichier sélectionné",
+    starterSaasPrompt:
+      "Une page d’accueil SaaS moderne avec un thème sombre, une section principale, trois cartes de fonctionnalités et un appel à l’action final.",
+    starterDashboardPrompt:
+      "Un tableau de bord analytique épuré avec une navigation latérale, quatre indicateurs clés, un graphique et un tableau d’activité récente.",
+    starterMobilePrompt:
+      "Un prototype d’application mobile dans un cadre de téléphone, avec une barre d’onglets en bas et trois cartes de liste sur l’écran d’accueil.",
+    starterPricingPrompt:
+      "Une page de tarifs à trois offres avec un sélecteur mensuel/annuel, des listes de fonctionnalités et une offre recommandée mise en avant.",
+    designPromptTitle: "Créons votre premier design",
+    recent: "Récents",
+    browseAllTemplates: "Tout parcourir",
+    connectBuilderIo: "Connecter Builder.io",
+    connectingBuilder: "Connexion à Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "Rechercher des modèles...",
     newDesign: "Nouveau Design",
@@ -1736,6 +1828,8 @@ export default {
     layoutLabel: "Mise en page prete a enregistrer",
   },
   templatesPage: {
+    previewEmpty: "Ce modèle ne contient aucun écran à prévisualiser.",
+    loading: "Chargement des modèles",
     title: "Modèles",
     description:
       "Commencez avec les bonnes dimensions et valeurs, puis adaptez le contenu déverrouillé par invite.",
@@ -1764,7 +1858,7 @@ export default {
     deleteTitle: "Supprimer le modèle ?",
     deleteDescription:
       "Cela supprime définitivement {{title}}. Les designs déjà créés ne sont pas affectés.",
-    templateActions: "Actions du modèle",
+    templateActions: "Actions pour {{title}}",
     lockedCount: "{{count}} verrouillés",
     categories: {
       ad: "Publicité",

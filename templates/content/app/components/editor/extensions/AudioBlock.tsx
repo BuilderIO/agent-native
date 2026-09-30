@@ -1,6 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -25,6 +26,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -150,9 +152,13 @@ export function AudioBlock({
   getPos,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourceTab, setSourceTab] = useState<AudioSourceTab>("upload");
   const [audioUrl, setAudioUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -401,7 +407,7 @@ export function AudioBlock({
   async function handleAudioFilePicked(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file || !canMutateMediaNow()) return;
+    if (!file || !fileStorageConfigured || !canMutateMediaNow()) return;
 
     const toastId = toast.loading(t("editor.media.uploadingAudio"));
     try {
@@ -416,6 +422,15 @@ export function AudioBlock({
     } catch (error) {
       toast.error(audioUploadErrorMessage(error), { id: toastId });
     }
+  }
+
+  function requestAudioFilePicker() {
+    if (!isEditable || isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
+    fileInputRef.current?.click();
   }
 
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
@@ -473,10 +488,15 @@ export function AudioBlock({
               type="button"
               variant="outline"
               className="w-full"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={requestAudioFilePicker}
             >
               {t("editor.media.uploadFile")}
             </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : (
           <form className="media-source-panel__body" onSubmit={handleEmbedLink}>
@@ -539,6 +559,7 @@ export function AudioBlock({
             ref={fileInputRef}
             type="file"
             accept="audio/*"
+            disabled={!fileStorageConfigured}
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"
@@ -581,6 +602,7 @@ export function AudioBlock({
           ref={fileInputRef}
           type="file"
           accept="audio/*"
+          disabled={!fileStorageConfigured}
           className="hidden"
           tabIndex={-1}
           aria-hidden="true"

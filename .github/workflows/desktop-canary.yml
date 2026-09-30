@@ -5,6 +5,29 @@ on:
   push:
     branches:
       - main
+    paths:
+      # desktop-app plus its workspace dependency closure, and the bundled
+      # Chrome extension (`pnpm build:chrome-extension`) plus its closure.
+      - "packages/desktop-app/**"
+      - "packages/agent-chrome-extension/**"
+      - "packages/browser-control-extension-core/**"
+      - "packages/code-agents-ui/**"
+      - "packages/core/**"
+      - "packages/shared-app-config/**"
+      - "packages/toolkit/**"
+      - "packages/agentkit/**"
+      - "packages/recap-cli/**"
+      - "scripts/build-branding-assets.mjs"
+      # Install-time inputs: the root postinstall prebuilds workspace packages.
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/desktop-canary.yml"
+
+concurrency:
+  group: desktop-sso-canary-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

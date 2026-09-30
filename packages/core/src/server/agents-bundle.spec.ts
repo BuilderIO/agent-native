@@ -4,12 +4,17 @@ import path from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+const labsMock = vi.hoisted(() => ({ getUserLabs: vi.fn() }));
+
+vi.mock("../labs/store.js", () => labsMock);
+
 import {
   readAgentsBundleFromFs,
   parseSkillFrontmatter,
   generateSkillsPromptBlock,
   generateDevelopmentSkillsPromptBlock,
   getRuntimeSkills,
+  getRuntimeSkillsForUser,
   getDevelopmentSkills,
   isRuntimeVisibleScope,
   normalizeSkillScope,
@@ -205,7 +210,6 @@ describe("skill scope loading", () => {
         "typo-scope",
       );
       expect(generateSkillsPromptBlock(bundle)).not.toContain("typo-scope");
-      // Still visible to the coding agent — the audience that can fix the typo.
       expect(getDevelopmentSkills(bundle).map((s) => s.meta.name)).toContain(
         "typo-scope",
       );
@@ -291,6 +295,53 @@ describe("generateDevelopmentSkillsPromptBlock scope filtering", () => {
     expect(block).not.toContain("runtime-one");
     expect(block).toContain('bash(command="cat <skill-dir>/SKILL.md")');
     expect(block).not.toContain('docs-search --slug "skill-dev-one"');
+  });
+});
+
+describe("per-user Labs skill visibility", () => {
+  it("filters gated skills per user without mutating the shared bundle", async () => {
+    labsMock.getUserLabs.mockImplementation(async (email: string) =>
+      email === "enabled@example.test"
+        ? { "creative-context.library": true }
+        : { "creative-context.library": false },
+    );
+    const bundle = bundleWith([
+      skill("ordinary", "both"),
+      {
+        ...skill("creative-context", "both"),
+        meta: {
+          ...skill("creative-context", "both").meta,
+          requiresLab: "creative-context.library",
+        },
+      },
+    ]);
+
+    await expect(
+      getRuntimeSkillsForUser(bundle, "disabled@example.test"),
+    ).resolves.toEqual([bundle.skills.ordinary]);
+    await expect(
+      getRuntimeSkillsForUser(bundle, "enabled@example.test"),
+    ).resolves.toEqual([
+      bundle.skills.ordinary,
+      bundle.skills["creative-context"],
+    ]);
+    await expect(getRuntimeSkillsForUser(bundle)).resolves.toEqual([
+      bundle.skills.ordinary,
+    ]);
+    expect(bundle.skills["creative-context"]?.meta.requiresLab).toBe(
+      "creative-context.library",
+    );
+  });
+
+  it("parses the requires-lab skill frontmatter field", () => {
+    expect(
+      parseSkillFrontmatter(
+        "---\nname: creative-context\nrequires-lab: content.creative-context\n---\nbody",
+      ),
+    ).toMatchObject({
+      name: "creative-context",
+      requiresLab: "content.creative-context",
+    });
   });
 });
 
@@ -488,7 +539,6 @@ describe("readAgentsBundleFromFs", () => {
     });
     try {
       const bundle = readAgentsBundleFromFs(tpl, ws.source);
-      // Template wins on name collision.
       expect(bundle.skills.policy!.meta.description).toBe("TEMPLATE VERSION");
     } finally {
       fs.rmSync(tpl, { recursive: true, force: true });

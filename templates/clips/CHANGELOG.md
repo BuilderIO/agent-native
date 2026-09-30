@@ -3,16 +3,105 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Clips Desktop shows a brief confirmation after copying a share link
+- Chat composers no longer show temporary status rows.
+- Fixed library and signup loading flashes and made desktop recording startup cues and countdowns reliable.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- Stopping during setup cancels cleanly, while active clips still finish and save.
+- The comment sign-in prompt stays visible while a clip is fullscreen.
+
+## 2026-09-28
+
+### Added
+
+- Clips can capture screenshots, annotate them, redact sensitive details, and share them.
+
+### Improved
+
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- The chat sidebar matches the app navigation color, with tighter composer spacing.
+- The recording viewer keeps Agent, comments, and transcripts together, and the app sidebar now moves the full page.
+- Viewers can share recordings with agents from shared recording menus
+
+### Fixed
+
+- Clip share previews show a branded image while the recording thumbnail is unavailable.
+- Meeting and feature-flag polling resumes after your session is accepted again
+- Older recording links preserve the selected viewer tab when panel and Agent sidebar state are both present
+- Opening Agent from a recording keeps the latest selected text attached to your prompt.
+- Stop repeated Clips requests after session expiry
+- Agent links stay valid when clip details change
+
+### Security
+
+- Password changes immediately invalidate old recording links
+- Password-protected recording links stop working when the password changes
+
+## 2026-09-26
+
+### Improved
+
+- Ask about a live meeting from the recording pill, with transcript context and AI-generated next-step suggestions.
+- Clips asks you to connect storage only when an upload needs it.
+- See the desktop app for your platform at a glance.
+- The comments signup headline now wraps more evenly.
+- The empty comments state now explains how screen recordings help AI agents.
+- The empty comments view has a clearer headline and a focused signup action.
+
+### Fixed
+
+- Removing a member from your organization now completes instead of failing with a pending cleanup error
+- Clips asks you to connect storage only when you choose an upload
+- Clips can play recordings from public S3-compatible storage in more hosted environments.
+- Dismissing storage setup now cancels queued uploads.
+- Meeting chat waits for interactive AI access before sending, and its answer panel has a localized resize and dismiss label.
+- Stopping a recording with its keyboard shortcut now shows the completion card.
+- Video uploads only ask for storage when you choose Upload video, then offer a fresh upload action after storage connects.
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
 ## 2026-09-25
 
 ### Improved
 
+- Clips settings are reorganized in the new Settings: General with Recordings and Meetings tabs, Notifications, and Slack link previews under Channels.
+- The account menu at the bottom of the sidebar shows your photo, name, and organization, and holds Settings, Usage, Get apps and extensions, and Log out
+- Video storage now uses the shared storage form, and Clear credentials asks before it removes your storage keys
+- Connect Builder storage by creating an account in one click.
+- Public clip embeds and meeting notes show richer link previews.
+- The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
 - Shared clips remember your sidebar choice and help new viewers understand why to sign up.
+
+### Fixed
+
+- Fix Google sign-in and connect popups that stayed blank and asked you to allow pop-ups
+- Clips checks storage before upload and offers Builder.io or your own S3-compatible keys when storage is missing.
+- Clips desktop sign-in now accepts authenticator codes when two-step verification is enabled.
+- Keep Builder login state after blocked popups and show feedback while retrying storage connection checks
+- Clips clears a stale recording overlay after an interrupted save
+- Concurrent workflow requests no longer replace an active generation.
+- Generated workflows stay tied to the request that created them.
+- Organization logos can be stored privately and load in settings, shared clips, and email.
+- Private MinIO and S3-compatible endpoints now work with Clips.
+- Workflow drafts are saved before the agent reports them complete
+- Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."
 
 ## 2026-09-24
 
 ### Improved
 
+- Sharing recordings now uses a joined Share and quick-copy control with People and Agents tabs
 - Recording actions are easier to find and align clearly.
 - Share links appear after uploads finish, when clips are ready to view.
 

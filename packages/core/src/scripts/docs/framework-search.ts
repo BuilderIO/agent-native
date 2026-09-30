@@ -1,11 +1,3 @@
-/**
- * Core script: framework-search
- *
- * Search the version-matched framework docs and readable source together.
- * This is intentionally bounded and read-only so every app chat can use the
- * same fallback when a question is not answered by the docs alone.
- */
-
 import fs from "node:fs";
 
 import {
@@ -14,7 +6,12 @@ import {
 } from "../../search-utils/index.js";
 import { parseArgs } from "../utils.js";
 import { loadAllDocs, type DocFull } from "./search.js";
-import { listSourceFiles, type SourceFile } from "./source-search.js";
+import {
+  hasSourceCorpus,
+  listSourceFiles,
+  SOURCE_CORPUS_INSTALL_HINT,
+  type SourceFile,
+} from "./source-search.js";
 
 type SearchScope = "all" | "docs" | "source";
 
@@ -171,7 +168,6 @@ async function searchFramework(options: {
     hits.push({ entry, pathMatch, snippets });
   }
 
-  // Keep the result deterministic and favor docs titles and exact path hits.
   hits.sort((a, b) => {
     const aScore = (a.pathMatch ? 2 : 0) + (a.entry.kind === "doc" ? 1 : 0);
     const bScore = (b.pathMatch ? 2 : 0) + (b.entry.kind === "doc" ? 1 : 0);
@@ -233,6 +229,9 @@ export default async function frameworkSearchScript(
         ? Promise.resolve([])
         : Promise.resolve(listSourceFiles()),
     ]);
+    if (scope !== "docs" && !hasSourceCorpus()) {
+      console.log(SOURCE_CORPUS_INSTALL_HINT);
+    }
     console.log(
       JSON.stringify(
         {
@@ -278,12 +277,15 @@ export default async function frameworkSearchScript(
     pathFilter: parsed.path,
     limit,
   });
+  if (scope !== "docs" && !hasSourceCorpus()) {
+    console.log(SOURCE_CORPUS_INSTALL_HINT);
+  }
   if (result.total === 0) {
     console.log(
       `No matches in the indexed ${scope} corpus for ${JSON.stringify(pattern)}.`,
     );
     console.log(
-      "The search covers version-matched framework docs, runtime-visible skills, and readable Core, Toolkit, and first-party template source. A miss is not proof that an implementation is absent if the relevant package source is not published in this app.",
+      "The search covers version-matched framework docs, runtime-visible skills, and readable Core, Toolkit, and first-party template source when the optional corpus package is installed. A miss is not proof that an implementation is absent if the relevant package source is not published in this app.",
     );
     if (result.unreadable > 0) {
       console.log(`Skipped ${result.unreadable} unreadable source file(s).`);

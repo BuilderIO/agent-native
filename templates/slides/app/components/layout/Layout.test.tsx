@@ -1,17 +1,54 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { agentSidebarMock, useDecksMock, creativeContextLabEnabled } =
-  vi.hoisted(() => ({
-    agentSidebarMock: vi.fn(),
-    useDecksMock: vi.fn(),
-    creativeContextLabEnabled: { value: false },
-  }));
+const {
+  agentSidebarMock,
+  navigateChatMock,
+  flushDeckSaveMock,
+  useDecksMock,
+  creativeContextLabEnabled,
+} = vi.hoisted(() => ({
+  agentSidebarMock: vi.fn(),
+  navigateChatMock: vi.fn(),
+  flushDeckSaveMock: vi.fn(),
+  useDecksMock: vi.fn(),
+  creativeContextLabEnabled: { value: false },
+}));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  fetchAgentEngineConfiguredState: async () => "unavailable",
+  isAgentChatHomeHandoffActive: vi.fn(() => false),
+  navigateWithAgentChatViewTransition: navigateChatMock,
+  useAgentChatHomeHandoff: vi.fn(() => false),
+  useAgentChatHomeHandoffLinks: vi.fn(),
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: false,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
+}));
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
   AgentSidebar: ({
     children,
     ...props
@@ -29,16 +66,14 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     );
   },
   focusAgentChat: vi.fn(),
-  isAgentChatHomeHandoffActive: vi.fn(() => false),
-  navigateWithAgentChatViewTransition: vi.fn(),
-  useAgentChatHomeHandoff: vi.fn(() => false),
-  useAgentChatHomeHandoffLinks: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, values?: Record<string, unknown>) =>
     key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/org")>()),
   InvitationBanner: () => <div data-testid="invitation-banner" />,
 }));
 vi.mock("@agent-native/creative-context/client", () => ({
@@ -53,7 +88,9 @@ vi.mock("@agent-native/toolkit/app-shell", () => ({
 vi.mock("@shared/google-docs", () => ({
   extractGoogleSlidesUrls: () => [],
 }));
-vi.mock("@tabler/icons-react", () => ({
+vi.mock("@tabler/icons-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tabler/icons-react")>()),
+  IconBulb: () => <span data-testid="bulb-icon" />,
   IconMenu2: () => <span data-testid="menu-icon" />,
 }));
 vi.mock("@/context/DeckContext", () => ({ useDecks: useDecksMock }));
@@ -66,6 +103,9 @@ vi.mock("@/lib/utils", () => ({
 }));
 vi.mock("../editor/GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => null,
+}));
+vi.mock("../editor/SlidesComposerContextProvider", () => ({
+  SlidesComposerContextProvider: () => null,
 }));
 vi.mock("./AgentWorkIndicator", () => ({
   AgentWorkIndicator: () => <div data-testid="agent-work-indicator" />,
@@ -82,6 +122,7 @@ import { Layout } from "./Layout";
 afterEach(() => {
   cleanup();
   publishSlidesSelection(null);
+  Reflect.deleteProperty(window, "ReactNativeWebView");
 });
 
 function renderLayout(path: string) {
@@ -107,7 +148,13 @@ function NavigateAway() {
 describe("Slides Layout", () => {
   beforeEach(() => {
     agentSidebarMock.mockClear();
-    useDecksMock.mockReturnValue({ decks: [], loading: false });
+    navigateChatMock.mockClear();
+    flushDeckSaveMock.mockReset().mockResolvedValue(undefined);
+    useDecksMock.mockReturnValue({
+      decks: [],
+      loading: false,
+      flushDeckSave: flushDeckSaveMock,
+    });
     creativeContextLabEnabled.value = false;
   });
 
@@ -120,6 +167,20 @@ describe("Slides Layout", () => {
     renderLayout("/");
     expect(screen.getByTestId("creative-context-composer-chip")).toBeTruthy();
   });
+
+  it.each([
+    ["thread/one", "/chat/thread%2Fone?deckId=deck-1"],
+    [undefined, "/chat?deckId=deck-1"],
+  ])(
+    "opens fullscreen with thread %s while retaining deck context",
+    (threadId, path) => {
+      renderLayout("/deck/deck-1");
+      const props = agentSidebarMock.mock.lastCall![0];
+      expect(props.storageKey).toBeUndefined();
+      act(() => props.onFullscreenRequest(threadId));
+      expect(navigateChatMock).toHaveBeenCalledWith(expect.any(Function), path);
+    },
+  );
 
   it("enables agent-panel auto-open only during a run", () => {
     renderLayout("/");
@@ -211,11 +272,102 @@ describe("Slides Layout", () => {
     expect(screen.getByTestId("page-content")).toBeTruthy();
   });
 
+  it("keeps malformed chat history distinct from an empty version list", () => {
+    renderLayout("/deck/deck-1");
+
+    const history = agentSidebarMock.mock.lastCall![0].chatHistory as {
+      list: { getVersions: (result: unknown) => unknown };
+    };
+
+    expect(history.list.getVersions({ versions: [] })).toEqual([]);
+    expect(history.list.getVersions({ versions: null })).toBeNull();
+  });
+
+  it("acknowledges a mobile flush only after the matching deck is saved", async () => {
+    const postMessage = vi.fn();
+    Object.defineProperty(window, "ReactNativeWebView", {
+      configurable: true,
+      value: { postMessage },
+    });
+    renderLayout("/deck/deck-1");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.mobileDeckSaveFlush", {
+          detail: { requestId: "request-1", deckId: "deck-1" },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledOnce());
+    expect(flushDeckSaveMock).toHaveBeenCalledWith("deck-1");
+    expect(JSON.parse(postMessage.mock.calls[0][0])).toEqual({
+      type: "agentNative.mobileDeckSaveFlush.ack",
+      requestId: "request-1",
+      requestedDeckId: "deck-1",
+      activeDeckId: "deck-1",
+      status: "flushed",
+    });
+  });
+
+  it("reports nonmatching Slides routes without flushing another deck", async () => {
+    const postMessage = vi.fn();
+    Object.defineProperty(window, "ReactNativeWebView", {
+      configurable: true,
+      value: { postMessage },
+    });
+    renderLayout("/deck/deck-2");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.mobileDeckSaveFlush", {
+          detail: { requestId: "request-2", deckId: "deck-1" },
+        }),
+      );
+    });
+
+    expect(postMessage).toHaveBeenCalledOnce();
+    expect(flushDeckSaveMock).not.toHaveBeenCalled();
+    expect(JSON.parse(postMessage.mock.calls[0][0])).toEqual({
+      type: "agentNative.mobileDeckSaveFlush.ack",
+      requestId: "request-2",
+      requestedDeckId: "deck-1",
+      activeDeckId: "deck-2",
+      status: "not-target",
+    });
+  });
+
+  it("never acknowledges a failed deck save as flushed", async () => {
+    flushDeckSaveMock.mockRejectedValueOnce(new Error("save failed"));
+    const postMessage = vi.fn();
+    Object.defineProperty(window, "ReactNativeWebView", {
+      configurable: true,
+      value: { postMessage },
+    });
+    renderLayout("/deck/deck-1");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.mobileDeckSaveFlush", {
+          detail: { requestId: "request-3", deckId: "deck-1" },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledOnce());
+    expect(JSON.parse(postMessage.mock.calls[0][0])).toMatchObject({
+      requestedDeckId: "deck-1",
+      activeDeckId: "deck-1",
+      status: "failed",
+    });
+  });
+
   it("updates the agent scope label as the current slide changes", () => {
     renderLayout("/deck/deck-1");
 
     expect(agentSidebarMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
+        dynamicSuggestions: false,
         scope: expect.objectContaining({ label: "agent.thisSlide" }),
       }),
     );
@@ -249,6 +401,18 @@ describe("Slides Layout", () => {
         scope: expect.objectContaining({ label: "Slide 5" }),
       }),
     );
+  });
+
+  it("gives Settings the full width", () => {
+    renderLayout("/settings/notifications");
+
+    expect(screen.getByTestId("agent-sidebar")).toBeTruthy();
+    expect(screen.queryByTestId("app-sidebar")).toBeNull();
+    expect(screen.queryByTestId("header")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "sidebar.openNavigation" }),
+    ).toBeNull();
+    expect(screen.getByTestId("page-content")).toBeTruthy();
   });
 
   it("renders full-page chat without the sidebar wrapper", () => {

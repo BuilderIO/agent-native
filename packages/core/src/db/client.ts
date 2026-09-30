@@ -1,38 +1,39 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
-/**
- * Central Postgres client.
- *
- * The local runtime uses PGlite and hosted runtimes use PostgreSQL. Both
- * expose PostgreSQL semantics to the rest of the framework.
- */
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import { isEmbeddedRuntimeAuthorized } from "./embedded-runtime.js";
-import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
+import {
+  hasCloudflareRuntime,
+  isHostedFunctionInvocationRuntime,
+  isMigrationExecutingRuntime,
+  isMigrationAuthorizedRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
+export {
+  isHostedFunctionInvocationRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
+  recordDatabaseQueryResult,
   recordDatabaseRetry,
 } from "./request-telemetry.js";
-import { isServerRuntimeStarted } from "./server-runtime.js";
+import {
+  hasHostedInvocationMarker,
+  isDeployedServerRuntime,
+} from "./server-runtime.js";
 
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export interface DbExecQuery {
   sql: string;
   args?: unknown[];
-  /**
-   * Client-side wall-clock budget for this statement. Use only for idempotent
-   * reads unless the caller can safely tolerate a late write completing.
-   */
   timeoutMs?: number;
-  /** Maximum connection-level attempts for this statement, including the first. */
   maxAttempts?: number;
 }
 
@@ -47,12 +48,6 @@ export interface DbExec {
   atomicBatch?(
     statements: readonly DbExecStatement[],
   ): Promise<Array<{ rows: any[]; rowsAffected: number }>>;
-  /**
-   * Release the underlying connection/pool held by this exec.
-   * Only non-singleton execs created via `createDbExec()` (e.g. the migration
-   * direct-endpoint exec) should call this. The global singleton exec (`getDbExec`)
-   * is managed by `closeDbExec()` instead.
-   */
   close?(): Promise<void>;
 }
 
@@ -83,7 +78,6 @@ const pgliteTransactionStorage =
         new PgliteTransactionStorage<PgliteTransactionContexts>())
     : undefined);
 
-/** Active native PGlite transaction for this database and async call chain. */
 export function getActivePgliteTransactionClient(url: string): any | undefined {
   return pgliteTransactionStorage?.getStore()?.get(pgliteClientKeyFromUrl(url))
     ?.client;
@@ -94,29 +88,6 @@ function getActivePgliteTransactionExec(url: string): DbExec | undefined {
     ?.exec;
 }
 
-function hasCloudflareRuntime(): boolean {
-  const runtime = globalThis as typeof globalThis & {
-    __cf_env?: unknown;
-    __env__?: unknown;
-  };
-  return runtime.__cf_env !== undefined || runtime.__env__ !== undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Per-app DATABASE_URL resolution
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve the PostgreSQL URL for the current app.
- *
- * Checks the current app's prefixed database URL first (e.g.
- * `MAIL_DATABASE_URL`), then falls back to `DATABASE_URL` and Netlify's managed
- * database env. Workspace runtimes use their app ID as the prefix, allowing
- * sibling apps to keep separate databases.
- *
- * Standalone processes can set `APP_NAME=mail`; workspace deploys provide the
- * app ID automatically.
- */
 export function getDatabaseUrl(fallback = ""): string {
   const testUrl = getIsolatedTestDatabaseUrl();
   if (testUrl) return testUrl;
@@ -148,6 +119,25 @@ function stripNeonPooler(url: string): string {
   return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
 }
 
+function addNeonPooler(url: string): string {
+  if (isPgliteUrl(url)) return url;
+  try {
+    const parsed = new URL(url);
+    const labels = parsed.hostname.split(".");
+    if (
+      parsed.hostname.endsWith(".neon.tech") &&
+      labels[0]?.startsWith("ep-") &&
+      !labels[0].endsWith("-pooler")
+    ) {
+      labels[0] = `${labels[0]}-pooler`;
+      parsed.hostname = labels.join(".");
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 interface RuntimeDatabaseResolution {
   url: string;
   source: string;
@@ -169,8 +159,6 @@ function usableRuntimeDatabaseValue(key: string): string | undefined {
   return value && isUsableRuntimeDatabaseUrl(value) ? value : undefined;
 }
 
-// Test fixtures set DATABASE_URL, but may inherit deployment aliases that would
-// otherwise send their migrations and writes to a hosted database.
 export function getIsolatedTestDatabaseUrl(): string | undefined {
   const isTestProcess =
     process.env.NODE_ENV === "test" ||
@@ -185,67 +173,20 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
   if (testUrl) return { url: testUrl, source: "DATABASE_URL" };
   const appName = getAppEnvPrefix();
   if (appName) {
-    const appUnpooled = usableRuntimeDatabaseValue(
-      `${appName}_DATABASE_URL_UNPOOLED`,
-    );
-    if (appUnpooled) {
-      return {
-        url: stripNeonPooler(appUnpooled),
-        source: `${appName}_DATABASE_URL_UNPOOLED`,
-      };
-    }
-
     const appUrl = usableRuntimeDatabaseValue(`${appName}_DATABASE_URL`);
     if (appUrl) {
       return {
-        url: isServerlessRuntime() ? stripNeonPooler(appUrl) : appUrl,
+        url: isServerlessRuntime() ? addNeonPooler(appUrl) : appUrl,
         source: `${appName}_DATABASE_URL`,
       };
     }
-  }
-
-  const configuredUnpooled = getAppConfig().runtime.databaseUrlUnpooled;
-  if (configuredUnpooled && isUsableRuntimeDatabaseUrl(configuredUnpooled)) {
-    const netlifyUnpooled = usableRuntimeDatabaseValue(
-      "NETLIFY_DATABASE_URL_UNPOOLED",
-    );
-    const databaseUnpooled = usableRuntimeDatabaseValue(
-      "DATABASE_URL_UNPOOLED",
-    );
-    return {
-      url: stripNeonPooler(configuredUnpooled),
-      source:
-        netlifyUnpooled === configuredUnpooled
-          ? "NETLIFY_DATABASE_URL_UNPOOLED"
-          : databaseUnpooled === configuredUnpooled
-            ? "DATABASE_URL_UNPOOLED"
-            : "DATABASE_URL_UNPOOLED",
-    };
-  }
-
-  const netlifyUnpooled = usableRuntimeDatabaseValue(
-    "NETLIFY_DATABASE_URL_UNPOOLED",
-  );
-  if (netlifyUnpooled) {
-    return {
-      url: stripNeonPooler(netlifyUnpooled),
-      source: "NETLIFY_DATABASE_URL_UNPOOLED",
-    };
-  }
-
-  const databaseUnpooled = usableRuntimeDatabaseValue("DATABASE_URL_UNPOOLED");
-  if (databaseUnpooled) {
-    return {
-      url: stripNeonPooler(databaseUnpooled),
-      source: "DATABASE_URL_UNPOOLED",
-    };
   }
 
   const databaseUrl = usableRuntimeDatabaseValue("DATABASE_URL");
   const netlifyDatabaseUrl = usableRuntimeDatabaseValue("NETLIFY_DATABASE_URL");
   const url = databaseUrl || netlifyDatabaseUrl || fallback;
   return {
-    url: isServerlessRuntime() ? stripNeonPooler(url) : url,
+    url: isServerlessRuntime() ? addNeonPooler(url) : url,
     source: databaseUrl
       ? "DATABASE_URL"
       : netlifyDatabaseUrl
@@ -254,17 +195,24 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
   };
 }
 
-/**
- * Resolve the URL used by request-time database clients.
- *
- * A serverless Neon pooler can stall while the direct endpoint remains
- * healthy, leaving auth and the first app query on the loading screen. Use an
- * explicit unpooled URL when supplied; otherwise derive the direct endpoint
- * for serverless runtimes. Keep getDatabaseUrl pooled for scripts and release
- * checks that intentionally inspect the configured deployment value.
- */
 export function getRuntimeDatabaseUrl(fallback = ""): string {
   return resolveRuntimeDatabase(fallback).url;
+}
+
+export function getLocalDatabaseUrl(fallback = ""): string {
+  if (isServerlessRuntime()) return getRuntimeDatabaseUrl(fallback);
+
+  const configuredUnpooledUrl = getConfiguredUnpooledDatabaseUrl();
+  const unpooledUrl =
+    (configuredUnpooledUrl && isUsableRuntimeDatabaseUrl(configuredUnpooledUrl)
+      ? configuredUnpooledUrl
+      : undefined) ||
+    usableRuntimeDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED") ||
+    usableRuntimeDatabaseValue("DATABASE_URL_UNPOOLED");
+  if (unpooledUrl) return stripNeonPooler(unpooledUrl);
+
+  const testUrl = getIsolatedTestDatabaseUrl();
+  return stripNeonPooler(testUrl || getRuntimeDatabaseUrl(fallback));
 }
 
 export function getRuntimeDatabaseSource(fallback = ""): string {
@@ -277,27 +225,11 @@ function getAppEnvPrefix(): string | undefined {
   return appName?.toUpperCase().replace(/-/g, "_") || undefined;
 }
 
-/**
- * Database URL to use for migrations — identical to DATABASE_URL but with the
- * Neon connection-pooler suffix stripped. Neon's PgBouncer runs in transaction
- * mode, which resets session-level ownership after each statement and causes
- * `ALTER TABLE … ADD COLUMN` to fail with "must be owner of table <x>" even
- * when the connecting role owns it. The direct endpoint bypasses PgBouncer so
- * DDL honours the role's actual ownership.
- *
- * Non-Neon URLs and already-direct Neon URLs are returned unchanged.
- */
 export function getMigrationDatabaseUrl(): string {
   const url =
     getIsolatedTestDatabaseUrl() ||
     getConfiguredUnpooledDatabaseUrl() ||
     getDatabaseUrl();
-  // Neon pooler hostname: ep-<id>-pooler.<region>.<cloud>.neon.tech
-  // Direct hostname:      ep-<id>.<region>.<cloud>.neon.tech
-  // The region between `-pooler.` and `.neon.tech` can contain multiple
-  // dot-separated labels (e.g. `c-7.us-east-1.aws`), so the matched segment
-  // must allow dots — `[a-z0-9.-]+` — not just a single label. Anchoring on the
-  // stable `.neon.tech` suffix keeps this from touching non-Neon hosts.
   return stripNeonPooler(url);
 }
 
@@ -356,30 +288,9 @@ async function importOptionalModule(specifier: string): Promise<any> {
   return import(/* @vite-ignore */ specifier);
 }
 
-function isMissingPackageError(err: unknown, packageName: string): boolean {
-  const anyErr = err as any;
-  const message = String(anyErr?.message ?? anyErr ?? "");
-  return (
-    (anyErr?.code === "ERR_MODULE_NOT_FOUND" &&
-      message.includes(packageName)) ||
-    message.includes(`Cannot find package '${packageName}'`) ||
-    message.includes(`Cannot find module '${packageName}'`)
-  );
-}
-
 export async function loadPglitePackage(): Promise<{ PGlite: any }> {
   const packageName = "@electric-sql/pglite";
-  try {
-    return (await importOptionalModule(packageName)) as { PGlite: any };
-  } catch (err) {
-    if (isMissingPackageError(err, packageName)) {
-      throw new Error(
-        "PGlite database support requires @electric-sql/pglite. " +
-          "Install dependencies and set `DATABASE_URL=pglite:./data/pglite`.",
-      );
-    }
-    throw err;
-  }
+  return loadOptionalPeer(packageName, () => importOptionalModule(packageName));
 }
 
 export async function loadPgliteDrizzle(): Promise<{
@@ -420,8 +331,6 @@ function pgliteClientKey(dataDir: string): string {
   return dataDir === "memory://" ? dataDir : path.resolve(dataDir);
 }
 
-/** Exported for the dev action bridge, which does the same liveness check
- * against a discovery file's `pid` before trusting it. */
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -645,18 +554,6 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
   }
 }
 
-// ---------------------------------------------------------------------------
-/**
- * Retry a DDL statement (CREATE TABLE, CREATE INDEX) once when it fails due
- * to a Postgres pg_catalog race.
- *
- * Postgres's `IF NOT EXISTS` check is NOT atomic with the `pg_type` /
- * `pg_class` catalog insert. When multiple processes boot concurrently and
- * issue the same CREATE, both can pass the existence check and one fails
- * with code 23505 on `pg_type_typname_nsp_index`, 42710 from `TypeCreate`,
- * or similar. The table does end up created by the winner, so rerunning the
- * same `IF NOT EXISTS` statement is a safe no-op.
- */
 export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
@@ -685,7 +582,6 @@ function isPgCatalogRace(e: any): boolean {
   );
 }
 
-/** True when an error is a Postgres UNIQUE / PRIMARY KEY violation. */
 export function isUniqueViolation(e: any): boolean {
   if (e?.code === "23505") return true;
   const msg = String(e?.message ?? "").toLowerCase();
@@ -696,27 +592,9 @@ export function isUniqueViolation(e: any): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Database identity
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true when the database is the local PGlite instance.
- *
- * Used to gate local@localhost mode: that mode uses a single shared virtual
- * user with no per-machine scoping, so on any shared database two developers
- * would read and write each other's settings, oauth tokens, and app state.
- */
 export function isLocalDatabase(): boolean {
   return isPgliteUrl(getRuntimeDatabaseUrl("pglite:./data/pglite"));
 }
-
-// `widenIntColumnsToBigInt` lives in `./widen-columns.js` so stores can import
-// it without every `vi.mock("./client.js")` test having to stub the export.
-
-// ---------------------------------------------------------------------------
-// Parameter conversion: ? -> $1, $2, $3
-// ---------------------------------------------------------------------------
 
 export function toPostgresParams(sql: string): string {
   let out = "";
@@ -851,13 +729,13 @@ const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
 const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
 
-function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
+export function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
   if (typeof statement === "string") return false;
   const timeoutMs = Number(statement.timeoutMs);
   return Number.isFinite(timeoutMs) && timeoutMs > 0;
 }
 
-function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
+export function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
   const safeTimeoutMs = Math.max(
     1,
     Math.min(POSTGRES_MAX_INT, Math.floor(clientTimeoutMs)),
@@ -907,11 +785,6 @@ function explicitTransaction(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Connection error retry (ECONNRESET, etc.)
-// ---------------------------------------------------------------------------
-
-/** Error codes that indicate a dead/stale connection we can safely retry. */
 const CONNECTION_ERROR_CODES = new Set([
   "ECONNRESET",
   "ETIMEDOUT",
@@ -929,8 +802,6 @@ export function isConnectionError(err: any): boolean {
   if (!err) return false;
   const code = err.code || err.cause?.code;
   if (code && CONNECTION_ERROR_CODES.has(code)) return true;
-  // Neon serverless WS driver: errors from the underlying undici WebSocket
-  // closing mid-query come through as TypeError or ErrorEvent without a code.
   const name = err.name || err.cause?.name || "";
   if (name === "ErrorEvent") return true;
   const stack = String(err.stack || err.cause?.stack || "");
@@ -947,12 +818,6 @@ export function isConnectionError(err: any): boolean {
   );
 }
 
-/**
- * Classify database failures that should temporarily shed request load.
- * Statement timeouts are not included in isConnectionError() because retrying
- * every timed-out mutation would not be safe, but request handlers can still
- * return a retryable service-unavailable response for them.
- */
 export function isTransientDatabaseError(err: unknown): boolean {
   const error = err as {
     code?: unknown;
@@ -969,8 +834,6 @@ export function isTransientDatabaseError(err: unknown): boolean {
   const code = String(error?.code ?? error?.cause?.code ?? "");
   if (
     code === "ECHECKOUTTIMEOUT" ||
-    // Shed load during a connect cooldown is transient by construction — the
-    // endpoint refused, we chose not to re-ask yet. Surfaces as 503, not 500.
     code === "DB_CONNECT_COOLDOWN" ||
     code === "EMAXCONN" ||
     code === "53300" ||
@@ -1024,34 +887,12 @@ export async function retryOnConnectionError<T>(
   throw last;
 }
 
-// ---------------------------------------------------------------------------
-// Per-op timeout — converts a silent serverless hang into a retryable error
-// ---------------------------------------------------------------------------
-
-/**
- * Max wall time for a single DB op (init or query) before we treat it as a
- * dead connection. A frozen→thawed serverless instance can leave the Neon
- * WebSocket (or a postgres.js socket) hung mid-flight: the promise neither
- * settles nor errors, so retryOnConnectionError() — which only retries thrown
- * errors — can't help and the request hangs until the platform kills the
- * function (~30s on Netlify). For authenticated requests that run a session
- * lookup on every navigation this surfaces as "the site won't load". Bounding
- * each op well under the platform function limit turns the silent hang into a
- * CONNECT_TIMEOUT that the existing retry and reject-reset paths already
- * handle. Override with DB_OP_TIMEOUT_MS.
- */
 export function dbOpTimeoutMs(): number {
   const raw = Number(process.env.DB_OP_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw > 0) return raw;
   return isServerlessRuntime() ? 8_000 : 30_000;
 }
 
-/**
- * Timeout error tagged with a recognized connection-error code so
- * isConnectionError() / retryOnConnectionError() treat a hung op as a
- * retryable dead connection, and upstream reject-reset guards (e.g. the
- * cached session-table init promise) clear their poisoned state.
- */
 class DbTimeoutError extends Error {
   code = "CONNECT_TIMEOUT";
   constructor(op: string, ms: number) {
@@ -1060,22 +901,34 @@ class DbTimeoutError extends Error {
   }
 }
 
-/**
- * Race a DB op against {@link dbOpTimeoutMs}. Callers that own a cancellable
- * query or pooled client should pass onTimeout so the losing operation does
- * not keep occupying a scarce connection slot after the request has recovered.
- */
 export async function withDbTimeout<T>(
   op: string,
   run: () => Promise<T>,
   ms = dbOpTimeoutMs(),
   onTimeout?: () => void | Promise<void>,
+  query?: { sql: string },
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
   const finishTelemetry = beginDatabaseOperation(
     op === "connect" ? "connect" : "query",
   );
+  let queryResultRecorded = false;
+  const recordQueryResult = (value?: unknown) => {
+    if (op === "connect" || !query || queryResultRecorded) return;
+    queryResultRecorded = true;
+    const result = value as
+      | { rows?: unknown[]; length?: number }
+      | unknown[]
+      | null
+      | undefined;
+    const rowsReturned = Array.isArray(result)
+      ? result.length
+      : Array.isArray(result?.rows)
+        ? result.rows.length
+        : 0;
+    recordDatabaseQueryResult(query.sql, rowsReturned);
+  };
 
   const runCleanup = async () => {
     if (!onTimeout) return;
@@ -1097,6 +950,7 @@ export async function withDbTimeout<T>(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      recordQueryResult(value);
       finishTelemetry("success");
       complete(value);
     };
@@ -1104,6 +958,7 @@ export async function withDbTimeout<T>(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      recordQueryResult();
       finishTelemetry("error");
       reject(err);
     };
@@ -1113,6 +968,7 @@ export async function withDbTimeout<T>(
       settled = true;
       void (async () => {
         await runCleanup();
+        recordQueryResult();
         finishTelemetry("timeout");
         reject(new DbTimeoutError(op, ms));
       })();
@@ -1129,19 +985,6 @@ export async function withDbTimeout<T>(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Serverless-aware Postgres pool options
-// ---------------------------------------------------------------------------
-
-/**
- * True on serverless function runtimes (Netlify / Vercel / AWS Lambda /
- * Cloudflare Pages Functions) where every concurrent request can spin up its
- * own frozen process. Connections cannot be shared across instances, so each
- * instance must keep its pool tiny — otherwise dozens of warm instances each
- * holding postgres.js's default 10-connection pool blow past Neon/Postgres'
- * connection cap and every `/_agent-native/*` route 500s with "Max client
- * connections reached".
- */
 export function isServerlessRuntime(): boolean {
   return (
     !!process.env.NETLIFY ||
@@ -1154,132 +997,62 @@ export function isServerlessRuntime(): boolean {
   );
 }
 
-/**
- * True for production serverless execution contexts. Netlify also exposes
- * `NETLIFY=true` in its build environment, so build-time code that owns
- * migrations must use `withMigrationRuntime()` explicitly.
- */
-export function isProductionServerlessFunctionRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
-    return false;
-  }
+export { isDeployedServerRuntime } from "./server-runtime.js";
 
-  return Boolean(
-    env.NETLIFY === "true" ||
-    env.NETLIFY_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_VERSION ||
-    env.LAMBDA_TASK_ROOT ||
-    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    env.VERCEL_FUNCTION_ID ||
-    env.VERCEL_REGION ||
-    env.VERCEL === "1",
-  );
-}
-
-/**
- * Narrower than isProductionServerlessFunctionRuntime(): true only inside an
- * actual hosted function INVOCATION, never during `netlify build` /
- * scripts/migrate-production.ts. Netlify's build container also sets
- * `NETLIFY=true` (see migrate-production.ts's own comment on this), so that
- * signal alone cannot tell a request-serving cold start apart from the build
- * step — a check gating a hard runtime failure needs something the build
- * container never has. `AWS_LAMBDA_FUNCTION_NAME` / `LAMBDA_TASK_ROOT` are set
- * by the AWS Lambda execution environment itself only once a function actually
- * invokes; `NETLIFY_FUNCTION_NAME` and the Vercel function markers are the
- * same kind of invocation-only signal on their platforms.
- *
- * Cloudflare is checked first and outside the `NODE_ENV` gate below:
- * `hasCloudflareRuntime()` (`__cf_env` / `__env__` on `globalThis`) is only
- * ever set by the generated Worker `fetch` handler on an actual request (see
- * `generateCloudflareModuleWorkerEntry()` in deploy/build.ts) — it is never
- * present in the Node process that runs the build, including the Cloudflare
- * Pages static-shell prerender, which spawns a plain Node subprocess with no
- * Workers globals. Unlike Netlify/Lambda/Vercel, Cloudflare's own runtime does
- * not reliably set `NODE_ENV=production`, so gating it on that check the same
- * way the other three are would make this branch silently never fire.
- */
-export function isHostedFunctionInvocationRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (hasCloudflareRuntime()) return true;
-
-  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
-    return false;
-  }
-
-  return Boolean(
-    env.NETLIFY_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    env.LAMBDA_TASK_ROOT ||
-    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    env.VERCEL_FUNCTION_ID ||
-    env.VERCEL_REGION,
-  );
-}
-
-/**
- * Thrown instead of silently serving requests off local PGlite on a hosted
- * function invocation. A serverless instance's local filesystem is ephemeral
- * and per-instance, so local data is not shared across instances.
- */
 export class HostedRuntimeLocalDatabaseError extends Error {
+  readonly code = DEPLOY_SETTINGS_REQUIRED_CODE;
+
   constructor(source: string) {
     super(
-      `Hosted function invocation resolved to local PGlite (source: ${source}). ` +
-        "DATABASE_URL, DATABASE_URL_UNPOOLED, NETLIFY_DATABASE_URL, NETLIFY_DATABASE_URL_UNPOOLED " +
-        "(and their <APP_NAME>_ prefixed variants) were all empty or masked — refusing to serve " +
-        "requests off an ephemeral per-instance file instead of the shared database.",
+      `This deployed server has no hosted database: it resolved to local PGlite (source: ${source}). ` +
+        "Set DATABASE_URL to a hosted Postgres URL in the host's environment, then redeploy. " +
+        "NETLIFY_DATABASE_URL and <APP_NAME>_DATABASE_URL also work; an _UNPOOLED URL alone does not, " +
+        "because requests use the pooled URL. For local development, use `pnpm dev`, which runs on PGlite.",
     );
     this.name = "HostedRuntimeLocalDatabaseError";
   }
 }
 
 /**
- * Shared refusal for every database opener. `getDbExec()` (via `initClient`)
- * and `createGetDb()`'s Drizzle opener resolve the same runtime URL and must
- * refuse the same way — a request that reaches Drizzle first used to skip
- * this check entirely and open PGlite silently.
+ * The one decision behind the refusal: the database source this process must
+ * refuse (the env key that resolved to local PGlite, or `"default"` when none
+ * is set), or null when local PGlite is allowed. `assertHostedRuntimeDatabase()`
+ * throws on it, and the setup page that replaces sign-in and the
+ * `/_agent-native/ping?configuration=1` probe report it, so none of them can
+ * disagree with the refusal. Do not give any caller its own copy of these
+ * rules.
  *
- * `isMigrationAuthorizedRuntime()` is checked first: release scripts and
- * durable background workers can be a real hosted function invocation (a
- * Netlify background function still gets `NETLIFY_FUNCTION_NAME`) and are
- * still allowed to touch PGlite under `withMigrationRuntime()` — that path is
- * guarded separately by `assertReleaseMigrationTargetsRemoteDatabase()`.
+ * The order is load-bearing:
  *
- * A real hosted function invocation (`isHostedFunctionInvocationRuntime()`)
- * always refuses next, before `isEmbeddedRuntimeAuthorized()` is even
- * consulted: Netlify/Vercel/Lambda/Cloudflare are never a legitimate context
- * for "this is an intentionally embedded desktop app," regardless of
- * whether the local database was deliberately configured — an embedded host
- * that ends up actually running as one of those ephemeral, multi-instance
- * platforms hits the exact per-instance-PGlite failure the guard exists to
- * prevent either way. `isEmbeddedRuntimeAuthorized()` only exempts the
- * bare Node/Docker branch below: `createAgentNativeEmbeddedPlugin()` hosts
- * (packaged/desktop installs) deliberately pass a `pglite:` `databaseUrl`,
- * and — unlike the `NODE_ENV=test` integration-suite case
- * `isServerRuntimeStarted()`'s own gate assumed — a real packaged install
- * runs with `NODE_ENV=production`, so that gate alone does not exempt it.
- * `configureAgentNativeEmbeddedEnvironment()` claims this duty whenever the
- * embedding host supplies an explicit `databaseUrl`.
- *
- * `isServerRuntimeStarted()` is additionally gated on `NODE_ENV === "production"`
- * here, unlike `isHostedFunctionInvocationRuntime()`'s Cloudflare branch:
- * `getH3App()`'s bootstrap — where the flag is set — also runs for `pnpm dev`
- * and any `NODE_ENV=test` suite that boots a real H3 app.
+ * - `isMigrationAuthorizedRuntime()` comes first: release scripts and durable
+ *   background workers can be a real hosted invocation (a Netlify background
+ *   function still gets `NETLIFY_FUNCTION_NAME`) and may touch PGlite under
+ *   `withMigrationRuntime()`, which `assertReleaseMigrationTargetsRemoteDatabase()`
+ *   guards separately.
+ * - A hosted function invocation refuses before `isEmbeddedRuntimeAuthorized()`
+ *   is consulted: Netlify/Vercel/Lambda/Cloudflare are never a legitimate
+ *   home for an intentionally embedded desktop app, so an embedded host that
+ *   ends up running as one hits the same per-instance failure either way.
+ * - The embedded exemption covers only the bare Node/Docker rule below:
+ *   `createAgentNativeEmbeddedPlugin()` hosts (packaged/desktop installs)
+ *   deliberately pass a `pglite:` `databaseUrl`, and
+ *   `configureAgentNativeEmbeddedEnvironment()` claims the duty when they do.
+ * - Bare Node/Docker has no platform marker, so it refuses when a production
+ *   server bundle is actually serving. Never gate this on `NODE_ENV`: build
+ *   steps set `NODE_ENV=production` and `node .output/server/index.mjs` runs
+ *   without it (see db/server-runtime.ts).
  */
+export function getRefusedLocalDatabaseSource(): string | null {
+  if (isMigrationAuthorizedRuntime()) return null;
+  if (!isLocalDatabase()) return null;
+  if (hasHostedInvocationMarker()) return getRuntimeDatabaseSource();
+  if (isEmbeddedRuntimeAuthorized()) return null;
+  return isDeployedServerRuntime() ? getRuntimeDatabaseSource() : null;
+}
+
 export function assertHostedRuntimeDatabase(): void {
-  if (isMigrationAuthorizedRuntime()) return;
-  if (!isLocalDatabase()) return;
-  if (isHostedFunctionInvocationRuntime()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
-  if (isEmbeddedRuntimeAuthorized()) return;
-  if (process.env.NODE_ENV === "production" && isServerRuntimeStarted()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
+  const source = getRefusedLocalDatabaseSource();
+  if (source !== null) throw new HostedRuntimeLocalDatabaseError(source);
 }
 
 const SCHEMA_MUTATION_STATEMENT =
@@ -1289,7 +1062,6 @@ function rawSql(statement: DbExecStatement): string {
   return typeof statement === "string" ? statement : statement.sql;
 }
 
-/** True for statements that change database schema or database privileges. */
 export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
   return SCHEMA_MUTATION_STATEMENT.test(rawSql(statement));
 }
@@ -1301,9 +1073,12 @@ export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
  * is the only supported production opt-in.
  */
 export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
+  const migrationRuntimeCanMutate =
+    isMigrationExecutingRuntime() ||
+    (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime());
   if (
     isProductionServerlessFunctionRuntime() &&
-    !isMigrationAuthorizedRuntime() &&
+    !migrationRuntimeCanMutate &&
     isSchemaMutationStatement(statement)
   ) {
     throw new Error(
@@ -1312,24 +1087,6 @@ export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
   }
 }
 
-/**
- * postgres.js pool options tuned per runtime. idle_timeout is shortened on
- * serverless so a thawed-but-idle instance releases its connections quickly.
- * Long-lived Node servers keep the larger pool for throughput.
- *
- * The cap assumes {@link sharedDbPool}: one pool per URL for the whole
- * process, not one per consumer. See {@link neonPoolMax} for why the cap must
- * leave room for concurrency.
- */
-/**
- * Identifies the connection in `pg_stat_activity.application_name`.
- *
- * Without it every backend reports `pgbouncer` and a runaway query is
- * anonymous. A 58 MB `SELECT id, config FROM dashboards` ran 20-wide against
- * production and could not be traced to a caller: it appears nowhere in the
- * repo or any built bundle, and `pg_stat_statements` is not installed. This is
- * the cheapest thing that would have named it.
- */
 function poolApplicationName(): string {
   const site =
     process.env.SITE_NAME ??
@@ -1341,9 +1098,7 @@ function poolApplicationName(): string {
 
 export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
-  const max =
-    getAppConfig().runtime.databasePoolMax ??
-    (serverless ? serverlessPoolMax() : 20);
+  const max = databasePoolMax();
   return {
     onnotice: () => {},
     connection: { application_name: poolApplicationName() },
@@ -1359,17 +1114,10 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
           },
         }
       : {}),
-    // Supabase's connection pooler (Transaction mode) requires prepare:false.
-    // Only disable for Supabase URLs to avoid degrading other deployments.
     ...(url.includes("supabase") ? { prepare: false } : {}),
   };
 }
 
-/**
- * Shared options for every Neon serverless pool. The startup parameter is
- * applied by Postgres before the first transaction, so a killed function
- * cannot return a connection that remains idle in transaction indefinitely.
- */
 export function neonPoolOptions(): {
   max: number;
   idle_in_transaction_session_timeout?: number;
@@ -1382,54 +1130,15 @@ export function neonPoolOptions(): {
   };
 }
 
-/**
- * Connection cap for the @neondatabase/serverless `Pool`.
- *
- * TRAP: this number is the ceiling on how many statements one request can have
- * in flight at once. It used to be 1 on serverless, which made every
- * `Promise.all([...reads])` in a request serialize behind the single slot —
- * against a remote endpoint that is ~83ms of pure wait per query, so ten
- * "concurrent" reads took ~880ms instead of ~86ms. The cap was 1 only because
- * every consumer built its OWN pool (the DbExec singleton, Better Auth, and one
- * per `createGetDb()` schema module), so the real per-instance connection count
- * was that number multiplied by ~6. {@link sharedDbPool} collapses those into
- * one pool per URL, so the same aggregate budget buys in-request concurrency.
- * Keep pools shared if you raise this.
- */
 export function neonPoolMax(): number {
-  return (
-    getAppConfig().runtime.databasePoolMax ??
-    (isServerlessRuntime() ? serverlessPoolMax() : 20)
-  );
+  return databasePoolMax();
 }
 
-function serverlessPoolMax(): number {
-  // Scheduled Analytics workers run independently and may overlap across
-  // invocations. They process work sequentially, so one connection prevents
-  // a slow sweep from multiplying Neon connections while foreground requests
-  // retain two slots for their concurrent reads.
-  if (isLowConnectionBackgroundRuntime()) return 1;
-  // Netlify can run several background workers concurrently. Keep their four
-  // slots: the agent pre-send setup fires ~6 concurrent DB reads, and two
-  // connections previously froze the worker before it could claim. Foreground
-  // requests use two slots instead, leaving more headroom across warm
-  // instances where the user-facing routes are the pressure source.
-  if (isBackgroundFunctionPoolContext()) return 4;
-  return 2;
+function databasePoolMax(): number {
+  const configured = getAppConfig().runtime.databasePoolMax;
+  return isServerlessRuntime() ? 1 : (configured ?? 20);
 }
 
-function isLowConnectionBackgroundRuntime(): boolean {
-  return (
-    (globalThis as Record<string, unknown>)
-      .__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ === true
-  );
-}
-
-/**
- * Inline mirror of `isInBackgroundFunctionRuntime()`
- * (agent/durable-background.ts), replicated here to avoid a `db` → `agent`
- * import cycle. Keep the signals in sync with that function.
- */
 export function isBackgroundFunctionPoolContext(): boolean {
   if (
     (globalThis as Record<string, unknown>)
@@ -1437,18 +1146,6 @@ export function isBackgroundFunctionPoolContext(): boolean {
   ) {
     return true;
   }
-  // NOTE: we deliberately do NOT trust `__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__`
-  // here. That flag is set from the dispatch MARKER (which URL the foreground
-  // targeted), not from proof the request actually LANDED on a background
-  // function. A worker dispatched toward `-background` but routed onto the ~60s
-  // synchronous function would otherwise take the 8-connection background pool
-  // while running as one of MANY warm sync-function instances — multiplying
-  // Neon connections and exhausting the pooled endpoint ("connection
-  // terminated" / statement timeouts / failed heartbeat writes → stale runs).
-  // The genuine `-background` function sets `__AGENT_NATIVE_BACKGROUND_RUNTIME__`
-  // as its first cold-start statement, so a real background worker still gets
-  // the larger pool via the check above. Mirrors the same proof-of-landing
-  // tightening applied to `shouldUseBackgroundFunctionTimeoutForWorker`.
   const lambdaName = process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (
     typeof lambdaName === "string" &&
@@ -1464,13 +1161,6 @@ export function isBackgroundFunctionPoolContext(): boolean {
   return false;
 }
 
-/**
- * Render any rejection reason as a readable message. The Neon serverless
- * driver surfaces WebSocket failures as raw DOM-style ErrorEvent objects (not
- * Error instances), which stringify uselessly as "[object ErrorEvent]" — pull
- * the message off the event (or its nested `.error`) instead so logs carry
- * actual context.
- */
 export function describeDbError(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (err && typeof err === "object") {
@@ -1488,24 +1178,12 @@ export function describeDbError(err: unknown): string {
   return String(err);
 }
 
-/**
- * How long one endpoint stops ATTEMPTING to connect after an attempt failed.
- * Jittered so concurrent function instances do not re-probe in lockstep.
- */
 function connectCooldownMs(): number {
   const raw = Number(process.env.DB_CONNECT_COOLDOWN_MS);
   const base = Number.isFinite(raw) && raw > 0 ? raw : 2_000;
   return Math.round(base * (0.5 + Math.random()));
 }
 
-/**
- * Thrown INSTEAD of attempting, while an endpoint is in cooldown.
- *
- * The refused attempt's error is described in the message and deliberately NOT
- * attached as `cause`: isConnectionError() walks `cause.code`/`cause.message`,
- * so a cause would reclassify this as retryable and retryOnConnectionError
- * would drive the storm straight back.
- */
 export class DbConnectCooldownError extends Error {
   code = "DB_CONNECT_COOLDOWN";
   constructor(remainingMs: number, refusedBy: string) {
@@ -1521,20 +1199,6 @@ const connectCooldowns = new Map<
   { until: number; refusedBy: string }
 >();
 
-/**
- * Neon rejects a connection ATTEMPT, not a connection: "Failed to acquire
- * permit to connect to the database. Too many database connection attempts are
- * currently ongoing." A failed acquire leaves the pool with zero idle clients,
- * so the next execute() calls connect() again — and retryOnConnectionError
- * backs off only 100ms. The process answers a refusal by manufacturing the next
- * attempt, which is what keeps the refusal true. Production sat in this loop
- * until the compute was restarted by hand.
- *
- * Hold a short cooldown per endpoint so a refused attempt cannot produce the
- * next one. Checking out an ALREADY-IDLE client is not an attempt and passes
- * through, so a cooldown degrades throughput instead of taking the process
- * offline.
- */
 function gateNeonConnect(
   pool: Record<string, any>,
   url: string,
@@ -1558,7 +1222,6 @@ function gateNeonConnect(
       (err: unknown) => {
         const refusedBy = describeDbError(err);
         const ms = connectCooldownMs();
-        // One line per cooldown window, not per shed request.
         if (!gate || Date.now() >= gate.until) {
           console.warn(
             `[${label}] connection attempt refused; pausing attempts ${ms}ms:`,
@@ -1570,10 +1233,6 @@ function gateNeonConnect(
       },
     );
   };
-  // Carry the wrapped function's own properties onto the wrapper. A pool's
-  // `connect` may be instrumented — metrics, tracing, a test spy — and
-  // replacing it with a bare closure would silently drop that instrumentation
-  // along with any assertions built on it.
   Object.assign(gated, connect);
   pool.connect = gated;
 }
@@ -1599,20 +1258,6 @@ export function guardNeonPool(
     );
   });
 
-  // Attach a persistent 'error' listener to EVERY client for its whole lifetime.
-  //
-  // @neondatabase/serverless mirrors pg-pool, which only keeps its own idle
-  // error listener on a client while that client is idle — it REMOVES the
-  // listener the moment the client is checked out. So when a checked-out
-  // client's WebSocket drops mid-flight (Lambda freeze/thaw, Neon "terminating
-  // connection due to administrator command", an idle socket the pooler closed),
-  // the client emits 'error' with no listener. Node turns an unhandled 'error'
-  // EventEmitter event into an uncaught exception, which crashes the whole
-  // serverless function. This was by far the single highest-volume production
-  // crash (Sentry "Unhandled error. ()", mechanism auto.node.onuncaughtexception,
-  // culprit neondatabase__serverless). pg routes the failure to the in-flight
-  // query independently, so this listener only needs to keep the emit from going
-  // unhandled — the dropped client is discarded and the next query reconnects.
   withEvents.on("connect", (client: unknown) => {
     if (!client || typeof client !== "object") return;
     const clientEvents = client as {
@@ -1627,10 +1272,6 @@ export function guardNeonPool(
     });
   });
 }
-
-// ---------------------------------------------------------------------------
-// Shared connection pools
-// ---------------------------------------------------------------------------
 
 interface ClosablePool {
   end(): Promise<unknown>;
@@ -1669,11 +1310,6 @@ export function sharedDbPool<T extends ClosablePool>(
   return created;
 }
 
-/**
- * Swap the pool registered for a key, for the postgres.js recycle path that
- * replaces a pool whose query timed out. Without this the registry would keep
- * handing out the discarded pool.
- */
 export function replaceSharedDbPool<T extends ClosablePool>(
   driver: string,
   url: string,
@@ -1692,10 +1328,6 @@ export function replaceSharedDbPool<T extends ClosablePool>(
   }
 }
 
-/**
- * Run `hook` when one shared pool is replaced, so derived consumers rebuild
- * their handles instead of continuing to use the timed-out pool.
- */
 export function onSharedDbPoolReplaced(
   driver: string,
   url: string,
@@ -1707,11 +1339,6 @@ export function onSharedDbPoolReplaced(
   _sharedDbPoolReplacementHooks.set(key, hooks);
 }
 
-/**
- * Run `hook` when the shared pools are closed, so consumers holding a derived
- * handle (a Drizzle instance bound to the pool, the Better Auth adapter) drop
- * it instead of issuing queries on a closed pool.
- */
 export function onSharedDbPoolsClosed(hook: () => void): void {
   _sharedDbPoolCloseHooks.add(hook);
 }
@@ -1750,10 +1377,6 @@ function disposePostgresPoolEventually(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Singleton client — lazy-initialized on first execute() call
-// ---------------------------------------------------------------------------
-
 let _exec: DbExec | undefined;
 let _initPromise: Promise<void> | undefined;
 
@@ -1768,23 +1391,20 @@ async function executePglite(
 ): ReturnType<DbExec["execute"]> {
   const { rawSql, args } = sqlAndArgs(sql);
   const pgSql = toPostgresParams(rawSql);
-  const result = await client.query(pgSql, args as any[]);
+  const result = await withDbTimeout(
+    "query",
+    () => client.query(pgSql, args as any[]),
+    dbOpTimeoutMs(),
+    undefined,
+    { sql: rawSql },
+  );
   return {
     rows: Array.from(result.rows ?? []),
     rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
   };
 }
 
-/**
- * Run `fn` inside a native PGlite transaction, registering the transaction
- * client/exec under `pgliteClientKeyFromUrl(url)` in the AsyncLocalStorage
- * registry so `getDbExec().execute()` calls made anywhere inside `fn` resolve
- * to this transaction instead of the main client. Shared by
- * `createDbExecInternal`'s own `transaction()` and by `pgliteDrizzleClient`,
- * since Drizzle opens PGlite transactions by calling `client.transaction`
- * directly rather than going through this module.
- */
-function runPgliteTransaction<T>(
+async function runPgliteTransaction<T>(
   url: string,
   client: any,
   fn: (tx: any, transactionExec: DbExec) => Promise<T>,
@@ -1815,14 +1435,6 @@ function runPgliteTransaction<T>(
   });
 }
 
-/**
- * Wrap the raw PGlite engine so Drizzle's `db.transaction(fn)` — which calls
- * `client.transaction` on the engine directly, bypassing this module's own
- * `transaction()` — still registers with `pgliteTransactionStorage`. Without
- * this, any `getDbExec().execute()` inside a Drizzle transaction callback
- * falls through to the main client and queues behind the open transaction on
- * PGlite's single connection, deadlocking forever.
- */
 export function pgliteDrizzleClient(url: string, client: any): any {
   return new Proxy(client, {
     get(target, prop) {
@@ -1857,29 +1469,13 @@ async function createDbExecInternal(
     };
   }
 
-  // Postgres — uses postgres.js. Works on Node.js natively and on Cloudflare
-  // Workers with the nodejs_compat compatibility flag (provides net/tls polyfills).
-  // On Workers, connections can't be shared across requests, so we create a
-  // fresh connection per query (max:1) to avoid the "I/O on behalf of a
-  // different request" error.
   const { isNeonUrl } = await import("./create-get-db.js");
 
-  // Neon over @neondatabase/serverless (WebSocket upgrade on port 443).
-  // postgres-js uses a raw TCP socket on 5432 that frequently fails on
-  // serverless runtimes (Netlify Functions, Vercel, CF Workers) when
-  // Neon's pooler is cold — every request after an idle period times out
-  // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
-  // and keeps the same `pg`-compatible query(...) interface we need here.
   if (isNeonUrl(url)) {
     const { Pool, neon } = await import("@neondatabase/serverless");
-    // A frozen/thawed background function can retain half-dead WebSocket
-    // connections, so its direct executions use stateless Neon HTTP instead.
-    // The foreground and transaction surface keep the WebSocket pool.
     const bgHttp = isBackgroundFunctionPoolContext();
     const makePool = () =>
       new Pool({ connectionString: url, ...neonPoolOptions() });
-    // The singleton exec shares the process pool; `createDbExec()` callers own
-    // a `close()` and so must not be handed it.
     const pool = trackSingletonResources
       ? sharedDbPool("neon", url, makePool)
       : makePool();
@@ -1893,8 +1489,6 @@ async function createDbExecInternal(
       const { rawSql, args } = sqlAndArgs(sql);
       const { timeoutMs } = dbExecQueryBudget(sql);
       const pgSql = toPostgresParams(rawSql);
-      // Neon only accepts multiple SQL commands through its simple protocol;
-      // the transaction start has no parameters, so use that overload.
       const runQuery = () =>
         args.length === 0 && rawSql.includes(";")
           ? client.query(pgSql)
@@ -1903,6 +1497,8 @@ async function createDbExecInternal(
         "query",
         () => runQuery() as Promise<{ rows: unknown[]; rowCount?: number }>,
         timeoutOverrideMs ?? timeoutMs,
+        undefined,
+        { sql: rawSql },
       );
       return {
         rows: result.rows,
@@ -1975,8 +1571,12 @@ async function createDbExecInternal(
         );
         return results[1];
       };
-      const result = await withDbTimeout("query", run, timeoutMs, () =>
-        controller.abort(),
+      const result = await withDbTimeout(
+        "query",
+        run,
+        timeoutMs,
+        () => controller.abort(),
+        { sql: rawSql },
       );
       return {
         rows: result.rows,
@@ -1987,11 +1587,6 @@ async function createDbExecInternal(
       async execute(sql) {
         const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
         if (bgHttp) {
-          // HTTP-per-query path: no pool.connect() and no persistent socket
-          // to survive a background-function freeze. Explicitly budgeted
-          // statements run with SET LOCAL inside the same HTTP transaction,
-          // so the server cancels the SQL before the fetch deadline without
-          // leaking session state into Neon's pooled backends.
           return retryOnConnectionError<{
             rows: unknown[];
             rowsAffected: number;
@@ -2004,15 +1599,6 @@ async function createDbExecInternal(
           const attemptStartedAt = Date.now();
           const remainingAttemptMs = () =>
             Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
-          // Bound the pooled-connection ACQUIRE, not just the query below.
-          // Neon's pooler can stall on `connect()` when cold or exhausted,
-          // and that happens BEFORE `client.query`, so the query-level
-          // timeout never fires — the request hangs until the platform kills
-          // the function (~"the site won't load" for authenticated users,
-          // whose every request runs a session/org lookup). Time the acquire
-          // out into a retryable CONNECT_TIMEOUT that retryOnConnectionError
-          // already handles, and release the connection if it resolves after
-          // we've given up so the scarce pool slot isn't leaked.
           let acquireTimedOut = false;
           const client = await withDbTimeout(
             "connect",
@@ -2100,9 +1686,6 @@ async function createDbExecInternal(
             },
           };
           try {
-            // Send the transaction start and idle reaper together. Neon
-            // transaction pooling can ignore startup parameters, and a
-            // worker can die between separate BEGIN and SET LOCAL calls.
             await queryNeonClient(
               client,
               "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
@@ -2118,8 +1701,6 @@ async function createDbExecInternal(
             } catch {
               rollbackFailed = true;
             }
-            // A failed rollback can leave the backend inside the transaction.
-            // Do not return that client to PgBouncer as if it were clean.
             releaseClient(
               isConnectionError(err) || rollbackFailed ? true : undefined,
             );
@@ -2141,7 +1722,6 @@ async function createDbExecInternal(
       navigator.userAgent === "Cloudflare-Workers");
 
   if (isWorkers) {
-    // Workers: fresh connection per query — I/O can't be shared across requests
     return {
       async execute(sql) {
         const conn = postgres(url, {
@@ -2168,6 +1748,7 @@ async function createDbExecInternal(
               timedOut = true;
               disposePostgresPoolEventually(conn, "timed-out worker query");
             },
+            { sql: rawSql },
           );
           return {
             rows: Array.from(result),
@@ -2206,6 +1787,8 @@ async function createDbExecInternal(
                       ArrayLike<unknown> & { count?: number }
                     >,
                   timeoutMs,
+                  undefined,
+                  { sql: rawSql },
                 );
                 return {
                   rows: Array.from(result),
@@ -2227,15 +1810,8 @@ async function createDbExecInternal(
       },
     };
   } else {
-    // Node.js: reuse connection pool. pgPoolOptions caps the pool to a
-    // small size on serverless (Netlify/Vercel/Lambda/CF) so concurrent
-    // frozen instances don't exhaust Neon/Postgres' connection limit;
-    // idle_timeout also closes idle connections before Neon's ~5min
-    // server-side timeout, avoiding ECONNRESET when the server hangs up.
     const createPool = () => postgres(url, pgPoolOptions(url));
     type PostgresPool = ReturnType<typeof createPool>;
-    // Same rule as the Neon path: the singleton exec shares the process pool,
-    // `createDbExec()` callers own a `close()` and get a private one.
     let pool = trackSingletonResources
       ? sharedDbPool("postgres-js", url, createPool)
       : createPool();
@@ -2264,6 +1840,7 @@ async function createDbExecInternal(
             () => query,
             timeoutMs,
             () => recyclePool(queryPool),
+            { sql: rawSql },
           );
         }, maxAttempts);
         return {
@@ -2287,6 +1864,8 @@ async function createDbExecInternal(
                     ArrayLike<unknown> & { count?: number }
                   >,
                 timeoutMs,
+                undefined,
+                { sql: rawSql },
               );
               return {
                 rows: Array.from(result),
@@ -2351,21 +1930,6 @@ async function initClient(): Promise<void> {
   _exec = await createDbExecInternal({ url }, true);
 }
 
-/**
- * Get the singleton database client. Returns a `DbExec` whose first
- * `execute()` call lazily initializes the underlying driver.
- */
-/**
- * Point a missing-table failure at the cause instead of the symptom.
- *
- * PostgreSQL reports `relation "x" does not exist` from whichever query
- * happened to touch it first, so the stack lands in an action and reads as a
- * bug in that action. The actual cause is almost always that no migration ever
- * created the table — a template with no `server/plugins/db.ts` creates none,
- * and core's own tables self-heal, so app tables are the only ones that fail
- * this way. Appends rather than replaces: `isDuplicateColumnError` and friends
- * match substrings of the driver's original text.
- */
 export function annotateMissingTable(err: unknown, sql: unknown): unknown {
   if (!(err instanceof Error)) return err;
   const match = /relation\s+["'`]?([\w.]+)["'`]?\s+does not exist/i.exec(
@@ -2387,7 +1951,11 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
 const scopedDbExec = new AsyncLocalStorage<DbExec>();
 
 export function withDbExec<T>(exec: DbExec, run: () => T): T {
-  return scopedDbExec.run(exec, run);
+  return scopedDbExec.run(guardSchemaMutations(exec), run);
+}
+
+export function getScopedDbExec(): DbExec | undefined {
+  return scopedDbExec.getStore();
 }
 
 export function getDbExec(): DbExec {
@@ -2395,7 +1963,6 @@ export function getDbExec(): DbExec {
   if (scoped) return scoped;
   if (_exec) return _exec;
 
-  // Sanitize args because PostgreSQL parameters cannot be undefined.
   function sanitize(
     sql: string | { sql: string; args?: unknown[] },
   ): string | { sql: string; args?: unknown[] } {
@@ -2416,7 +1983,6 @@ export function getDbExec(): DbExec {
     }
   }
 
-  // Return a proxy that lazy-inits on first call
   const proxy: DbExec = {
     async execute(sql) {
       assertSchemaMutationAllowed(sql);
@@ -2424,14 +1990,10 @@ export function getDbExec(): DbExec {
       try {
         await _initPromise;
       } catch (err) {
-        // A failed/hung init must not poison the singleton for the life of
-        // the process — drop it so the next call retries a fresh connection
-        // instead of re-awaiting a permanently rejected/pending promise.
         _initPromise = undefined;
         _exec = undefined;
         throw err;
       }
-      // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => execAnnotated(s),
         atomicBatch: _exec!.atomicBatch
@@ -2537,10 +2099,7 @@ export function getDbExec(): DbExec {
   return proxy;
 }
 
-/** Close the database connection (for scripts that need cleanup). */
 export async function closeDbExec(): Promise<void> {
-  // Closing shared pools also notifies Drizzle and Better Auth consumers bound
-  // to them.
   await closeSharedDbPools();
   await closePgliteClients();
   _exec = undefined;

@@ -1,23 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// feedback.ts has two real surfaces worth testing:
-//  1. submitFeedback — input validation + the persisted entry shape, and
-//     that userId scoping reaches the row.
-//  2. computeSatisfactionScore — a deterministic frustration heuristic
-//     built from several sub-scores (rephrasing, abandonment, sentiment,
-//     length trend, retry). These are pure functions of the thread's
-//     messages, so we drive them by stubbing the thread_data read and
-//     assert on the resulting score breakdown. No LLM, no network.
-//
-// We use the capturing/mock-DB pattern: the only DB read feedback.ts
-// performs is `SELECT thread_data FROM chat_threads`, which we control
-// per-test so we can shape the conversation.
-
 const insertFeedback = vi.hoisted(() => vi.fn());
 const upsertSatisfactionScore = vi.hoisted(() => vi.fn());
 const ensureObservabilityTables = vi.hoisted(() => vi.fn());
 
-// threadData is the JSON string returned for the chat_threads row.
 let threadData: string | null = null;
 
 const mockExecute = vi.hoisted(() => vi.fn());
@@ -79,7 +65,6 @@ describe("submitFeedback", () => {
 
     expect(insertFeedback).toHaveBeenCalledTimes(1);
     const persisted = insertFeedback.mock.calls[0][0];
-    // Defaults: runId/messageSeq null, value "".
     expect(persisted).toMatchObject({
       threadId: "t1",
       feedbackType: "thumbs_down",
@@ -90,7 +75,6 @@ describe("submitFeedback", () => {
     });
     expect(typeof persisted.id).toBe("string");
     expect(typeof persisted.createdAt).toBe("number");
-    // submitFeedback returns the same entry it stored.
     expect(entry).toEqual(persisted);
   });
 
@@ -110,12 +94,15 @@ describe("computeSatisfactionScore", () => {
       },
     ]);
 
-    const score = await computeSatisfactionScore("t1", { userId: "alice" });
+    const score = await computeSatisfactionScore("t1", {
+      ownerEmail: "alice",
+      userId: "alice",
+    });
 
-    expect(score.rephrasingScore).toBe(0); // <2 user msgs
-    expect(score.abandonmentScore).toBe(0); // ends with assistant
-    expect(score.sentimentScore).toBe(0); // no negative patterns, not terse
-    expect(score.lengthTrendScore).toBe(0); // <3 user msgs
+    expect(score.rephrasingScore).toBe(0);
+    expect(score.abandonmentScore).toBe(0);
+    expect(score.sentimentScore).toBe(0);
+    expect(score.lengthTrendScore).toBe(0);
     expect(score.frustrationScore).toBe(0);
     expect(score.userId).toBe("alice");
     expect(score.id).toBe("sat-t1");
@@ -145,7 +132,7 @@ describe("computeSatisfactionScore", () => {
       },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
     expect(score.rephrasingScore).toBeGreaterThan(0);
     expect(score.sentimentScore).toBeGreaterThan(0);
@@ -155,13 +142,9 @@ describe("computeSatisfactionScore", () => {
   it("flags abandonment when the thread ends on an unanswered user message", async () => {
     setThread([{ role: "user", content: "Can you help me with the report?" }]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
-    // computeAbandonmentScore => 80 when last message is from the user.
     expect(score.abandonmentScore).toBe(80);
-    // Composite weights abandonment at 0.2 => 16, but sentiment also
-    // fires here? "Can you help me with the report?" has no negative
-    // pattern and is not terse, so only abandonment contributes.
     expect(score.frustrationScore).toBe(16);
     expect(score.userId).toBeNull();
   });
@@ -175,10 +158,8 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "..." },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
-    // Two identical user messages: peak similarity 1.0, ratio 1/1=1.
-    // rephrasing = (1.0*60 + 1*40) = 100.
     expect(score.rephrasingScore).toBe(100);
     expect(score.frustrationScore).toBeGreaterThan(0);
   });
@@ -191,15 +172,8 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "..." },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
-    // sentimentScore = min(100, negativeRatio * 70 + terseRatio * 30).
-    // Both user messages match a NEGATIVE_PATTERN ("not what i"/"that's not"
-    // and "still wrong"/"useless") → negativeRatio = 2/2 = 1.0. Neither is
-    // terse (>2 words) → terseRatio = 0. So the score is the graded 70, NOT
-    // the saturated 100 the old double-scaling (`* 100`) produced. This is the
-    // assertion that guards against that regression — the 70/30 sub-weights
-    // must remain meaningful rather than clamping on the first negative phrase.
     expect(score.sentimentScore).toBe(70);
   });
 
@@ -211,8 +185,7 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "Anything else?" },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
-    // Ends with assistant; second-to-last user msg "ok" is <15 chars => 40.
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.abandonmentScore).toBe(40);
   });
 
@@ -230,8 +203,7 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "..." },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
-    // Lengths strictly decreasing => negative slope => >0.
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.lengthTrendScore).toBeGreaterThan(0);
   });
 
@@ -243,16 +215,14 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "..." },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
-    // 1 of 2 user msgs hits a RETRY pattern => ratio .5 * 150 = 75.
-    // retry contributes 0.2 weight => at least 15 toward frustration.
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.frustrationScore).toBeGreaterThanOrEqual(15);
   });
 
   it("returns all zeros and still upserts when the thread has no messages", async () => {
-    setThread(null); // no chat_threads row at all
+    setThread(null);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
     expect(score.frustrationScore).toBe(0);
     expect(score.rephrasingScore).toBe(0);
@@ -263,13 +233,11 @@ describe("computeSatisfactionScore", () => {
   it("tolerates malformed thread_data JSON without throwing", async () => {
     threadData = "{ this is not valid json";
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.frustrationScore).toBe(0);
   });
 
   it("clamps the composite frustration score at 100", async () => {
-    // Maximize every sub-score: identical negative+retry messages that
-    // also shrink in length and abandon at the end.
     const long = "no that is wrong, try again, this is completely useless x";
     setThread([
       { role: "user", content: long },
@@ -279,19 +247,19 @@ describe("computeSatisfactionScore", () => {
       { role: "user", content: "no" },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.frustrationScore).toBeLessThanOrEqual(100);
   });
 
   it("reads thread_data scoped by threadId (parameterized, no injection)", async () => {
     setThread([{ role: "user", content: "hi" }]);
-    await computeSatisfactionScore("thread-xyz");
+    await computeSatisfactionScore("thread-xyz", { ownerEmail: "alice" });
 
     const call = mockExecute.mock.calls[0][0];
     expect(call.sql).toMatch(
       /SELECT thread_data FROM chat_threads WHERE id = \?/,
     );
-    expect(call.args).toEqual(["thread-xyz"]);
+    expect(call.args).toEqual(["thread-xyz", "alice"]);
   });
 
   it("parses structured (array-of-parts) message content", async () => {
@@ -307,9 +275,7 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "ok" },
     ]);
 
-    // If the text parts were joined correctly it's a normal sentence,
-    // not terse — sentiment stays 0. This exercises the content mapper.
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.sentimentScore).toBe(0);
   });
 });

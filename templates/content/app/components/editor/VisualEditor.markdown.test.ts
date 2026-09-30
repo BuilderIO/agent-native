@@ -19,6 +19,7 @@ import {
   type Transaction,
 } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
+import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
 import {
   act,
   createElement,
@@ -1888,6 +1889,11 @@ describe("live suggestion presentation", () => {
   it.each([
     {
       name: "replacement inside bold text",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["B", "uil"],
+        canonical: ["B", "ol"],
+      },
       canonical: "**Bold** sample.",
       draft: "**Build** sample.",
       beforeText: "ol",
@@ -1898,6 +1904,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "deletion inside bold text",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["B", ""],
+        canonical: ["B", "ol"],
+      },
       canonical: "**Bold** sample.",
       draft: "**Bd** sample.",
       beforeText: "ol",
@@ -1908,6 +1919,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "insertion inside bold text",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["Bo", "!"],
+        canonical: ["Bo", ""],
+      },
       canonical: "**Bold** sample.",
       draft: "**Bo!ld** sample.",
       beforeText: "",
@@ -1918,6 +1934,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "replacement in the second repeated marked word",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["Echo and E", "OH"],
+        canonical: ["Echo and E", "ch"],
+      },
       canonical: "**Echo** and **Echo**",
       draft: "**Echo** and **EOHo**",
       beforeText: "ch",
@@ -1928,6 +1949,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "replacement of escaped marked text",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["A", "x"],
+        canonical: ["A", "*"],
+      },
       canonical: "**A\\*B**",
       draft: "**AxB**",
       beforeText: "\\*",
@@ -1938,6 +1964,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "replacement of inline-code punctuation",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["a", "x"],
+        canonical: ["a", "`"],
+      },
       canonical: "``a`b``",
       draft: "`axb`",
       beforeText: "`",
@@ -1948,6 +1979,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "replacement in link text that also occurs in its href",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["s", "OM"],
+        canonical: ["s", "am"],
+      },
       canonical: "[same](https://same.test) sample.",
       draft: "[sOMe](https://same.test) sample.",
       beforeText: "am",
@@ -1966,6 +2002,7 @@ describe("live suggestion presentation", () => {
       canonicalFrom,
       draftFrom,
       kind,
+      expected,
     }) => {
       for (const presentation of ["draft", "canonical"] as const) {
         const source = presentation === "draft" ? draft : canonical;
@@ -1973,23 +2010,29 @@ describe("live suggestion presentation", () => {
         const quote = presentation === "draft" ? afterText : beforeText;
         const editor = createSuggestionEditor(source);
         try {
-          expect(
-            suggestionHighlightSpec(editor.state.doc, {
-              id: `inside-mark-${presentation}`,
-              kind: kind as VisualEditorSuggestion["kind"],
-              beforeText,
-              afterText,
-              anchor: {
-                from,
-                prefix: source.slice(Math.max(0, from - 32), from),
-                suffix: source.slice(
-                  from + quote.length,
-                  from + quote.length + 32,
-                ),
-              },
-              presentation,
-            }),
-          ).not.toBeNull();
+          const spec = suggestionHighlightSpec(editor.state.doc, {
+            id: `inside-mark-${presentation}`,
+            kind: kind as VisualEditorSuggestion["kind"],
+            beforeText,
+            afterText,
+            anchor: {
+              from,
+              prefix: source.slice(Math.max(0, from - 32), from),
+              suffix: source.slice(
+                from + quote.length,
+                from + quote.length + 32,
+              ),
+            },
+            presentation,
+          });
+          // Resolving to some range is not enough: it has to be the intended
+          // occurrence, not an earlier or look-alike one.
+          expect(spec).not.toBeNull();
+          const doc = editor.state.doc;
+          expect([
+            doc.textBetween(0, spec!.from, "\n"),
+            doc.textBetween(spec!.from, spec!.to, "\n"),
+          ]).toEqual(expected[presentation]);
         } finally {
           editor.destroy();
         }
@@ -3317,6 +3360,16 @@ describe("VisualEditor markdown round-tripping", () => {
     const draftBWithTrailingEmpty = "Draft B body\n<empty-block/>";
     let controller: VisualEditorHistoryController | null = null;
 
+    const seedYdoc = (target: Y.Doc, content: string) => {
+      const seedEditor = createMarkdownEditor(content);
+      const seeded = prosemirrorToYDoc(seedEditor.state.doc, "default");
+      Y.applyUpdate(target, Y.encodeStateAsUpdate(seeded));
+      seeded.destroy();
+      seedEditor.destroy();
+    };
+    seedYdoc(ydoc, "Draft A body");
+    seedYdoc(nextDocumentYdoc, "Older Page B body");
+
     const renderEditor = (
       documentId: string,
       content: string,
@@ -3594,16 +3647,6 @@ describe("VisualEditor markdown round-tripping", () => {
         container.querySelectorAll<HTMLElement>(".notion-editor > p"),
         (node) => node.textContent,
       );
-    // The seed → reconcile handoff inside useCollabReconcile is a chain of
-    // real (unfaked) setTimeout hops — never a fixed number of React ticks —
-    // so its wall-clock latency has no tight upper bound under load. Poll for
-    // the DOM it actually produces instead of sleeping a guessed duration:
-    // that keeps this fast when the machine is idle and merely patient (never
-    // silently wrong) when it is not. Confirmed against this exact test with
-    // an artificially widened reconcile retry interval: with a blind sleep it
-    // fails on stale content; with this poll it converges to the right
-    // content every time, proving the reconcile itself is not racy — only a
-    // fixed sleep waiting on it was.
     const waitForParagraphs = (expected: string[]) =>
       vi.waitFor(
         () => {
@@ -3613,9 +3656,6 @@ describe("VisualEditor markdown round-tripping", () => {
       );
 
     try {
-      // Match a real reload after an external version was previously live: seed
-      // the persisted Y.Doc through the actual VisualEditor, unmount the page,
-      // then mount a fresh editor whose SQL snapshot points somewhere else.
       act(() => {
         root.render(renderEditor(incoming, "2026-07-09T19:59:59.000Z"));
       });
@@ -3890,10 +3930,6 @@ describe("VisualEditor markdown round-tripping", () => {
   });
 
   it("rejects an empty preview remount emission when the render snapshot is also empty", () => {
-    // After a server restart, the preview can render an empty list snapshot for
-    // one tick while its retained per-document save controller still owns the
-    // previously confirmed rich body. The editor must not emit that lifecycle
-    // filler into the controller; Open page/unmount would flush it to SQL.
     expect(
       shouldPersistEffectivelyEmptyEditorUpdate({
         nextContent: "<empty-block/>",

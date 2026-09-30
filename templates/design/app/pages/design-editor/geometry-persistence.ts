@@ -25,9 +25,6 @@ export function geometrySnapshotsEqual(
   return aKeys.every((key) => key in b && frameGeometryEquals(a[key], b[key]));
 }
 
-/** Separate from the sanity check below on purpose: an out-of-range frame is
- *  refused and changed fractional fields are repaired. A reference map keeps
- *  existing fractional fields stable across later unrelated gestures. */
 export function quantizeCanvasFrameGeometryForPersist(
   geometryById: CanvasFrameGeometryById,
   referenceGeometryById?: CanvasFrameGeometryById,

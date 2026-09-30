@@ -1,5 +1,87 @@
 # @agent-native/recap-cli
 
+## 0.5.53
+
+### Patch Changes
+
+- 8f82288: Scaffold configured feature dependencies and preserve long workspace URLs.
+  Keep optional Playwright imports external to app bundles so builds do not require its optional Chromium dependency.
+- Release all public npm packages with a patch version bump.
+
+## 0.5.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.50
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.49
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 82ad87c: Keep Playwright optional and use a distinct `agent-native-recap` executable name so Core can include the recap commands without replacing its `agent-native` CLI.
+
+## 0.5.48
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.47
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.46
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+
+## 0.5.45
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.44
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.43
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.42
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.41
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.40
 
 ### Patch Changes

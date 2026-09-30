@@ -12,7 +12,12 @@ function makeArgs(
     activeScreenBridgeUrl: "http://127.0.0.1:7331",
     activeScreenPreviewToken: "preview-token",
     activeScreenLiveEditCapability: "design-capability",
-    callAction: vi.fn().mockResolvedValue(undefined),
+    callAction: vi.fn(async (_name, payload) => ({
+      designId: payload.designId,
+      pendingEditCount: payload.pending?.pendingEditCount ?? 0,
+      revision: payload.revision,
+      status: payload.pending ? "ready" : "empty",
+    })),
     canPublishDurableHandoff: true,
     designId: "design-1",
     fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
@@ -29,6 +34,7 @@ function makeArgs(
     },
     pendingVisualEditClearRequestedRef: { current: null },
     pendingVisualEditHadPendingRef: { current: null },
+    onHandoffPublicationStatusChange: vi.fn(),
     setPendingVisualEditPublicationFailed: vi.fn(),
     showHandoffErrorToast: vi.fn(),
     ...overrides,
@@ -68,6 +74,10 @@ describe("runPublishVisualEditPending", () => {
     expect(args.callAction).not.toHaveBeenCalled();
     expect(args.setPendingVisualEditPublicationFailed).not.toHaveBeenCalled();
     expect(args.showHandoffErrorToast).not.toHaveBeenCalled();
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "local-ready",
+      1,
+    );
     expect(args.fetchImpl).toHaveBeenCalledWith(
       "http://127.0.0.1:7331/live-edit-pending",
       expect.objectContaining({
@@ -96,6 +106,11 @@ describe("runPublishVisualEditPending", () => {
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       false,
     );
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "ready",
+      1,
+      1,
+    );
     expect(args.showHandoffErrorToast).not.toHaveBeenCalled();
     expect(args.fetchImpl).toHaveBeenCalledWith(
       "http://127.0.0.1:7331/live-edit-pending",
@@ -115,8 +130,45 @@ describe("runPublishVisualEditPending", () => {
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       true,
     );
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "failed",
+      1,
+    );
+    expect(args.onHandoffPublicationStatusChange).not.toHaveBeenCalledWith(
+      "local-ready",
+      1,
+    );
     expect(args.showHandoffErrorToast).toHaveBeenCalledWith(error);
-    // The bridge POST is independent and must still run after the failure.
+    expect(args.fetchImpl).toHaveBeenCalled();
+  });
+
+  it("does not clear local pending state when the durable clear is stale", async () => {
+    const args = makeArgs({
+      pending: { ...makeArgs().pending, pending: null },
+      pendingVisualEditClearRequestedRef: { current: "design-1" },
+      pendingVisualEditHadPendingRef: { current: "design-1" },
+      callAction: vi.fn().mockResolvedValue({
+        designId: "design-1",
+        pendingEditCount: null,
+        revision: null,
+        status: "stale",
+      }),
+    });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.pendingVisualEditClearRequestedRef.current).toBe("design-1");
+    expect(args.pendingVisualEditHadPendingRef.current).toBe("design-1");
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "failed",
+      1,
+    );
+    expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
+      true,
+    );
+    expect(args.showHandoffErrorToast).toHaveBeenCalledWith({
+      errorCode: "visual_edit_handoff_unconfirmed",
+    });
     expect(args.fetchImpl).toHaveBeenCalled();
   });
 
@@ -159,6 +211,22 @@ describe("runPublishVisualEditPending", () => {
           pending: null,
         }),
       }),
+    );
+  });
+
+  it("reports when a durable handoff is confirmed empty", async () => {
+    const args = makeArgs({
+      pending: { ...makeArgs().pending, pending: null },
+      pendingVisualEditClearRequestedRef: { current: "design-1" },
+      pendingVisualEditHadPendingRef: { current: "design-1" },
+    });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "empty",
+      1,
+      1,
     );
   });
 });

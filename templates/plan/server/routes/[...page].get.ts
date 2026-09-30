@@ -1,6 +1,7 @@
 import {
   AGENT_ACCESS_PARAM,
   getConfiguredAppBasePath,
+  verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 import {
@@ -15,7 +16,16 @@ import {
   setResponseHeader,
 } from "h3";
 
-import { PLAN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+import {
+  PLAN_AGENT_CONTEXT_ENDPOINT,
+  PLAN_AGENT_RESOURCE_KIND,
+} from "../../shared/agent-readable.js";
+import {
+  planKindFromRouteSegment,
+  planPathForKind,
+  planRouteSegmentPattern,
+} from "../../shared/plan-routes.js";
+import type { PlanKind } from "../../shared/types.js";
 
 const ssrHandler = createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
@@ -31,24 +41,26 @@ function stripBasePath(pathname: string): string {
   return pathname;
 }
 
-function planFromPath(pathname: string): {
-  id: string;
-  kind: "plan" | "recap";
-} | null {
+const PLAN_PAGE_PATH_PATTERN = new RegExp(
+  `^\\/(${planRouteSegmentPattern()})\\/([^/]+)\\/?$`,
+);
+
+function planFromPath(pathname: string): { id: string; kind: PlanKind } | null {
   const stripped = stripBasePath(pathname);
-  const match = stripped.match(/^\/(plans|recaps)\/([^/]+)\/?$/);
+  const match = stripped.match(PLAN_PAGE_PATH_PATTERN);
   if (!match?.[1] || !match[2]) return null;
+  const kind = planKindFromRouteSegment(match[1]);
+  if (!kind) return null;
+  const rawId = match[2];
+  let id: string;
   try {
-    return {
-      kind: match[1] === "recaps" ? "recap" : "plan",
-      id: decodeURIComponent(match[2]),
-    };
+    id = decodeURIComponent(rawId);
   } catch {
-    return {
-      kind: match[1] === "recaps" ? "recap" : "plan",
-      id: match[2],
-    };
+    // A malformed percent-escape is still a routable segment; discovery only
+    // needs the literal id the client will request.
+    id = rawId;
   }
+  return { kind, id };
 }
 
 function queryString(value: unknown): string {
@@ -68,15 +80,19 @@ export default defineEventHandler(async (event) => {
   const resource = planFromPath(requestUrl.pathname);
   if (!resource) return response;
 
-  const token = queryString(getQuery(event)[AGENT_ACCESS_PARAM]);
+  const suppliedToken = queryString(getQuery(event)[AGENT_ACCESS_PARAM]);
+  const tokenAccess = suppliedToken
+    ? verifyScopedAgentAccessToken(suppliedToken, {
+        resourceKind: PLAN_AGENT_RESOURCE_KIND,
+        resourceId: resource.id,
+      }).ok
+    : false;
+  const token = tokenAccess ? suppliedToken : "";
   const script = renderAgentReadableResourceDiscoveryScript(
     buildAgentReadableResourceDiscovery({
       resourceType: "plan",
       resourceId: resource.id,
-      path:
-        resource.kind === "recap"
-          ? `/recaps/${resource.id}`
-          : `/plans/${resource.id}`,
+      path: planPathForKind(resource.id, resource.kind),
       contextEndpoint: PLAN_AGENT_CONTEXT_ENDPOINT,
       origin: requestUrl.origin,
       basePath: getConfiguredAppBasePath(),
@@ -93,9 +109,13 @@ export default defineEventHandler(async (event) => {
   const html = await response.text();
   const headers = new Headers(response.headers);
   headers.delete("content-length");
-  if (token) {
+  if (suppliedToken) {
     headers.set("Referrer-Policy", "no-referrer");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  }
+  if (tokenAccess) {
+    headers.set("netlify-vary", "query");
+    setResponseHeader(event, "netlify-vary", "query");
   }
 
   return new Response(injectScript(html, script), {

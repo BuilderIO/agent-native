@@ -16,43 +16,58 @@ describe("agent chat startup", () => {
     expect(startup).not.toContain("reapAllStaleRuns");
   });
 
-  it("hydrates MCP connections after building the base action routes", () => {
+  it("keeps MCP managers out of startup and static action registries", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),
       "utf8",
     );
-    const mcpSetup = source.slice(
-      source.indexOf("// Route readiness must not wait"),
-      source.indexOf("// Resolve actions"),
+    expect(source).not.toContain("new McpClientManager(");
+    expect(source).not.toContain("ensureMcpInitialized");
+    expect(source).toContain(
+      "resolveAdditionalActions: ({ ownerEmail, orgId })",
     );
-
-    expect(mcpSetup).toContain("new McpClientManager(null)");
-    expect(mcpSetup).not.toContain("await mcpManager.start()");
-    expect(
-      source.indexOf("if (!isProductionServerlessFunctionRuntime()) {"),
-    ).toBeGreaterThan(source.lastIndexOf("mcpManager.onChange"));
   });
 
-  it("does not eagerly hydrate MCP on a serverless cold start", () => {
+  it("resolves MCP only from authenticated chat or a due job that requests tools", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),
       "utf8",
     );
 
-    // Nothing awaits the eager hydration, so on a runtime that freezes after
-    // responding its settings scan and MCP handshakes escape past the response.
-    expect(source).toContain(
-      "if (!isProductionServerlessFunctionRuntime()) {\n        void ensureMcpInitialized().catch",
+    expect(source).toContain("resolveBackgroundMcpToolSelection(");
+    const jobResolver = source.slice(
+      source.indexOf("const getJobMcpActionEntries"),
+      source.indexOf("// Mount status + management routes"),
     );
-    // The lazy path must actually run: never initializing would be worse than
-    // the cold-start cost it removes.
-    expect(source).toContain("waitUntilReady: ensureMcpInitialized,");
+    expect(jobResolver).toContain("principalFromRequestContext()");
+    expect(jobResolver).toContain("principal.userEmail");
+    expect(jobResolver).toContain("principal.orgId");
     expect(
       source.slice(
         source.indexOf("const invokeAgentChatHandler"),
         source.indexOf("const ownerContext = await resolveOwnerContext(event)"),
       ),
-    ).toContain("await ensureMcpInitialized();");
+    ).not.toContain("getMcpManager");
+  });
+
+  it("routes anonymous chat through the read-only handler without MCP actions", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const anonymousHandler = source.slice(
+      source.indexOf("const anonymousHandler ="),
+      source.indexOf("// Build the dev handler"),
+    );
+    const invocation = source.slice(
+      source.indexOf("const invokeAgentChatHandler ="),
+      source.indexOf("// A Function URL is a separate origin"),
+    );
+
+    expect(invocation).toContain("ownerContext.anonymous && anonymousHandler");
+    expect(invocation).not.toContain("getMcpManager");
+    expect(anonymousHandler).toContain("actions: anonymousReadOnlyActions");
+    expect(anonymousHandler).not.toContain("resolveAdditionalActions");
   });
 
   it("keeps transient database failures structured on the stream route", () => {
@@ -97,15 +112,6 @@ describe("agent chat startup", () => {
     expect(triggerSetup).not.toContain("disableRecurringJobsRuntime");
   });
 
-  /**
-   * The in-process fast sweep is gated on `shouldDisableInProcessSweeps()`,
-   * which is ON for every production serverless function — so for 21 days
-   * production had NO periodic stale reaper at all (1,216 stranded runs, 12% of
-   * all runs, up to 59 minutes each). The durable, signed, platform-scheduled
-   * recurring-job sweep is the only per-site tick that exists; stale reaping
-   * rides it rather than getting a second scheduled function or a second
-   * kill-switch exemption.
-   */
   it("drives stale reaping from the durable scheduled sweep", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),
@@ -120,15 +126,38 @@ describe("agent chat startup", () => {
     expect(sweepRoute).toContain("sweepUnclaimedBackgroundRuns");
     expect(sweepRoute).toContain("reapExpired: true");
     expect(sweepRoute).toContain("jobsSkippedReason");
-    // Ahead of the open-ended job sweep, which can spend the platform wall.
     expect(sweepRoute.indexOf("reapAllStaleRuns()")).toBeLessThan(
       sweepRoute.indexOf("processRecurringJobs(schedulerDeps)"),
     );
-    // A reap failure is reported and stays distinguishable from "reaped
-    // nothing", but must never take recurring jobs down with it.
     expect(sweepRoute).toContain("durable stale-run reap failed");
     expect(sweepRoute).toContain("staleRunsReaped");
     expect(sweepRoute).not.toContain(".catch(() => {})");
+  });
+
+  it("runs registered app handlers from the signed durable sweep and fails visibly", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const sweepRoute = source.slice(
+      source.indexOf("          RECURRING_JOBS_SWEEP_PATH,\n"),
+      source.indexOf("        if (disableRecurringJobsRuntime) {"),
+    );
+
+    expect(sweepRoute).toContain("runRecurringSweepHandlers");
+    expect(sweepRoute).toContain("RECURRING_SWEEP_BUDGET_MS");
+    expect(sweepRoute).toContain("runRecurringSweepHandlers(sweepContext)");
+    expect(sweepRoute).toContain("appSweepHandlers.failed.length > 0");
+    expect(sweepRoute).toContain("setResponseStatus(event, 500)");
+    expect(sweepRoute.indexOf("const staleRunsReaped")).toBeLessThan(
+      sweepRoute.indexOf("const sweepContext"),
+    );
+    expect(sweepRoute.indexOf("const sweepContext")).toBeLessThan(
+      sweepRoute.indexOf("runRecurringSweepHandlers(sweepContext)"),
+    );
+    expect(
+      sweepRoute.indexOf("runRecurringSweepHandlers(sweepContext)"),
+    ).toBeLessThan(sweepRoute.indexOf("processFailureAlertRetries()"));
   });
 
   it("does not swallow the in-process stale reap either", () => {

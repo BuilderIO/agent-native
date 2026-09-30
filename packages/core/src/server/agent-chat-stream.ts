@@ -5,7 +5,6 @@ import * as jose from "jose";
 import { getAppConfig } from "../app-config/index.js";
 import { getAuthSecret } from "./better-auth-instance.js";
 
-/** Exact public transport path exposed by the dedicated streaming Lambda. */
 export const AGENT_CHAT_STREAM_PATH = "/_agent-native/agent-chat-stream";
 export const AGENT_CHAT_STREAM_TOKEN_SUFFIX = "/stream-token";
 export const AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS = 15 * 60;

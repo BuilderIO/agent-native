@@ -4,14 +4,13 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
   AppSidebarNavItem,
-  FeedbackButton,
-  type AppSidebarItemDefinition,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -21,7 +20,6 @@ import {
   IconHierarchy2,
   IconMessageCircle,
   IconSearch,
-  IconSettings,
 } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -265,15 +263,6 @@ export function Sidebar({
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
 
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: location.pathname.startsWith("/settings"),
-    },
-  ];
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -287,7 +276,7 @@ export function Sidebar({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          className="shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
           onClick={openCommandMenu}
           aria-label={t("root.commandSearch")}
         >
@@ -306,7 +295,6 @@ export function Sidebar({
       brandName={APP_TITLE}
       appId="factory"
       brandHref="/chat"
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={searchButton}

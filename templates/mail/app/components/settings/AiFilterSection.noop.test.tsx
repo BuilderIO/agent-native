@@ -1,0 +1,1298 @@
+// @vitest-environment happy-dom
+
+import type { AutomationAction } from "@shared/types";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type { PropsWithChildren } from "react";
+import { MemoryRouter } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+import enUS from "../../i18n/en-US";
+
+const mocks = vi.hoisted(() => ({
+  rules: [] as Array<Record<string, any>>,
+  decisions: [] as Array<Record<string, any>>,
+  jevAvailabilityError: false,
+  jevConfigured: true,
+  automationsError: false,
+  automationsLoading: false,
+  automationsHasData: true,
+  recentBackfillsError: false,
+  triageEnabled: true,
+  updateAiFilterSettings: vi.fn(),
+  createRule: vi.fn(),
+  updateRule: vi.fn(),
+  updateRuleAsync: vi.fn(),
+  manageAiFilterBackfill: vi.fn(),
+  backfillStatus: undefined as Record<string, any> | undefined,
+  refetchBackfill: vi.fn(),
+  deleteRule: vi.fn(),
+  updatePreferences: vi.fn(),
+  accounts: [] as Array<Record<string, any>>,
+  sendToAgentChat: vi.fn(),
+  toast: vi.fn(),
+  refetchJevAvailability: vi.fn(),
+  refetchAutomations: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useT: () => (key: string, values?: Record<string, unknown>) =>
+    values ? `${key} ${Object.values(values).join(" ")}` : key,
+}));
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  actionErrorMessage: (error: unknown) => String(error),
+  useActionQuery: () => ({
+    data: mocks.jevAvailabilityError
+      ? undefined
+      : { configured: mocks.jevConfigured },
+    isLoading: false,
+    isError: mocks.jevAvailabilityError,
+    isFetching: false,
+    refetch: mocks.refetchJevAvailability,
+  }),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  sendToAgentChat: mocks.sendToAgentChat,
+}));
+
+vi.mock("sonner", () => ({
+  toast: Object.assign(mocks.toast, { error: vi.fn() }),
+}));
+
+vi.mock("@/components/onboarding/AiInboxSetup", () => ({
+  AiInboxSetup: () => null,
+}));
+
+vi.mock("@/components/settings/JevConnectionPrompt", () => ({
+  JevAvailabilityError: ({ onRetry }: { onRetry: () => void }) => (
+    <button onClick={onRetry}>mail.error.tryAgain</button>
+  ),
+  JevConnectionPrompt: () => <div>mail.aiFilter.connectJev</div>,
+}));
+
+vi.mock("@/hooks/use-ai-filter", () => ({
+  useAiFilter: () => ({
+    data: {
+      enabled: mocks.triageEnabled,
+      autoFilter: true,
+      autoFilterThreshold: 0.92,
+      suggestionThreshold: 0.72,
+      labelName: "agent-native-filtered",
+      feedback: [],
+      decisions: mocks.decisions,
+    },
+    isLoading: false,
+  }),
+  useManageAiFilter: () => ({ mutate: mocks.updateAiFilterSettings }),
+  useManageAiFilterBackfill: () => ({
+    mutateAsync: mocks.manageAiFilterBackfill,
+  }),
+  useRecentAiFilterBackfills: () => ({
+    data: mocks.backfillStatus ? [mocks.backfillStatus] : [],
+    isLoading: false,
+    isError: mocks.recentBackfillsError,
+    isFetching: false,
+    refetch: mocks.refetchBackfill,
+  }),
+  latestAiFilterDecisions: (state: { decisions: Array<Record<string, any>> }) =>
+    [...state.decisions].reverse(),
+}));
+
+vi.mock("@/hooks/use-automations", () => ({
+  useAutomations: () => ({
+    data: mocks.automationsHasData ? mocks.rules : undefined,
+    isLoading: mocks.automationsLoading,
+    isError: mocks.automationsError,
+    isFetching: false,
+    refetch: mocks.refetchAutomations,
+  }),
+  useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
+  useUpdateAutomation: () => ({
+    mutate: mocks.updateRule,
+    mutateAsync: mocks.updateRuleAsync,
+  }),
+  useDeleteAutomation: () => ({ mutateAsync: mocks.deleteRule }),
+}));
+
+vi.mock("@/hooks/use-emails", () => ({
+  useLabels: () => ({ data: [] }),
+  useSettings: () => ({ data: { pinnedLabels: [] } }),
+  useUpdateSettings: () => ({ mutateAsync: mocks.updatePreferences }),
+}));
+
+vi.mock("@/hooks/use-google-auth", () => ({
+  useGoogleAuthStatus: () => ({ data: { accounts: mocks.accounts } }),
+}));
+
+import {
+  aiFilterRuleLabelName,
+  aiFilterRuleMode,
+  normalizedAiFilterLabelId,
+} from "@shared/ai-filter-rules";
+
+import { AiFilterSection } from "./AiFilterSection";
+
+const importantRule = () => ({
+  id: "important-rule",
+  ownerEmail: "mail-test@example.test",
+  domain: "mail",
+  kind: "ai-filter",
+  name: "AI important",
+  condition: "Human comments on GitHub matter",
+  actions: [{ type: "label", labelName: "agent-native-important" }],
+  enabled: true,
+  createdAt: "2026-09-25T00:00:00.000Z",
+  updatedAt: "2026-09-25T00:00:00.000Z",
+});
+
+function TestProviders({
+  children,
+  initialEntry = "/",
+}: PropsWithChildren<{ initialEntry?: string }>) {
+  return (
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <TooltipProvider>{children}</TooltipProvider>
+    </MemoryRouter>
+  );
+}
+
+function renderSection(initialEntry = "/") {
+  const Wrapper = ({ children }: PropsWithChildren) => (
+    <TestProviders initialEntry={initialEntry}>{children}</TestProviders>
+  );
+  return render(<AiFilterSection />, { wrapper: Wrapper });
+}
+
+describe("AiFilterSection", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    mocks.rules = [];
+    mocks.decisions = [];
+    mocks.jevAvailabilityError = false;
+    mocks.jevConfigured = true;
+    mocks.automationsError = false;
+    mocks.automationsLoading = false;
+    mocks.automationsHasData = true;
+    mocks.recentBackfillsError = false;
+    mocks.triageEnabled = true;
+    mocks.accounts = [];
+    mocks.createRule.mockReset().mockResolvedValue({ id: "created-rule" });
+    mocks.updateRule.mockReset();
+    mocks.updateRuleAsync
+      .mockReset()
+      .mockResolvedValue({ id: "important-rule" });
+    mocks.manageAiFilterBackfill
+      .mockReset()
+      .mockResolvedValue({ runId: "backfill-run", status: "queued" });
+    mocks.backfillStatus = undefined;
+    mocks.refetchBackfill.mockReset().mockResolvedValue(undefined);
+    mocks.deleteRule.mockReset();
+    mocks.updatePreferences.mockReset().mockResolvedValue(undefined);
+    mocks.updateAiFilterSettings.mockReset();
+    mocks.sendToAgentChat.mockReset();
+    mocks.refetchJevAvailability.mockReset();
+    mocks.refetchAutomations.mockReset();
+  });
+
+  it("shares rule classification and stable label normalization", () => {
+    const ruleWith = (actions: AutomationAction[]) => ({ actions });
+
+    expect(
+      aiFilterRuleMode(
+        ruleWith([
+          { type: "label", labelName: "agent-native-filtered" },
+          { type: "archive" },
+        ]),
+      ),
+    ).toBe("filtered");
+    expect(
+      aiFilterRuleMode(
+        ruleWith([{ type: "label", labelName: "agent-native-important" }]),
+      ),
+    ).toBe("important");
+    expect(
+      aiFilterRuleMode(
+        ruleWith([{ type: "label", labelName: "agent_native_important" }]),
+      ),
+    ).toBeNull();
+    expect(
+      aiFilterRuleMode(
+        ruleWith([
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ]),
+      ),
+    ).toBe("tag");
+    expect(aiFilterRuleMode(ruleWith([{ type: "archive" }]))).toBe("archive");
+    expect(
+      aiFilterRuleLabelName(
+        ruleWith([{ type: "label", labelName: "Receipts" }]),
+      ),
+    ).toBe("Receipts");
+    expect(normalizedAiFilterLabelId("Work_Updates")).toBe("work updates");
+  });
+
+  it("disconnects the hash observer when rules fail to load", () => {
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    class MutationObserverMock {
+      observe = observe;
+      disconnect = disconnect;
+    }
+    vi.stubGlobal("MutationObserver", MutationObserverMock);
+    mocks.automationsLoading = true;
+    mocks.automationsHasData = false;
+
+    const view = renderSection("/settings#tags");
+
+    expect(observe).toHaveBeenCalledOnce();
+    mocks.automationsLoading = false;
+    mocks.automationsError = true;
+    view.rerender(<AiFilterSection />);
+
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("keeps AI tags and Important settings anchors available when empty", () => {
+    renderSection();
+
+    expect(document.getElementById("tags")).not.toBeNull();
+    expect(document.getElementById("importance-rules")).not.toBeNull();
+  });
+
+  it("uses the shared settings row for triage controls", () => {
+    renderSection();
+
+    const row = screen
+      .getByRole("switch", { name: "mail.aiFilter.toggle" })
+      .closest(".agent-native-settings-row");
+    expect(row?.textContent).toContain("mail.aiFilter.triageTitle");
+    expect(row?.querySelector("a")?.textContent).toBe(
+      "mail.aiFilter.manageAutomationsLink",
+    );
+  });
+
+  it("scrolls to a deep-linked rule group after automation rules load", async () => {
+    const scrollIntoView = vi.fn();
+    let targetAvailable = false;
+    vi.spyOn(document, "getElementById").mockImplementation((id) =>
+      id === "tags" && targetAvailable
+        ? ({
+            getClientRects: () => [{}],
+            scrollIntoView,
+          } as unknown as HTMLElement)
+        : null,
+    );
+    mocks.automationsHasData = false;
+    mocks.automationsLoading = true;
+
+    const view = renderSection("/settings#tags");
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    targetAvailable = true;
+    mocks.automationsHasData = true;
+    mocks.automationsLoading = false;
+    view.rerender(<AiFilterSection />);
+
+    await waitFor(() =>
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "start",
+        behavior: "smooth",
+      }),
+    );
+  });
+
+  it("disables every add-rule entry point until Jev is connected", () => {
+    mocks.jevConfigured = false;
+    renderSection();
+
+    expect(
+      screen
+        .getAllByRole("button", { name: "mail.aiFilter.newRule" })
+        .every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true);
+  });
+
+  it("groups important, tag, filtered, and auto-archive rules in one editor", () => {
+    mocks.rules = [
+      importantRule(),
+      {
+        ...importantRule(),
+        id: "tag-rule",
+        name: "AI tag: receipts",
+        condition: "Receipts and order confirmations",
+        actions: [{ type: "label", labelName: "Receipts" }],
+      },
+      {
+        ...importantRule(),
+        id: "filtered-rule",
+        name: "AI spam",
+        condition: "Promotional mail I did not ask for",
+        actions: [
+          { type: "label", labelName: "agent-native-filtered" },
+          { type: "archive" },
+        ],
+      },
+      {
+        ...importantRule(),
+        id: "archive-rule",
+        name: "AI archive",
+        condition: "Automated GitHub status updates",
+        actions: [{ type: "archive" }],
+      },
+    ];
+
+    renderSection();
+
+    for (const key of [
+      "mail.aiFilter.importantMode",
+      "mail.aiFilter.aiTagsTitle",
+      "mail.aiFilter.filteredMode",
+      "mail.aiFilter.autoArchiveMode",
+    ]) {
+      expect(screen.getByText(key)).not.toBeNull();
+    }
+    expect(screen.getByText("Receipts")).not.toBeNull();
+    expect(
+      screen.getByRole("switch", {
+        name: "mail.aiFilter.toggleInstruction Human comments on GitHub matter",
+      }),
+    ).not.toBeNull();
+  });
+
+  it("offers a Filtered rule in-row when there are no Filtered rules", () => {
+    renderSection();
+
+    expect(screen.getByText("mail.aiFilter.filteredMode")).not.toBeNull();
+    expect(screen.getByText("mail.aiFilter.manageSettings")).not.toBeNull();
+    const addButtons = screen.getAllByRole("button", {
+      name: "mail.aiFilter.newRule",
+    });
+    fireEvent.click(addButtons[addButtons.length - 1]!);
+
+    expect(
+      screen
+        .getByRole("button", { name: "mail.aiFilter.filteredMode" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("links to general automations and explains browser notifications", () => {
+    renderSection();
+
+    expect(
+      screen
+        .getByRole("link", {
+          name: "mail.aiFilter.manageAutomationsLink",
+        })
+        .getAttribute("href"),
+    ).toBe("/settings/agent/automations");
+    expect(enUS.mail.aiFilter.notifyModeHelp).toContain("browser popup");
+    expect(enUS.mail.aiFilter.notifyModeHelp).toContain("Mail is open");
+    expect(enUS.mail.aiFilter.notifyModeHelp).toContain(
+      "Mobile app coming soon",
+    );
+  });
+
+  it("uses a styled Filtered disclosure button and wraps rule sentences", () => {
+    const condition =
+      "Unsolicited promotional offers from senders I have never replied to";
+    mocks.rules = [
+      {
+        ...importantRule(),
+        id: "filtered-rule",
+        name: "AI spam",
+        condition,
+        actions: [
+          { type: "label", labelName: "agent-native-filtered" },
+          { type: "archive" },
+        ],
+      },
+    ];
+    renderSection();
+
+    const disclosure = screen.getByRole("button", {
+      name: "mail.aiFilter.manageSettings",
+    });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure.getAttribute("aria-controls")).toBe(
+      "ai-filter-management-settings",
+    );
+    expect(document.querySelector("details, summary")).toBeNull();
+    expect(disclosure.querySelector("svg")).not.toBeNull();
+
+    const ruleSentence = screen.getByText(condition);
+    expect(ruleSentence.className).toContain("line-clamp-2");
+    expect(ruleSentence.className).not.toContain("truncate");
+
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document
+        .getElementById("ai-filter-management-settings")
+        ?.hasAttribute("hidden"),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["importantMode", "importantRuleHelp"],
+    ["notifyMode", "notifyModeHelp"],
+    ["aiTagsTitle", "aiTagRuleHelp"],
+    ["filteredMode", "spamRuleHelp"],
+    ["autoArchiveMode", "skipInboxRuleHelp"],
+  ])("explains %s rule prompts", async (modeKey, helpKey) => {
+    renderSection();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
+    );
+    fireEvent.focus(
+      screen.getByRole("button", { name: `mail.aiFilter.${modeKey}` }),
+    );
+
+    expect((await screen.findByRole("tooltip")).textContent).toContain(
+      `mail.aiFilter.${helpKey}`,
+    );
+  });
+
+  it("describes Filtered rules without promising Gmail Spam", () => {
+    const help = enUS.mail.aiFilter.spamRuleHelp;
+    expect(help).toContain("agent-native-filtered");
+    expect(help).toContain("archives");
+    expect(help).toContain("not Gmail Spam");
+  });
+
+  it("creates a rule from one sentence and a selected mode", async () => {
+    mocks.createRule.mockResolvedValue({ id: "filtered-rule" });
+    renderSection();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.filteredMode" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "mail.aiFilter.instructionsTitle" }),
+      { target: { value: "Clearly promotional mail" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.addInstruction" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.createRule).toHaveBeenCalledWith({
+        name: "AI spam: Clearly promotional mail",
+        condition: "Clearly promotional mail",
+        actions: [
+          { type: "label", labelName: "agent-native-filtered" },
+          { type: "archive" },
+        ],
+        kind: "ai-filter",
+        domain: "mail",
+      });
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["filtered-rule"],
+      });
+    });
+  });
+
+  it("creates a notify rule that highlights and queues recent mail", async () => {
+    mocks.createRule.mockResolvedValue({ id: "notify-rule" });
+    renderSection();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.notifyMode" }),
+    );
+    expect(screen.getByText("mail.aiFilter.notifyModeHelp")).not.toBeNull();
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "mail.aiFilter.instructionsTitle" }),
+      { target: { value: "Emails from the school" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.addInstruction" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.createRule).toHaveBeenCalledWith({
+        name: "AI notify: Emails from the school",
+        condition: "Emails from the school",
+        actions: [
+          { type: "label", labelName: "agent-native-important" },
+          { type: "notify" },
+        ],
+        kind: "ai-filter",
+        domain: "mail",
+      });
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["notify-rule"],
+      });
+    });
+  });
+
+  it("edits and enables a rule through the existing automation actions", async () => {
+    mocks.rules = [importantRule()];
+    renderSection();
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "mail.toolbar.menu" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "settings.editRule" }),
+    );
+    const editor = screen.getByRole("textbox", {
+      name: "mail.aiFilter.instructionsTitle",
+    });
+    fireEvent.change(editor, { target: { value: "Reply by today" } });
+    fireEvent.click(screen.getByRole("button", { name: "settings.save" }));
+
+    await waitFor(() => {
+      expect(mocks.updateRuleAsync).toHaveBeenCalledWith({
+        id: "important-rule",
+        name: "AI important: Reply by today",
+        condition: "Reply by today",
+        actions: [{ type: "label", labelName: "agent-native-important" }],
+      });
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["important-rule"],
+      });
+    });
+
+    fireEvent.click(
+      screen.getByRole("switch", {
+        name: "mail.aiFilter.toggleInstruction Human comments on GitHub matter",
+      }),
+    );
+    expect(mocks.updateRule).toHaveBeenCalledWith(
+      { id: "important-rule", enabled: false },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+  });
+
+  it("keeps auto-archive when editing a tag rule", async () => {
+    mocks.rules = [
+      {
+        ...importantRule(),
+        id: "tag-archive-rule",
+        name: "AI archive: receipts",
+        condition: "Receipts and order confirmations",
+        actions: [
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ],
+      },
+    ];
+    renderSection();
+
+    expect(screen.getByText("mail.aiFilter.autoArchiveMode")).not.toBeNull();
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "mail.toolbar.menu" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "settings.editRule" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "mail.aiFilter.instructionsTitle" }),
+      { target: { value: "Receipts from online orders" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "settings.save" }));
+
+    await waitFor(() => {
+      expect(mocks.updateRuleAsync).toHaveBeenCalledWith({
+        id: "tag-archive-rule",
+        name: "AI tag: Receipts from online orders",
+        condition: "Receipts from online orders",
+        actions: [
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ],
+      });
+    });
+  });
+
+  it("stages a localized rule refinement prompt in the agent sidebar", async () => {
+    mocks.rules = [importantRule()];
+    renderSection();
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "mail.toolbar.menu" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "mail.aiFilter.askJev" }),
+    );
+
+    expect(mocks.sendToAgentChat).toHaveBeenCalledWith({
+      message: "mail.aiFilter.askJevPrompt Human comments on GitHub matter",
+      context: JSON.stringify({
+        ruleId: "important-rule",
+        mode: "important",
+        condition: "Human comments on GitHub matter",
+      }),
+      submit: false,
+      openSidebar: true,
+    });
+  });
+
+  it("does not backfill when a rule is saved without changes", async () => {
+    mocks.rules = [{ ...importantRule(), enabled: false }];
+    renderSection();
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "mail.toolbar.menu" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "settings.editRule" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "settings.save" }));
+
+    expect(mocks.updateRuleAsync).not.toHaveBeenCalled();
+    expect(mocks.manageAiFilterBackfill).not.toHaveBeenCalled();
+  });
+
+  it("applies existing mail when an AI rule is enabled", async () => {
+    mocks.rules = [{ ...importantRule(), enabled: false }];
+    renderSection();
+
+    fireEvent.click(
+      screen.getByRole("switch", {
+        name: "mail.aiFilter.toggleInstruction Human comments on GitHub matter",
+      }),
+    );
+    expect(mocks.updateRule).toHaveBeenCalledWith(
+      { id: "important-rule", enabled: true },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+    mocks.updateRule.mock.calls[0][1].onSuccess();
+
+    await waitFor(() => {
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["important-rule"],
+      });
+    });
+  });
+
+  it("shows backfill matches and can undo the latest rule run", async () => {
+    mocks.rules = [{ ...importantRule(), enabled: false }];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "completed",
+      totalThreads: 10,
+      processedThreads: 10,
+      matchedThreads: 2,
+      appliedThreads: 2,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 2,
+          appliedCount: 2,
+          suggestedCount: 0,
+          previews: [
+            {
+              id: "mail-1",
+              from: "boss@example.test",
+              subject: "Decision needed",
+              labels: ["agent-native-important"],
+              archived: false,
+            },
+          ],
+        },
+      ],
+      undoToken: "undo-token",
+    };
+    renderSection();
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "mail.toolbar.menu" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "settings.editRule" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "mail.aiFilter.instructionsTitle" }),
+      { target: { value: "Messages from my manager" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "settings.save" }));
+
+    expect(await screen.findByText("Decision needed")).not.toBeNull();
+    expect(
+      screen.getByText("mail.aiFilter.ruleBackfillMatches 2"),
+    ).not.toBeNull();
+    expect(
+      (
+        screen.getByRole("link", {
+          name: "mail.aiFilter.ruleBackfillReview",
+        }) as HTMLAnchorElement
+      ).getAttribute("href"),
+    ).toBe("/all?label=agent-native-important");
+
+    fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
+    await waitFor(() => {
+      expect(mocks.manageAiFilterBackfill).toHaveBeenNthCalledWith(2, {
+        operation: "undo",
+        runId: "backfill-run",
+        undoToken: "undo-token",
+      });
+    });
+    expect(mocks.refetchBackfill).toHaveBeenCalled();
+  });
+
+  it("offers retry with Undo after a partially failed backfill", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      failedRuleId: "important-rule",
+      error: "Email service is briefly busy.",
+      undoToken: "undo-token",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.ruleBackfillMatches 1"),
+    ).not.toBeNull();
+    expect(screen.getByText("mail.aiFilter.ruleBackfillFailed")).not.toBeNull();
+    expect(screen.getByText("Email service is briefly busy.")).not.toBeNull();
+    expect(
+      await screen.findByRole("button", { name: "mail.error.tryAgain" }),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
+
+    await waitFor(() => {
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "undo",
+        runId: "backfill-run",
+        undoToken: "undo-token",
+      });
+    });
+  });
+
+  it("retries partially applied failures after the undo token expires", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 1,
+      restoredThreads: 0,
+      undoFailures: 0,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      failedRuleId: "important-rule",
+      error: "Email service is briefly busy.",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.ruleBackfillFailed"),
+    ).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["important-rule"],
+      });
+    });
+  });
+
+  it("does not retry after a failed run has already started Undo", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 2,
+      failedThreads: 1,
+      restoredThreads: 1,
+      undoFailures: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 2,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      failedRuleId: "important-rule",
+      error: "Email service is briefly busy.",
+      undoToken: "undo-token",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.ruleBackfillFailed"),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "mail.actions.undo" }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.error.tryAgain" }),
+    ).toBeNull();
+  });
+
+  it("does not retry a failed run when one of its rules is no longer enabled", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 0,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+        {
+          ruleId: "deleted-rule",
+          name: "AI deleted",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      failedRuleId: "deleted-rule",
+      error: "fetch failed",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.ruleBackfillRunFailed"),
+    ).not.toBeNull();
+    expect(screen.queryByText("mail.aiFilter.ruleBackfillFailed")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.error.tryAgain" }),
+    ).toBeNull();
+  });
+
+  it("shows one retryable status error instead of failing every rule", async () => {
+    mocks.recentBackfillsError = true;
+    mocks.rules = [
+      importantRule(),
+      {
+        ...importantRule(),
+        id: "other-rule",
+        name: "AI other",
+      },
+    ];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 0,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+        {
+          ruleId: "other-rule",
+          name: "AI other",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      error: "fetch failed",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.backfillStatusLoadFailed"),
+    ).not.toBeNull();
+    expect(screen.queryByText("mail.aiFilter.ruleBackfillFailed")).toBeNull();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+
+    await waitFor(() => expect(mocks.refetchBackfill).toHaveBeenCalled());
+  });
+
+  it("retries a failed backfill when there are no applied changes to undo", async () => {
+    mocks.rules = [
+      importantRule(),
+      { ...importantRule(), id: "other-rule", name: "AI other" },
+    ];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 0,
+      processedThreads: 0,
+      matchedThreads: 0,
+      appliedThreads: 0,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+        {
+          ruleId: "other-rule",
+          name: "AI other",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      error: "fetch failed",
+    };
+    renderSection();
+
+    expect(
+      await screen.findAllByText("mail.aiFilter.ruleBackfillRunFailed"),
+    ).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: "mail.error.tryAgain" }),
+    ).toHaveLength(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["important-rule", "other-rule"],
+      });
+      expect(mocks.refetchBackfill).toHaveBeenCalled();
+    });
+  });
+
+  it("hides retry while Mail AI filtering is disabled", async () => {
+    mocks.triageEnabled = false;
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 1,
+      processedThreads: 0,
+      matchedThreads: 1,
+      appliedThreads: 0,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      error: "Mail AI filtering is disabled.",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.ruleBackfillRunFailed"),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.error.tryAgain" }),
+    ).toBeNull();
+  });
+
+  it("shows a result toast with Review and Undo after the backfill completes", async () => {
+    mocks.rules = [{ ...importantRule(), enabled: false }];
+    const view = renderSection();
+
+    fireEvent.click(
+      screen.getByRole("switch", {
+        name: "mail.aiFilter.toggleInstruction Human comments on GitHub matter",
+      }),
+    );
+    mocks.updateRule.mock.calls[0][1].onSuccess();
+    await waitFor(() => expect(mocks.refetchBackfill).toHaveBeenCalled());
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "completed",
+      totalThreads: 5,
+      processedThreads: 5,
+      matchedThreads: 2,
+      appliedThreads: 2,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 2,
+          appliedCount: 2,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      undoToken: "undo-token",
+    };
+    view.rerender(<AiFilterSection />);
+
+    await waitFor(() => {
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "mail.aiFilter.ruleBackfillMatches 2",
+        expect.objectContaining({
+          action: expect.objectContaining({
+            label: "mail.aiFilter.ruleBackfillReview",
+          }),
+          cancel: expect.objectContaining({ label: "mail.actions.undo" }),
+        }),
+      );
+    });
+  });
+
+  it("routes archived label matches through the all-mail label tab", async () => {
+    mocks.rules = [
+      {
+        ...importantRule(),
+        id: "archive-rule",
+        name: "AI archive: receipts",
+        actions: [
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ],
+      },
+    ];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "completed",
+      totalThreads: 1,
+      processedThreads: 1,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "archive-rule",
+          name: "AI archive: receipts",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+    };
+    renderSection();
+
+    expect(
+      (
+        await screen.findByRole("link", {
+          name: "mail.aiFilter.ruleBackfillReview",
+        })
+      ).getAttribute("href"),
+    ).toBe("/all?label=Receipts");
+  });
+
+  it("does not offer Review when a backfill has no matching mail", async () => {
+    mocks.rules = [{ ...importantRule(), enabled: false }];
+    const view = renderSection();
+
+    fireEvent.click(
+      screen.getByRole("switch", {
+        name: "mail.aiFilter.toggleInstruction Human comments on GitHub matter",
+      }),
+    );
+    mocks.updateRule.mock.calls[0][1].onSuccess();
+    await waitFor(() => expect(mocks.refetchBackfill).toHaveBeenCalled());
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "completed",
+      totalThreads: 5,
+      processedThreads: 5,
+      matchedThreads: 0,
+      appliedThreads: 0,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      undoToken: "undo-token",
+    };
+    view.rerender(<AiFilterSection />);
+
+    await waitFor(() => {
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "mail.aiFilter.ruleBackfillNoMatches",
+        expect.objectContaining({
+          cancel: expect.objectContaining({ label: "mail.actions.undo" }),
+        }),
+      );
+    });
+    expect(
+      mocks.toast.mock.calls[mocks.toast.mock.calls.length - 1]?.[1],
+    ).not.toHaveProperty("action");
+  });
+
+  it("saves the auto-filter confidence threshold and links to filtered mail", async () => {
+    mocks.decisions = [
+      {
+        id: "decision-1",
+        messageId: "message-1",
+        sender: "offers@example.test",
+        subject: "An offer you did not ask for",
+        disposition: "filtered",
+        source: "automatic",
+        confidence: 0.98,
+        reason: "Matches your unwanted promotions rule.",
+        createdAt: 1_759_000_000_000,
+      },
+    ];
+    renderSection();
+
+    fireEvent.click(screen.getByText("mail.aiFilter.manageSettings"));
+    const threshold = screen.getByRole("spinbutton", {
+      name: "mail.aiFilter.thresholdLabel",
+    });
+    fireEvent.change(threshold, { target: { value: "96" } });
+    fireEvent.blur(threshold);
+
+    expect(mocks.updateAiFilterSettings).toHaveBeenCalledWith(
+      {
+        mode: "settings",
+        settings: { autoFilterThreshold: 0.96 },
+      },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+    expect(screen.getByText("An offer you did not ask for")).not.toBeNull();
+    expect(
+      screen.getByText("Matches your unwanted promotions rule."),
+    ).not.toBeNull();
+    expect(
+      (
+        screen.getByRole("link", {
+          name: "mail.aiFilter.reviewLabel",
+        }) as HTMLAnchorElement
+      ).getAttribute("href"),
+    ).toBe("/all?label=agent-native-filtered");
+  });
+
+  it("allows turning triage off when Jev is unavailable", () => {
+    mocks.jevConfigured = false;
+    mocks.triageEnabled = true;
+    renderSection();
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "mail.aiFilter.toggle" }),
+    );
+
+    expect(mocks.updateAiFilterSettings).toHaveBeenCalledWith(
+      { mode: "settings", settings: { enabled: false } },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+  });
+
+  it("shows retry when inbox rules fail to load without cached data", () => {
+    mocks.automationsError = true;
+    mocks.automationsHasData = false;
+    renderSection();
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "mail.aiFilter.automationRulesLoadFailed",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+    expect(mocks.refetchAutomations).toHaveBeenCalledOnce();
+  });
+
+  it("offers retry instead of a Jev connect prompt when availability lookup fails", () => {
+    mocks.jevAvailabilityError = true;
+    renderSection();
+
+    expect(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    ).not.toBeNull();
+    expect(screen.queryByText("mail.aiFilter.connectJev")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+    expect(mocks.refetchJevAvailability).toHaveBeenCalledOnce();
+  });
+});

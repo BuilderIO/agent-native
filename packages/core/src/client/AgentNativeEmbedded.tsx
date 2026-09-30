@@ -1,7 +1,5 @@
-import React, { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
-import { AgentChatSurface, type AgentChatSurfaceProps } from "./AgentPanel.js";
-import { AgentSidebar, type AgentSidebarProps } from "./AgentSidebar.js";
 import {
   createAgentNativeBrowserSessionBridge,
   type AgentNativeBrowserSessionBridge,
@@ -47,7 +45,6 @@ export interface UseAgentNativeEmbeddedBrowserSessionOptions {
   getContext?: AgentNativeHostContextGetter;
   screen?: boolean | AgentNativeScreenSnapshotOptions;
   commands?: AgentNativeHostCommandHandlers;
-  /** WebMCP tools this chat may consume from the current page. */
   webmcp?: AgentNativeWebMcpClient;
   session?: string | Partial<AgentNativeHostSession>;
   browserSession?: AgentNativeEmbeddedBrowserSessionOptions;
@@ -56,20 +53,6 @@ export interface UseAgentNativeEmbeddedBrowserSessionOptions {
   onRemount?: AgentNativeEmbeddedCommandCallback;
   onOpenResource?: AgentNativeEmbeddedCommandCallback;
   onRequestApproval?: AgentNativeEmbeddedCommandCallback;
-}
-
-export interface AgentNativeEmbeddedProps
-  extends
-    Omit<AgentSidebarProps, "children">,
-    UseAgentNativeEmbeddedBrowserSessionOptions {
-  children?: React.ReactNode;
-  /**
-   * Render only the agent chat surface when no host children are supplied.
-   * Defaults to "sidebar" when `children` exist and "panel" otherwise.
-   */
-  surface?: "sidebar" | "panel";
-  /** Props forwarded to AgentChatSurface in panel mode. */
-  panel?: AgentChatSurfaceProps;
 }
 
 function mergeObject<T extends object>(
@@ -104,13 +87,6 @@ function toCommandHandler(
       requestId: request.requestId,
       origin: request.origin,
     });
-}
-
-function sessionBrowserTabId(
-  session: UseAgentNativeEmbeddedBrowserSessionOptions["session"],
-): string | undefined {
-  if (typeof session === "string") return session;
-  return typeof session?.id === "string" ? session.id : undefined;
 }
 
 function useMergedEmbeddedCommands({
@@ -237,56 +213,4 @@ export function useAgentNativeEmbeddedBrowserSession({
     session,
     webmcp,
   ]);
-}
-
-export function AgentNativeEmbedded({
-  children,
-  surface,
-  actions,
-  getContext,
-  enabled,
-  screen,
-  commands,
-  webmcp,
-  session,
-  browserSession,
-  onNavigate,
-  onOpenResource,
-  onRefresh,
-  onRemount,
-  onRequestApproval,
-  panel,
-  ...sidebarProps
-}: AgentNativeEmbeddedProps) {
-  useAgentNativeEmbeddedBrowserSession({
-    enabled,
-    actions,
-    getContext,
-    screen,
-    commands,
-    webmcp,
-    session,
-    browserSession,
-    onNavigate,
-    onOpenResource,
-    onRefresh,
-    onRemount,
-    onRequestApproval,
-  });
-
-  const mode = surface ?? (children ? "sidebar" : "panel");
-  const browserTabId =
-    sidebarProps.browserTabId ??
-    panel?.browserTabId ??
-    sessionBrowserTabId(session);
-
-  if (mode === "panel" || !children) {
-    return <AgentChatSurface browserTabId={browserTabId} {...panel} />;
-  }
-
-  return (
-    <AgentSidebar {...sidebarProps} browserTabId={browserTabId}>
-      {children}
-    </AgentSidebar>
-  );
 }

@@ -1,8 +1,9 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   PromptComposer,
   useEagerFileUploads,
-} from "@agent-native/core/client/composer";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/composer/index";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
 import {
   useCallback,
@@ -15,11 +16,21 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
-import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
+import {
+  NO_UPLOADED_FILES_CONTEXT,
+  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+} from "@/lib/create-deck-generation";
+import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
+  formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -45,7 +56,9 @@ function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
 ): string {
-  if (files.length === 0) return "";
+  if (files.length === 0) {
+    return ["", NO_UPLOADED_FILES_CONTEXT].join("\n");
+  }
   const fileList = files
     .map(
       (f) =>
@@ -91,19 +104,17 @@ export function AddSlidePopover({
   agentSubmit: (message: string, context: string) => Promise<boolean>;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
-  /** "below" anchors under the trigger button; "right" sits beside a slide thumbnail. */
   placement?: "below" | "right";
-  /** Id of a blank slide already inserted — the agent fills it in instead of
-   *  inserting another one. Used when this popover follows a "New slide"
-   *  click that already created the placeholder. */
   targetSlideId?: string;
 }) {
   const t = useT();
+  const storageQuery = useSlideFileStorageStatus(open);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
-  // Estimate before the panel has painted so the first frame doesn't hang
-  // off the bottom of the viewport; corrected once the real height is known.
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const [panelHeight, setPanelHeight] = useState(320);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -113,6 +124,11 @@ export function AddSlidePopover({
     },
     [],
   );
+  const uploadPromptFilesWithStorageMessage = useCallback(
+    (files: File[]) =>
+      uploadPromptFiles(files, t("home.referenceFileStorageUnavailable")),
+    [t],
+  );
   const {
     commitFiles,
     discardFiles,
@@ -121,20 +137,20 @@ export function AddSlidePopover({
     uploadFiles,
     uploading,
     reset: resetEagerUploads,
-  } = useEagerFileUploads(uploadPromptFiles, {
+  } = useEagerFileUploads(uploadPromptFilesWithStorageMessage, {
     onDiscard: deleteUploadedPromptFile,
     onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
+
+  useEffect(() => {
+    if (fileStorageConfigured) setStoragePromptOpen(false);
+  }, [fileStorageConfigured]);
 
   useLayoutEffect(() => {
     if (!open || !panelRef.current) return;
     setPanelHeight(panelRef.current.getBoundingClientRect().height);
   }, [open]);
 
-  // Content can grow after the first paint (Google Doc hint, file chips,
-  // an auto-growing textarea) without necessarily triggering a React
-  // re-render. Watch the panel directly so it keeps clamping to the
-  // viewport as it resizes, not just on the frame it first opens.
   useEffect(() => {
     if (!open || !panelRef.current) return;
     const observer = new ResizeObserver(([entry]) => {
@@ -173,6 +189,7 @@ export function AddSlidePopover({
 
   const handleSubmit = useCallback(
     async (text: string, files: File[]) => {
+      if (files.length > 0 && !fileStorageConfigured) return;
       if (submittingRef.current) return;
       submittingRef.current = true;
       setSubmitting(true);
@@ -182,11 +199,25 @@ export function AddSlidePopover({
           try {
             uploaded = await uploadFiles(files);
           } catch (error) {
+            const storageSetupRequired = isStorageSetupRequiredError(error);
+            if (storageSetupRequired) void storageQuery.refetch();
             toast.error(t("editorSidebar.uploadFailed"), {
-              description:
-                error instanceof Error
-                  ? error.message
-                  : t("editorSidebar.uploadAttachedFileFailed"),
+              description: formatPromptUploadFailure(
+                error,
+                storageSetupRequired
+                  ? t("home.fileStorageSetupRequired")
+                  : isPromptUploadNetworkError(error)
+                    ? t("home.importMenu.networkFailed")
+                    : isPromptUploadAuthRequiredError(error)
+                      ? t("home.importMenu.notStarted")
+                      : isPromptUploadLimitError(error)
+                        ? t("home.importMenu.uploadLimitExceeded")
+                        : isPromptUploadStorageStatusError(error)
+                          ? t("editorToolbar.importFailedDescription")
+                          : error instanceof Error
+                            ? error.message
+                            : t("editorSidebar.uploadAttachedFileFailed"),
+              ),
             });
             return;
           }
@@ -262,10 +293,12 @@ export function AddSlidePopover({
       discardFiles,
       deckId,
       deckTitle,
+      fileStorageConfigured,
       googleDocContext,
       onOpenChange,
       slideCount,
       retainFiles,
+      storageQuery.refetch,
       t,
       targetSlideId,
       uploadFiles,
@@ -273,17 +306,32 @@ export function AddSlidePopover({
   );
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
+      if (!fileStorageConfigured) return;
       syncFiles(files);
       void uploadFiles(files).catch((error) => {
+        const storageSetupRequired = isStorageSetupRequiredError(error);
+        if (storageSetupRequired) void storageQuery.refetch();
         toast.error(t("editorSidebar.uploadFailed"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t("editorSidebar.uploadAttachedFileFailed"),
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(error)
+                      ? t("editorToolbar.importFailedDescription")
+                      : error instanceof Error
+                        ? error.message
+                        : t("editorSidebar.uploadAttachedFileFailed"),
+          ),
         });
       });
     },
-    [syncFiles, t, uploadFiles],
+    [fileStorageConfigured, storageQuery.refetch, syncFiles, t, uploadFiles],
   );
 
   useEffect(() => {
@@ -374,6 +422,7 @@ export function AddSlidePopover({
       )}
       <PromptComposer
         autoFocus
+        attachmentsEnabled={fileStorageConfigured}
         maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
         documentAttachmentLimitLabel="Slides reference files"
         placeholder={t("editorSidebar.promptPlaceholder")}
@@ -381,7 +430,22 @@ export function AddSlidePopover({
         disabled={uploading || submitting}
         onSubmit={handleSubmit}
         onAttachmentsChange={handleAttachmentsChange}
+        onAttachmentRequest={
+          fileStorageConfigured ? undefined : () => setStoragePromptOpen(true)
+        }
         onTextChange={setPromptText}
+      />
+      <FileStorageSetupPopover
+        open={storagePromptOpen && !fileStorageConfigured}
+        onOpenChange={setStoragePromptOpen}
+        onConnected={() => void storageQuery.refetch()}
+        anchorRef={panelRef}
+        {...(!storageQuery.isSuccess || storageQuery.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void storageQuery.refetch(),
+            }
+          : { status: "missing" as const })}
       />
       <div className="-mx-1 mt-2">
         <GoogleDocImportHint

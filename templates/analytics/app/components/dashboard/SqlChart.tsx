@@ -1,9 +1,9 @@
+import { useDemoModeStatus } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedExtension,
   ExtensionSlot,
-} from "@agent-native/core/client/extensions";
-import { useDemoModeStatus } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/extensions";
 import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
 import {
   IconArrowsSort,
@@ -67,7 +67,7 @@ import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal"
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
-import { useSqlQuery } from "@/lib/sql-query";
+import { useSqlQuery, type SqlQueryResult } from "@/lib/sql-query";
 import {
   resolveDualAxis,
   type ChartAxisSide,
@@ -115,8 +115,6 @@ const DEFAULT_COLORS = [
   "#14b8a6",
 ];
 
-// The agent sidebar overlays the main surface at z-index 70/80. Keep the
-// body-portaled chart tooltip below it so wide chat cannot be overpainted.
 const CHART_TOOLTIP_Z_INDEX = 60;
 
 const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
@@ -209,7 +207,6 @@ function formatYValue(
 ): string {
   if (formatter === "currency") return `$${value.toLocaleString()}`;
   if (formatter === "percent") {
-    // SQL typically returns rate as 0..1
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
   }
@@ -237,10 +234,6 @@ function axisLabelProps(value: string, side: ChartAxisSide) {
   };
 }
 
-/**
- * Recharts only discovers axes it finds among a chart's own children, so these
- * come back as an array rather than a wrapper component.
- */
 function renderChartYAxes(
   plan: DualAxisPlan,
   yFormatter?: ChartValueFormatter,
@@ -282,11 +275,6 @@ function seriesAxisId(plan: DualAxisPlan, key: string): string | undefined {
   return plan.enabled ? plan.sideFor(key) : undefined;
 }
 
-/**
- * Tooltip values follow their own axis, so a count and a rate in the same
- * tooltip each read with the right unit. Series arrive named by their display
- * label, which for Prometheus panels differs from the data key.
- */
 export function seriesValueFormatter(
   yKeys: string[],
   plan: DualAxisPlan,
@@ -313,14 +301,6 @@ export function seriesValueFormatter(
   };
 }
 
-/**
- * Format a single metric value for display. Coerces Postgres numeric/bigint
- * columns (returned as strings, e.g. a rate of "0.00000000000000000000") to a
- * number so the formatter applies - Postgres numeric values may arrive as strings, so this only
- * bites on Postgres/Neon, where the raw high-scale decimal would otherwise be
- * dumped verbatim. A configured `valueLabels` mapping wins; a non-numeric
- * string falls through unformatted.
- */
 export function formatMetricValue(
   raw: unknown,
   formatter?: "number" | "currency" | "percent",
@@ -895,10 +875,6 @@ export function SeriesLegend({
   );
 }
 
-// When a chart renders inside the full-screen modal it should grow to fill the
-// available space rather than the fixed 250px card height. ChartFrame reads
-// this via context so we avoid threading a prop through every renderer
-// (line/area/bar/pie all share ChartFrame).
 const ChartFillHeightContext = createContext(false);
 
 export function ChartFillHeight({ children }: { children: ReactNode }) {
@@ -1183,7 +1159,6 @@ function detectKeys(
   const colSet = new Set(cols);
   const sample = rows[0] as Record<string, unknown>;
 
-  // Find the x-axis: prefer a date-like or string column
   let xKey = config?.xKey && colSet.has(config.xKey) ? config.xKey : "";
   if (!xKey) {
     xKey =
@@ -1199,12 +1174,10 @@ function detectKeys(
       cols[0];
   }
 
-  // Pivoted data: caller already knows the series keys
   if (forcedYKeys && forcedYKeys.length) {
     return { xKey, yKeys: forcedYKeys.filter((key) => colSet.has(key)) };
   }
 
-  // Y keys: all numeric columns that aren't the x-axis
   const yKeys = (config?.yKeys ?? (config?.yKey ? [config.yKey] : [])).filter(
     (key) => colSet.has(key),
   );
@@ -1231,9 +1204,6 @@ function configuredKeysMissingFromRows(
   const config = panel.config;
   if (config?.xKey && !rowKeys.has(config.xKey)) missing.add(config.xKey);
 
-  // Pivoted charts turn the configured value column into one column per
-  // discovered series. After that transform, yKey/yKeys are no longer active
-  // output columns, so do not warn that the original value column is absent.
   if (!config?.pivot) {
     if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
     for (const key of config?.yKeys ?? []) {
@@ -1263,17 +1233,16 @@ function ConfigWarning({ keys }: { keys: string[] }) {
 
 interface SqlChartProps {
   panel: SqlPanel;
-  /** SQL with dashboard variables already interpolated. Falls back to panel.sql. */
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
+  resultOverride?: SqlQueryResult;
+  showLoadingWhenDisabled?: boolean;
   timeRange?: number;
   reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
-  /** Keeps same-dashboard panels deduplicated without sharing across dashboards. */
   dashboardId?: string;
-  /** Dashboard/panel state sent to slot-backed extension boxes. */
   extensionContext?: Record<string, unknown> | null;
 }
 
@@ -1281,6 +1250,8 @@ export function SqlChart({
   panel,
   resolvedSql,
   loadData = true,
+  resultOverride,
+  showLoadingWhenDisabled = true,
   timeRange,
   reportScreenshot = false,
   onExportCsvChange,
@@ -1290,27 +1261,26 @@ export function SqlChart({
 }: SqlChartProps) {
   const t = useT();
   const { enabled: demoModeEnabled } = useDemoModeStatus();
-  // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
   const isExtension = panel.chartType === "extension";
-  // Sections are pure layout and extensions render their own iframe — neither
-  // runs the SQL pipeline.
-  const shouldQuery = !isSection && !isExtension && loadData;
+  const shouldQuery = !isSection && !isExtension && loadData && !resultOverride;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const {
-    data: result,
-    isLoading,
-    isFetching,
+    data: queryResult,
+    isLoading: queryIsLoading,
+    isFetching: queryIsFetching,
     error: queryError,
     refetch,
   } = useSqlQuery(
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
     panel.source,
-    // Skip the query for section panels — they are pure layout with no data.
     { enabled: shouldQuery, reportScreenshot },
   );
 
+  const result = resultOverride ?? queryResult;
+  const isLoading = resultOverride ? false : queryIsLoading;
+  const isFetching = resultOverride ? false : queryIsFetching;
   const rawRows = result?.rows ?? [];
   const error =
     rawRows.length === 0
@@ -1345,8 +1315,6 @@ export function SqlChart({
         : queryRows,
     [queryRows, yKeys, panel.id, shouldCreateDemoTrend],
   );
-  // Legacy normalization: older saved dashboards may still have stacked-*
-  // chart types. Render them unstacked rather than silently blank.
   const chartType: ChartType =
     (panel.chartType as string) === "stacked-bar"
       ? "bar"
@@ -1358,8 +1326,6 @@ export function SqlChart({
     [chartType, rows],
   );
 
-  // Section panels are pure layout — no query, no chart. Render a header with
-  // optional description and skip the SQL pipeline entirely.
   if (isSection) {
     return (
       <div className="px-1 py-2">
@@ -1372,8 +1338,6 @@ export function SqlChart({
     );
   }
 
-  // Extension panels render either a named extension-point slot or a legacy
-  // direct extension iframe instead of querying a data source.
   if (isExtension) {
     const extensionId = panel.config?.extensionId;
     const slotId = panel.config?.extensionSlotId;
@@ -1407,7 +1371,7 @@ export function SqlChart({
       : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (!loadData || isLoading || isFetching) {
+  if (isLoading || isFetching || (!loadData && showLoadingWhenDisabled)) {
     return <SqlChartLoadingSkeleton panel={panel} />;
   }
 
@@ -1420,15 +1384,17 @@ export function SqlChart({
         <p className="text-center text-sm text-destructive break-words">
           {formatSqlChartError(error)}
         </p>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => void refetch()}
-        >
-          <IconRefresh className="mr-2 h-3.5 w-3.5" />
-          {t("sqlDashboard.refresh")}
-        </Button>
+        {loadData ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => void refetch()}
+          >
+            <IconRefresh className="mr-2 h-3.5 w-3.5" />
+            {t("sqlDashboard.refresh")}
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -1543,8 +1509,6 @@ function DashboardExtensionPanel({
   context?: Record<string, unknown> | null;
 }) {
   const t = useT();
-  // Hold the report-readiness marker until the extension iframe paints so
-  // dashboard report screenshots don't capture a blank extension panel.
   const [ready, setReady] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const loadingSkeleton = !ready ? (
@@ -1577,9 +1541,6 @@ function DashboardExtensionPanel({
     );
   }
 
-  // Embedding never grants access to the extension itself (same model as
-  // ExtensionSlots). A viewer with dashboard-only access who can't see the
-  // referenced extension gets a clear message instead of a blank panel.
   if (unavailable) {
     return (
       <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
@@ -1605,7 +1566,6 @@ function DashboardExtensionPanel({
         initialHeight={180}
         onReady={() => setReady(true)}
         onUnavailable={() => {
-          // Clear the report-loading gate so report capture doesn't hang.
           setReady(true);
           setUnavailable(true);
         }}
@@ -1653,9 +1613,6 @@ function numericTableValue(value: unknown): number | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (trimmed === "") return null;
-  // Strip display formatting (currency symbols, thousands separators,
-  // percent signs, whitespace) so a formatted numeric column ("$1,234",
-  // "12.5%") still parses as a number instead of falling back to text.
   const cleaned = trimmed.replace(/[$€£¥%,\s]/g, "");
   if (cleaned === "" || cleaned === "-" || cleaned === "+") return null;
   const numeric = Number(cleaned);
@@ -1686,11 +1643,6 @@ export function sortTableRows(
         const an = numericTableValue(av);
         const bn = numericTableValue(bv);
 
-        // A value that fails to parse as a number sorts after one that
-        // does, regardless of column direction — same rule as null above.
-        // Keeps a mostly-numeric column ("10", "9", "N/A") grouped by
-        // magnitude instead of interleaving text lexically with numbers,
-        // and never coerces the unparseable value to 0.
         if (an !== null && bn === null) return -1;
         if (an === null && bn !== null) return 1;
 
@@ -1848,9 +1800,8 @@ function TableRenderer({
 }) {
   const t = useT();
   const config = panel.config;
-  const sortable = config?.sortable !== false; // default on
+  const sortable = config?.sortable !== false;
 
-  // Resolve column list: explicit config wins, otherwise infer from first row
   const columns = useMemo<TableColumnConfig[]>(() => {
     const rowKeys = new Set(Object.keys(rows[0] ?? {}));
     if (config?.columns?.length) {
@@ -1862,9 +1813,6 @@ function TableRenderer({
     return Object.keys(rows[0]).map((key) => ({ key }));
   }, [config?.columns, rows]);
 
-  // Cap the dataset at `config.limit` before sorting/paginating. Saved
-  // dashboards rely on this to keep long-tailed queries snappy — sorting
-  // 50k rows client-side to page through the first 50 wastes a lot of work.
   const limitedRows = useMemo(() => {
     const limit = config?.limit;
     return limit != null && rows.length > limit ? rows.slice(0, limit) : rows;
@@ -2402,9 +2350,6 @@ function TimeSeriesRenderer({
     );
   }
 
-  // With multiple series, filled areas stack and obscure lines behind them,
-  // so only draw the gradient fill when there's a single series — unless
-  // the caller asked for an explicit stacked area.
   const showFill = visibleKeys.length === 1 || stacked;
 
   return (
@@ -2586,9 +2531,6 @@ function FunnelRenderer({
   );
 }
 
-// Heatmap config: `xKey` = x-axis column, `yKey` = numeric value column,
-// `color` = optional row-label column. If `color` is omitted, the renderer
-// auto-detects the row-label as the first non-x non-value string column.
 function HeatmapRenderer({
   rows,
   panel,

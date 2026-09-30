@@ -18,11 +18,12 @@ const messages = {
     disconnecting: "جارٍ قطع الاتصال…",
   },
   settings: {
+    backHome: "العودة إلى الصفحة الرئيسية",
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
+    description: "إدارة إعدادات التطبيق واللغة.",
+    languageTitle: "لغة الواجهة",
+    languageDescription: "اختر اللغة المستخدمة في هذا التطبيق.",
+    languageLabel: "اللغة",
     agentTitle: "إعدادات الوكيل",
     agentDescription:
       "افتح إعدادات الوكيل في الشريط الجانبي للنموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
@@ -31,7 +32,6 @@ const messages = {
     workspaceDescription: "إدارة وصول الفريق وموارد مساحة العمل المشتركة.",
     openTeamSettings: "فتح إعدادات الفريق",
     openResourceSettings: "فتح إعدادات الموارد",
-    backHome: "العودة إلى الرئيسية",
     emailChange: "تغيير البريد الإلكتروني",
     emailChangeSent: "تحقق من بريدك الإلكتروني لتأكيد هذا التغيير.",
     emailChangeError: "تعذر إرسال التأكيد.",
@@ -228,6 +228,9 @@ const messages = {
       noErrorMessage: "(لا توجد رسالة خطأ)",
     },
   },
+  settingsShortcut: {
+    command: "الإعدادات",
+  },
   agentPanel: {
     useBuilder: "استخدم منشئ",
     openDesktopToEditCode: "افتح سطح المكتب لتحرير التعليمات البرمجية",
@@ -243,6 +246,7 @@ const messages = {
     newChat: "محادثة جديدة",
     newTerminal: "محطة جديدة",
     panelOptions: "خيارات لوحة الوكيل",
+    integrations: "التكاملات",
     collapseSidebar: "طي الشريط الجانبي",
     widenChat: "توسيع الدردشة",
     returnChatToLayout: "إعادة الدردشة إلى تخطيط الصفحة",
@@ -268,6 +272,8 @@ const messages = {
     sharedKeyInEffect: "مفتاح مشترك قيد الاستخدام.",
     useOrganizationKey: "استخدم مفتاح المؤسسة",
     keyStatusUnavailable: "حالة المفتاح غير متاحة.",
+    saveScopeRoleUnavailable:
+      "تعذّر تحميل دورك في المؤسسة، لذا لا يمكن حفظ المفاتيح بعد.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -275,6 +281,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "إغلاق",
     shareOptions: "خيارات المشاركة",
+    people: "الأشخاص",
+    agents: "الوكلاء",
     link: "رابط",
     invite: "Invite",
     embed: "Embed",
@@ -667,6 +675,12 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "العودة إلى القائمة",
+    promoteMustContain: "يجب أن يتضمن الرد…",
+    promoteMustContainOptional: "نص اختياري للتحقق من وجوده في الرد…",
+    promoteMustContainLabel:
+      "النص الذي سيتم التحقق منه في رد التقييم الذي تمت ترقيته",
+    promoteNeedsContains:
+      "لا يتضمن هذا التشغيل أي استدعاء ناجح لأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل ترقيته إلى تقييم.",
     spans: "Spans",
     type: "يكتب",
     name: "الاسم",
@@ -702,6 +716,7 @@ const messages = {
     reviewFeedback: "الملاحظات",
     reviewOutput: "مراجعة الإجابة",
     reviewPreview: "معاينة الإجابة",
+    reviewPreviewUnavailable: "المعاينة غير متاحة",
     closePreview: "إخفاء المعاينة",
     addFeedback: "إضافة ملاحظات",
     draftInstruction: "صياغة تعليمات",

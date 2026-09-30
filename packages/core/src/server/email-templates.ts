@@ -1,40 +1,22 @@
-/**
- * Transactional email renderers for the framework's system emails.
- *
- * Each exported function returns `{ subject, html, text }` so callers can pass
- * the result straight to `sendEmail({ to, ...rendered })`. All three share the
- * same visual identity via the generic `renderEmail` helper in
- * `email-template.ts` — dark card, Inter typography, prominent CTA button.
- *
- * If you need to add another system email (e.g. magic-link, change-email
- * confirmation), add it here rather than inlining `renderEmail` at the call
- * site — keeps the transactional look-and-feel consistent.
- */
-
 import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig, type AppConfig } from "../app-config/index.js";
-import { renderEmail, emailStrong } from "./email-template.js";
+import type { ShareEmailExtras } from "../sharing/registry.js";
+import {
+  renderEmail,
+  emailQuote,
+  emailStrong,
+  type EmailTemplateApp,
+} from "./email-template.js";
 
-/** Shared reply-to for the framework's transactional emails. */
 export const AGENT_NATIVE_REPLY_TO = "agent-native@builder.io";
 
 export interface RenderedEmailMessage {
   subject: string;
   html: string;
   text: string;
-  /**
-   * Per-app sender branding, applied by `sendEmail` only on first-party
-   * agent-native.com deployments. Self-hosted deployments keep the sender and
-   * reply-to they configured via EMAIL_FROM.
-   */
   appSender?: { name: string; slug: string; replyTo?: string };
 }
 
-/**
- * Strip CRLF from any field that flows into the Subject line — a malicious
- * org name, inviter, or app name could otherwise inject Bcc/Reply-To headers
- * via "Name\r\nBcc: attacker@...".
- */
 function stripCrlf(s: string): string {
   return s.replace(/[\r\n]+/g, " ").trim();
 }
@@ -69,11 +51,6 @@ interface EmailBrand {
   senderSlug?: string;
 }
 
-/**
- * Recipient-facing brand for auth emails. Only a recognized first-party
- * template is presented as "Agent-Native <App>"; a custom deployment keeps
- * its own name and logo.
- */
 function resolveBrand(): EmailBrand {
   const app = getAppConfig().app;
   const firstParty = isFirstPartyApp(app);
@@ -93,18 +70,19 @@ function resolveAppLogoUrl(): string | undefined {
   return isFirstPartyApp(app) ? undefined : app.logoUrl;
 }
 
-// ---------------------------------------------------------------------------
-// Organization invitation
-// ---------------------------------------------------------------------------
+export function resolveEmailBrandApp(): EmailTemplateApp {
+  const brand = resolveBrand();
+  return { name: brand.name, logoUrl: brand.logoUrl };
+}
+
+export function resolveEmailApp(): EmailTemplateApp {
+  return { name: resolveAppName(), logoUrl: resolveAppLogoUrl() };
+}
 
 export interface RenderInviteEmailArgs {
-  /** Email address of the person being invited. */
   invitee: string;
-  /** Name of the organization they're being invited to. */
   orgName: string;
-  /** URL the recipient clicks to accept — usually the app's root URL. */
   acceptUrl: string;
-  /** Email (or display name) of the person who sent the invitation. */
   inviter: string;
 }
 
@@ -139,23 +117,45 @@ export function renderInviteEmail(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Signup email verification
-// ---------------------------------------------------------------------------
+export interface RenderBuilderCreditLimitEmailArgs {
+  subject: string;
+  heading: string;
+  body: string;
+  upgradeLabel: string;
+  upgradeUrl: string;
+}
+
+export function renderBuilderCreditLimitEmail(
+  args: RenderBuilderCreditLimitEmailArgs,
+): RenderedEmailMessage {
+  const brand = resolveBrand();
+  const { html, text } = renderEmail({
+    brandName: brand.name,
+    brandLogoUrl: brand.logoUrl,
+    preheader: args.body,
+    heading: args.heading,
+    paragraphs: [args.body],
+    cta: { label: args.upgradeLabel, url: args.upgradeUrl },
+  });
+  return {
+    subject: args.subject,
+    html,
+    text,
+    appSender: brand.senderSlug
+      ? {
+          name: brand.name,
+          slug: brand.senderSlug,
+          replyTo: AGENT_NATIVE_REPLY_TO,
+        }
+      : undefined,
+  };
+}
 
 export interface RenderVerifySignupEmailArgs {
-  /** The email address being verified. */
   email: string;
-  /** The full verification URL from better-auth. */
   verifyUrl: string;
 }
 
-/**
- * Customer-facing description overrides for the verification email body. The
- * default descriptions come from the app-picker hints, which name competitors
- * for internal positioning; these rewrites frame them as "replacement" for a
- * customer-facing email without changing the picker copy.
- */
 const VERIFY_EMAIL_DESCRIPTIONS: Record<string, string> = {
   calendar:
     "Agent-Native Google Calendar replacement — manage events, sync, and public booking",
@@ -282,14 +282,8 @@ export function renderChangeEmailVerificationEmail(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Magic-link sign-in
-// ---------------------------------------------------------------------------
-
 export interface RenderMagicLinkEmailArgs {
-  /** The account email receiving the one-time sign-in link. */
   email: string;
-  /** The full Better Auth URL containing the one-time token. */
   magicLinkUrl: string;
 }
 
@@ -325,14 +319,8 @@ export function renderMagicLinkEmail(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Password reset
-// ---------------------------------------------------------------------------
-
 export interface RenderResetPasswordEmailArgs {
-  /** The account email the reset is for. */
   email: string;
-  /** The full reset URL (includes the signed token). */
   resetUrl: string;
 }
 
@@ -340,8 +328,6 @@ export function renderResetPasswordEmail(
   args: RenderResetPasswordEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  // Match the verification email branding so password resets are clearly tied
-  // to the specific app. No value pitch here — it's a security email.
   const brand = resolveBrand();
 
   const { html, text } = renderEmail({
@@ -369,4 +355,59 @@ export function renderResetPasswordEmail(
         }
       : undefined,
   };
+}
+
+export interface RenderResourceSharedEmailArgs {
+  recipientEmail: string;
+  sender: { name: string; email: string };
+  resource: { type: string; label: string; title: string; url: string };
+  role: "viewer" | "commenter" | "editor" | "admin";
+  message?: string;
+  app: EmailTemplateApp;
+  heroHtml?: string;
+  extras?: ShareEmailExtras;
+}
+
+const SHARE_ROLE_VERBS: Record<RenderResourceSharedEmailArgs["role"], string> =
+  {
+    viewer: "view",
+    commenter: "comment on",
+    editor: "edit",
+    admin: "edit and manage access to",
+  };
+
+export function renderResourceSharedEmail(
+  args: RenderResourceSharedEmailArgs,
+): RenderedEmailMessage {
+  const senderName = stripCrlf(args.sender.name);
+  const resourceTitle = stripCrlf(args.resource.title);
+  const resourceLabel = args.resource.label.toLowerCase();
+  const article = /^[aeiou]/i.test(resourceLabel) ? "an" : "a";
+  const subject = `${senderName} shared with you: "${resourceTitle}"`;
+  const messageParagraph = args.message?.trim()
+    ? emailQuote(args.message)
+    : null;
+  const defaultParagraphs = [
+    `${emailStrong(senderName)} (${emailStrong(args.sender.email)}) has invited you to ${SHARE_ROLE_VERBS[args.role]} the following ${resourceLabel}:`,
+    ...(messageParagraph ? [messageParagraph] : []),
+  ];
+  const extras = args.extras;
+  const { html, text } = renderEmail({
+    brandName: args.app.name,
+    brandLogoUrl: args.app.logoUrl,
+    preheader: subject,
+    heading: `${senderName} shared ${article} ${resourceLabel}`,
+    paragraphs: extras?.paragraphs
+      ? messageParagraph
+        ? [messageParagraph, ...extras.paragraphs]
+        : extras.paragraphs
+      : defaultParagraphs,
+    resourceBlock: { name: resourceTitle },
+    heroHtml: args.heroHtml,
+    cta: { label: "Open", url: args.resource.url },
+    secondaryCta: extras?.secondaryCta,
+    linkBlock: extras?.linkBlock,
+    closingParagraphs: extras?.closingParagraphs,
+  });
+  return { subject, html, text };
 }

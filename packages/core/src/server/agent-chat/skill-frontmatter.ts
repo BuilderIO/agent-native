@@ -18,17 +18,6 @@ export const DEFAULT_SKILL_SCOPE: SkillScope = "both";
 
 const warnedBadScopes = new Set<string>();
 
-/**
- * An unrecognized `scope:` can neither throw nor fall back to `both`.
- * Throwing would be swallowed: every caller parses inside a `catch` that skips
- * the skill (`readSkillsDir`) or falls back to a permissive default, so at
- * production cold start the skill would vanish with no log — the same
- * invisible failure pointed the other way. Falling back to `both` ships a
- * dev-only skill's body to the deployed agent, which is the bug this sentinel
- * exists to prevent. So `invalid` stays distinguishable from an absent scope,
- * is loud once per file+value, and is excluded from the runtime agent's view
- * while the development agent still sees the skill and the mistake.
- */
 export function normalizeSkillScope(
   raw: string | undefined,
   sourceLabel?: string,
@@ -48,11 +37,6 @@ export function normalizeSkillScope(
   return "invalid";
 }
 
-/**
- * The one runtime-visibility gate. A skill whose scope could not be read is
- * withheld alongside `dev`, so a typo fails closed instead of leaking the body
- * into the deployed agent's prompt and docs-search.
- */
 export function isRuntimeVisibleScope(scope: SkillScope | undefined): boolean {
   return scope !== "dev" && scope !== "invalid";
 }
@@ -65,11 +49,13 @@ export function parseSkillFrontmatter(
   description?: string;
   userInvocable?: boolean;
   scope?: SkillScope;
+  requiresLab?: string;
 } {
   const frontmatter = parseFrontmatter(content);
   const userInvocable = getFrontmatterValue(frontmatter, "user-invocable");
   const rawScope = getFrontmatterValue(frontmatter, "scope");
   const name = getFrontmatterValue(frontmatter, "name");
+  const requiresLab = getFrontmatterValue(frontmatter, "requires-lab")?.trim();
   return {
     name,
     description: getFrontmatterValue(frontmatter, "description"),
@@ -80,5 +66,6 @@ export function parseSkillFrontmatter(
       userInvocable === undefined
         ? undefined
         : userInvocable.toLowerCase() === "true",
+    requiresLab: requiresLab || undefined,
   };
 }

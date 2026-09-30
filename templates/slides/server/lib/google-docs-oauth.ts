@@ -109,7 +109,6 @@ export async function isGoogleDocsOAuthConfigured(
   );
 }
 
-/** The client id an authorization request would actually be sent with. */
 export async function getGoogleOAuthClientId(
   owner?: string,
 ): Promise<string | null> {

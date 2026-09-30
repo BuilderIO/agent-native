@@ -22,11 +22,6 @@ function manifest(): Manifest {
   ) as Manifest;
 }
 
-/**
- * A subpath export can silently pull React into a headless install: nothing in
- * `tsc` or the test suite fails, and the cost only shows up in a consumer's
- * bundle. Walking the real import graph is the only check that catches it.
- */
 function moduleGraphFrom(entries: string[]): Map<string, string[]> {
   const graph = new Map<string, string[]>();
   const queue = entries.map((entry) => path.resolve(srcDir, entry));
@@ -68,32 +63,22 @@ describe("AgentKit root entrypoint", () => {
   it("publishes one package with a subpath for every AgentKit surface", () => {
     expect(Object.keys(manifest().exports ?? {}).sort()).toEqual([
       ".",
+      "./client",
       "./conformance",
       "./http",
       "./protocol",
-      "./react",
-      "./react/chat",
-      "./react/components",
-      "./react/context",
-      "./react/headless",
-      "./react/root",
-      "./react/streaming-text",
-      "./react/styles.css",
     ]);
   });
 
-  it("keeps React optional so headless hosts install clean", () => {
+  it("keeps React and Toolkit out of the headless package", () => {
     const pkg = manifest();
 
-    expect(pkg.peerDependencies).toMatchObject({
-      react: expect.any(String),
-      "react-dom": expect.any(String),
-    });
-    expect(pkg.peerDependenciesMeta).toMatchObject({
-      react: { optional: true },
-      "react-dom": { optional: true },
-    });
-    expect(pkg.sideEffects).toEqual(["**/*.css"]);
+    expect(pkg.dependencies).not.toHaveProperty("@agent-native/toolkit");
+    expect(pkg.dependencies).not.toHaveProperty("react");
+    expect(pkg.dependencies).not.toHaveProperty("react-dom");
+    expect(pkg.peerDependencies ?? {}).not.toHaveProperty("react");
+    expect(pkg.peerDependencies ?? {}).not.toHaveProperty("react-dom");
+    expect(pkg.peerDependenciesMeta).toBeUndefined();
   });
 
   it("keeps React out of the headless and HTTP module graphs", () => {
@@ -117,12 +102,10 @@ describe("AgentKit root entrypoint", () => {
     expect(graph.size).toBeGreaterThan(1);
   });
 
-  it("resolves the stylesheet through the React subpath", () => {
-    expect(manifest().exports?.["./react/styles.css"]).toBe(
-      "./dist/react/styles.css",
-    );
-    expect(
-      readFileSync(new URL("./react/styles.css", import.meta.url), "utf8"),
-    ).toContain(":where(.agentkit-chat)");
+  it("publishes the headless client subpath", () => {
+    expect(manifest().exports?.["./client"]).toEqual({
+      types: "./dist/client/index.d.ts",
+      import: "./dist/client/index.js",
+    });
   });
 });

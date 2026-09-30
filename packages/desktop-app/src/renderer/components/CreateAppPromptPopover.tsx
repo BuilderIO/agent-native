@@ -1,4 +1,4 @@
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import {
   Popover,
   PopoverContent,
@@ -97,7 +97,6 @@ export default function CreateAppPromptPopover({
             draftScope="desktop:chat-first:create-app"
             preserveDraftOnSubmit
             showModelSelector={false}
-            modelStatusChecksEnabled={false}
             attachmentsEnabled={false}
             plusMenuMode="hidden"
             voiceEnabled={false}

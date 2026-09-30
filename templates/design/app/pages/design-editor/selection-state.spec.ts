@@ -196,8 +196,6 @@ describe("isDocumentShellCodeLayerNode", () => {
   });
 
   it("does not treat a body/html node with a more specific layer name as a shell node", () => {
-    // e.g. a <body data-agent-native-layer-name="Screen root"> — an explicit
-    // rename means it should stay selectable like any other layer.
     expect(
       isDocumentShellCodeLayerNode({
         tag: "body",
@@ -220,11 +218,6 @@ describe("hasSelectableCodeLayerParent", () => {
   });
 
   it("is false when the parent resolves to a collapsed document-shell node (BUG-ESCAPE-SHELL fail-before case)", () => {
-    // Before the fix: a top-level layer's parentId still resolves to <body>
-    // in the flat ownership map, and callers used a bare
-    // Boolean(parentNode) check — which is true here — treating <body> as a
-    // selectable parent layer. That is exactly the case that let Escape and
-    // Shift+Enter walk into <body>/<html>.
     expect(
       hasSelectableCodeLayerParent({
         parentNode: { tag: "body", layerNameSource: "tag" },
@@ -402,8 +395,6 @@ describe("overviewSelectionTargetsElement", () => {
   });
 });
 
-// Figma parity (figma-ground-truth.md Round 4): selection-only undo/redo —
-// see SelectionHistoryEntry's doc comment (history.ts).
 describe("isUserOriginatedSelectionIntent", () => {
   it("is false for a gesture/echo reselect with no intent (duplicate clone, catch-up echo, reparent commit)", () => {
     expect(isUserOriginatedSelectionIntent(undefined)).toBe(false);
@@ -521,9 +512,6 @@ describe("elementInfoForSelectionSnapshot", () => {
 
 describe("resolveEffectiveSelectedLayerIds", () => {
   it("does not resurrect a member a Shift+click toggle-off just removed, once the primary follows the remaining member", () => {
-    // A+B selected, Shift+click A -> stored ids [B]; runScreenElementSelect's
-    // toggle-off branch must have already moved selectedElement (and so
-    // selectedElementLayerId) to B for this not to re-add A.
     expect(resolveEffectiveSelectedLayerIds(["node-b"], "node-b")).toEqual([
       "node-b",
     ]);

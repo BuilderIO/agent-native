@@ -20,11 +20,6 @@ const messages = {
   },
   settings: {
     title: "Ajustes",
-    description: "Preferencias de idioma y espacio de trabajo para esta app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
     workspaceTitle: "Espacio de trabajo",
     workspaceDescription:
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
@@ -34,6 +29,7 @@ const messages = {
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
     openAgentSettings: "Gestionar agente",
+    editorGroupTitle: "Editor",
     editorTitle: "Extensión de VS Code",
     editorDescription:
       "Abre y revisa los planes en un panel lateral dentro de VS Code en lugar de una pestaña aparte del navegador.",
@@ -484,6 +480,8 @@ const messages = {
       requestAccess: "Solicitar acceso",
       requestAccessTitle: "Solicitar acceso a este plan",
       requestSent: "Solicitud enviada",
+      storageStatusUnavailable:
+        "No se pudo comprobar el almacenamiento de archivos.",
       retry: "Rever",
       sendFeedback: "Enviar comentarios",
       feedbackPlaceholder:
@@ -731,6 +729,13 @@ const messages = {
       share: "Compartir {{noun}}",
       shareAria: "Compartir {{noun}}",
       shareThis: "Comparte este {{noun}}",
+      teammateSuggestion: {
+        message: "Invita a tu equipo a Plan.",
+        invite: "Invitar al equipo",
+        enableDomain: "Permitir que cualquiera de @{{domain}} se una",
+        enableFailed:
+          "No se pudo activar la unión por dominio. Inténtalo de nuevo.",
+      },
       signedInRetry: "He iniciado sesión - reinténtalo",
       updateLink: "Enlace de actualización",
       updating: "Actualizando",
@@ -787,6 +792,92 @@ const messages = {
     banner:
       "You're browsing as a guest. Iniciar sesión to create plans, leave comments, and keep your work.",
     signIn: "Iniciar sesión",
+  },
+  edition: {
+    rail: {
+      notes: "Notas",
+      inThisBuild: "En esta compilación",
+      threads: "Hilos",
+      partial: "* parcial: algunas pull requests no informaron diferencias",
+    },
+    promise: {
+      readTime: "~{{minutes}} min",
+      unavailable: "No disponible",
+      analysed_one: "{{count}} pull request analizada",
+      analysed_many: "{{count}} pull requests analizadas",
+      analysed_other: "{{count}} pull requests analizadas",
+      storyCount_one: "{{count}} artículo",
+      storyCount_many: "{{count}} artículos",
+      storyCount_other: "{{count}} artículos",
+      areaCount_one: "{{count}} área",
+      areaCount_many: "{{count}} áreas",
+      areaCount_other: "{{count}} áreas",
+    },
+    nav: {
+      label: "Ediciones",
+    },
+    masthead: {
+      issue: "N.º {{number}}",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "El Diario de Ingeniería",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "Qué se lanzó",
+      fileCount_one: "{{count}} archivo",
+      fileCount_many: "{{count}} archivos",
+      fileCount_other: "{{count}} archivos",
+      sources: "Fuentes",
+      quickLinks: "Enlaces rápidos",
+      authors: "Autores: {{names}}",
+      prCount_one: "{{count}} PR",
+      prCount_many: "{{count}} PRs",
+      prCount_other: "{{count}} PRs",
+      whyAndHow: "Por qué y cómo funciona",
+      why: "Por qué",
+      howItWorks: "Cómo funciona",
+      diffUnavailable: "Tamaño del diff no disponible",
+    },
+    coverage: {
+      unresolvedBlocks: "Bloques citados que ya no se resuelven: {{total}}",
+      label: "Cobertura",
+      reposLabel: "Repositorios",
+      reposUnavailable: "Repositorios no disponibles",
+      staleNote:
+        "Estas solicitudes de incorporación fusionadas tienen un resumen, pero no se volvió a publicar al fusionar, por lo que puede describir un estado anterior del cambio.",
+      missingNote:
+        "Estas pull requests fusionadas no tienen resumen, así que esta edición no las cubre.",
+      complete:
+        "Todas las pull requests fusionadas de este periodo tienen resumen.",
+      unknown:
+        "No se registró la cobertura de esta edición, así que se desconoce qué falta.",
+    },
+    reader: {
+      loading: "Cargando la edición",
+      error: "No se pudo cargar esta edición.",
+      retry: "Reintentar",
+      notFound: "Esa edición no está disponible.",
+      noStories: "Esta edición no tiene artículos.",
+    },
+    listen: {
+      voice: "Voz",
+      play: "Escuchar",
+      pause: "Pausar",
+      resume: "Reanudar",
+      stop: "Detener la lectura",
+      preparing: "Preparando…",
+      failed: "No se pudo leer esta edición en voz alta: {reason}",
+    },
+    signIn: {
+      prompt: "Inicia sesión para leer el periódico.",
+    },
+    archive: {
+      build: "Crear la edición de hoy",
+      loading: "Cargando ediciones",
+      error: "No se pudo cargar el archivo de ediciones.",
+      retry: "Reintentar",
+      empty: "Todavía no hay ediciones.",
+    },
   },
 };
 

@@ -21,13 +21,6 @@ async function createClient({ url }: { url: string }) {
     close: () => client.end(),
   };
 }
-/**
- * End-to-end isolation test for the agent's raw-SQL tools against a REAL
- * (temp-file) PostgreSQL database with two tenants. This is the regression proof
- * for the schema-qualified scope-bypass fix (safety.ts) and the credential-row
- * exclusion (scoping.ts): it runs the actual exported db-query / db-exec entry
- * points — no mocks of the SQL layer — and asserts true row-level isolation.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
@@ -113,7 +106,6 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     }
   }
 
-  // ── Reads ──────────────────────────────────────────────────────────────
   it("rejects a schema-qualified read (the scope bypass)", async () => {
     const { default: dbQuery } = await import("./query.js");
     await expect(
@@ -135,7 +127,6 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     expect(keys.some((k: string) => k.includes(":credential:"))).toBe(false);
   });
 
-  // ── Writes ─────────────────────────────────────────────────────────────
   it("rejects a schema-qualified write", async () => {
     const { default: dbExec } = await import("./exec.js");
     await expect(
@@ -146,7 +137,6 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
         dbFile,
       ]),
     ).rejects.toThrow(/schema-qualified/i);
-    // The other tenant's row is untouched.
     const rows = await withClient((c) =>
       c
         .execute(`SELECT body FROM notes WHERE owner_email = 'b@x.com'`)
@@ -160,7 +150,6 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     const remaining = await withClient((c) =>
       c.execute(`SELECT owner_email, body FROM notes`).then((r) => r as any[]),
     );
-    // Only tenant A's row was deleted; tenant B's survives.
     expect(remaining).toHaveLength(1);
     expect(remaining[0].owner_email).toBe("b@x.com");
   });
@@ -176,6 +165,6 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
       rows.map((r) => [r.owner_email, r.body]),
     );
     expect(byOwner["a@x.com"]).toBe("edited");
-    expect(byOwner["b@x.com"]).toBe("B-secret"); // untouched
+    expect(byOwner["b@x.com"]).toBe("B-secret");
   });
 });

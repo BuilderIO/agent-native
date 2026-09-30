@@ -1,14 +1,10 @@
-/**
- * App-owned user labs. Users control each lab; apps can choose its initial
- * state when the user has not saved a preference.
- */
 export interface LabDefinition {
   key: string;
-  /** Initial state for users without a saved preference. Defaults to false. */
   defaultEnabled?: boolean;
+  legacyFlagKeys?: readonly string[];
+  inheritedMixedDescription?: string;
   displayName?: string;
   description?: string;
-  /** Extra search terms such as product names or common aliases. */
   keywords?: string;
 }
 
@@ -17,8 +13,6 @@ const globalLabsRegistry = globalThis as typeof globalThis & {
   [LABS_REGISTRY_SYMBOL]?: Map<string, LabDefinition>;
 };
 
-// Dev servers can load app plugins from source while action registries resolve
-// the built package. Keep both module instances on one process-wide registry.
 const registry =
   globalLabsRegistry[LABS_REGISTRY_SYMBOL] ??
   (globalLabsRegistry[LABS_REGISTRY_SYMBOL] = new Map());
@@ -35,6 +29,12 @@ function normalizeDefinition(definition: LabDefinition): LabDefinition {
     ...(definition.defaultEnabled !== undefined && {
       defaultEnabled: definition.defaultEnabled,
     }),
+    ...(definition.legacyFlagKeys?.length && {
+      legacyFlagKeys: Object.freeze([...new Set(definition.legacyFlagKeys)]),
+    }),
+    ...(definition.inheritedMixedDescription?.trim() && {
+      inheritedMixedDescription: definition.inheritedMixedDescription.trim(),
+    }),
     ...(definition.displayName?.trim() && {
       displayName: definition.displayName.trim(),
     }),
@@ -47,12 +47,10 @@ function normalizeDefinition(definition: LabDefinition): LabDefinition {
   };
 }
 
-/** Define one app-owned lab for registration at server startup. */
 export function defineLab(definition: LabDefinition): LabDefinition {
   return Object.freeze(normalizeDefinition(definition));
 }
 
-/** Define a small app-owned lab registry. */
 export function defineLabs(
   definitions: readonly LabDefinition[],
 ): readonly LabDefinition[] {
@@ -69,7 +67,6 @@ export function defineLabs(
   );
 }
 
-/** Register definitions once at Nitro startup. Re-registering identical data is safe for HMR. */
 export function registerLabs(definitions: readonly LabDefinition[]): void {
   for (const rawDefinition of definitions) {
     const definition = defineLab(rawDefinition);
@@ -80,6 +77,10 @@ export function registerLabs(definitions: readonly LabDefinition[]): void {
     }
     if (
       existing.defaultEnabled !== definition.defaultEnabled ||
+      JSON.stringify(existing.legacyFlagKeys) !==
+        JSON.stringify(definition.legacyFlagKeys) ||
+      existing.inheritedMixedDescription !==
+        definition.inheritedMixedDescription ||
       existing.displayName !== definition.displayName ||
       existing.description !== definition.description ||
       existing.keywords !== definition.keywords
@@ -99,7 +100,13 @@ export function getLabDefinition(key: string): LabDefinition | null {
   return registry.get(key) ?? null;
 }
 
-/** Test-only registry reset; not exported from package entrypoints. */
+export function getLabForLegacyFlag(key: string): LabDefinition | null {
+  return (
+    [...registry.values()].find((lab) => lab.legacyFlagKeys?.includes(key)) ??
+    null
+  );
+}
+
 export function _resetLabRegistryForTests(): void {
   registry.clear();
 }

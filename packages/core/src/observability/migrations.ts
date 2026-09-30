@@ -32,4 +32,29 @@ export const OBSERVABILITY_MIGRATIONS: MigrationEntry[] = [
         ON agent_trace_spans (org_id, run_id, span_type, status, created_at);
     `,
   },
+  {
+    version: 2,
+    name: "observability-org-scope-legacy-feedback",
+    sql: `
+      UPDATE agent_feedback AS feedback
+        SET org_id = summary.org_id
+        FROM agent_trace_summaries AS summary
+        WHERE feedback.org_id IS NULL
+          AND feedback.run_id = summary.run_id
+          AND feedback.thread_id IS NOT DISTINCT FROM summary.thread_id
+          AND feedback.user_id IS NOT NULL
+          AND LOWER(feedback.user_id) = LOWER(summary.user_id)
+          AND summary.org_id IS NOT NULL;
+
+      UPDATE agent_instruction_updates AS instruction_update
+        SET org_id = summary.org_id
+        FROM agent_trace_summaries AS summary
+        WHERE instruction_update.org_id IS NULL
+          AND instruction_update.run_id = summary.run_id
+          AND instruction_update.thread_id IS NOT DISTINCT FROM summary.thread_id
+          AND instruction_update.user_id IS NOT NULL
+          AND LOWER(instruction_update.user_id) = LOWER(summary.user_id)
+          AND summary.org_id IS NOT NULL;
+    `,
+  },
 ];

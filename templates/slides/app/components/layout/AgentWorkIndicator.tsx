@@ -1,9 +1,9 @@
 import {
-  focusAgentChat,
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -57,10 +57,6 @@ function useAgentSidebarVisible() {
     };
     update();
 
-    // The panel is a portal and is normally a direct child of body. Discover
-    // portal mount/unmounts with a shallow child-list observer, then watch only
-    // the panel and its immediate parent. Observing every body attribute and
-    // descendant mutation made this tiny indicator run on every editor render.
     let panelObserver: MutationObserver | null = null;
     let parentObserver: MutationObserver | null = null;
 

@@ -30,7 +30,9 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn(),
   eq: vi.fn(),
+  isNull: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -49,6 +51,8 @@ vi.mock("../db/index.js", () => ({
       id: "recordings.id",
       title: "recordings.title",
       status: "recordings.status",
+      updatedAt: "recordings.updatedAt",
+      sharePasswordVersion: "recordings.sharePasswordVersion",
       visibility: "recordings.visibility",
       password: "recordings.password",
       expiresAt: "recordings.expiresAt",
@@ -80,6 +84,8 @@ function recording(overrides: Record<string, unknown> = {}) {
     id: "rec-1",
     title: "Public clip",
     status: "ready",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    sharePasswordVersion: "initial",
     visibility: "public",
     password: null,
     expiresAt: null,

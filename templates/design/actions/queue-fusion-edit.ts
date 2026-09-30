@@ -1,16 +1,4 @@
-/**
- * queue-fusion-edit — queue a visual edit instruction for a fusion (full-app)
- * design.
- *
- * Fusion screens are iframes of a real running app, so edits cannot be
- * applied synchronously to local HTML the way inline designs are. Instead the
- * instruction is queued as a pending `design_fusion_edits` row; call
- * `apply-fusion-edits` to batch pending rows into one prompt for the
- * in-container app agent.
- */
-
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -21,8 +9,8 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
-import { FULL_APP_BUILDING } from "../shared/full-app.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
+import "../server/db/index.js";
 
 const targetSchema = z.object({
   selector: z
@@ -65,7 +53,7 @@ export default defineAction({
       .describe("Optional target context for the element/screen being edited."),
   }),
   run: async ({ designId, instruction, screenFileId, target }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

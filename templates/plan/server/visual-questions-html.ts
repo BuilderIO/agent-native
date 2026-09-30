@@ -308,9 +308,6 @@ function renderQuestionControl(question: VisualQuestion): string {
   return renderChipChoices(question);
 }
 
-// Multiple-choice questions always offer a write-in answer unless an author
-// explicitly opts out with `allowOther: false`, so a reviewer can give a custom
-// response instead of the listed options.
 function renderWriteIn(question: VisualQuestion): string {
   if (question.allowOther === false) return "";
   const placeholder = escapeHtml(

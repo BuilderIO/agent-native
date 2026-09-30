@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-تحت الغطاء، يُبنى كل تطبيق بـ **مسار قاعدة** خاص به، وهو بادئة عنوان URL مثل `/mail` مضبوطة عبر `APP_BASE_PATH`/`VITE_APP_BASE_PATH`، ثم يُحزَم لأجل إعداد Nitro المسبق المستهدف. يوجّه Cloudflare Pages من خلال **عامل مُرسِل** مُولَّد، وهو نص برمجي صغير في `dist/_worker.js` يقرأ المسار الوارد ويُحيل الطلب إلى التطبيق المطابق. يستخدم Netlify دالة واحدة لكل تطبيق بالإضافة إلى عمليات إعادة توجيه مُولَّدة. يكتب Vercel `.vercel/output` على مستوى مساحة العمل باستخدام Build Output API.
+تحت الغطاء، يُبنى كل تطبيق بـ **مسار قاعدة** خاص به، وهو بادئة عنوان URL مثل `/mail` مضبوطة عبر `APP_BASE_PATH`/`VITE_APP_BASE_PATH`، ثم يُحزَم لأجل إعداد Nitro المسبق المستهدف. **Netlify** هو الإعداد الافتراضي: دالة واحدة لكل تطبيق بالإضافة إلى عمليات إعادة توجيه مُولَّدة. يكتب Vercel `.vercel/output` على مستوى مساحة العمل باستخدام Build Output API.
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (افتراضي)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (افتراضي)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -342,6 +331,30 @@ agents.example.com {
   إلى حاوية الوكيل.
 
 </Callout>
+
+## إعداد Dispatch لمساحة عمل مستضافة ذاتيًا {#dispatch-workspace-apps}
+
+غالبًا ما تحتوي صور Dispatch الإنتاجية على `.output/` فقط، لذلك لا يستطيع الخادم اكتشاف مجلدات التطبيقات أثناء التشغيل. اضبط هذا البيان في خدمة Dispatch. استخدم JSON نفسه في المتغيرين: يُقرأ متغير Vite عند بناء Dispatch، ويُقرأ الآخر عند تشغيل الخادم. أدرج تطبيقات مساحة العمل هذه فقط، واجعل كل `path` مطابقًا لـ `APP_BASE_PATH` ومسار الوكيل. اضبط APP_URL أيضًا على الأصل العام الذي يقدّمه الوكيل العكسي.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## تفعيل الدعوات في مساحة عمل جديدة {#workspace-invites}
+
+إذا كان التسجيل في مساحة العمل يتطلب دعوة، فاضبط متغيرات الوصول التالية في كل حاوية تطبيق تشارك قاعدة البيانات والمصادقة:
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+استبدل عنوان المثال بعنوان البريد الموثّق لأول مسؤول في كل مساحة عمل. في قاعدة بيانات فارغة، يسجّل هذا المسؤول الدخول أولًا، ويصبح مالك المؤسسة الأولية، ثم يدعو الفريق من Settings → Organization → Members. راجع [عمليات النشر المُدارة](/docs/administered-deployments) للاطلاع على خطوات التهيئة كاملة.
 
 ## ما هي الخطوة التالية
 

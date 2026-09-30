@@ -27,8 +27,16 @@ shows in every pinned-label/saved-filter tab whose query it matches (a thread
 can appear in more than one). A thread matching no custom tab falls to
 Important, unless its latest message classifies as automated (bulk senders,
 `List-Unsubscribe`, notification-style `from:`), in which case it falls to
-Other. If the inbox looks stale despite this, call `resync-inbox` to force an
-immediate Gmail resync instead of polling `list-inbox-threads` in a loop.
+Other.
+
+During an initial sync or older-mail backfill, rows and computed tab totals are
+partial; totals marked as lower bounds display with `+`. Call `sync-inbox` to
+advance one bounded step, then read `list-inbox-threads` to see committed rows.
+Repeat while an account is initial, has a pending push, or has backfill pending.
+When the sync result includes `retryAfterSeconds`, wait that long before the
+next step. The inbox client follows this cadence automatically. A plain
+`list-inbox-threads` call never starts Gmail work. Use `resync-inbox` only to
+reset and restart an account's local inbox sync; it performs one bounded step.
 
 ## Coverage-aware inventory reads
 
@@ -68,9 +76,14 @@ relying on ambient screen text.
 `navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `scheduled`,
 `archive`, `trash`, `draft-queue`, `settings`), plus `tab` (an inbox tab id
 from `list-inbox-threads`; `label`/`filter` are accepted aliases),
-`threadId`, `settingsSection` (`drafting`, `automations`, `gmail-filters`,
-`aliases`, `ai-filter`, `tracking`, `slack`, `team`), `queuedDraftId`, or
-`composeDraftId`.
+`threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`.
+
+`settingsSection` opens Settings in the user's tab. `general`, `drafting`,
+`snippets`, `rules`, `ai-filter`, `gmail-filters`, `aliases`, and `tracking`
+are tabs on Mail › General (`/settings/app/<id>`). `rules` is Mail's inbox
+rules; the core Automations page is the agent's scheduled and event
+automations. `slack` opens Channels › Slack, where Slack draft requests and
+the agent's Slack connection live, and `members` opens Organization › Members.
 
 ## Related Skills
 

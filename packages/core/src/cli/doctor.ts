@@ -1,25 +1,3 @@
-/**
- * `agent-native doctor` — scan an app's source tree for the security-
- * critical code-safety invariants this monorepo already enforces on
- * itself via `scripts/guard-*.mjs` (see
- * `advisor-plans/reports/005-doctor-design.md` for the full design and
- * `advisor-plans/015-doctor-v1-implementation.md` for the implementation
- * plan). v1 ships 9 of those guards, ported to work against a single
- * generated app root instead of this monorepo's multi-template layout —
- * see `../guards/index.ts`.
- *
- * This is a NEW top-level command, deliberately kept separate from the two
- * existing "doctor" precedents in this CLI:
- *   - `agent-native upgrade check` (`upgrade.ts`) — dependency-pin health.
- *   - `agent-native recap doctor` (`recap.ts`) — PR Visual Recap config health.
- * Each diagnoses a different domain; none are folded into a shared
- * mega-doctor (see report 005, "Relationship to upgrade doctor and recap
- * doctor").
- *
- * `--fix` is reserved, not implemented in v1 — it prints a message and
- * exits 2 rather than silently no-op, so a future implementation doesn't
- * collide with a script already passing the flag.
- */
 import fs from "node:fs";
 import path from "node:path";
 
@@ -38,11 +16,34 @@ import {
 } from "../guards/index.js";
 import type { GuardFinding, GuardResult } from "../guards/index.js";
 import {
+  AGENT_NATIVE_MIGRATION_GUIDE_URL,
   AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+  loadMigrationManifestsForProject,
+  resolveMigrationSymbolMove,
   scanDeprecatedImports,
   type MigrationManifest,
 } from "../package-lifecycle/index.js";
 import { formatBytes, scanCleanTargets } from "./clean.js";
+import {
+  loadActiveMigrationDependencies,
+  readCliCoreVersion,
+  readUpgradeEnvironment,
+  resolveInstalledPackageVersion,
+  selectMigrationDependencies,
+} from "./upgrade.js";
+
+const AGENTKIT_CHAT_MIGRATION_GUIDE_URL = new URL(
+  "../../docs/migrations/agentkit-chat.md",
+  import.meta.url,
+).href;
+const AGENTKIT_CHAT_MIGRATION_GUIDE_SOURCE_URL =
+  "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md";
+
+function resolveRemovedExportMigrationGuide(guide?: string): string {
+  return !guide || guide === AGENTKIT_CHAT_MIGRATION_GUIDE_SOURCE_URL
+    ? AGENTKIT_CHAT_MIGRATION_GUIDE_URL
+    : guide;
+}
 
 export type GuardName =
   | "no-drizzle-push"
@@ -56,6 +57,7 @@ export type GuardName =
   | "explicit-collab-access"
   | "identity-columns-registered"
   | "resource-action-access"
+  | "feature-dependencies"
   | "migration-manifest";
 
 export const ALL_GUARD_NAMES: GuardName[] = [
@@ -70,6 +72,7 @@ export const ALL_GUARD_NAMES: GuardName[] = [
   "explicit-collab-access",
   "identity-columns-registered",
   "resource-action-access",
+  "feature-dependencies",
   "migration-manifest",
 ];
 
@@ -103,11 +106,6 @@ interface DoctorGuardResult extends GuardResult {
   warnings?: GuardFinding[];
 }
 
-/**
- * Reads the optional `"doctor"` key from `<root>/agent-native.json`. All
- * fields are optional with sane empty defaults — an app needs zero config
- * to run `agent-native doctor` with every v1 guard enabled.
- */
 export function readDoctorConfig(root: string): DoctorConfig {
   const manifestPath = path.join(root, "agent-native.json");
   if (!fs.existsSync(manifestPath)) {
@@ -149,6 +147,7 @@ function runGuard(
   root: string,
   config: DoctorConfig,
   migrationManifests?: MigrationManifest[],
+  shellEnvironment: NodeJS.ProcessEnv = process.env,
 ): DoctorGuardResult {
   switch (name) {
     case "no-drizzle-push":
@@ -176,20 +175,67 @@ function runGuard(
       return scanIdentityColumnsRegistered({ root });
     case "resource-action-access":
       return scanResourceActionAccess({ root });
+    case "feature-dependencies": {
+      const dependencies = selectMigrationDependencies(
+        loadActiveMigrationDependencies(
+          root,
+          readCliCoreVersion(),
+          migrationManifests,
+        ),
+        readUpgradeEnvironment(root, root, shellEnvironment),
+      );
+      return {
+        name,
+        findings: dependencies.flatMap((dependency) =>
+          resolveInstalledPackageVersion(root, dependency.name)
+            ? []
+            : [
+                {
+                  file: "package.json",
+                  line: 1,
+                  message: `Configured ${dependency.when} feature requires optional peer ${dependency.name}@${dependency.version}, which is not resolvable. Run \`agent-native upgrade\` to add it. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
+                },
+              ],
+        ),
+      };
+    }
     case "migration-manifest": {
+      const manifests =
+        migrationManifests ?? loadMigrationManifestsForProject(root);
       const imports = scanDeprecatedImports({
         root,
-        manifests: migrationManifests,
+        manifests,
       });
       return {
         name,
         findings: imports
-          .filter((finding) => finding.status === "active")
-          .map((finding) => ({
-            file: path.relative(root, finding.file),
-            line: finding.line,
-            message: `${finding.from} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
-          })),
+          .filter(
+            (finding) =>
+              finding.status === "active" || finding.status === "removed",
+          )
+          .map((finding) => {
+            const move = manifests
+              .map((manifest) => manifest.moves[finding.from])
+              .find(Boolean);
+            const destinations = finding.symbols.length
+              ? finding.symbols
+                  .map((symbol) => {
+                    const destination = move
+                      ? resolveMigrationSymbolMove(move, symbol)?.to
+                      : undefined;
+                    return `${symbol} → ${destination ?? finding.to.join(", ")}`;
+                  })
+                  .join(", ")
+              : finding.to.join(", ");
+            return {
+              file: path.relative(root, finding.file),
+              line: finding.line,
+              message:
+                finding.status === "removed"
+                  ? `${finding.symbols.join(", ")} was removed from ${finding.from}. See the migration guide: ${resolveRemovedExportMigrationGuide(finding.migrationGuide)}`
+                  : `${finding.from}${finding.symbols.length > 0 ? ` (${finding.symbols.join(", ")})` : ""} moves to ${destinations}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
+            };
+          }),
         warnings: imports
           .filter((finding) => finding.status === "planned")
           .map((finding) => ({
@@ -204,17 +250,11 @@ function runGuard(
 
 export interface RunDoctorScanOptions {
   root: string;
-  /** Restrict to these guard names. When omitted, runs every guard not
-   * listed in `agent-native.json`'s `doctor.disabledGuards`. Unknown names
-   * are silently ignored here — the CLI layer (`runDoctor`) validates
-   * `--only` and reports a usage error before calling this. */
   only?: string[];
   migrationManifests?: MigrationManifest[];
+  shellEnvironment?: NodeJS.ProcessEnv;
 }
 
-/** Pure scan orchestrator: runs the selected guards against `root` and
- * returns a flat report. No I/O beyond reading `agent-native.json` and the
- * app source tree — no printing, no process.exit. */
 export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
   const root = options.root;
   const config = readDoctorConfig(root);
@@ -226,13 +266,21 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
     );
     names = knownOnly;
   } else {
-    names = ALL_GUARD_NAMES.filter((n) => !config.disabledGuards.includes(n));
+    names = ALL_GUARD_NAMES.filter(
+      (n) => n === "migration-manifest" || !config.disabledGuards.includes(n),
+    );
   }
 
   const findings: DoctorFinding[] = [];
   const warnings: DoctorFinding[] = [];
   for (const name of names) {
-    const result = runGuard(name, root, config, options.migrationManifests);
+    const result = runGuard(
+      name,
+      root,
+      config,
+      options.migrationManifests,
+      options.shellEnvironment,
+    );
     for (const f of result.findings) {
       findings.push({
         guard: name,
@@ -259,14 +307,6 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
   };
 }
 
-/**
- * A workspace root is an orchestrator, not an app root. The portable guards
- * intentionally inspect `actions/` and `server/` relative to one project, so
- * a recursive scan from the workspace root would miss `apps/<name>/` queries.
- * Run the same versioned scanner once per workspace app and shared package,
- * prefixing findings with the project path so both humans and coding agents
- * can fix the right file.
- */
 interface WorkspaceDoctorRoots {
   appRoots: string[];
   scanRoots: string[];
@@ -340,41 +380,22 @@ function runWorkspaceDoctorScan(
   };
 }
 
-/**
- * Hosted app volumes are ~4.84 GB total, so anything under this is close
- * enough to a stalled build or a failed write to be worth naming.
- */
 export const LOW_DISK_FREE_BYTES = 500 * 1024 * 1024;
 
 export interface DoctorDisk {
   freeBytes: number;
   totalBytes: number;
-  /** Size of the caches `agent-native clean` removes by default. Undefined —
-   * not 0 — unless `--disk` asked for the scan: "not measured" is not "empty". */
   reclaimableBytes?: number;
-  /** Paths the cache scan could not read, so `reclaimableBytes` is a floor. */
   scanFailures?: number;
   low: boolean;
 }
 
-/** Set instead of the reading when free space could not be determined —
- * "unknown" must not read as "plenty". */
 export interface DoctorDiskError {
   error: string;
 }
 
 export type DoctorDiskReport = DoctorDisk | DoctorDiskError;
 
-/**
- * Free space on the volume holding `root`. Advisory only: it never changes
- * doctor's exit code.
- *
- * `measureReclaimable` adds what `agent-native clean` could give back, which
- * costs a recursive walk plus a full stat of every dep cache — multi-GB and
- * seconds in a workspace, on a run that only prints one advisory line. Free
- * space is the number that matters when the disk is full, so the scan is
- * opt-in (`doctor --disk`).
- */
 export function checkDisk(
   root: string,
   { measureReclaimable = false } = {},
@@ -424,10 +445,6 @@ function formatDiskLine(disk: DoctorDiskReport): string {
     : `Disk: ${space}. ${reclaim}`;
 }
 
-/** Pure escalation rule shared by the CLI (`--strict`) and the `build`
- * pre-step (`--strict` / `agent-native.json` `doctor.failOnBuild`). Doctor
- * findings fail builds by default; only an explicit `failOnBuild: false`
- * opt-out can keep a build moving, while `strict` always fails. */
 export function shouldFailBuild(
   hasFindings: boolean,
   opts: { strict?: boolean; failOnBuild?: boolean },
@@ -486,7 +503,6 @@ export interface DoctorCliOptions {
   strict?: boolean;
   help?: boolean;
   fix?: boolean;
-  /** Also measure what `agent-native clean` would reclaim (walks every cache). */
   disk?: boolean;
 }
 
@@ -557,8 +573,6 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
   );
 }
 
-/** `agent-native doctor` CLI entrypoint. Returns the process exit code —
- * callers are responsible for calling `process.exit(code)`. */
 export async function runDoctor(
   argv: string[],
   io: DoctorIo = defaultIo,
@@ -605,11 +619,6 @@ export async function runDoctor(
   const disk = checkDisk(root, { measureReclaimable: Boolean(opts.disk) });
 
   if (opts.json) {
-    // The machine-readable report always goes to stdout (io.log), whether
-    // or not findings are present, so `agent-native doctor --json >
-    // report.json` in CI always captures the report. Only the usage/
-    // execution error payloads above (bad --cwd, unknown --only) go to
-    // stderr — those are diagnostics for exit code 2, not the report.
     io.log(
       JSON.stringify(
         {
@@ -652,23 +661,14 @@ export async function runDoctor(
 
 export interface DoctorBuildHookOptions {
   cwd: string;
-  /** Set when the caller passed `agent-native build --strict`. */
   strict?: boolean;
 }
 
 export interface DoctorBuildHookResult {
-  /** False when findings are present and the project has not explicitly
-   * opted out of the build gate. */
   ok: boolean;
   report: DoctorReport;
 }
 
-/**
- * `agent-native build`'s doctor pre-step. Always runs every enabled guard
- * and always prints findings to `io.err` — never silent. Findings fail the
- * build by default; only an explicit `doctor.failOnBuild: false` opt-out can
- * keep a build moving, while `--strict` overrides that opt-out.
- */
 export async function runDoctorBuildHook(
   options: DoctorBuildHookOptions,
   io: DoctorIo = defaultIo,

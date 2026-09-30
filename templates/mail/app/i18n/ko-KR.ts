@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "나에게 보내는 메모",
     },
     inbox: {
+      atLeastCount: "최소 {{count}}",
       syncing: "받은편지함 동기화 중…",
     },
     sort: {
@@ -33,6 +34,104 @@ const messages = {
       newest: "최신순",
       priority: "우선순위",
       priorityFailed: "받은편지함을 정렬하지 못했습니다.",
+      priorityScoreHelp:
+        "점수가 높을수록 Jev가 더 중요하다고 판단한 메시지입니다.",
+      priorityFeedbackSuggestion:
+        "이 피드백 패턴을 중요도 또는 자동 보관 규칙으로 만들 수 있습니다.",
+      priorityFeedbackAskAgent: "에이전트에 규칙 제안 요청",
+      aiSetupTitle: "AI 받은편지함 설정",
+      aiSetupTagLabel: "AI 태그 만들기",
+      aiSetupImportanceLabel: "중요한 메일",
+      aiSetupSpamLabel: "스팸",
+      aiSetupArchiveLabel: "받은편지함 건너뛰기",
+      aiSetupSave: "설정 저장",
+      aiSetupSkip: "나중에 하기",
+      aiSetupImportantHeadline: "무엇이 중요한가요?",
+      aiSetupSkipInboxHeadline: "받은편지함을 건너뛸 메일은 무엇인가요?",
+      aiSetupTagsHeadline: "메일을 탭으로 정리",
+      aiSetupArchiveSpamHeadline: "받은편지함 건너뛰기 및 스팸",
+      aiSetupTagReceipts: "영수증",
+      aiSetupTagUpdates: "제품 업데이트",
+      aiSetupTagGitHub: "GitHub 사람 댓글",
+      aiSetupPromptReceipts: "온라인 상점의 영수증 및 주문 확인",
+      aiSetupPromptUpdates: "사용 중인 도구의 제품 업데이트 및 릴리스 노트",
+      aiSetupPromptGitHub: "사람이 댓글을 남긴 GitHub 알림",
+      aiSetupImportantPrompt:
+        "답장이 필요하거나 기한이 있는 메시지. GitHub의 사람 댓글을 포함하고 봇 댓글은 제외합니다.",
+      aiSetupArchiveSpamPrompt:
+        "받은편지함 건너뛰기: 봇 댓글이나 자동 상태 업데이트가 포함된 GitHub 알림.\n스팸: 요청하지 않은 명백한 홍보성 또는 원치 않는 메시지.",
+      aiSetupCustomTag: "사용자 지정",
+      aiSetupDone: "완료",
+      aiSetupConnectGmailHeadline: "Gmail을 연결해 받은편지함 정리하기",
+      aiSetupConnectGmailDescription:
+        "Google을 연결하면 최근 메일에 규칙을 적용할 수 있어요.",
+      aiSetupConnectJevHeadline: "Jev를 연결해 받은편지함 정리하기",
+      aiSetupConnectJevDescription:
+        "Jev를 연결하면 최근 메일에 규칙을 적용할 수 있어요.",
+      aiSetupCustomTabName: "탭 이름",
+      aiSetupCustomTabExample: "예: 거래처 청구서",
+      aiSetupRunAgain: "설정 다시 실행",
+      aiSetupTagCalendar: "캘린더",
+      aiSetupPromptCalendar: "필요한 캘린더 초대와 일정 업데이트",
+      aiSetupTagTravel: "여행",
+      aiSetupPromptTravel: "필요한 여행 확인 및 예약",
+      aiSetupTagFinance: "금융",
+      aiSetupPromptFinance: "필요한 청구서와 계좌 명세서",
+      aiSetupArchiveExample: "GitHub, Vercel, Dependabot의 봇 및 CI 알림",
+      aiSetupFilteredExample: "답장하지 않은 영업 메일과 채용 담당자 메시지",
+      aiSetupSortingHeadline: "받은편지함을 정리하고 있어요",
+      aiSetupSortingDescription: "최근 메일에서 규칙과 일치한 결과입니다.",
+      aiSetupFindingRecentMail: "최근 메일을 찾는 중…",
+      aiSetupRetry: "다시 시도",
+      aiSetupGmailStatusFailed: "Gmail 연결을 확인할 수 없어요",
+      aiSetupAutomationSettingsFailed: "AI 모델 설정을 확인할 수 없어요",
+      aiSetupSortingProgress:
+        "최근 메일 정리 중: {{total}}개 중 {{processed}}개",
+      aiSetupUndoing: "받은편지함 변경을 되돌리고 있어요…",
+      aiSetupUndoBeforeRetry:
+        "다시 시도하기 전에 일부 변경 사항을 먼저 실행 취소하세요.",
+      aiSetupSortingFailed:
+        "받은편지함을 정리하지 못했어요. 규칙은 저장되었으니 다시 시도해 주세요.",
+      aiSetupUndoComplete: "{{count}}개 메시지를 이전 상태로 복원했어요.",
+      aiSetupUndoFailed:
+        "받은편지함 변경사항을 실행 취소하지 못했어요. 다시 시도해 주세요.",
+      aiSetupUndoStatusFailed:
+        "실행 취소 요청을 보냈지만 최신 결과를 불러오지 못했어요.",
+      aiSetupRuleCount: "{{count}}개 일치",
+      aiSetupNoMatches: "지난 14일 동안 이 규칙에 맞는 메시지가 없어요.",
+      aiSetupChatTip: "채팅에서 언제든지 규칙을 수정하거나 추가할 수 있어요.",
+      aiSetupChatPrompt: "상사의 이메일을 우선순위로 지정해 줘…",
+      aiSetupNoRules: "선택한 규칙이 없어요.",
+      aiSetupPartialFailure: "{{count}}개 메시지를 업데이트하지 못했어요.",
+      aiSetupSortInbox: "받은편지함 정리하기",
+      aiSetupImportantExample: "상사 Priya(priya@company.com)의 모든 메일…",
+      aiSetupTagsDescription:
+        "AI가 조건에 맞는 메일에 태그를 붙이고 받은편지함 옆에 태그별 탭을 만듭니다.",
+      aiSetupImportantDescription:
+        "AI가 조건에 맞는 메일에 중요 라벨을 추가해 중요 탭에 표시합니다.",
+      aiSetupSkipInboxDescription:
+        "AI가 조건에 맞는 메일을 보관처리해 받은편지함에 표시하지 않습니다. 모든 메일과 검색에서는 계속 확인할 수 있습니다.",
+      aiSetupAddTab: "탭 추가",
+      aiSetupAdjustRules: "규칙 조정",
+      aiSetupImportantBoss: "상사의 메일, ",
+      aiSetupImportantBossChip: "상사의 메일",
+      aiSetupImportantReply: "답장이 필요해요",
+      aiSetupImportantDeadlines: "마감일",
+      aiSetupImportantCustomers: "고객",
+      aiSetupImportantGitHub: "GitHub 사용자",
+      aiSetupImportantCalendar: "일정 초대",
+      aiSetupSkipNewsletters: "뉴스레터",
+      aiSetupSkipPromotions: "프로모션",
+      aiSetupSkipBots: "봇·CI 알림",
+      aiSetupSkipColdSales: "원치 않는 영업",
+      aiSetupSkipRecruiters: "채용 담당자",
+      aiSetupSkipSocial: "소셜 알림",
+      priorityFeedbackLabel: "중요도 피드백",
+      priorityScoreHigh: "중요도 높음",
+      priorityScoreMedium: "중요도 보통",
+      priorityScoreLow: "중요도 낮음",
+      priorityEditRules: "중요도 규칙 편집",
+      aiSetupContinue: "계속",
     },
     toolbar: {
       toggleMenu: "메뉴 전환",
@@ -47,7 +146,7 @@ const messages = {
       unpinSidebar: "사이드바 고정 해제",
       closeSidebar: "사이드바 닫기",
       settings: "설정",
-      aiSettings: "AI 태그 및 스팸",
+      aiSettings: "태그 및 규칙 관리",
     },
     search: {
       label: "검색",
@@ -62,6 +161,7 @@ const messages = {
       filtersLimitReached: "필터는 최대 20개까지 저장할 수 있습니다.",
     },
     tabSettings: {
+      splitInbox: "분할 받은편지함",
       views: "조회수",
       categories: "카테고리",
       rename: "이름 변경",
@@ -69,7 +169,8 @@ const messages = {
       savedFilters: "저장된 필터",
       combinedInbox: "통합 받은편지함",
       allTab: "전체 탭",
-      help: "전체에는 받은편지함의 모든 스레드가 포함됩니다. 선택한 라벨에 따라 받은편지함이 나뉩니다.",
+      help: "통합 받은편지함은 모든 계정을 함께 표시합니다. 끄면 메일이 탭으로 나뉩니다.",
+      aiSetup: "AI 태그 및 규칙 설정",
     },
     accounts: {
       remove: "제거",
@@ -103,6 +204,7 @@ const messages = {
       deleteDraft: "초안 삭제",
       deleteDrafts: "초안 삭제",
       reopenDraft: "다시 열기",
+      openInMail: "Mail에서 열기",
       discardDraft: "초안 버리기",
       enterLinkUrl: "링크 URL을 입력하세요.",
       forward: "Forward",
@@ -224,6 +326,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "예약 발송 취소",
+      deliveryUnknownWarning:
+        "전송 상태를 알 수 없습니다. 해결하기 전에 Mail의 보낸편지함 보기를 확인하세요.",
+      markSentAfterChecking: "보낸편지함을 확인했습니다. 전송됨으로 표시",
+      sendNewCopy: "새 사본 보내기",
+      sendingStatus:
+        "예약된 메일을 처리 중입니다. 작업을 일시적으로 사용할 수 없습니다.",
+      confirmSendNewCopyTitle: "사본을 한 번 더 보낼까요?",
+      confirmSendNewCopyDescription:
+        "원본이 이미 전송되었을 수 있습니다. 먼저 Mail의 보낸편지함 보기를 확인하세요. 다시 보내면 메일이 중복될 수 있습니다.",
       dateInput: "날짜 및 시간",
       noDateMatch: "일치하는 미래 시간이 없습니다",
       inputPlaceholder: "예: 오전 8시, 3일 후, 8월 7일",
@@ -333,6 +444,11 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "예약 이메일을 보냈습니다.",
       scheduledSendFailed: "예약 이메일 보내기 실패",
+      uncertainScheduledMarkedSent: "예약 이메일을 전송됨으로 표시했습니다.",
+      uncertainScheduledResolveFailed:
+        "예약 이메일 상태를 해결하지 못했습니다.",
+      uncertainScheduledRetryStarted: "새 사본을 보내고 있습니다.",
+      uncertainScheduledRetryFailed: "새 사본을 보내지 못했습니다.",
       scheduledCancelled: "예약 이메일이 취소되었습니다.",
       scheduledCancelFailed: "예약 이메일 취소 실패",
       failedToAttachFile: "No se pudo adjuntar el archivo",
@@ -382,6 +498,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google 계정 연결",
+      connectionNotConfigured:
+        "이 앱에는 Gmail 연결이 설정되어 있지 않습니다. 관리자에게 활성화를 요청하거나 지금은 이 단계를 건너뛰세요.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -435,6 +553,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "중요하지 않음",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -447,9 +566,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -495,6 +611,8 @@ const messages = {
         "agent-native-filtered 라벨을 추가하고 대화를 보관합니다. 언제든 실행 취소할 수 있습니다.",
       learningNote:
         "메일을 받은편지함에 보관하고 같은 실수를 반복하지 않도록 필터가 학습합니다.",
+      learningProgress:
+        "{{required}}개 중 {{count}}개의 예시를 확인했습니다. {{required}}개를 모두 확인하면 최근 메일을 검사합니다.",
       rememberLabel: "향후 메일에 기억하기 (선택 사항)",
       correctLabel: "무엇을 학습해야 하나요? (선택 사항)",
       rememberPlaceholder: "예: 정치 캠페인에서 온 이런 메일은 원하지 않음",
@@ -507,10 +625,50 @@ const messages = {
       keptToast: "대화 {{count}}개를 받은편지함에 보관했습니다.",
       actionFailed: "AI 필터를 업데이트하지 못했습니다.",
       settingsFailed: "AI 필터 설정을 저장하지 못했습니다.",
+      automationRulesLoadFailed: "분류 규칙을 불러오지 못했습니다.",
       instructionFailed: "AI 필터 지침을 저장하지 못했습니다.",
+      autoArchiveMode: "자동 보관",
+      skipInboxMode: "받은편지함 건너뛰기",
       spamMode: "스팸",
       tagMode: "태그",
+      aiTagsTitle: "AI 태그",
+      ruleHelpLabel: "{{mode}} 규칙 설명",
+      aiTagRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일에 이 태그를 추가합니다.",
+      importantRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일을 중요 메일로 표시합니다.",
+      skipInboxRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일을 보관해 받은편지함을 건너뜁니다.",
+      spamRuleHelp:
+        "자연어로 지침을 작성하세요. Jev는 일치하는 메일에 agent-native-filtered 라벨을 추가하고 보관합니다. Gmail 스팸으로 보내지는 않습니다.",
+      filteredMode: "필터됨",
+      manageSettings: "관리",
+      askJev: "Jev에게 묻기",
+      askJevPrompt:
+        "이 Mail 규칙을 다듬어 주세요: {{condition}}. 무엇을 바꾸고 싶은지 물어본 다음 업데이트해 주세요.",
+      composerPlaceholder: "Jev에게 받은편지함 정리를 요청하세요…",
+      chatSuggestionFilter: "이런 메시지 필터링",
+      chatSuggestionPriority: "다음 발신자의 이메일 우선순위 지정…",
+      chatSuggestionArchive: "봇 알림 자동 보관",
+      ruleBackfillStarting: "이 규칙을 최근 메일에 적용하고 있어요…",
+      ruleBackfillProgress:
+        "최근 메일에 적용 중: {{total}}개 중 {{processed}}개",
+      ruleBackfillMatches: "최근 메시지 {{count}}개가 일치해요",
+      ruleBackfillNoMatches: "최근 메시지 중 이 규칙에 맞는 항목이 없어요.",
+      ruleBackfillFailed: "이 규칙을 최근 메일에 적용하지 못했어요.",
+      ruleBackfillRunFailed:
+        "최근 메일에 규칙을 적용하는 작업을 완료하지 못했어요.",
+      backfillStatusLoadFailed: "최근 규칙 상태를 불러오지 못했어요.",
+      ruleBackfillPartialFailure: "{{count}}개 메시지를 업데이트하지 못했어요.",
+      ruleBackfillUndoing: "최근 메일을 복원하고 있어요…",
+      ruleBackfillUndoComplete: "{{count}}개 메시지 복원됨",
+      ruleBackfillReview: "일치 항목 검토",
       importantMode: "중요",
+      notifyMode: "알림",
+      notifyModeHelp:
+        "일치하는 메일을 중요 표시하고 Mail을 열어 두고 종 모양 메뉴에서 알림을 켜면 브라우저 팝업을 표시합니다. 모바일 앱은 곧 제공될 예정입니다.",
+      manageAutomationsLink: "더 많은 자동화 작업",
+      notImportantMode: "중요하지 않음",
       importantLabel: "AI 중요",
       reviewImportant: "중요 메일 보기",
       importantPlaceholder: "예: 답장이 필요하거나 기한이 있는 메시지",
@@ -521,6 +679,7 @@ const messages = {
         "일치하는 메일에 라벨을 지정하고 받은편지함 밖으로 이동합니다.",
       spamPlaceholder: "예: 명백한 홍보성 또는 원치 않는 메시지",
       tagPlaceholder: "예: 온라인 상점의 영수증 및 주문 확인",
+      archivePlaceholder: "예: 확인할 필요가 없는 GitHub 봇 알림",
       addShortcut: "⌘ Enter를 눌러 추가",
       previewTitle: "최근 메일 미리보기",
       previewDescription:
@@ -542,6 +701,16 @@ const messages = {
       addRuleToPreview: "최근 메일을 미리 보려면 AI 규칙을 추가하세요.",
       previewEmpty: "미리보기를 실행하면 일치 가능성이 표시됩니다.",
       previewFailed: "최근 메일을 미리 보지 못했습니다.",
+      promptRulesCleared: "분류 규칙을 삭제했습니다.",
+      tagTabsHelp: "각 태그가 받은편지함 탭이 됩니다",
+      addTag: "태그 추가",
+      triageTitle: "AI 분류",
+      connectJev: "Jev 연결",
+      connectJevToRunTriage: "분류를 실행하려면 Jev를 연결하세요",
+      freeBuilderOrApiKey: "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
+      jevAvailabilityFailed: "Jev 사용 가능 여부를 확인할 수 없습니다.",
+      connectBuilder: "Builder.io 연결",
+      addJevApiKey: "API 키 추가",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -600,6 +769,9 @@ const messages = {
     suggestionSummarize: "읽지 않은 이메일 요약하기",
     suggestionReplies: "오늘 답장해야 할 것은 무엇인가요?",
     suggestionWidget: "내 받은편지함용 맞춤 위젯 만들기",
+    ruleSuggestionFilter: "이런 메시지 필터링하기",
+    ruleSuggestionImportant: "상사의 이메일 우선 처리하기",
+    ruleSuggestionArchive: "봇 알림 자동 보관하기",
   },
   settings: {
     openAgentSettings: "에이전트 관리",
@@ -616,7 +788,6 @@ const messages = {
     peoplePlural: "{{count}}명",
     deleteAliasDescription:
       "별칭 “{{name}}”을 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
-    aliasesDescription: "이메일 작성 시 사용할 수 있는 주소 그룹입니다.",
     newAlias: "새 별칭",
     noAliases: "아직 별칭이 없습니다. 하나 만들어 시작하세요.",
     applyLabel: "라벨 적용",
@@ -624,6 +795,7 @@ const messages = {
     markRead: "읽음으로 표시",
     star: "별표",
     trash: "휴지통",
+    notify: "알림",
     labelName: "라벨 이름",
     addAction: "+ 작업 추가",
     ruleName: "규칙 이름",
@@ -634,15 +806,6 @@ const messages = {
     actions: "작업",
     editRule: "규칙 편집",
     deleteRule: "규칙 삭제",
-    noEventAutomations: "아직 메일 이벤트 기반 자동화가 없습니다.",
-    eventAutomationsPrompt:
-      "에이전트에게 “상사에게서 이메일을 받으면 별표를 달고 알려줘” 같은 자동화를 만들어 달라고 요청하세요.",
-    disabled: "비활성화됨",
-    on: "대상",
-    when: "조건",
-    lastRun: "마지막 실행:",
-    automationsDescription:
-      "AI로 새 받은편지함 이메일을 자동 처리하는 규칙입니다.",
     allowAutomationSends: "자동화가 이메일을 자동으로 보내도록 허용",
     allowAutomationSendsDescription:
       "기본값은 꺼짐입니다. 자동화가 매번 승인을 묻지 않고 이메일을 보내도록 하려면 켜세요.",
@@ -653,16 +816,11 @@ const messages = {
     noAutomationRules: "아직 자동화 규칙이 없습니다.",
     noAutomationRulesDescription:
       "이메일 자동 라벨 지정, 뉴스레터 보관, 중요 메시지 별표 표시 등을 위한 규칙을 만드세요. AI 에이전트에게 설정을 요청할 수도 있습니다.",
-    eventTriggers: "이벤트 트리거",
-    eventTriggersDescription:
-      "메일 이벤트(예: 새 이메일 수신)가 발생할 때 실행되는 자동화입니다. 에이전트가 관리합니다.",
     importedSignature: "{{account}}에서 서명을 가져왔습니다.",
     noGmailSignature: "{{account}}의 Gmail 서명을 찾을 수 없습니다.",
     importSignatureFailed: "Gmail 서명을 가져오지 못했습니다.",
     draftingSettingsSaved: "작성 설정이 저장되었습니다.",
     draftingSettingsSaveFailed: "작성 설정 저장에 실패했습니다.",
-    draftingDescription:
-      "이메일 초안을 작성하고 생성할 때 사용하는 기본 설정입니다.",
     signature: "서명",
     importFromGmail: "Gmail에서 가져오기",
     signatureHelp:
@@ -677,43 +835,14 @@ const messages = {
       "짧고 구체적이며 따뜻하게. 형식적인 군더더기는 피하세요.",
     saveDraftingSettings: "작성 설정 저장",
     reset: "재설정",
-    trackingDescription:
-      "수신자가 보낸 이메일을 열거나 링크를 클릭한 시점을 확인합니다. 통계는 각 보낸 메시지 아래에 표시됩니다.",
     trackEmailOpens: "이메일 열람 추적",
     trackEmailOpensDescription:
       "발신 이메일에 1×1 픽셀을 삽입해 수신자가 연 시점을 확인합니다.",
     trackLinkClicks: "링크 클릭 추적",
     trackLinkClicksDescription:
       "발신 이메일의 외부 링크를 재작성해 클릭 시점을 집계합니다.",
-    slackLoadFailed: "Slack 상태를 로드하지 못했습니다",
-    slackUpdateFailed: "Slack 수신 설정을 업데이트하지 못했습니다",
-    slackConfigured: "Slack 자격 증명이 구성되었습니다.",
-    slackNeedsCredentials:
-      "레거시 사용자 지정 수신에는 SLACK_BOT_TOKEN 및 SLACK_SIGNING_SECRET이 필요합니다. 새 Slack 메시징 자동화는 설정 > 메시징에서 워크스페이스를 연결하세요.",
-    slackIntake: "Slack 수신(레거시)",
-    slackDescription:
-      "조직 구성원이 Slack에서 이메일 초안을 대기열에 추가할 수 있는 레거시 사용자 지정 통합입니다.",
-    enabled: "활성화됨",
-    disable: "비활성화",
-    enable: "활성화",
-    slackPostEndpoint: "Slack POST 엔드포인트",
-    slackPostEndpointHelp:
-      "Slack Event Subscriptions에서 사용하세요. 브라우저 GET은 Not Found를 표시할 수 있습니다.",
-    teamDescription: "동료와 이메일 자동화 및 설정을 공유할 팀을 설정하세요.",
-    title: "설정",
-    general: "일반",
-    generalDescription: "Mail의 언어 및 계정 수준 기본 설정입니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "이 계정의 인터페이스 언어를 선택하세요. Mail은 기기 간에 이 설정을 기억합니다.",
-    languageLabel: "인터페이스 언어",
-    whatsNew: "새 소식",
-    whatsNewDescription:
-      "Agent-Native Mail의 최근 사용자 대상 변경 사항입니다.",
     drafting: "작성",
     snippets: "스니펫",
-    snippetsDescription:
-      "/ 와 스니펫 이름을 입력해 작성 중인 초안에 삽입할 수 있는 저장된 답변입니다.",
     newSnippet: "새 스니펫",
     noSnippets: "아직 스니펫이 없습니다. 시작하려면 하나를 만드세요.",
     snippetName: "스니펫 이름",
@@ -724,13 +853,18 @@ const messages = {
     deleteSnippet: "스니펫 삭제",
     deleteSnippetDescription:
       '스니펫 "{{name}}"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.',
-    automations: "자동화",
-    aiFilter: "AI 필터",
+    rules: "규칙",
+    rulesModel: "규칙 모델",
+    rulesModelDescription: "받은 메일을 규칙과 비교합니다.",
+    slackDraftRequests: "초안 요청",
+    slackDraftQueue: "Slack에서 초안 대기열에 추가",
+    slackDraftQueueDescription:
+      "팀원이 Slack에서 에이전트를 멘션해 이메일 초안을 요청합니다. 초안은 검토를 위해 초안 대기열에서 기다립니다.",
+    openDraftQueue: "초안 대기열 열기",
+    aiFilter: "AI 분류",
     gmailFilters: "Gmail 필터",
     aliases: "별칭",
     tracking: "추적",
-    slack: "Slack",
-    team: "팀",
     deleteAlias: "별칭 삭제",
     editAlias: "별칭 편집",
   },

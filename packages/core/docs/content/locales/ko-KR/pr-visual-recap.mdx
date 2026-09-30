@@ -349,6 +349,7 @@ npx @agent-native/recap-cli@latest recap setup
 | `VISUAL_RECAP_MODEL`           | Claude는 `claude-sonnet-5`; 호환 백엔드에서는 필수 | 변수. OpenAI 호환 백엔드의 제공업체 모델 ID(그곳에서는 필수). Claude는 설정하지 않으면 이제 `claude-sonnet-5`가 기본값입니다 — 다른 값(예: 가장 저렴한 등급인 `claude-haiku-4-5`)으로 재정의하려면 설정하세요. Codex는 설정하지 않으면 Codex CLI 자체의 기본값을 사용합니다. |
 | `VISUAL_RECAP_REASONING`       | 각 모델의 기본값                                   | 변수. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Codex 백엔드에 적용됩니다.                                                                                                                                                                             |
 | `VISUAL_RECAP_REQUIRED_LABELS` | —                                                  | 변수. 쉼표로 구분된 PR 레이블입니다. 설정하면 게이트는 나열된 레이블이 하나 이상 붙을 때까지 PR을 건너뜁니다. 예: `visual recap`.                                                                                                                                            |
+| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                             | 변수, copy 변형 전용(재사용 호출자는 무시함). `false`로 설정하면 푸시할 때마다 리캡하지 않습니다. 이후에는 PR이 열리거나 다시 열리거나 리뷰 준비가 되거나 머지될 때와 `recap` 레이블이 붙었을 때만 리캡합니다. 필수 레이블만 붙여서는 시작되지 않습니다.                     |
 | `RECAP_CLI_VERSION`            | `latest`                                           | 변수. 워크플로가 설치하는 `@agent-native/recap-cli` 버전을 고정합니다 — 예: `1.5.0`. [버전 고정](#version-pinning-copy-variant)을 참조하세요.                                                                                                                                |
 | `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                    | 시크릿. Plans 앱을 다른 origin에서 자체 호스팅할 때만 필요합니다.                                                                                                                                                                                                            |
 
@@ -471,15 +472,11 @@ GitHub 작성자 소속이 `OWNER`, `MEMBER`, `COLLABORATOR`인 신뢰된 포크
 
 1. 포크 기여자가 PR을 엽니다. 일반 `pull_request` 워크플로는 GitHub가
    포크 실행에 시크릿을 주지 않기 때문에 건너뜁니다.
-2. 포크 워크플로가 PR 작성자 소속을 확인합니다. 신뢰된 작성자(`OWNER`,
-   `MEMBER`, `COLLABORATOR`)는 열림, 동기화, 재오픈, 리뷰 준비 이벤트에서
-   자동으로 실행됩니다.
+2. 포크 워크플로가 PR 작성자 소속을 확인합니다. 신뢰된 작성자(`OWNER`, `MEMBER`, `COLLABORATOR`)는 열림, 재오픈, 리뷰 준비 이벤트에서 자동으로 실행됩니다.
 3. 그 외 기여자는 메인테이너가 현재 diff를 검토한 다음(특히
    프롬프트 인젝션으로 보이는 내용이 있는지 — 아래 참조) PR에 `recap`
    레이블을 붙여야 합니다.
-4. 그 외 기여자에 대한 레이블 게이트는 head SHA 단위로 동작합니다.
-   기여자가 커밋을 더 푸시하면, 다음 동기화 이벤트는 메인테이너가 새
-   diff를 검토한 뒤 `recap`을 제거했다가 다시 붙이기 전까지 건너뜁니다.
+4. 새 커밋은 포크 워크플로를 트리거하지 않습니다. 새 커밋 이후 리캡을 갱신하려면 메인테이너가 새 diff를 검토한 뒤 `recap`을 제거했다가 다시 붙입니다.
 
 ### 포크 워크플로가 하는 일과 하지 않는 일
 

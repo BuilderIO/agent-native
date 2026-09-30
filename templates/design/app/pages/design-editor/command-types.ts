@@ -1,4 +1,4 @@
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";
@@ -7,10 +7,6 @@ import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard
 
 import type { PendingLiveStructureEdit } from "./pending-edits";
 
-/**
- * Local alias for DesignCanvas's inline `embeddedFrame` prop type (not
- * exported from DesignCanvas.tsx) so the per-screen cache can be typed.
- */
 export type DesignCanvasEmbeddedFrame = {
   viewportWidth: number;
   viewportHeight: number;
@@ -21,13 +17,6 @@ export type DesignCanvasEmbeddedFrame = {
   contentOffsetY?: number;
 };
 
-/**
- * Whether a text commit actually reached a writable surface. The host-side
- * fallback consumes this instead of re-reading the source: a live-snapshot
- * write lands in `liveScreenSnapshotsById`, which `getScreenContent` does not
- * read, so a readback classified an ACCEPTED write as lost and reported the
- * user's text unrecoverable.
- */
 export type TextCommitStatus = "accepted" | "refused";
 
 export interface LiveScreenSnapshot {
@@ -125,6 +114,7 @@ export interface RetryablePrompt {
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
+  contextItems?: PromptComposerSubmitOptions["contextItems"];
   designSystemId?: string | null;
   attempt?: number;
   source?: string;

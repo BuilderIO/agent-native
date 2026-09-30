@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "연결",
@@ -5,7 +7,6 @@ export default {
     connecting: "연결 중...",
     clipboardUnavailable: "클립보드 접근을 사용할 수 없습니다",
     disconnect: "연결 해제",
-    notConnected: "연결되지 않음",
     loadFailed: "이 데이터를 불러올 수 없습니다.",
     retry: "다시 시도",
     saving: "저장 중...",
@@ -194,10 +195,6 @@ export default {
   },
   settings: {
     title: "설정",
-    description: "캘린더와 통합을 구성합니다.",
-    languageTitle: "언어",
-    languageDescription: "Calendar의 인터페이스 언어를 선택하세요.",
-    languageLabel: "인터페이스 언어",
     agentTitle: "에이전트 관리",
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
@@ -211,13 +208,8 @@ export default {
     zoomConnectFailed: "Zoom을 연결할 수 없음",
     zoomDisconnected: "Zoom 연결 해제됨",
     zoomDisconnectFailed: "Zoom 연결 해제 실패",
-    general: "일반",
-    generalDescription: "캘린더 기본값과 예약 복사 문구.",
-    timezone: "시간대",
-    saveSettings: "설정 저장",
     saved: "설정 저장됨",
     saveFailed: "설정 저장 실패",
-    appearance: "모양",
     appearanceDescription:
       "워크스페이스 색상 테마를 선택하거나 에이전트에게 요청하세요.",
     desktopNotifications: "데스크톱 알림",
@@ -231,21 +223,80 @@ export default {
     connectGoogleDescription: "이벤트를 동기화하고 한곳에서 관리하세요.",
     zoomDescription:
       "Zoom을 연결해 캘린더 이벤트와 예약용 회의 링크를 만듭니다.",
-    zoomNotConfigured: "구성되지 않음",
     zoomCredentialsPrompt: "연결하려면 Zoom OAuth 자격 증명을 추가하세요.",
-    bookingTitleLabel: "대체 예약 페이지 제목",
     bookingTitlePlaceholder: "회의 예약",
-    bookingTitleHelp:
-      "예약 링크에 제목이 없을 때만 사용됩니다. 예약 링크에서 공개 URL을 만들고 열고 복사하세요.",
-    bookingDescriptionLabel: "대체 예약 페이지 설명",
     bookingDescriptionPlaceholder: "가능한 시간을 선택하세요.",
-    bookingDescriptionHelp: "예약 링크에 자체 설명이 없을 때만 사용됩니다.",
-    defaultDurationLabel: "기본 이벤트 시간(분)",
-    defaultDurationHelp:
-      "새 캘린더 이벤트와 예약 슬롯의 기본 길이입니다. 예약 링크별로 재정의할 수 있습니다.",
     weekStartLabel: "주 시작일",
     weekStartSunday: "일요일 - 토요일",
     weekStartMonday: "월요일 - 일요일",
+    eventRules: "초대 규칙",
+    eventRulesAutomationLink: "다른 작업을 하려면 자동화를 만드세요.",
+    eventRulesConnectJev: "초대 규칙을 실행하려면 Jev를 연결하세요",
+    eventRulesFreeBuilderOrApiKey:
+      "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
+    eventRulesConnectBuilder: "Builder.io 연결",
+    eventRulesAddJevApiKey: "API 키 추가",
+    eventRulesTabRules: "규칙",
+    eventRulesHelpLabel: "초대 규칙 프롬프트 안내",
+    eventRulesHelp:
+      "Jev가 자동으로 수락, 거절 또는 숨길 초대를 지정하는 프롬프트를 작성하세요.",
+    eventRuleAccept: "자동 수락",
+    eventRuleDecline: "자동 거절",
+    eventRuleHide: "자동 숨기기",
+    eventRulePlaceholderAccept: "예: 팀과의 일대일 미팅 자동 수락",
+    eventRulePlaceholderDecline: "예: 영업 데모와 업무 시간 외 일정 거절",
+    eventRulePlaceholderHide: "예: 집중 시간과 알림 숨기기",
+    eventRulesSave: "규칙 저장",
+    eventRulesClearSaved: "저장된 규칙 지우기",
+    eventRulesRecentActivity: "최근 활동",
+    eventRulesNoActivity: "아직 활동이 없습니다",
+    eventRuleActivityAccepted: "수락함",
+    eventRuleActivityDeclined: "거절함",
+    eventRuleActivityHidden: "숨김",
+    eventRuleUndoDone: "작업을 실행 취소했습니다",
+    eventRuleUndoFailed: "이 작업을 실행 취소하지 못했습니다",
+    eventRulesActive:
+      "규칙은 연결된 계정의 기본 캘린더에서 5분마다 실행됩니다.",
+    eventRulesDisabled:
+      "상시 실행되는 Calendar 작업자에서 RUN_BACKGROUND_JOBS=1을 활성화하세요.",
+    eventRulesDeploymentDisabled:
+      "이 배포에서는 예약 자동화가 비활성화되어 있습니다.",
+    eventRulesChecking: "자동화 상태 확인 중…",
+    eventRulesConflict:
+      "수락 및 거절 규칙이 모두 일치하여 초대를 건너뛰었습니다.",
+    eventRulesUnregistered: "이 서버에 Calendar 자동화가 등록되지 않았습니다.",
+  },
+  calendarSettings: {
+    calendarsTab: "캘린더",
+    bookingTab: "예약",
+    eventsGroup: "일정",
+    appearanceGroup: "모양",
+    colorTheme: "색상 테마",
+    timezone: "캘린더 시간대",
+    timezoneDescription: "일정을 표시하고 새 일정을 만들 때 사용됩니다.",
+    defaultDuration: "기본 일정 길이",
+    defaultDurationDescription:
+      "분 단위입니다. 예약 링크마다 따로 설정할 수 있습니다.",
+    durationInvalid: "5분에서 480분 사이의 길이를 입력하세요.",
+    zoom: "Zoom",
+    connectedAs: "{{accounts}}(으)로 연결됨",
+    setUp: "설정",
+    disconnectGoogleTitle: "Google Calendar 연결을 해제할까요?",
+    disconnectGoogleDescription:
+      "Calendar에서 Google 계정의 일정 표시와 동기화가 중지됩니다.",
+    disconnectZoomTitle: "Zoom 연결을 해제할까요?",
+    disconnectZoomDescription:
+      "다시 연결할 때까지 새 일정과 예약에 Zoom 회의 링크를 추가할 수 없습니다.",
+    manage: "관리",
+    edit: "편집",
+    cancel: "취소",
+    save: "저장",
+    fallbackBookingPage: "대체 예약 페이지",
+    fallbackBookingPageDescription:
+      "예약 링크에 자체 제목이나 설명이 없을 때 사용됩니다.",
+    fallbackTitle: "제목",
+    fallbackDescription: "설명",
+    bookingLinksDescription: "예약 링크를 만들고 공개 URL을 복사합니다.",
   },
   eventDialog: {
     eventUpdated: "이벤트가 업데이트되었습니다",
@@ -477,8 +528,18 @@ export default {
     confirmBooking: "예약 확인",
     confirmation: "확인",
     confirmationSent: "완료되었습니다. 확인 이메일을 보냈습니다.",
+    meetingDetailsPending:
+      "시간이 예약되었습니다. 호스트가 회의 정보를 안내해 드립니다.",
     confirmed: "확정됨",
     confirmedCount: "확정됨 ({{count}})",
+    zoomNeedsReview: "다시 시도하기 전에 Zoom 확인",
+    zoomCancellationNeedsReview: "취소하기 전에 Zoom을 확인하세요",
+    zoomCancellationRequiresHostReview:
+      "예약을 취소하려면 먼저 주최자가 Zoom 회의를 확인해야 합니다.",
+    zoomCancelTitle: "취소하기 전에 Zoom을 확인하세요",
+    zoomCancelDescription:
+      "Zoom이 이 예약의 회의를 만들었을 수 있습니다. Zoom 계정을 확인하고 회의가 있으면 Zoom에서 취소하세요. 회의가 취소되었거나 없는 것을 확인한 뒤에만 계속하세요.",
+    zoomCancelConfirm: "Zoom을 확인했습니다",
     confirming: "확인 중",
     conferencing: "회의",
     connectZoom: "Zoom 연결",
@@ -527,6 +588,7 @@ export default {
     fieldRequired: "{{label}}은(는) 필수입니다",
     linkDisabled: "{{title}} 비활성화됨",
     linkEnabled: "{{title}} 활성화됨",
+    advanced: "고급",
     linkVisibility: "링크 가시성",
     linkVisibilityDescription:
       "공개 페이지를 비활성화하려면 이 기능을 끄십시오.",
@@ -958,7 +1020,7 @@ export default {
     year: "년",
     zoom: "Zoom",
     zoomAdded: "Zoom 추가됨",
-    zoomAddFailed: "Zoom를 추가하지 못했습니다.",
+    zoomAddFailed: zoomAddFailedMessages["ko-KR"],
     zoomConnectFailed: "Zoom를 연결할 수 없습니다",
     zoomConnectionOpened: "Zoom 연결이 열렸습니다.",
     zoomNotConfigured: "Zoom OAuth가 구성되지 않았습니다.",

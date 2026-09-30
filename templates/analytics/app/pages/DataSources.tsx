@@ -1,9 +1,7 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   appApiPath,
   agentNativePath,
 } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import {
   callAction,
   useActionMutation,
@@ -12,11 +10,11 @@ import {
 import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import {
-  getDefaultMcpIntegrations,
-  McpIntegrationLogo,
-} from "@agent-native/core/client/resources";
+import { getDefaultMcpIntegrations } from "@agent-native/core/client/resources";
 import { docsUrl } from "@agent-native/core/shared";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { McpIntegrationLogo } from "@agent-native/toolkit/app/resources";
 import {
   IconCheck,
   IconChevronDown,
@@ -205,8 +203,6 @@ async function testConnection(source: string): Promise<ConnectionTestResult> {
   return res.json();
 }
 
-// Bounds the GitHub status fetch so a hang can't leave the connect poll's
-// `inFlight` guard stuck and stall the interval forever.
 const GITHUB_OAUTH_STATUS_ABORT_MS = 10_000;
 
 async function fetchGitHubOAuthStatus(): Promise<GitHubOAuthStatus> {
@@ -258,7 +254,6 @@ function StepItem({
       }
     };
     reader.readAsText(file);
-    // Reset so the same file can be re-selected
     e.target.value = "";
   };
 
@@ -824,8 +819,6 @@ function ConnectedView({
     mutationFn: () => testConnection(source.id),
     onSuccess: (result) => {
       setTestResult(result);
-      // Refresh envStatus so the per-key "Configured"/"Missing" labels
-      // reflect reality after a test that revealed missing credentials.
       onSaved();
     },
   });
@@ -833,7 +826,6 @@ function ConnectedView({
   const hasInputValues =
     Object.values(inputValues).some((v) => v.trim()) || pendingClears.size > 0;
 
-  // Get credential labels from walkthrough steps
   const keyLabels: Record<string, string> = {};
   for (const step of source.walkthroughSteps) {
     if (step.inputKey) {
@@ -1081,9 +1073,9 @@ function ConnectedView({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
-                className="-mr-1 -mt-1 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                className="-mr-1 -mt-1 shrink-0 text-muted-foreground hover:text-foreground"
                 aria-label={t("dataSources.sourceActions", {
                   name: source.name,
                 })}
@@ -1252,8 +1244,6 @@ function DataSourceCard({
     !showLocalCredentials;
   const workspaceRoleLoading =
     isWorkspaceOAuthSource(source) && !ready && !orgLoaded;
-  // An unreadable status cannot tell this source apart from an unconfigured
-  // one, so the setup walkthrough would be guessing.
   const showUnknownStatus = statusUnknown && !ready && !showLocalCredentials;
 
   useEffect(() => {
@@ -1997,9 +1987,9 @@ function FirstPartyAnalyticsCard() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
-                          size="icon"
+                          size="icon-sm"
                           variant="ghost"
-                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                          className="shrink-0 text-muted-foreground hover:text-foreground"
                           aria-label={t("dataSources.keyActions", {
                             name: key.name,
                           })}
@@ -2075,9 +2065,6 @@ export default function DataSources() {
   });
   const statusData = rawStatusData as DataSourceStatusResponse | undefined;
   const envStatus = credentialRowsFromStatus(statusData);
-  // A failed fetch, an error payload, or a failed workspace-connection lookup
-  // all read as "everything is unconfigured" once they collapse into the empty
-  // credential list. Keep them a separate state instead.
   const statusUnknown =
     !isStatusLoading &&
     (isStatusError ||

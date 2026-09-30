@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconAlertTriangle,
   IconChevronLeft,
@@ -36,6 +37,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useDropVideoUpload } from "@/hooks/use-drop-video-upload";
+import type { VideoStorageGateIssue } from "@/hooks/use-drop-video-upload";
 import {
   useFolders,
   useOrganizations,
@@ -49,6 +51,10 @@ import {
   type RecordingSummary,
 } from "@/hooks/use-library";
 import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
+import {
+  fetchVideoStorageStatus,
+  useVideoStorageStatus,
+} from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
 import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
@@ -71,9 +77,10 @@ import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
   view: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  /** "image" narrows the same list to screenshots; defaults to everything. */
+  kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
-  /** What empty-state illustration to render. Defaults from `view`. */
   emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
   breadcrumbItems?: readonly PageBreadcrumbItem[];
@@ -188,6 +195,7 @@ function buildMoveTargets(
 
 export function LibraryGrid({
   view,
+  kind = "all",
   folderId = null,
   spaceId = null,
   emptyKind,
@@ -242,7 +250,7 @@ export function LibraryGrid({
     setPage(1);
     setSelected(new Set());
     setLastSelectedId(null);
-  }, [view, folderId, spaceId, tagFilter, sort]);
+  }, [view, kind, folderId, spaceId, tagFilter, sort]);
 
   useEffect(() => {
     const handleOpenCreateFolder = () => setCreateFolderOpen(true);
@@ -257,11 +265,12 @@ export function LibraryGrid({
   const countArgs = useMemo(
     () => ({
       view,
+      kind,
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
     }),
-    [view, folderId, spaceId, tagFilter],
+    [view, kind, folderId, spaceId, tagFilter],
   );
   const { data: totalCount } = useRecordingsCount(countArgs);
   const total = totalCount ?? 0;
@@ -274,6 +283,7 @@ export function LibraryGrid({
   const args: ListRecordingsArgs = useMemo(
     () => ({
       view,
+      kind,
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
@@ -281,7 +291,7 @@ export function LibraryGrid({
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
     }),
-    [view, folderId, spaceId, tagFilter, sort, page],
+    [view, kind, folderId, spaceId, tagFilter, sort, page],
   );
 
   const { data, isLoading, isError, refetch, isRefetching } =
@@ -294,9 +304,15 @@ export function LibraryGrid({
   const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
   const canUploadByDrop = canMoveSelection;
+  const [storageGateIssue, setStorageGateIssue] =
+    useState<VideoStorageGateIssue | null>(null);
+  const storageStatus = useVideoStorageStatus(storageGateIssue !== null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragDepthRef = useRef(0);
-  const { uploads, uploadFiles } = useDropVideoUpload({ spaceId, folderId });
+  const { uploads, uploadFiles } = useDropVideoUpload(
+    { spaceId, folderId },
+    setStorageGateIssue,
+  );
   const activeUploadIds = useMemo(
     () =>
       new Set(
@@ -482,6 +498,17 @@ export function LibraryGrid({
   };
 
   const handleRetry = async (rec: RecordingSummary) => {
+    let storageConfigured = false;
+    try {
+      storageConfigured = (await fetchVideoStorageStatus()).configured;
+    } catch {
+      setStorageGateIssue("unavailable");
+      return;
+    }
+    if (!storageConfigured) {
+      setStorageGateIssue("missing");
+      return;
+    }
     try {
       await retryRecordingUploadFromBackup(rec.id);
     } catch (err: any) {
@@ -524,6 +551,17 @@ export function LibraryGrid({
     uploadFiles(files);
   };
 
+  const retryStorageStatus = async () => {
+    const result = await storageStatus.refetch();
+    if (result.isError || !result.data) {
+      setStorageGateIssue("unavailable");
+    } else if (result.data.configured) {
+      setStorageGateIssue(null);
+    } else {
+      setStorageGateIssue("missing");
+    }
+  };
+
   const chips: FilterChip[] = [];
   if (tagFilter) {
     chips.push({
@@ -561,6 +599,20 @@ export function LibraryGrid({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
+      <FileStorageSetupPopover
+        open={storageGateIssue !== null}
+        onOpenChange={(open) => {
+          if (!open) setStorageGateIssue(null);
+        }}
+        onConnected={() => void retryStorageStatus()}
+        {...(storageGateIssue === "unavailable"
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void retryStorageStatus(),
+            }
+          : { status: "missing" as const })}
+      />
+
       {/* Share dialog — programmatically opened from the card context menu */}
       {sharingRec && (
         <ShareRecordingDialog

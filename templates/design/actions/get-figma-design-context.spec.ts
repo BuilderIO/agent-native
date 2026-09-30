@@ -78,6 +78,61 @@ describe("get-figma-design-context", () => {
     expect(result.guidance).toMatch(/get_metadata/);
   });
 
+  it("includes section frames in source order without walking inside frames", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValue(
+      jsonEnvelope({
+        document: {
+          children: [
+            {
+              id: "page",
+              name: "Page",
+              type: "CANVAS",
+              children: [
+                {
+                  id: "first",
+                  name: "First",
+                  type: "FRAME",
+                  children: [{ id: "inner", type: "FRAME" }],
+                },
+                {
+                  id: "section",
+                  name: "Section",
+                  type: "SECTION",
+                  children: [
+                    {
+                      id: "section-frame",
+                      name: "Section frame",
+                      type: "FRAME",
+                    },
+                    { id: "component", name: "Component", type: "COMPONENT" },
+                  ],
+                },
+                { id: "unexpanded", name: "Deeper section", type: "SECTION" },
+                { id: "last", name: "Last", type: "COMPONENT_SET" },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    const result = await action.run({ fileKey: "abcDEF12345" } as any);
+    expect(result.mode).toBe("overview");
+    expect(result.pages?.[0]?.frames.map((frame) => frame.id)).toEqual([
+      "first",
+      "section-frame",
+      "component",
+      "last",
+    ]);
+    expect(result.pages?.[0]?.frames[0]?.childCount).toBe(1);
+    expect(result.guidance).toContain(
+      "Deeper section contents may not be included",
+    );
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(1);
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ query: { depth: 3 } }),
+    );
+  });
+
   it("summarizes a node's fills, gradients, text, and layout, with a screenshot url", async () => {
     mocks.executeProviderApiRequest.mockImplementation(
       async ({ path, query }: any) => {

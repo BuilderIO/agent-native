@@ -3,6 +3,138 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-29
+
+### Improved
+
+- Pin the Mail sidebar to keep folder navigation visible.
+- Mail triage settings separate status-fetch errors from rule failures and offer safe retries.
+- Mail loading screens match the current inbox layout.
+- Mail shows the first messages sooner and keeps them visible while background sync finishes.
+
+### Fixed
+
+- Failed Mail rule runs now show their status once and keep Undo available after an interrupted update.
+- The open chat panel is separated from your inbox by a visible divider.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- Existing compose drafts keep their attachments when revised
+- Scheduled email changes refresh the inbox and schedule list
+
+## 2026-09-28
+
+### Improved
+
+- AI triage now appears before Automations in Mail settings.
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Google sign-in shows progress while authentication finishes.
+- General and AI triage settings now share a consistent full-width layout.
+- Mail background work stays within its time budget and checks fewer connected accounts per sweep.
+- Mail onboarding saves inbox rules before provider setup and sorts recent mail after connection.
+- Mail syncs large inboxes progressively with shared Gmail quota control and resumable bulk archiving.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- Builder credit notices appear above sidebar actions in a full-width layout.
+- Mail automation rules use a consistent neutral color treatment.
+- Open the current agent conversation in a full-page view
+
+### Fixed
+
+- Your inbox now loads without getting stuck on loading placeholders.
+- Inbox category tabs stay in the inbox view
+- Inbox rule sorting now offers a retry when starting fails and reports undo errors.
+- Large archives finish without manual retries
+- Mail actions follow the active inbox tab and ignore rows retained from previous filters
+- Mail automations start from the current inbox point after setup or a sync gap.
+- Mail preserves sorting progress and undo access when a retry is needed
+- Mail retries Gmail status errors and avoids repeating Google sign-in in manual setup.
+- Mail setup keeps saved rules available when browser storage or onboarding completion fails.
+- Mail setup stays recoverable when model settings or sorting status checks fail.
+- Mail updates an existing compose draft in place when you ask for a revision.
+- Rule backfills show why recent mail could not be processed
+- Scheduled Mail jobs recover after interrupted sweeps without duplicating sends
+- Search results no longer trigger a duplicate mailbox fetch
+- Avoid automatic retries after Gmail quota cooldowns
+
+## 2026-09-27
+
+### Added
+
+- Mail can mark prompt-matched messages Important and show browser notifications while Mail is open; mobile app notifications are coming soon.
+
+### Improved
+
+- AI triage links open the relevant rule group.
+- Inbox Priority shows each email's score with quick feedback and rule settings.
+- Mail rule changes in chat now link to the matching Settings section
+- Updated drafts now include a review link in chat
+- Add AI inbox triage to Mail's first-run onboarding.
+- Scheduled-send cards show the subject and local send time
+- Successful draft, filter, and inbox rule changes now appear as concise action cards in chat.
+
+### Fixed
+
+- Failed queued draft sends now report an error instead of appearing successful.
+- Gmail cooldown messages now show when to try again.
+- Inbox sorting recovers automatically when background processing is interrupted
+- Mail resumes inbox organization after temporary Gmail limits
+- Mail retries inbox rules after temporary Google token refresh failures
+- Mail setup stays visible while triage availability loads
+- Mail setup waits for first-run onboarding, and empty importance prompts require an explicit skip.
+- Inbox tabs are visible on mobile, and the full toolbar scrolls together horizontally.
+- Triage examples stay placeholders until you choose them
+- Undo resumes safely after an interrupted mail restore
+- Fixed the inbox crash when the sidebar is pinned
+- Inbox navigation stays in a hamburger drawer, and filter tabs use available toolbar space before scrolling.
+- Inbox sorting finishes reliably across larger mailboxes
+- Scheduled email cards keep subjects that match the default label
+- Scheduled sends reject timestamps outside the supported date range before saving.
+
+## 2026-09-26
+
+### Improved
+
+- AI triage explains how prompts handle matching mail, including how filtered mail is labeled and archived.
+- Drafts and Gmail filter rules appear as compact cards in chat
+- Loading screens now reflect the app's home layout.
+- Mail chat suggestions start with examples for filtering, priority, and auto-archive.
+- See how many conversations Mail filtered or kept in chat
+- AI inbox rules now apply to recent mail, appear as inbox tabs, and can be refined in chat.
+
+### Fixed
+
+- Removing a member from your organization now completes instead of failing with a pending cleanup error
+- Chat-created inbox rules appear immediately while recent mail is processed in the background.
+- Chat-created Mail rules save and queue recent-mail processing before background model checks run.
+- Fixed AI rule setup progress and chat updates
+- Fixed an inbox crash when the sidebar is pinned
+- Mail AI rules now use the configured OpenRouter provider and rank new mail by its score.
+- Setup examples no longer become archive or spam rules unless you edit them.
+- The Filtered inbox view stays available when Gmail labels are migrated.
+- Fixed importance actions, label display, and triage loading feedback.
+- Inbox setup now keeps result counts and undo available while rules refresh.
+- Mail cancels stale thread-read cooldown retries after a newer unread action
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Improved
+
+- Mail settings now live in tabs on Mail > General (Drafting, Snippets, Rules, AI filter, Gmail filters, Aliases, Tracking), and Slack draft requests sit on Channels > Slack.
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
+- Mail now guides users to connect Jev before setting up triage and lets them remove existing rules if Jev becomes unavailable.
+- Tune inbox priorities with Jev, label messages clearly, and teach importance with feedback.
+
+### Fixed
+
+- Fix Google sign-in and connect popups that stayed blank and asked you to allow pop-ups
+- Slack conversations can now use all available Mail actions
+- Editing importance rules preserves disabled instructions and recovers from duplicate-rule deletion failures
+- Handle astral Unicode letters in autocomplete word boundaries
+- Keep existing AI filter rules intact when saving a prompt
+- Keep inbox tab counts consistent when switching tabs
+
 ## 2026-09-24
 
 ### Improved
@@ -19,6 +151,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Security
 
+- Mail session replays mask email text in the mailbox while keeping agent requests and replies readable, including email quotes
 - Mail automations no longer fall back to shared deployment LLM keys; connect a provider in Settings to enable them.
 
 ## 2026-09-23

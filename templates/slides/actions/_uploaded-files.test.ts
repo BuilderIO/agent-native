@@ -26,6 +26,8 @@ vi.mock("../server/lib/uploaded-reference-storage.js", () => ({
     mockReadUploadedReferenceBlob(...args),
 }));
 
+import { isAgentActionStopError } from "@agent-native/core/action";
+
 import { readUserUploadedFile } from "./_uploaded-files";
 
 describe("readUserUploadedFile", () => {
@@ -55,10 +57,36 @@ describe("readUserUploadedFile", () => {
     ).resolves.toEqual({ data: Buffer.from("local"), filename: "deck.pptx" });
   });
 
-  it("rejects local path traversal before reading", async () => {
-    await expect(
-      readUserUploadedFile("/uploads/other/deck.pptx"),
-    ).rejects.toThrow("Access denied");
+  it("stops instead of retrying a local path outside the user's uploads", async () => {
+    const error = await readUserUploadedFile("/uploads/other/deck.pptx").then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      message: expect.stringContaining("Access denied"),
+      errorCode: "permanent_precondition",
+      toolResult: expect.stringContaining("Do not retry this filePath"),
+    });
     expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it("stops instead of retrying an invalid uploaded reference", async () => {
+    mockReadUploadedReferenceBlob.mockRejectedValue(
+      new Error("Invalid uploaded file reference"),
+    );
+
+    try {
+      await readUserUploadedFile("slides-upload:v1:invalid");
+      throw new Error("expected an invalid reference to stop the action");
+    } catch (error) {
+      expect(isAgentActionStopError(error)).toBe(true);
+      expect(error).toMatchObject({
+        errorCode: "permanent_precondition",
+        toolResult: expect.stringContaining("Do not retry this filePath"),
+      });
+    }
+    expect(mockExistsSync).not.toHaveBeenCalled();
   });
 });

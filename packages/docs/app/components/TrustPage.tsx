@@ -7,11 +7,6 @@ const SECTION_KEYS = {
   contact: ["support", "source", "security", "legal"],
 } as const;
 
-// Cloudflare's email obfuscation rewrites the plain-text address (in the
-// mailto link and in the support section's body copy) into a
-// `/cdn-cgi/l/email-protection` link that 404s for crawlers that don't run
-// its client-side decode script. The `email_off` comment pair is Cloudflare's
-// documented opt-out for content that should stay as a real, working link.
 function emailOffHtml(text: string): { __html: string } {
   const escaped = text
     .replace(/&/g, "&amp;")

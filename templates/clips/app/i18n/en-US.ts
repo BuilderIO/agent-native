@@ -1,10 +1,16 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
+    },
+    common: { retry: "Retry" },
+  },
   common: {
     cancel: "Cancel",
     create: "Create",
     save: "Save",
     saving: "Saving…",
-    saveChanges: "Save changes",
     connected: "Connected",
     notConnected: "Not connected",
     disconnect: "Disconnect",
@@ -49,6 +55,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Library",
+    screenshots: "Screenshots",
     sharedWithMe: "Shared with me",
     spaces: "Spaces",
     meetings: "Meetings",
@@ -359,10 +366,9 @@ const messages = {
     downloadForWindows: "Download for Windows",
     downloadForLinux: "Download for Linux",
     downloadDesktopApp: "Download desktop app",
-    commentSignupTitle: "Give your AI agent the full picture",
-    commentSignupContext: "Share transcript and timestamped frames in one link",
-    commentSignupFeedback: "Turn recorded feedback into clear next steps",
-    commentSignupDebug: "Capture console errors and failed requests",
+    commentSignupTitle: "Screen recordings your AI agent can see and hear",
+    commentSignupDescription:
+      "Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents.",
     agentEmptyTitle: "Join the conversation",
     agentEmptyDescription:
       "Create a free Clips account to comment, react, and ask about this clip.",
@@ -499,6 +505,9 @@ const messages = {
     saveThumbnail: "Save thumbnail",
   },
   shareDialog: {
+    redactionsPendingTitle: "Finish redactions before sharing",
+    redactionsPendingBody:
+      "Pending redactions: {{count}}. Apply them in the editor before sharing; the video still contains the original content.",
     publicDescription:
       "Anyone with the link can view — sign in to comment or react",
     shareRecording: "Share recording",
@@ -554,9 +563,6 @@ const messages = {
     copyEmbedCode: "Copy embed code",
     customizeEmbed: "Customize embed",
     more: "More",
-    redactionsPendingBody:
-      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them. Open the editor, burn them in, and sharing comes back.",
-    redactionsPendingTitle: "Finish the redactions first",
   },
   shareUi: {
     owner: "Owner: {{email}}",
@@ -724,9 +730,13 @@ const messages = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     agentTitle: "Manage agent",
-    title: "Settings",
     pageTitle: "Settings · Clips",
     labs: "Labs",
+    labResilientRecording: "Resilient recording",
+    labResilientRecordingDescription:
+      "Try faster recording uploads and improved recovery after interruptions.",
+    labResilientRecordingMixedDescription:
+      "Previous recording settings are still active. Choose On or Off to use one setting.",
     labsIntro:
       "These are new, unstable features and may have bugs. We value your feedback.",
     labVideoEditing: "Video editing",
@@ -735,12 +745,6 @@ const messages = {
     labMeetingsDescription: "Try automatic meeting capture and transcription.",
     labWisprFlow: "Voice dictation",
     labWisprFlowDescription: "Show or hide voice dictation in Clips Desktop.",
-    intro: "Preferences and connected services for this Clips workspace.",
-    preferencesTitle: "Preferences",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language for this account. Clips remembers it across devices.",
-    languageLabel: "Interface language",
     uploadWorkspaceTitle: "Active workspace",
     uploadWorkspaceDescription:
       "Choose the workspace Clips uses for new recordings, including desktop uploads.",
@@ -753,12 +757,15 @@ const messages = {
     uploadWorkspaceSaveFailed: "Could not update active workspace",
     whatsNew: "What's new",
     changelogEmpty: "No updates yet.",
+    changelogCommentSignup:
+      "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+    changelogCommentsEmptyState:
+      "The empty comments state now explains how screen recordings help AI agents.",
+    changelogShareLink:
+      'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
     viewAllUpdates: "View all updates",
     expand: "Expand",
     collapse: "Collapse",
-    playback: "Playback",
-    defaultPlaybackSpeed: "Default playback speed",
-    playbackDescription: "Applied automatically when you open a recording.",
     transcript: "Transcript",
     transcriptCleanup: "Background cleanup",
     transcriptCleanupDescription:
@@ -766,26 +773,17 @@ const messages = {
     notifications: "Notifications",
     monthlyRecap: "Monthly recap",
     sharing: "Sharing",
-    defaultVisibility: "Default visibility for new recordings",
-    defaultVisibilityDescription:
-      "Applied to every recording you create. You can still change visibility per recording.",
     visibilityPrivate: "Private - only you",
     visibilityOrg: "Organization - anyone in your workspace",
     visibilityPublic: "Public - anyone with the link",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:
       "Choose which optional Clips emails you receive.",
-    saved: "Settings saved",
     saveFailed: "Failed to save",
-    builderConnectedToast: "Builder.io connected",
-    videoStorage: "Video storage",
     videoStorageDescription:
       "Builder.io is the primary storage path for Clips uploads. S3 is available when you need to bring your own bucket.",
-    checkingBuilder: "Checking Builder.io",
     builderConnected: "Builder.io connected",
     connectBuilder: "Use Builder.io",
-    builderConnectedFor: "Using Builder.io for {{orgName}}.",
-    builderConnectedGeneric: "New clips use the connected Builder.io provider.",
     builderIncludes:
       "Builder.io's free tier includes object storage, uploads, and managed transcription for new clips.",
     s3Title: "S3-compatible storage",
@@ -793,11 +791,8 @@ const messages = {
     active: "Active",
     s3BuilderConnectedDescription:
       "Use this only if this workspace should upload to your own bucket instead of Builder.io.",
-    s3CurrentProvider: "Currently using {{providerName}}.",
     s3OwnBucketDescription:
       "Use your own bucket if you do not want Builder.io storage.",
-    configureS3: "Configure S3",
-    hideS3: "Hide S3",
     saveStorage: "Save storage",
     storageSaved: "Storage settings saved",
     storageRequired: "Endpoint, bucket, access key, and secret are required.",
@@ -812,7 +807,6 @@ const messages = {
     s3BucketInvalid:
       "Bucket name must be 3–63 lowercase letters, numbers, or hyphens",
     s3RegionInvalid: 'Must be a valid region (e.g. us-east-1) or "auto"',
-    apiSetup: "AI setup",
     apiSetupDescription: "Choose how Clips connects to AI.",
     builderEasySetup: "Builder.io free credits",
     builderAiAvailable:
@@ -823,18 +817,11 @@ const messages = {
     providerKeyDescription:
       "Choose Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere, or Ollama for provider-billed usage.",
     providerKeysSet: "{{count}} set",
-    providerActionTitle: "AI provider",
-    providerActionDescription:
-      "Builder.io includes a free tier, or use custom keys.",
-    providerManage: "Manage",
-    providerCustomKeys: "Custom keys",
-    checkingProviderKeys: "Checking provider keys…",
     keySet: "Set",
     keyCleared: "Storage credentials cleared",
     clearAllS3: "Clear credentials",
     replaceKey: "Replace key…",
     pasteProviderKey: "Paste a provider key first.",
-    apiKeySaved: "API key saved",
     apiKeyFailed: "Failed to save key",
     slackTitle: "Agent-Native Clips for Slack",
     slackDescription: "Preview public Clips links inline in Slack.",
@@ -861,6 +848,50 @@ const messages = {
       "Clips will delete the stored bot token for {{team}} and stop sending playable Slack previews.",
     thisWorkspace: "this workspace",
     slackConnected: "Slack Connected",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "The browser blocked the popup. Allow popups for this site and try again.",
+    recordingsTab: "Recordings",
+    meetingsTab: "Meetings",
+    yourDefaults: "Your defaults",
+    orgDefault: "{{org}} default",
+    playbackSpeed: "Playback speed",
+    playbackSpeedDescription: "Applied when you open a recording.",
+    visibility: "Visibility",
+    visibilityDescription:
+      "Applied to recordings you create. You can change it on any recording.",
+    useOrgDefault: "Use the {{org}} default ({{visibility}})",
+    useDefault: "Use the default ({{visibility}})",
+    transcriptExport: "Transcript export",
+    logoDescription: "Shown in share emails and on public clip pages.",
+    change: "Change",
+    adminsOnly: "Only owners and admins can change this.",
+    brandColorInvalid: "Enter a hex color code.",
+    loadFailed: "Couldn't load these settings.",
+    emailGroup: "Email",
+    calendarGroup: "Calendar",
+    googleCalendar: "Google Calendar",
+    connect: "Connect",
+    reconnect: "Reconnect",
+    connectedAs: "Connected as {{account}}",
+    needsReconnect: "{{account}} needs to be reconnected.",
+    disconnectFailed: "Couldn't disconnect the calendar.",
+    disconnectCalendarDescription:
+      "Clips stops syncing upcoming meetings from {{account}}.",
+    calendarApp: "Google Calendar app",
+    desktopGroup: "Desktop",
+    meetingCapture: "Meeting capture",
+    meetingCaptureDescription:
+      "Notes, auto-start, and notifications are set on each device in Clips Desktop.",
+    openClipsDesktop: "Open Clips Desktop",
+    keySaved: "Saved",
+    keyNotSaved: "Not saved",
+    manage: "Manage",
+    add: "Add",
+    linkPreviews: "Link previews",
+    addWorkspace: "Add workspace",
+    storageAskAdmin: "Ask an owner or admin to set up storage.",
   },
   insightsHub: {
     title: "Insights",
@@ -905,8 +936,6 @@ const messages = {
     noOrganization:
       "No organization yet. Create one from the organization switcher to get started.",
     description: "Organization admin: branding, members, invites.",
-    adminsOnlyBranding: "Only admins can edit branding.",
-    brandingLoadFailed: "Couldn't load organization branding.",
     members: "Members",
     pendingInvites: "Pending invites",
     noPendingInvites: "No pending invites.",
@@ -1348,11 +1377,22 @@ const messages = {
     disconnected: "Microphone disconnected.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, allow popups for this site and try again.",
+    builderConnectError:
+      "Couldn't connect Builder.io. Try again or contact support.",
+    checkingBuilderConnection: "Checking Builder connection…",
     builderTimeout:
       "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
     connectBuilder: "Use Builder.io",
+    createBuilderAccount: "Create Builder.io account",
+    signInWithBuilderAccount: "Sign in with Builder.io account",
+    builderConsentPrefix: "By creating a Builder.io account, you agree to our",
+    builderTerms: "Terms of Service",
+    builderConsentAnd: "and",
+    builderPrivacy: "Privacy Policy",
     free: "Free",
     configureS3: "configure S3-compatible storage",
     whyPrompt: "Why am I seeing this?",
@@ -1401,11 +1441,6 @@ const messages = {
     styleBlur: "Blur",
     styleSolid: "Solid",
     helpTitle: "Using redaction",
-    /**
-     * First, and on its own: everything else here is about drawing boxes, and
-     * a box on its own hides nothing. Someone who reads only one line of this
-     * help should read this one.
-     */
     helpLead:
       "Nothing is hidden until you press Burn in. Until then the box is only drawn on top, and the video underneath still shows everything.",
     helpDrawTerm: "Cover something",
@@ -1425,18 +1460,8 @@ const messages = {
     helpStylesTerm: "Blur or Solid",
     styleBlurHint:
       "Blur: a smear of colour generated over the area. Nothing of what was underneath is used to make it, so there is nothing in it to recover.",
-    /**
-     * "Can sometimes" is deliberate, and as far as this should go. Pixelation
-     * is a repeatable average, so guesses can be pixelated the same way and
-     * compared — public tools do it. Whether it works on a given clip depends
-     * on the text being short, the rendering reproducible, and the blocks small
-     * against the glyphs; ours are frame width / 40, coarse enough that this is
-     * hard. Nobody can tell which case they are in while drawing a box, and
-     * Solid costs nothing, so the advice is flat.
-     */
     styleSolidHint:
       "Solid: fills the area with one colour. As safe as Blur — neither is built from what it covers — so pick whichever reads better on the clip.",
-    /** The whole judgement, in one line, for someone who does not want it. */
     helpWhenInDoubt: "Either style hides the area completely.",
     goTo: "Go to this redaction",
     remove: "Delete redaction {{number}}",
@@ -1527,7 +1552,7 @@ const messages = {
     deleteKey: "Delete",
     exportUnredactedTitle: "Burn the redactions in first",
     exportUnredactedWarning:
-      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them — and so would this copy of it. Burn them in and this comes back.",
+      "{{count}} redaction(s) are drawn on this recording but have not been burned in, so the file still shows everything under them — and so would this copy of it. Burn them in and this comes back.",
     redact: "Redact",
     redactHint:
       "Cover something in the picture. Nothing is hidden until you burn it in.",
@@ -1588,10 +1613,96 @@ const messages = {
     startWithoutMic: "Record without audio",
     unmuteMicrophone: "Unmute",
     uploadVideo: "Upload video",
+    takeScreenshot: "Take screenshot",
     importLoom: "Import Loom",
     importing: "Importing...",
     import: "Import",
     recordNew: "Record new",
+  },
+  screenshot: {
+    capturing: "Capturing...",
+    saving: "Saving screenshot...",
+    saved: "Screenshot saved",
+    failed: "Screenshot failed",
+    dragToSelect: "Drag to select an area",
+    blur: "Redact",
+    box: "Box",
+    arrow: "Arrow",
+    text: "Text",
+    edit: "Edit",
+    deleteMark: "Delete",
+    textFont: "Font",
+    textSize: "Font size",
+    textSizeHint: "Font size, in the screenshot's own pixels",
+    textSmaller: "Smaller text",
+    textLarger: "Larger text",
+    alignLeft: "Align left",
+    alignCenter: "Align centre",
+    alignRight: "Align right",
+    editSave: "Save",
+    editSaved: "Screenshot updated",
+    editConfirm:
+      "Saving replaces the shared image so everyone sees these marks. You can still move or remove them later. Save?",
+    textPlaceholder: "Type here. Click outside to finish",
+    undo: "Undo",
+    redo: "Redo",
+    redactSaving: "Saving...",
+    redactFailed: "Could not save the screenshot",
+    captureInsecure:
+      "Screen capture requires HTTPS or localhost. Open Clips on a secure URL, then try again.",
+    captureUnavailable: "Screen capture isn't available in this browser.",
+    captureUnsupported:
+      "Your browser doesn't support screen capture. Try a recent Brave, Chrome, Edge, Safari, or Firefox.",
+    captureNoScreen: "No screen was shared.",
+    captureNoCanvas: "This browser could not prepare the image.",
+    captureNoPicture:
+      "The shared screen never sent a picture. Try again, or share the whole screen instead.",
+    redactLoadFailed: "Could not open the screenshot for editing",
+    saveSelection: "Save selection",
+    saveWholeScreen: "Save whole screen",
+    fullscreen: "Full screen",
+    exitFullscreen: "Exit full screen",
+    resizeHandle: "Drag to resize",
+    textWidthHandle: "Drag to set the width",
+    crop: "Crop",
+    cropApply: "Apply crop",
+    cropApplyHint:
+      "Show only this part. The rest is kept, so you can crop wider again later",
+    cropReset: "Show whole picture",
+    kind: {
+      box: "box",
+      arrow: "arrow",
+      text: "text",
+      redact: "redaction",
+    },
+    markToolbar: "Change this {{kind}}",
+    duplicate: "Duplicate {{kind}}",
+    addText: "Add new text",
+    addArrow: "Add new arrow",
+    addBox: "Add new box",
+    addRedaction: "Add new redaction",
+    colour: "Colour",
+    fillBox: "Fill box",
+    shadow: "Shadow",
+    thickness: "Line thickness",
+    thin: "Thin",
+    thick: "Thick",
+    align: "Alignment",
+    redactionStyle: "Redaction style",
+    background: "Background",
+    backgroundTitle: "Add a background",
+    backgroundNone: "None",
+    notYetBurned:
+      "{{count}} redaction(s) are placed but not burned in. Nothing is hidden yet, and nobody else can see this screenshot until you burn them in.",
+    editsUnreadable: "Clips couldn't read the saved screenshot edits.",
+    burnInHint:
+      "Destroy what the redactions cover for good, and delete the original",
+    burnInTitle: "Burn {{count}} redaction(s) into this screenshot?",
+    burnInWarning:
+      "The covered areas will be destroyed in a new copy of the screenshot, and the original file will be deleted. This cannot be undone. Your boxes, arrows and text stay movable. Anything already downloaded keeps what it has.",
+    burning: "Burning in…",
+    burned: "Redactions burned in",
+    burnFailed: "Could not burn the redactions in",
   },
   playerSettings: {
     title: "Settings",
@@ -1819,6 +1930,8 @@ const messages = {
     retry: "Retry",
     retrying: "Retrying…",
     retryFailed: "Couldn't retry this upload.",
+    retryCheckFailed:
+      "Couldn’t check whether this upload can be retried. Refresh to try again.",
     retryUnavailableHere:
       "Retry is only available on the device or browser where this was recorded.",
     viewsCount: "{{count}} views",

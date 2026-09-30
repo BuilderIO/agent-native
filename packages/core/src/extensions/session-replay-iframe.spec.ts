@@ -19,7 +19,16 @@ import {
 } from "./session-replay-iframe.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXTENSION_CLIENT_DIR = join(HERE, "..", "client", "extensions");
+const EXTENSION_HOST_DIR = join(
+  HERE,
+  "..",
+  "..",
+  "..",
+  "toolkit",
+  "src",
+  "app",
+  "extensions",
+);
 
 describe("cooperative iframe session replay", () => {
   it("pins the installed rrweb recorder and waits for a trusted start message", () => {
@@ -92,10 +101,6 @@ describe("cooperative iframe session replay", () => {
   });
 
   it("does not inject into a </head> that lives inside a script string", () => {
-    // The editor preview inlines a bridge bundle whose own source contains
-    // `parseFromString("<!doctype html><html><head><script>...</head>...")`.
-    // Splicing there both unterminates that string literal and closes the
-    // bridge's <script> early, so the whole bundle stops parsing.
     const bridge =
       "<script>\nvar d = new DOMParser().parseFromString(" +
       '"<!doctype html><html><head><script></scr" + "ipt></head><body></body></html>", "text/html");\n</script>';
@@ -104,7 +109,6 @@ describe("cooperative iframe session replay", () => {
     const html = injectSessionReplayIframeBootstrap(content);
 
     expect(html).toContain(SESSION_REPLAY_IFRAME_PROBE);
-    // The bridge script must survive intact, ahead of the injected bootstrap.
     expect(html.indexOf(bridge)).toBeGreaterThanOrEqual(0);
     expect(html.indexOf(SESSION_REPLAY_IFRAME_PROBE)).toBeGreaterThan(
       html.indexOf(bridge),
@@ -112,9 +116,6 @@ describe("cooperative iframe session replay", () => {
   });
 
   it("does not inject into a </head> inside an RCDATA element", () => {
-    // `title` and `textarea` hold text, not markup, and `title` sits INSIDE
-    // the head — so a literal `</head>` there precedes the real one and would
-    // win, inserting the bootstrap as title text and silently disabling replay.
     const html =
       "<!doctype html><html><head><title>How to close a </head> tag</title>" +
       "</head><body><textarea></head></textarea><p>preview</p></body></html>";
@@ -122,7 +123,6 @@ describe("cooperative iframe session replay", () => {
     const out = injectSessionReplayIframeBootstrap(html);
 
     expect(out).toContain(SESSION_REPLAY_IFRAME_PROBE);
-    // The title must survive intact, and the bootstrap must land after it.
     expect(out).toContain("<title>How to close a </head> tag</title>");
     expect(out.indexOf(SESSION_REPLAY_IFRAME_PROBE)).toBeGreaterThan(
       out.indexOf("</title>"),
@@ -130,10 +130,6 @@ describe("cooperative iframe session replay", () => {
   });
 
   it("does not inject into a </head> inside any raw-text element", () => {
-    // `xmp`, `noembed`, `noframes` and `iframe` hold raw text, and
-    // `plaintext` swallows everything to EOF. A literal `</head>` in any of
-    // them would be picked as the insertion point, putting the bootstrap
-    // somewhere it never executes and silently disabling replay.
     for (const tag of ["xmp", "noembed", "noframes", "iframe"]) {
       const raw = `<${tag}></head></${tag}>`;
       const html =
@@ -158,7 +154,7 @@ describe("cooperative iframe session replay", () => {
     ];
 
     for (const file of hostFiles) {
-      const source = readFileSync(join(EXTENSION_CLIENT_DIR, file), "utf8");
+      const source = readFileSync(join(EXTENSION_HOST_DIR, file), "utf8");
       expect(source, file).toContain("SESSION_REPLAY_IFRAME_ATTRIBUTE");
     }
     expect(SESSION_REPLAY_IFRAME_ATTRIBUTE).toBe(

@@ -15,6 +15,11 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import {
@@ -87,18 +92,51 @@ export default defineAction({
     }),
   },
   run: async ({ id }) => {
-    if (!isLocalFileDocumentId(id)) {
-      throw new Error("Only local file documents can be upgraded for sharing.");
-    }
-
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated");
 
-    const localDocument = await getLocalFileDocument(id);
-    const sourcePath = localDocumentPathFromId(id);
-    const now = new Date().toISOString();
     const orgId = getRequestOrgId() ?? null;
+    const organizationFilter = orgId
+      ? eq(schema.documents.orgId, orgId)
+      : isNull(schema.documents.orgId);
     const db = getDb();
+    const localDocument = isLocalFileDocumentId(id)
+      ? await getLocalFileDocument(id)
+      : await db
+          .select()
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, userEmail),
+              organizationFilter,
+              eq(schema.documents.sourceMode, "local-files"),
+              eq(schema.documents.sourceKind, "file"),
+              isNull(schema.documents.trashedAt),
+            ),
+          )
+          .limit(1)
+          .then(
+            ([row]) =>
+              row && {
+                title: row.title,
+                content: row.content,
+                icon: row.icon,
+                isFavorite: parseDocumentFavorite(row.isFavorite),
+                hideFromSearch: parseDocumentHideFromSearch(row.hideFromSearch),
+                source: serializeDocumentSource(row),
+              },
+          );
+    if (!localDocument) {
+      throw new Error("Only local file documents can be upgraded for sharing.");
+    }
+    const sourcePath = isLocalFileDocumentId(id)
+      ? localDocumentPathFromId(id)
+      : localDocument.source?.path;
+    if (!sourcePath) {
+      throw new Error("The local file document has no source path.");
+    }
+    const now = new Date().toISOString();
     const provisioned = await provisionContentSpaces(db, userEmail);
     const targetSpaceId = orgId
       ? organizationContentSpaceId(orgId)
@@ -115,9 +153,13 @@ export default defineAction({
       .where(
         and(
           eq(schema.documents.ownerEmail, userEmail),
+          organizationFilter,
           eq(schema.documents.sourceMode, "database"),
           eq(schema.documents.sourceKind, "local-file-copy"),
           eq(schema.documents.sourcePath, sourcePath),
+          localDocument.source?.rootPath
+            ? eq(schema.documents.sourceRootPath, localDocument.source.rootPath)
+            : isNull(schema.documents.sourceRootPath),
           or(
             eq(schema.documents.spaceId, targetSpaceId),
             isNull(schema.documents.spaceId),
@@ -126,25 +168,52 @@ export default defineAction({
       )
       .limit(1);
 
+    const copiedIcon =
+      typeof localDocument.icon === "string"
+        ? localDocument.icon
+        : serializeIconValue(parseIconValue(localDocument.icon));
+    await verifyPrivateIconAssignment({ icon: copiedIcon, userEmail, orgId });
+
     if (existing) {
-      await db
-        .update(schema.documents)
-        .set({
-          spaceId: existing.spaceId ?? targetSpaceId,
-          title: localDocument.title,
-          content: localDocument.content,
-          bodyRevision: bodyRevisionForContent(localDocument.content),
-          icon:
-            typeof localDocument.icon === "string"
-              ? localDocument.icon
-              : serializeIconValue(parseIconValue(localDocument.icon)),
-          isFavorite: localDocument.isFavorite ? 1 : 0,
-          hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
-          sourceRootPath: localDocument.source?.rootPath ?? null,
-          sourceUpdatedAt: localDocument.source?.updatedAt ?? now,
-          updatedAt: now,
-        })
-        .where(eq(schema.documents.id, existing.id));
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.documents)
+          .set({
+            spaceId: existing.spaceId ?? targetSpaceId,
+            title: localDocument.title,
+            content: localDocument.content,
+            bodyRevision: bodyRevisionForContent(localDocument.content),
+            icon: copiedIcon,
+            isFavorite: localDocument.isFavorite ? 1 : 0,
+            hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
+            sourceRootPath: localDocument.source?.rootPath ?? null,
+            sourceUpdatedAt: localDocument.source?.updatedAt ?? now,
+            updatedAt: now,
+          })
+          .where(eq(schema.documents.id, existing.id));
+        await syncPrivateIconReference(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            elementType: "document",
+            elementId: existing.id,
+            documentId: existing.id,
+            icon: copiedIcon,
+            ownerEmail: userEmail,
+            orgId,
+          },
+        );
+        await syncPrivateCalloutReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            documentId: existing.id,
+            before: existing.content,
+            after: localDocument.content,
+            userEmail,
+            ownerEmail: userEmail,
+            orgId,
+          },
+        );
+      });
 
       await ensureDocumentFilesMembership(db, existing.id, now);
       await setFavoriteMembership({
@@ -178,29 +247,50 @@ export default defineAction({
             ),
           );
 
-        await db.insert(schema.documents).values({
-          id: documentId,
-          spaceId: targetSpaceId,
-          ownerEmail: userEmail,
-          orgId,
-          parentId: null,
-          title: localDocument.title,
-          content: localDocument.content,
-          icon:
-            typeof localDocument.icon === "string"
-              ? localDocument.icon
-              : serializeIconValue(parseIconValue(localDocument.icon)),
-          position: nextAppendPosition(maxPosition),
-          isFavorite: localDocument.isFavorite ? 1 : 0,
-          hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
-          visibility: "private",
-          sourceMode: "database",
-          sourceKind: "local-file-copy",
-          sourcePath,
-          sourceRootPath: localDocument.source?.rootPath ?? null,
-          sourceUpdatedAt: localDocument.source?.updatedAt ?? now,
-          createdAt: now,
-          updatedAt: now,
+        await db.transaction(async (tx) => {
+          await tx.insert(schema.documents).values({
+            id: documentId,
+            spaceId: targetSpaceId,
+            ownerEmail: userEmail,
+            orgId,
+            parentId: null,
+            title: localDocument.title,
+            content: localDocument.content,
+            icon: copiedIcon,
+            position: nextAppendPosition(maxPosition),
+            isFavorite: localDocument.isFavorite ? 1 : 0,
+            hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
+            visibility: "private",
+            sourceMode: "database",
+            sourceKind: "local-file-copy",
+            sourcePath,
+            sourceRootPath: localDocument.source?.rootPath ?? null,
+            sourceUpdatedAt: localDocument.source?.updatedAt ?? now,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await syncPrivateIconReference(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              elementType: "document",
+              elementId: documentId,
+              documentId,
+              icon: copiedIcon,
+              ownerEmail: userEmail,
+              orgId,
+            },
+          );
+          await syncPrivateCalloutReferences(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId,
+              before: "",
+              after: localDocument.content,
+              userEmail,
+              ownerEmail: userEmail,
+              orgId,
+            },
+          );
         });
         await ensureDocumentFilesMembership(db, documentId, now);
         await setFavoriteMembership({

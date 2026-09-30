@@ -3,31 +3,20 @@ import path from "path";
 
 import dotenv from "dotenv";
 
-// `fail()` lives next to the ActionContractError it raises so the `/action`
-// subpath can export it too. Re-exported here for existing script imports.
+import { findWorkspaceRoot } from "./workspace-root.js";
+
+export { findWorkspaceRoot } from "./workspace-root.js";
+
 export { fail, type FailOptions } from "../action.js";
 
-// Re-export pure arg-parsing utilities (no Node.js deps, browser-safe)
 export { parseArgs, camelCaseArgs } from "./parse-args.js";
 
-/**
- * Load .env files. In an enterprise workspace (detected via
- * `agent-native.workspaceCore` in a parent package.json) this also loads the
- * workspace root's .env as a fallback, so shared keys like ANTHROPIC_API_KEY
- * flow to every app without duplication. Shell values win, then app
- * .env.local, app .env, workspace .env.local, and workspace .env.
- */
 export function loadEnv(envPath?: string): void {
   const appEnv = envPath ?? path.join(process.cwd(), ".env");
   const shellKeys = new Set(Object.keys(process.env));
-  // App-level .env first. Dotenv won't clobber already-set process.env, so
-  // values that are already present (e.g. set by the shell) still win.
-  // `quiet: true` suppresses the dotenv tip line on every load (v17+).
   loadEnvFile(appEnv);
   loadEnvLocalOverrides(localEnvPathFor(appEnv), shellKeys);
 
-  // Then workspace root, if any — but only fill in keys the app didn't
-  // define. Setting `override: false` is dotenv's default.
   const workspaceRoot = findWorkspaceRoot(path.dirname(appEnv));
   if (workspaceRoot) {
     const beforeWorkspaceKeys = new Set(Object.keys(process.env));
@@ -63,35 +52,6 @@ function loadEnvLocalOverrides(
   }
 }
 
-/**
- * Locate the nearest enterprise workspace root above `startDir`, identified
- * by the `agent-native.workspaceCore` field in its package.json.
- */
-export function findWorkspaceRoot(startDir: string): string | null {
-  let dir = path.resolve(startDir);
-  for (let i = 0; i < 20; i++) {
-    const pkgPath = path.join(dir, "package.json");
-    if (fs.existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-        const wsCore = pkg?.["agent-native"]?.workspaceCore;
-        if (typeof wsCore === "string" && wsCore.length > 0) {
-          return dir;
-        }
-      } catch {
-        // Keep walking on malformed package.json
-      }
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
-}
-
-/**
- * Validate a relative file path (no traversal, no absolute).
- */
 export function isValidPath(p: string): boolean {
   const normalized = path.normalize(p);
   return (
@@ -101,9 +61,6 @@ export function isValidPath(p: string): boolean {
   );
 }
 
-/**
- * Validate a project slug (e.g. "my-project" or "group/my-project").
- */
 export function isValidProjectPath(project: string): boolean {
   if (!project) return false;
   const normalized = path.posix.normalize(project);
@@ -114,9 +71,6 @@ export function isValidProjectPath(project: string): boolean {
   return segments.every((s) => /^[a-z0-9][a-z0-9-]*$/.test(s));
 }
 
-/**
- * mkdir -p helper.
- */
 export function ensureDir(dir: string): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

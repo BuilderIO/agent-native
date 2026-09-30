@@ -3,16 +3,14 @@ import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   useDbSync,
-  AppProviders,
   createAgentNativeQueryClient,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -34,6 +32,7 @@ import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { TAB_ID } from "@/lib/tab-id";
 
 import changelog from "../CHANGELOG.md?raw";
+import "./lib/register-chat-renderers";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -241,6 +240,7 @@ function FormsCommandMenu({
       onOpenChange={onOpenChange}
       changelog={changelog}
       changelogKey="forms"
+      chatStorageKey="forms"
     >
       <CommandMenu.Group heading={t("root.commandForms")}>
         {formId && !isResponsesRoute ? (
@@ -297,14 +297,12 @@ export default function Root() {
   const location = useLocation();
   const isPublicPath =
     location.pathname === "/f" || location.pathname.startsWith("/f/");
-  const isMarketingHome = location.pathname === "/";
-
-  if (isPublicPath || isMarketingHome) {
+  if (isPublicPath) {
     return (
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}
-          isPublicPath={isPublicPath || isMarketingHome}
+          isPublicPath={isPublicPath}
           i18n={{ catalog: i18nCatalog }}
         >
           <Outlet />
@@ -315,11 +313,15 @@ export default function Root() {
 
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppProviders
+        queryClient={queryClient}
+        skeletonLayout="assistant"
+        i18n={{ catalog: i18nCatalog }}
+      >
         <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

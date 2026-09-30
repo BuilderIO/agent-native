@@ -2,7 +2,7 @@ import { getDbExec } from "../db/client.js";
 import {
   insertExperiment,
   updateExperiment,
-  listExperiments,
+  listExperimentsPage,
   getExperiment,
   upsertAssignment,
   getAssignment,
@@ -14,8 +14,6 @@ import type {
   ExperimentVariant,
   ExperimentMetricResult,
 } from "./types.js";
-
-// ─── Hashing ────────────────────────────────────────────────────────
 
 function simpleHash(str: string): number {
   let hash = 0;
@@ -29,19 +27,30 @@ function generateId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// ─── Active experiments cache (short TTL for hot path) ──────────────
-
 let _cachedActive: Experiment[] | null = null;
 let _cachedActiveAt = 0;
 const CACHE_TTL_MS = 5_000;
+const ACTIVE_EXPERIMENT_PAGE_SIZE = 100;
 
 async function getActiveExperiments(): Promise<Experiment[]> {
   const now = Date.now();
   if (_cachedActive && now - _cachedActiveAt < CACHE_TTL_MS) {
     return _cachedActive;
   }
-  const all = await listExperiments();
-  _cachedActive = all.filter((e) => e.status === "running");
+  const active: Experiment[] = [];
+  let before: { createdAt: number; id: string } | undefined;
+  for (;;) {
+    const page = await listExperimentsPage({
+      status: "running",
+      limit: ACTIVE_EXPERIMENT_PAGE_SIZE,
+      ...(before ? { before } : {}),
+    });
+    active.push(...page.filter((e) => e.status === "running"));
+    if (page.length < ACTIVE_EXPERIMENT_PAGE_SIZE) break;
+    const last = page.at(-1)!;
+    before = { createdAt: last.createdAt, id: last.id };
+  }
+  _cachedActive = active;
   _cachedActiveAt = now;
   return _cachedActive;
 }
@@ -50,8 +59,6 @@ function invalidateCache(): void {
   _cachedActive = null;
   _cachedActiveAt = 0;
 }
-
-// ─── Experiment lifecycle ───────────────────────────────────────────
 
 export async function createExperiment(opts: {
   name: string;
@@ -93,8 +100,6 @@ export async function completeExperiment(id: string): Promise<void> {
   invalidateCache();
 }
 
-// ─── Variant assignment ─────────────────────────────────────────────
-
 export async function resolveVariant(
   experimentId: string,
   userId: string,
@@ -132,10 +137,8 @@ export async function resolveVariant(
       break;
     }
   }
-  // Fallback to last variant if rounding causes no match
   if (!chosen) chosen = experiment.variants[experiment.variants.length - 1];
 
-  // Fire-and-forget persistence
   upsertAssignment({
     experimentId,
     userId,
@@ -169,8 +172,6 @@ export async function resolveActiveExperimentConfig(userId: string): Promise<{
 
   return { configs: merged, assignments };
 }
-
-// ─── Results computation ────────────────────────────────────────────
 
 export async function computeExperimentResults(
   experimentId: string,
@@ -220,9 +221,6 @@ export async function computeExperimentResults(
     const userIds = assignmentRows.map((r: any) => String(r.user_id));
     const placeholders = userIds.map(() => "?").join(", ");
 
-    // Scope runs to this variant's assigned users via user_id on the summary.
-    // Previously used INNER JOIN agent_feedback which excluded runs without
-    // any feedback — silently underreporting cost/latency/tool metrics.
     const { rows: userTraceRows } = await client.execute({
       sql: `SELECT s.total_cost_cents_x100, s.total_duration_ms, s.successful_tools, s.tool_calls, s.run_id
             FROM agent_trace_summaries s
@@ -243,7 +241,6 @@ export async function computeExperimentResults(
       toolRates.push(totalTools > 0 ? successTools / totalTools : 1);
     }
 
-    // Eval scores for these runs
     const runIds = (userTraceRows as any[]).map((r) => String(r.run_id));
     let evalScores: number[] = [];
     if (runIds.length > 0) {
@@ -255,7 +252,6 @@ export async function computeExperimentResults(
       evalScores = (evalRows as any[]).map((r) => Number(r.score));
     }
 
-    // Satisfaction scores (inverse of frustration) for these users' threads
     const { rows: satRows } = await client.execute({
       sql: `SELECT frustration_score FROM agent_satisfaction_scores
             WHERE thread_id IN (
@@ -331,8 +327,6 @@ export async function computeExperimentResults(
 
   return results;
 }
-
-// ─── Stats helpers ──────────────────────────────────────────────────
 
 function mean(values: number[]): number {
   if (values.length === 0) return 0;

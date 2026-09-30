@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addLocalhostScreensRun: vi.fn(),
+  assertAccess: vi.fn(),
   createEmbedSessionTicket: vi.fn(),
   connectLocalhostRun: vi.fn(),
   createDesignRun: vi.fn(),
@@ -14,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   navigateRun: vi.fn(),
   runWithRequestContext: vi.fn(),
   writeAppState: vi.fn(),
+  designData: null as string | null,
+  designFiles: [] as Array<{ id: string; filename: string; fileType: string }>,
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -49,6 +52,44 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
   runWithRequestContext: mocks.runWithRequestContext,
 }));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: mocks.assertAccess,
+}));
+
+vi.mock("drizzle-orm", () => ({
+  eq: (left: unknown, right: unknown) => ({ left, right }),
+}));
+
+vi.mock("../server/db/index.js", () => {
+  const schema = {
+    designs: { id: "designs.id", data: "designs.data" },
+    designFiles: {
+      id: "files.id",
+      designId: "files.designId",
+      filename: "files.filename",
+      fileType: "files.fileType",
+    },
+  };
+  return {
+    getDb: () => ({
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () =>
+            table === schema.designs
+              ? {
+                  limit: () => Promise.resolve([{ data: mocks.designData }]),
+                }
+              : Promise.resolve(mocks.designFiles),
+        }),
+      }),
+      update: () => ({
+        set: () => ({ where: () => Promise.resolve() }),
+      }),
+    }),
+    schema,
+  };
+});
 
 vi.mock("./connect-localhost.js", () => ({
   default: {
@@ -101,6 +142,7 @@ describe("open-visual-edit", () => {
 
   beforeEach(() => {
     mocks.addLocalhostScreensRun.mockReset();
+    mocks.assertAccess.mockReset().mockResolvedValue(undefined);
     mocks.createEmbedSessionTicket.mockReset();
     mocks.createEmbedSessionTicket.mockResolvedValue({
       ticket: "visual-edit-example-ticket",
@@ -142,6 +184,8 @@ describe("open-visual-edit", () => {
       },
     );
     mocks.writeAppState.mockReset();
+    mocks.designData = null;
+    mocks.designFiles = [];
 
     mocks.connectLocalhostRun.mockResolvedValue({
       id: "localhost_canonical",
@@ -265,6 +309,9 @@ describe("open-visual-edit", () => {
     });
 
     const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(mocks.addLocalhostScreensRun.mock.calls[0]![0]).toMatchObject({
+      preserveExistingFramePositions: true,
+    });
     expect(routes).toEqual([
       expect.objectContaining({
         path: "/tasks",
@@ -298,11 +345,116 @@ describe("open-visual-edit", () => {
         y: 1060,
       }),
     ]);
-    // paths must not also be forwarded, or add-localhost-screens would ignore
-    // the expanded routes and place one default-size frame per path instead.
     expect(
       mocks.addLocalhostScreensRun.mock.calls[0]![0].paths,
     ).toBeUndefined();
+  });
+
+  it("spaces responsive viewport grids by each rendered group's bounds", async () => {
+    mocks.designData = JSON.stringify({
+      breakpointSet: {
+        breakpoints: [
+          { id: "mobile", widthPx: 390 },
+          { id: "tablet", widthPx: 768 },
+          { id: "desktop", widthPx: 1440 },
+        ],
+      },
+    });
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/tasks", "/inbox"],
+      viewports: ["desktop", "mobile"],
+      navigate: false,
+    });
+
+    const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(
+      routes.map(({ x, y }: { x: number; y: number }) => ({ x, y })),
+    ).toEqual([
+      { x: 0, y: 0 },
+      { x: 4110, y: 0 },
+      { x: 0, y: expect.any(Number) },
+      { x: 4110, y: expect.any(Number) },
+    ]);
+    expect(routes[2]?.y).toBeGreaterThan(1060);
+  });
+
+  it("starts a viewport grid beside existing frames when no origin is passed", async () => {
+    mocks.designData = JSON.stringify({
+      canvasFrames: {
+        existing: { x: 100, y: -20, width: 1280, height: 900 },
+      },
+    });
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/new"],
+      viewports: ["desktop", "mobile"],
+      navigate: false,
+    });
+
+    const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(
+      routes.map(({ x, y }: { x: number; y: number }) => ({ x, y })),
+    ).toEqual([
+      { x: 1540, y: -20 },
+      { x: 2980, y: -20 },
+    ]);
+  });
+
+  it("starts a viewport grid beside legacy overview files without saved geometry", async () => {
+    mocks.designFiles = [
+      { id: "legacy", filename: "screen.html", fileType: "html" },
+    ];
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/new"],
+      viewports: [{ label: "Desktop", width: 1280, height: 900 }],
+      navigate: false,
+    });
+
+    const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(routes[0]).toMatchObject({ x: 480, y: 0 });
+  });
+
+  it("starts viewport grids beyond rendered responsive breakpoint frames", async () => {
+    mocks.designData = JSON.stringify({
+      canvasFrames: {
+        existing: { x: 0, y: 0, width: 390, height: 844 },
+      },
+      screenMetadata: {
+        existing: { width: 390, height: 844 },
+      },
+      breakpointSet: {
+        breakpoints: [
+          { id: "tablet", widthPx: 768 },
+          { id: "desktop", widthPx: 1440 },
+        ],
+      },
+    });
+    mocks.designFiles = [
+      { id: "existing", filename: "screen.html", fileType: "html" },
+    ];
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/new"],
+      viewports: [{ label: "Desktop", width: 1280, height: 900 }],
+      navigate: false,
+    });
+
+    const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(routes[0]).toMatchObject({ x: 2806, y: 0 });
   });
 
   it("accepts explicit viewport sizes and leaves a single viewport's titles alone", async () => {

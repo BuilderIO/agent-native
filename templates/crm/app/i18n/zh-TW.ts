@@ -23,6 +23,11 @@ const messages = {
     retry: "重試",
     search: "搜尋",
   },
+  chatHome: {
+    description:
+      "探索 Native SQL 與已連線記錄中的授權帳戶脈絡、後續工作與證據。",
+    placeholder: "詢問你的 CRM",
+  },
   commandMenu: {
     placeholder: "搜尋記錄、清單和指令…",
     groupRecords: "記錄",
@@ -58,17 +63,11 @@ const messages = {
     showHelp: "顯示此說明",
   },
   settings: {
-    title: "CRM 設定",
-    description:
-      "原生 SQL 讓 CRM 自有的記錄保存在 Postgres 中。HubSpot 與 Salesforce 使用工作區連線，其鏡像只會儲存允許清單內的欄位、受限的中繼資料與有界的證據參照。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
+    mcpAbout:
+      "將 CRM 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 CRM 中工作：尋找記錄、更新欄位並管理任務。它只能看到你有權看到的內容。",
   },
   connection: {
     tab: "連線",
-    title: "CRM 連線",
-    description: "此 CRM 的記錄來自何處，以及每筆記錄有多少由它擁有。",
     modesTitle: "可用模式",
     modeNative: "原生 SQL",
     modeNativeHelp:
@@ -97,9 +96,6 @@ const messages = {
   },
   fields: {
     tab: "欄位",
-    title: "欄位",
-    description:
-      "支撐每筆記錄與每份清單的型別化屬性。欄位的 API 代稱與型別在建立後即固定，其餘皆可調整。",
     target: "物件或清單",
     targetPlaceholder: "選擇物件類型或清單",
     listsGroup: "清單",
@@ -237,8 +233,6 @@ const messages = {
   },
   advanced: {
     tab: "進階",
-    title: "進階",
-    description: "重新設定與資料保留行為。",
     reconfigure: "重新設定 CRM",
     reconfigureHelp:
       "在原生 SQL 與 HubSpot 或 Salesforce 搭配模式之間切換，或重新執行初始同步。",
@@ -537,9 +531,6 @@ const messages = {
   },
   intelligence: {
     tab: "智慧洞察",
-    title: "智慧洞察",
-    description:
-      "選擇 CRM 應在受限通話證據中注意的時刻。智慧追蹤器會透過 Ask CRM 評估，絕不直接在此設定畫面中執行。",
     loading: "正在載入追蹤器…",
     kindKeyword: "關鍵字",
     kindSmart: "智慧",

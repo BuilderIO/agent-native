@@ -4,7 +4,7 @@ import {
   useReconciledState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/core/client/markdown";
+import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconX,
@@ -68,7 +68,6 @@ interface SlideCommentsPanelProps {
   onClose: () => void;
 }
 
-/** Initials avatar */
 function Avatar({ email, name }: { email: string; name?: string | null }) {
   const color = emailToColor(email);
   const avatarUrl = useAvatarUrl(email);
@@ -94,7 +93,6 @@ function Avatar({ email, name }: { email: string; name?: string | null }) {
   );
 }
 
-/** Single comment (inside a thread) */
 export function CommentItem({
   comment,
   deckId,
@@ -201,6 +199,12 @@ export function CommentItem({
                 if (error) setError(null);
               }}
               onKeyDown={(event) => {
+                if (
+                  event.nativeEvent.isComposing ||
+                  event.nativeEvent.keyCode === 229
+                ) {
+                  return;
+                }
                 if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                   event.preventDefault();
                   void save();
@@ -307,7 +311,6 @@ export function CommentItem({
   );
 }
 
-/** Pending new comment input */
 function PendingCommentInput({
   quotedText,
   anchor,
@@ -370,6 +373,8 @@ function PendingCommentInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+            return;
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
           if (e.key === "Escape") onCancel();
         }}
@@ -403,7 +408,6 @@ function PendingCommentInput({
   );
 }
 
-/** Inline reply input below a thread */
 export function ReplyInput({
   deckId,
   slideId,
@@ -459,6 +463,8 @@ export function ReplyInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+            return;
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
           if (e.key === "Escape") onDone();
         }}
@@ -490,7 +496,6 @@ export function ReplyInput({
   );
 }
 
-/** A single comment thread card */
 function ThreadCard({
   thread,
   deckId,
@@ -749,7 +754,6 @@ export function SlideCommentsPanel({
   const currentPendingComment =
     pendingComment?.slideId === slideId ? pendingComment : null;
 
-  // When pending comment arrives, cancel any manual "add comment" mode
   useEffect(() => {
     if (pendingComment && pendingComment.slideId !== slideId) {
       onPendingDone();

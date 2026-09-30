@@ -1,28 +1,10 @@
-/**
- * The record page: TWO panes. A resizable left pane carrying the record's
- * typed attributes and its list memberships, and a main pane carrying the tabs
- * and the signals section.
- *
- * There is deliberately no third pane. Lists and signals used to sit in one,
- * which cost the main pane ~350px on every screen and gave the page three
- * competing reading orders. Lists are label/value rows, so they belong beside
- * the attributes; signals are an evidence feed, so they belong in the main
- * pane. The app shell's own left sidebar and right agent rail are untouched.
- *
- * The page reads two actions on purpose. `get-crm-record` is the one that
- * verifies provider read-through permission for a mirrored record and carries
- * evidence, tasks, and relationships; `get-crm-record-page` carries the typed
- * attribute schema, the current bitemporal values, and list memberships. The
- * second does not replace the first.
- */
-
 import { setClientAppState } from "@agent-native/core/client/application-state";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -126,7 +108,6 @@ export function RecordWorkspace({
     { entryId: string; values: Record<string, unknown> }
   >("update-crm-list-entry" as never);
 
-  // The agent needs to know which record is open and which tab is showing.
   useEffect(() => {
     if (!recordId) return;
     void setClientAppState(

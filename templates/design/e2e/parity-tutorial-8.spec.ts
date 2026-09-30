@@ -9,24 +9,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
-/**
- * Figma tutorial 8 (figma-interaction-spec.md Part 2 §8) — "Assemble your
- * portfolio pages": sort finished components into named Sections, strip
- * their placeholder white fills, then drag component instances onto a
- * "Designs" canvas, wrap them in one auto-layout frame, duplicate that frame
- * twice into "Home"/"Case study" pages, drop more instances in, reorder, set
- * Fill-container sizing, and finally re-sync a drifted instance from its main
- * component.
- *
- * Design has no Section primitive or page/canvas system. Native components
- * and linked instances do exist, but Section and page moves remain explicit
- * findings. The closest available primitives are exercised instead: a
- * board-level Frame ("Wrap in section"),
- * cross-screen element copy (dragging an "instance" onto a page), Shift+A
- * auto layout, screen duplication (screens are top-level frames per the
- * 2026-09-12 note), and layers-panel reorder.
- */
-
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
@@ -89,6 +71,11 @@ async function designRecord(request: APIRequestContext, designId: string) {
     .then((r) => r.json());
 }
 
+async function designData(request: APIRequestContext, designId: string) {
+  const record = await designRecord(request, designId);
+  return JSON.parse(record.data || "{}") as Record<string, any>;
+}
+
 async function fileContent(
   request: APIRequestContext,
   designId: string,
@@ -120,9 +107,6 @@ async function fileId(
   return file.id;
 }
 
-// A duplicated file reaches the server before the client records its undo
-// entry. selectedScreenIds flips in the same synchronous block as that
-// record, so it is the wait signal; a toast auto-dismisses and can be missed.
 async function selectionContext(
   request: APIRequestContext,
 ): Promise<{ selectedScreenIds?: string[] }> {
@@ -135,6 +119,23 @@ async function selectionContext(
     );
   }
   return res.json();
+}
+
+async function selectedScreenFilenames(
+  request: APIRequestContext,
+  designId: string,
+): Promise<string[]> {
+  const [selection, record] = await Promise.all([
+    selectionContext(request),
+    designRecord(request, designId),
+  ]);
+  return (selection.selectedScreenIds ?? [])
+    .map(
+      (id) =>
+        record.files?.find((file: { id: string }) => file.id === id)
+          ?.filename ?? `missing:${id}`,
+    )
+    .sort();
 }
 
 function layersTree(page: Page): Locator {
@@ -213,7 +214,6 @@ async function focusCanvas(page: Page): Promise<void> {
   });
 }
 
-/** Empty board point away from any screen card, for drawing a free frame. */
 async function emptyBoardPoint(page: Page, offset = { x: 0, y: 0 }) {
   const point = await page.evaluate((off) => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
@@ -261,14 +261,6 @@ async function boardHtml(request: APIRequestContext, designId: string) {
   return fileContent(request, designId, "__board__.html");
 }
 
-/**
- * Draw a board-level frame outside any screen and wait for it to persist.
- * Board objects render inside the board's own same-origin iframe stamped
- * only with data-agent-native-node-id (shared/board-file.ts) — no
- * `data-board-object-id` attribute exists anywhere in the app, so poll the
- * persisted __board__.html source (as boardHtml already reads elsewhere in
- * this file) for a new frame marker instead of a host-page DOM count.
- */
 async function drawBoardFrame(
   page: Page,
   request: APIRequestContext,
@@ -316,9 +308,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     ]));
     await gotoEditor(page, designId);
 
-    // Step 1: Shift+S is Figma's Section tool. Probe: no "Section" tool
-    // exists and the shortcut is a no-op (established no-op-probe pattern,
-    // see parity-tutorial-2.spec.ts's Cmd+Opt+K test).
     await expect(
       page.locator('[data-design-bottom-toolbar] [aria-label*="Section" i]'),
     ).toHaveCount(0);
@@ -338,8 +327,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       "Shift+S (Figma's Section tool) should be a documented no-op, not silently switch tools",
     ).toBe(activeToolBefore);
 
-    // Draw two free-floating board frames representing finished components
-    // ("Button", "Footer") sitting on the Designs page, outside any screen.
     const p1 = await emptyBoardPoint(page);
     await drawBoardFrame(page, request, designId, p1, {
       x: p1.x + 120,
@@ -356,9 +343,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     ).length;
     expect(frameCountBefore).toBe(2);
 
-    // Step 2 closest equivalent: select both board frames and press the
-    // Frame-Selection shortcut (⌥⌘G) to wrap them the way "Wrap in new
-    // section" would in Figma.
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
       .click();
@@ -389,18 +373,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const frameCountAfter = (
       boardAfter.match(/data-an-primitive="frame"/g) ?? []
     ).length;
-    // FINDING (do not fix): arch-map §4 documents handleFrameSelection as
-    // operating on `activeFile` code-layer nodes only, excluding board
-    // objects — so a genuine board-level "wrap in section" is expected to
-    // be a no-op here (frameCountAfter === frameCountBefore), unlike within
-    // a screen where parity-group-frame.spec.ts shows the same shortcut
-    // adds exactly one wrapping frame.
-    // Figma expectation: Frame Selection wraps the two selected objects in
-    // exactly one new frame (frameCountBefore + 1), matching the in-screen
-    // behavior parity-group-frame.spec.ts already proves for code-layer
-    // nodes. arch-map.md §4 documents handleFrameSelection as reading only
-    // `activeFile` code-layer nodes, so board objects are predicted to be
-    // excluded.
     expect(
       frameCountAfter,
       `Frame Selection (⌥⌘G) over two free-floating board frames should add one wrapping frame like it does for code-layer siblings — trace: ${JSON.stringify(await dump(page))}. ` +
@@ -444,8 +416,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     ).toBe(true);
 
     const before = await boardHtml(request, designId);
-    // The remove-layer control only renders on row hover; hover the fill
-    // row first so the button mounts before clicking it.
     const fillRow = fillSection
       .locator("[data-fill-row], li, div")
       .filter({
@@ -463,7 +433,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     if (hasRemove) {
       await removeButton.click({ force: true });
     } else {
-      // Fall back to editing the fill's hex value directly.
       const hexInput = fillSection.locator("input").first();
       await hexInput.fill("transparent");
       await hexInput.press("Enter");
@@ -484,8 +453,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       { filename: "index.html", content: BLANK_SCREEN("Home") },
       { filename: "nav.html", content: NAV_SCREEN },
     ]));
-    // Lay both screens out side by side so a cross-screen drag has real
-    // screen-space geometry (mirrors overview-alt-drag-element-copy.spec.ts).
     const record = await designRecord(request, designId);
     const homeFileId = record.files.find(
       (f: any) => f.filename === "index.html",
@@ -540,8 +507,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .locator('[data-agent-native-node-id="nav-word"]');
     await expect(sourceEl).toBeVisible();
     await expect(sourceDragEl).toBeVisible();
-    // Overview layout settles asynchronously with no discrete event — poll
-    // the source box until two consecutive reads agree.
     let lastSourceBox: { x: number; y: number } | null = null;
     await expect
       .poll(
@@ -561,9 +526,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const sourceDragBox = (await sourceDragEl.boundingBox())!;
     const targetBox = (await targetFrame.boundingBox())!;
 
-    // Select the nested node from Layers before the drag. At 25% zoom the
-    // 80px navigation bar is only 20 CSS pixels tall, so a center double-click
-    // can land on the screen shell rather than the node's selection overlay.
     await expandAllLayers(page);
     await selectLayerByName(page, "Navigation");
     await page.waitForTimeout(500);
@@ -613,10 +575,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         .length,
     ).toBe(1);
 
-    // Rest of step 4: Shift+A wraps the (single, in this fixture) dropped
-    // instance into one auto-layout page frame with a background + fixed
-    // width, mirroring the established Shift+A wrapper contract from
-    // parity-tutorial-7.spec.ts.
     await gotoEditor(page, designId);
     await expandAllLayers(page);
     await selectLayerInScreen(page, homeFileId, "Navigation");
@@ -631,24 +589,55 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     ).toBeGreaterThanOrEqual(1);
   });
 
-  test("step 5 [overview, screens as top-level frames]: Cmd+D duplicates the assembled page screen twice; each copy keeps the source content and one undo removes a copy", async ({
+  test("step 5 [overview, screens as top-level frames]: Cmd+D finds free slots, stacks above the source, and groups undo/redo", async ({
     page,
     request,
   }) => {
     ({ designId } = await newDesign(request, [
       { filename: "index.html", content: NAV_SCREEN },
+      { filename: "neighbor.html", content: BLANK_SCREEN("Neighbor") },
+      { filename: "farther.html", content: BLANK_SCREEN("Farther") },
     ]));
+    const sourceId = await fileId(request, designId, "index.html");
+    const neighborId = await fileId(request, designId, "neighbor.html");
+    const fartherId = await fileId(request, designId, "farther.html");
+    const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 0 };
+    const neighborGeometry = { x: 200, y: 1200, width: 320, height: 240, z: 1 };
+    const fartherGeometry = { x: 2000, y: 720, width: 320, height: 240, z: 2 };
+    await action(request, "update-design", {
+      id: designId,
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", sourceId],
+          value: sourceGeometry,
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", neighborId],
+          value: neighborGeometry,
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", fartherId],
+          value: fartherGeometry,
+        },
+      ],
+    });
     await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=30`, {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
       timeout: 40_000,
     });
-    const card = page.locator("[data-screen-card]").first();
+    const card = page.locator(
+      `[data-frame-id="${sourceId}"] [data-screen-card]`,
+    );
+    const frameLabel = page.locator(
+      `[data-frame-id="${sourceId}"] [data-frame-label]`,
+    );
     await expect(card).toBeVisible();
-    // Overview layout settles asynchronously with no discrete event — poll
-    // the card's box until two consecutive reads agree before force-clicking
-    // its current position.
+    await expect(frameLabel).toBeVisible();
     let lastCardBox: { x: number; y: number } | null = null;
     await expect
       .poll(
@@ -665,10 +654,22 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
+    await expect
+      .poll(() => fileList(request, designId), { timeout: 10_000 })
+      .toContain("__board__.html");
     const filesBefore = await fileList(request, designId);
 
-    await card.click({ force: true });
-    await page.waitForTimeout(400);
+    await page
+      .getByRole("button", { name: /^\d+%$/ })
+      .first()
+      .click();
+    await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
+    await expect(card).toBeInViewport();
+    await expect(frameLabel).toBeInViewport();
+    await frameLabel.click({ force: true });
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds)
+      .toEqual([sourceId]);
     await focusCanvas(page);
     await page.keyboard.press(`${MOD}+d`);
     let filesAfter: string[] = [];
@@ -688,6 +689,20 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const dup1 = filesAfter.find((f) => !filesBefore.includes(f));
     expect(dup1, "duplicated screen file should exist").toBe("index-copy.html");
     const dup1Id = await fileId(request, designId, dup1!);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          copy: frames?.[dup1Id],
+          neighborZ: frames?.[neighborId]?.z,
+          fartherZ: frames?.[fartherId]?.z,
+        };
+      })
+      .toEqual({
+        copy: { ...sourceGeometry, x: 560, z: 1 },
+        neighborZ: 2,
+        fartherZ: 3,
+      });
     // Figma selects the new copy after Cmd+D.
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds, {
@@ -696,13 +711,26 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
           "Cmd+D should select the new copy (Figma parity) once its history entry lands",
       })
       .toEqual([dup1Id]);
+    await expect(
+      page.locator(`[data-frame-id="${dup1Id}"] [data-screen-card]`),
+    ).toBeInViewport();
     // Duplicating a screen regenerates every node id (like paste), so assert
     // on the content signature, not the source id.
     const dup1Content = await fileContent(request, designId, dup1!);
     expect(dup1Content).toContain('data-agent-native-component="Navigation"');
     expect(dup1Content).toContain("Wordmark");
 
-    // The second Cmd+D chains onto the selected copy, dup1.
+    await page
+      .getByRole("button", { name: /^\d+%$/ })
+      .first()
+      .click();
+    await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
+    await expect(card).toBeInViewport();
+    await expect(frameLabel).toBeInViewport();
+    await frameLabel.click({ force: true });
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds)
+      .toEqual([sourceId]);
     await focusCanvas(page);
     await page.keyboard.press(`${MOD}+d`);
     await expect
@@ -715,12 +743,27 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       )
       .toBe(filesBefore.length + 2);
     const dup2 = filesAfter.find((f) => !filesBefore.includes(f) && f !== dup1);
-    // The copy is named after its source, so only a duplicate of dup1 reads
-    // "index-copy-copy"; re-duplicating the original gives "index-copy-2".
-    expect(dup2, "the second Cmd+D should duplicate dup1").toBe(
-      "index-copy-copy.html",
-    );
+    expect(
+      dup2,
+      "the second Cmd+D should duplicate the reselected source",
+    ).toBe("index-copy-2.html");
     const dup2Id = await fileId(request, designId, dup2!);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          copy: frames?.[dup2Id],
+          firstCopyZ: frames?.[dup1Id]?.z,
+          neighborZ: frames?.[neighborId]?.z,
+          fartherZ: frames?.[fartherId]?.z,
+        };
+      })
+      .toEqual({
+        copy: { ...sourceGeometry, x: 920, z: 1 },
+        firstCopyZ: 2,
+        neighborZ: 3,
+        fartherZ: 4,
+      });
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds, {
         timeout: 10_000,
@@ -732,8 +775,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     expect(dup2Content).toContain('data-agent-native-component="Navigation"');
     expect(dup2Content).toContain("Wordmark");
 
-    // One undo removes the most recent duplicate only. The count drops by one
-    // whichever copy is removed, so assert which one survives.
     await page.keyboard.press(`${MOD}+z`);
     let filesAfterUndo: string[] = [];
     await expect
@@ -757,6 +798,156 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       filesAfterUndo.includes(dup2!),
       `undo should remove the SECOND (most recent) duplicate (${dup2}), not the first — files after undo: ${JSON.stringify(filesAfterUndo)}`,
     ).toBe(false);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          sourceZ: frames?.[sourceId]?.z,
+          firstCopyZ: frames?.[dup1Id]?.z,
+          neighborZ: frames?.[neighborId]?.z,
+          fartherZ: frames?.[fartherId]?.z,
+        };
+      })
+      .toEqual({ sourceZ: 0, firstCopyZ: 1, neighborZ: 2, fartherZ: 3 });
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(async () => (await fileList(request, designId)).includes(dup2!))
+      .toBe(true);
+    const redoneCopyId = await fileId(request, designId, dup2!);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          copy: frames?.[redoneCopyId],
+          firstCopyZ: frames?.[dup1Id]?.z,
+          neighborZ: frames?.[neighborId]?.z,
+          fartherZ: frames?.[fartherId]?.z,
+        };
+      })
+      .toEqual({
+        copy: { ...sourceGeometry, x: 920, z: 1 },
+        firstCopyZ: 2,
+        neighborZ: 3,
+        fartherZ: 4,
+      });
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds)
+      .toEqual([redoneCopyId]);
+  });
+
+  test("step 5 [overview, multi-selection]: Cmd+D duplicates every selected screen in one undo step", async ({
+    page,
+    request,
+  }) => {
+    ({ designId } = await newDesign(request, [
+      { filename: "index.html", content: BLANK_SCREEN("Source") },
+      { filename: "neighbor.html", content: BLANK_SCREEN("Neighbor") },
+      { filename: "farther.html", content: BLANK_SCREEN("Farther") },
+    ]));
+    const sourceId = await fileId(request, designId, "index.html");
+    const neighborId = await fileId(request, designId, "neighbor.html");
+    const fartherId = await fileId(request, designId, "farther.html");
+    const geometry = {
+      [sourceId]: { x: 0, y: 120, width: 320, height: 240, z: 0 },
+      [neighborId]: { x: 376, y: 120, width: 320, height: 240, z: 1 },
+      [fartherId]: { x: 1128, y: 120, width: 320, height: 240, z: 2 },
+    };
+    await action(request, "update-design", {
+      id: designId,
+      dataOperations: Object.entries(geometry).map(([id, value]) => ({
+        op: "set",
+        path: ["canvasFrames", id],
+        value,
+      })),
+    });
+    await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=30`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
+      timeout: 40_000,
+    });
+    const sourceCard = page.locator(
+      `[data-frame-id="${sourceId}"] [data-screen-card]`,
+    );
+    await expect(sourceCard).toBeVisible();
+    await sourceCard.click({ force: true });
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds)
+      .toEqual([sourceId]);
+    await page.keyboard.press(`${MOD}+a`);
+    await expect
+      .poll(async () =>
+        (await selectionContext(request)).selectedScreenIds?.slice().sort(),
+      )
+      .toEqual([sourceId, neighborId, fartherId].sort());
+
+    const filesBefore = await fileList(request, designId);
+    await focusCanvas(page);
+    await page.keyboard.press(`${MOD}+d`);
+    let filesAfter: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          filesAfter = await fileList(request, designId);
+          return filesAfter.length;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(filesBefore.length + 3);
+    const copies = filesAfter.filter(
+      (filename) => !filesBefore.includes(filename),
+    );
+    expect(copies.slice().sort()).toEqual(
+      ["index-copy.html", "neighbor-copy.html", "farther-copy.html"].sort(),
+    );
+    const [sourceCopyId, neighborCopyId, fartherCopyId] = await Promise.all([
+      fileId(request, designId, "index-copy.html"),
+      fileId(request, designId, "neighbor-copy.html"),
+      fileId(request, designId, "farther-copy.html"),
+    ]);
+    await expect
+      .poll(() => selectedScreenFilenames(request, designId))
+      .toEqual(copies.slice().sort());
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          sourceCopy: frames?.[sourceCopyId],
+          neighborCopy: frames?.[neighborCopyId],
+          fartherCopy: frames?.[fartherCopyId],
+          farther: frames?.[fartherId],
+        };
+      })
+      .toEqual({
+        sourceCopy: { ...geometry[sourceId], x: 736, z: 1 },
+        neighborCopy: { ...geometry[neighborId], x: 1488, z: 3 },
+        fartherCopy: { ...geometry[fartherId], x: 1848, z: 5 },
+        farther: { ...geometry[fartherId], z: 4 },
+      });
+
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(async () => (await fileList(request, designId)).length)
+      .toBe(filesBefore.length);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return [
+          frames?.[sourceId]?.z,
+          frames?.[neighborId]?.z,
+          frames?.[fartherId]?.z,
+        ];
+      })
+      .toEqual([0, 1, 2]);
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(async () => (await fileList(request, designId)).length)
+      .toBe(filesBefore.length + 3);
+    await expect
+      .poll(() => selectedScreenFilenames(request, designId))
+      .toEqual(copies.slice().sort());
   });
 
   test("step 6 [in-screen]: dragging a new element into the assembled page reorders it between existing children via the layers panel", async ({
@@ -776,19 +967,12 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await gotoEditor(page, designId);
     await expandAllLayers(page);
 
-    // Figma: drag "Personal-bio" in between Nav and Skills. Closest
-    // equivalent here is dragging the "Bio" layer row above "Skills" in the
-    // layers panel (established pattern: e2e/layers-reparent.spec.ts).
     const bioRow = layerRowButton(page, "Bio").locator(
       'xpath=ancestor::*[@role="treeitem"][1]',
     );
     const skillsRow = layerRowButton(page, "Skills").locator(
       'xpath=ancestor::*[@role="treeitem"][1]',
     );
-    // The layers panel lists siblings in reverse DOM order (top row =
-    // topmost/last-in-DOM), so "insert before Skills in the DOM" means
-    // dropping onto the LOWER half of the Skills row (panel-insert-after
-    // maps to DOM-insert-before; see LayersPanel.tsx mapPanelPlacementToDomPlacement).
     const skillsRowBox = (await skillsRow.boundingBox())!;
     await bioRow.dragTo(skillsRow, {
       targetPosition: { x: 10, y: skillsRowBox.height - 2 },
@@ -817,9 +1001,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       )
       .toEqual(["hero", "bio", "skills"]);
 
-    // Enter selects all children of the frame body; check the sizing control
-    // exists to set Fill-container per child (peer-owned inspector control,
-    // parity-tutorial-2.spec.ts precedent).
     await selectLayerByName(page, "Skills");
     const widthModeButton = page
       .locator('button[aria-label*="sizing mode" i], button[aria-label^="W "]')
@@ -842,13 +1023,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await selectLayerByName(page, "Navigation");
     await page.waitForTimeout(600);
 
-    // FINDING (not a fix): component-section.tsx wires a real
-    // "go-to-main-component" action for `data-agent-native-component`
-    // instances, but it targets the app's real source file (fusion/full-app
-    // mode), not a shared Figma symbol — components.spec.ts's "independent
-    // copies" note is about visual-edit semantics, not this action. Assert
-    // the button exists and degrades gracefully for a prototype-only design
-    // that has no real backing source component.
     const goToMainButton = page.getByRole("button", {
       name: /go to main component/i,
     });
@@ -856,8 +1030,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     if (exists) {
       const urlBefore = page.url();
       await goToMainButton.first().click({ force: true });
-      // Degrade gracefully: either a toast/inline message appears, or (at
-      // minimum) the click must not navigate away from the editor / throw.
       const toastLocator = page.getByText(
         /unavailable|only known instance|could not|not found|no source/i,
       );
@@ -875,8 +1047,6 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         .toBe(true);
     }
 
-    // Step 7's "Reset all changes" (revert an instance's drifted overrides)
-    // has no menu affordance at all — this part is a genuine gap.
     const target = page
       .locator("iframe[data-design-preview-iframe]")
       .first()

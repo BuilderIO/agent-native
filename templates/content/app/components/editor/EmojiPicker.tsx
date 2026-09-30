@@ -1,17 +1,19 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useIconPickerLabels, useT } from "@agent-native/core/client/i18n";
 import { safeParseIconValue, type IconValue } from "@agent-native/core/icons";
 import { ResourceIcon, ResourceIconPicker } from "@agent-native/toolkit/icons";
 import { IconMoodSmile } from "@tabler/icons-react";
-import type { ReactNode } from "react";
-import { toast } from "sonner";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import {
+  contentImageIconUrl,
+  uploadPrivateIconFile,
+} from "@/components/icons/private-icon-assets";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 type EmojiCategory = { name: string; emojis: string[] };
 
@@ -573,7 +575,6 @@ const EMOJI_SEARCH_ALIASES: Record<string, string[]> = {
   "🏁": ["checkered flag", "finish"],
 };
 
-// Flattened for search
 const ALL_EMOJI_ENTRIES = EMOJI_CATEGORIES.flatMap((cat) =>
   cat.emojis.map((emoji) => ({
     emoji,
@@ -615,7 +616,6 @@ export function filterEmojiCategories(search: string): EmojiCategory[] {
 
   if (matchingEmojis.length === 0) return [];
 
-  // Group back into categories
   const grouped = new Map<string, string[]>();
   for (const entry of matchingEmojis) {
     if (!grouped.has(entry.category)) grouped.set(entry.category, []);
@@ -627,6 +627,7 @@ export function filterEmojiCategories(search: string): EmojiCategory[] {
 
 interface EmojiPickerProps {
   icon: IconValue | string | null;
+  assetScopeDocumentId?: string;
   onSelect: (icon: IconValue | null) => void | Promise<void>;
   defaultIcon?: ReactNode;
   defaultIconLabel?: string;
@@ -640,8 +641,84 @@ interface EmojiPickerProps {
   anchorElement?: HTMLElement | null;
 }
 
+export function EmojiPickerPanel({
+  onSelect,
+  autoFocus = true,
+}: {
+  onSelect: (emoji: string) => void;
+  autoFocus?: boolean;
+}) {
+  const t = useT();
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    setSearch("");
+    requestAnimationFrame(() => searchRef.current?.focus());
+  }, [autoFocus]);
+
+  const filteredCategories = useMemo(
+    () => filterEmojiCategories(search),
+    [search],
+  );
+
+  return (
+    <>
+      <div className="p-2 border-b">
+        <input
+          ref={searchRef}
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("editor.emojiFilter")}
+          className="w-full px-2.5 py-1.5 text-sm bg-accent/50 rounded-md outline-none placeholder:text-muted-foreground/50"
+        />
+      </div>
+      <div className="max-h-64 overflow-auto p-2">
+        {filteredCategories.length === 0 ? (
+          <div className="text-sm text-muted-foreground text-center py-4">
+            {t("editor.emojiNoEmojisFound")}
+          </div>
+        ) : (
+          filteredCategories.map((category) => (
+            <div key={category.name} className="mb-2 last:mb-0">
+              <div className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider px-0.5 mb-1">
+                {t(
+                  `editor.emojiCategory${category.name}` as
+                    | "editor.emojiCategorySmileys"
+                    | "editor.emojiCategoryPeople"
+                    | "editor.emojiCategoryNature"
+                    | "editor.emojiCategoryFood"
+                    | "editor.emojiCategoryActivities"
+                    | "editor.emojiCategoryTravel"
+                    | "editor.emojiCategoryObjects"
+                    | "editor.emojiCategorySymbols",
+                )}
+              </div>
+              <div className="grid grid-cols-7 gap-0 sm:grid-cols-8">
+                {category.emojis.map((emoji) => (
+                  <button
+                    type="button"
+                    key={emoji}
+                    onClick={() => onSelect(emoji)}
+                    className="w-9 h-9 flex items-center justify-center text-lg rounded hover:bg-accent cursor-pointer"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </>
+  );
+}
+
 export function EmojiPicker({
   icon,
+  assetScopeDocumentId,
   onSelect,
   defaultIcon,
   defaultIconLabel = "page",
@@ -656,6 +733,13 @@ export function EmojiPicker({
 }: EmojiPickerProps) {
   const t = useT();
   const iconPickerLabels = useIconPickerLabels();
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const pickerOpen = open ?? uncontrolledOpen;
+  const uploadedAssets = useActionQuery(
+    "list-private-icon-assets",
+    { documentId: assetScopeDocumentId ?? "" },
+    { enabled: pickerOpen && !!assetScopeDocumentId },
+  );
   const parsed = safeParseIconValue(icon);
   const value = parsed.success ? parsed.data : null;
   const triggerLabel =
@@ -670,24 +754,42 @@ export function EmojiPicker({
       container={container}
       contentClassName={contentClassName}
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(nextOpen) => {
+        setUncontrolledOpen(nextOpen);
+        onOpenChange?.(nextOpen);
+      }}
       anchored={anchored}
       anchorElement={anchorElement}
       onValueChange={onSelect}
-      onUpload={async (file) => {
-        const url = await uploadImageFile(file);
-        return {
-          version: 1,
-          kind: "image",
-          authority: "url",
-          assetId: url,
-          alt: file.name,
-        };
-      }}
-      onUploadError={(error) => toast.error(imageUploadErrorMessage(error))}
-      resolveImageUrl={(image) =>
-        image.authority === "url" ? image.assetId : undefined
+      uploadedImages={(uploadedAssets.data?.assets ?? []).map((asset) => ({
+        version: 1,
+        kind: "image",
+        authority: "private-icon",
+        assetId: asset.id,
+        alt: asset.alt ?? asset.filename ?? undefined,
+      }))}
+      uploadedImagesError={uploadedAssets.isError}
+      onUploadedImagesRetry={() => void uploadedAssets.refetch()}
+      onUpload={
+        assetScopeDocumentId
+          ? async (file) => {
+              const assetId = await uploadPrivateIconFile(
+                file,
+                assetScopeDocumentId,
+              );
+              void uploadedAssets.refetch();
+              return {
+                version: 1,
+                kind: "image",
+                authority: "private-icon",
+                assetId,
+                alt: file.name,
+              };
+            }
+          : undefined
       }
+      formatUploadError={() => iconPickerLabels.uploadFailed}
+      resolveImageUrl={contentImageIconUrl}
       labels={{
         ...iconPickerLabels,
         trigger: triggerLabel,
@@ -719,9 +821,7 @@ export function EmojiPicker({
               <ResourceIcon
                 value={value}
                 size={variant === "compact" ? 22 : 48}
-                resolveImageUrl={(image) =>
-                  image.authority === "url" ? image.assetId : undefined
-                }
+                resolveImageUrl={contentImageIconUrl}
               />
             </button>
           ) : defaultIcon ? (

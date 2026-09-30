@@ -1,15 +1,11 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useDbSync } from "@agent-native/core/client/hooks";
-import {
-  AppProviders,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client/hooks";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
-import {
-  ErrorReportActions,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
@@ -20,7 +16,6 @@ import {
   ScrollRestoration,
   isRouteErrorResponse,
   Link,
-  useLocation,
   useRouteError,
 } from "react-router";
 
@@ -213,7 +208,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content"
         />
         <script
           data-agent-native-theme-init
@@ -255,16 +250,14 @@ function DbSyncSetup() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingHome = location.pathname === "/";
   return (
     <AppProviders
       queryClient={queryClient}
-      isPublicPath={isMarketingHome}
+      skeletonLayout="welcome"
       i18n={{ catalog: i18nCatalog }}
     >
       <AppToolkitProvider>
-        {isMarketingHome ? null : <DbSyncSetup />}
+        <DbSyncSetup />
         <Outlet />
       </AppToolkitProvider>
     </AppProviders>

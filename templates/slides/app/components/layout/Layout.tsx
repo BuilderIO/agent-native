@@ -1,21 +1,21 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -34,11 +34,14 @@ import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "../editor/GoogleDriveConnectionCta";
+import { SlidesComposerContextProvider } from "../editor/SlidesComposerContextProvider";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  isSlidesSettingsRoute,
+  isSlidesHomeRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
@@ -52,13 +55,53 @@ interface EditorSidebarOverride {
   collapsed: boolean;
 }
 
+interface MobileDeckSaveFlushRequest {
+  requestId: string;
+  deckId: string;
+}
+
+function readMobileDeckSaveFlushRequest(
+  value: unknown,
+): MobileDeckSaveFlushRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const request = value as Record<string, unknown>;
+  if (
+    typeof request.requestId !== "string" ||
+    !request.requestId ||
+    typeof request.deckId !== "string" ||
+    !request.deckId
+  ) {
+    return null;
+  }
+  return { requestId: request.requestId, deckId: request.deckId };
+}
+
+function postMobileDeckSaveFlushAck(message: {
+  requestId: string;
+  requestedDeckId: string;
+  activeDeckId: string | null;
+  status: "flushed" | "not-target" | "failed";
+}) {
+  const nativeBridge = (
+    window as Window & {
+      ReactNativeWebView?: { postMessage: (value: string) => void };
+    }
+  ).ReactNativeWebView;
+  nativeBridge?.postMessage(
+    JSON.stringify({
+      type: "agentNative.mobileDeckSaveFlush.ack",
+      ...message,
+    }),
+  );
+}
+
 /** Routes whose pages render their own toolbar — Layout still renders chrome
  * (sidebar + AgentSidebar wrapper) but skips its own Header. */
 function pageHasOwnToolbar(pathname: string): boolean {
   if (pathname === "/chat" || pathname.startsWith("/chat/")) return true;
   if (pathname.startsWith("/deck/")) return true;
   // /extensions (list) and /extensions/<id> (viewer) both render their own headers
-  // from @agent-native/core/client/extensions.
+  // from @agent-native/toolkit/app/extensions.
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;
@@ -117,6 +160,50 @@ export function Layout({ children }: LayoutProps) {
       window.removeEventListener("agentNative.chatRunning", onChatRunning);
   }, []);
   useEffect(() => {
+    const onMobileDeckSaveFlush = (event: Event) => {
+      const request = readMobileDeckSaveFlushRequest(
+        (event as CustomEvent<unknown>).detail,
+      );
+      if (!request) return;
+      const activeDeckId =
+        location.pathname.match(/^\/deck\/([^/]+)/)?.[1] ?? null;
+      if (activeDeckId !== request.deckId) {
+        postMobileDeckSaveFlushAck({
+          requestId: request.requestId,
+          requestedDeckId: request.deckId,
+          activeDeckId,
+          status: "not-target",
+        });
+        return;
+      }
+      void flushDeckSave(request.deckId).then(
+        () =>
+          postMobileDeckSaveFlushAck({
+            requestId: request.requestId,
+            requestedDeckId: request.deckId,
+            activeDeckId,
+            status: "flushed",
+          }),
+        () =>
+          postMobileDeckSaveFlushAck({
+            requestId: request.requestId,
+            requestedDeckId: request.deckId,
+            activeDeckId,
+            status: "failed",
+          }),
+      );
+    };
+    window.addEventListener(
+      "agentNative.mobileDeckSaveFlush",
+      onMobileDeckSaveFlush,
+    );
+    return () =>
+      window.removeEventListener(
+        "agentNative.mobileDeckSaveFlush",
+        onMobileDeckSaveFlush,
+      );
+  }, [flushDeckSave, location.pathname]);
+  useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(
         (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null,
@@ -172,7 +259,7 @@ export function Layout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -205,8 +292,12 @@ export function Layout({ children }: LayoutProps) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const ownToolbar = pageHasOwnToolbar(location.pathname);
-  const showAppSidebar = shouldShowSlidesAppSidebar(location.pathname);
+  // Settings brings its own navigation, header, and agent-panel toggle, so it
+  // replaces the app's chrome instead of nesting inside it.
+  const fullWidthSettings = isSlidesSettingsRoute(location.pathname);
+  const ownToolbar = pageHasOwnToolbar(location.pathname) || fullWidthSettings;
+  const showAppSidebar =
+    shouldShowSlidesAppSidebar(location.pathname) && !fullWidthSettings;
   const editorSidebarOverrideForLocation =
     editorSidebarOverride?.locationKey === location.key
       ? editorSidebarOverride.collapsed
@@ -227,12 +318,15 @@ export function Layout({ children }: LayoutProps) {
     void setSidebarCollapsed((prev) => !prev);
   };
 
-  function openAgentChatFullscreen() {
+  function openAgentChatFullscreen(threadId?: string) {
     focusAgentChat();
     const deckQuery = deckScope
       ? `?deckId=${encodeURIComponent(deckScope.id)}`
       : "";
-    navigateWithAgentChatViewTransition(navigate, `/chat${deckQuery}`);
+    const chatPath = threadId
+      ? `/chat/${encodeURIComponent(threadId)}`
+      : "/chat";
+    navigateWithAgentChatViewTransition(navigate, `${chatPath}${deckQuery}`);
   }
 
   const showMobileNavigation = isChatRoute || !ownToolbar;
@@ -301,6 +395,7 @@ export function Layout({ children }: LayoutProps) {
         shell
       ) : (
         <AgentSidebar
+          composerContextProvider={SlidesComposerContextProvider}
           position="right"
           defaultOpen={false}
           chatViewTransition
@@ -313,11 +408,13 @@ export function Layout({ children }: LayoutProps) {
             t("agent.suggestionBrand"),
             t("agent.suggestionHero"),
           ]}
+          dynamicSuggestions={false}
           scope={deckScope}
           chatHistory={deckChatHistory}
           browserTabId={TAB_ID}
           agentPageHref="/settings/agent"
           suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
+          showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
           onComposerTextChange={setComposerText}
           composerSlot={
             <>

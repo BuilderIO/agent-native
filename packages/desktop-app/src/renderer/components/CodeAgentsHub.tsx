@@ -21,7 +21,6 @@ import {
   emitChatFirstSessionWatch,
   getChatFirstSurfaceTabsStore,
   orderChatFirstAppIds,
-  preloadAgentChatSurface,
   readChatFirstAppLayout,
   resolveChatFirstAppTarget,
   resolveChatFirstBrowserTarget,
@@ -42,6 +41,9 @@ import {
   type ChatFirstSurfaceKind,
   type ChatFirstSurfaceTab,
 } from "@agent-native/core/client/agent-chat";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { cn } from "@agent-native/toolkit";
+import { preloadAgentChatSurface } from "@agent-native/toolkit/app/chat/AgentSidebar";
 import {
   ChatFirstAgentsPane,
   ChatFirstAppPane,
@@ -56,10 +58,8 @@ import {
   type ChatFirstAppItem,
   type ChatFirstEmbedTarget,
   type ChatFirstPrimaryTab,
-} from "@agent-native/core/client/chat-first";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
-import { FeedbackButton } from "@agent-native/core/client/ui";
-import { cn } from "@agent-native/toolkit";
+} from "@agent-native/toolkit/app/chat/chat-first";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import {
   Tooltip,
   TooltipContent,
@@ -277,12 +277,6 @@ export function isChatFirstSurfaceTabActive(input: {
   return input.surfaceActive && input.tabId === input.activeTabId;
 }
 
-/**
- * The nav surface the desktop rail reports as active. Scheduled tasks and the
- * chats view are surfaces without an `appId`, so they must still name a tab -
- * otherwise the rail cannot tell them from "nothing resolved" and leaves every
- * app icon reading as active.
- */
 export function resolveDesktopChatFirstPrimaryTab(input: {
   scheduledTasksOpen: boolean;
   appSelected: boolean;
@@ -648,8 +642,6 @@ export function updateAppAuthStateByTab(
   tabId: string,
   state: AppWebviewAuthState,
 ): Record<string, AppWebviewAuthState> {
-  // Navigation probes publish unknown while the guest session settles. Keep
-  // the last confirmed state so host-owned surfaces do not remount per route.
   if (state === "unknown" && current[tabId] !== undefined) return current;
   return current[tabId] === state ? current : { ...current, [tabId]: state };
 }
@@ -3170,8 +3162,6 @@ export default function CodeAgentsHub({
                 }}
                 theme={theme}
                 urlParams={urlParams}
-                // Shell key folded in: a lane change remounts every hosted
-                // surface, not just the ones with their own refresh reason.
                 refreshKey={appRefreshKey + refreshKey}
               />
             </div>

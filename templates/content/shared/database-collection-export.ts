@@ -58,7 +58,6 @@ function recordMarkdown(
   ].join("\n\n");
 }
 
-/** Render an already-authorized, ordered collection projection as RFC 4180 CSV. */
 export function renderCollectionCsv(projection: CollectionExportProjection) {
   const fields = [...projection.scalarFields, ...projection.bodyFields];
   const rows = projection.records.map((record) => [
@@ -95,10 +94,6 @@ function archiveRecordPath(index: number, record: CollectionExportRecord) {
   return `records/${String(index + 1).padStart(4, "0")}-${slug || "untitled"}-${stableId || "record"}.md`;
 }
 
-/**
- * Produce the deterministic file model consumed by the browser ZIP encoder.
- * Keeping archive encoding outside this renderer avoids a server-bundle dependency.
- */
 export function renderCollectionMarkdownArchive(
   projection: CollectionExportProjection,
 ): CollectionArchiveFile[] {

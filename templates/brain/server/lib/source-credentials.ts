@@ -1,5 +1,7 @@
-import { resolveCredential } from "@agent-native/core/credentials";
-import type { CredentialContext } from "@agent-native/core/credentials";
+import {
+  resolveCredentialDetailed,
+  type CredentialContext,
+} from "@agent-native/core/credentials";
 import { readAppSecret, type SecretRef } from "@agent-native/core/secrets";
 import {
   listWorkspaceConnections,
@@ -14,10 +16,11 @@ import type { BrainSourceProvider } from "../../shared/types.js";
 
 const APP_ID = "brain";
 
-const SOURCE_CREDENTIAL_KEYS: Record<string, string> = {
-  slack: "SLACK_BOT_TOKEN",
-  granola: "GRANOLA_API_KEY",
-  github: "GITHUB_TOKEN",
+const SOURCE_CREDENTIAL_KEYS: Record<string, readonly string[]> = {
+  slack: ["SLACK_BOT_TOKEN"],
+  granola: ["GRANOLA_API_KEY"],
+  github: ["GITHUB_TOKEN"],
+  zoom: ["ZOOM_ACCOUNT_ID", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET"],
 };
 
 interface ResolveSourceCredentialOptions {
@@ -44,6 +47,7 @@ export interface SourceCredentialProvenance {
   key: string;
   provider: string;
   scope?: SecretRef["scope"];
+  scopeId?: string;
   connectionId?: string;
   connectionLabel?: string;
   grantId?: string | null;
@@ -379,6 +383,7 @@ async function resolveWorkspaceConnectionCredential({
             key,
             provider,
             scope: found.ref.scope,
+            scopeId: found.ref.scopeId,
             connectionId: connectionResult.id,
             connectionLabel: connectionResult.label,
             grantId: access.grantId,
@@ -431,6 +436,7 @@ async function resolveRegisteredSecretCredential(
         key: options.key,
         provider: options.provider,
         scope: found.ref.scope,
+        scopeId: found.ref.scopeId,
       },
     };
   }
@@ -484,7 +490,10 @@ async function resolveSourceCredentialDetailed(
     };
   }
 
-  const localCredential = await resolveCredential(options.key, options.ctx);
+  const localCredential = await resolveCredentialDetailed(
+    options.key,
+    options.ctx,
+  );
   if (localCredential) {
     checked.push({
       source: "brain_local",
@@ -496,11 +505,13 @@ async function resolveSourceCredentialDetailed(
       provider: options.provider,
       key: options.key,
       available: true,
-      value: localCredential,
+      value: localCredential.value,
       provenance: {
         source: "brain_local",
         key: options.key,
         provider: options.provider,
+        scope: localCredential.scope,
+        scopeId: localCredential.scopeId,
       },
       checked,
       missingMessage: null,
@@ -544,11 +555,21 @@ async function resolveSourceCredentialDetailed(
   };
 }
 
+export async function resolveSourceCredentialWithProvenance(
+  options: ResolveSourceCredentialOptions,
+): Promise<
+  { value: string; provenance: SourceCredentialProvenance } | undefined
+> {
+  const resolution = await resolveSourceCredentialDetailed(options);
+  return resolution.value && resolution.provenance
+    ? { value: resolution.value, provenance: resolution.provenance }
+    : undefined;
+}
+
 export async function resolveSourceCredential(
   options: ResolveSourceCredentialOptions,
 ): Promise<string | undefined> {
-  const resolution = await resolveSourceCredentialDetailed(options);
-  return resolution.value;
+  return (await resolveSourceCredentialWithProvenance(options))?.value;
 }
 
 export async function inspectSourceCredentialAvailability(
@@ -605,24 +626,26 @@ export async function assertSourceCredentialAvailable({
   workspaceConnectionId: string;
   ctx: CredentialContext | null;
 }) {
-  const key = SOURCE_CREDENTIAL_KEYS[provider.trim().toLowerCase()];
-  if (!key) return;
+  const keys = SOURCE_CREDENTIAL_KEYS[provider.trim().toLowerCase()];
+  if (!keys) return;
   if (!ctx) {
     throw new Error(
       "Source workspace connection setup requires an authenticated credential context.",
     );
   }
 
-  const availability = await inspectSourceCredentialAvailability({
-    provider,
-    key,
-    ctx,
-    workspaceConnectionId,
-  });
-  if (!availability.available) {
-    throw new Error(
-      availability.missingMessage ??
-        `The selected ${provider} workspace connection cannot provide ${key}.`,
-    );
+  for (const key of keys) {
+    const availability = await inspectSourceCredentialAvailability({
+      provider,
+      key,
+      ctx,
+      workspaceConnectionId,
+    });
+    if (!availability.available) {
+      throw new Error(
+        availability.missingMessage ??
+          `The selected ${provider} workspace connection cannot provide ${key}.`,
+      );
+    }
   }
 }

@@ -1,17 +1,5 @@
 import { eq } from "drizzle-orm";
 
-/**
- * Booking lifecycle — create, reschedule, cancel — wired to providers and
- * workflow hooks.
- *
- * The booking flow:
- *   1. Load event type and resolve host (1:1, round-robin).
- *   2. Validate requested slot against availability engine.
- *   3. Insert the booking row + attendees.
- *   4. For each video/calendar provider, create external events and attach
- *      references to the booking.
- *   5. Emit lifecycle event → workflows materialize scheduled reminders.
- */
 import type {
   Booking,
   Attendee,
@@ -50,14 +38,30 @@ export interface CreateBookingInput {
   iCalUid?: string;
   iCalSequence?: number;
   orgId?: string;
-  /** If set, we're rescheduling from this booking uid */
   fromReschedule?: string;
+  requireZoomMeeting?: boolean;
+}
+
+export class BookingLifecycleError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: 409 | 502,
+    readonly errorCode:
+      | "zoom_meeting_review_required"
+      | "video_meeting_cleanup_failed"
+      | "video_meeting_creation_failed",
+  ) {
+    super(message);
+  }
 }
 
 export async function createBooking(
   input: CreateBookingInput,
 ): Promise<Booking> {
   const eventType = input.eventType;
+  if (input.orgId !== undefined && input.orgId !== eventType.orgId) {
+    throw new Error("Booking orgId must match the event type organization");
+  }
   const title =
     input.title ??
     eventType.eventName?.replace("{attendeeName}", input.attendee.name) ??
@@ -71,26 +75,30 @@ export async function createBooking(
     afterEventBuffer: eventType.afterEventBuffer,
     excludeBookingUid: input.fromReschedule,
   });
-  const booking = await insertBooking({
-    eventTypeId: eventType.id,
-    hostEmail: input.hostEmail,
-    title,
-    description: input.description,
-    startTime: input.startTime,
-    endTime: input.endTime,
-    timezone: input.timezone,
-    status: eventType.requiresConfirmation ? "pending" : "confirmed",
-    location: input.location ?? eventType.locations[0],
-    attendees,
-    customResponses: input.customResponses,
-    iCalUid: input.iCalUid,
-    iCalSequence: input.iCalSequence,
-    fromReschedule: input.fromReschedule,
-    ownerEmail: input.hostEmail,
-    orgId: input.orgId,
-  });
+  const booking = {
+    ...(await insertBooking({
+      eventTypeId: eventType.id,
+      hostEmail: input.hostEmail,
+      title,
+      description: input.description,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      timezone: input.timezone,
+      status: eventType.requiresConfirmation ? "pending" : "confirmed",
+      location: input.location ?? eventType.locations[0],
+      attendees,
+      customResponses: input.customResponses,
+      iCalUid: input.iCalUid,
+      iCalSequence: input.iCalSequence,
+      fromReschedule: input.fromReschedule,
+      ownerEmail: input.hostEmail,
+      orgId: eventType.orgId,
+    })),
+    teamId: eventType.teamId,
+  };
 
-  // Create video meeting if location is a video kind
+  let usableZoomMeeting = false;
+
   if (booking.location && isVideoKind(booking.location.kind)) {
     const provider = getVideoProvider(
       videoProviderKindFor(booking.location.kind),
@@ -101,7 +109,7 @@ export async function createBooking(
           credentialId: booking.location.credentialId,
           booking,
         });
-        if (meeting.meetingUrl) {
+        if (meeting.meetingId && booking.location.credentialId) {
           await addBookingReference(booking.id, {
             type: provider.kind,
             externalId: meeting.meetingId,
@@ -109,22 +117,37 @@ export async function createBooking(
             meetingPassword: meeting.meetingPassword,
             credentialId: booking.location.credentialId,
           });
+          usableZoomMeeting =
+            provider.kind === "zoom_video" && Boolean(meeting.meetingUrl);
         }
       } catch {
+        if (input.requireZoomMeeting) {
+          throw new BookingLifecycleError(
+            "Replacement Zoom meeting could not be confirmed. The original booking remains active, and the replacement reservation needs host review.",
+            502,
+            "video_meeting_creation_failed",
+          );
+        }
         // Continue without the video link; the host can fix on the booking detail page
       }
     }
   }
 
-  // Write to destination calendar
+  if (input.requireZoomMeeting && !usableZoomMeeting) {
+    throw new BookingLifecycleError(
+      "Replacement Zoom meeting could not be confirmed. The original booking remains active, and the replacement reservation needs host review.",
+      502,
+      "video_meeting_creation_failed",
+    );
+  }
+
   await writeToDestinationCalendars(booking);
 
-  // Fire workflow hooks
   await onBookingCreated(booking);
 
   const final = await getBookingByUid(booking.uid);
   if (!final) throw new Error("Booking disappeared after creation");
-  return final;
+  return { ...final, teamId: eventType.teamId };
 }
 
 export async function rescheduleBooking(input: {
@@ -133,15 +156,14 @@ export async function rescheduleBooking(input: {
   newEndTime: string;
   reason?: string;
   rescheduledBy?: "attendee" | "host";
+  zoomMeetingResolved?: boolean;
 }): Promise<Booking> {
   const original = await getBookingByUid(input.uid);
   if (!original) throw new Error(`Booking ${input.uid} not found`);
   const eventType = await getEventTypeById(original.eventTypeId);
   if (!eventType) throw new Error("Event type missing");
+  requireZoomMeetingResolution(original, input.zoomMeetingResolved);
 
-  // Create the new booking (validated against availability, ignoring the
-  // original's own slot) before touching the original, so a slot conflict
-  // never leaves the original marked "rescheduled" with no successor.
   const attendee = original.attendees[0];
   const guests = original.attendees.slice(1);
   const newBooking = await createBooking({
@@ -159,14 +181,32 @@ export async function rescheduleBooking(input: {
     iCalUid: original.iCalUid,
     iCalSequence: original.iCalSequence + 1,
     fromReschedule: input.uid,
+    requireZoomMeeting: original.location?.kind === "zoom",
   });
 
-  // Mark old as rescheduled now that the replacement exists.
+  try {
+    await deleteVideoMeetings(original);
+  } catch (error) {
+    try {
+      await cancelBooking({ uid: newBooking.uid });
+    } catch (rollbackError) {
+      const cleanupMessage =
+        rollbackError instanceof Error
+          ? rollbackError.message
+          : "unknown error";
+      throw new BookingLifecycleError(
+        `The existing meeting could not be canceled, and the replacement booking could not be fully rolled back: ${cleanupMessage}`,
+        502,
+        "video_meeting_cleanup_failed",
+      );
+    }
+    throw error;
+  }
+
   await updateBookingStatus(input.uid, "rescheduled", {
     reschedulingReason: input.reason,
   });
 
-  // Update external calendar events (PATCH, not delete+create)
   for (const ref of original.references) {
     const provider = getCalendarProvider(ref.type);
     if (provider?.updateEvent && ref.credentialId) {
@@ -190,9 +230,13 @@ export async function cancelBooking(input: {
   uid: string;
   reason?: string;
   cancelledBy?: "attendee" | "host";
+  zoomMeetingResolved?: boolean;
 }): Promise<Booking> {
   const booking = await getBookingByUid(input.uid);
   if (!booking) throw new Error(`Booking ${input.uid} not found`);
+  requireZoomMeetingResolution(booking, input.zoomMeetingResolved);
+  await deleteVideoMeetings(booking);
+
   await updateBookingStatus(input.uid, "cancelled", {
     cancellationReason: input.reason,
   });
@@ -207,19 +251,63 @@ export async function cancelBooking(input: {
         });
       } catch {}
     }
-    const videoProvider = getVideoProvider(ref.type);
-    if (videoProvider?.deleteMeeting) {
-      try {
-        await videoProvider.deleteMeeting({
-          credentialId: ref.credentialId,
-          meetingId: ref.externalId,
-        });
-      } catch {}
-    }
   }
 
-  await onBookingCancelled(booking);
+  const eventType = await getEventTypeById(booking.eventTypeId);
+  await onBookingCancelled({ ...booking, teamId: eventType?.teamId });
   return (await getBookingByUid(input.uid))!;
+}
+
+function requireZoomMeetingResolution(
+  booking: Booking,
+  zoomMeetingResolved?: boolean,
+): void {
+  if (
+    booking.location?.kind === "zoom" &&
+    !booking.references.some((ref) => ref.type === "zoom_video") &&
+    zoomMeetingResolved !== true
+  ) {
+    throw new BookingLifecycleError(
+      "Zoom meeting needs host review; cancel it in Zoom, then confirm it was resolved",
+      409,
+      "zoom_meeting_review_required",
+    );
+  }
+}
+
+async function deleteVideoMeetings(booking: Booking): Promise<void> {
+  for (const ref of booking.references) {
+    const provider = getVideoProvider(ref.type);
+    if (!provider) {
+      if (ref.type.endsWith("_video") || ref.type === "google_meet") {
+        throw new BookingLifecycleError(
+          `${ref.type} provider is unavailable to cancel this meeting`,
+          502,
+          "video_meeting_cleanup_failed",
+        );
+      }
+      continue;
+    }
+    if (!provider.deleteMeeting) {
+      throw new BookingLifecycleError(
+        `${provider.label} does not support meeting cancellation`,
+        502,
+        "video_meeting_cleanup_failed",
+      );
+    }
+    try {
+      await provider.deleteMeeting({
+        credentialId: ref.credentialId,
+        meetingId: ref.externalId,
+      });
+    } catch (error) {
+      throw new BookingLifecycleError(
+        `${provider.label} meeting could not be canceled${error instanceof Error ? `: ${error.message}` : ""}`,
+        502,
+        "video_meeting_cleanup_failed",
+      );
+    }
+  }
 }
 
 export async function markNoShow(

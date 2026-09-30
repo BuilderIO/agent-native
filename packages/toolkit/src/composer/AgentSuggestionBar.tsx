@@ -5,12 +5,9 @@ import { cn } from "../utils.js";
 
 export interface AgentSuggestionItem {
   id: string;
-  /** Concise, single-line action label. Put the full instruction in `prompt`. */
   label: string;
-  /** Prompt submitted when the suggestion is chosen. Defaults to `label`. */
   prompt?: string;
   disabled?: boolean;
-  /** Provider- or app-owned data preserved for custom selection handlers. */
   metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -44,11 +41,6 @@ export function agentSuggestionPrompt(
     : (suggestion.prompt ?? suggestion.label);
 }
 
-/**
- * Horizontally scrollable next actions anchored to the base of an agent thread.
- * Suggestions are serializable so hosts and agent transports can replace them
- * as the conversation evolves; presentation remains independently composable.
- */
 export function AgentSuggestionBar({
   suggestions,
   ariaLabel,
@@ -74,11 +66,11 @@ export function AgentSuggestionBar({
             <Button
               key={suggestion.id}
               type="button"
-              variant="outline"
+              variant="secondary"
               size="sm"
               disabled={suggestion.disabled}
               onClick={() => onSelect(suggestion)}
-              className="h-7 shrink-0 snap-start whitespace-nowrap rounded-full border-transparent bg-muted/55 px-2.5 text-[11px] font-normal text-muted-foreground shadow-none transition-[border-color,background-color,color] hover:border-border/55 hover:bg-muted hover:text-foreground"
+              className="h-7 shrink-0 snap-start whitespace-nowrap rounded-full border-transparent bg-muted/55 px-2.5 text-[11px] font-normal text-foreground/80 shadow-none transition-[border-color,background-color,color] hover:border-border/55 hover:bg-muted hover:text-foreground"
             >
               <span>
                 {renderSuggestion

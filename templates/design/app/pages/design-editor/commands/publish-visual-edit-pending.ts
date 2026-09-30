@@ -12,6 +12,13 @@ export interface PendingVisualEditHandoff {
   } | null;
 }
 
+interface PublishedVisualEditHandoff {
+  designId: string;
+  pendingEditCount: number | null;
+  revision: number | null;
+  status: "empty" | "ready" | "stale";
+}
+
 export interface PublishVisualEditPendingArgs {
   activeScreenBridgeUrl: string | null | undefined;
   activeScreenPreviewToken: string | null | undefined;
@@ -20,14 +27,17 @@ export interface PublishVisualEditPendingArgs {
     name: "publish-visual-edit-pending",
     payload: PendingVisualEditHandoff,
   ) => Promise<unknown>;
-  /** The durable action verifies editor access or the same-origin live-share
-   *  URL; this only decides whether to attempt that action from the browser. */
   canPublishDurableHandoff: boolean;
   designId: string;
   fetchImpl: typeof fetch;
   pending: PendingVisualEditHandoff;
   pendingVisualEditClearRequestedRef: RefObject<string | null>;
   pendingVisualEditHadPendingRef: RefObject<string | null>;
+  onHandoffPublicationStatusChange: (
+    status: "empty" | "failed" | "ready" | "local-ready",
+    publicationRevision: number,
+    serverRevision?: number,
+  ) => void;
   setPendingVisualEditPublicationFailed: (failed: boolean) => void;
   showHandoffErrorToast: (error: unknown) => void;
 }
@@ -56,14 +66,32 @@ export async function runPublishVisualEditPending(
     pending,
     pendingVisualEditClearRequestedRef,
     pendingVisualEditHadPendingRef,
+    onHandoffPublicationStatusChange,
     setPendingVisualEditPublicationFailed,
     showHandoffErrorToast,
   } = args;
   const clearRequested = pending.pending === null;
   if (canPublishDurableHandoff) {
     try {
-      await callAction("publish-visual-edit-pending", pending);
+      const result = (await callAction(
+        "publish-visual-edit-pending",
+        pending,
+      )) as PublishedVisualEditHandoff | null;
+      const expectedStatus = clearRequested ? "empty" : "ready";
+      if (
+        result?.designId !== designId ||
+        result.status !== expectedStatus ||
+        !Number.isInteger(result.revision) ||
+        (result.revision ?? 0) < 1
+      ) {
+        throw { errorCode: "visual_edit_handoff_unconfirmed" };
+      }
       setPendingVisualEditPublicationFailed(false);
+      onHandoffPublicationStatusChange(
+        expectedStatus,
+        pending.revision,
+        result.revision ?? undefined,
+      );
       if (
         clearRequested &&
         pendingVisualEditClearRequestedRef.current === designId
@@ -72,6 +100,7 @@ export async function runPublishVisualEditPending(
         pendingVisualEditHadPendingRef.current = null;
       }
     } catch (error) {
+      onHandoffPublicationStatusChange("failed", pending.revision);
       console.error(
         "[design:visual-edit] durable handoff publication failed",
         error,
@@ -107,9 +136,20 @@ export async function runPublishVisualEditPending(
     if (!response.ok) {
       throw new Error(`Bridge returned HTTP ${response.status}`);
     }
+    if (!clearRequested && !canPublishDurableHandoff) {
+      onHandoffPublicationStatusChange("local-ready", pending.revision);
+    } else if (!canPublishDurableHandoff) {
+      onHandoffPublicationStatusChange("empty", pending.revision);
+    }
+    if (
+      clearRequested &&
+      !canPublishDurableHandoff &&
+      pendingVisualEditClearRequestedRef.current === designId
+    ) {
+      pendingVisualEditClearRequestedRef.current = null;
+      pendingVisualEditHadPendingRef.current = null;
+    }
   } catch (error) {
-    // The bridge is optional for static screens; durable MCP publication
-    // remains authoritative when the local app is offline.
     console.warn(
       "[design:visual-edit] local bridge handoff publication failed",
       error,

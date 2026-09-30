@@ -20,6 +20,8 @@ import {
   getDesignCanvasIframeAllow,
   getLocalNetworkAccessPermissionState,
 } from "./design-canvas/external-preview";
+import * as externalPreview from "./design-canvas/external-preview";
+import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import { DesignCanvas } from "./DesignCanvas";
 
 let container: HTMLDivElement;
@@ -74,6 +76,240 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("keeps Chrome settings help available when the prompt is gone", async () => {
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={() => {}}
+        />,
+      );
+    });
+
+    const permissionHelp = container.querySelector("details");
+    expect(container.textContent).toContain("Retry connection");
+    expect(permissionHelp?.open).toBe(false);
+    expect(permissionHelp?.textContent).toContain("No Chrome prompt?");
+    await act(async () => {
+      permissionHelp?.querySelector("summary")?.click();
+    });
+    expect(permissionHelp?.textContent).toContain(
+      "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
+    );
+    expect(
+      Array.from(permissionHelp?.querySelectorAll("img") ?? []).map((image) =>
+        image.getAttribute("src"),
+      ),
+    ).toEqual([
+      "/local-network-access-prompt.png",
+      "/local-network-access-settings.png",
+    ]);
+    expect(
+      permissionHelp?.querySelector<HTMLImageElement>(
+        'img[src="/local-network-access-prompt.png"]',
+      )?.alt,
+    ).toContain("Local network to Allow");
+  });
+
+  it("shows the Chrome permission prompt and closes from its X button", async () => {
+    const onDismiss = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={onDismiss}
+          proactive
+        />,
+      );
+    });
+
+    const permissionImage = document.querySelector<HTMLImageElement>(
+      'img[src="/local-network-access-permission.png"]',
+    );
+    expect(permissionImage).not.toBeNull();
+    expect(permissionImage?.alt).toContain("Allow");
+    const dismissButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Close");
+    expect(dismissButton).toBeDefined();
+
+    await act(async () => dismissButton?.click());
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it("keeps proactive setup open on outside interaction and Escape", async () => {
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={() => {}}
+          proactive
+        />,
+      );
+    });
+
+    const overlay = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-state="open"]'),
+    ).find((element) => element.className.includes("backdrop-blur"));
+    const dialog = document.querySelector<HTMLElement>(
+      '[role="dialog"][data-state="open"]',
+    );
+    expect(overlay?.className).toContain("backdrop-blur-[4px]");
+    expect(overlay?.className).not.toContain("backdrop-blur-[1px]");
+    expect(dialog).not.toBeNull();
+
+    await act(async () => {
+      overlay?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(
+      document.querySelector('[role="dialog"][data-state="open"]'),
+    ).not.toBeNull();
+    await act(async () => {
+      dialog?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(
+      document.querySelector('[role="dialog"][data-state="open"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
+  it("shows one proactive permission dialog for the active overview screen", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(
+      externalPreview,
+      "getLocalNetworkAccessPermissionState",
+    ).mockResolvedValue("prompt");
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL) => new Promise<Response>(() => {}),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const canvas = (screenId: string, active: boolean) => (
+      <DesignCanvas
+        content="http://localhost:5173/account"
+        contentKey={screenId}
+        screenId={screenId}
+        sourceType="localhost"
+        bridgeUrl="http://127.0.0.1:7331"
+        previewToken={`preview-${screenId}`}
+        liveEditCapability="test-live-edit-capability"
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        allowLocalNetworkAccessPrompt={active}
+        registerRuntimeBridge={active}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    try {
+      await act(async () => {
+        root.render(
+          <>
+            {canvas("screen-settings", false)}
+            {canvas("screen-library", true)}
+          </>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(
+        document.querySelectorAll('[role="dialog"][data-state="open"]'),
+      ).toHaveLength(1);
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          requestInfoUrl(input).endsWith("/live-edit-bridge"),
+        ),
+      ).toHaveLength(1);
+      expect(
+        document.querySelectorAll('[role="dialog"] button[aria-label="Close"]'),
+      ).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("aborts bridge registration when an overview screen deactivates or unmounts", async () => {
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) throw new Error("registration signal is required");
+          signals.push(signal);
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const canvas = (active: boolean) => (
+      <DesignCanvas
+        content="http://localhost:5173/account"
+        contentKey="screen-account"
+        screenId="screen-account"
+        sourceType="localhost"
+        bridgeUrl="http://127.0.0.1:7331"
+        previewToken="preview-token"
+        liveEditCapability="test-live-edit-capability"
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        registerRuntimeBridge={active}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    await act(async () => {
+      root.render(canvas(true));
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      root.render(canvas(false));
+    });
+    expect(signals[0]?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      root.render(canvas(true));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      root.render(null);
+    });
+    expect(signals[1]?.aborted).toBe(true);
+  });
+
   it("renders the shared snapshot without contacting or embedding the owner's localhost", async () => {
     useActionQueryMock.mockReturnValue({
       data: {
@@ -81,6 +317,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         fileId: "screen-account",
         html: '<!doctype html><html><head><script>top.alert("unsafe-snapshot")</script></head><body><main onclick="unsafe()"><a href="javascript:unsafe()">Shared screen</a><img src="http://localhost:5173/private.png"></main></body></html>',
         updatedAt: "2026-09-24T00:00:00.000Z",
+        captureRevision: "5",
         publishedRevision: "4",
       },
     });
@@ -154,6 +391,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         fileId: "screen-account",
         html: null,
         updatedAt: null,
+        captureRevision: "0",
         publishedRevision: null,
       },
     });
@@ -187,12 +425,13 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(container.innerHTML).not.toContain("localhost:5173");
   });
 
-  it("clears a cached snapshot when a newer published revision is empty", async () => {
+  it("clears a cached snapshot when collaboration is disabled", async () => {
     let data: {
       designId: string;
       fileId: string;
       html: string | null;
       updatedAt: string | null;
+      captureRevision: string | null;
       publishedRevision: string | null;
       unchanged: boolean;
     } = {
@@ -200,6 +439,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       fileId: "screen-account",
       html: "<html><body>Old snapshot</body></html>",
       updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "5",
       publishedRevision: "4",
       unchanged: false,
     };
@@ -233,7 +473,9 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       ...data,
       html: null,
       updatedAt: null,
-      publishedRevision: "5",
+      captureRevision: "6",
+      publishedRevision: null,
+      unchanged: false,
     };
     await act(async () => root.render(renderSnapshotCanvas()));
 
@@ -245,6 +487,67 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     ).not.toBeNull();
     expect(container.innerHTML).not.toContain("Old snapshot");
     expect(container.innerHTML).not.toContain("localhost:5173");
+
+    data = {
+      ...data,
+      html: "<html><body>Old snapshot</body></html>",
+      updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "5",
+      publishedRevision: "4",
+      unchanged: false,
+    };
+    await act(async () => root.render(renderSnapshotCanvas()));
+
+    expect(
+      container.querySelector("iframe[data-design-preview-iframe]"),
+    ).toBeNull();
+    expect(container.innerHTML).not.toContain("Old snapshot");
+  });
+
+  it("resets the capture revision when the selected screen changes", async () => {
+    let data = {
+      designId: "design-one",
+      fileId: "screen-one",
+      html: "<html><body>First screen</body></html>",
+      updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "6",
+      publishedRevision: "6",
+      unchanged: false,
+    };
+    useActionQueryMock.mockImplementation(() => ({ data }));
+
+    const renderCanvas = (fileId: string) => (
+      <DesignCanvas
+        content={`http://localhost:5173/${fileId}`}
+        contentKey={fileId}
+        screenId={fileId}
+        designId="design-one"
+        sourceType="localhost"
+        snapshotOnly
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    await act(async () => root.render(renderCanvas("screen-one")));
+    expect(container.innerHTML).toContain("First screen");
+
+    data = {
+      ...data,
+      fileId: "screen-two",
+      html: "<html><body>Second screen</body></html>",
+      captureRevision: "2",
+      publishedRevision: "2",
+    };
+    await act(async () => root.render(renderCanvas("screen-two")));
+
+    expect(container.innerHTML).toContain("Second screen");
+    expect(container.innerHTML).not.toContain("First screen");
   });
 
   it("polls shared snapshots only while focused and refetches on activation", async () => {
@@ -299,6 +602,77 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       root.render(renderSnapshotCanvas(true));
     });
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a hung bridge registration spinner with a shielded retry", async () => {
+    vi.useFakeTimers();
+    const registration = { signal: undefined as AbortSignal | undefined };
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          registration.signal = signal ?? undefined;
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await act(async () => {
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/account"
+            contentKey="screen-account"
+            screenId="screen-account"
+            sourceType="localhost"
+            bridgeUrl="http://127.0.0.1:7331"
+            previewToken="registration-preview-token"
+            liveEditCapability="test-live-edit-capability"
+            zoom={100}
+            deviceFrame="none"
+            editMode
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain("Preparing live editor");
+      expect(fetchMock).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      expect(registration.signal?.aborted).toBe(true);
+      expect(container.textContent).not.toContain("Preparing live editor");
+      expect(container.textContent).toContain(
+        "Live editing is waiting for a connection",
+      );
+      expect(
+        Array.from(container.querySelectorAll("button")).some(
+          (button) => button.textContent?.trim() === "Retry",
+        ),
+      ).toBe(true);
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.style.pointerEvents,
+      ).toBe("none");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits for registration without mounting srcdoc, then mounts one real live iframe", async () => {
@@ -372,8 +746,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       "iframe[data-design-preview-iframe]",
     );
     expect(liveIframe?.hasAttribute("srcdoc")).toBe(false);
-    // A successful registration is not enough to release the running app: the
-    // cross-origin document must prove that the injected editor bridge booted.
     expect(liveIframe?.style.pointerEvents).toBe("none");
 
     await act(async () => {
@@ -433,6 +805,12 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
       liveIframe,
     );
+    expect(liveIframe?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      liveIframe?.dispatchEvent(new Event("load"));
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
     expect(liveIframe?.style.pointerEvents).toBe("none");
 
     await act(async () => {
@@ -675,6 +1053,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       expect(container.textContent).toContain(
         "The running app is shielded until Design connects to the local bridge.",
       );
+      expect(container.textContent).not.toContain("Preparing the live editor");
     });
   });
 
@@ -937,10 +1316,36 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain("Connect your local screens");
+      expect(document.body.textContent).toContain(
+        "Choose Allow in Chrome's prompt to enable live editing.",
+      );
+      expect(document.body.textContent).not.toContain("Allow local access");
+      expect(document.body.textContent).not.toContain("Retry connection");
       expect(document.body.textContent).not.toContain(
         "Can't reach your local dev server",
       );
     });
+    expect(
+      document.querySelector('img[src="/local-network-access-permission.png"]'),
+    ).not.toBeNull();
+    const permissionHelp = document.querySelector("details");
+    expect(permissionHelp?.open).toBe(false);
+    expect(permissionHelp?.textContent).toContain("No Chrome prompt?");
+    await act(async () => {
+      permissionHelp?.querySelector("summary")?.click();
+    });
+    expect(permissionHelp?.open).toBe(true);
+    expect(permissionHelp?.textContent).toContain(
+      "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
+    );
+    expect(
+      Array.from(permissionHelp?.querySelectorAll("img") ?? []).map((image) =>
+        image.getAttribute("src"),
+      ),
+    ).toEqual([
+      "/local-network-access-prompt.png",
+      "/local-network-access-settings.png",
+    ]);
     expect(await getLocalNetworkAccessPermissionState()).toBe("prompt");
   });
 
@@ -1115,17 +1520,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     root = createRoot(container);
     await renderCanvas(false);
 
-    // The second registration is deliberately unresolved. Full view must
-    // still mount the one real live-edit URL immediately from the successful
-    // overview handoff, never an empty srcdoc that is replaced later.
     const focusedIframe = container.querySelector<HTMLIFrameElement>(
       "[data-design-preview-iframe]",
     );
     expect(focusedIframe?.getAttribute("src")).toContain("/live-edit?");
     expect(focusedIframe?.getAttribute("srcdoc")).toBeNull();
-    // No frozen copy is ever painted over the live frame, not even mid-swap:
-    // a snapshot that outlives a stalled swap is indistinguishable from a
-    // working screen.
     expect(
       container.querySelector("[data-live-edit-transition-fallback]"),
     ).toBeNull();
@@ -1146,9 +1545,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       focusedIframe,
     );
 
-    // A source write that forces a Vite full reload must keep the SAME live
-    // iframe (no remount, no state loss) and must not cover it with a
-    // snapshot while the replacement bridge comes back.
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -1319,10 +1715,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 });
 
 describe("DesignCanvas localhost screens never render a source snapshot", () => {
-  // A viewer without a previewToken (public link, signed-out session, an inline
-  // browser with no cookies) used to get `externalSnapshotHtml` as srcdoc: a
-  // frozen copy that looks exactly like the running app but has no live DOM
-  // behind it, so selection, layers, and edits all silently addressed a corpse.
   it("loads the dev-server URL live when the viewer has no bridge entitlement", async () => {
     await act(async () => {
       root.render(
@@ -1431,8 +1823,6 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
       "[data-design-preview-iframe]",
     );
     expect(iframe?.hasAttribute("srcdoc")).toBe(false);
-    // The transition fallback may briefly paint the snapshot, but only as an
-    // inert aria-hidden layer — never as the editable document.
     expect(iframe?.getAttribute("srcdoc") ?? "").not.toContain(
       "Frozen snapshot",
     );
