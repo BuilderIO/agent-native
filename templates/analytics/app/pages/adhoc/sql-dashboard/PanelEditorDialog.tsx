@@ -1,6 +1,6 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
 import {
