@@ -609,9 +609,12 @@ const messages = {
     slideNumber: "स्लाइड {{number}}",
     noSlidesInSnapshot: "इस स्नैपशॉट में कोई स्लाइड नहीं है।",
     restoreThisVersion: "यह संस्करण बहाल करें",
+    retry: "फिर से प्रयास करें",
     noSavedVersions: "अभी कोई सहेजा गया संस्करण नहीं",
     noSavedVersionsDescription:
       "भविष्य के डेक संपादनों से पहले संस्करण अपने-आप सहेजे जाते हैं।",
+    loadFailed: "सहेजे गए संस्करण लोड नहीं हो सके।",
+    snapshotLoadFailed: "यह सहेजा गया संस्करण लोड नहीं हो सका।",
   },
   editorSidebar: {
     selectSlide: "स्लाइड {{number}} चुनें",

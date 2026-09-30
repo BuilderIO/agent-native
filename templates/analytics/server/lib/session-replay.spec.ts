@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   };
 });
 
+import { organizations } from "@agent-native/core/org";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -45,6 +46,7 @@ import {
   getSessionReplayTokenizedEvents,
   getSessionReplayTokenizedSummary,
   listSessionRecordings,
+  listSessionRecordingsPage,
   MAX_REPLAY_CHUNK_READ_BATCH_BYTES,
   MAX_REPLAY_CHUNK_READ_BATCH_SIZE,
   parseSessionReplayIngestPayload,
@@ -136,6 +138,133 @@ function conditionText(value: unknown): string {
     return item;
   });
 }
+
+describe("session replay list page", () => {
+  it.each([
+    { offset: 9_007_199_254_740_800, total: 137 },
+    { offset: 137, total: 137 },
+    { offset: 0, total: 0 },
+  ])(
+    "avoids a row scan for offset $offset beyond total $total",
+    async ({ offset, total }) => {
+      const rowSelect = vi.fn(() => {
+        throw new Error("Out-of-range recording row query must not run");
+      });
+      const db = {
+        select: vi.fn((selection?: Record<string, unknown>) => {
+          if (!selection) return rowSelect();
+          const rows = selection.app
+            ? [{ app: "clips", count: "137" }]
+            : [{ count: String(total) }];
+          const query = {
+            from: () => query,
+            where: () => query,
+            groupBy: () => query,
+            orderBy: () => query,
+            then: (resolve: (value: unknown[]) => void) =>
+              Promise.resolve(rows).then(resolve),
+          };
+          return query;
+        }),
+      };
+      getDbMock.mockReturnValue(db);
+
+      await expect(
+        listSessionRecordingsPage(
+          { userEmail: "qa@example.test", orgId: null },
+          { offset },
+        ),
+      ).resolves.toEqual({
+        recordings: [],
+        total,
+        appCounts: [{ app: "clips", count: 137 }],
+      });
+      expect(rowSelect).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity])(
+    "rejects invalid direct offset %s before database access",
+    async (offset) => {
+      getDbMock.mockClear();
+      await expect(
+        listSessionRecordingsPage(
+          { userEmail: "qa@example.test", orgId: null },
+          { offset },
+        ),
+      ).rejects.toThrow(/offset/);
+      expect(getDbMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns a real filtered total and app counts before pagination", async () => {
+    const conditions: unknown[] = [];
+    const orders: unknown[][] = [];
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn((condition: unknown) => {
+            if (table === organizations) {
+              return {
+                limit: async () => [
+                  { allowedDomain: null, createdBy: "owner@builder.io" },
+                ],
+              };
+            }
+            if (table !== schema.sessionRecordings)
+              throw new Error("Unexpected table in session list query");
+            conditions.push(condition);
+            const result = selection?.app
+              ? [{ app: "clips", count: "137" }]
+              : selection?.count
+                ? [{ count: "137" }]
+                : [];
+            const query = {
+              orderBy: (...values: unknown[]) => {
+                orders.push(values);
+                return query;
+              },
+              groupBy: () => query,
+              limit: () => query,
+              offset: async () => result,
+              then: (resolve: (value: unknown[]) => void) =>
+                Promise.resolve(result).then(resolve),
+            };
+            return query;
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    const page = await listSessionRecordingsPage(
+      { userEmail: "owner@builder.io", orgId: "org_123" },
+      {
+        from: "2026-01-01T00:00:00.000Z",
+        to: "2026-01-02T23:59:59.999Z",
+        app: "clips",
+        hideEmpty: true,
+        hasNetworkErrors: true,
+        visitorType: "internal",
+        sort: "longest",
+        offset: 100,
+        limit: 50,
+      },
+    );
+
+    expect(page).toEqual({
+      recordings: [],
+      total: 137,
+      appCounts: [{ app: "clips", count: 137 }],
+    });
+    expect(conditions).toHaveLength(3);
+    expect(conditionText(conditions[0])).toContain("clips");
+    expect(conditionText(conditions[0])).toContain("builder.io");
+    expect(conditionText(conditions[1])).not.toContain("clips");
+    expect(conditionText(conditions[2])).toContain("clips");
+    expect(conditionText(orders[1])).toContain("nulls last");
+  });
+});
 
 describe("session replay agent summaries", () => {
   it("omits owner, org, visibility, and metadata from compact agent payloads", () => {

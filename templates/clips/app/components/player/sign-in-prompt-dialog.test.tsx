@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +13,21 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, vars?: Record<string, string>) =>
     vars?.intent ? `${key}:${vars.intent}` : key,
 }));
+
+function expectSignInHref(href: string | null | undefined, tab?: "signup") {
+  expect(href).toBeTypeOf("string");
+  const url = new URL(href!, "https://clips.example.test");
+  expect(url.pathname).toBe("/sign-in");
+  const continuation = url.searchParams.get("c");
+  expect(continuation).not.toBeNull();
+  expect(
+    decodeURIComponent(
+      atob(continuation!.replace(/-/g, "+").replace(/_/g, "/")),
+    ),
+  ).toBe("/share/clip-1?at=90");
+  url.searchParams.delete("c");
+  expect(Object.fromEntries(url.searchParams)).toEqual(tab ? { tab } : {});
+}
 
 describe("SignInPromptDialog", () => {
   let container: HTMLDivElement;
@@ -33,15 +47,7 @@ describe("SignInPromptDialog", () => {
   });
 
   it("opens account creation first and preserves the shared clip return path", () => {
-    const signUpHref = new URL(
-      buildSignUpReturnHref("/share/clip-1?at=90"),
-      "http://localhost",
-    );
-    expect(signUpHref.pathname).toBe("/sign-in");
-    expect(decodeContinuation(signUpHref.searchParams.get("c"))).toBe(
-      "/share/clip-1?at=90",
-    );
-    expect(signUpHref.searchParams.get("tab")).toBe("signup");
+    expectSignInHref(buildSignUpReturnHref("/share/clip-1?at=90"), "signup");
 
     act(() => {
       root.render(
@@ -56,20 +62,9 @@ describe("SignInPromptDialog", () => {
 
     const links = Array.from(document.body.querySelectorAll("a"));
     expect(links[0]?.textContent).toContain("signInPrompt.signIn");
-    const signInHref = new URL(
-      links[0]?.getAttribute("href") ?? "",
-      "http://localhost",
-    );
-    expect(signInHref.pathname).toBe("/sign-in");
-    expect(decodeContinuation(signInHref.searchParams.get("c"))).toBe(
-      "/share/clip-1?at=90",
-    );
+    expectSignInHref(links[0]?.getAttribute("href"));
     expect(links[1]?.textContent).toContain("signInPrompt.createAccount");
-    const signUpLink = new URL(
-      links[1]?.getAttribute("href") ?? "",
-      "http://localhost",
-    );
-    expect(signUpLink.searchParams.get("tab")).toBe("signup");
+    expectSignInHref(links[1]?.getAttribute("href"), "signup");
     expect(document.body.querySelector('[role="dialog"] h2')?.textContent).toBe(
       "signInPrompt.title:signInPrompt.commentIntent",
     );

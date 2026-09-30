@@ -217,7 +217,8 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   useEagerFileUploads: useEagerFileUploadsMock,
 }));
 
-vi.mock("@agent-native/core/client/host", () => ({
+vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
   ensureEmbedAuthFetchInterceptor,
   isTrustedBuilderMessage: vi.fn(() => false),
   isTrustedFrameMessage: vi.fn(() => false),

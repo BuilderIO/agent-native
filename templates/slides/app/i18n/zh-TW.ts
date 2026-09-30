@@ -598,8 +598,11 @@ const messages = {
     slideNumber: "幻燈片 {{number}}",
     noSlidesInSnapshot: "此快照中沒有幻燈片。",
     restoreThisVersion: "恢復此版本",
+    retry: "重試",
     noSavedVersions: "還沒有已儲存版本",
     noSavedVersionsDescription: "以後編輯幻燈片前會自動儲存版本。",
+    loadFailed: "無法載入已儲存的版本。",
+    snapshotLoadFailed: "無法載入此已儲存版本。",
   },
   editorSidebar: {
     selectSlide: "選取幻燈片 {{number}}",

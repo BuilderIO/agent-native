@@ -609,8 +609,11 @@ const messages = {
     slideNumber: "幻灯片 {{number}}",
     noSlidesInSnapshot: "此快照中没有幻灯片。",
     restoreThisVersion: "恢复此版本",
+    retry: "다시 시도",
     noSavedVersions: "还没有已保存版本",
     noSavedVersionsDescription: "以后编辑幻灯片前会自动保存版本。",
+    loadFailed: "저장된 버전을 불러올 수 없습니다.",
+    snapshotLoadFailed: "이 저장된 버전을 불러올 수 없습니다.",
   },
   editorSidebar: {
     selectSlide: "选择幻灯片 {{number}}",

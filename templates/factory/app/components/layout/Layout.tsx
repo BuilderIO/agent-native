@@ -79,9 +79,9 @@ export function Layout({ children }: LayoutProps) {
         action: "list-factory-graph-versions",
         args: { factoryId, limit: 50 },
         getVersions: (result: unknown) => {
-          if (!result || typeof result !== "object") return [];
+          if (!result || typeof result !== "object") return null;
           const versions = (result as { versions?: unknown }).versions;
-          if (!Array.isArray(versions)) return [];
+          if (!Array.isArray(versions)) return null;
           return versions.flatMap((version, index) => {
             if (!isAssistantChatHistoryVersion(version)) return [];
             const previous = versions[index + 1];

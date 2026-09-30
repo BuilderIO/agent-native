@@ -1,3 +1,9 @@
 import baseConfig from "../../vitest.shared";
 
-export default baseConfig;
+export default {
+  ...baseConfig,
+  test: {
+    ...baseConfig.test,
+    setupFiles: ["./test-setup.ts"],
+  },
+};

@@ -3,11 +3,16 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { iconValueSchema, serializeIconValue } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DOCUMENT_PROPERTY_VISIBILITIES,
@@ -169,6 +174,15 @@ export default defineAction({
       throw new Error(
         "Properties belong to databases. Create or open a database before adding properties.",
       );
+    }
+    if (args.icon !== undefined) {
+      const userEmail = getRequestUserEmail();
+      if (!userEmail) throw new Error("Authentication is required.");
+      await verifyPrivateIconAssignment({
+        icon: args.icon,
+        userEmail,
+        orgId: database.orgId,
+      });
     }
     let requestedRelationTarget = args.options?.relation?.databaseId;
     if (type === "relation" && !requestedRelationTarget && args.id) {
@@ -397,6 +411,19 @@ export default defineAction({
             updatedAt: now,
           })
           .where(eq(schema.documentPropertyDefinitions.id, args.id!));
+        if (args.icon !== undefined) {
+          await syncPrivateIconReference(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              elementType: "property",
+              elementId: args.id!,
+              documentId: database.documentId,
+              icon: args.icon,
+              ownerEmail: document.ownerEmail,
+              orgId: database.orgId,
+            },
+          );
+        }
         await configureNaturalKey(tx, {
           database: lockedDatabase,
           propertyId,
@@ -455,6 +482,17 @@ export default defineAction({
               createdAt: now,
               updatedAt: now,
             });
+            await syncPrivateIconReference(
+              tx as unknown as ReturnType<typeof getDb>,
+              {
+                elementType: "property",
+                elementId: propertyId,
+                documentId: database.documentId,
+                icon: args.icon ?? null,
+                ownerEmail: document.ownerEmail,
+                orgId: database.orgId,
+              },
+            );
             await configureNaturalKey(tx, {
               database: lockedDatabase,
               propertyId,

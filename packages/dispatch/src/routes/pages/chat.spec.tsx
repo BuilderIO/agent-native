@@ -317,6 +317,9 @@ describe("Dispatch ChatRoute", () => {
 
     expect(clientState.surfaceProps?.suggestions).toEqual([]);
     expect(clientState.surfaceProps?.contentClassName).toBe("max-w-none");
+    expect(clientState.surfaceProps?.surfaceClassName).toBe(
+      "dispatch-chat-panel",
+    );
     expect(container.textContent).not.toContain("Request ID");
   });
 });
