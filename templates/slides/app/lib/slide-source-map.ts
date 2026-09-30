@@ -53,7 +53,7 @@ export class SlideSourceMapError extends Error {
   }
 }
 
-/** Attributes the editor adds to live nodes; never content. */
+/** Live editor attributes are not user-authored source changes. */
 const TRANSIENT_ATTRS = new Set([
   SOURCE_STAMP_ATTR,
   "data-builder-id",
@@ -61,6 +61,18 @@ const TRANSIENT_ATTRS = new Set([
   "contenteditable",
   "data-editing-block",
   "spellcheck",
+  "aria-expanded",
+  "aria-autocomplete",
+  "aria-controls",
+  "aria-activedescendant",
+  "aria-haspopup",
+]);
+const SOURCE_ACCESSIBILITY_ATTRS = new Set([
+  "aria-expanded",
+  "aria-autocomplete",
+  "aria-controls",
+  "aria-activedescendant",
+  "aria-haspopup",
 ]);
 /** Renderer wrappers whose children belong to the wrapper's parent. */
 const TRANSPARENT = "[data-fmd-autofit-content]";
@@ -764,7 +776,9 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         if (value === null) storedAttrs.delete(name);
         else storedAttrs.set(name, value);
       }
-      for (const name of TRANSIENT_ATTRS) storedAttrs.delete(name);
+      for (const name of TRANSIENT_ATTRS) {
+        if (!SOURCE_ACCESSIBILITY_ATTRS.has(name)) storedAttrs.delete(name);
+      }
       return openTag(tag, storedAttrs);
     }
     const loc = node.sourceCodeLocation!;

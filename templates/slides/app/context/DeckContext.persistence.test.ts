@@ -6,6 +6,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  assertDeckClientWriteCurrent,
+  deckClientWriteFields,
+  nextDeckRevision,
+  type DeckClientWrite,
+} from "../../actions/_deck-write";
 const testString = (value: unknown) =>
   typeof value === "string"
     ? value
@@ -41,11 +48,13 @@ import {
   flushPendingSaves,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
+  getStaleContentDraft,
   hasUncommittedDeckChanges,
   markSlideEditingActive,
   mergeServerAddedSlides,
   mergeServerSlideUpdate,
   pendingWriteSlideIds,
+  useDeckContentConflicts,
   useDecks,
   type Deck,
   type DeckReloadStatus,
@@ -100,12 +109,14 @@ function setupFetch(options?: {
   deferredPut?: boolean;
   deferredPatch?: boolean;
   deferredKeepalivePatch?: boolean;
+  serverFaithfulClientWrites?: boolean;
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
   deferredDelete?: boolean;
   deferredDuplicate?: boolean;
   patchFailures?: { deckId: string; count: number };
   staleContentConflicts?: boolean;
+  staleContentFailures?: { deckId: string; count: number };
   putFailures?: { deckId: string; count: number };
   patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
   putResponse?: unknown | ((body: Record<string, unknown>) => unknown);
@@ -114,20 +125,163 @@ function setupFetch(options?: {
   let resolveDeferredPut: (() => void) | null = null;
   let rejectDeferredPut: ((error: unknown) => void) | null = null;
   let firstPutSignal: AbortSignal | undefined;
-  let resolveDeferredPatch: ((status?: number) => void) | null = null;
+  let resolveDeferredPatch:
+    | ((status?: number, errorCode?: string) => void)
+    | null = null;
   let rejectDeferredPatch: ((error: unknown) => void) | null = null;
   let resolveDeferredKeepalivePatch: (() => void) | null = null;
   let didDeferKeepalivePatch = false;
   let firstPatchSignal: AbortSignal | undefined;
   let deferNextGetDeck = false;
-  let resolveDeferredGetDeck: (() => void) | null = null;
+  let getDeckFailuresRemaining = 0;
+  let resolveDeferredGetDeck: ((deck?: Deck) => void) | null = null;
   let rejectDeferredDelete: ((error: unknown) => void) | null = null;
   const pendingDuplicateRejects: Array<(error: unknown) => void> = [];
   let deferNextDeckList = false;
   let resolveDeferredDeckList: (() => void) | null = null;
   let accessibleDeck: Deck | null = null;
+  const serverWriteRevisions = new Map<
+    string,
+    {
+      updatedAt: string | null;
+      lastWriteClientId?: string | null;
+      lastWriteClientSequence?: number | null;
+      lastWriteRevision?: string | null;
+    }
+  >();
   const patchAttempts = new Map<string, number>();
   const putAttempts = new Map<string, number>();
+  const cloneDeck = (deck: Deck | null): Deck | null =>
+    deck ? (JSON.parse(JSON.stringify(deck)) as Deck) : null;
+  const applyPatchBatch = (
+    deck: Deck | null,
+    body: Record<string, unknown>,
+  ): {
+    deck: Deck | null;
+    staleRevision?: boolean;
+    staleSlideId?: string;
+  } => {
+    if (!deck || !Array.isArray(body.operations))
+      return { deck: cloneDeck(deck) };
+    const deckId = deck.id;
+    const revision = serverWriteRevisions.get(deckId) ?? {
+      updatedAt: deck.updatedAt ?? null,
+    };
+    const clientWrite =
+      body.clientWrite && typeof body.clientWrite === "object"
+        ? (body.clientWrite as DeckClientWrite)
+        : undefined;
+    if (options?.serverFaithfulClientWrites) {
+      try {
+        if (
+          assertDeckClientWriteCurrent(revision, deckId, clientWrite) ===
+          "already-applied"
+        ) {
+          return { deck: cloneDeck(deck) };
+        }
+      } catch {
+        return { deck: cloneDeck(deck), staleRevision: true };
+      }
+    }
+    const batchStartHashes = new Map(
+      deck.slides.map((slide) => [slide.id, hashSlideContent(slide.content)]),
+    );
+    const operations = body.operations.filter(
+      (operation): operation is Record<string, unknown> =>
+        Boolean(operation) && typeof operation === "object",
+    );
+    for (const operation of operations) {
+      if (
+        operation.op !== "patch-slide" ||
+        typeof operation.slideId !== "string" ||
+        typeof operation.baseContentHash !== "string"
+      ) {
+        continue;
+      }
+      if (
+        batchStartHashes.get(operation.slideId) !== operation.baseContentHash
+      ) {
+        return { deck: cloneDeck(deck), staleSlideId: operation.slideId };
+      }
+    }
+
+    const next = cloneDeck(deck)!;
+    for (const operation of operations) {
+      if (
+        operation.op === "patch-slide" &&
+        typeof operation.slideId === "string"
+      ) {
+        const fields =
+          operation.fields && typeof operation.fields === "object"
+            ? (operation.fields as Partial<Slide>)
+            : {};
+        next.slides = next.slides.map((slide) =>
+          slide.id === operation.slideId ? { ...slide, ...fields } : slide,
+        );
+      } else if (operation.op === "patch-deck-fields") {
+        const fields =
+          operation.fields && typeof operation.fields === "object"
+            ? operation.fields
+            : {};
+        Object.assign(next, fields);
+      } else if (
+        operation.op === "delete-slide" &&
+        typeof operation.slideId === "string"
+      ) {
+        next.slides = next.slides.filter(
+          (slide) => slide.id !== operation.slideId,
+        );
+      } else if (
+        operation.op === "add-slide" &&
+        typeof operation.slideId === "string"
+      ) {
+        const fields =
+          operation.fields && typeof operation.fields === "object"
+            ? (operation.fields as Omit<Slide, "id">)
+            : ({ content: "", notes: "" } as Omit<Slide, "id">);
+        const added = { ...fields, id: operation.slideId } as Slide;
+        const afterIndex =
+          typeof operation.afterSlideId === "string"
+            ? next.slides.findIndex(
+                (slide) => slide.id === operation.afterSlideId,
+              )
+            : next.slides.length - 1;
+        next.slides.splice(Math.max(0, afterIndex + 1), 0, added);
+      } else if (
+        operation.op === "reorder-slides" &&
+        Array.isArray(operation.orderedIds)
+      ) {
+        const byId = new Map(next.slides.map((slide) => [slide.id, slide]));
+        const ordered = operation.orderedIds.flatMap((id) => {
+          const slide = typeof id === "string" ? byId.get(id) : undefined;
+          if (!slide) return [];
+          byId.delete(id as string);
+          return [slide];
+        });
+        next.slides = [...ordered, ...byId.values()];
+      }
+    }
+    const updatedAt = nextDeckRevision(revision.updatedAt);
+    next.updatedAt = updatedAt;
+    if (options?.serverFaithfulClientWrites) {
+      Object.assign(
+        revision,
+        { updatedAt },
+        deckClientWriteFields(clientWrite, updatedAt),
+      );
+      serverWriteRevisions.set(deckId, revision);
+    }
+    return { deck: next };
+  };
+  const stalePatchResponse = (slideId: string) =>
+    new Response(
+      JSON.stringify({
+        error: "Slide content changed since it was read",
+        errorCode: "slide_content_stale",
+        details: { slideId },
+      }),
+      { status: 409 },
+    );
   const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
     const href =
       typeof url === "string"
@@ -137,7 +291,8 @@ function setupFetch(options?: {
           : url.url;
 
     if (href.includes("/_agent-native/actions/save-deck")) {
-      const deckId = testString(actionCallBody(init).deckId ?? "");
+      const body = actionCallBody(init);
+      const deckId = testString(body.deckId ?? "");
       const attempts = (putAttempts.get(deckId) ?? 0) + 1;
       putAttempts.set(deckId, attempts);
       if (
@@ -147,10 +302,14 @@ function setupFetch(options?: {
       ) {
         firstPutSignal = init?.signal ?? undefined;
         return new Promise<Response>((resolve, reject) => {
-          resolveDeferredPut = () =>
+          resolveDeferredPut = () => {
+            if (body.deck && typeof body.deck === "object") {
+              accessibleDeck = body.deck as Deck;
+            }
             resolve(
               new Response(JSON.stringify({ ok: true }), { status: 200 }),
             );
+          };
           rejectDeferredPut = reject;
         });
       }
@@ -174,8 +333,11 @@ function setupFetch(options?: {
       }
       const response =
         typeof options?.putResponse === "function"
-          ? options.putResponse(actionCallBody(init))
+          ? options.putResponse(body)
           : (options?.putResponse ?? { ok: true });
+      if (body.deck && typeof body.deck === "object") {
+        accessibleDeck = body.deck as Deck;
+      }
       return Promise.resolve(
         new Response(JSON.stringify(response), { status: 200 }),
       );
@@ -237,26 +399,33 @@ function setupFetch(options?: {
     }
 
     if (href.includes("/_agent-native/actions/get-deck")) {
+      if (getDeckFailuresRemaining > 0) {
+        getDeckFailuresRemaining -= 1;
+        return Promise.reject(new Error("get-deck unavailable"));
+      }
       if (accessibleDeck) {
         if (deferNextGetDeck) {
           deferNextGetDeck = false;
-          const deferredDeck = accessibleDeck;
+          const deferredDeck = cloneDeck(accessibleDeck)!;
           return new Promise<Response>((resolve) => {
-            resolveDeferredGetDeck = () =>
+            resolveDeferredGetDeck = (deck = deferredDeck) =>
               resolve(
-                new Response(JSON.stringify(deferredDeck), { status: 200 }),
+                new Response(JSON.stringify(cloneDeck(deck)), { status: 200 }),
               );
           });
         }
         return Promise.resolve(
-          new Response(JSON.stringify(accessibleDeck), { status: 200 }),
+          new Response(JSON.stringify(cloneDeck(accessibleDeck)), {
+            status: 200,
+          }),
         );
       }
       return Promise.resolve(new Response("", { status: 404 }));
     }
 
     if (href.includes("/_agent-native/actions/patch-deck")) {
-      const deckId = testString(actionCallBody(init).deckId ?? "");
+      const body = actionCallBody(init);
+      const deckId = testString(body.deckId ?? "");
       const attempts = (patchAttempts.get(deckId) ?? 0) + 1;
       patchAttempts.set(deckId, attempts);
       if (
@@ -265,16 +434,47 @@ function setupFetch(options?: {
         attempts === 1
       ) {
         firstPatchSignal = init?.signal ?? undefined;
+        const serverAtRequest = cloneDeck(accessibleDeck);
         return new Promise<Response>((resolve, reject) => {
-          resolveDeferredPatch = (status = 200) =>
+          resolveDeferredPatch = (status = 200, errorCode?: string) => {
+            let responseStatus = status;
+            let responseBody: Record<string, unknown> =
+              status === 409
+                ? errorCode === "slide_content_stale"
+                  ? {
+                      error: "Slide content changed since it was read",
+                      errorCode,
+                      details: { slideId: "slide-1" },
+                    }
+                  : { error: "Deck changed" }
+                : { ok: true };
+            if (status === 200) {
+              const applied = applyPatchBatch(
+                options?.serverFaithfulClientWrites
+                  ? accessibleDeck
+                  : serverAtRequest,
+                body,
+              );
+              if (applied.staleSlideId) {
+                responseStatus = 409;
+                responseBody = {
+                  error: "Slide content changed since it was read",
+                  errorCode: "slide_content_stale",
+                  details: { slideId: applied.staleSlideId },
+                };
+              } else if (applied.staleRevision) {
+                responseStatus = 409;
+                responseBody = { error: "Deck changed" };
+              } else if (applied.deck) {
+                accessibleDeck = applied.deck;
+              }
+            }
             resolve(
-              new Response(
-                JSON.stringify(
-                  status === 409 ? { error: "Deck changed" } : { ok: true },
-                ),
-                { status },
-              ),
+              new Response(JSON.stringify(responseBody), {
+                status: responseStatus,
+              }),
             );
+          };
           rejectDeferredPatch = reject;
         });
       }
@@ -284,51 +484,56 @@ function setupFetch(options?: {
         !didDeferKeepalivePatch
       ) {
         didDeferKeepalivePatch = true;
+        const serverAtRequest = cloneDeck(accessibleDeck);
         return new Promise<Response>((resolve) => {
-          resolveDeferredKeepalivePatch = () =>
+          resolveDeferredKeepalivePatch = () => {
+            const applied = applyPatchBatch(
+              options?.serverFaithfulClientWrites
+                ? accessibleDeck
+                : serverAtRequest,
+              body,
+            );
+            if (applied.staleSlideId) {
+              resolve(stalePatchResponse(applied.staleSlideId));
+              return;
+            }
+            if (applied.staleRevision) {
+              resolve(
+                new Response(JSON.stringify({ error: "Deck changed" }), {
+                  status: 409,
+                }),
+              );
+              return;
+            }
+            if (applied.deck) accessibleDeck = applied.deck;
             resolve(
               new Response(JSON.stringify({ ok: true }), { status: 200 }),
             );
+          };
         });
       }
-      if (options?.staleContentConflicts && accessibleDeck) {
-        const operations = actionCallBody(init).operations;
-        const staleContent = Array.isArray(operations)
-          ? operations.some((operation) => {
-              if (!operation || typeof operation !== "object") return false;
-              const patch = operation as {
-                op?: unknown;
-                slideId?: unknown;
-                baseContentHash?: unknown;
-              };
-              if (
-                patch.op !== "patch-slide" ||
-                typeof patch.slideId !== "string" ||
-                typeof patch.baseContentHash !== "string"
-              ) {
-                return false;
-              }
-              const serverSlide = accessibleDeck?.slides.find(
-                (slide) => slide.id === patch.slideId,
-              );
-              return (
-                serverSlide !== undefined &&
-                hashSlideContent(serverSlide.content) !== patch.baseContentHash
-              );
-            })
-          : false;
-        if (staleContent) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                error: "Slide content changed since it was read",
-                errorCode: "slide_content_stale",
-                details: { slideId: "slide-1" },
-              }),
-              { status: 409 },
-            ),
-          );
-        }
+      if (
+        options?.staleContentFailures?.deckId === deckId &&
+        attempts <= options.staleContentFailures.count
+      ) {
+        const operations = body.operations;
+        const contentPatch = Array.isArray(operations)
+          ? operations.find(
+              (operation) =>
+                operation &&
+                typeof operation === "object" &&
+                (operation as { op?: unknown }).op === "patch-slide" &&
+                typeof (operation as { fields?: { content?: unknown } }).fields
+                  ?.content === "string",
+            )
+          : undefined;
+        return Promise.resolve(
+          stalePatchResponse(
+            contentPatch && typeof contentPatch === "object"
+              ? ((contentPatch as { slideId?: string }).slideId ?? "slide-1")
+              : "slide-1",
+          ),
+        );
       }
       if (
         deckId === options?.patchFailures?.deckId &&
@@ -336,10 +541,22 @@ function setupFetch(options?: {
       ) {
         return Promise.reject(new Error("patch-deck failed"));
       }
+      const applied = applyPatchBatch(accessibleDeck, body);
+      if (applied.staleSlideId) {
+        return Promise.resolve(stalePatchResponse(applied.staleSlideId));
+      }
+      if (applied.staleRevision) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "Deck changed" }), {
+            status: 409,
+          }),
+        );
+      }
       const response =
         typeof options?.patchResponse === "function"
-          ? options.patchResponse(actionCallBody(init))
+          ? options.patchResponse(body)
           : (options?.patchResponse ?? { ok: true });
+      if (applied.deck) accessibleDeck = applied.deck;
       return Promise.resolve(
         new Response(JSON.stringify(response), { status: 200 }),
       );
@@ -363,7 +580,8 @@ function setupFetch(options?: {
     pendingDuplicateCount: () => pendingDuplicateRejects.length,
     getFirstPutSignal: () => firstPutSignal,
     getPutAttempts: (deckId: string) => putAttempts.get(deckId) ?? 0,
-    resolveDeferredPatch: (status?: number) => resolveDeferredPatch?.(status),
+    resolveDeferredPatch: (status?: number, errorCode?: string) =>
+      resolveDeferredPatch?.(status, errorCode),
     rejectDeferredPatch: (error: unknown = new Error("stale deck revision")) =>
       rejectDeferredPatch?.(error),
     resolveDeferredKeepalivePatch: () => resolveDeferredKeepalivePatch?.(),
@@ -371,9 +589,12 @@ function setupFetch(options?: {
     deferNextGetDeck: () => {
       deferNextGetDeck = true;
     },
+    failNextGetDeck: (count = 1) => {
+      getDeckFailuresRemaining += count;
+    },
     hasDeferredGetDeck: () => resolveDeferredGetDeck !== null,
-    resolveDeferredGetDeck: () => {
-      resolveDeferredGetDeck?.();
+    resolveDeferredGetDeck: (deck?: Deck) => {
+      resolveDeferredGetDeck?.(deck);
       resolveDeferredGetDeck = null;
     },
     deferNextDeckList: () => {
@@ -386,7 +607,13 @@ function setupFetch(options?: {
     },
     setAccessibleDeck: (deck: Deck | null) => {
       accessibleDeck = deck;
+      if (deck && options?.serverFaithfulClientWrites) {
+        serverWriteRevisions.set(deck.id, {
+          updatedAt: deck.updatedAt ?? null,
+        });
+      }
     },
+    getAccessibleDeck: () => cloneDeck(accessibleDeck),
     getPatchAttempts: (deckId: string) => patchAttempts.get(deckId) ?? 0,
   };
 }
@@ -442,6 +669,65 @@ describe("DeckContext deck creation persistence", () => {
     queryClient.clear();
     MockEventSource.lastInstance = null;
     MockEventSource.instances = [];
+  });
+
+  it("models atomic batch-start hash checks and applies successful patch ops", async () => {
+    const { fetchMock, setAccessibleDeck, getAccessibleDeck } = setupFetch();
+    const initial: Deck = {
+      id: "batch-start-hash-mock",
+      title: "Batch-start hash mock",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+
+    const staleBatch = await fetchMock("/_agent-native/actions/patch-deck", {
+      method: "POST",
+      body: JSON.stringify({
+        deckId: initial.id,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "First" },
+            baseContentHash: hashSlideContent("Before"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "Latest" },
+            baseContentHash: hashSlideContent("First"),
+          },
+        ],
+      }),
+    });
+    expect(staleBatch.status).toBe(409);
+    expect(await staleBatch.json()).toMatchObject({
+      errorCode: "slide_content_stale",
+      details: { slideId: "slide-1" },
+    });
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Before");
+
+    const applied = await fetchMock("/_agent-native/actions/patch-deck", {
+      method: "POST",
+      body: JSON.stringify({
+        deckId: initial.id,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "Latest" },
+            baseContentHash: hashSlideContent("Before"),
+          },
+        ],
+      }),
+    });
+    expect(applied.status).toBe(200);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Latest");
+    expect(getAccessibleDeck()?.updatedAt).not.toBe(initial.updatedAt);
   });
 
   it("exposes an initial deck-list failure instead of an authoritative empty list", async () => {
@@ -626,7 +912,12 @@ describe("DeckContext deck creation persistence", () => {
       resolveDeferredKeepalivePatch,
       resolveDeferredPatch,
       setAccessibleDeck,
-    } = setupFetch({ deferredPatch: true, deferredKeepalivePatch: true });
+      getAccessibleDeck,
+    } = setupFetch({
+      deferredPatch: true,
+      deferredKeepalivePatch: true,
+      serverFaithfulClientWrites: true,
+    });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -688,21 +979,16 @@ describe("DeckContext deck creation persistence", () => {
     expect(keepaliveWrite.expectedUpdatedAt).toBe(
       activeWrite.expectedUpdatedAt,
     );
-    expect(actionCallBody(patchCalls()[1]?.[1])).toMatchObject({
-      deckId: "flush-order-deck",
-      operations: [
-        {
-          op: "patch-slide",
-          slideId: "slide-1",
-          fields: { content: "<h1>First</h1>" },
-        },
-        {
-          op: "patch-slide",
-          slideId: "slide-1",
-          fields: { content: "<h1>Latest</h1>" },
-        },
-      ],
+    const keepaliveBody = actionCallBody(patchCalls()[1]?.[1]) as {
+      operations: Record<string, unknown>[];
+    };
+    const keepaliveOperation = keepaliveBody.operations[0]!;
+    expect(keepaliveOperation).toMatchObject({
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { content: "<h1>Latest</h1>" },
     });
+    expect(keepaliveOperation).not.toHaveProperty("baseContentHash");
 
     resolveDeferredPatch();
     await act(async () => {
@@ -719,30 +1005,135 @@ describe("DeckContext deck creation persistence", () => {
       await Promise.resolve();
     });
 
-    expect(patchCalls()).toHaveLength(3);
-    expect(patchCalls()[2]?.[1]?.keepalive).toBe(true);
-    expect(actionCallBody(patchCalls()[2]?.[1])).toMatchObject({
-      deckId: "flush-order-deck",
-      operations: [
-        {
-          op: "patch-slide",
-          slideId: "slide-1",
-          fields: { content: "<h1>Latest</h1>" },
-        },
-      ],
-    });
+    expect(patchCalls()).toHaveLength(2);
 
     await result.current.flushDeckSave("flush-order-deck");
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("<h1>Latest</h1>");
+  });
+
+  it("collapses unload content and latest fields separately for each slide", async () => {
+    window.history.pushState({}, "", "/deck/flush-per-slide-collapse");
+    const {
+      fetchMock,
+      resolveDeferredPatch,
+      resolveDeferredKeepalivePatch,
+      setAccessibleDeck,
+      getAccessibleDeck,
+    } = setupFetch({
+      deferredPatch: true,
+      deferredKeepalivePatch: true,
+      serverFaithfulClientWrites: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "flush-per-slide-collapse",
+      title: "Per-slide keepalive collapse",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before one", notes: "", layout: "title" },
+        { id: "slide-2", content: "Before two", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "First one" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Latest one" },
+        { preserveLocalState: true },
+      );
+      result.current.updateSlide(
+        initial.id,
+        "slide-2",
+        { content: "Latest two" },
+        { preserveLocalState: true },
+      );
+      result.current.updateSlide(
+        initial.id,
+        "slide-2",
+        { notes: "Latest note" },
+        { preserveLocalState: true },
+      );
+      flushPendingSaves();
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCalls).toHaveLength(2);
+    const keepaliveCall = patchCalls.find(
+      ([, init]) => init?.keepalive === true,
+    );
+    const operations = actionCallBody(keepaliveCall?.[1]).operations as Array<{
+      slideId: string;
+      fields: Partial<Slide>;
+      baseContentHash?: string;
+    }>;
+    expect(operations).toHaveLength(2);
+    expect(operations.find((op) => op.slideId === "slide-1")).toMatchObject({
+      fields: { content: "Latest one" },
+    });
+    expect(
+      operations.find((op) => op.slideId === "slide-1"),
+    ).not.toHaveProperty("baseContentHash");
+    expect(operations.find((op) => op.slideId === "slide-2")).toMatchObject({
+      fields: { content: "Latest two", notes: "Latest note" },
+      baseContentHash: hashSlideContent("Before two"),
+    });
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    resolveDeferredKeepalivePatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(getAccessibleDeck()?.slides).toMatchObject([
+      { id: "slide-1", content: "Latest one" },
+      { id: "slide-2", content: "Latest two", notes: "Latest note" },
+    ]);
   });
 
   it("does not retry an active patch after a newer keepalive replay succeeds", async () => {
     window.history.pushState({}, "", "/deck/flush-replay-deck");
     const {
       fetchMock,
-      rejectDeferredPatch,
+      resolveDeferredPatch,
       resolveDeferredKeepalivePatch,
       setAccessibleDeck,
-    } = setupFetch({ deferredPatch: true, deferredKeepalivePatch: true });
+      getAccessibleDeck,
+    } = setupFetch({
+      deferredPatch: true,
+      deferredKeepalivePatch: true,
+      serverFaithfulClientWrites: true,
+    });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -784,9 +1175,7 @@ describe("DeckContext deck creation persistence", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    rejectDeferredPatch(
-      Object.assign(new Error("stale deck revision"), { status: 409 }),
-    );
+    resolveDeferredPatch();
 
     await act(async () => {
       await result.current.flushDeckSave(initial.id);
@@ -795,15 +1184,182 @@ describe("DeckContext deck creation persistence", () => {
     const patchCalls = fetchMock.mock.calls.filter(([url]) =>
       requestString(url).includes("/_agent-native/actions/patch-deck"),
     );
-    expect(patchCalls).toHaveLength(3);
-    expect(actionCallBody(patchCalls[2]?.[1]).operations).toEqual([
-      {
-        op: "patch-slide",
-        slideId: "slide-1",
-        fields: { content: "Newest" },
-        baseContentHash: hashSlideContent("Older"),
+    expect(patchCalls).toHaveLength(2);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Newest");
+  });
+
+  it("keeps an intervening remote revision visible after a keepalive conflict", async () => {
+    window.history.pushState({}, "", "/deck/flush-replay-agent-conflict");
+    const {
+      fetchMock,
+      resolveDeferredPatch,
+      resolveDeferredKeepalivePatch,
+      setAccessibleDeck,
+      getAccessibleDeck,
+    } = setupFetch({
+      deferredPatch: true,
+      deferredKeepalivePatch: true,
+      serverFaithfulClientWrites: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "flush-replay-agent-conflict",
+      title: "Flush replay agent conflict",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "First" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "Newest local draft",
+      });
+      flushPendingSaves();
+    });
+
+    const keepaliveCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
+        init?.keepalive === true,
+    );
+    expect(keepaliveCall).toBeDefined();
+    const keepaliveBody = actionCallBody(keepaliveCall?.[1]) as {
+      operations: Record<string, unknown>[];
+    };
+    expect(keepaliveBody.operations[0]).not.toHaveProperty("baseContentHash");
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [{ ...initial.slides[0]!, content: "Agent edit" }],
+    });
+    resolveDeferredKeepalivePatch();
+    resolveDeferredPatch();
+
+    await waitFor(() => expect(hasFailedDeckSave(initial.id)).toBe(true), {
+      timeout: 4_000,
+    });
+
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Agent edit");
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Newest local draft",
+    );
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck"),
+      ),
+    ).toBe(false);
+  });
+
+  it("persists the newest of chained same-slide drafts in one keepalive replay", async () => {
+    window.history.pushState({}, "", "/deck/flush-chained-replay-deck");
+    const {
+      fetchMock,
+      resolveDeferredPatch,
+      resolveDeferredKeepalivePatch,
+      setAccessibleDeck,
+      getAccessibleDeck,
+    } = setupFetch({
+      deferredPatch: true,
+      deferredKeepalivePatch: true,
+      serverFaithfulClientWrites: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "flush-chained-replay-deck",
+      title: "Flush chained replay deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "First complete snapshot" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "Second complete snapshot",
+      });
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "Third complete snapshot with all words intact",
+      });
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "Newest complete snapshot with every final word intact",
+      });
+      flushPendingSaves();
+    });
+
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(2);
+    expect(patchCalls()[1]?.[1]?.keepalive).toBe(true);
+    const keepaliveBody = actionCallBody(patchCalls()[1]?.[1]) as {
+      operations: Record<string, unknown>[];
+    };
+    const keepaliveOperation = keepaliveBody.operations[0]!;
+    expect(keepaliveOperation).toMatchObject({
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: {
+        content: "Newest complete snapshot with every final word intact",
       },
-    ]);
+    });
+    expect(keepaliveOperation).not.toHaveProperty("baseContentHash");
+
+    resolveDeferredKeepalivePatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    resolveDeferredPatch();
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(patchCalls()).toHaveLength(2);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(
+      "Newest complete snapshot with every final word intact",
+    );
   });
 
   it("requeues a failed keepalive flush for a normal retry", async () => {
@@ -925,6 +1481,1142 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasFailedDeckSave(initial.id)).toBe(false);
   });
 
+  it("rebases the newest inline draft when stale content still matches its checkpoint", async () => {
+    window.history.pushState({}, "", "/deck/inline-stale-rebase-deck");
+    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
+      staleContentFailures: {
+        deckId: "inline-stale-rebase-deck",
+        count: 1,
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-stale-rebase-deck",
+      title: "Inline stale rebase deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "First draft" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Newest draft" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Newest draft" },
+        baseContentHash: hashSlideContent("Before"),
+      },
+    ]);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(false);
+    expect(hasFailedDeckSave(initial.id)).toBe(false);
+  });
+
+  it("saves write three behind acknowledged write two", async () => {
+    window.history.pushState({}, "", "/deck/inline-write-three-success-deck");
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      getPatchAttempts,
+      getAccessibleDeck,
+    } = setupFetch({ deferredPatch: true, staleContentConflicts: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-write-three-success-deck",
+      title: "Inline write three success deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Write two" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Write three" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    setAccessibleDeck({
+      ...initial,
+      slides: [{ ...initial.slides[0]!, content: "Write two" }],
+    });
+    resolveDeferredPatch();
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Write three" },
+        baseContentHash: hashSlideContent("Write two"),
+      },
+    ]);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(false);
+    expect(hasFailedDeckSave(initial.id)).toBe(false);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Write three");
+  });
+
+  it("rebases write three when the server reflects its same-client write two", async () => {
+    window.history.pushState({}, "", "/deck/inline-write-three-rebase-deck");
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      getPatchAttempts,
+      getAccessibleDeck,
+    } = setupFetch({ deferredPatch: true, staleContentConflicts: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-write-three-rebase-deck",
+      title: "Inline write three rebase deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Write two" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Write three" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    setAccessibleDeck({
+      ...initial,
+      slides: [{ ...initial.slides[0]!, content: "Write two" }],
+    });
+    resolveDeferredPatch(409);
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(getPatchAttempts(initial.id)).toBe(3);
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Write two" },
+        baseContentHash: hashSlideContent("Before"),
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Write three" },
+        baseContentHash: hashSlideContent("Write two"),
+      },
+    ]);
+    expect(actionCallBody(patchCalls[2]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Write three" },
+        baseContentHash: hashSlideContent("Write two"),
+      },
+    ]);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(false);
+    expect(hasFailedDeckSave(initial.id)).toBe(false);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Write three");
+  });
+
+  it("persists a full replacement queued during stale verification with a PUT", async () => {
+    window.history.pushState(
+      {},
+      "",
+      "/deck/inline-full-replace-during-get-deck",
+    );
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      getPatchAttempts,
+      getPutAttempts,
+      getAccessibleDeck,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-full-replace-during-get-deck",
+      title: "Full replacement during verification",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Stale patch" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    deferNextGetDeck();
+    resolveDeferredPatch(409, "slide_content_stale");
+    await waitFor(() => expect(hasDeferredGetDeck()).toBe(true));
+    const replacementSlides = [
+      { ...initial.slides[0]!, content: "Explicit replacement" },
+    ];
+    act(() => {
+      result.current.setDeckSlides(initial.id, replacementSlides, {
+        persistence: "immediate",
+      });
+    });
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    const putCall = fetchMock.mock.calls.find(([url]) =>
+      requestString(url).includes("/_agent-native/actions/save-deck"),
+    );
+    expect(getPatchAttempts(initial.id)).toBe(1);
+    expect(patchCalls).toHaveLength(1);
+    expect(getPutAttempts(initial.id)).toBe(1);
+    expect(actionCallBody(putCall?.[1]).deck).toMatchObject({
+      slides: [{ content: "Explicit replacement" }],
+    });
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+  });
+
+  it("keeps an already-held slide conflict when a full replacement is requested", async () => {
+    window.history.pushState({}, "", "/deck/held-conflict-full-replace");
+    const { setAccessibleDeck, getAccessibleDeck, getPutAttempts } =
+      setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "held-conflict-full-replace",
+      title: "Held conflict full replacement",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+        { id: "slide-2", content: "Other slide", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        { ...initial.slides[0]!, content: "Agent edit" },
+        initial.slides[1]!,
+      ],
+    });
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Local draft" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe("Local draft");
+
+    const replacementSlides = [
+      { ...initial.slides[0]!, content: "Explicit replacement" },
+      initial.slides[1]!,
+    ];
+    act(() => {
+      result.current.setDeckSlides(initial.id, replacementSlides, {
+        persistence: "immediate",
+      });
+    });
+    expect(getPutAttempts(initial.id)).toBe(0);
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe("Local draft");
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Agent edit");
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+  });
+
+  it("verifies a full replacement queued before stale-save verification", async () => {
+    window.history.pushState({}, "", "/deck/full-replace-before-verification");
+    const {
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      getAccessibleDeck,
+      getPutAttempts,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "full-replace-before-verification",
+      title: "Full replacement before verification",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+        { id: "slide-2", content: "Second before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Stale patch" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.setDeckSlides(
+        initial.id,
+        [
+          { ...initial.slides[0]!, content: "Explicit replacement" },
+          initial.slides[1]!,
+        ],
+        { persistence: "immediate" },
+      );
+    });
+    const remote: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:02:00.000Z",
+      slides: [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "Agent edit on second slide" },
+      ],
+    };
+    setAccessibleDeck(remote);
+    deferNextGetDeck();
+    resolveDeferredPatch(409, "slide_content_stale");
+    await waitFor(() => expect(hasDeferredGetDeck()).toBe(true));
+    resolveDeferredGetDeck(remote);
+
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+
+    expect(getPutAttempts(initial.id)).toBe(0);
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+    expect(
+      hashSlideContent(getAccessibleDeck()?.slides[1]?.content ?? ""),
+    ).toBe(hashSlideContent("Agent edit on second slide"));
+  });
+
+  it("holds an unverified queued full replacement on pagehide during a save", async () => {
+    window.history.pushState({}, "", "/deck/pagehide-full-replace-active");
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      getAccessibleDeck,
+      getPutAttempts,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "pagehide-full-replace-active",
+      title: "Pagehide full replacement",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+        { id: "slide-2", content: "Second before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Stale patch" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.setDeckSlides(
+        initial.id,
+        [
+          { ...initial.slides[0]!, content: "Explicit replacement" },
+          initial.slides[1]!,
+        ],
+        { persistence: "immediate" },
+      );
+    });
+    const remote: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:02:00.000Z",
+      slides: [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "Agent edit on second slide" },
+      ],
+    };
+    setAccessibleDeck(remote);
+
+    act(() => {
+      flushPendingSaves();
+    });
+    expect(getPutAttempts(initial.id)).toBe(0);
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          requestString(url).includes("/_agent-native/actions/save-deck") &&
+          init?.keepalive === true,
+      ),
+    ).toBe(false);
+    expect(getAccessibleDeck()?.slides[1]?.content).toBe(
+      "Agent edit on second slide",
+    );
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+
+    resolveDeferredPatch(409, "slide_content_stale");
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) =>
+          requestString(url).includes("/_agent-native/actions/get-deck"),
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getPutAttempts(initial.id)).toBe(0);
+    expect(
+      hashSlideContent(getAccessibleDeck()?.slides[1]?.content ?? ""),
+    ).toBe(hashSlideContent("Agent edit on second slide"));
+  });
+
+  it("holds an unverified full replacement when pagehide drains without an active save", async () => {
+    window.history.pushState({}, "", "/deck/pagehide-full-replace-idle");
+    const { setAccessibleDeck, getAccessibleDeck, getPutAttempts } =
+      setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "pagehide-full-replace-idle",
+      title: "Pagehide full replacement without active save",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        { ...initial.slides[0]!, content: "Explicit replacement" },
+      ]);
+      flushPendingSaves();
+    });
+
+    expect(getPutAttempts(initial.id)).toBe(0);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Before");
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+  });
+
+  it("does not replay an unverified active full replacement on pagehide", async () => {
+    window.history.pushState({}, "", "/deck/pagehide-active-full-replace");
+    const {
+      fetchMock,
+      rejectDeferredPut,
+      setAccessibleDeck,
+      getAccessibleDeck,
+      getPutAttempts,
+    } = setupFetch({ deferredPut: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "pagehide-active-full-replace",
+      title: "Active pagehide full replacement",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.setDeckSlides(
+        initial.id,
+        [{ ...initial.slides[0]!, content: "Explicit replacement" }],
+        { persistence: "immediate" },
+      );
+    });
+    await waitFor(() => expect(getPutAttempts(initial.id)).toBe(1));
+    const remote: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:02:00.000Z",
+      slides: [{ ...initial.slides[0]!, content: "Agent edit" }],
+    };
+    setAccessibleDeck(remote);
+
+    act(() => {
+      flushPendingSaves();
+    });
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          requestString(url).includes("/_agent-native/actions/save-deck") &&
+          init?.keepalive === true,
+      ),
+    ).toHaveLength(0);
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+
+    await act(async () => {
+      rejectDeferredPut(new Error("interrupted full replacement"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getPutAttempts(initial.id)).toBe(1);
+    expect(
+      hashSlideContent(getAccessibleDeck()?.slides[0]?.content ?? ""),
+    ).toBe(hashSlideContent("Agent edit"));
+  });
+
+  it("holds a queued full replacement when the verification GET finds another slide edited remotely", async () => {
+    window.history.pushState(
+      {},
+      "",
+      "/deck/full-replace-verification-conflict",
+    );
+    const {
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      getAccessibleDeck,
+      getPutAttempts,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "full-replace-verification-conflict",
+      title: "Full replacement verification conflict",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+        { id: "slide-2", content: "Second before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Stale patch" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    deferNextGetDeck();
+    resolveDeferredPatch(409, "slide_content_stale");
+    await waitFor(() => expect(hasDeferredGetDeck()).toBe(true));
+    const replacementSlides = [
+      { ...initial.slides[0]!, content: "Explicit replacement" },
+      initial.slides[1]!,
+    ];
+    act(() => {
+      result.current.setDeckSlides(initial.id, replacementSlides, {
+        persistence: "immediate",
+      });
+    });
+
+    const remote: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:02:00.000Z",
+      slides: [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "Agent edit on second slide" },
+      ],
+    };
+    setAccessibleDeck(remote);
+    resolveDeferredGetDeck(remote);
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+
+    expect(getPutAttempts(initial.id)).toBe(0);
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBeUndefined();
+    expect(getAccessibleDeck()?.slides[1]?.content).toBe(
+      "Agent edit on second slide",
+    );
+
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id);
+    });
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Explicit replacement",
+    );
+  });
+
+  it("keeps a stale draft visible and skips the dirty full-replace fallback", async () => {
+    window.history.pushState({}, "", "/deck/inline-conflict-dirty-fallback");
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      getPutAttempts,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-conflict-dirty-fallback",
+      title: "Conflict dirty fallback",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "First local draft" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [{ ...initial.slides[0]!, content: "Remote edit" }],
+    });
+    resolveDeferredPatch(409, "slide_content_stale");
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "Newest held draft",
+      });
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getPutAttempts(initial.id)).toBe(0);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck"),
+      ),
+    ).toBe(false);
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe(
+      "Newest held draft",
+    );
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+  });
+
+  it("does not cancel another slide's debounce when holding a conflicted draft", async () => {
+    window.history.pushState({}, "", "/deck/inline-conflict-debounce-order");
+    const {
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      getAccessibleDeck,
+      getPatchAttempts,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-conflict-debounce-order",
+      title: "Conflict debounce order",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+        { id: "slide-2", content: "Other", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "First local draft" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        { ...initial.slides[0]!, content: "Remote edit" },
+        initial.slides[1]!,
+      ],
+    });
+    resolveDeferredPatch(409, "slide_content_stale");
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-2", {
+        notes: "Independent note edit",
+      });
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "Newest held draft",
+      });
+    });
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "unresolved slide content conflict",
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("Remote edit");
+    expect(getAccessibleDeck()?.slides[1]?.notes).toBe("Independent note edit");
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe(
+      "Newest held draft",
+    );
+  });
+
+  it("holds the newest draft when remote content changes during stale verification", async () => {
+    window.history.pushState({}, "", "/deck/inline-write-three-conflict-deck");
+    const {
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      getPatchAttempts,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-write-three-conflict-deck",
+      title: "Inline write three conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Write two" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Write three" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+
+    const remoteRevision = "2026-05-12T00:02:00.000Z";
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: remoteRevision,
+      slides: [{ ...initial.slides[0]!, content: "Remote edit" }],
+    });
+    deferNextGetDeck();
+    resolveDeferredPatch(409, "slide_content_stale");
+    await waitFor(() => expect(hasDeferredGetDeck()).toBe(true));
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Write four" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "Failed to save deck",
+      );
+    });
+
+    expect(getPatchAttempts(initial.id)).toBe(1);
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe("Write four");
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Write five" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe("Write five");
+    expect(getPatchAttempts(initial.id)).toBe(1);
+  });
+
+  it("retains a stale draft when remote content cannot be verified", async () => {
+    window.history.pushState({}, "", "/deck/inline-stale-read-failure-deck");
+    const { setAccessibleDeck, failNextGetDeck, getPatchAttempts } = setupFetch(
+      {
+        staleContentFailures: {
+          deckId: "inline-stale-read-failure-deck",
+          count: 1,
+        },
+      },
+    );
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-stale-read-failure-deck",
+      title: "Inline stale read failure deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    failNextGetDeck(2);
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Draft to keep" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "Failed to save deck",
+      );
+    });
+
+    expect(getPatchAttempts(initial.id)).toBe(1);
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe("Draft to keep");
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+  });
+
+  it("does not restore a stale draft after a remote reload clears pending writes", async () => {
+    window.history.pushState({}, "", "/deck/inline-cleared-stale-read-deck");
+    const {
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      getPatchAttempts,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-cleared-stale-read-deck",
+      title: "Inline cleared stale read deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Draft to clear" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+
+    deferNextGetDeck();
+    resolveDeferredPatch(409, "slide_content_stale");
+    await waitFor(() => expect(hasDeferredGetDeck()).toBe(true));
+    const remote: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:03:00.000Z",
+      slides: [{ ...initial.slides[0]!, content: "Remote edit" }],
+    };
+    setAccessibleDeck(remote);
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Remote edit",
+    );
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBeUndefined();
+    expect(hasFailedDeckSave(initial.id)).toBe(false);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(false);
+    expect(getPatchAttempts(initial.id)).toBe(1);
+  });
+
   it("surfaces a same-slide conflict instead of replaying stale content", async () => {
     window.history.pushState({}, "", "/deck/concurrent-patch-deck");
     const {
@@ -982,7 +2674,7 @@ describe("DeckContext deck creation persistence", () => {
       );
     });
 
-    expect(deckFetchCalls(fetchMock)).toHaveLength(getCallsBeforeConflict + 1);
+    expect(deckFetchCalls(fetchMock)).toHaveLength(getCallsBeforeConflict + 2);
 
     const patchCalls = fetchMock.mock.calls.filter(([url]) =>
       requestString(url).includes("/_agent-native/actions/patch-deck"),
@@ -1028,6 +2720,286 @@ describe("DeckContext deck creation persistence", () => {
       "Local edit",
     );
     expect(hasFailedDeckSave(initial.id)).toBe(true);
+  });
+
+  async function establishStaleContentConflict(
+    initial: Deck,
+    remote: Deck,
+    options?: Parameters<typeof setupFetch>[0],
+  ) {
+    const fetchState = setupFetch({ ...options, deferredPatch: true });
+    const hook = renderHook(
+      () => ({
+        deckContext: useDecks(),
+        conflicts: useDeckContentConflicts(initial.id),
+      }),
+      { wrapper },
+    );
+    await waitFor(() =>
+      expect(hook.result.current.deckContext.loading).toBe(false),
+    );
+
+    fetchState.setAccessibleDeck(initial);
+    await act(async () => {
+      await hook.result.current.deckContext.reloadDecks();
+    });
+    act(() => {
+      hook.result.current.deckContext.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Local draft" },
+        { persistence: "immediate" },
+      );
+    });
+    await waitFor(() =>
+      expect(fetchState.getPatchAttempts(initial.id)).toBe(1),
+    );
+
+    fetchState.setAccessibleDeck(remote);
+    fetchState.resolveDeferredPatch(409, "slide_content_stale");
+    await act(async () => {
+      await expect(
+        hook.result.current.deckContext.flushDeckSave(initial.id),
+      ).rejects.toThrow("Failed to save deck");
+    });
+    await waitFor(() => expect(hook.result.current.conflicts).toHaveLength(1));
+    return { ...fetchState, hook };
+  }
+
+  const conflictDecks = (id: string) => {
+    const initial: Deck = {
+      id,
+      title: "Conflict resolution deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "Other local content",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const remote: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        { ...initial.slides[0]!, content: "Latest remote content" },
+        { ...initial.slides[1]!, content: "Other remote content" },
+      ],
+    };
+    return { initial, remote };
+  };
+
+  it("uses latest conflict content locally without saving or replacing other slides", async () => {
+    const { initial, remote } = conflictDecks("conflict-use-latest");
+    window.history.pushState({}, "", `/deck/${initial.id}`);
+    const { hook, getPatchAttempts, getAccessibleDeck } =
+      await establishStaleContentConflict(initial, remote);
+
+    expect(hook.result.current.conflicts[0]).toMatchObject({
+      slideId: "slide-1",
+      localContent: "Local draft",
+      remoteContent: "Latest remote content",
+      canResolve: true,
+    });
+    const patchAttemptsBeforeResolve = getPatchAttempts(initial.id);
+    let resolution: Awaited<
+      ReturnType<
+        typeof hook.result.current.deckContext.resolveDeckContentConflict
+      >
+    >;
+    await act(async () => {
+      resolution =
+        await hook.result.current.deckContext.resolveDeckContentConflict(
+          initial.id,
+          "slide-1",
+          "use-latest",
+        );
+    });
+
+    expect(resolution!).toEqual({
+      status: "resolved",
+      content: "Latest remote content",
+    });
+    expect(getPatchAttempts(initial.id)).toBe(patchAttemptsBeforeResolve);
+    expect(
+      hook.result.current.deckContext.getDeck(initial.id)?.slides,
+    ).toMatchObject([
+      { id: "slide-1", content: "Latest remote content" },
+      { id: "slide-2", content: "Other local content" },
+    ]);
+    expect(getAccessibleDeck()?.slides).toMatchObject([
+      { id: "slide-1", content: "Latest remote content" },
+      { id: "slide-2", content: "Other remote content" },
+    ]);
+    expect(hook.result.current.conflicts).toEqual([]);
+  });
+
+  it("keeps only the selected local slide against the latest remote content hash", async () => {
+    const { initial, remote } = conflictDecks("conflict-keep-mine");
+    window.history.pushState({}, "", `/deck/${initial.id}`);
+    const { fetchMock, hook, getPatchAttempts, getAccessibleDeck } =
+      await establishStaleContentConflict(initial, remote);
+
+    let resolution: Awaited<
+      ReturnType<
+        typeof hook.result.current.deckContext.resolveDeckContentConflict
+      >
+    >;
+    await act(async () => {
+      resolution =
+        await hook.result.current.deckContext.resolveDeckContentConflict(
+          initial.id,
+          "slide-1",
+          "keep-mine",
+        );
+    });
+
+    expect(resolution!).toEqual({ status: "resolved", content: "Local draft" });
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    const resolutionBody = actionCallBody(patchCalls.at(-1)?.[1]);
+    expect(resolutionBody.operations).toEqual([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Local draft" },
+        baseContentHash: hashSlideContent("Latest remote content"),
+      },
+    ]);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck"),
+      ),
+    ).toBe(false);
+    expect(getAccessibleDeck()?.slides).toMatchObject([
+      { id: "slide-1", content: "Local draft" },
+      { id: "slide-2", content: "Other remote content" },
+    ]);
+    expect(
+      hook.result.current.deckContext.getDeck(initial.id)?.slides,
+    ).toMatchObject([
+      { id: "slide-1", content: "Local draft" },
+      { id: "slide-2", content: "Other local content" },
+    ]);
+    expect(hook.result.current.conflicts).toEqual([]);
+  });
+
+  it("keeps the local draft and conflict when the latest-content refetch fails", async () => {
+    const { initial, remote } = conflictDecks("conflict-refetch-failure");
+    window.history.pushState({}, "", `/deck/${initial.id}`);
+    const { hook, failNextGetDeck, getPatchAttempts } =
+      await establishStaleContentConflict(initial, remote);
+    failNextGetDeck(5);
+
+    let resolution: Awaited<
+      ReturnType<
+        typeof hook.result.current.deckContext.resolveDeckContentConflict
+      >
+    >;
+    await act(async () => {
+      resolution =
+        await hook.result.current.deckContext.resolveDeckContentConflict(
+          initial.id,
+          "slide-1",
+          "use-latest",
+        );
+    });
+
+    expect(resolution!).toEqual({
+      status: "unresolved",
+      reason: "remote-unavailable",
+    });
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe("Local draft");
+    expect(hook.result.current.conflicts[0]).toMatchObject({
+      localContent: "Local draft",
+      remoteContent: "Latest remote content",
+      canResolve: true,
+    });
+    expect(
+      hook.result.current.deckContext.getDeck(initial.id)?.slides[0]?.content,
+    ).toBe("Local draft");
+    expect(getPatchAttempts(initial.id)).toBe(1);
+  });
+
+  it("keeps the local draft and conflict when the targeted write fails", async () => {
+    const { initial, remote } = conflictDecks("conflict-write-failure");
+    window.history.pushState({}, "", `/deck/${initial.id}`);
+    const { hook, getPatchAttempts } = await establishStaleContentConflict(
+      initial,
+      remote,
+      { patchFailures: { deckId: initial.id, count: 2 } },
+    );
+
+    let resolution: Awaited<
+      ReturnType<
+        typeof hook.result.current.deckContext.resolveDeckContentConflict
+      >
+    >;
+    await act(async () => {
+      resolution =
+        await hook.result.current.deckContext.resolveDeckContentConflict(
+          initial.id,
+          "slide-1",
+          "keep-mine",
+        );
+    });
+
+    expect(resolution!).toEqual({
+      status: "unresolved",
+      reason: "write-failed",
+    });
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe("Local draft");
+    expect(hook.result.current.conflicts[0]).toMatchObject({
+      localContent: "Local draft",
+      remoteContent: "Latest remote content",
+      canResolve: true,
+    });
+    expect(
+      hook.result.current.deckContext.getDeck(initial.id)?.slides,
+    ).toMatchObject([
+      { id: "slide-1", content: "Local draft" },
+      { id: "slide-2", content: "Other local content" },
+    ]);
+    expect(getPatchAttempts(initial.id)).toBe(2);
+  });
+
+  it("keeps the local draft when keeping it conflicts with another remote edit", async () => {
+    const { initial, remote } = conflictDecks("conflict-reconflict");
+    window.history.pushState({}, "", `/deck/${initial.id}`);
+    const { hook, getPatchAttempts } = await establishStaleContentConflict(
+      initial,
+      remote,
+      { staleContentFailures: { deckId: initial.id, count: 2 } },
+    );
+
+    let resolution: Awaited<
+      ReturnType<
+        typeof hook.result.current.deckContext.resolveDeckContentConflict
+      >
+    >;
+    await act(async () => {
+      resolution =
+        await hook.result.current.deckContext.resolveDeckContentConflict(
+          initial.id,
+          "slide-1",
+          "keep-mine",
+        );
+    });
+
+    expect(resolution!).toEqual({ status: "unresolved", reason: "conflict" });
+    expect(getStaleContentDraft(initial.id, "slide-1")).toBe("Local draft");
+    expect(hook.result.current.conflicts[0]).toMatchObject({
+      localContent: "Local draft",
+      remoteContent: "Latest remote content",
+      canResolve: true,
+    });
+    expect(getPatchAttempts(initial.id)).toBe(2);
   });
 
   it("does not undo local content over a newer remote slide edit", async () => {

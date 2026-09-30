@@ -297,6 +297,21 @@ const messages = {
     importing: "Importando...",
     importFile: "Importar archivo",
     downloadBackup: "Descargar copia de seguridad",
+    conflictStatus: "Conflicto de texto",
+    conflictStatusDescription:
+      "Revisa el texto en conflicto antes de guardar más cambios.",
+    reviewConflict: "Revisar conflicto",
+    conflictTitle: "Conflicto de texto en la diapositiva {{number}}",
+    conflictDescription:
+      "Otra versión modificó esta diapositiva mientras editabas el texto.",
+    conflictChoicesDescription:
+      "Conservar tu texto lo guarda sobre la versión más reciente. Usar el texto guardado solo reemplaza el borrador local de esta diapositiva.",
+    conflictBackupDescription:
+      "Este borrador de toda la presentación no se puede resolver diapositiva por diapositiva. Descarga una copia para conservarlo.",
+    conflictResolveFailed:
+      "No se pudo resolver el conflicto. El borrador sigue disponible en este dispositivo.",
+    conflictKeepMine: "Conservar mi texto",
+    conflictUseLatest: "Usar el texto guardado",
     importBackup: "Importar copia de seguridad",
     backupDownloaded: "Copia de seguridad descargada",
     backupDownloadFailed: "No se pudo descargar la copia de seguridad",

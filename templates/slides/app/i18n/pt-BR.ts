@@ -292,6 +292,21 @@ const messages = {
     importing: "Importando...",
     importFile: "Importar arquivo",
     downloadBackup: "Baixar backup",
+    conflictStatus: "Conflito de texto",
+    conflictStatusDescription:
+      "Revise o texto em conflito antes de salvar outras alterações.",
+    reviewConflict: "Revisar conflito",
+    conflictTitle: "Conflito de texto no slide {{number}}",
+    conflictDescription:
+      "Outra versão alterou este slide enquanto você editava o texto.",
+    conflictChoicesDescription:
+      "Manter seu texto o salva sobre a versão mais recente. Usar o texto salvo substitui apenas o rascunho local deste slide.",
+    conflictBackupDescription:
+      "Este rascunho da apresentação inteira não pode ser resolvido slide por slide. Baixe um backup para guardá-lo.",
+    conflictResolveFailed:
+      "Não foi possível resolver o conflito. Seu rascunho continua disponível neste dispositivo.",
+    conflictKeepMine: "Manter meu texto",
+    conflictUseLatest: "Usar o texto salvo",
     importBackup: "Importar backup",
     backupDownloaded: "Backup baixado",
     backupDownloadFailed: "Não foi possível baixar o backup",

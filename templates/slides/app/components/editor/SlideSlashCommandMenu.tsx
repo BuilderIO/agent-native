@@ -9,7 +9,14 @@ import {
   IconListNumbers,
   IconMinus,
 } from "@tabler/icons-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   isBulletMarker,
@@ -47,57 +54,67 @@ const BLOCK_TAGS = new Set([
 ]);
 
 const ZERO_WIDTH_SPACE = "\u200b";
+const NO_MATCH_CLOSE_LENGTH = 3;
 
 const COMMANDS: {
   kind: InPlaceTextAuthoringCommand;
+  aliases: string[];
   label: (translate: ReturnType<typeof useT>) => string;
   description: (translate: ReturnType<typeof useT>) => string;
   icon: typeof IconLetterT;
 }[] = [
   {
     kind: "paragraph",
+    aliases: ["p", "text", "paragraph"],
     label: (translate) => translate("slideSlashMenu.text"),
     description: (translate) => translate("slideSlashMenu.plainParagraph"),
     icon: IconLetterT,
   },
   {
     kind: "heading1",
+    aliases: ["h1", "#", "heading", "heading 1", "heading1"],
     label: (translate) => translate("slideSlashMenu.heading1"),
     description: (translate) => translate("slideSlashMenu.largeSlideHeading"),
     icon: IconH1,
   },
   {
     kind: "heading2",
+    aliases: ["h2", "##", "heading", "heading 2", "heading2"],
     label: (translate) => translate("slideSlashMenu.heading2"),
     description: (translate) => translate("slideSlashMenu.mediumHeading"),
     icon: IconH2,
   },
   {
     kind: "heading3",
+    aliases: ["h3", "###", "heading", "heading 3", "heading3"],
     label: (translate) => translate("slideSlashMenu.heading3"),
     description: (translate) => translate("slideSlashMenu.smallHeading"),
     icon: IconH3,
   },
   {
     kind: "bulletList",
+    aliases: ["ul", "bullet", "bullet list", "bulleted list", "-", "*", "+"],
     label: (translate) => translate("slideSlashMenu.bulletList"),
     description: (translate) => translate("slideSlashMenu.unorderedList"),
     icon: IconList,
   },
   {
     kind: "orderedList",
+    aliases: ["ol", "number", "numbered list", "ordered list", "1.", "1)"],
     label: (translate) => translate("slideSlashMenu.numberedList"),
     description: (translate) => translate("slideSlashMenu.orderedList"),
     icon: IconListNumbers,
   },
   {
     kind: "quote",
+    aliases: ["quote", "blockquote", "block quote", ">"],
     label: (translate) => translate("slideSlashMenu.quote"),
     description: (translate) => translate("slideSlashMenu.blockquote"),
     icon: IconBlockquote,
   },
   {
     kind: "divider",
+    aliases: ["hr", "divider", "rule", "horizontal rule", "---", "***", "___"],
     label: (translate) => translate("slideSlashMenu.divider"),
     description: (translate) => translate("slideSlashMenu.horizontalRule"),
     icon: IconMinus,
@@ -139,7 +156,17 @@ function visibleOffset(raw: string, offset: number) {
   return raw.length;
 }
 
-function findMenu(editingEl: HTMLElement): SlashMenuState | null {
+function fuzzyMatches(value: string, query: string) {
+  let queryIndex = 0;
+  const needle = query.toLowerCase();
+  for (const character of value.toLowerCase()) {
+    if (character === needle[queryIndex]) queryIndex += 1;
+    if (queryIndex === needle.length) return true;
+  }
+  return needle.length === 0;
+}
+
+function caretPrefix(editingEl: HTMLElement) {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount !== 1 || !selection.isCollapsed) {
     return null;
@@ -177,11 +204,27 @@ function findMenu(editingEl: HTMLElement): SlashMenuState | null {
   const prefix = document.createRange();
   prefix.setStart(...start);
   prefix.setEnd(caret.startContainer, caret.startOffset);
-  const raw = prefix.toString();
+  return { block, caret, raw: prefix.toString(), start };
+}
+
+function canStartSlash(editingEl: HTMLElement) {
+  const context = caretPrefix(editingEl);
+  if (!context) return false;
+  const text = context.raw.replaceAll(ZERO_WIDTH_SPACE, "");
+  return text.length === 0 || /\s$/.test(text);
+}
+
+function findMenu(editingEl: HTMLElement): SlashMenuState | null {
+  const context = caretPrefix(editingEl);
+  if (!context) return null;
+  const { block, caret, raw, start } = context;
   const text = raw.replaceAll(ZERO_WIDTH_SPACE, "");
   const slash = text.lastIndexOf("/");
-  if (slash < 0 || text.slice(0, slash).trim()) return null;
+  if (slash < 0 || (slash > 0 && !/\s/.test(text[slash - 1]))) {
+    return null;
+  }
   const query = text.slice(slash + 1);
+  if (/^\s/.test(query)) return null;
 
   const base = document.createRange();
   base.setStart(block, 0);
@@ -216,77 +259,208 @@ export function SlideSlashCommandMenu({
   const t = useT();
   const [menu, setMenu] = useState<SlashMenuState | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const menuId = `slide-slash-${useId().replaceAll(":", "")}`;
+  const listboxId = `${menuId}-listbox`;
+  const optionId = (kind: InPlaceTextAuthoringCommand) =>
+    `${menuId}-option-${kind}`;
+  const menuRef = useRef(menu);
+  menuRef.current = menu;
+  const editingElRef = useRef(editingEl);
+  editingElRef.current = editingEl;
+  const pendingSlash = useRef(false);
+  const [popoverContent, setPopoverContent] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const virtualAnchor = useRef<{
+    contextElement: HTMLElement;
+    getBoundingClientRect: () => DOMRect;
+  }>({
+    get contextElement() {
+      return editingElRef.current ?? document.body;
+    },
+    getBoundingClientRect: () => {
+      const current = menuRef.current;
+      return current
+        ? new DOMRect(current.left, current.top, 1, 1)
+        : new DOMRect();
+    },
+  });
   const originalAria = useRef<{
     element: HTMLElement;
     values: Map<string, string | null>;
   } | null>(null);
-  const filtered = useMemo(
-    () =>
-      COMMANDS.filter((command) => {
-        const search =
-          `${command.label(t)} ${command.description(t)}`.toLowerCase();
-        return search.includes(menu?.query.toLowerCase() ?? "");
-      }),
-    [menu?.query, t],
-  );
+  const restoreOriginalAria = () => {
+    const saved = originalAria.current;
+    if (!saved) return;
+    for (const [name, value] of saved.values) {
+      if (value === null) saved.element.removeAttribute(name);
+      else saved.element.setAttribute(name, value);
+    }
+    originalAria.current = null;
+  };
+  const applyAuthoringCommand = (
+    kind: InPlaceTextAuthoringCommand,
+    range: Range,
+  ) => {
+    restoreOriginalAria();
+    textSession?.commands.applyAuthoringCommand(kind, range);
+    menuRef.current = null;
+    pendingSlash.current = false;
+    setMenu(null);
+  };
+  const matches = useMemo(() => {
+    const query = menu?.query.replace(/\s+/gu, " ").toLowerCase() ?? "";
+    if (!query) return COMMANDS;
+    const exactAliases = COMMANDS.filter((command) =>
+      command.aliases.includes(query),
+    );
+    if (exactAliases.length) return exactAliases;
+    const startsWithWord = (value: string) =>
+      value
+        .toLowerCase()
+        .split(/\s+/)
+        .some((word) => word.startsWith(query));
+    const prefixes = COMMANDS.filter(
+      (command) =>
+        command.aliases.some(startsWithWord) ||
+        startsWithWord(`${command.label(t)} ${command.description(t)}`),
+    );
+    if (prefixes.length) return prefixes;
+    return COMMANDS.filter(
+      (command) =>
+        fuzzyMatches(`${command.label(t)} ${command.description(t)}`, query) ||
+        command.aliases.some((alias) => fuzzyMatches(alias, query)),
+    );
+  }, [menu?.query, t]);
+  const filtered =
+    matches.length > 0 || (menu?.query.length ?? 0) >= NO_MATCH_CLOSE_LENGTH
+      ? matches
+      : COMMANDS;
   const selectedIndex = filtered.length ? activeIndex % filtered.length : 0;
   const activeCommand = filtered[selectedIndex];
-  const activeId = activeCommand
-    ? `slide-slash-${activeCommand.kind}`
-    : undefined;
 
   useEffect(() => {
     if (!editingEl || !textSession?.isActive) {
+      menuRef.current = null;
+      pendingSlash.current = false;
       setMenu(null);
       return;
     }
-    const refresh = () => {
+    const refreshOpenMenu = (forceUpdate = false) => {
+      const current = menuRef.current;
+      if (!current) return;
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
       const next = findMenu(editingEl);
-      setMenu((current) => {
-        if (!current || !next) return next;
-        if (
-          current.query === next.query &&
-          current.range.startContainer === next.range.startContainer &&
-          current.range.startOffset === next.range.startOffset &&
-          current.range.endContainer === next.range.endContainer &&
-          current.range.endOffset === next.range.endOffset &&
-          current.left === next.left &&
-          current.top === next.top
-        ) {
-          return current;
-        }
-        return next;
-      });
+      if (
+        !next ||
+        current.range.startContainer !== next.range.startContainer ||
+        current.range.startOffset !== next.range.startOffset
+      ) {
+        menuRef.current = null;
+        setMenu(null);
+        return;
+      }
+      if (
+        !forceUpdate &&
+        current.query === next.query &&
+        current.range.endContainer === next.range.endContainer &&
+        current.range.endOffset === next.range.endOffset &&
+        current.left === next.left &&
+        current.top === next.top
+      ) {
+        return;
+      }
+      menuRef.current = next;
+      setMenu(next);
     };
-    editingEl.addEventListener("input", refresh);
-    document.addEventListener("selectionchange", refresh);
-    window.addEventListener("scroll", refresh, true);
-    window.addEventListener("resize", refresh);
-    refresh();
+    const onBeforeInput = (event: Event) => {
+      const input = event as InputEvent;
+      pendingSlash.current =
+        input.inputType === "insertText" &&
+        input.data === "/" &&
+        !input.isComposing &&
+        canStartSlash(editingEl);
+      if (pendingSlash.current) {
+        queueMicrotask(() => {
+          if (!pendingSlash.current) return;
+          const next = findMenu(editingEl);
+          if (!next) return;
+          pendingSlash.current = false;
+          menuRef.current = next;
+          setMenu(next);
+        });
+      }
+    };
+    const onInput = (event: Event) => {
+      const input = event as InputEvent;
+      const opensMenu =
+        pendingSlash.current &&
+        input.inputType === "insertText" &&
+        input.data === "/" &&
+        !input.isComposing;
+      pendingSlash.current = false;
+      if (opensMenu) {
+        const next = findMenu(editingEl);
+        menuRef.current = next;
+        setMenu(next);
+      } else {
+        refreshOpenMenu(true);
+      }
+    };
+    const refreshGeometry = () => {
+      if (menuRef.current) refreshOpenMenu();
+    };
+    editingEl.addEventListener("beforeinput", onBeforeInput, true);
+    editingEl.addEventListener("input", onInput);
+    document.addEventListener("selectionchange", refreshGeometry);
+    window.addEventListener("scroll", refreshGeometry, true);
+    window.addEventListener("resize", refreshGeometry);
     return () => {
-      editingEl.removeEventListener("input", refresh);
-      document.removeEventListener("selectionchange", refresh);
-      window.removeEventListener("scroll", refresh, true);
-      window.removeEventListener("resize", refresh);
+      editingEl.removeEventListener("beforeinput", onBeforeInput, true);
+      editingEl.removeEventListener("input", onInput);
+      document.removeEventListener("selectionchange", refreshGeometry);
+      window.removeEventListener("scroll", refreshGeometry, true);
+      window.removeEventListener("resize", refreshGeometry);
     };
   }, [editingEl, textSession]);
 
   useEffect(() => setActiveIndex(0), [menu?.query]);
 
   useEffect(() => {
-    if (menu && filtered.length === 0) setMenu(null);
-  }, [filtered.length, menu]);
+    if (
+      menu &&
+      menu.query.length >= NO_MATCH_CLOSE_LENGTH &&
+      matches.length === 0
+    ) {
+      menuRef.current = null;
+      setMenu(null);
+    }
+  }, [matches.length, menu]);
 
   useLayoutEffect(() => {
     if (!editingEl) return;
     if (originalAria.current && originalAria.current.element !== editingEl) {
-      for (const [name, value] of originalAria.current.values) {
-        if (value === null) originalAria.current.element.removeAttribute(name);
-        else originalAria.current.element.setAttribute(name, value);
-      }
-      originalAria.current = null;
+      restoreOriginalAria();
     }
-    if (menu && activeId) {
+    if (menu && activeCommand) {
+      const listbox = popoverContent?.querySelector<HTMLElement>("[cmdk-list]");
+      const options = Array.from(
+        popoverContent?.querySelectorAll<HTMLElement>("[cmdk-item]") ?? [],
+      );
+      const activeOption = options.find(
+        (item) => item.getAttribute("data-value") === activeCommand.kind,
+      );
+      if (!listbox || !activeOption) return;
+      // cmdk owns generated IDs; expose per-menu IDs to the editable instead.
+      listbox.id = listboxId;
+      for (const option of options) {
+        const kind = option.getAttribute("data-value");
+        if (kind) option.id = optionId(kind as InPlaceTextAuthoringCommand);
+      }
+      const activeOptionId = optionId(activeCommand.kind);
+      activeOption.id = activeOptionId;
+      listbox.setAttribute("aria-activedescendant", activeOptionId);
       if (originalAria.current?.element !== editingEl) {
         originalAria.current = {
           element: editingEl,
@@ -304,18 +478,22 @@ export function SlideSlashCommandMenu({
       editingEl.setAttribute("aria-haspopup", "listbox");
       editingEl.setAttribute("aria-autocomplete", "list");
       editingEl.setAttribute("aria-expanded", "true");
-      editingEl.setAttribute("aria-controls", "slide-slash-command-list");
-      editingEl.setAttribute("aria-activedescendant", activeId);
+      editingEl.setAttribute("aria-controls", listboxId);
+      editingEl.setAttribute("aria-activedescendant", activeOptionId);
       return;
     }
     if (originalAria.current?.element === editingEl) {
-      for (const [name, value] of originalAria.current.values) {
-        if (value === null) editingEl.removeAttribute(name);
-        else editingEl.setAttribute(name, value);
-      }
-      originalAria.current = null;
+      restoreOriginalAria();
     }
-  }, [activeId, editingEl, menu]);
+  }, [activeCommand, editingEl, listboxId, menu, popoverContent]);
+
+  useLayoutEffect(() => {
+    if (!activeCommand) return;
+    const activeOption = Array.from(
+      popoverContent?.querySelectorAll<HTMLElement>("[cmdk-item]") ?? [],
+    ).find((item) => item.getAttribute("data-value") === activeCommand.kind);
+    activeOption?.scrollIntoView({ block: "nearest" });
+  }, [activeCommand, menu?.query, popoverContent]);
 
   useEffect(
     () => () => {
@@ -345,14 +523,16 @@ export function SlideSlashCommandMenu({
       } else if (event.key === "Enter" && activeCommand) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        textSession?.commands.applyAuthoringCommand(
-          activeCommand.kind,
-          menu.range.cloneRange(),
-        );
-        setMenu(null);
+        applyAuthoringCommand(activeCommand.kind, menu.range.cloneRange());
+      } else if (event.key === "Tab" && activeCommand) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        applyAuthoringCommand(activeCommand.kind, menu.range.cloneRange());
       } else if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
+        pendingSlash.current = false;
+        menuRef.current = null;
         setMenu(null);
       }
     };
@@ -360,81 +540,80 @@ export function SlideSlashCommandMenu({
     return () => editingEl.removeEventListener("keydown", onKeyDown, true);
   }, [activeCommand, editingEl, filtered.length, menu, textSession]);
 
-  if (!editingEl || !menu || filtered.length === 0) return null;
+  if (!editingEl || !menu) return null;
 
   return (
-    <Popover open onOpenChange={(open) => !open && setMenu(null)}>
-      <PopoverAnchor asChild>
-        <span
-          aria-hidden="true"
-          style={{
-            position: "fixed",
-            top: menu.top,
-            left: menu.left,
-            width: 1,
-            height: 1,
-            pointerEvents: "none",
-          }}
-        />
-      </PopoverAnchor>
+    <Popover
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          menuRef.current = null;
+          setMenu(null);
+        }
+      }}
+    >
+      <PopoverAnchor virtualRef={virtualAnchor} />
       <PopoverContent
+        ref={setPopoverContent}
         align="start"
         side="bottom"
         sideOffset={4}
-        className="w-64 p-1"
+        collisionPadding={8}
+        className="w-64"
+        data-slide-inline-edit-surface="true"
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
+        onPointerDown={(event) => {
+          if (event.pointerType !== "touch") event.preventDefault();
+        }}
       >
-        <Command
-          value={activeCommand?.kind ?? ""}
-          onValueChange={(value) => {
-            const index = filtered.findIndex((item) => item.kind === value);
-            if (index >= 0) setActiveIndex(index);
-          }}
-          shouldFilter={false}
-          className="bg-transparent"
-        >
-          <CommandList id="slide-slash-command-list" role="listbox">
-            <CommandGroup heading={t("slideSlashMenu.blocks")}>
-              {filtered.map((item, index) => {
-                const Icon = item.icon;
-                return (
-                  <CommandItem
-                    key={item.kind}
-                    id={`slide-slash-${item.kind}`}
-                    value={item.kind}
-                    role="option"
-                    aria-selected={index === activeIndex}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onPointerDown={(event) => event.preventDefault()}
-                    onSelect={() => {
-                      editingEl.focus({ preventScroll: true });
-                      textSession?.commands.applyAuthoringCommand(
-                        item.kind,
-                        menu.range.cloneRange(),
-                      );
-                      setMenu(null);
-                    }}
-                    className="gap-3 px-2 py-2"
-                  >
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded bg-accent/50">
-                      <Icon className="size-4" />
-                    </span>
-                    <span className="min-w-0 text-left">
-                      <span className="block text-sm font-medium leading-tight">
-                        {item.label(t)}
+        <div className="-m-4 p-1">
+          <Command
+            value={activeCommand?.kind ?? ""}
+            onValueChange={(value) => {
+              const index = filtered.findIndex((item) => item.kind === value);
+              if (index >= 0) setActiveIndex(index);
+            }}
+            shouldFilter={false}
+          >
+            <CommandList label={t("slideSlashMenu.blocks")}>
+              <CommandGroup heading={t("slideSlashMenu.blocks")}>
+                {filtered.map((item, index) => {
+                  const Icon = item.icon;
+                  return (
+                    <CommandItem
+                      key={item.kind}
+                      value={item.kind}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onPointerDown={(event) => event.preventDefault()}
+                      onSelect={() => {
+                        applyAuthoringCommand(
+                          item.kind,
+                          menu.range.cloneRange(),
+                        );
+                      }}
+                    >
+                      <span className="flex w-full items-center gap-3 py-px">
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded bg-accent/50">
+                          <Icon className="size-4" />
+                        </span>
+                        <span className="min-w-0 text-left">
+                          <span className="block text-sm font-medium leading-tight">
+                            {item.label(t)}
+                          </span>
+                          <span className="block text-xs leading-tight text-muted-foreground">
+                            {item.description(t)}
+                          </span>
+                        </span>
                       </span>
-                      <span className="block text-xs leading-tight text-muted-foreground">
-                        {item.description(t)}
-                      </span>
-                    </span>
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </div>
       </PopoverContent>
     </Popover>
   );

@@ -121,6 +121,36 @@ describe("mergeRenderedEdits", () => {
     expect(slides).toBeGreaterThan(40);
   });
 
+  it("does not persist transient slash-menu accessibility attributes", () => {
+    const source = '<div class="fmd-slide"><p>Text</p></div>';
+    const { root, save } = mount(source);
+    const paragraph = q(root, "p");
+    paragraph.setAttribute("aria-expanded", "true");
+    paragraph.setAttribute("aria-autocomplete", "list");
+    paragraph.setAttribute("aria-controls", "slide-slash-command-list");
+    paragraph.setAttribute("aria-activedescendant", "slide-slash-heading1");
+    paragraph.setAttribute("aria-haspopup", "listbox");
+
+    expect(save()).toEqual({ html: source, changed: false });
+  });
+
+  it("preserves authored accessibility attributes when a block is retagged", () => {
+    const source =
+      '<div class="fmd-slide"><p aria-expanded="false" aria-autocomplete="inline" aria-controls="details-panel" aria-activedescendant="details-heading" aria-haspopup="grid" aria-label="Details">Text</p></div>';
+    const { root, save } = mount(source);
+    const paragraph = q(root, "p");
+    const heading = document.createElement("h2");
+    for (const attribute of Array.from(paragraph.attributes)) {
+      heading.setAttribute(attribute.name, attribute.value);
+    }
+    heading.replaceChildren(...Array.from(paragraph.childNodes));
+    paragraph.replaceWith(heading);
+
+    expect(save().html).toContain(
+      '<h2 aria-expanded="false" aria-autocomplete="inline" aria-controls="details-panel" aria-activedescendant="details-heading" aria-haspopup="grid" aria-label="Details">Text</h2>',
+    );
+  });
+
   const stored =
     '<div class="fmd-slide" style="padding: 40px 60px;background:#fff">\n' +
     "  <style>.card { color: var(--ds-accent); }</style>\n" +

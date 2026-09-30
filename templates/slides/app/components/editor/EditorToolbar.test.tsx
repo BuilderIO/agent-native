@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   isPromptUploadLimitError: vi.fn(() => false),
   isPromptUploadNetworkError: vi.fn(() => false),
   isPromptUploadStorageStatusError: vi.fn(() => false),
+  deckContentConflicts: [] as Array<{ slideId: string; canResolve: boolean }>,
+  resolveDeckContentConflict: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -46,6 +48,10 @@ vi.mock("@agent-native/core/client/sharing", () => ({
   ShareButton: mocks.shareButton,
 }));
 
+vi.mock("@agent-native/toolkit/app/sharing", () => ({
+  ShareButton: mocks.shareButton,
+}));
+
 vi.mock("@agent-native/creative-context/client", () => ({
   CreativeContextShareTab: () => null,
   useCreativeContextLab: () => mocks.creativeContextLabEnabled.value,
@@ -62,6 +68,10 @@ vi.mock("@/components/visual-editor", () => ({
 vi.mock("@/context/DeckContext", () => ({
   hasFailedDeckSave: () => false,
   hasUnsavedDeckChanges: () => false,
+  useDeckContentConflicts: () => mocks.deckContentConflicts,
+  useDecks: () => ({
+    resolveDeckContentConflict: mocks.resolveDeckContentConflict,
+  }),
   useSaveState: () => ({ saving: false }),
 }));
 
@@ -181,6 +191,7 @@ const deckWithSlides: Deck = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.creativeContextLabEnabled.value = true;
+  mocks.deckContentConflicts = [];
 });
 
 afterEach(() => {

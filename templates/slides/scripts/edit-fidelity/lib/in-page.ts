@@ -105,6 +105,7 @@ export interface CanonicalPair {
 
 export interface InPageHelpers {
   listTargets(canvasSel: string): TextTarget[];
+  targetSourceHtml(canvasSel: string, targetIndex: number): string;
   snapshot(
     canvasSel: string,
     edited: { targetIndex?: number; text?: string },
@@ -208,6 +209,19 @@ export function installInPageHelpers(chromeSelector: string) {
     "sub",
     "sup",
     "u",
+  ]);
+  const TRANSIENT_ATTRS = new Set([
+    "data-src-i",
+    "data-builder-id",
+    "data-slide-text-block",
+    "data-editing-block",
+    "data-slide-content-scope",
+    "contenteditable",
+    "spellcheck",
+    "aria-expanded",
+    "aria-controls",
+    "aria-activedescendant",
+    "aria-haspopup",
   ]);
 
   const norm = (s: string | null | undefined) =>
@@ -398,6 +412,14 @@ export function installInPageHelpers(chromeSelector: string) {
         covered: !hit || !(el === hit || el.contains(hit)),
       };
     });
+  }
+
+  function targetSourceHtml(canvasSel: string, targetIndex: number) {
+    const root = document.querySelector(canvasSel);
+    if (!root) throw new Error(`canvas not found: ${canvasSel}`);
+    const target = textTargets(root)[targetIndex];
+    if (!target) throw new Error(`text target not found: ${targetIndex}`);
+    return target.innerHTML;
   }
 
   /** The focused editor root, in place or floating; a fix may move it. */
@@ -748,10 +770,11 @@ export function installInPageHelpers(chromeSelector: string) {
     } else if (edited.text) {
       editedEl = findByText(root, edited.text);
     }
+    const targetBlock =
+      editedEl ?? (edited.targetIndex === undefined ? editingBlock : null);
     const insideEdited = (el: Element) =>
       (!!host && host.contains(el)) ||
-      (!!editingBlock && editingBlock.contains(el)) ||
-      (!!editedEl && editedEl.contains(el));
+      (!!targetBlock && (targetBlock === el || targetBlock.contains(el)));
 
     const records: SnapRecord[] = [];
     const seen = new Map<string, number>();
@@ -892,8 +915,15 @@ export function installInPageHelpers(chromeSelector: string) {
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const el = node as Element;
+    if (el.hasAttribute("data-fmd-autofit-content")) {
+      for (const child of Array.from(el.childNodes)) {
+        canonicalNode(child, depth, out);
+      }
+      return;
+    }
     const tag = el.tagName.toLowerCase();
     const attrs = Array.from(el.attributes)
+      .filter((attribute) => !TRANSIENT_ATTRS.has(attribute.name))
       .map((a) => {
         if (a.name === "style") {
           const scratch = document.createElement("div").style;
@@ -1046,6 +1076,7 @@ export function installInPageHelpers(chromeSelector: string) {
 
   window.__editFidelity = {
     listTargets,
+    targetSourceHtml,
     takeWriteStacks,
     takeKeepaliveWrites,
     snapshot,

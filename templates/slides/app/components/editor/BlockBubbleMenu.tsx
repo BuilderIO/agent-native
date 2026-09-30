@@ -43,6 +43,7 @@ interface BlockBubbleMenuProps {
     editingEl: HTMLElement,
   ) => void;
   textSession?: InPlaceTextSession | null;
+  linkRequest?: { editingEl: HTMLElement; range: Range } | null;
 }
 
 interface Position {
@@ -115,6 +116,7 @@ export function BlockBubbleMenu({
   onCommitInlineEdit,
   onComment,
   textSession = null,
+  linkRequest = null,
 }: BlockBubbleMenuProps) {
   const t = useT();
   const [pos, setPos] = useState<Position | null>(null);
@@ -140,6 +142,23 @@ export function BlockBubbleMenu({
     setAiInstruction("");
     setAiTargetContentHash("");
   }, [editingEl]);
+
+  useEffect(() => {
+    if (!editingEl || linkRequest?.editingEl !== editingEl) return;
+    const { range } = linkRequest;
+    if (!editingEl.contains(range.commonAncestorContainer) || range.collapsed)
+      return;
+    savedRangeRef.current = range.cloneRange();
+    const rect = range.getBoundingClientRect();
+    if (rect.width || rect.height) {
+      setPos({ top: rect.top - 8, left: rect.left + rect.width / 2 });
+    }
+    interactingRef.current = true;
+    setLinkValue("");
+    setShowColors(false);
+    setShowAiInput(false);
+    setShowLinkInput(true);
+  }, [editingEl, linkRequest]);
 
   useEffect(() => {
     if (!editingEl) return;

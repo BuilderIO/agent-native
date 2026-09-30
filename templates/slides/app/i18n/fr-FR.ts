@@ -300,6 +300,21 @@ const messages = {
     importing: "Importation...",
     importFile: "Importer un fichier",
     downloadBackup: "Télécharger la sauvegarde",
+    conflictStatus: "Conflit de texte",
+    conflictStatusDescription:
+      "Vérifiez le texte en conflit avant d’enregistrer d’autres modifications.",
+    reviewConflict: "Examiner le conflit",
+    conflictTitle: "Conflit de texte sur la diapositive {{number}}",
+    conflictDescription:
+      "Une autre version a modifié cette diapositive pendant la modification du texte.",
+    conflictChoicesDescription:
+      "Conserver votre texte l’enregistre sur la version la plus récente. Utiliser le texte enregistré remplace uniquement le brouillon local de cette diapositive.",
+    conflictBackupDescription:
+      "Ce brouillon de présentation complète ne peut pas être résolu diapositive par diapositive. Téléchargez une sauvegarde pour le conserver.",
+    conflictResolveFailed:
+      "Impossible de résoudre le conflit. Votre brouillon est toujours disponible sur cet appareil.",
+    conflictKeepMine: "Conserver mon texte",
+    conflictUseLatest: "Utiliser le texte enregistré",
     importBackup: "Importer la sauvegarde",
     backupDownloaded: "Sauvegarde téléchargée",
     backupDownloadFailed: "Impossible de télécharger la sauvegarde",

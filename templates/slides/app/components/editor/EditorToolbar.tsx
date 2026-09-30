@@ -71,7 +71,10 @@ import { SaveStatusIndicator } from "@/components/visual-editor";
 import {
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
+  useDeckContentConflicts,
+  useDecks,
   useSaveState,
+  type DeckContentConflictChoice,
   type Deck,
   type Slide,
 } from "@/context/DeckContext";
@@ -255,8 +258,22 @@ export default function EditorToolbar({
   const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
 
   const { saving } = useSaveState();
+  const { resolveDeckContentConflict } = useDecks();
+  const conflict = useDeckContentConflicts(deckId)[0];
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
+  const resolveConflict = useCallback(
+    async (choice: DeckContentConflictChoice) => {
+      if (!conflict) return;
+      const result = await resolveDeckContentConflict(
+        deckId,
+        conflict.slideId,
+        choice,
+      );
+      if (result.status !== "resolved") throw new Error(result.reason);
+    },
+    [conflict, deckId, resolveDeckContentConflict],
+  );
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -799,6 +816,20 @@ export default function EditorToolbar({
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
           offline={offline}
+          conflict={
+            conflict
+              ? {
+                  slideNumber: Math.max(
+                    1,
+                    deck.slides.findIndex(
+                      (slide) => slide.id === conflict.slideId,
+                    ) + 1,
+                  ),
+                  canResolve: conflict.canResolve,
+                }
+              : undefined
+          }
+          onResolveConflict={resolveConflict}
           onDownloadBackup={onDownloadBackup}
           onImportBackup={
             onImportDeckBackup

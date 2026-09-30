@@ -23,6 +23,7 @@ import {
   createSlideList,
   headingTextLook,
   keepTextLook,
+  type TextLook,
   type SlideListKind,
   toggleSlideList,
 } from "./list-editing";
@@ -47,6 +48,8 @@ export interface InPlaceTextSessionOptions {
   selectWord?: boolean;
   /** Called after every change to the edited content. */
   onInput?: () => void;
+  /** Opens the existing link control for a selected range. */
+  onRequestLink?: (range: Range) => void;
 }
 
 export type SlideTextAlign = "left" | "center" | "right" | "justify";
@@ -192,6 +195,35 @@ const SAFE_LINK = /^(https?:|mailto:)/i;
  */
 const PASTE_STYLE_PROPERTY =
   /^(color|font(-.+)?|text-decoration(-.+)?|letter-spacing|word-spacing|text-transform|vertical-align)$/;
+const FOREIGN_PASTE_STYLE_PROPERTY =
+  /^(color|font(?:-.+)?|letter-spacing|word-spacing|text-transform)$/;
+const SLIDE_CLIPBOARD_TYPE = "application/x-agent-native-slide-text";
+const TEXT_LOOK_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-transform",
+] as const;
+const SESSION_ROOT_ATTRIBUTES = new Set([
+  "contenteditable",
+  "data-editing-block",
+  "aria-haspopup",
+  "aria-autocomplete",
+  "aria-expanded",
+  "aria-controls",
+  "aria-activedescendant",
+]);
+const SESSION_MENU_ARIA_ATTRIBUTES = new Set([
+  "aria-haspopup",
+  "aria-autocomplete",
+  "aria-expanded",
+  "aria-controls",
+  "aria-activedescendant",
+]);
 /** An `<ol type>` restated as CSS, which preflight's `list-style: none` beats otherwise. */
 const ORDERED_TYPE_MARKER: Record<string, string> = {
   "1": "decimal",
@@ -202,10 +234,61 @@ const ORDERED_TYPE_MARKER: Record<string, string> = {
 };
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
 const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
-const UNDO_LIMIT = 100;
+export const IN_PLACE_TEXT_UNDO_LIMIT = 512;
+export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 32 * 1024 * 1024;
 /** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
 const LEGACY_ROW_INDENT_PX = 24;
 const TYPING_RUN_MS = 1000;
+
+function sourceTextLook(element: Element): TextLook {
+  const computed = element.ownerDocument.defaultView!.getComputedStyle(element);
+  return TEXT_LOOK_PROPERTIES.map((property) => [
+    property,
+    computed.getPropertyValue(property),
+  ]);
+}
+
+function authoredTextLook(element: Element): TextLook {
+  const style = (element as HTMLElement).style;
+  return TEXT_LOOK_PROPERTIES.map((property) => [
+    property,
+    style.getPropertyValue(property),
+  ]);
+}
+
+function applyTextLook(target: HTMLElement, look: TextLook) {
+  for (const [property, value] of look) {
+    if (value) target.style.setProperty(property, value);
+  }
+}
+
+function blockTextLook(element: Element): TextLook | null {
+  return ["P", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6"].includes(
+    element.tagName,
+  )
+    ? sourceTextLook(element)
+    : null;
+}
+
+function preserveBlockMargins(source: Element, target: HTMLElement) {
+  applyBlockMargins(target, blockMargins(source));
+}
+
+function blockMargins(source: Element): TextLook {
+  const computed = source.ownerDocument.defaultView!.getComputedStyle(source);
+  return ["margin-top", "margin-right", "margin-bottom", "margin-left"].map(
+    (property): [string, string] => [
+      property,
+      computed.getPropertyValue(property),
+    ],
+  );
+}
+
+function applyBlockMargins(target: HTMLElement, margins: TextLook) {
+  for (const [property, value] of margins) {
+    if (value) target.style.setProperty(property, value);
+  }
+}
 
 type DeleteDirection = "backward" | "forward";
 
@@ -262,6 +345,7 @@ interface Snapshot extends TextOffsets {
   tag: string;
   attributes: [string, string][];
   html: string;
+  byteSize: number;
   /** Which of the element's zero-width spaces, in text order, are the author's. */
   authorZwsp: number[];
 }
@@ -271,13 +355,34 @@ interface PastedLine {
   fragment: DocumentFragment;
   lists: readonly HTMLElement[];
   sourceItem: HTMLElement | null;
-  blockTag: "BLOCKQUOTE" | "H1" | "H2" | "H3" | null;
+  blockTag: "P" | "BLOCKQUOTE" | "H1" | "H2" | "H3" | "H4" | null;
 }
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 function countZwsp(text: string) {
   return text.split(ZERO_WIDTH_SPACE).length - 1;
+}
+
+function utf8ByteLength(value: string) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
 }
 
 function textNodesIn(root: Node): Text[] {
@@ -577,6 +682,11 @@ function retag(element: HTMLElement, tagName: string): HTMLElement {
   for (const attribute of Array.from(element.attributes)) {
     next.setAttribute(attribute.name, attribute.value);
   }
+  if (next.tagName === "BLOCKQUOTE") {
+    next.setAttribute("data-slide-authoring-format", "quote");
+  } else {
+    next.removeAttribute("data-slide-authoring-format");
+  }
   next.append(...Array.from(element.childNodes));
   element.replaceWith(next);
   return next;
@@ -597,22 +707,38 @@ function isEmptyRow(row: HTMLElement) {
 function legacyRows(list: HTMLElement): HTMLElement[] {
   return Array.from(list.children).filter(
     (child): child is HTMLElement =>
-      child instanceof HTMLElement && isBulletRow(child),
+      child instanceof HTMLElement &&
+      (isBulletRow(child) || child.hasAttribute("data-slide-plain-row")),
   );
 }
 
-function appendPastedNode(node: Node, target: Node) {
+function appendPastedNode(
+  node: Node,
+  target: Node,
+  preserveSlideStyles: boolean,
+) {
   if (node instanceof Text) {
     target.appendChild(document.createTextNode(node.data));
     return;
   }
   if (!(node instanceof HTMLElement)) return;
+  if (node.tagName === "IMG") {
+    const alt = node.getAttribute("alt");
+    if (alt) target.appendChild(document.createTextNode(alt));
+    return;
+  }
   let into = target;
   if (PASTE_INLINE_TAGS.has(node.tagName)) {
     const copy = document.createElement(node.tagName);
+    if (node.tagName === "CODE") {
+      copy.setAttribute("data-slide-authoring-format", "code");
+    }
     for (let index = 0; index < node.style.length; index += 1) {
       const name = node.style.item(index);
       if (!PASTE_STYLE_PROPERTY.test(name)) continue;
+      if (!preserveSlideStyles && FOREIGN_PASTE_STYLE_PROPERTY.test(name)) {
+        continue;
+      }
       copy.style.setProperty(
         name,
         node.style.getPropertyValue(name),
@@ -627,7 +753,7 @@ function appendPastedNode(node: Node, target: Node) {
     into = copy;
   }
   for (const child of Array.from(node.childNodes)) {
-    appendPastedNode(child, into);
+    appendPastedNode(child, into, preserveSlideStyles);
   }
 }
 
@@ -636,7 +762,10 @@ function appendPastedNode(node: Node, target: Node) {
  * formatting keeps only its `style` (and a safe `href`), and every other
  * element is unwrapped, so pasting can never bring in layout or classes.
  */
-function pastedHtmlLines(html: string): PastedLine[] {
+function pastedHtmlLines(
+  html: string,
+  preserveSlideStyles: boolean,
+): PastedLine[] {
   const template = document.createElement("template");
   template.innerHTML = html;
   const lines: PastedLine[] = [];
@@ -655,14 +784,17 @@ function pastedHtmlLines(html: string): PastedLine[] {
           child.tagName === "BLOCKQUOTE" ||
           child.tagName === "H1" ||
           child.tagName === "H2" ||
-          child.tagName === "H3"
+          child.tagName === "H3" ||
+          child.tagName === "H4"
             ? child.tagName
-            : blockTag;
+            : child.tagName === "P" && sourceItem && !blockTag
+              ? "P"
+              : blockTag;
         collect(
           child,
           list ? [...lists, child] : lists,
           child.tagName === "LI" ? child : sourceItem,
-          lists.length ? null : childTag,
+          childTag,
         );
         continue;
       }
@@ -676,7 +808,7 @@ function pastedHtmlLines(html: string): PastedLine[] {
         };
         lines.push(line);
       }
-      appendPastedNode(child, line.fragment);
+      appendPastedNode(child, line.fragment, preserveSlideStyles);
     }
   };
   collect(template.content, [], null);
@@ -694,6 +826,94 @@ function plainTextLines(text: string): PastedLine[] {
     if (line) fragment.append(line);
     return { fragment, lists: [], sourceItem: null, blockTag: null };
   });
+}
+
+function appendMarkdownInline(fragment: DocumentFragment, text: string) {
+  const syntax =
+    /(?<![\p{L}\p{N}_*])\*\*([^*\n]+?)\*\*(?![\p{L}\p{N}_*])|(?<![\p{L}\p{N}_])__([^_\n]+?)__(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])~~([^~\n]+?)~~(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_*])\*([^*\n]+?)\*(?![\p{L}\p{N}_*])|(?<![\p{L}\p{N}_])_([^_\s](?:[^_\n]*?[^_\s])?)_(?![\p{L}\p{N}_])|`([^`\n]+?)`/gu;
+  let cursor = 0;
+  let match = syntax.exec(text);
+  while (match) {
+    if (match.index > cursor) fragment.append(text.slice(cursor, match.index));
+    const content = match.slice(1).find((part) => part !== undefined)!;
+    const tag =
+      match[1] || match[2]
+        ? "strong"
+        : match[3]
+          ? "s"
+          : match[4] || match[5]
+            ? "em"
+            : "code";
+    const mark = document.createElement(tag);
+    if (tag === "code") {
+      mark.setAttribute("data-slide-authoring-format", "code");
+    }
+    mark.textContent = content;
+    fragment.append(mark);
+    cursor = match.index + match[0].length;
+    match = syntax.exec(text);
+  }
+  if (cursor < text.length) fragment.append(text.slice(cursor));
+}
+
+function markdownTextLines(text: string): PastedLine[] | null {
+  const rawLines = text.split(/\r\n|\r|\n/);
+  if (
+    !rawLines.some((line) =>
+      /^\s*(?:[-*+]|\d+\.)\s+|^#{1,4}\s+|^>\s/.test(line),
+    )
+  ) {
+    return null;
+  }
+  const lines: PastedLine[] = [];
+  const lists: HTMLElement[] = [];
+  for (const raw of rawLines) {
+    const listMatch = /^(\s*)([-*+]|\d+\.)(?:\s+)(.*)$/.exec(raw);
+    if (listMatch) {
+      const indent = listMatch[1].replaceAll("\t", "    ").length;
+      const depth = Math.min(8, Math.floor(indent / 2));
+      const kind = /\d/.test(listMatch[2]) ? "OL" : "UL";
+      let opened = false;
+      if (lists.length > depth + 1) lists.length = depth + 1;
+      while (lists.length <= depth) {
+        lists.push(document.createElement(kind));
+        if (lists.length - 1 === depth) opened = true;
+      }
+      if (lists[depth].tagName !== kind) {
+        lists[depth] = document.createElement(kind);
+        opened = true;
+      }
+      if (opened && kind === "OL" && Number(listMatch[2].slice(0, -1)) !== 1) {
+        lists[depth].setAttribute("start", listMatch[2].slice(0, -1));
+      }
+      const fragment = document.createDocumentFragment();
+      if (listMatch[3]) appendMarkdownInline(fragment, listMatch[3]);
+      lines.push({
+        fragment,
+        lists: lists.slice(0, depth + 1),
+        sourceItem: document.createElement("li"),
+        blockTag: null,
+      });
+      continue;
+    }
+    lists.length = 0;
+    const heading = /^(#{1,4})\s+(.*)$/.exec(raw);
+    const quote = /^>\s?(.*)$/.exec(raw);
+    const fragment = document.createDocumentFragment();
+    const text = heading?.[2] ?? quote?.[1] ?? raw;
+    if (text) appendMarkdownInline(fragment, text);
+    lines.push({
+      fragment,
+      lists: [],
+      sourceItem: null,
+      blockTag: heading
+        ? (`H${heading[1].length}` as PastedLine["blockTag"])
+        : quote
+          ? "BLOCKQUOTE"
+          : null,
+    });
+  }
+  return lines;
 }
 
 /** A slide list like a pasted one: its kind, marker, and numbering. */
@@ -720,8 +940,8 @@ function pastedListLike(source: HTMLElement): HTMLElement {
 function pastedLists(lines: PastedLine[]): DocumentFragment {
   const lists = document.createDocumentFragment();
   const open: { from: HTMLElement; list: HTMLElement }[] = [];
-  const copiedItems = new WeakSet<HTMLElement>();
-  for (const { fragment, lists: from, sourceItem } of lines) {
+  const copiedItems = new WeakMap<HTMLElement, HTMLElement>();
+  for (const { fragment, lists: from, sourceItem, blockTag } of lines) {
     let depth = 0;
     while (depth < open.length && open[depth].from === from[depth]) {
       depth += 1;
@@ -741,14 +961,35 @@ function pastedLists(lines: PastedLine[]): DocumentFragment {
       }
       open.push({ from: source, list });
     }
-    const item = document.createElement("li");
-    if (sourceItem && !copiedItems.has(sourceItem)) {
-      copiedItems.add(sourceItem);
+    const currentList = open[open.length - 1].list;
+    let item = sourceItem ? copiedItems.get(sourceItem) : undefined;
+    if (!item || item.parentElement !== currentList) {
+      item = document.createElement("li");
+      currentList.append(item);
+      if (sourceItem) copiedItems.set(sourceItem, item);
+    }
+    if (sourceItem && !item.hasChildNodes()) {
       const value = sourceItem.getAttribute("value");
       if (value !== null) item.setAttribute("value", value);
     }
-    item.append(fragment);
-    open[open.length - 1].list.append(item);
+    if (blockTag === "BLOCKQUOTE") {
+      const quote = document.createElement("blockquote");
+      quote.setAttribute("data-slide-authoring-format", "quote");
+      const paragraph = document.createElement("p");
+      paragraph.append(fragment);
+      quote.append(paragraph);
+      item.append(quote);
+    } else if (blockTag === "P") {
+      const paragraph = document.createElement("p");
+      paragraph.append(fragment);
+      item.append(paragraph);
+    } else if (blockTag) {
+      const block = document.createElement(blockTag.toLowerCase());
+      block.append(fragment);
+      item.append(block);
+    } else {
+      item.append(fragment);
+    }
   }
   return lists;
 }
@@ -771,6 +1012,19 @@ export function startInPlaceTextSession(
   const initialEditingBlock = el.getAttribute("data-editing-block");
   const startHtml = el.innerHTML;
   const startText = el.innerText;
+  const startAttributes = new Map(
+    Array.from(el.attributes, (attribute): [string, string] => [
+      attribute.name,
+      attribute.value,
+    ]),
+  );
+  const restoreSessionMenuAria = () => {
+    for (const name of SESSION_MENU_ARIA_ATTRIBUTES) {
+      const value = startAttributes.get(name);
+      if (value === undefined) el.removeAttribute(name);
+      else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+    }
+  };
   // An author ZWSP is told apart from a placeholder by its place among the
   // element's ZWSPs, never by its text node: a split, a rebuild (a list
   // toggle, an undo), or Chrome's own typing makes new text nodes.
@@ -1054,16 +1308,74 @@ export function startInPlaceTextSession(
   }
 
   function snapshot(): Snapshot {
+    const tag = el.tagName;
+    const attributes = Array.from(
+      el.attributes,
+      (attribute): [string, string] | null => {
+        if (!SESSION_MENU_ARIA_ATTRIBUTES.has(attribute.name)) {
+          return [attribute.name, attribute.value];
+        }
+        const initial = startAttributes.get(attribute.name);
+        return initial === undefined ? null : [attribute.name, initial];
+      },
+    ).filter((attribute): attribute is [string, string] => attribute !== null);
+    for (const name of SESSION_MENU_ARIA_ATTRIBUTES) {
+      const initial = startAttributes.get(name);
+      if (initial !== undefined && !attributes.some(([key]) => key === name)) {
+        attributes.push([name, initial]);
+      }
+    }
+    const html = el.innerHTML;
     return {
-      tag: el.tagName,
-      attributes: Array.from(el.attributes, (attribute): [string, string] => [
-        attribute.name,
-        attribute.value,
-      ]),
-      html: el.innerHTML,
+      tag,
+      attributes,
+      html,
+      byteSize:
+        utf8ByteLength(tag) +
+        utf8ByteLength(html) +
+        attributes.reduce(
+          (size, [name, value]) =>
+            size + utf8ByteLength(name) + utf8ByteLength(value),
+          0,
+        ) +
+        64,
       authorZwsp: Array.from(authorZwspOrdinals()),
       ...selectionOffsets(true),
     };
+  }
+
+  function rootAttributesChanged() {
+    const current = new Map(
+      Array.from(el.attributes)
+        .filter((attribute) => !SESSION_ROOT_ATTRIBUTES.has(attribute.name))
+        .map((attribute): [string, string] => [
+          attribute.name,
+          attribute.value,
+        ]),
+    );
+    const initial = Array.from(startAttributes).filter(
+      ([name]) => !SESSION_ROOT_ATTRIBUTES.has(name),
+    );
+    return (
+      current.size !== initial.length ||
+      initial.some(([name, value]) => current.get(name) !== value)
+    );
+  }
+
+  function trimHistory() {
+    let bytes = [...undoStack, ...redoStack].reduce(
+      (total, state) => total + state.byteSize,
+      0,
+    );
+    while (
+      undoStack.length + redoStack.length > IN_PLACE_TEXT_UNDO_LIMIT ||
+      bytes > IN_PLACE_TEXT_UNDO_BYTE_LIMIT
+    ) {
+      // Keep the nearest undo and redo states when a large snapshot is evicted.
+      const removed = undoStack.length ? undoStack.shift() : redoStack.shift();
+      if (!removed) break;
+      bytes -= removed.byteSize;
+    }
   }
 
   function restore(state: Snapshot) {
@@ -1083,10 +1395,10 @@ export function startInPlaceTextSession(
   }
 
   /** Records the pre-change state; a run of typing or deleting is one step. */
-  function checkpoint(kind: EditKind, boundary = false) {
+  function checkpoint(kind: EditKind, boundary = false, before = snapshot()) {
     edited = true;
     const now = Date.now();
-    const selection = selectionOffsets(true);
+    const selection = before;
     const coalesce =
       kind !== "command" &&
       lastEdit?.kind === kind &&
@@ -1099,26 +1411,38 @@ export function startInPlaceTextSession(
       lastEdit.after.backward === selection.backward;
     lastEdit = { kind, at: now, boundary, after: null };
     if (coalesce) return;
-    undoStack.push(snapshot());
-    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
     redoStack.length = 0;
+    undoStack.push(before);
+    trimHistory();
   }
 
-  function edit(kind: EditKind, mutate: () => void) {
-    checkpoint(kind);
-    mutate();
+  function edit(kind: EditKind, mutate: () => void | boolean) {
+    if (kind === "delete") {
+      const before = snapshot();
+      if (mutate() === false) return;
+      checkpoint(kind, false, before);
+    } else {
+      checkpoint(kind);
+      mutate();
+    }
     reshapeAtCaret();
     notify();
   }
 
   function command(mutate: () => boolean): boolean {
     if (!active) return false;
-    const depth = undoStack.length;
-    checkpoint("command");
-    if (!mutate()) {
-      if (undoStack.length > depth) undoStack.pop();
-      return false;
-    }
+    const before = snapshot();
+    edited = true;
+    lastEdit = {
+      kind: "command",
+      at: Date.now(),
+      boundary: false,
+      after: null,
+    };
+    if (!mutate()) return false;
+    redoStack.length = 0;
+    undoStack.push(before);
+    trimHistory();
     notify();
     return true;
   }
@@ -1127,6 +1451,7 @@ export function startInPlaceTextSession(
     const state = active ? undoStack.pop() : undefined;
     if (!state) return false;
     redoStack.push(snapshot());
+    trimHistory();
     restore(state);
     lastEdit = null;
     notify();
@@ -1137,6 +1462,7 @@ export function startInPlaceTextSession(
     const state = active ? redoStack.pop() : undefined;
     if (!state) return false;
     undoStack.push(snapshot());
+    trimHistory();
     restore(state);
     lastEdit = null;
     notify();
@@ -1163,6 +1489,13 @@ export function startInPlaceTextSession(
   function legacyRowAt(node: Node): HTMLElement | null {
     const start = node instanceof HTMLElement ? node : node.parentElement;
     if (!start) return null;
+    for (
+      let row: HTMLElement | null = start;
+      row && el.contains(row);
+      row = row.parentElement
+    ) {
+      if (row.hasAttribute("data-slide-plain-row")) return row;
+    }
     const list = findEnclosingList(start, el);
     if (
       !list ||
@@ -1174,7 +1507,10 @@ export function startInPlaceTextSession(
     }
     let row: Node | null = node;
     while (row && row.parentNode !== list) row = row.parentNode;
-    return row instanceof HTMLElement && isBulletRow(row) ? row : null;
+    return row instanceof HTMLElement &&
+      (isBulletRow(row) || row.hasAttribute("data-slide-plain-row"))
+      ? row
+      : null;
   }
 
   /** Any bullet row around `node`, including the edited element itself. */
@@ -1270,10 +1606,37 @@ export function startInPlaceTextSession(
           anchor = endBlock;
           while (anchor.parentNode !== startBlock) anchor = anchor.parentNode!;
         }
+        const trailingLists =
+          endBlock.tagName === "LI"
+            ? Array.from(endBlock.children).filter(
+                (child) => child.tagName === "OL" || child.tagName === "UL",
+              )
+            : [];
         const moved = Array.from(endBlock.childNodes).filter(
-          (child) => !(child instanceof HTMLElement && isBulletMarker(child)),
+          (child) =>
+            !trailingLists.includes(child as HTMLElement) &&
+            !(child instanceof HTMLElement && isBulletMarker(child)),
         );
-        for (const child of moved) startBlock.insertBefore(child, anchor);
+        for (const child of moved) {
+          if (
+            child instanceof HTMLElement &&
+            child.tagName === startBlock.tagName &&
+            ["DIV", "P", "H1", "H2", "H3", "H4", "H5", "H6"].includes(
+              child.tagName,
+            )
+          ) {
+            startBlock.append(...Array.from(child.childNodes));
+          } else {
+            startBlock.insertBefore(child, anchor);
+          }
+        }
+        if (trailingLists.length > 0) {
+          if (startBlock.tagName === "LI") {
+            startBlock.append(...trailingLists);
+          } else {
+            startBlock.after(...trailingLists);
+          }
+        }
         let parent = endBlock.parentElement;
         endBlock.remove();
         while (
@@ -1335,34 +1698,52 @@ export function startInPlaceTextSession(
     return range;
   }
 
+  function selectedListItems(range: Range) {
+    if (range.collapsed) {
+      const item = listItemAt(range.startContainer);
+      return item ? [item] : [];
+    }
+    const items = new Set<HTMLElement>();
+    for (const text of textNodesIn(el)) {
+      if (!range.intersectsNode(text)) continue;
+      const item = listItemAt(text);
+      if (item) items.add(item);
+    }
+    return Array.from(items);
+  }
+
+  function outdentSelectedListItems(items: HTMLElement[]) {
+    return items.reduce((changed, item) => outdent(item) || changed, false);
+  }
+
   function listItemTextEnd(item: HTMLElement): [Text, number] {
-    const nested = Array.from(item.children).find(
+    const nested = Array.from(item.children).filter(
       (child) => child.tagName === "OL" || child.tagName === "UL",
     );
     const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
     let last: Text | null = null;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (!nested?.contains(node)) last = node as Text;
+      if (!nested.some((list) => list.contains(node))) last = node as Text;
     }
     if (last) return [last, last.length];
     const placeholder = document.createTextNode(ZERO_WIDTH_SPACE);
-    item.insertBefore(placeholder, nested ?? null);
+    item.insertBefore(placeholder, nested[0] ?? null);
     return [placeholder, placeholder.length];
   }
 
   function joinListItems(into: HTMLElement, from: HTMLElement) {
     const caret = listItemTextEnd(into);
-    const intoNested = Array.from(into.children).find(
+    const intoNested = Array.from(into.children).filter(
       (child) => child.tagName === "OL" || child.tagName === "UL",
     );
-    const fromNested = Array.from(from.children).find(
+    const fromNested = Array.from(from.children).filter(
       (child) => child.tagName === "OL" || child.tagName === "UL",
     );
     const intoContent = Array.from(into.childNodes).filter(
-      (child) => child !== intoNested,
+      (child) => !intoNested.includes(child as HTMLElement),
     );
     const fromContent = Array.from(from.childNodes).filter(
-      (child) => child !== fromNested,
+      (child) => !fromNested.includes(child as HTMLElement),
     );
     const lastInto = intoContent.at(-1);
     const mergeable = (node: Node | undefined): node is HTMLElement =>
@@ -1394,17 +1775,27 @@ export function startInPlaceTextSession(
       }
     }
     for (const child of Array.from(from.childNodes)) {
-      if (child !== fromNested && !mergedFrom.has(child)) {
-        into.insertBefore(child, intoNested ?? null);
+      if (
+        !fromNested.includes(child as HTMLElement) &&
+        !mergedFrom.has(child)
+      ) {
+        into.insertBefore(child, intoNested[0] ?? null);
       }
     }
-    if (fromNested instanceof HTMLElement) {
-      if (intoNested?.tagName === fromNested.tagName) {
-        intoNested.append(...Array.from(fromNested.childNodes));
-      } else if (intoNested) {
-        intoNested.after(fromNested);
+    let lastNested = intoNested.at(-1) ?? null;
+    for (const nested of fromNested) {
+      const matching = intoNested.find(
+        (candidate) => candidate.tagName === nested.tagName,
+      );
+      if (matching) {
+        matching.append(...Array.from(nested.childNodes));
+        nested.remove();
+      } else if (lastNested) {
+        lastNested.after(nested);
+        lastNested = nested;
       } else {
-        into.append(fromNested);
+        into.append(nested);
+        lastNested = nested;
       }
     }
     from.remove();
@@ -1429,28 +1820,46 @@ export function startInPlaceTextSession(
       direction === "backward"
         ? item.previousElementSibling
         : item.nextElementSibling;
-    if (sibling instanceof HTMLElement && sibling.tagName === "LI") {
-      if (direction === "backward") joinListItems(sibling, item);
-      else joinListItems(item, sibling);
-      return true;
-    }
     if (direction === "backward") {
+      if (hasRenderedContent(item)) {
+        splitListItemToParagraph(item, false);
+        return true;
+      }
+    } else if (sibling instanceof HTMLElement && sibling.tagName === "LI") {
+      joinListItems(item, sibling);
+      return true;
+    } else {
       const list = item.parentElement;
+      const next = list?.nextElementSibling;
       if (
-        list &&
-        (list.tagName === "OL" || list.tagName === "UL") &&
-        list.parentElement?.tagName === "LI"
+        next instanceof HTMLElement &&
+        isBlock(next) &&
+        !STRUCTURAL_BLOCK_TAGS.has(next.tagName)
       ) {
-        keepingSelection(() => outdent(item));
+        const point = listItemTextEnd(item);
+        const current = item.lastElementChild;
+        if (
+          current instanceof HTMLElement &&
+          current.tagName === next.tagName &&
+          ["DIV", "P", "H1", "H2", "H3", "H4", "H5", "H6"].includes(
+            current.tagName,
+          )
+        ) {
+          current.append(...Array.from(next.childNodes));
+        } else {
+          item.append(...Array.from(next.childNodes));
+        }
+        next.remove();
+        placeCaret(...point);
+        return true;
       }
     }
-    return true;
+    return false;
   }
 
   /**
-   * Backspace at the start of a styled bullet row joins it to the previous
-   * row, and Delete at its end pulls the next one in. Neither ever deletes a
-   * marker span, which would turn a bullet into a plain line.
+   * Backspace first removes a styled row's marker. A later press joins it to
+   * the previous row; Delete at its end still pulls the next one in.
    */
   function deleteAtRowEdge(caret: Range, direction: DeleteDirection) {
     const row = legacyRowAt(caret.startContainer);
@@ -1475,6 +1884,29 @@ export function startInPlaceTextSession(
     }
     if (hasRenderedContent(edge.cloneContents())) return false;
     const index = rows.indexOf(row);
+    if (direction === "backward" && !row.hasAttribute("data-slide-plain-row")) {
+      rowMarker(row)?.remove();
+      row.setAttribute("data-slide-plain-row", "true");
+      return true;
+    }
+    if (direction === "backward" && index === 0) {
+      const previous = row.previousElementSibling;
+      if (
+        previous instanceof HTMLElement &&
+        !STRUCTURAL_BLOCK_TAGS.has(previous.tagName)
+      ) {
+        if (
+          isBulletRow(previous) ||
+          previous.hasAttribute("data-slide-plain-row")
+        ) {
+          mergeRows(previous, row);
+        } else {
+          appendBlockContents(previous, row);
+        }
+        return true;
+      }
+      return false;
+    }
     const [into, from] =
       direction === "backward"
         ? [rows[index - 1], row]
@@ -1483,16 +1915,134 @@ export function startInPlaceTextSession(
     return true;
   }
 
-  function deleteByInput(type: string, range: Range) {
-    if (!range.collapsed) {
-      deleteRange(range);
+  function paragraphBefore(caret: Range, block: HTMLElement) {
+    const before = document.createRange();
+    before.selectNodeContents(block);
+    before.setEnd(caret.startContainer, caret.startOffset);
+    return !hasRenderedContent(before.cloneContents());
+  }
+
+  function previousTextBlock(block: HTMLElement): HTMLElement | null {
+    const previous = block.previousElementSibling;
+    if (!(previous instanceof HTMLElement)) return null;
+    if (previous.tagName === "UL" || previous.tagName === "OL") {
+      let item = Array.from(previous.children).at(-1);
+      while (item instanceof HTMLElement && item.tagName === "LI") {
+        const nested = Array.from(item.children).find(
+          (child) => child.tagName === "UL" || child.tagName === "OL",
+        );
+        if (!nested) return item;
+        item = Array.from(nested.children).at(-1);
+      }
+      return null;
+    }
+    const rows = legacyRows(previous);
+    if (rows.length) return rows.at(-1) ?? null;
+    return previous;
+  }
+
+  function appendBlockContents(into: HTMLElement, from: HTMLElement) {
+    const target =
+      into.tagName === "LI"
+        ? ((Array.from(into.children)
+            .reverse()
+            .find(
+              (child) =>
+                child instanceof HTMLElement &&
+                ["DIV", "P", "H1", "H2", "H3", "H4", "H5", "H6"].includes(
+                  child.tagName,
+                ),
+            ) as HTMLElement | undefined) ?? into)
+        : into;
+    const join = textOffset(target, target, target.childNodes.length);
+    if (hasRenderedContent(from)) {
+      if (from.tagName === "P" && ["P", "LI"].includes(target.tagName)) {
+        target.append(...Array.from(from.childNodes));
+      } else {
+        target.append(from);
+      }
+    }
+    from.remove();
+    placeCaret(...textPoint(target, join, true));
+  }
+
+  function plainifyQuote(quote: HTMLElement) {
+    if (quote === el) {
+      const hasBlocks = Array.from(quote.children).some((child) =>
+        isBlock(child),
+      );
+      retagRoot(hasBlocks ? "DIV" : "P");
       return;
     }
+    const children = Array.from(quote.childNodes);
+    if (
+      children.some((child) => child instanceof HTMLElement && isBlock(child))
+    ) {
+      quote.replaceWith(...children);
+    } else {
+      const paragraph = document.createElement("p");
+      paragraph.append(...children);
+      quote.replaceWith(paragraph);
+    }
+  }
+
+  function deleteAtBlockEdge(caret: Range, direction: DeleteDirection) {
+    if (direction !== "backward") return false;
+    let blockquote: HTMLElement | null = null;
+    for (
+      let current =
+        caret.startContainer instanceof HTMLElement
+          ? caret.startContainer
+          : caret.startContainer.parentElement;
+      current && current !== el && el.contains(current);
+      current = current.parentElement
+    ) {
+      if (current.tagName === "BLOCKQUOTE") {
+        blockquote = current;
+        break;
+      }
+    }
+    if (el.tagName === "BLOCKQUOTE") blockquote = el;
+    const block = nearestBlock(caret.startContainer, el);
+    const demote =
+      blockquote ?? (/^H[1-6]$/.test(block.tagName) ? block : null);
+    if (demote && paragraphBefore(caret, demote)) {
+      if (demote.tagName === "BLOCKQUOTE") plainifyQuote(demote);
+      else if (demote === el) retagRoot("P");
+      else retagBlock(demote, "P");
+      return true;
+    }
+    if (
+      block.tagName !== "P" ||
+      block === el ||
+      !paragraphBefore(caret, block)
+    ) {
+      return false;
+    }
+    const previous = previousTextBlock(block);
+    if (!previous) return false;
+    if (
+      previous.hasAttribute("data-slide-plain-row") ||
+      isBulletRow(previous)
+    ) {
+      mergeRows(previous, block);
+    } else {
+      appendBlockContents(previous, block);
+    }
+    return true;
+  }
+
+  function deleteByInput(type: string, range: Range): boolean {
+    if (!range.collapsed) {
+      deleteRange(range);
+      return true;
+    }
     const step = DELETE_STEPS[type];
-    if (!step) return;
+    if (!step) return false;
     const [direction, granularity] = step;
-    if (deleteAtListItemEdge(range, direction)) return;
-    if (deleteAtRowEdge(range, direction)) return;
+    if (deleteAtListItemEdge(range, direction)) return true;
+    if (deleteAtRowEdge(range, direction)) return true;
+    if (deleteAtBlockEdge(range, direction)) return true;
     const selection = window.getSelection()!;
     if (typeof selection.modify !== "function") {
       throw new Error("in-place text session: Selection.modify is missing");
@@ -1506,7 +2056,11 @@ export function startInPlaceTextSession(
       selection.modify("extend", direction, granularity);
     }
     const extended = selectionRange();
-    if (extended && !extended.collapsed) deleteRange(extended);
+    if (extended && !extended.collapsed) {
+      deleteRange(extended);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -1568,6 +2122,7 @@ export function startInPlaceTextSession(
     else placeCaret(range.startContainer, range.startOffset);
     const caret = selectionRange();
     if (!caret || !data) return;
+    const insertion = data === " " && emptyLineAtCaret(caret) ? "\u00a0" : data;
     const node = caret.startContainer;
     if (node instanceof Text) {
       let offset = caret.startOffset;
@@ -1578,13 +2133,13 @@ export function startInPlaceTextSession(
         if (candidate < offset) offset--;
         break;
       }
-      node.insertData(offset, data);
-      placeCaret(node, offset + data.length);
+      node.insertData(offset, insertion);
+      placeCaret(node, offset + insertion.length);
       return;
     }
-    const text = document.createTextNode(data);
+    const text = document.createTextNode(insertion);
     caret.insertNode(text);
-    placeCaret(text, data.length);
+    placeCaret(text, insertion.length);
   }
 
   /** `<br>` plus, when nothing follows it, a placeholder that keeps the new line open. */
@@ -1618,6 +2173,7 @@ export function startInPlaceTextSession(
     const moved = extractWithoutCopiedIdentity(tail);
     const clone = block.cloneNode(false) as HTMLElement;
     stripCopiedIdentity(clone);
+    if (clone.tagName === "LI") clone.removeAttribute("value");
     clone.append(moved);
     block.after(clone);
     if (!block.textContent?.replaceAll(/\s/g, "")) {
@@ -1693,10 +2249,15 @@ export function startInPlaceTextSession(
       following.push(next);
     }
     if (following.length > 0) {
-      const nested = list.cloneNode(false) as HTMLElement;
-      stripCopiedIdentity(nested);
+      let nested = Array.from(item.children).find(
+        (child) => child.tagName === list.tagName,
+      );
+      if (!nested) {
+        nested = list.cloneNode(false) as HTMLElement;
+        stripCopiedIdentity(nested);
+        item.append(nested);
+      }
       nested.append(...following);
-      item.append(nested);
     }
     parentItem.after(item);
     if (list.children.length === 0) list.remove();
@@ -1704,48 +2265,342 @@ export function startInPlaceTextSession(
   }
 
   function splitListItem(item: HTMLElement, caret: Range) {
-    if (!hasRenderedContent(item) && !item.nextElementSibling) {
-      // An empty last item ends the list: a nested one steps out a level, a
-      // top-level one continues as a paragraph after the list.
-      if (keepingSelection(() => outdent(item))) return;
+    if (!hasRenderedContent(item)) {
+      const list = item.parentElement;
+      if (
+        list &&
+        (list.tagName === "OL" || list.tagName === "UL") &&
+        list.parentElement?.tagName === "LI" &&
+        keepingSelection(() => outdent(item))
+      ) {
+        return;
+      }
       exitListItem(item);
       return;
     }
     splitBlock(item, caret);
+    const current = selectionRange()?.startContainer;
+    const currentItem = current ? listItemAt(current) : null;
+    if (currentItem) {
+      for (const child of Array.from(currentItem.children)) {
+        if (
+          isBlock(child) &&
+          !hasRenderedContent(child) &&
+          !(current instanceof Node && child.contains(current))
+        ) {
+          child.remove();
+        }
+      }
+    }
+  }
+
+  function orderedOrdinalAt(
+    list: HTMLElement,
+    items: HTMLElement[],
+    index: number,
+  ) {
+    const reversed = list.hasAttribute("reversed");
+    let ordinal = Number.parseInt(list.getAttribute("start") ?? "", 10);
+    if (!Number.isFinite(ordinal)) ordinal = reversed ? items.length : 1;
+    for (let at = 0; at < index; at += 1) {
+      const override = Number.parseInt(
+        items[at].getAttribute("value") ?? "",
+        10,
+      );
+      if (Number.isFinite(override)) ordinal = override;
+      ordinal += reversed ? -1 : 1;
+    }
+    const override = Number.parseInt(
+      items[index]?.getAttribute("value") ?? "",
+      10,
+    );
+    return Number.isFinite(override) ? override : ordinal;
+  }
+
+  function listSlice(
+    list: HTMLElement,
+    remainingItems: HTMLElement[],
+    items: HTMLElement[],
+    firstIndex: number,
+    rootList = list === el,
+  ) {
+    if (items.length === 0) return null;
+    const slice = rootList
+      ? createSlideList(
+          el.ownerDocument,
+          list.tagName === "OL" ? "ordered" : "bullet",
+        )
+      : (list.cloneNode(false) as HTMLElement);
+    if (rootList) {
+      for (const property of [
+        "list-style",
+        "list-style-position",
+        "list-style-type",
+      ]) {
+        const value = list.style.getPropertyValue(property);
+        if (value) slice.style.setProperty(property, value);
+      }
+      for (const attribute of ["type", "reversed"]) {
+        if (list.hasAttribute(attribute)) {
+          slice.setAttribute(attribute, list.getAttribute(attribute)!);
+        }
+      }
+    } else {
+      stripCopiedIdentity(slice);
+    }
+    slice.removeAttribute("contenteditable");
+    slice.removeAttribute("data-editing-block");
+    slice.replaceChildren(...items);
+    if (list.tagName === "OL") {
+      slice.setAttribute(
+        "start",
+        String(orderedOrdinalAt(list, remainingItems, firstIndex)),
+      );
+    }
+    return slice;
+  }
+
+  function changeListItemKind(
+    item: HTMLElement,
+    kind: SlideListKind,
+    orderedStart?: number,
+  ) {
+    const source = item.parentElement;
+    if (
+      !(source instanceof HTMLElement) ||
+      !["OL", "UL"].includes(source.tagName)
+    ) {
+      return false;
+    }
+    const targetTag = kind === "ordered" ? "OL" : "UL";
+    const allItems = Array.from(source.children).filter(
+      (child): child is HTMLElement => child.tagName === "LI",
+    );
+    const index = allItems.indexOf(item);
+    if (index < 0) return false;
+    if (source.tagName === targetTag) {
+      if (targetTag === "OL" && orderedStart !== undefined) {
+        item.setAttribute("value", String(orderedStart));
+      }
+      return true;
+    }
+
+    const before = allItems.slice(0, index);
+    const after = allItems.slice(index + 1);
+    const remaining = allItems.filter((candidate) => candidate !== item);
+    const rootList = source === el;
+    const template = source.cloneNode(false) as HTMLElement;
+    const identity = rootList
+      ? []
+      : Array.from(template.attributes).filter(
+          ({ name }) => name === "id" || /^data-.+-id$/.test(name),
+        );
+    if (rootList) {
+      retagRoot("DIV");
+      for (const property of [
+        "list-style",
+        "list-style-position",
+        "list-style-type",
+        "padding-left",
+      ]) {
+        el.style.removeProperty(property);
+      }
+      for (const attribute of ["start", "reversed", "type"]) {
+        el.removeAttribute(attribute);
+      }
+    }
+    const fragments: HTMLElement[] = [];
+    if (before.length) {
+      const leading = listSlice(template, remaining, before, 0, rootList);
+      if (leading) fragments.push(leading);
+    }
+
+    let converted = rootList
+      ? createSlideList(el.ownerDocument, kind)
+      : document.createElement(targetTag);
+    if (!rootList) {
+      for (const attribute of Array.from(template.attributes)) {
+        if (
+          targetTag !== source.tagName &&
+          ["start", "reversed", "type"].includes(attribute.name)
+        ) {
+          continue;
+        }
+        converted.setAttribute(attribute.name, attribute.value);
+      }
+    }
+    stripCopiedIdentity(converted);
+    converted.removeAttribute("contenteditable");
+    converted.removeAttribute("data-editing-block");
+    converted.replaceChildren(item);
+    if (targetTag === "OL") {
+      const start =
+        orderedStart ??
+        (source.tagName === "OL"
+          ? orderedOrdinalAt(source, allItems, index)
+          : 1);
+      converted.setAttribute("start", String(start));
+      converted.style.setProperty("list-style-type", "decimal");
+      item.setAttribute("value", String(start));
+    } else {
+      converted.removeAttribute("start");
+      converted.removeAttribute("reversed");
+      converted.removeAttribute("type");
+      converted.style.setProperty("list-style-type", "disc");
+      item.removeAttribute("value");
+    }
+    fragments.push(converted);
+
+    if (after.length) {
+      const trailing = listSlice(template, remaining, after, index, rootList);
+      if (trailing) {
+        if (source.tagName === "OL") {
+          trailing.setAttribute(
+            "start",
+            String(orderedOrdinalAt(source, allItems, index + 1)),
+          );
+        }
+        fragments.push(trailing);
+      }
+    }
+    for (const attribute of identity) {
+      fragments[0]?.setAttribute(attribute.name, attribute.value);
+    }
+
+    if (rootList) {
+      el.replaceChildren(...fragments);
+    } else {
+      source.replaceWith(...fragments);
+    }
+    return true;
+  }
+
+  function splitListItemToParagraph(item: HTMLElement, empty: boolean) {
+    const list = item.parentElement!;
+    const nested = Array.from(item.children).filter(
+      (child) => child.tagName === "OL" || child.tagName === "UL",
+    );
+    const content = Array.from(item.childNodes).filter(
+      (child) => !nested.includes(child as HTMLElement),
+    );
+    let paragraph =
+      content.length === 1 &&
+      content[0] instanceof HTMLElement &&
+      content[0].tagName === "P"
+        ? content[0]
+        : document.createElement("p");
+    if (paragraph !== content[0]) {
+      for (const child of content) {
+        if (
+          child instanceof HTMLElement &&
+          (/^H[1-6]$/.test(child.tagName) || child.tagName === "DIV")
+        ) {
+          paragraph.append(...Array.from(child.childNodes));
+        } else {
+          paragraph.append(child);
+        }
+      }
+    }
+    for (const attribute of Array.from(item.attributes)) {
+      if (attribute.name === "value" || paragraph.hasAttribute(attribute.name))
+        continue;
+      paragraph.setAttribute(attribute.name, attribute.value);
+    }
+    for (const property of [
+      "list-style",
+      "list-style-position",
+      "list-style-type",
+      "padding-left",
+    ]) {
+      paragraph.style.removeProperty(property);
+    }
+    if (!paragraph.style.margin) paragraph.style.margin = "0";
+    if (empty || !hasRenderedContent(paragraph)) {
+      paragraph.replaceChildren(ZERO_WIDTH_SPACE);
+    }
+
+    const allItems = Array.from(list.children).filter(
+      (child): child is HTMLElement => child.tagName === "LI",
+    );
+    const index = allItems.indexOf(item);
+    const before = allItems.slice(0, index);
+    const after = allItems.slice(index + 1);
+    const wasRoot = list === el;
+    const remainingItems = allItems.filter((candidate) => candidate !== item);
+    const makeSlice = (items: HTMLElement[], firstIndex: number) =>
+      listSlice(list, remainingItems, items, firstIndex);
+    const leading = wasRoot ? makeSlice(before, 0) : null;
+    const trailing =
+      after.length && (wasRoot || before.length)
+        ? makeSlice(after, index)
+        : null;
+
+    if (wasRoot) {
+      if (list.tagName === "OL" && index === 0) {
+        trailing?.removeAttribute("start");
+      }
+      retagRoot("DIV");
+      el.style.removeProperty("list-style-type");
+      el.style.removeProperty("list-style-position");
+      el.style.removeProperty("padding-left");
+      el.removeAttribute("start");
+      el.removeAttribute("reversed");
+      el.removeAttribute("type");
+      el.replaceChildren(
+        ...(leading ? [leading] : []),
+        paragraph,
+        ...nested,
+        ...(trailing ? [trailing] : []),
+      );
+    } else if (before.length && after.length) {
+      list.replaceChildren(...before);
+      if (list.tagName === "OL") {
+        list.setAttribute(
+          "start",
+          String(orderedOrdinalAt(list, remainingItems, 0)),
+        );
+      }
+      list.after(paragraph, ...nested, trailing!);
+    } else if (before.length) {
+      item.remove();
+      if (list.tagName === "OL") {
+        list.setAttribute(
+          "start",
+          String(orderedOrdinalAt(list, remainingItems, 0)),
+        );
+      }
+      list.after(paragraph, ...nested);
+    } else if (after.length) {
+      item.remove();
+      if (list.tagName === "OL") {
+        if (index === 0) list.removeAttribute("start");
+        else {
+          list.setAttribute(
+            "start",
+            String(orderedOrdinalAt(list, remainingItems, index)),
+          );
+        }
+      }
+      list.before(paragraph, ...nested);
+    } else {
+      list.replaceWith(paragraph, ...nested);
+    }
+    placeCaret(...textPoint(paragraph, empty ? Infinity : 0));
   }
 
   function exitListItem(item: HTMLElement) {
-    const list = item.parentElement!;
-    const paragraph = document.createElement("p");
-    paragraph.style.margin = "0";
-    paragraph.append(ZERO_WIDTH_SPACE);
-    item.remove();
+    splitListItemToParagraph(item, true);
+  }
 
-    if (list === el) {
-      const nestedList = list.cloneNode(false) as HTMLElement;
-      stripCopiedIdentity(nestedList);
-      nestedList.removeAttribute("contenteditable");
-      nestedList.removeAttribute("data-editing-block");
-      const replacement = retag(el, "DIV");
-      rebind(replacement);
-      replacement.style.removeProperty("list-style-type");
-      replacement.style.removeProperty("list-style-position");
-      replacement.style.removeProperty("padding-left");
-      const remaining = Array.from(replacement.children).filter(
-        (child) => child.tagName === "LI",
-      );
-      if (remaining.length) {
-        nestedList.append(...remaining);
-        replacement.replaceChildren(nestedList, paragraph);
-      } else {
-        replacement.replaceChildren(paragraph);
-      }
-    } else if (list.children.length === 0) {
-      list.replaceWith(paragraph);
-    } else {
-      list.after(paragraph);
+  function quoteAt(node: Node): HTMLElement | null {
+    for (
+      let current = node instanceof HTMLElement ? node : node.parentElement;
+      current && current !== el && el.contains(current);
+      current = current.parentElement
+    ) {
+      if (current.tagName === "BLOCKQUOTE") return current;
     }
-    placeCaret(...textPoint(paragraph, 0));
+    return el.tagName === "BLOCKQUOTE" ? el : null;
   }
 
   /** Enter never changes the edited element's own tag, class, or style. */
@@ -1758,6 +2613,78 @@ export function startInPlaceTextSession(
       splitListItem(item, caret);
       return;
     }
+    const quote = quoteAt(caret.startContainer);
+    if (quote) {
+      const block = nearestBlock(caret.startContainer, quote);
+      const blockContent = block.cloneNode(true) as HTMLElement;
+      blockContent.querySelectorAll("br").forEach((br) => br.remove());
+      if (!hasRenderedContent(blockContent)) {
+        const paragraph = document.createElement("p");
+        paragraph.append(ZERO_WIDTH_SPACE);
+        if (quote === el) {
+          if (block === quote) {
+            retagRoot("P");
+            el.replaceChildren(paragraph.firstChild!);
+            placeCaret(...textPoint(el, Infinity));
+            return;
+          }
+          const children = Array.from(quote.childNodes);
+          const index = children.indexOf(block);
+          const before = children.slice(0, index);
+          const after = children.slice(index + 1);
+          if (!before.length && !after.length) {
+            retagRoot("P");
+            el.replaceChildren(paragraph.firstChild!);
+            placeCaret(...textPoint(el, Infinity));
+            return;
+          }
+          const wrap = (nodes: Node[]) => {
+            if (!nodes.length) return null;
+            const wrapper = quote.cloneNode(false) as HTMLElement;
+            stripCopiedIdentity(wrapper);
+            wrapper.removeAttribute("contenteditable");
+            wrapper.removeAttribute("data-editing-block");
+            wrapper.append(...nodes);
+            return wrapper;
+          };
+          const leading = wrap(before);
+          const trailing = wrap(after);
+          retagRoot("DIV");
+          el.replaceChildren(
+            ...(leading ? [leading] : []),
+            paragraph,
+            ...(trailing ? [trailing] : []),
+          );
+        } else {
+          if (block === quote) {
+            quote.replaceWith(paragraph);
+          } else {
+            const children = Array.from(quote.childNodes);
+            const index = children.indexOf(block);
+            const before = children.slice(0, index);
+            const after = children.slice(index + 1);
+            if (before.length) {
+              const trailing = after.length
+                ? (quote.cloneNode(false) as HTMLElement)
+                : null;
+              if (trailing) {
+                stripCopiedIdentity(trailing);
+                trailing.append(...after);
+              }
+              quote.replaceChildren(...before);
+              quote.after(paragraph, ...(trailing ? [trailing] : []));
+            } else if (after.length) {
+              quote.replaceChildren(...after);
+              quote.before(paragraph);
+            } else {
+              quote.replaceWith(paragraph);
+            }
+          }
+        }
+        placeCaret(...textPoint(paragraph, Infinity));
+        return;
+      }
+    }
     const row = legacyRowAt(caret.startContainer);
     if (row) {
       const list = row.parentElement!;
@@ -1769,12 +2696,28 @@ export function startInPlaceTextSession(
         if (list === el) el.append(paragraph);
         else if (list.children.length === 0) list.replaceWith(paragraph);
         else list.after(paragraph);
-        placeCaret(...textPoint(paragraph, 0));
+        placeCaret(...textPoint(paragraph, Infinity));
         return;
       }
       if (insertBulletAfterCaret(list)) return;
     }
     const block = nearestBlock(caret.startContainer, el);
+    if (/^H[1-6]$/.test(block.tagName)) {
+      const after = document.createRange();
+      after.setStart(caret.startContainer, caret.startOffset);
+      after.setEnd(block, block.childNodes.length);
+      if (!hasRenderedContent(after.cloneContents())) {
+        let heading = block;
+        if (heading === el) {
+          heading = promoteRootLines(caret);
+        }
+        const paragraph = document.createElement("p");
+        paragraph.append(ZERO_WIDTH_SPACE);
+        heading.after(paragraph);
+        placeCaret(...textPoint(paragraph, Infinity));
+        return;
+      }
+    }
     if (block === el || STRUCTURAL_BLOCK_TAGS.has(block.tagName)) {
       insertLineBreak(caret);
     } else {
@@ -1818,6 +2761,7 @@ export function startInPlaceTextSession(
       const tag = line.blockTag?.toLowerCase() ?? "p";
       const block = document.createElement(tag);
       if (tag === "blockquote") {
+        block.setAttribute("data-slide-authoring-format", "quote");
         const paragraph = document.createElement("p");
         paragraph.append(line.fragment);
         block.append(paragraph);
@@ -1837,6 +2781,12 @@ export function startInPlaceTextSession(
     }
 
     if (block === el) {
+      if (!hasRenderedContent(el)) {
+        if (el.tagName !== "DIV") retagRoot("DIV");
+        el.replaceChildren(blocks);
+        placeCaret(el, el.childNodes.length);
+        return true;
+      }
       if (caret.startContainer === el) {
         caret.insertNode(blocks);
         placeCaret(el, Array.from(el.childNodes).indexOf(last) + 1);
@@ -1906,8 +2856,12 @@ export function startInPlaceTextSession(
     const html = data.getData("text/html");
     const normalized = html ? normalizeSlideClipboardHtml(html) : null;
     const text = data.getData("text/plain");
+    const markdown = normalized === null ? markdownTextLines(text) : null;
+    const preserveSlideStyles = data.getData(SLIDE_CLIPBOARD_TYPE) === "1";
     const lines =
-      normalized !== null ? pastedHtmlLines(normalized) : plainTextLines(text);
+      normalized !== null
+        ? pastedHtmlLines(normalized, preserveSlideStyles)
+        : (markdown ?? plainTextLines(text));
     if (
       normalized !== null
         ? lines.every(({ fragment }) => !hasRenderedContent(fragment))
@@ -1915,6 +2869,19 @@ export function startInPlaceTextSession(
     ) {
       return false;
     }
+    const pastedUrl = text.trim();
+    if (at && !at.collapsed && /^(?:https?:\/\/|mailto:)/i.test(pastedUrl)) {
+      if (URL.canParse(pastedUrl)) {
+        const url = new URL(pastedUrl);
+        if (SAFE_LINK.test(url.protocol)) {
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(at);
+          return setInlineTextLink(el, url.href).scope === "selection";
+        }
+      }
+    }
+    if (markdown) return insertBlockClipboard(lines, at);
     if (normalized !== null && lines.some(({ blockTag }) => blockTag)) {
       return insertBlockClipboard(lines, at);
     }
@@ -1980,6 +2947,10 @@ export function startInPlaceTextSession(
     return true;
   }
 
+  function caretAtOrAfter(caret: Range, point: Range) {
+    return caret.compareBoundaryPoints(Range.START_TO_START, point) >= 0;
+  }
+
   function linePrefix(block: HTMLElement, caret: Range) {
     let start: [Node, number] = [block, 0];
     if (isBulletRow(block)) {
@@ -1998,7 +2969,7 @@ export function startInPlaceTextSession(
       const breakEnd = document.createRange();
       breakEnd.setStart(parent, after);
       breakEnd.collapse(true);
-      if (breakEnd.comparePoint(caret.startContainer, caret.startOffset) >= 0) {
+      if (caretAtOrAfter(caret, breakEnd)) {
         start = [parent, after];
       }
     }
@@ -2009,20 +2980,55 @@ export function startInPlaceTextSession(
     return prefix;
   }
 
+  function emptyLineAtCaret(caret: Range) {
+    const line = nearestLineBox(caret.startContainer, el);
+    const prefix = linePrefix(line, caret);
+    const suffix = document.createRange();
+    suffix.setStart(caret.startContainer, caret.startOffset);
+    suffix.setEnd(line, line.childNodes.length);
+    const hasContent = (fragment: DocumentFragment) =>
+      !!fragment.textContent?.replaceAll(ZERO_WIDTH_SPACE, "") ||
+      fragment.querySelector("img,svg,video,canvas,picture,iframe,input,hr") !==
+        null;
+    return (
+      !hasContent(prefix.cloneContents()) && !hasContent(suffix.cloneContents())
+    );
+  }
+
+  function hasLineBreakBefore(block: HTMLElement, caret: Range) {
+    const before = document.createRange();
+    before.selectNodeContents(block);
+    before.setEnd(caret.startContainer, caret.startOffset);
+    return Array.from(block.querySelectorAll("br")).some((br) =>
+      before.intersectsNode(br),
+    );
+  }
+
   function lineIndexAt(root: HTMLElement, caret: Range) {
     return Array.from(root.querySelectorAll("br")).filter((br) => {
       const parent = br.parentNode!;
       const breakEnd = document.createRange();
       breakEnd.setStart(parent, Array.from(parent.childNodes).indexOf(br) + 1);
       breakEnd.collapse(true);
-      return (
-        breakEnd.comparePoint(caret.startContainer, caret.startOffset) >= 0
-      );
+      return caretAtOrAfter(caret, breakEnd);
     }).length;
   }
 
   function rootHasLineBreak(root: HTMLElement) {
     return root.querySelector("br") !== null;
+  }
+
+  function blockHasLineBreak(block: HTMLElement) {
+    return Array.from(block.querySelectorAll("br")).some((br) => {
+      for (
+        let ancestor = br.parentElement;
+        ancestor && ancestor !== block;
+        ancestor = ancestor.parentElement
+      ) {
+        if (["LI", "OL", "UL"].includes(ancestor.tagName)) return false;
+      }
+      return true;
+    });
   }
 
   function splitRootLines(root: HTMLElement) {
@@ -2060,23 +3066,86 @@ export function startInPlaceTextSession(
   }
 
   /** Turn root-level BR lines into editable child blocks before changing one line. */
-  function promoteRootLines(caret: Range) {
+  function promoteRootLines(
+    caret: Range,
+    commandKind?: InPlaceTextAuthoringCommand,
+  ) {
     const index = lineIndexAt(el, caret);
     const offset = linePrefix(el, caret).toString().length;
-    const textLook = headingTextLook(el);
-    const lineTag = ["P", "H1", "H2", "H3", "BLOCKQUOTE"].includes(el.tagName)
+    const textLook = authoredTextLook(el);
+    const offsets = selectionOffsets();
+    const sourceTag = el.tagName;
+    const computed = window.getComputedStyle(el);
+    const lineTag = [
+      "P",
+      "H1",
+      "H2",
+      "H3",
+      "H4",
+      "H5",
+      "H6",
+      "BLOCKQUOTE",
+    ].includes(el.tagName)
       ? el.tagName.toLowerCase()
       : "div";
-    const lines = splitRootLines(el).map((children) => {
+    const targetTag =
+      commandKind === "paragraph"
+        ? "P"
+        : commandKind === "quote"
+          ? sourceTag === "BLOCKQUOTE"
+            ? "P"
+            : "BLOCKQUOTE"
+          : commandKind?.startsWith("heading")
+            ? sourceTag === `H${commandKind.slice(-1)}`
+              ? "P"
+              : `H${commandKind.slice(-1)}`
+            : null;
+    const lines = splitRootLines(el).map((children, lineIndex) => {
       const block = document.createElement(lineTag);
       block.append(...children);
       if (block.childNodes.length === 0) block.append(ZERO_WIDTH_SPACE);
-      keepTextLook(block, textLook);
+      block.style.margin = "0";
+      if (lineIndex !== index || !targetTag || targetTag === lineTag) {
+        applyTextLook(block, textLook);
+      }
       return block;
     });
     if (el.tagName !== "DIV") retagRoot("DIV");
     el.replaceChildren(...lines);
+    for (const property of TEXT_LOOK_PROPERTIES) {
+      el.style.removeProperty(property);
+    }
+    for (const property of [
+      "margin-top",
+      "margin-right",
+      "margin-bottom",
+      "margin-left",
+    ]) {
+      const value = computed.getPropertyValue(property);
+      if (value) el.style.setProperty(property, value);
+    }
+    selectOffsets(offsets);
     const target = lines[Math.min(index, lines.length - 1)] ?? el;
+    if (offsets.from === offsets.to) placeCaret(...textPoint(target, offset));
+    return target;
+  }
+
+  function promoteBlockLines(block: HTMLElement, caret: Range) {
+    const index = lineIndexAt(block, caret);
+    const offset = linePrefix(block, caret).toString().length;
+    const look = headingTextLook(block);
+    const lines = splitRootLines(block);
+    const promoted = lines.map((children, lineIndex) => {
+      const line =
+        lineIndex === 0 ? block : (block.cloneNode(false) as HTMLElement);
+      if (lineIndex > 0) stripCopiedIdentity(line);
+      line.replaceChildren(...children);
+      if (line.childNodes.length === 0) line.append(ZERO_WIDTH_SPACE);
+      keepTextLook(line, look);
+      return line;
+    });
+    block.after(...promoted.slice(1));
+    const target = promoted[Math.min(index, promoted.length - 1)] ?? block;
     placeCaret(...textPoint(target, offset));
     return target;
   }
@@ -2093,6 +3162,28 @@ export function startInPlaceTextSession(
           child.tagName !== "UL",
       ) ?? block
     );
+  }
+
+  function selectAllBlockOrEditable() {
+    const range = selectionRange();
+    const block = range ? commandBlock(range.startContainer) : el;
+    if (block === el) return selectAllEditableText(el);
+
+    const selection = window.getSelection();
+    if (!selection) return false;
+    const blockRange = document.createRange();
+    blockRange.selectNodeContents(block);
+    const alreadySelected =
+      !!range &&
+      !range.collapsed &&
+      range.compareBoundaryPoints(Range.START_TO_START, blockRange) === 0 &&
+      range.compareBoundaryPoints(Range.END_TO_END, blockRange) === 0;
+    if (alreadySelected) return selectAllEditableText(el);
+
+    el.focus({ preventScroll: true });
+    selection.removeAllRanges();
+    selection.addRange(blockRange);
+    return true;
   }
 
   function retagBlock(block: HTMLElement, tagName: string) {
@@ -2115,24 +3206,148 @@ export function startInPlaceTextSession(
     if (block.tagName !== tagName) retag(block, tagName);
   }
 
-  function toggleListAtBlock(block: HTMLElement, kind: SlideListKind) {
+  function materializeRootInlineBlocks() {
+    const groups: Node[][] = [];
+    let group: Node[] = [];
+    for (const child of Array.from(el.childNodes)) {
+      if (
+        child instanceof HTMLElement &&
+        (BLOCK_TAGS.has(child.tagName) || child.tagName === "HR")
+      ) {
+        if (group.length) groups.push(group);
+        group = [];
+      } else {
+        group.push(child);
+      }
+    }
+    if (group.length) groups.push(group);
+    const tagName = /^H[1-6]$/.test(el.tagName) ? el.tagName : "P";
+    const look = sourceTextLook(el);
+    for (const nodes of groups) {
+      const first = nodes[0];
+      const block = document.createElement(tagName.toLowerCase());
+      block.style.margin = "0";
+      keepTextLook(block, look);
+      first.parentNode?.insertBefore(block, first);
+      block.append(...nodes);
+    }
+    if (
+      groups.length &&
+      ["P", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6"].includes(
+        el.tagName,
+      )
+    ) {
+      retagRoot("DIV");
+    }
+  }
+
+  function unwrapBulletRowForBlockCommand(block: HTMLElement) {
+    const marker = rowMarker(block);
+    marker?.remove();
+    for (const property of [
+      "display",
+      "gap",
+      "column-gap",
+      "row-gap",
+      "flex",
+      "flex-direction",
+      "flex-wrap",
+      "align-items",
+      "justify-content",
+    ]) {
+      block.style.removeProperty(property);
+    }
+  }
+
+  function canMergeAdjacentLists(left: HTMLElement, right: HTMLElement) {
+    if (left.tagName !== right.tagName || right.hasAttribute("id"))
+      return false;
+    if (
+      left.tagName === "OL" &&
+      (left.hasAttribute("reversed") ||
+        right.hasAttribute("reversed") ||
+        right.hasAttribute("start"))
+    ) {
+      return false;
+    }
+    const attributes = (list: HTMLElement) =>
+      Array.from(list.attributes)
+        .filter((attribute) => attribute.name !== "id")
+        .map((attribute) => `${attribute.name}\0${attribute.value}`)
+        .sort();
+    return attributes(left).join("\0") === attributes(right).join("\0");
+  }
+
+  function mergeAdjacentLists(list: HTMLElement) {
+    let target = list;
+    const previous = target.previousElementSibling;
+    if (
+      previous instanceof HTMLElement &&
+      canMergeAdjacentLists(previous, target)
+    ) {
+      previous.append(...Array.from(target.childNodes));
+      target.remove();
+      target = previous;
+    }
+    const next = target.nextElementSibling;
+    if (next instanceof HTMLElement && canMergeAdjacentLists(target, next)) {
+      target.append(...Array.from(next.childNodes));
+      next.remove();
+    }
+  }
+
+  function toggleListAtBlock(block: HTMLElement, kind: SlideListKind): boolean {
     return keepingSelection(() => {
-      if (block === el || isBulletRow(block)) {
+      if (
+        block === el &&
+        Array.from(el.childNodes).some(
+          (child) =>
+            child instanceof HTMLElement &&
+            (BLOCK_TAGS.has(child.tagName) || child.tagName === "HR"),
+        ) &&
+        Array.from(el.childNodes).some(
+          (child) =>
+            !(child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)),
+        )
+      ) {
+        materializeRootInlineBlocks();
+        const caret = selectionRange();
+        if (caret) {
+          const target = commandBlock(caret.startContainer);
+          if (target !== el) return toggleListAtBlock(target, kind);
+        }
+      }
+      if (isBulletRow(block) && block !== el) {
+        if (kind === "bullet") {
+          rowMarker(block)?.remove();
+          return true;
+        }
+        unwrapBulletRowForBlockCommand(block);
+        const list = createSlideList(document, kind);
+        const item = retag(block, "LI");
+        item.replaceWith(list);
+        list.append(item);
+        return true;
+      }
+      if (block === el || (block === el && isBulletRow(block))) {
         if (!hasRenderedContent(el)) el.prepend(ZERO_WIDTH_SPACE);
+        const look = blockTextLook(el);
+        const margins = blockMargins(el);
         const next = toggleSlideList(el, kind);
         if (!next) return false;
+        keepTextLook(next, look);
+        applyBlockMargins(next, margins);
         if (next !== el) rebind(next);
         return true;
       }
 
       const item = listItemAt(block);
-      if (item && item === block) {
+      if (item) {
         const list = item.parentElement!;
         const tagName = kind === "ordered" ? "OL" : "UL";
         if (list.tagName === tagName) {
-          const next = toggleSlideList(list, kind);
-          if (list === el && next && next !== el) rebind(next);
-          return !!next;
+          splitListItemToParagraph(item, false);
+          return true;
         }
         const replacement = retag(list, tagName);
         replacement.style.setProperty(
@@ -2144,9 +3359,13 @@ export function startInPlaceTextSession(
       }
 
       const list = createSlideList(document, kind);
+      preserveBlockMargins(block, list);
+      const look = sourceTextLook(block);
       const line = block.tagName === "LI" ? block : retag(block, "LI");
+      keepTextLook(line, look);
       line.replaceWith(list);
       list.append(line);
+      mergeAdjacentLists(list);
       return true;
     });
   }
@@ -2159,32 +3378,63 @@ export function startInPlaceTextSession(
       const after = document.createRange();
       after.setStart(caret.startContainer, caret.startOffset);
       after.setEnd(el, el.childNodes.length);
-      const beforeContent = before.cloneContents();
-      const afterContent = after.cloneContents();
+      const sourceTag = el.tagName;
+      const look = sourceTextLook(el);
+      const rootMargins = window.getComputedStyle(el);
+      const afterContent = extractWithoutCopiedIdentity(after);
+      const beforeContent = extractWithoutCopiedIdentity(before);
+      const leading = document.createElement(
+        /^H[1-6]$/.test(sourceTag) ? sourceTag.toLowerCase() : "p",
+      );
+      leading.style.margin = "0";
+      keepTextLook(leading, look);
+      leading.append(beforeContent);
+      const hasLeading = hasRenderedContent(leading);
+      if (!hasLeading) leading.remove();
       if (el.tagName !== "DIV") retagRoot("DIV");
+      for (const property of [
+        "margin-top",
+        "margin-right",
+        "margin-bottom",
+        "margin-left",
+      ]) {
+        const value = rootMargins.getPropertyValue(property);
+        if (value) el.style.setProperty(property, value);
+      }
       const divider = document.createElement("hr");
       const paragraph = document.createElement("p");
       paragraph.style.margin = "0";
       paragraph.append(afterContent);
       if (!hasRenderedContent(paragraph)) paragraph.prepend(ZERO_WIDTH_SPACE);
-      el.replaceChildren(beforeContent, divider, paragraph);
+      el.replaceChildren(...(hasLeading ? [leading] : []), divider, paragraph);
       placeCaret(...textPoint(paragraph, 0));
       return;
     }
+    if (block.tagName !== "LI" && !hasRenderedContent(block)) {
+      block.before(document.createElement("hr"));
+      placeCaret(...textPoint(block, 0));
+      return;
+    }
     if (block.tagName === "LI") {
+      const content = listItemContentRange(block);
       const before = document.createRange();
       before.setStart(block, 0);
       before.setEnd(caret.startContainer, caret.startOffset);
       const after = document.createRange();
       after.setStart(caret.startContainer, caret.startOffset);
-      after.setEnd(block, block.childNodes.length);
+      after.setEnd(content.endContainer, content.endOffset);
+      const trailingLists = Array.from(block.children).filter(
+        (child) => child.tagName === "OL" || child.tagName === "UL",
+      );
       const left = document.createElement("p");
       const right = document.createElement("p");
-      left.append(before.cloneContents());
-      right.append(after.cloneContents());
+      const afterContent = extractWithoutCopiedIdentity(after);
+      const beforeContent = extractWithoutCopiedIdentity(before);
+      left.append(beforeContent);
+      right.append(afterContent);
       if (!hasRenderedContent(right)) right.append(ZERO_WIDTH_SPACE);
       const divider = document.createElement("hr");
-      block.replaceChildren(left, divider, right);
+      block.replaceChildren(left, divider, right, ...trailingLists);
       placeCaret(...textPoint(right, 0));
       return;
     }
@@ -2197,8 +3447,20 @@ export function startInPlaceTextSession(
     block: HTMLElement,
     caret: Range,
   ) {
+    if (
+      isBulletRow(block) &&
+      block !== el &&
+      kind !== "bulletList" &&
+      kind !== "orderedList"
+    ) {
+      unwrapBulletRowForBlockCommand(block);
+    }
     switch (kind) {
       case "paragraph":
+        if (block.tagName === "LI") {
+          splitListItemToParagraph(block, false);
+          break;
+        }
         retagBlock(block, "P");
         break;
       case "heading1":
@@ -2263,7 +3525,12 @@ export function startInPlaceTextSession(
             : null;
     if (!tagName) return false;
     return keepingSelection(() => {
-      for (const block of blocks) retagBlock(block, tagName);
+      for (const block of blocks) {
+        if (isBulletRow(block) && block !== el) {
+          unwrapBulletRowForBlockCommand(block);
+        }
+        retagBlock(block, tagName);
+      }
       return true;
     });
   }
@@ -2286,15 +3553,35 @@ export function startInPlaceTextSession(
       let block = commandBlock(caret.startContainer);
       if (!caret.collapsed && commandBlock(caret.endContainer) !== block) {
         if (slashRange) return false;
-        const blocks = selectedCommandBlocks(caret);
+        let blocks = selectedCommandBlocks(caret);
+        if (blocks.includes(el)) {
+          materializeRootInlineBlocks();
+          blocks = selectedCommandBlocks(selectionRange() ?? caret);
+        }
         return blocks.length > 1
           ? applyAuthoringCommandToBlocks(kind, blocks)
           : false;
       }
       if (slashRange && !caret.collapsed) return false;
-      if (block === el && rootHasLineBreak(el)) {
-        if (!caret.collapsed) return false;
-        block = promoteRootLines(caret);
+      if (
+        (block === el && rootHasLineBreak(el)) ||
+        (block !== el && blockHasLineBreak(block))
+      ) {
+        block =
+          block === el
+            ? promoteRootLines(caret, kind)
+            : promoteBlockLines(block, caret);
+        const promoted = selectionRange();
+        if (promoted && !promoted.collapsed) {
+          const blocks = selectedCommandBlocks(promoted);
+          return blocks.length > 1
+            ? applyAuthoringCommandToBlocks(kind, blocks)
+            : applyAuthoringCommandAtBlock(
+                kind,
+                blocks[0] ?? commandBlock(promoted.startContainer),
+                promoted,
+              );
+        }
       }
       return applyAuthoringCommandAtBlock(
         kind,
@@ -2314,6 +3601,39 @@ export function startInPlaceTextSession(
     return raw.length;
   }
 
+  function collapseAfterInlineFormat(
+    block: HTMLElement,
+    offset: number,
+    format: InlineTextFormat,
+  ) {
+    const point = textPoint(block, offset);
+    const [node, position] = point;
+    if (node instanceof Text && position === node.length) {
+      for (
+        let current = node.parentElement;
+        current && current !== block;
+        current = current.parentElement
+      ) {
+        const ownsFormat =
+          (format === "code" && current.tagName === "CODE") ||
+          (format === "bold" && !!(current as HTMLElement).style.fontWeight) ||
+          (format === "italic" && !!(current as HTMLElement).style.fontStyle) ||
+          (format === "strike" &&
+            /line-through/.test(
+              `${(current as HTMLElement).style.textDecoration} ${(current as HTMLElement).style.textDecorationLine}`,
+            ));
+        if (ownsFormat && current.parentNode) {
+          placeCaret(
+            current.parentNode,
+            Array.from(current.parentNode.childNodes).indexOf(current) + 1,
+          );
+          return;
+        }
+      }
+    }
+    placeCaret(node, position);
+  }
+
   function applyMarkdownShortcut() {
     const caret = selectionRange();
     if (!caret?.collapsed) return;
@@ -2323,16 +3643,56 @@ export function startInPlaceTextSession(
     const typed = raw
       .replaceAll(ZERO_WIDTH_SPACE, "")
       .replaceAll("\u00a0", " ");
+    const url = /(?:^|\s)(https?:\/\/[^\s<>]+)\s$/
+      .exec(typed)?.[1]
+      ?.replace(/[.,!?;:)\]}]+$/, "");
+    const caretParent =
+      caret.startContainer instanceof Element
+        ? caret.startContainer
+        : caret.startContainer.parentElement;
+    if (url && URL.canParse(url) && !caretParent?.closest("a")) {
+      const currentSelection = selectionOffsets(true);
+      command(() => {
+        const base = textOffset(
+          block,
+          prefix.startContainer,
+          prefix.startOffset,
+        );
+        const start = typed.lastIndexOf(url);
+        const range = document.createRange();
+        range.setStart(...textPoint(block, base + visibleOffset(raw, start)));
+        range.setEnd(
+          ...textPoint(block, base + visibleOffset(raw, start + url.length)),
+        );
+        const selection = window.getSelection();
+        if (!selection) return false;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        const linked = setInlineTextLink(el, url).scope === "selection";
+        if (linked) selectOffsets(currentSelection, true);
+        return linked;
+      });
+      return;
+    }
     const bullet = /^[-*+] $/.test(typed);
-    const ordered = /^\d+\. $/.test(typed);
+    const ordered = /^(\d+)\. $/.exec(typed);
     const heading = /^(#{1,4}) $/.exec(typed);
     const quote = typed === "> ";
-    const divider = /^(?:---|___|\*\*\*) $/.test(typed);
-    const bold = /(\*\*|__)([^*_\n]+)\1$/.exec(typed);
-    const italicStar = bold ? null : /(?<!\*)\*([^*\n]+)\*(?!\*)$/.exec(typed);
+    const divider = /^(?:--- ?|___ |\*\*\* )$/.test(typed);
+    const boldCandidate = /(?<!\S)(\*\*|__)([^*_\n]+)\1$/.exec(typed);
+    const bold =
+      boldCandidate?.[1] === "__" &&
+      !/(?<![\p{L}\p{N}_])__[^_\n]+__(?![\p{L}\p{N}_])$/u.test(typed)
+        ? null
+        : boldCandidate;
+    const italicStar = bold
+      ? null
+      : /(?<![\p{L}\p{N}_*])\*([^*\n]+)\*(?![\p{L}\p{N}_*])$/u.exec(typed);
     const italicUnderscore = bold
       ? null
-      : /(?<!_)_([^_\n]+)_(?!_)$/.exec(typed);
+      : /(?<![\p{L}\p{N}_])_([^_\s](?:[^_\n]*[^_\s])?)_(?![\p{L}\p{N}_])$/u.exec(
+          typed,
+        );
     const strike = /~~([^~\n]+)~~$/.exec(typed);
     const code = /`([^`\n]+)`$/.exec(typed);
     const kind = ordered
@@ -2348,32 +3708,35 @@ export function startInPlaceTextSession(
     if (bullet) {
       command(() => {
         let target = commandBlock(caret.startContainer);
-        if (target === el && rootHasLineBreak(el)) {
-          const tag = el.tagName;
-          const look = headingTextLook(el);
-          if (tag === "P" || look) retagRoot("DIV");
-          const converted = convertMarkdownPrefixToBullet(el);
-          if (converted) keepTextLook(el, look);
-          else if (el.tagName !== tag) retagRoot(tag);
-          return converted;
+        let current = selectionRange();
+        if (!current) return false;
+        if (hasLineBreakBefore(target, current)) {
+          target =
+            target === el
+              ? promoteRootLines(current)
+              : promoteBlockLines(target, current);
+          current = selectionRange();
+          if (!current) return false;
         }
         if (isBulletRow(target)) {
-          deleteRange(prefix);
+          deleteRange(linePrefix(target, current));
           return true;
         }
-        const parentList =
-          target.tagName === "LI" ? target.parentElement : null;
-        if (parentList?.tagName === "UL") {
-          deleteRange(prefix);
-          return true;
+        const item = listItemAt(target);
+        const parentList = item?.parentElement;
+        if (item && parentList && ["OL", "UL"].includes(parentList.tagName)) {
+          deleteRange(linePrefix(target, current));
+          return changeListItemKind(item, "bullet");
         }
-        const look = headingTextLook(target);
+        const look = blockTextLook(target);
+        const margins = blockMargins(target);
         if (target === el && (target.tagName === "P" || look)) {
           retagRoot("DIV");
           target = el;
         } else if (target !== el && (target.tagName === "P" || look)) {
           target = retag(target, "DIV");
         }
+        applyBlockMargins(target, margins);
         keepTextLook(target, look);
         return convertMarkdownPrefixToBullet(target);
       });
@@ -2385,15 +3748,40 @@ export function startInPlaceTextSession(
         deleteRange(prefix);
         const current = selectionRange();
         if (!current) return false;
-        let target = commandBlock(current.startContainer);
-        if (target === el && rootHasLineBreak(el)) {
-          target = promoteRootLines(current);
+        if (ordered) {
+          const item = listItemAt(current.startContainer);
+          if (item)
+            return changeListItemKind(item, "ordered", Number(ordered[1]));
         }
-        return applyAuthoringCommandAtBlock(
+        let target = commandBlock(current.startContainer);
+        if (hasLineBreakBefore(target, current)) {
+          target =
+            target === el
+              ? promoteRootLines(current)
+              : promoteBlockLines(target, current);
+        }
+        const applied = applyAuthoringCommandAtBlock(
           kind,
           target,
           selectionRange() ?? current,
         );
+        if (applied && ordered) {
+          const item = listItemAt(
+            selectionRange()?.startContainer ?? current.startContainer,
+          );
+          const list =
+            item?.parentElement ??
+            (el.tagName === "OL"
+              ? el
+              : (Array.from(el.children).find(
+                  (child) => child.tagName === "OL",
+                ) as HTMLElement | undefined));
+          if (list) {
+            if (Number(ordered[1]) === 1) list.removeAttribute("start");
+            else list.setAttribute("start", ordered[1]);
+          }
+        }
+        return applied;
       });
       return;
     }
@@ -2472,7 +3860,16 @@ export function startInPlaceTextSession(
         );
         selection.removeAllRanges();
         selection.addRange(content);
-        return toggleInlineTextFormat(el, inline.format).scope === "selection";
+        const applied =
+          toggleInlineTextFormat(el, inline.format).scope === "selection";
+        if (applied) {
+          collapseAfterInlineFormat(
+            block,
+            base + openStart + inline.text.length,
+            inline.format,
+          );
+        }
+        return applied;
       });
     }
   }
@@ -2487,6 +3884,7 @@ export function startInPlaceTextSession(
         ] as const)
       : null;
     const offsets = selectionOffsets();
+    restoreSessionMenuAria();
     rebind(retag(el, tagName));
     const intact = points?.every(
       ([node, offset]) =>
@@ -2582,6 +3980,10 @@ export function startInPlaceTextSession(
             }
             return true;
           }
+          if (range?.collapsed) {
+            const block = commandBlock(range.startContainer);
+            if (block !== el) return toggleListAtBlock(block, kind);
+          }
           const next = toggleSlideList(el, kind);
           if (!next) return false;
           if (next !== el) rebind(next);
@@ -2662,7 +4064,7 @@ export function startInPlaceTextSession(
         (type === "insertReplacementText" ? targetRange(event) : null) ?? range;
       if (!target) return;
       edit("typing", () => insertText(data, target));
-      if ([" ", "*", "_", "~", "`"].includes(data)) {
+      if ([" ", "-", "*", "_", "~", "`"].includes(data)) {
         applyMarkdownShortcut();
       }
       return;
@@ -2686,6 +4088,13 @@ export function startInPlaceTextSession(
     } else if (PASTE_INPUTS.has(type)) {
       const data = event.dataTransfer;
       if (!data) {
+        if (type === "insertFromYank" && event.data) {
+          command(() => {
+            insertText(event.data!, range);
+            return true;
+          });
+          return;
+        }
         throw new Error(`in-place text session: ${type} has no dataTransfer`);
       }
       const at =
@@ -2719,7 +4128,7 @@ export function startInPlaceTextSession(
     const input = event as InputEvent;
     if (
       input.inputType === "insertText" &&
-      [" ", "*", "_", "~", "`"].includes(input.data ?? "")
+      [" ", "-", "*", "_", "~", "`"].includes(input.data ?? "")
     ) {
       applyMarkdownShortcut();
     }
@@ -2735,8 +4144,30 @@ export function startInPlaceTextSession(
 
   function onKeyDown(event: KeyboardEvent) {
     if (event.isComposing || event.keyCode === 229) return;
-    const mod = (event.metaKey || event.ctrlKey) && !event.altKey;
     const key = event.key.toLowerCase();
+    const macControl =
+      event.ctrlKey &&
+      !event.metaKey &&
+      /Mac|iPhone|iPad/.test(navigator.platform);
+    if (macControl && ["a", "e", "y"].includes(key)) return;
+    const modifier = event.metaKey || event.ctrlKey;
+    const altGraph =
+      event.ctrlKey && !event.metaKey && event.getModifierState("AltGraph");
+    if (
+      modifier &&
+      event.altKey &&
+      !altGraph &&
+      /^Digit[0-4]$/.test(event.code)
+    ) {
+      event.preventDefault();
+      commands.applyAuthoringCommand(
+        event.code === "Digit0"
+          ? "paragraph"
+          : (`heading${event.code.slice(-1)}` as InPlaceTextAuthoringCommand),
+      );
+      return;
+    }
+    const mod = modifier && !event.altKey;
     if (mod && key === "z") {
       // historyUndo is only proven cancelable in Chromium; own the shortcut.
       event.preventDefault();
@@ -2745,15 +4176,32 @@ export function startInPlaceTextSession(
     } else if (mod && key === "y" && !event.shiftKey) {
       event.preventDefault();
       redo();
+    } else if (mod && !event.shiftKey && key === "b") {
+      event.preventDefault();
+      commands.bold();
+    } else if (mod && !event.shiftKey && key === "i") {
+      event.preventDefault();
+      commands.italic();
+    } else if (mod && !event.shiftKey && key === "u") {
+      event.preventDefault();
+      commands.underline();
     } else if (mod && key === "e" && !event.shiftKey) {
       event.preventDefault();
       commands.code();
+    } else if (mod && !event.shiftKey && key === "k") {
+      event.preventDefault();
+      const range = selectionRange();
+      if (range && !range.collapsed)
+        options.onRequestLink?.(range.cloneRange());
     } else if (mod && key === "a" && !event.shiftKey) {
       event.preventDefault();
-      selectAllEditableText(el);
+      selectAllBlockOrEditable();
     } else if (mod && event.shiftKey && key === "s") {
       event.preventDefault();
       commands.strike();
+    } else if (mod && event.shiftKey && key === "b") {
+      event.preventDefault();
+      commands.applyAuthoringCommand("quote");
     } else if (
       mod &&
       event.shiftKey &&
@@ -2770,11 +4218,15 @@ export function startInPlaceTextSession(
       event.preventDefault();
       const range = selectionRange();
       if (!range) return;
-      const item = listItemAt(range.startContainer);
-      if (item) {
+      const items = selectedListItems(range);
+      if (items.length > 0) {
         command(() =>
           keepingSelection(() =>
-            event.shiftKey ? outdent(item) : indent(item),
+            event.shiftKey
+              ? items.length > 1
+                ? outdentSelectedListItems(items)
+                : outdent(items[0])
+              : items.reduce((changed, item) => indent(item) || changed, false),
           ),
         );
         return;
@@ -2799,7 +4251,23 @@ export function startInPlaceTextSession(
    */
   function writeSelection(data: DataTransfer, range: Range) {
     const holder = document.createElement("div");
-    holder.append(range.cloneContents());
+    let copied = range.cloneContents();
+    for (
+      let ancestor =
+        range.commonAncestorContainer instanceof HTMLElement
+          ? range.commonAncestorContainer
+          : range.commonAncestorContainer.parentElement;
+      ancestor && ancestor !== el;
+      ancestor = ancestor.parentElement
+    ) {
+      if (!PASTE_INLINE_TAGS.has(ancestor.tagName)) continue;
+      const wrapper = ancestor.cloneNode(false) as HTMLElement;
+      stripCopiedIdentity(wrapper);
+      wrapper.append(copied);
+      copied = document.createDocumentFragment();
+      copied.append(wrapper);
+    }
+    holder.append(copied);
     // The copies hold the range's text in order. Only the session's
     // placeholders are dropped, never an author's ZWSP.
     const preceding = document.createRange();
@@ -2841,7 +4309,10 @@ export function startInPlaceTextSession(
       holder.append(list);
     }
     const html = normalizeSlideClipboardHtml(holder.innerHTML);
-    if (html !== null) data.setData("text/html", html);
+    if (html !== null) {
+      data.setData("text/html", html);
+      data.setData(SLIDE_CLIPBOARD_TYPE, "1");
+    }
     let zwsp = 0;
     data.setData(
       "text/plain",
@@ -2873,6 +4344,13 @@ export function startInPlaceTextSession(
    */
   function onCompositionStart() {
     const range = selectionRange();
+    if (range && atRowTextStart(range)) {
+      checkpoint("typing");
+      const placeholder = document.createTextNode(ZERO_WIDTH_SPACE);
+      range.insertNode(placeholder);
+      placeCaret(placeholder, placeholder.length);
+      return;
+    }
     const acrossNodes =
       range &&
       !range.collapsed &&
@@ -2882,6 +4360,15 @@ export function startInPlaceTextSession(
       );
     if (acrossNodes) edit("typing", () => deleteRange(range));
     else checkpoint("typing");
+  }
+
+  function onCompositionEnd() {
+    window.setTimeout(() => {
+      if (!active) return;
+      reshapeAtCaret();
+      applyMarkdownShortcut();
+      notify();
+    }, 0);
   }
 
   const listeners: [string, (event: never) => void][] = [
@@ -2897,6 +4384,7 @@ export function startInPlaceTextSession(
     ["cut", onCopy],
     ["dragstart", onDragStart],
     ["compositionstart", onCompositionStart],
+    ["compositionend", onCompositionEnd],
   ];
 
   function listen(target: HTMLElement) {
@@ -2951,7 +4439,13 @@ export function startInPlaceTextSession(
    * restores the exact start bytes, so nothing is written.
    */
   function hasVisibleChange() {
-    if (el.innerHTML === startHtml) return false;
+    if (
+      el.tagName === element.tagName &&
+      el.innerHTML === startHtml &&
+      !rootAttributesChanged()
+    ) {
+      return false;
+    }
     // A pending style run nothing was typed into is dropped by end().
     const live = el.cloneNode(true) as HTMLElement;
     for (const span of Array.from(
@@ -2969,7 +4463,8 @@ export function startInPlaceTextSession(
     const comparableText = (value: string) =>
       value.replaceAll(ZERO_WIDTH_SPACE, "").replaceAll("\u00a0", " ");
     return (
-      el !== element ||
+      el.tagName !== element.tagName ||
+      rootAttributesChanged() ||
       squash(live.innerHTML) !== squash(startHtml) ||
       comparableText(el.innerText) !== comparableText(startText)
     );
@@ -2977,6 +4472,12 @@ export function startInPlaceTextSession(
 
   function cloneWithoutPlaceholders(root: HTMLElement): HTMLElement {
     const copy = root.cloneNode(true) as HTMLElement;
+    copy.removeAttribute("data-slide-plain-row");
+    for (const row of Array.from(
+      copy.querySelectorAll("[data-slide-plain-row]"),
+    )) {
+      row.removeAttribute("data-slide-plain-row");
+    }
     const copies = textNodesIn(copy);
     const texts = textNodesIn(el);
     const flags = new Map(
@@ -2999,6 +4500,7 @@ export function startInPlaceTextSession(
 
   function end() {
     if (!active) return;
+    restoreSessionMenuAria();
     active = false;
     unlisten(el);
     document.removeEventListener("pointerup", onPointerUp);
@@ -3108,7 +4610,7 @@ export function startInPlaceTextSession(
       return active;
     },
     get changed() {
-      return active ? hasVisibleChange() : el.innerHTML !== startHtml;
+      return hasVisibleChange();
     },
     commands,
     apply: (mutate) =>
