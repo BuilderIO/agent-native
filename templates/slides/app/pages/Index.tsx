@@ -830,6 +830,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         attachments?: ReadonlyArray<PromptChatAttachment>;
         hadFiles?: boolean;
         modelSelection?: DeckModelSelection;
+        referenceSelection?: NewDeckReferenceSelection;
       } = {},
     ) => {
       if (
@@ -845,7 +846,9 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryRequiresExactPrompt(false);
       setNewDeckRetryFiles([]);
-      setNewDeckRetryReferenceSelection(undefined);
+      setNewDeckRetryReferenceSelection(
+        (current) => options.referenceSelection ?? current,
+      );
       setNewDeckRetryAttachments(options.attachments ?? []);
       setNewDeckRetryModelSelection(options.modelSelection);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
@@ -978,6 +981,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         attachments,
         hadFiles: files.length > 0,
         modelSelection,
+        referenceSelection,
       });
       return;
     }
@@ -1445,10 +1449,10 @@ export default function Index({ active = true }: { active?: boolean }) {
         attachments.context ??
         (reusingRetryInputs ? newDeckRetryContext : undefined);
       const retryComposerContext = retryReferenceSelection
-        ? retryReferenceSelection.composerContext
+        ? (options?.slidesContext ?? retryReferenceSelection.composerContext)
         : options?.slidesContext;
       const retryContextItems = retryReferenceSelection
-        ? retryReferenceSelection.contextItems
+        ? (options?.contextItems ?? retryReferenceSelection.contextItems)
         : options?.contextItems;
       const retryReferenceFilePaths = reusingRetryInputs
         ? (retryReferenceSelection?.referenceFilePaths ?? [])
@@ -1478,7 +1482,8 @@ export default function Index({ active = true }: { active?: boolean }) {
         ? null
         : hasExplicitComposerDeckReference
           ? null
-          : retryReferenceSelection?.referenceDeckId !== undefined
+          : retryReferenceSelection?.referenceDeckId !== undefined &&
+              options?.slidesContext === undefined
             ? retryReferenceSelection.referenceDeckId
             : (carriedImportedReference?.deckId ??
               promptReferenceDeckId ??
@@ -1499,11 +1504,8 @@ export default function Index({ active = true }: { active?: boolean }) {
               }
             : {}),
           ...(referenceDeckId !== undefined ? { referenceDeckId } : {}),
-          ...(retryComposerContext &&
-          retryReferenceSelection?.designSystemId === undefined
-            ? {
-                designSystemId: retryComposerContext.designSystemId,
-              }
+          ...(retryComposerContext
+            ? { designSystemId: retryComposerContext.designSystemId }
             : {}),
           ...(retryComposerContext
             ? {

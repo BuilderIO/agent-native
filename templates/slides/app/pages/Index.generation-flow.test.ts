@@ -83,6 +83,46 @@ describe("new deck generation flow", () => {
     );
   });
 
+  it("prefers references edited in the retry composer", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+
+    expect(promptSubmit).toContain(
+      "options?.slidesContext ?? retryReferenceSelection.composerContext",
+    );
+    expect(promptSubmit).toContain(
+      "options?.contextItems ?? retryReferenceSelection.contextItems",
+    );
+    expect(promptSubmit).toContain(
+      "retryReferenceSelection?.referenceDeckId !== undefined",
+    );
+    expect(promptSubmit).toContain("options?.slidesContext === undefined");
+    expect(promptSubmit).toContain(
+      "{ designSystemId: retryComposerContext.designSystemId }",
+    );
+  });
+
+  it("keeps selected references in the sign-in retry draft", () => {
+    const generation = source.slice(
+      source.indexOf("const handleCreateDeckWithPrompt"),
+      source.indexOf("const runPendingDeckGeneration"),
+    );
+    const preserveSignIn = source.slice(
+      source.indexOf("const preservePromptForSignIn"),
+      source.indexOf("const setSignInDialogOpen"),
+    );
+
+    expect(generation).toContain("referenceSelection,\n      });");
+    expect(preserveSignIn).toContain(
+      "referenceSelection?: NewDeckReferenceSelection",
+    );
+    expect(preserveSignIn).toContain(
+      "(current) => options.referenceSelection ?? current",
+    );
+  });
+
   it("shows the destination-shaped loading surface before navigation", () => {
     const loadingIndex = flow.indexOf("setIsStartingNewDeck(true)");
     const navigateIndex = flow.indexOf(

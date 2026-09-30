@@ -727,6 +727,25 @@ describe("Slides prompt-led home", () => {
         status: "ready" as const,
       },
     ];
+    const updatedComposerContext = {
+      designSystemId: null,
+      references: [
+        {
+          source: "website" as const,
+          id: "https://example.com/new-style",
+          title: "Updated style reference",
+          url: "https://example.com/new-style",
+        },
+      ],
+    };
+    const updatedContextItems = [
+      {
+        key: "website:https://example.com/new-style:",
+        title: "Updated style reference",
+        context: "A crisp editorial style",
+        status: "ready" as const,
+      },
+    ];
     const ensureDeckPersisted = vi
       .fn()
       .mockResolvedValueOnce({ persisted: false })
@@ -753,11 +772,18 @@ describe("Slides prompt-led home", () => {
         "Create a reference deck",
         [],
         { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: updatedComposerContext,
+          contextItems: updatedContextItems,
+        },
       );
     });
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
 
-    expect(agentSubmit.mock.calls[0][1]).toContain("A restrained visual style");
+    expect(agentSubmit.mock.calls[0][1]).toContain("A crisp editorial style");
+    expect(agentSubmit.mock.calls[0][1]).not.toContain(
+      "A restrained visual style",
+    );
     expect(callAction).toHaveBeenCalledWith(
       "patch-deck",
       expect.objectContaining({
@@ -765,8 +791,8 @@ describe("Slides prompt-led home", () => {
           expect.objectContaining({
             fields: {
               generationContext: expect.objectContaining({
-                composerContext,
-                contextItems,
+                composerContext: updatedComposerContext,
+                contextItems: updatedContextItems,
               }),
             },
           }),
