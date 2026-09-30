@@ -2871,6 +2871,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "جارٍ الاتصال…",
   "settingsModel.chatgptContinue": "المتابعة باستخدام ChatGPT",
   "settingsModel.chatgptDisconnect": "قطع الاتصال",
+  "settingsModel.chatgptRemoveLegacySignIn": "إزالة تسجيل الدخول القديم",
+  "settingsModel.chatgptLegacySignInDetails":
+    "تم حفظ تسجيل دخول قديم إلى ChatGPT هنا. لا يمكن استخدامه في التدفق الرسمي.",
   "settingsModel.chatgptManageAccess": "إدارة الوصول في ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "تم تسجيل الخروج هنا، لكن OpenAI لم يؤكد إلغاء الجلسة عن بُعد.",

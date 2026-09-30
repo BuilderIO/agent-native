@@ -63,6 +63,12 @@ const CHATGPT_OAUTH_FLOW_TTL_SECONDS = 10 * 60;
 const CHATGPT_OAUTH_HOST_ID_RE =
   /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHATGPT_ACCOUNT_ID_RE = /^siwc_[a-f0-9]{64}$/;
+const LEGACY_CHATGPT_SUBSCRIPTION_RESOURCE =
+  "https://chatgpt.com/backend-api/codex/responses";
+const LEGACY_RESOURCE_SUFFIX = `:resource:${crypto
+  .createHash("sha256")
+  .update(LEGACY_CHATGPT_SUBSCRIPTION_RESOURCE)
+  .digest("hex")}`;
 const ISSUED_CLIENT_ID_RE = /^[A-Za-z0-9_-]{1,256}$/;
 const STATE_RE = /^[A-Za-z0-9_-]{43}$/;
 const RESOURCE_SUFFIX = `:resource:${crypto
@@ -151,6 +157,7 @@ export interface ChatGPTSubscriptionStatus {
   activeAccountId: string | null;
   activeAccount: ChatGPTSubscriptionAccountSummary | null;
   accounts: ChatGPTSubscriptionAccountSummary[];
+  legacyRegistrationCleanupAvailable: boolean;
 }
 
 function normalizedEmail(email: string): string {
@@ -172,6 +179,41 @@ function credentialIdentity(
     accountId,
     resource: CHATGPT_SUBSCRIPTION_RESOURCE,
     owner: { scope: "user", id: normalizedEmail(email) },
+  };
+}
+
+function legacyCredentialIdentity(email: string): OAuthCredentialIdentity {
+  const normalized = normalizedEmail(email);
+  return {
+    provider: CHATGPT_SUBSCRIPTION_OAUTH_PROVIDER,
+    accountId: `user:${normalized}`,
+    resource: LEGACY_CHATGPT_SUBSCRIPTION_RESOURCE,
+    owner: { scope: "user", id: normalized },
+  };
+}
+
+async function hasLegacyCredential(email: string): Promise<boolean> {
+  const identity = legacyCredentialIdentity(email);
+  const rows = await listOAuthAccountsByOwner(
+    identity.provider,
+    credentialOwner(email),
+  );
+  return rows.some(
+    (row) => row.accountId === `${identity.accountId}${LEGACY_RESOURCE_SUFFIX}`,
+  );
+}
+
+export async function removeLegacyChatGPTSubscriptionCredential(
+  email: string,
+): Promise<{ removed: boolean; remoteRevocationConfirmed: false }> {
+  const identity = legacyCredentialIdentity(email);
+  if (!(await hasLegacyCredential(email))) {
+    return { removed: false, remoteRevocationConfirmed: false };
+  }
+  const result = await revokeOAuthCredential(identity);
+  return {
+    removed: result.local === "deleted",
+    remoteRevocationConfirmed: false,
   };
 }
 
@@ -783,7 +825,10 @@ export async function getChatGPTSubscriptionStatus(
   email: string,
 ): Promise<ChatGPTSubscriptionStatus> {
   const localLoopback = currentRequestIsLocalLoopback();
-  const accounts = await accountSummaries(email);
+  const [accounts, legacyRegistrationCleanupAvailable] = await Promise.all([
+    accountSummaries(email),
+    hasLegacyCredential(email),
+  ]);
   const selected = await activeAccount(email, accounts);
   const activeAccountId = selected?.id ?? null;
   const activeState = selected
@@ -813,6 +858,7 @@ export async function getChatGPTSubscriptionStatus(
     activeAccountId,
     activeAccount: selected,
     accounts: visibleAccounts,
+    legacyRegistrationCleanupAvailable,
   };
 }
 
@@ -1279,7 +1325,7 @@ async function revokeChatGPTRefreshToken(
   throw new Error("ChatGPT OAuth revocation failed.");
 }
 
-function tokenCredential(
+export function tokenCredential(
   tokens: ChatGPTTokenResponse,
   identity: {
     clientId: string;
@@ -1300,7 +1346,11 @@ function tokenCredential(
   if (tokens.token_type !== "Bearer") {
     throw new Error("ChatGPT OAuth returned an invalid token type.");
   }
-  const grantedScopes = parseChatGPTSubscriptionScopes(tokens.scope);
+  const grantedScopes = parseChatGPTSubscriptionScopes(
+    tokens.scope === undefined && previous
+      ? previous.grantedScopes.join(" ")
+      : tokens.scope,
+  );
   return {
     tokens: {
       access_token: accessToken,

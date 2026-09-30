@@ -2681,6 +2681,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "कनेक्ट हो रहा है…",
   "settingsModel.chatgptContinue": "ChatGPT के साथ जारी रखें",
   "settingsModel.chatgptDisconnect": "डिस्कनेक्ट करें",
+  "settingsModel.chatgptRemoveLegacySignIn": "पुराना साइन-इन हटाएँ",
+  "settingsModel.chatgptLegacySignInDetails":
+    "यहाँ ChatGPT का पुराना साइन-इन सहेजा है। आधिकारिक फ़्लो इसका उपयोग नहीं कर सकता।",
   "settingsModel.chatgptManageAccess": "ChatGPT में एक्सेस प्रबंधित करें",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "यहाँ से साइन आउट किया गया, लेकिन OpenAI ने रिमोट रद्द करने की पुष्टि नहीं की।",

@@ -258,7 +258,7 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Integration content");
   });
 
-  it("always includes the core lab and indexes app labs", async () => {
+  it("indexes app labs without adding the experimental ChatGPT lab", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -302,6 +302,9 @@ describe("SettingsTabsPage", () => {
     expect(
       container.querySelector("[data-testid=labs-content]")?.textContent,
     ).toContain("Meetings and transcription");
+    expect(
+      container.querySelector("[data-testid=labs-content]")?.textContent,
+    ).not.toContain("ChatGPT subscription");
 
     await act(async () => {
       root.unmount();
@@ -312,7 +315,7 @@ describe("SettingsTabsPage", () => {
         </MemoryRouter>,
       );
     });
-    expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
+    expect(container.querySelector("#settings-tab-labs")).toBeNull();
   });
 
   it("places labs after app-specific tabs such as notifications", () => {
@@ -584,6 +587,7 @@ describe("SettingsTabsPage", () => {
           general={<div>General content</div>}
           team={<div>Team members</div>}
           whatsNew={<div>Recent updates</div>}
+          labs={[{ key: "test.example", displayName: "Example lab" }]}
           extraTabs={[
             {
               id: "agent",
@@ -616,6 +620,7 @@ describe("SettingsTabsPage", () => {
           generalGroups={<div>App groups</div>}
           notifications={<div>Email settings</div>}
           notificationsLabel="Notifications"
+          labs={[{ key: "test.example", displayName: "Example lab" }]}
           appAreas={[
             {
               id: "recordings",
@@ -721,6 +726,7 @@ describe("SettingsTabsPage", () => {
       root.render(
         <SettingsTabsPage
           general={<div>General content</div>}
+          labs={[{ key: "test.example", displayName: "Example lab" }]}
           extraTabs={[
             {
               id: "gmail-filters",
@@ -772,6 +778,7 @@ describe("SettingsTabsPage", () => {
             general={<div>General content</div>}
             team={<div>Team members</div>}
             whatsNew={<div>Recent updates</div>}
+            labs={[{ key: "test.example", displayName: "Example lab" }]}
             extraTabs={[
               {
                 id: "integrations",

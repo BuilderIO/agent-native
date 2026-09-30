@@ -2890,6 +2890,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "Conectando…",
   "settingsModel.chatgptContinue": "Continuar con ChatGPT",
   "settingsModel.chatgptDisconnect": "Desconectar",
+  "settingsModel.chatgptRemoveLegacySignIn":
+    "Eliminar el inicio de sesión anterior",
+  "settingsModel.chatgptLegacySignInDetails":
+    "Hay guardado un inicio de sesión antiguo de ChatGPT. El flujo oficial no puede usarlo.",
   "settingsModel.chatgptManageAccess": "Gestionar el acceso en ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "Se ha cerrado la sesión aquí, pero OpenAI no confirmó la revocación remota.",

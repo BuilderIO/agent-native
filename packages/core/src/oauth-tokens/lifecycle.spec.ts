@@ -243,6 +243,33 @@ describe("OAuth credential lifecycle", () => {
     expect(state.rows.size).toBe(0);
   });
 
+  it("removes credentials stored under the former ChatGPT identity", async () => {
+    const legacyAlice: OAuthCredentialIdentity = {
+      provider: "openai-codex",
+      accountId: "user:alice@example.com",
+      resource: "https://chatgpt.com/backend-api/codex/responses",
+      owner: { scope: "user", id: "alice@example.com" },
+    };
+    const legacyBob: OAuthCredentialIdentity = {
+      ...legacyAlice,
+      accountId: "user:bob@example.com",
+      owner: { scope: "user", id: "bob@example.com" },
+    };
+    await saveOAuthCredential(legacyAlice, credential());
+    await saveOAuthCredential(legacyBob, credential());
+
+    await expect(revokeOAuthCredential(legacyAlice)).resolves.toEqual({
+      remote: "unsupported",
+      local: "deleted",
+    });
+    await expect(readOAuthCredentialState(legacyAlice)).resolves.toEqual({
+      kind: "missing",
+    });
+    await expect(readOAuthCredentialState(legacyBob)).resolves.toMatchObject({
+      kind: "connected",
+    });
+  });
+
   it("keeps credentials for two resources with the same provider and account independently retrievable", async () => {
     const fusionIdentity = {
       ...identity,

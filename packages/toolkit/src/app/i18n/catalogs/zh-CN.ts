@@ -2496,6 +2496,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "正在连接…",
   "settingsModel.chatgptContinue": "继续使用 ChatGPT",
   "settingsModel.chatgptDisconnect": "断开连接",
+  "settingsModel.chatgptRemoveLegacySignIn": "移除旧版登录",
+  "settingsModel.chatgptLegacySignInDetails":
+    "此处保存了旧版 ChatGPT 登录信息，官方流程无法使用。",
   "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理访问权限",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "已在此处退出登录，但 OpenAI 未确认远程撤销。",

@@ -390,11 +390,11 @@ describe("app group pages", () => {
       );
     }
 
-    it("groups the core and app labs under the app's name with the footnote", async () => {
+    it("groups app labs under the app's name with the footnote", async () => {
       await renderPage(LabsSettingsPage, { input: { labs } });
       const title = container.querySelector("#labs h2");
       expect(title?.textContent).toBe("Clips");
-      expect(container.textContent).toContain("ChatGPT subscription");
+      expect(container.textContent).not.toContain("ChatGPT subscription");
       expect(container.textContent).toContain(
         "These new, unstable features may have bugs.",
       );

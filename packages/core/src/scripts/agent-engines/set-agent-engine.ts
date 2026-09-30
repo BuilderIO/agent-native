@@ -112,15 +112,17 @@ export async function selectDefaultAgentEngine(
     };
   }
 
-  const usable = await isStoredEngineUsableForRequest(
-    { engine: engineName },
-    entry,
-    {
-      credentialIdentity: ctx.userEmail
-        ? { userEmail: ctx.userEmail }
-        : undefined,
-    },
-  );
+  const credentialIdentity = ctx.userEmail
+    ? { userEmail: ctx.userEmail }
+    : undefined;
+  const needsCredentialIdentity =
+    entry.name === "builder" || entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME;
+  const usable =
+    credentialIdentity && needsCredentialIdentity
+      ? await isStoredEngineUsableForRequest({ engine: engineName }, entry, {
+          credentialIdentity,
+        })
+      : await isStoredEngineUsableForRequest({ engine: engineName }, entry);
   if (!usable) {
     return {
       status: "missing-credentials",

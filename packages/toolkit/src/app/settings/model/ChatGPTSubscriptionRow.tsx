@@ -32,6 +32,7 @@ interface ChatGPTSubscriptionStatus {
   activeAccountId: string | null;
   activeAccount: ChatGPTSubscriptionAccount | null;
   accounts: ChatGPTSubscriptionAccount[];
+  legacyRegistrationCleanupAvailable: boolean;
 }
 
 interface ChatGPTSubscriptionAccount {
@@ -118,14 +119,21 @@ export function ChatGPTSubscriptionRow() {
     setConnecting(true);
   };
 
-  const disconnect = async (accountId?: string) => {
+  const disconnect = async (
+    accountId?: string,
+    removeLegacyCredential = false,
+  ) => {
     setError(null);
     setNotice(false);
     setDisconnecting(true);
     try {
       const result = (await callAction(
         "disconnect-chatgpt-subscription" as never,
-        accountId ? ({ accountId } as never) : ({} as never),
+        removeLegacyCredential
+          ? ({ removeLegacyCredential: true } as never)
+          : accountId
+            ? ({ accountId } as never)
+            : ({} as never),
       )) as { remoteRevocationConfirmed?: boolean };
       setNotice(result.remoteRevocationConfirmed === false);
       void queryClient.invalidateQueries({ queryKey: ["action"] });
@@ -158,17 +166,31 @@ export function ChatGPTSubscriptionRow() {
   const connected = status.data?.connected === true;
   const activeAccount = status.data?.activeAccount ?? null;
   const supported = status.data?.supported === true;
+  const removeLegacyButton = status.data?.legacyRegistrationCleanupAvailable ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={disconnecting}
+      onClick={() => void disconnect(undefined, true)}
+    >
+      {t(`${K}chatgptRemoveLegacySignIn`)}
+    </Button>
+  ) : null;
   const control = !status.data ? (
     <Skeleton className="h-8 w-40" />
   ) : !supported ? (
-    <a
-      href="https://openai.com/form/sign-in-with-chatgpt-interest/"
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 text-sm font-medium text-foreground hover:bg-accent"
-    >
-      {t(`${K}chatgptPartnerInterest`)}
-    </a>
+    <div className="flex flex-wrap items-center gap-2">
+      <a
+        href="https://openai.com/form/sign-in-with-chatgpt-interest/"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 text-sm font-medium text-foreground hover:bg-accent"
+      >
+        {t(`${K}chatgptPartnerInterest`)}
+      </a>
+      {removeLegacyButton}
+    </div>
   ) : (
     <div className="flex flex-wrap items-center gap-2">
       {status.data && status.data.accounts.length > 1 ? (
@@ -228,6 +250,7 @@ export function ChatGPTSubscriptionRow() {
               : t(`${K}chatgptContinue`)}
         </Button>
       )}
+      {removeLegacyButton}
     </div>
   );
 
@@ -249,6 +272,11 @@ export function ChatGPTSubscriptionRow() {
       ) : !connected && activeAccount && !activeAccount.planUsageEnabled ? (
         <p className="text-sm text-muted-foreground">
           {t(`${K}chatgptNoDirectUse`)}
+        </p>
+      ) : null}
+      {status.data?.legacyRegistrationCleanupAvailable ? (
+        <p className="text-sm text-muted-foreground">
+          {t(`${K}chatgptLegacySignInDetails`)}
         </p>
       ) : null}
       {error || status.isError ? (

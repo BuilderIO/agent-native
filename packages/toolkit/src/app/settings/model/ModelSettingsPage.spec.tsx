@@ -744,6 +744,43 @@ describe("ModelSettingsPage", () => {
     expect(manageAccess.textContent).toBe("Manage access in ChatGPT");
   });
 
+  it("offers explicit removal of an unusable legacy ChatGPT sign-in", async () => {
+    state.chatgpt = {
+      supported: true,
+      supportReason: null,
+      connected: false,
+      reconnectRequired: false,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: true,
+    };
+    callActionMock.mockResolvedValue({
+      removed: true,
+      remoteRevocationConfirmed: false,
+    });
+    await render();
+
+    const chatgpt = row("chatgpt-subscription");
+    expect(chatgpt.textContent).toContain(
+      "An older ChatGPT sign-in is saved here. The official flow cannot use it.",
+    );
+    await act(async () => {
+      const remove = [...chatgpt.querySelectorAll("button")].find(
+        (button) => button.textContent === "Remove old sign-in",
+      ) as HTMLElement;
+      remove.click();
+    });
+
+    expect(callActionMock).toHaveBeenCalledWith(
+      "disconnect-chatgpt-subscription",
+      { removeLegacyCredential: true },
+    );
+    expect(chatgpt.textContent).toContain(
+      "Signed out here, but OpenAI did not confirm remote revocation.",
+    );
+  });
+
   it("points hosted apps to the ChatGPT partner access path", async () => {
     state.chatgpt = {
       supported: false,

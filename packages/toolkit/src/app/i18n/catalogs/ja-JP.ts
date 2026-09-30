@@ -2731,6 +2731,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "接続中…",
   "settingsModel.chatgptContinue": "ChatGPTで続行",
   "settingsModel.chatgptDisconnect": "接続を解除",
+  "settingsModel.chatgptRemoveLegacySignIn": "古いサインインを削除",
+  "settingsModel.chatgptLegacySignInDetails":
+    "以前の ChatGPT サインインが保存されています。公式フローでは使用できません。",
   "settingsModel.chatgptManageAccess": "ChatGPT でアクセスを管理",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "ここではサインアウトしましたが、OpenAI はリモートでの取り消しを確認できませんでした。",

@@ -2865,6 +2865,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "Wird verbunden…",
   "settingsModel.chatgptContinue": "Mit ChatGPT fortfahren",
   "settingsModel.chatgptDisconnect": "Trennen",
+  "settingsModel.chatgptRemoveLegacySignIn": "Alte ChatGPT-Anmeldung entfernen",
+  "settingsModel.chatgptLegacySignInDetails":
+    "Eine ältere ChatGPT-Anmeldung ist hier gespeichert. Der offizielle Ablauf kann sie nicht verwenden.",
   "settingsModel.chatgptManageAccess": "Zugriff in ChatGPT verwalten",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "Hier abgemeldet, aber OpenAI hat den Widerruf nicht bestätigt.",

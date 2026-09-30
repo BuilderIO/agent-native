@@ -2743,6 +2743,9 @@ const messages = {
   "settingsModel.chatgptConnecting": "Connecting…",
   "settingsModel.chatgptContinue": "Continue with ChatGPT",
   "settingsModel.chatgptDisconnect": "Disconnect",
+  "settingsModel.chatgptRemoveLegacySignIn": "Remove old sign-in",
+  "settingsModel.chatgptLegacySignInDetails":
+    "An older ChatGPT sign-in is saved here. The official flow cannot use it.",
   "settingsModel.chatgptManageAccess": "Manage access in ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "Signed out here, but OpenAI did not confirm remote revocation.",

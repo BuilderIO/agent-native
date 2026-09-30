@@ -2691,6 +2691,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "연결 중…",
   "settingsModel.chatgptContinue": "ChatGPT로 계속",
   "settingsModel.chatgptDisconnect": "연결 해제",
+  "settingsModel.chatgptRemoveLegacySignIn": "이전 로그인 삭제",
+  "settingsModel.chatgptLegacySignInDetails":
+    "이전 ChatGPT 로그인이 저장되어 있습니다. 공식 흐름에서는 사용할 수 없습니다.",
   "settingsModel.chatgptManageAccess": "ChatGPT에서 액세스 관리",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "여기서는 로그아웃했지만 OpenAI에서 원격 권한 취소를 확인하지 못했습니다.",

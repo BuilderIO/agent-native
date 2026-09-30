@@ -6,6 +6,7 @@ import {
   parseChatGPTSubscriptionRevocationEndpoint,
   parseChatGPTSubscriptionScopes,
   requestTokens,
+  tokenCredential,
   verifyChatGPTSubscriptionIdToken,
 } from "./chatgpt-subscription-oauth.js";
 
@@ -82,6 +83,57 @@ describe("ChatGPT subscription OAuth contract", () => {
     expect(() => parseChatGPTSubscriptionScopes(undefined)).toThrow(
       "no granted scopes",
     );
+  });
+
+  it("retains previously granted scopes when a refresh omits scope", () => {
+    const previousScopes = [
+      "openid",
+      "profile",
+      "email",
+      "offline_access",
+      "resource.invoke",
+      "chatgpt.tokens.use.direct",
+    ];
+    const identity = {
+      clientId: CLIENT_ID,
+      hostId: "urn:uuid:00000000-0000-4000-8000-000000000001",
+      subject: "verified-subject",
+      idToken: "verified-id-token",
+    };
+    const previous = {
+      tokens: { access_token: "old-access", refresh_token: "old-refresh" },
+      tokenExpiresAt: Date.now() + 60_000,
+      ...identity,
+      extAgentHostId: identity.hostId,
+      grantedScopes: previousScopes,
+    };
+
+    expect(
+      tokenCredential(
+        {
+          access_token: "new-access",
+          refresh_token: "rotated-refresh",
+          token_type: "Bearer",
+          expires_in: 3600,
+        },
+        identity,
+        previous,
+      ).grantedScopes,
+    ).toEqual(previousScopes);
+
+    expect(() =>
+      tokenCredential(
+        {
+          access_token: "new-access",
+          refresh_token: "rotated-refresh",
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "openid profile email offline_access resource.invoke",
+        },
+        identity,
+        previous,
+      ),
+    ).toThrow("chatgpt.tokens.use.direct");
   });
 
   it("accepts only the discovered HTTPS OpenAI revocation endpoint", () => {

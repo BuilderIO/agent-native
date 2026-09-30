@@ -1,4 +1,5 @@
 import type { AgentChatAttachment } from "@agent-native/core";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import {
   DEFAULT_MODEL,
@@ -243,7 +244,10 @@ function resolveModelSelection(
   const fallbackGroup = matchingConfiguredGroup ?? fallbackConfiguredGroup;
   const engine = suppliedEngineGroup?.engine ?? fallbackGroup?.engine;
   const model = suppliedEngineGroup
-    ? selection.model
+    ? suppliedEngineGroup.engine === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+      !suppliedEngineGroup.models.includes(selection.model)
+      ? suppliedEngineGroup.models[0]
+      : selection.model
     : matchingConfiguredGroup?.models.includes(selection.model)
       ? selection.model
       : fallbackGroup?.models[0];

@@ -2919,6 +2919,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "Connexion…",
   "settingsModel.chatgptContinue": "Continuer avec ChatGPT",
   "settingsModel.chatgptDisconnect": "Déconnecter",
+  "settingsModel.chatgptRemoveLegacySignIn": "Supprimer l’ancienne connexion",
+  "settingsModel.chatgptLegacySignInDetails":
+    "Une ancienne connexion ChatGPT est enregistrée ici. Le parcours officiel ne peut pas l’utiliser.",
   "settingsModel.chatgptManageAccess": "Gérer l’accès dans ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "Déconnecté ici, mais OpenAI n’a pas confirmé la révocation à distance.",
