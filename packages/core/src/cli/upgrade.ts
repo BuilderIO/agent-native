@@ -9,7 +9,6 @@ import dotenv from "dotenv";
 import {
   isMigrationManifestActive,
   loadMigrationManifestsForProject,
-  type MigrationManifest,
   type MigrationDependency,
   type MigrationDependencyCondition,
 } from "../package-lifecycle/migration-manifest.js";
@@ -595,6 +594,15 @@ function applyMigrationDependencyAdditions(
     }
     writeJsonFile(file, read.value);
   }
+}
+
+export function addConfiguredMigrationDependencies(
+  project: UpgradeProject,
+  shellEnvironment: NodeJS.ProcessEnv = process.env,
+): void {
+  applyMigrationDependencyAdditions(
+    planMigrationDependencyAdditions(project, shellEnvironment),
+  );
 }
 
 export function pinResolvedAgentNativeVersions(

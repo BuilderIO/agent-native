@@ -3050,6 +3050,8 @@ export interface AgentKitComposerProps extends Omit<
   composerRef?: { current: TiptapComposerHandle | null };
   threadId?: string;
   className?: string;
+  /** The host transcript renders its own accessible submission status. */
+  announcePendingSubmission?: boolean;
   queueWhileRunning?: boolean;
   showModelSelector?: boolean;
   /** Controlled execution mode for agent-native act/plan workflows. */
@@ -3069,6 +3071,7 @@ function hasActiveRuns(thread: AgentThreadState): boolean {
 export function AgentKitComposer({
   threadId: requestedThreadId,
   className,
+  announcePendingSubmission = true,
   queueWhileRunning = true,
   showModelSelector = true,
   slashCommands,
@@ -3174,6 +3177,7 @@ export function AgentKitComposer({
   );
   const submissionBlocked = Boolean(submissionDisabled) || command.pending;
   const [submissionPending, setSubmissionPending] = useState(false);
+  const suggestionSubmitBlocked = submissionBlocked || submissionPending;
   const localComposerRef = useRef<TiptapComposerHandle>(null);
   const composerRef = hostComposerRef ?? localComposerRef;
   const selectedSuggestionRef = useRef<
@@ -3496,7 +3500,7 @@ export function AgentKitComposer({
   ) => {
     if (
       disabled ||
-      submissionBlocked ||
+      suggestionSubmitBlocked ||
       !suggestionsCapability.enabled ||
       selectedSuggestionRef.current ||
       !isCurrentAgentSuggestion(controller.getThread(threadId), suggestion)
@@ -3519,7 +3523,7 @@ export function AgentKitComposer({
   const suggestions = selectAgentSuggestions(thread);
   return (
     <div className={`agentkit-composer-stack ${className ?? ""}`}>
-      {submissionPending && !slots.transcript ? (
+      {announcePendingSubmission && submissionPending ? (
         <span
           className="agentkit-visually-hidden"
           role="status"
@@ -3603,14 +3607,14 @@ export function AgentKitComposer({
           <Suggestions
             suggestions={suggestions}
             threadId={threadId}
-            pending={submissionBlocked}
+            pending={suggestionSubmitBlocked}
             onSelect={selectSuggestion}
           />
         ) : (
           <AgentSuggestionBar
             suggestions={suggestions.map((suggestion) => ({
               ...suggestion,
-              disabled: submissionBlocked || Boolean(disabled),
+              disabled: suggestionSubmitBlocked || Boolean(disabled),
             }))}
             ariaLabel={labels.suggestions}
             onSelect={selectSuggestion}
@@ -3661,6 +3665,7 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         onBeforeSubmit={onBeforeSubmit}
+        onSubmissionPendingChange={setSubmissionPending}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         clearOnSubmitImmediately
         onAttachmentError={reportAttachmentError}
@@ -3690,7 +3695,6 @@ export function AgentKitComposer({
             return;
           }
           focusComposer();
-          setSubmissionPending(true);
           try {
             await command.execute(async () => {
               await submitMessage(
@@ -3702,7 +3706,6 @@ export function AgentKitComposer({
               );
             });
           } finally {
-            setSubmissionPending(false);
             focusComposer();
           }
         }}

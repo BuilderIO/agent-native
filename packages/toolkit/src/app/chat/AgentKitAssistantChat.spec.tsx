@@ -234,6 +234,18 @@ vi.mock("../agentkit/react/root.js", async () => {
   return {
     AgentKitRoot: (props: any) => {
       chatMocks.rootProps = props;
+      if (chatMocks.useRealRoot) {
+        return React.createElement(actual.AgentKitRoot, {
+          ...props,
+          ...(chatMocks.realComposerController
+            ? {
+                controller: chatMocks.realComposerController,
+                transport: undefined,
+                endpoint: undefined,
+              }
+            : {}),
+        });
+      }
       if (chatMocks.realComposerController) {
         return React.createElement(AgentKitProvider, {
           ...props,
@@ -759,11 +771,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     ];
     await mount(baseProps());
 
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+    expect(chatMocks.composerProps.announcePendingSubmission).toBe(false);
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "agentChat.status.thinking",
     );
-    expect(chatMocks.composerProps.disabled).toBe(false);
-    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
   });
 
   it("gives JS callers a migration error for the removed createAdapter prop", async () => {
@@ -849,6 +862,29 @@ describe("AgentKitAssistantChat host behavior", () => {
     return client;
   }
 
+  it("keeps the real editor editable while a submission is in flight", async () => {
+    chatMocks.useRealChat = true;
+    chatMocks.history = { isSubmissionInFlight: true };
+    await useRealComposer();
+    await mount(baseProps({ showModelSelector: false }));
+
+    const editor = container.querySelector<HTMLElement>(
+      '[contenteditable="true"]',
+    );
+    expect(editor).not.toBeNull();
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+
+    await act(async () =>
+      chatMocks.composerProps.composerRef.current.setText("Keep this draft"),
+    );
+    expect(editor?.textContent).toBe("Keep this draft");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )?.disabled,
+    ).toBe(true);
+  });
+
   it.each(["default", "compact"] as const)(
     "clears the real %s composer before startRun resolves and preserves the next draft",
     async (composerLayoutVariant) => {
@@ -861,6 +897,8 @@ describe("AgentKitAssistantChat host behavior", () => {
           composerLayoutVariant,
           showModelSelector: false,
         });
+        const openThread = vi.spyOn(client, "openThread");
+        chatMocks.useRealRoot = true;
         await mount(props);
         container.style.width =
           composerLayoutVariant === "compact" ? "320px" : "960px";
@@ -885,12 +923,18 @@ describe("AgentKitAssistantChat host behavior", () => {
         expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([]);
         expect(editor.textContent).toBe("");
 
-        chatMocks.history = { isSubmissionInFlight: true };
         await act(async () =>
-          root.render(<AgentKitAssistantChat {...props} />),
+          root.render(<AgentKitAssistantChat {...props} isNewThread={false} />),
         );
-        expect(editor.getAttribute("contenteditable")).toBe("true");
-        expect(send.disabled).toBe(true);
+        await flush();
+
+        expect(chatMocks.rootProps.load).toBe("manual");
+        expect(openThread).not.toHaveBeenCalled();
+        expect(
+          container
+            .querySelector<HTMLElement>("[contenteditable]")
+            ?.getAttribute("contenteditable"),
+        ).toBe("true");
         await act(async () => composer.setText("Next draft"));
         await act(async () => started.resolve({ runId: "run-latency" }));
 

@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { type ComponentProps, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { renderToString } from "react-dom/server";
 import { Link, MemoryRouter, useMatch } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -1203,6 +1204,19 @@ describe("Slides prompt-led home", () => {
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
     ).toBe("true");
+  });
+
+  it("does not server-render the home library before restoring its saved tab", () => {
+    localStorage.setItem("slides:home-library-tab", "recent");
+    const markup = renderToString(
+      <MemoryRouter initialEntries={["/home"]}>
+        <TooltipProvider>
+          <ActiveIndex />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("agent-prompt-home-library");
   });
 
   it("remembers the automatic Recent selection across home opens", () => {

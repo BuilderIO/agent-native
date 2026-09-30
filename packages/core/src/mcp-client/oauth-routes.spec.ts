@@ -47,6 +47,8 @@ const callbackMocks = vi.hoisted(() => ({
   validateMcpOAuthCallbackIssuer: vi.fn(),
 }));
 
+afterEach(() => resolveSecretPairsMock.mockReset());
+
 vi.mock("../server/auth.js", () => ({
   getSession: callbackMocks.getSession,
   safeReturnPath: (value: string) => value,
@@ -330,6 +332,43 @@ describe("MCP OAuth callback flow validation", () => {
             registration_endpoint: "https://auth.example.com/register",
           },
         },
+      }),
+    );
+  });
+
+  it("continues Gong org OAuth through dynamic registration without Manual credentials", async () => {
+    const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+    callbackMocks.getH3App.mockReturnValue({
+      use: (_base: string, handler: (event: H3Event) => unknown) => {
+        routes.push({ handler });
+      },
+    });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-acme",
+      role: "owner",
+    });
+    callbackMocks.startMcpOAuthAuthorization.mockResolvedValue({
+      authorizationUrl: new URL("https://app.gong.io/oauth2/authorize"),
+      codeVerifier: "<CODE_VERIFIER>",
+      state: "<STATE>",
+      clientInformation: { client_id: "gong-dynamic-client" },
+    });
+    resolveSecretPairsMock.mockReset().mockImplementation(async () => null);
+    mountMcpOAuthRoutes({}, { reconfigure: vi.fn() });
+
+    const result = await routes[0]!.handler(
+      mockEvent(
+        new Request(
+          "https://app.example.com/start?name=Gong&url=https%3A%2F%2Fmcp.gong.io%2Fmcp&scope=org&orgId=org-acme",
+        ),
+      ),
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(302);
+    expect(callbackMocks.startMcpOAuthAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverUrl: "https://mcp.gong.io/mcp",
       }),
     );
   });
@@ -619,6 +658,19 @@ describe("managed MCP OAuth clients", () => {
     ).toEqual({ ok: true, scope: "org" });
   });
 
+  it("allows Gong OAuth at personal or organization scope", () => {
+    const serverUrl = new URL("https://mcp.gong.io/mcp");
+
+    expect(resolveMcpOAuthScope(serverUrl, "user")).toEqual({
+      ok: true,
+      scope: "user",
+    });
+    expect(resolveMcpOAuthScope(serverUrl, "org")).toEqual({
+      ok: true,
+      scope: "org",
+    });
+  });
+
   it("matches the server org-only rule for hand-entered Builder Publish URLs", () => {
     for (const raw of [
       "https://mcp.builder.io/mcp/publish",
@@ -691,6 +743,28 @@ describe("managed MCP OAuth clients", () => {
       client_secret: "hubspot-client-secret",
       token_endpoint_auth_method: "client_secret_post",
     });
+  });
+
+  it("resolves workspace credentials for a Manual Gong integration", async () => {
+    resolveSecretPairsMock.mockImplementation(
+      async ([[clientIdKey, clientSecretKey]]) =>
+        clientIdKey === "GONG_MCP_CLIENT_ID" &&
+        clientSecretKey === "GONG_MCP_CLIENT_SECRET"
+          ? ["gong-client-id", "gong-client-secret"]
+          : null,
+    );
+
+    await expect(
+      resolveManagedMcpOAuthClient(new URL("https://mcp.gong.io/mcp")),
+    ).resolves.toEqual({
+      client_id: "gong-client-id",
+      client_secret: "gong-client-secret",
+      token_endpoint_auth_method: "client_secret_post",
+    });
+    expect(resolveSecretPairsMock).toHaveBeenCalledWith(
+      [["GONG_MCP_CLIENT_ID", "GONG_MCP_CLIENT_SECRET"]],
+      { allowUserScope: false, preferWorkspaceScope: true },
+    );
   });
 
   it("resolves the shared Google client for official Workspace MCP servers", async () => {

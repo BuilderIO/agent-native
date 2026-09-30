@@ -106,6 +106,7 @@ export interface PromptComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
   /** Handle file paste/drop errors in the host chat surface. */
@@ -680,6 +681,7 @@ function PromptComposerInner({
   imageModelMenu,
   composerRef,
   onBeforeSubmit,
+  onSubmissionPendingChange,
   getSubmitFailureDraftScope,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -899,6 +901,7 @@ function PromptComposerInner({
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
           onBeforeSubmit={onBeforeSubmit}
+          onSubmissionPendingChange={onSubmissionPendingChange}
           getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           onAttachmentError={onAttachmentError}
           interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}

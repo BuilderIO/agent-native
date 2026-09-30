@@ -162,6 +162,8 @@ describe("agent-native create TUI", () => {
       "Choose a starting point",
       firstAppsStep + 1,
     );
+    await cli.waitFor("Chat workspace", startAgain + 1);
+    await wait(50);
     cli.child.write("\r");
     const secondAppsStep = await cli.waitFor(
       "Shape your app lineup",
