@@ -3,7 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
 import type { ContentNotificationPreferences } from "@shared/content-user-prefs";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";

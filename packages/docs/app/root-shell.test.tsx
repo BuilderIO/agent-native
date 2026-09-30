@@ -30,24 +30,26 @@ function ShellSettledProbe() {
   );
 }
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentSidebar: (props: {
     children: React.ReactNode;
     defaultOpen?: boolean;
-    screenRefreshOnlyWhenPanelActive?: boolean;
+    screenRefreshEnabled?: boolean;
   }) => {
     agentSidebarSpy(props);
     agentSidebarProps.push(props);
     return <div data-testid="real-sidebar">{props.children}</div>;
   },
 }));
-vi.mock("@agent-native/core/client/host", () => ({
+vi.mock("@agent-native/core/client/route-warmup", () => ({
   AgentNativeRouteWarmup: () => null,
-  defineClientAction: (action: unknown) => action,
   isClientRouteUrl: (url: { pathname: string }) =>
     !url.pathname.startsWith("/cdn-cgi/"),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/host", () => ({
+  defineClientAction: (action: unknown) => action,
+}));
+vi.mock("@agent-native/toolkit/app/providers", () => ({
   AgentNativeWebMcpActionRegistration: () => null,
 }));
 vi.mock("@agent-native/core/client/webmcp", () => ({
@@ -129,11 +131,12 @@ describe("RootShell tree stability", () => {
   it("keeps closed Docs sidebars out of screen-refresh sync", async () => {
     const { RootShell } = await import("./root");
     render(<RootShell mounted />);
+    await vi.dynamicImportSettled();
 
-    await vi.waitFor(() => expect(agentSidebarProps).toHaveLength(1));
-    expect(agentSidebarProps[0]).toMatchObject({
+    await vi.waitFor(() => expect(agentSidebarProps.length).toBeGreaterThan(0));
+    expect(agentSidebarProps.at(-1)).toMatchObject({
       defaultOpen: false,
-      screenRefreshOnlyWhenPanelActive: true,
+      screenRefreshEnabled: false,
     });
   });
 

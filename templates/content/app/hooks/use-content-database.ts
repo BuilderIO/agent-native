@@ -55,6 +55,7 @@ import type {
   SuggestSourceJoinKeyResponse,
   UpdateContentDatabasePersonalViewRequest,
   ValidateBuilderSourceExecutionRequest,
+  DocumentPropertyRelationTarget,
 } from "@shared/api";
 import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -384,6 +385,7 @@ export function applyDocumentPropertyValueToDatabaseResponse<
     documentId: string;
     propertyId: string;
     value: ContentDatabaseResponse["properties"][number]["value"];
+    relationTargets?: DocumentPropertyRelationTarget[];
   },
 ): T | undefined {
   if (!current) return current;
@@ -404,7 +406,13 @@ export function applyDocumentPropertyValueToDatabaseResponse<
     if (existingIndex >= 0) {
       const properties = item.properties.map((property, index) =>
         index === existingIndex
-          ? { ...property, value: patch.value }
+          ? {
+              ...property,
+              value: patch.value,
+              ...(patch.relationTargets
+                ? { relationTargets: patch.relationTargets }
+                : {}),
+            }
           : property,
       );
       changed = true;
@@ -418,7 +426,13 @@ export function applyDocumentPropertyValueToDatabaseResponse<
       ...item,
       properties: [
         ...item.properties,
-        { ...databaseProperty, value: patch.value },
+        {
+          ...databaseProperty,
+          value: patch.value,
+          ...(patch.relationTargets
+            ? { relationTargets: patch.relationTargets }
+            : {}),
+        },
       ]
         .slice()
         .sort((a, b) => a.definition.position - b.definition.position),

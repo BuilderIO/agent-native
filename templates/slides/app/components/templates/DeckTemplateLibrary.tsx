@@ -4,12 +4,12 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import {
   TemplateLibraryGrid,
   TemplatePreviewDialog,
 } from "@agent-native/toolkit/app-shell";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { IconDots } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";

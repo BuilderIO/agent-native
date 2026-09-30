@@ -332,6 +332,41 @@ agents.example.com {
 
 </Callout>
 
+## Configure Dispatch for a self-hosted workspace {#dispatch-workspace-apps}
+
+Production Dispatch images often contain only `.output/`, so the server cannot
+discover sibling app directories at runtime. Configure this manifest on the
+Dispatch service. Use the same JSON for both variables: the Vite variable is
+read when building Dispatch, and the server variable is read at runtime. List
+only apps in this workspace, and make each `path` match the app's
+`APP_BASE_PATH` and proxy route. Set `APP_URL` to the public origin served by
+your reverse proxy.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## Enable invitations in a new workspace {#workspace-invites}
+
+For an invitation-only workspace, configure these admission settings on every
+app container that shares its database and auth:
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+Replace the example with a verified email for the first administrator in each
+workspace. On an empty database, that administrator signs in first, becomes
+the initial organization owner, and can invite teammates in Settings →
+Organization → Members. See [Administered deployments](/docs/administered-deployments)
+for the full bootstrap flow.
+
 ## What's next
 
 - [**Deployment**](/docs/deployment) — pick a persistent database, a Nitro preset, and a platform before deploying a workspace

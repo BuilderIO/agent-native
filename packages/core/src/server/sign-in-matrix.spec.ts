@@ -32,16 +32,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { createElement } from "react";
-import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  AuthPage,
   isAgentNativeDesktop,
   isElectron,
   normalizeOAuthReturnPath,
-} from "../client/auth/AuthPage.js";
+} from "../client/auth/auth-page-helpers.js";
 import {
   decodeContinuation,
   encodeContinuation,
@@ -60,7 +57,7 @@ const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
     ...opts,
     renderSignInPage:
       opts.renderSignInPage ??
-      ((props) => renderToString(createElement(AuthPage, props))),
+      ((props) => `<main data-auth-view="${props.initialView}" />`),
   });
 
 interface JourneyRuntime {
@@ -563,9 +560,26 @@ describe("sign-in matrix", () => {
         .readdirSync(path.join(repoRoot, ".github/workflows"))
         .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
         .map((f) => read(`.github/workflows/${f}`));
+      const actionsDir = path.join(repoRoot, ".github/actions");
+      const signInActions = fs
+        .readdirSync(actionsDir)
+        .filter((name) =>
+          fs.existsSync(path.join(actionsDir, name, "action.yml")),
+        )
+        .filter((name) =>
+          read(`.github/actions/${name}/action.yml`).includes(
+            "pnpm qa:sign-in",
+          ),
+        );
       expect(
-        workflows.some((w) => w.includes("pnpm qa:sign-in")),
-        "some workflow must run `pnpm qa:sign-in`",
+        workflows.some(
+          (w) =>
+            w.includes("pnpm qa:sign-in") ||
+            signInActions.some((name) =>
+              w.includes(`uses: ./.github/actions/${name}`),
+            ),
+        ),
+        "some workflow must run `pnpm qa:sign-in`, directly or through a local composite action",
       ).toBe(true);
     });
   });

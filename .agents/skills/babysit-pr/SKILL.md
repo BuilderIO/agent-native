@@ -321,7 +321,7 @@ record it as unavailable in the recap rather than treating it as no findings.
    - Publish the complete fix snapshot to the verified PR head using the target path above
    - Reset the applicable clock described above
 
-   **Special case: missing changeset.** If the failing job is `Require changeset for publishable package changes` (from `.github/workflows/changeset-check.yml`), do NOT treat it as a code bug. The job log includes a structured line `MISSING_CHANGESET_PACKAGES: pkg1,pkg2`. Parse that, then write a `.changeset/<short-slug>.md` directly — do NOT run the interactive `pnpm changeset add`. Use the PR title and diff to decide bump type (default to `patch` for bugfixes / docs / refactors; `minor` for additive features; `major` only when the PR description clearly signals breaking). Shape:
+   **Special case: missing changeset.** If the `Lint & format` job fails at its `Require changeset for publishable package changes` step (in `.github/workflows/ci.yml`), do NOT treat it as a code bug. The step log includes a structured line `MISSING_CHANGESET_PACKAGES: pkg1,pkg2`. Parse that, then write a `.changeset/<short-slug>.md` directly — do NOT run the interactive `pnpm changeset add`. Use the PR title and diff to decide bump type (default to `patch` for bugfixes / docs / refactors; `minor` for additive features; `major` only when the PR description clearly signals breaking). Shape:
    ```md
    ---
    "@agent-native/<pkg-1>": patch

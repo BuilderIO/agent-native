@@ -12,7 +12,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, extname, join, relative } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDir = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -256,9 +256,9 @@ function writeCorpusReadme(stats, baseDir) {
   const lines = [
     "# Agent-Native Source Corpus",
     "",
-    "This directory is generated when `@agent-native/core` is built for npm.",
+    "This directory is generated when `@agent-native/core-corpus` is built for npm.",
     "It gives coding agents a version-matched, searchable reference corpus",
-    "inside installed apps at `node_modules/@agent-native/core/corpus`.",
+    "inside installed apps at `node_modules/@agent-native/core-corpus/corpus`.",
     "",
     "## Contents",
     "",
@@ -280,9 +280,10 @@ function writeCorpusReadme(stats, baseDir) {
     "## Lookup",
     "",
     "```bash",
+    "pnpm add @agent-native/core-corpus@<installed-core-version>",
     'pnpm action source-search --query "defineAction useActionQuery"',
     "pnpm action source-search --path templates/plan/AGENTS.md",
-    'rg -n "defineAction|useActionQuery" node_modules/@agent-native/core/corpus',
+    'rg -n "defineAction|useActionQuery" node_modules/@agent-native/core-corpus/corpus',
     "```",
     "",
     "## Generated Counts",
@@ -337,8 +338,19 @@ export function swapCorpusDirIntoPlace(tempDir, targetDir = corpusDir) {
   return false;
 }
 
-export function materializeSourceCorpus() {
-  const tempDir = `${corpusDir}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+export function parseOutputDirectory(args, cwd = process.cwd()) {
+  const outputIndex = args.indexOf("--output");
+  if (outputIndex === -1) return corpusDir;
+  const output = args[outputIndex + 1];
+  if (!output || output.startsWith("--")) {
+    throw new Error("Expected a directory after --output.");
+  }
+  return resolve(cwd, output);
+}
+
+export function materializeSourceCorpus(targetDir = corpusDir) {
+  const outputDir = resolve(targetDir);
+  const tempDir = `${outputDir}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
   rmSync(tempDir, { recursive: true, force: true });
   mkdirSync(tempDir, { recursive: true });
 
@@ -346,9 +358,9 @@ export function materializeSourceCorpus() {
 
   writeCorpusReadme({ templateFiles: templateStats.files }, tempDir);
 
-  const applied = swapCorpusDirIntoPlace(tempDir);
+  const applied = swapCorpusDirIntoPlace(tempDir, outputDir);
 
-  const size = relative(packageDir, corpusDir);
+  const size = relative(repoRoot, outputDir);
   const note = applied
     ? ""
     : " (accepted a concurrent run's equivalent corpus)";
@@ -357,6 +369,6 @@ export function materializeSourceCorpus() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  materializeSourceCorpus();
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
+  materializeSourceCorpus(parseOutputDirectory(process.argv.slice(2)));
 }

@@ -3,7 +3,7 @@ import {
   AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { CLIPS_LABS } from "@shared/labs";
 import { useMemo } from "react";
 

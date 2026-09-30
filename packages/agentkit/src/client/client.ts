@@ -44,6 +44,7 @@ import {
   classifyAgentEvent,
   createAgentThreadState,
   hasActiveAgentRuns,
+  selectLatestAgentRun,
   reduceAgentEvent,
   settleRunProjection,
   type AgentKitSnapshot,
@@ -118,6 +119,10 @@ export interface SendMessageInput {
   attachments?: FilePart[];
   options?: AgentRunOptions;
   metadata?: Record<string, unknown>;
+  /** Host snapshot for queued submits that follow a run through async preparation. */
+  queuedWhileRunActive?: boolean;
+  /** Host-only acknowledgement after the recoverable message enters local state; never sent to the transport. */
+  onLocalSubmit?: () => void;
 }
 
 export interface AgentRunHandle {
@@ -1002,10 +1007,12 @@ export class AgentKitClient implements AgentKitController {
       ...current,
       messages: [...current.messages, message],
       suggestions: [],
+      suggestionsPendingTurn: true,
     });
     this.setConnection("connecting");
 
     try {
+      input.onLocalSubmit?.();
       const result = await this.invokeRequest(requestContext, (context) =>
         this.transport.startRun(
           {
@@ -1116,7 +1123,18 @@ export class AgentKitClient implements AgentKitController {
     // was already streaming, so adopting it blindly would open a second reader
     // on one stream.
     const key = this.runKey(input.threadId, result.runId);
-    if (this.consumers.has(key)) return;
+    const existingConsumer = this.consumers.get(key);
+    if (existingConsumer) {
+      void (async () => {
+        await Promise.allSettled([existingConsumer]);
+        if (!this.disposed) {
+          await this.resubscribeRun(input.threadId, result.runId);
+        }
+      })().catch(() => {
+        // The consumer records the typed stream error in the client snapshot.
+      });
+      return;
+    }
     this.markRunStarted(input.threadId, result.runId);
     this.trackConsumer(
       input.threadId,
@@ -1145,15 +1163,18 @@ export class AgentKitClient implements AgentKitController {
       resolveConnectionRequest(input, context),
     );
     this.assertActive();
-    const key = this.runKey(input.threadId, input.runId);
-    const existingConsumer = this.consumers.get(key);
-    if (existingConsumer) await existingConsumer.catch(() => undefined);
-    if (this.consumers.has(key)) return;
-    this.trackConsumer(
-      input.threadId,
-      input.runId,
-      this.consume(input.threadId, input.runId),
+    const existingConsumer = this.consumers.get(
+      this.runKey(input.threadId, input.runId),
     );
+    void (async () => {
+      // Wait off the UI path: an interrupted reader can close after resolution.
+      if (existingConsumer) await Promise.allSettled([existingConsumer]);
+      if (!this.disposed) {
+        await this.resubscribeRun(input.threadId, input.runId);
+      }
+    })().catch(() => {
+      // The consumer records the typed stream error in the client snapshot.
+    });
   }
 
   public async invokeAction(
@@ -1325,6 +1346,10 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage> {
     this.assertActive();
+    const threadAtSubmit = this.getThread(input.threadId);
+    const runWasActive =
+      input.queuedWhileRunActive || hasActiveAgentRuns(threadAtSubmit);
+    const runIdsBeforeWrite = new Set(Object.keys(threadAtSubmit.runs));
     const requestContext = this.createRequestContext(context);
     await this.requireCapability("messageQueue", requestContext);
     if (input.attachments?.length) {
@@ -1336,9 +1361,6 @@ export class AgentKitClient implements AgentKitController {
     }
     return this.enqueueQueueMutation(input.threadId, async () => {
       this.assertActive();
-      const threadBeforeWrite = this.getThread(input.threadId);
-      const runWasActive = hasActiveAgentRuns(threadBeforeWrite);
-      const runIdsBeforeWrite = new Set(Object.keys(threadBeforeWrite.runs));
       const result = await this.invokeRequest(requestContext, (context) =>
         queueMessage(
           {
@@ -1363,6 +1385,7 @@ export class AgentKitClient implements AgentKitController {
         messages: [...thread.queuedMessages, result.message],
         removedIds,
       });
+      input.onLocalSubmit?.();
       const updatedThread = this.getThread(input.threadId);
       const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
         (runId) => !runIdsBeforeWrite.has(runId),
@@ -1579,6 +1602,7 @@ export class AgentKitClient implements AgentKitController {
             : [...current.messages, message],
           queuedMessages,
           suggestions: [],
+          suggestionsPendingTurn: true,
         });
         const override = this.queuedMessageOverrides.get(threadId);
         const removedIds = new Set(override?.removedIds);
@@ -1902,45 +1926,18 @@ export class AgentKitClient implements AgentKitController {
             );
           }
           this.setConnection("connected");
-          const snapshotPersistence = this.persistThreadSnapshot(threadId);
-          const completed =
-            terminalEvent.type === "run.completed" ||
-            (terminalEvent.type === "run.status" &&
-              terminalEvent.status === "completed");
-          const terminalThread = this.getThread(threadId);
-          const queuedWorkKnown =
-            completed &&
-            terminalThread.queuedMessages.length > 0 &&
-            !hasActiveAgentRuns(terminalThread);
-          if (queuedWorkKnown) this.scheduleQueuePromotion(threadId);
-          const persistenceError = await snapshotPersistence;
-          if (completed) {
-            const shouldRefreshProjection =
-              !this.threadLoads.has(threadId) &&
-              (this.transport.getThreadSnapshot || this.transport.getThread);
-            if (shouldRefreshProjection) {
-              await this.loadThreadProjection(
-                threadId,
-                this.createRequestContext(),
-                true,
-              );
-            }
-            if (
-              !queuedWorkKnown &&
-              !hasActiveAgentRuns(this.getThread(threadId))
-            ) {
-              this.scheduleQueuePromotion(threadId);
-            }
-          }
-          if (persistenceError) {
-            this.fail(persistenceError.error, "thread_snapshot_persist_failed");
-          }
+          await this.finishTerminalRun(threadId, terminalEvent);
           return;
         } catch (error) {
           if (
             abortController.signal.reason instanceof
             AgentKitConsumerStoppedError
           ) {
+            return;
+          }
+          if (terminalEvent) {
+            await this.finishTerminalRun(threadId, terminalEvent);
+            this.fail(error, "run_stream_failed");
             return;
           }
           if (
@@ -1971,6 +1968,47 @@ export class AgentKitClient implements AgentKitController {
     } finally {
       this.consumers.delete(key);
       this.consumerAbortControllers.delete(key);
+    }
+  }
+
+  private async finishTerminalRun(
+    threadId: ThreadId,
+    terminalEvent: AgentEvent,
+  ): Promise<void> {
+    const snapshotPersistence = this.persistThreadSnapshot(threadId);
+    const completed =
+      terminalEvent.type === "run.completed" ||
+      (terminalEvent.type === "run.status" &&
+        terminalEvent.status === "completed");
+    const terminalThread = this.getThread(threadId);
+    const queuedWorkKnown =
+      completed &&
+      terminalThread.queuedMessages.length > 0 &&
+      !hasActiveAgentRuns(terminalThread);
+    if (queuedWorkKnown) this.scheduleQueuePromotion(threadId);
+    const persistenceError = await snapshotPersistence;
+    if (completed) {
+      const shouldRefreshProjection =
+        !this.threadLoads.has(threadId) &&
+        (this.transport.getThreadSnapshot || this.transport.getThread);
+      if (shouldRefreshProjection) {
+        try {
+          await this.loadThreadProjection(
+            threadId,
+            this.createRequestContext(),
+            true,
+          );
+        } catch (error) {
+          // History hydration reports its own failure; it cannot undo a terminal run.
+          if (this.disposed) throw error;
+        }
+      }
+      if (!queuedWorkKnown && !hasActiveAgentRuns(this.getThread(threadId))) {
+        this.scheduleQueuePromotion(threadId);
+      }
+    }
+    if (persistenceError) {
+      this.fail(persistenceError.error, "thread_snapshot_persist_failed");
     }
   }
 
@@ -2215,11 +2253,14 @@ export class AgentKitClient implements AgentKitController {
           (snapshot.tasks ?? []).map((task) => [task.id, task]),
         ),
       },
-      approvals: { ...hydrated.approvals, ...snapshotApprovals },
-      approvalRunIds: {
-        ...hydrated.approvalRunIds,
-        ...snapshotApprovalRunIds,
-      },
+      approvals:
+        snapshot.approvals === undefined
+          ? hydrated.approvals
+          : snapshotApprovals,
+      approvalRunIds:
+        snapshot.approvals === undefined
+          ? hydrated.approvalRunIds
+          : snapshotApprovalRunIds,
       connectionRequests: {
         ...hydrated.connectionRequests,
         ...snapshotConnectionRequests,
@@ -2246,8 +2287,30 @@ export class AgentKitClient implements AgentKitController {
       },
       agentInteractions: snapshot.interactions ?? hydrated.agentInteractions,
       artifacts: snapshot.artifacts ?? hydrated.artifacts,
-      suggestions: snapshot.suggestions ?? hydrated.suggestions,
+      suggestions:
+        snapshot.suggestions?.map((suggestion) => ({
+          ...suggestion,
+          runId:
+            suggestion.runId ??
+            hydrated.suggestions.find((item) => item.id === suggestion.id)
+              ?.runId,
+        })) ?? hydrated.suggestions,
     };
+    const latestUserIndex = projected.messages.findLastIndex(
+      (message) => message.role === "user",
+    );
+    const latestAssistantIndex = projected.messages.findLastIndex(
+      (message) => message.role === "assistant",
+    );
+    const latestUser = projected.messages[latestUserIndex];
+    const latestRun = selectLatestAgentRun(projected);
+    projected.suggestionsUserMessageId =
+      latestAssistantIndex > latestUserIndex ||
+      (latestUser?.createdAt &&
+        latestRun?.startedAt &&
+        latestUser.createdAt <= latestRun.startedAt)
+        ? latestUser?.id
+        : hydrated.suggestionsUserMessageId;
     return this.settleTerminalThread(projected, snapshot);
   }
 
@@ -2496,6 +2559,12 @@ export class AgentKitClient implements AgentKitController {
           ? loaded.suggestions
           : live.suggestions
         : current.suggestions,
+      suggestionsPendingTurn: current.suggestionsPendingTurn,
+      suggestionsUserMessageId:
+        snapshotIncludesRuntimeProjection("suggestions") &&
+        current.suggestions === baseline.suggestions
+          ? loaded.suggestionsUserMessageId
+          : live.suggestionsUserMessageId,
       actions: mergeRecordProjection(
         loaded.actions,
         baseline.actions,
@@ -2755,6 +2824,7 @@ export class AgentKitClient implements AgentKitController {
       );
     return {
       ...thread,
+      suggestionsUserMessageId: remap(thread.suggestionsUserMessageId),
       events,
       tools: Object.fromEntries(
         Object.entries(thread.tools).map(([id, tool]) => [
@@ -2940,6 +3010,8 @@ export class AgentKitClient implements AgentKitController {
         [runId]: { ...run, status: "running" },
       },
       activeRunIds,
+      suggestions: [],
+      suggestionsPendingTurn: false,
     });
   }
 

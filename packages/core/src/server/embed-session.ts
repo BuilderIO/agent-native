@@ -9,7 +9,6 @@ import {
   setResponseHeader,
 } from "h3";
 
-import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import {
@@ -23,6 +22,7 @@ import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { isHttpsRequest } from "./https-request.js";
 import { getRequestContext } from "./request-context.js";
 import { getForwardedRequestHostname } from "./request-origin.js";
 
@@ -1168,22 +1168,6 @@ export function verifyEmbedSessionToken(
   }
   claims.targetPath = normalizeEmbedTargetPath(claims.targetPath) ?? "/";
   return { ok: true, claims };
-}
-
-function isHttpsRequest(event: H3Event): boolean {
-  try {
-    const xfProto = getHeader(event, "x-forwarded-proto");
-    if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
-      return true;
-    }
-    const url = event.url?.toString?.() ?? "";
-    if (url.startsWith("https://")) return true;
-    const appUrl = getAppConfig().app.url ?? "";
-    if (appUrl.startsWith("https://")) return true;
-  } catch {
-    // ignore
-  }
-  return false;
 }
 
 function cookieDomainAttrs(event: H3Event): { domain?: string } {

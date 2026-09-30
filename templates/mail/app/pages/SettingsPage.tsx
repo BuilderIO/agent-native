@@ -11,7 +11,7 @@ import {
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsAppArea,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   mailSettingsRedirect,
   mailSettingsSectionFromPath,
@@ -219,7 +219,10 @@ function AliasRow({
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-[13px] font-semibold text-foreground">
+            <span
+              data-an-mask
+              className="text-[13px] font-semibold text-foreground"
+            >
               {alias.name}
             </span>
             <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
@@ -232,7 +235,10 @@ function AliasRow({
               )}
             </span>
           </div>
-          <p className="text-[12px] text-muted-foreground truncate">
+          <p
+            data-an-mask
+            className="text-[12px] text-muted-foreground truncate"
+          >
             {alias.emails.join(", ")}
           </p>
         </div>
@@ -275,7 +281,7 @@ function AliasRow({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("settings.deleteAlias")}</AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription data-an-mask>
               {t("settings.deleteAliasDescription", { name: alias.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>

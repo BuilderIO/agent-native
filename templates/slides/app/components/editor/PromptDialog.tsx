@@ -1,10 +1,10 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
   useEagerFileUploads,
-} from "@agent-native/core/client/composer";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   IconArrowLeft,
   IconBrandGoogle,
@@ -234,7 +234,6 @@ export default function PromptPopover({
     storageQuery.data?.configured === true && !storageQuery.isError;
   const inline = presentation === "inline";
   const [submitting, setSubmitting] = useState(false);
-  const [checkingProvider, setCheckingProvider] = useState(false);
   const submittingRef = useRef(false);
   const [retainingAttachments, setRetainingAttachments] = useState(false);
   const retainingAttachmentsRef = useRef(false);
@@ -574,16 +573,6 @@ export default function PromptPopover({
     ],
   );
 
-  const handleBeforeSubmit = useCallback(async () => {
-    if (!onBeforeSubmit) return true;
-    setCheckingProvider(true);
-    try {
-      return await onBeforeSubmit();
-    } finally {
-      setCheckingProvider(false);
-    }
-  }, [onBeforeSubmit]);
-
   useImperativeHandle(
     controllerRef,
     () => ({
@@ -798,10 +787,10 @@ export default function PromptPopover({
                   submitting ||
                   Boolean(importMode)
                 }
-                submitting={submitting || checkingProvider}
+                submitting={submitting}
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
-                onBeforeSubmit={handleBeforeSubmit}
+                onBeforeSubmit={onBeforeSubmit}
                 onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}

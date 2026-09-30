@@ -1,5 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import {
   type AgentChatContextItem,
   type ComposerContextMenuItem,
@@ -7,11 +9,9 @@ import {
   type PromptComposerProps,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
-import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
-import { useOrg } from "@agent-native/core/client/org";
+} from "@agent-native/toolkit/app/chat/composer/index";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
 import {
   IconApps,
@@ -95,7 +95,7 @@ const IMAGE_COMPRESSION_PASSES = [
 ];
 
 const loadPromptComposer = () =>
-  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
+  import("@agent-native/toolkit/composer").then(({ PromptComposer }) => ({
     default: PromptComposer,
   }));
 const LazyPromptComposer = lazy(loadPromptComposer);
@@ -363,7 +363,6 @@ export default function PromptPopover({
   const skipInFlightRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
-  const [checkingProvider, setCheckingProvider] = useState(false);
   const draftTextRef = useRef<string | undefined>(undefined);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [restoredPrompt, setRestoredPrompt] = useState<{
@@ -603,16 +602,6 @@ export default function PromptPopover({
     ],
   );
 
-  const handleBeforeSubmit = useCallback(async () => {
-    if (!onBeforeSubmit) return true;
-    setCheckingProvider(true);
-    try {
-      return await onBeforeSubmit();
-    } finally {
-      setCheckingProvider(false);
-    }
-  }, [onBeforeSubmit]);
-
   const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
   const anchorModeWhileOpenRef = useRef(hasLiveVirtualAnchor);
   if (open) {
@@ -665,7 +654,7 @@ export default function PromptPopover({
       maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
       disabled={disabled || loading || submitting}
       submissionDisabled={submissionDisabled}
-      submitting={submitting || checkingProvider}
+      submitting={submitting}
       layoutVariant={inline ? "hero" : undefined}
       className={inline ? "design-home-prompt-composer-area" : undefined}
       composerRef={composerRef}
@@ -674,7 +663,7 @@ export default function PromptPopover({
       modelStatusChecksEnabled={modelStatusChecksEnabled}
       placeholder={placeholder ?? t("home.describeBuild")}
       onSubmit={handleSubmit}
-      onBeforeSubmit={handleBeforeSubmit}
+      onBeforeSubmit={onBeforeSubmit}
       onTextChange={(text) => {
         draftTextRef.current = text;
       }}

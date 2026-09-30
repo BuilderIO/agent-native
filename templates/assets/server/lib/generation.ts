@@ -11,7 +11,18 @@ import {
   type ServiceProviderId,
 } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  like,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import sharp from "sharp";
 
 import type {
@@ -32,7 +43,11 @@ import {
 } from "../../shared/provider-error.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./json.js";
-import { canReadDraftAsset, type DraftReadScope } from "./library-access.js";
+import {
+  canReadDraftAsset,
+  draftReadFilter,
+  type DraftReadScope,
+} from "./library-access.js";
 import { getObject } from "./storage.js";
 
 export interface ReferenceForGeneration {
@@ -1465,6 +1480,19 @@ function isContentOnlyReferenceAsset(asset: {
   return metadata.intent === "subject";
 }
 
+type ScoredReferenceCandidate = {
+  asset: typeof schema.assets.$inferSelect;
+  metadata: {
+    category?: string;
+    isStyleAnchor?: boolean;
+    intent?: string;
+  };
+  score: number;
+  isAnchor: boolean;
+  isSubject: boolean;
+  isSource: boolean;
+};
+
 export async function selectReferences(input: {
   libraryId: string;
   collectionId?: string | null;
@@ -1557,11 +1585,6 @@ export async function selectReferences(input: {
       ),
     )
     .limit(1);
-  const rows = await db
-    .select()
-    .from(schema.assets)
-    .where(eq(schema.assets.libraryId, input.libraryId));
-
   const categories = new Set(input.categories ?? []);
   const intent = input.intent ?? "generate";
   const limit = input.limit ?? DEFAULT_GENERATION_REFERENCE_LIMIT;
@@ -1571,85 +1594,209 @@ export async function selectReferences(input: {
   const canonicalStyleAssetIds = Array.isArray(settings.canonicalStyleAssetIds)
     ? settings.canonicalStyleAssetIds.filter((id) => typeof id === "string")
     : [];
-  const candidates = rows
-    .filter((asset) => {
-      const metadata = parseJson<{ category?: string }>(asset.metadata, {});
-      return (
-        asset.mimeType.startsWith("image/") &&
-        asset.status !== "archived" &&
-        asset.status !== "failed" &&
-        metadata.category !== "skeleton" &&
-        canReadDraftAsset(input.draftScope, asset) &&
-        !excludedAssetIds.has(asset.id)
-      );
-    })
-    .map((asset) => {
-      const metadata = parseJson<{
-        category?: string;
-        isStyleAnchor?: boolean;
-        intent?: string;
-      }>(asset.metadata, {});
-      let score = 0;
-      const isSubject = asset.id === input.subjectAssetId;
-      const isSource = asset.id === input.sourceAssetId;
-      const isAnchor =
-        metadata.isStyleAnchor === true ||
-        canonicalStyleAssetIds.includes(asset.id);
-      if (isSubject) score += 120;
-      if (isSource) score += 100;
-      if (isAnchor) score += 30;
-      if (asset.collectionId && asset.collectionId === input.collectionId)
-        score += 20;
-      if (
-        metadata.category &&
-        categories.has(metadata.category as ImageCategory)
-      )
-        score += 10;
-      if (asset.role !== "generated") score += 4;
-      if (asset.role === "logo_reference") score += 3;
-      if (asset.role === "product_reference") score += 3;
-      if (intent === "restyle" && asset.role === "style_reference") score += 5;
-      if (intent === "restyle" && asset.role === "generated") score -= 4;
-      return { asset, metadata, score, isAnchor, isSubject, isSource };
-    })
-    .filter(
-      (item) =>
-        item.isSubject ||
-        item.isSource ||
-        item.isAnchor ||
-        (item.metadata.intent !== "subject" &&
-          item.asset.role !== "subject_reference"),
+  const anchorLimit =
+    intent === "restyle"
+      ? Math.min(4, Math.max(1, Math.ceil(limit * 0.6)))
+      : Math.max(1, Math.ceil(limit * 0.6));
+  const canonicalAnchorIds = [...new Set(canonicalStyleAssetIds)].slice(
+    0,
+    anchorLimit,
+  );
+  const canonicalStyleAssetIdSet = new Set(canonicalStyleAssetIds);
+  const reservedIds = [
+    ...new Set(
+      (intent === "edit"
+        ? [input.subjectAssetId]
+        : [input.subjectAssetId, input.sourceAssetId, ...canonicalAnchorIds]
+      ).filter((id): id is string => !!id),
+    ),
+  ];
+  const candidatePoolLimit = Math.max(0, limit) + 2 + anchorLimit;
+  const metadataAnchorPoolLimit = anchorLimit + canonicalAnchorIds.length;
+  const metadataCategory = sql<
+    string | null
+  >`CASE WHEN ${schema.assets.metadata} IS JSON THEN (${schema.assets.metadata}::jsonb ->> 'category') END`;
+  const metadataIntent = sql<
+    string | null
+  >`CASE WHEN ${schema.assets.metadata} IS JSON THEN (${schema.assets.metadata}::jsonb ->> 'intent') END`;
+  const metadataStyleAnchor = sql<boolean>`CASE WHEN ${schema.assets.metadata} IS JSON THEN (${schema.assets.metadata}::jsonb -> 'isStyleAnchor') = 'true'::jsonb ELSE false END`;
+  const canonicalAnchorFilter = canonicalStyleAssetIds.length
+    ? inArray(schema.assets.id, canonicalStyleAssetIds)
+    : sql<boolean>`false`;
+  const subjectFilter = input.subjectAssetId
+    ? eq(schema.assets.id, input.subjectAssetId)
+    : sql<boolean>`false`;
+  const sourceFilter = input.sourceAssetId
+    ? eq(schema.assets.id, input.sourceAssetId)
+    : sql<boolean>`false`;
+  const anchorFilter = or(metadataStyleAnchor, canonicalAnchorFilter);
+  const baseFilters = [
+    eq(schema.assets.libraryId, input.libraryId),
+    like(schema.assets.mimeType, "image/%"),
+    notInArray(schema.assets.status, ["archived", "failed"]),
+    sql`${metadataCategory} IS DISTINCT FROM 'skeleton'`,
+    ...(excludedAssetIds.size
+      ? [notInArray(schema.assets.id, [...excludedAssetIds])]
+      : []),
+  ];
+  if (!input.draftScope.unrestricted) {
+    baseFilters.push(
+      or(
+        ne(schema.assets.role, "generated"),
+        ne(schema.assets.status, "candidate"),
+        draftReadFilter(input.draftScope, schema.assets) ?? sql`false`,
+      ) ?? sql`false`,
     );
+  }
+  const contentEligibility = or(
+    and(
+      sql`${metadataIntent} IS DISTINCT FROM 'subject'`,
+      ne(schema.assets.role, "subject_reference"),
+    ),
+    subjectFilter,
+    sourceFilter,
+    anchorFilter,
+  );
+  const categoryFilter = categories.size
+    ? inArray(metadataCategory, [...categories])
+    : sql<boolean>`false`;
+  const collectionScoreFilter = input.collectionId
+    ? and(
+        ne(schema.assets.collectionId, ""),
+        eq(schema.assets.collectionId, input.collectionId),
+      )
+    : sql<boolean>`false`;
+  const scoreExpression = sql<number>`(
+    CASE WHEN ${subjectFilter} THEN 120 ELSE 0 END +
+    CASE WHEN ${sourceFilter} THEN 100 ELSE 0 END +
+    CASE WHEN ${anchorFilter} THEN 30 ELSE 0 END +
+    CASE WHEN ${collectionScoreFilter} THEN 20 ELSE 0 END +
+    CASE WHEN ${categoryFilter} THEN 10 ELSE 0 END +
+    CASE WHEN ${ne(schema.assets.role, "generated")} THEN 4 ELSE 0 END +
+    CASE WHEN ${eq(schema.assets.role, "logo_reference")} THEN 3 ELSE 0 END +
+    CASE WHEN ${eq(schema.assets.role, "product_reference")} THEN 3 ELSE 0 END +
+    CASE WHEN ${intent === "restyle" ? eq(schema.assets.role, "style_reference") : sql`false`} THEN 5 ELSE 0 END -
+    CASE WHEN ${intent === "restyle" ? eq(schema.assets.role, "generated") : sql`false`} THEN 4 ELSE 0 END
+  )`;
+  const idForStableOrdering = sql<string>`${schema.assets.id} COLLATE "C"`;
+  const orderByScore = [
+    desc(scoreExpression),
+    desc(schema.assets.createdAt),
+    asc(idForStableOrdering),
+  ];
+  const reservedRows = reservedIds.length
+    ? await db
+        .select()
+        .from(schema.assets)
+        .where(and(...baseFilters, inArray(schema.assets.id, reservedIds)))
+    : [];
+  if (intent === "edit") {
+    const [subject] = reservedRows;
+    if (
+      !subject ||
+      !subject.mimeType.startsWith("image/") ||
+      subject.status === "archived" ||
+      subject.status === "failed" ||
+      !canReadDraftAsset(input.draftScope, subject) ||
+      excludedAssetIds.has(subject.id) ||
+      parseJson<{ category?: string }>(subject.metadata, {}).category ===
+        "skeleton"
+    ) {
+      return [];
+    }
+    return loadReferenceData(
+      [subject],
+      () => "edit_target",
+      () => "subject",
+    );
+  }
+  const rankedRows = await db
+    .select()
+    .from(schema.assets)
+    .where(and(...baseFilters, contentEligibility))
+    .orderBy(...orderByScore)
+    .limit(candidatePoolLimit);
+  const metadataAnchorRows = await db
+    .select()
+    .from(schema.assets)
+    .where(and(...baseFilters, metadataStyleAnchor))
+    .orderBy(...orderByScore)
+    .limit(metadataAnchorPoolLimit);
+  const candidatesById = new Map<string, ScoredReferenceCandidate>();
+  for (const asset of [...reservedRows, ...rankedRows, ...metadataAnchorRows]) {
+    if (candidatesById.has(asset.id)) continue;
+    if (
+      !asset.mimeType.startsWith("image/") ||
+      asset.status === "archived" ||
+      asset.status === "failed" ||
+      !canReadDraftAsset(input.draftScope, asset) ||
+      excludedAssetIds.has(asset.id)
+    ) {
+      continue;
+    }
+    const metadata = parseJson<{
+      category?: string;
+      isStyleAnchor?: boolean;
+      intent?: string;
+    }>(asset.metadata, {});
+    if (metadata.category === "skeleton") continue;
 
-  const byId = new Map(candidates.map((item) => [item.asset.id, item]));
-  const selected: typeof candidates = [];
+    const isSubject = asset.id === input.subjectAssetId;
+    const isSource = asset.id === input.sourceAssetId;
+    const isCanonicalAnchor = canonicalStyleAssetIdSet.has(asset.id);
+    const isAnchor = metadata.isStyleAnchor === true || isCanonicalAnchor;
+    if (
+      !isSubject &&
+      !isSource &&
+      !isAnchor &&
+      (metadata.intent === "subject" || asset.role === "subject_reference")
+    ) {
+      continue;
+    }
+    let score = 0;
+    if (isSubject) score += 120;
+    if (isSource) score += 100;
+    if (isAnchor) score += 30;
+    if (asset.collectionId && asset.collectionId === input.collectionId)
+      score += 20;
+    if (metadata.category && categories.has(metadata.category as ImageCategory))
+      score += 10;
+    if (asset.role !== "generated") score += 4;
+    if (asset.role === "logo_reference") score += 3;
+    if (asset.role === "product_reference") score += 3;
+    if (intent === "restyle" && asset.role === "style_reference") score += 5;
+    if (intent === "restyle" && asset.role === "generated") score -= 4;
+    candidatesById.set(asset.id, {
+      asset,
+      metadata,
+      score,
+      isAnchor,
+      isSubject,
+      isSource,
+    });
+  }
+  const candidates = [...candidatesById.values()];
+  const metadataAnchorCandidates = metadataAnchorRows
+    .map((asset) => candidatesById.get(asset.id))
+    .filter(
+      (candidate): candidate is ScoredReferenceCandidate =>
+        candidate?.metadata.isStyleAnchor === true,
+    );
+  const byId = candidatesById;
+  const selected: ScoredReferenceCandidate[] = [];
   const selectedIds = new Set<string>();
-  const push = (item: (typeof candidates)[number] | undefined) => {
+  const push = (item: ScoredReferenceCandidate | undefined) => {
     if (!item || selectedIds.has(item.asset.id)) return;
     selected.push(item);
     selectedIds.add(item.asset.id);
   };
 
   push(input.subjectAssetId ? byId.get(input.subjectAssetId) : undefined);
-  if (intent === "edit") {
-    return loadReferenceData(
-      selected.map((item) => item.asset),
-      () => "edit_target",
-      () => "subject",
-    );
-  }
   push(input.sourceAssetId ? byId.get(input.sourceAssetId) : undefined);
 
-  const anchorLimit =
-    intent === "restyle"
-      ? Math.min(4, Math.max(1, Math.ceil(limit * 0.6)))
-      : Math.max(1, Math.ceil(limit * 0.6));
   const anchorIds = [
-    ...canonicalStyleAssetIds,
-    ...candidates
-      .filter((item) => item.metadata.isStyleAnchor === true)
-      .sort(compareReferenceCandidates)
-      .map((item) => item.asset.id),
+    ...canonicalAnchorIds,
+    ...metadataAnchorCandidates.map((item) => item.asset.id),
   ];
   for (const id of [...new Set(anchorIds)].slice(0, anchorLimit)) {
     push(byId.get(id));
@@ -1658,7 +1805,6 @@ export async function selectReferences(input: {
   const remainingLimit = Math.max(0, limit - selected.length);
   const fill = candidates
     .filter((item) => !selectedIds.has(item.asset.id))
-    .sort(compareReferenceCandidates)
     .slice(0, remainingLimit);
   for (const item of fill) push(item);
 

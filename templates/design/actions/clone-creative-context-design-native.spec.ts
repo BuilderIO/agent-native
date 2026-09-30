@@ -90,4 +90,38 @@ describe("clone-creative-context-design-native", () => {
     });
     expect(result).not.toHaveProperty("cloneHandle");
   });
+
+  it("rejects malformed tweak definitions before creating the clone", async () => {
+    const invalidPayload = JSON.stringify({
+      designId: "design-1",
+      designData: JSON.stringify({ tweaks: [{}, {}, {}] }),
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><div>Exact design</div>",
+        },
+      ],
+    });
+    mocks.readPrivateBlob.mockResolvedValueOnce({
+      data: Buffer.from(invalidPayload),
+      metadata: {
+        appId: "design",
+        resourceType: "design",
+        resourceId: "design-1",
+        contentHash: createHash("sha256").update(invalidPayload).digest("hex"),
+      },
+    });
+
+    await expect(
+      action.run({
+        contextId: "context-1",
+        artifactKey: "design:design:design-1",
+        resourceId: "design-1",
+      }),
+    ).rejects.toThrow(
+      "Governed design clone payload has invalid tweak definitions.",
+    );
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+  });
 });

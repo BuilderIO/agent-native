@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Intégrations" } },
   creativeContext: {
     title: "Bibliothèque",
     description:
@@ -187,8 +188,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "Vérification de la connexion à l’IA…",
-      providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+      providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
     },
     common: { retry: "Réessayer" },
   },
@@ -1439,6 +1439,8 @@ export default {
         "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
       reactSourceAnchorsUnavailable:
         "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
+      sourceLocationSnapshotFailed:
+        "Impossible de vérifier les emplacements du code source de cet aperçu.",
       screenSourceUpdated: "Source de l’écran mise à jour",
       screenSourceUpdateFailed:
         "Impossible de mettre à jour la source de l’écran",
@@ -1503,7 +1505,7 @@ export default {
         "Choisissez Autoriser dans l’invite de Chrome pour activer la modification en direct.",
       permissionPromptNoPrompt: "Aucune invite Chrome ?",
       permissionPromptSettingsInstructions:
-        "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis autorisez l’accès aux applications sur votre appareil.",
+        "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
       permissionPromptRetry: "Réessayer la connexion",
     },
   },
@@ -1695,7 +1697,7 @@ export default {
     staleAnchorDetail: "L’élément d’origine est introuvable sur le canevas.",
   },
   homeContext: {
-    websiteReference: "Joindre un site web",
+    websiteReference: "Ajouter un site web",
     websiteUrlLabel: "URL du site web",
     websiteUrl: "Collez l’URL d’un site web",
     figmaUrlLabel: "Lien Figma",
@@ -1724,7 +1726,7 @@ export default {
     design: "Design",
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
-    figmaReference: "Joindre Figma",
+    figmaReference: "Ajouter Figma",
     referenceDeck: "Utiliser une présentation comme référence",
     quickSaas: "Créer une page SaaS",
     quickDashboard: "Créer un tableau de bord",

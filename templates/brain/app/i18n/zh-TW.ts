@@ -120,9 +120,6 @@ const messages = {
       company: "Company",
     },
     connectorPollInterval: "連線器輪詢間隔",
-    requireApproval: "需要公司知識的核准",
-    requireApprovalDescription:
-      "在發布之前對全公司範圍內的知識候選項進行排隊以供人工審核。",
     autoArchiveResolved: "自動存檔已解決的審閱專案",
     autoArchiveResolvedDescription:
       "從活動審核通道中刪除核准或拒絕的佇列專案。",
@@ -416,8 +413,6 @@ const messages = {
       "新來源會收到一次性攝取權杖。現有來源保留其權杖，除非單獨輪換。",
     autoSync: "自動同步",
     autoSyncDescription: "背景輪詢在到期時使用此來源",
-    reviewRequired: "需要審核",
-    reviewRequiredDescription: "在核准之前對擷取的知識進行排隊",
     cancel: "取消",
     saveSource: "儲存來源",
     createSource: "建立來源",
@@ -658,7 +653,7 @@ const messages = {
     notApplicable: "不適用",
     emptyTitle: "還沒有公司知識",
     emptyFilteredDetail: "清除搜尋或篩選器以擴大知識範圍。",
-    emptyDetail: "連線來源或核准審核提案來建立公司知識。",
+    emptyDetail: "連線來源來建立公司知識。",
     updateFailedTitle: "公司脈絡更新失敗",
     updateFailedDetail: "Brain 無法更新工作區脈絡資源。",
     waitingOnSearch: "等待 search-knowledge",

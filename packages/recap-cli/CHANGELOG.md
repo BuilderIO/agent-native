@@ -1,5 +1,30 @@
 # @agent-native/recap-cli
 
+## 0.5.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.50
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.49
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 82ad87c: Keep Playwright optional and use a distinct `agent-native-recap` executable name so Core can include the recap commands without replacing its `agent-native` CLI.
+
 ## 0.5.48
 
 ### Patch Changes

@@ -1,17 +1,17 @@
 import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useDbSync } from "@agent-native/core/client/hooks";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
+  useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   CommandMenu,
   useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
-import { getThemeInitScript } from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import { PLAN_KIND_ROUTE_SEGMENT } from "@shared/plan-routes";
 import {
   IconHierarchy2,
@@ -262,4 +262,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

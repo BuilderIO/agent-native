@@ -1,12 +1,14 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import {
   AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
-import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+} from "@agent-native/toolkit/app/settings";
 
 import { APP_TITLE } from "@/lib/app-config";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
   return [{ title: `Settings - ${APP_TITLE}` }];
@@ -22,6 +24,7 @@ export default function SettingsRoute() {
     <SettingsTabsPage
       account={<AccountSettingsCard />}
       extraTabs={agentSettingsTabs}
+      whatsNewMarkdown={changelog}
     />
   );
 }

@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "التكاملات" } },
   creativeContext: {
     title: "المكتبة",
     description: "سياق إبداعي قابل لإعادة الاستخدام يحافظ على الاتساق بين الأعمال.",
@@ -182,8 +183,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
-      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
     common: { retry: "إعادة المحاولة" },
   },
@@ -1395,6 +1395,8 @@ export default {
         "تعذر تحديد موقع هذه الطبقة في المصدر. أعد المحاولة بعد اكتمال تحميل التطبيق، أو اطلب من الوكيل إجراء هذا التغيير.",
       reactSourceAnchorsUnavailable:
         "لا يوفّر هذا التطبيق مواقع المصدر للمحرر، لذا لا يمكن ربط هذه الطبقة بسطر معيّن. اطلب من الوكيل إجراء هذا التغيير.",
+      sourceLocationSnapshotFailed:
+        "تعذر التحقق من مواضع المصدر لهذه المعاينة.",
       screenSourceUpdated: "تم تحديث مصدر الشاشة",
       screenSourceUpdateFailed: "تعذر تحديث مصدر الشاشة",
       vectorEditUnsupported: "تحرير المتجهات غير متاح لهذا الشكل أو التحويل.",
@@ -1456,7 +1458,7 @@ export default {
         "اختر «السماح» في مطالبة Chrome لتفعيل التحرير المباشر.",
       permissionPromptNoPrompt: "لم تظهر مطالبة Chrome؟",
       permissionPromptSettingsInstructions:
-        "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اسمح بالوصول إلى التطبيقات على جهازك.",
+        "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الشبكة المحلية على «السماح».",
       permissionPromptRetry: "إعادة محاولة الاتصال",
     },
   },
@@ -1642,7 +1644,7 @@ export default {
     staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
   },
   homeContext: {
-    websiteReference: "إرفاق موقع ويب",
+    websiteReference: "إضافة موقع ويب",
     websiteUrlLabel: "عنوان URL لموقع الويب",
     websiteUrl: "الصق عنوان URL لموقع ويب",
     figmaUrlLabel: "رابط Figma",
@@ -1670,7 +1672,7 @@ export default {
     design: "التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
-    figmaReference: "إرفاق Figma",
+    figmaReference: "إضافة Figma",
     referenceDeck: "استخدام عرض تقديمي كمرجع",
     quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
     quickDashboard: "إنشاء لوحة معلومات",

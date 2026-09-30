@@ -12,7 +12,7 @@ Read the matching skill in `.agents/skills/` before working in that area.
 | --- | --- |
 | `workspace-conventions` | Shared vs app-owned code, file/blob storage, env and secrets, scratch files, Dispatch Resources |
 | `adding-a-feature` | Adding a cross-cutting feature or capability |
-| `agent-native-docs` | Looking up version-matched framework docs, slugs, or the bundled source corpus |
+| `agent-native-docs` | Looking up version-matched framework docs, slugs, or the optional source corpus |
 | `agent-native-toolkit` | Building workspace or agent UI, app chrome, settings, sharing, or collaboration |
 | `customizing-agent-native` | Adapting, overriding, or ejecting shared framework UI |
 | `delegate-to-agent` | Building agent-driven UI or any "AI" feature |
@@ -84,20 +84,19 @@ agent should know.
 
 ## Framework Docs
 
-Version-matched Agent-Native docs and a source-only corpus of core and
-first-party template patterns ship with `@agent-native/core`. From an app
-directory, use `pnpm action docs-search --query "<topic>"` and
-`pnpm action source-search --query "<pattern>"`. Read `workspace-conventions`
-for slugs, the `--list` / `--slug` / `--path` options, and the `rg` fallback.
-Use package docs for framework APIs, the corpus for reusable patterns, and this
-file plus `.agents/skills/` for workspace-specific conventions.
+Core ships version-matched docs; optional `@agent-native/core-corpus` adds
+template source to `source-search`. From an app directory, use `pnpm action
+docs-search --query "<topic>"` or `pnpm action source-search --query
+"<pattern>"`. See `workspace-conventions` for slugs, flags, and the `rg`
+fallback. Use package docs for APIs and this file plus `.agents/skills/` for
+workspace conventions.
 
 ## Actions
 
 | Action | Purpose |
 | --- | --- |
 | `docs-search` | Search version-matched framework docs by query or slug, or list |
-| `source-search` | Search the bundled core/template source corpus by pattern or path |
+| `source-search` | Search Core/Toolkit sources and optional template corpus by pattern or path |
 
 - For external integrations, check the provider connection catalog first; reuse
   its scoped resolver before app-local vault/OAuth/settings. Custom UI is for

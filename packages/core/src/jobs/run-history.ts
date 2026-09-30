@@ -594,7 +594,7 @@ export async function processPendingAutomationFailureAlerts(options?: {
                   (failure_alert_provider IS NULL OR
                   (failure_alert_provider = 'resend' AND
                     (failure_alert_first_attempt_at IS NULL OR failure_alert_first_attempt_at > ?)))
-                THEN ? ELSE NULL END,
+                THEN ?::bigint ELSE NULL END,
               failure_alert_claimed_at = NULL
           WHERE failure_alert_state = 'sending' AND failure_alert_claimed_at <= ?`,
     args: [

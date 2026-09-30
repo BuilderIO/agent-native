@@ -29,6 +29,13 @@ const tauriEvents = vi.hoisted(() => {
   };
 });
 const tauriCore = vi.hoisted(() => ({ invoke: vi.fn(async () => undefined) }));
+const tauriWindow = vi.hoisted(() => ({
+  close: vi.fn(async () => undefined),
+  outerPosition: vi.fn(async () => ({ x: 0, y: 0 })),
+  outerSize: vi.fn(async () => ({ width: 150, height: 42 })),
+  scaleFactor: vi.fn(async () => 1),
+}));
+const copy = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/event", () => ({
   emit: tauriEvents.emit,
   listen: tauriEvents.listen,
@@ -38,13 +45,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   currentMonitor: vi.fn(async () => null),
-  getCurrentWindow: vi.fn(() => ({
-    close: vi.fn(async () => undefined),
-    outerPosition: vi.fn(async () => ({ x: 0, y: 0 })),
-    outerSize: vi.fn(async () => ({ width: 150, height: 42 })),
-    scaleFactor: vi.fn(async () => 1),
-  })),
+  getCurrentWindow: vi.fn(() => tauriWindow),
 }));
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: copy }));
 
 vi.mock("../../../shared/recording-playhead", () => ({
   RecordingPlayhead: ({
@@ -74,7 +77,6 @@ vi.mock("../components/live-waveform", () => ({ LiveWaveform: () => null }));
 describe("completion card actions", () => {
   let host: HTMLDivElement;
   let root: Root;
-  const copy = vi.fn();
   const url = "https://example.test/r/example-clip";
 
   beforeEach(async () => {
@@ -84,6 +86,7 @@ describe("completion card actions", () => {
     tauriEvents.emit.mockClear();
     tauriEvents.listen.mockClear();
     tauriCore.invoke.mockClear();
+    tauriWindow.close.mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const stored = new Map<string, string>();
     const storage = {
@@ -183,7 +186,7 @@ describe("completion card actions", () => {
   );
 
   it.each(["Copy", "url", "icon"])(
-    "dismisses after successful copying through %s",
+    "shows copied feedback before dismissing after copying through %s",
     async (target) => {
       await showCard();
       const control =
@@ -196,6 +199,11 @@ describe("completion card actions", () => {
               )[1];
       await act(async () => control.click());
       expect(copy).toHaveBeenCalledExactlyOnceWith(url);
+      expect(button("Copied").disabled).toBe(true);
+      expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+      await act(async () => vi.advanceTimersByTimeAsync(999));
+      expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+      await act(async () => vi.advanceTimersByTimeAsync(1));
       expect(host.querySelector('[aria-label="Dismiss"]')).toBeNull();
     },
   );
@@ -234,6 +242,9 @@ describe("completion card actions", () => {
     expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
     expect(button("Copy").disabled).toBe(true);
     await act(async () => finish());
+    expect(button("Copied").disabled).toBe(true);
+    expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
     expect(host.querySelector('[aria-label="Dismiss"]')).toBeNull();
   });
 
@@ -311,6 +322,36 @@ describe("completion card actions", () => {
       tauriEvents.emit("clips:tray-stop-request", undefined),
     );
     expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover", undefined);
+  });
+
+  it("keeps a new toolbar open if it starts during copied feedback", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    await act(async () => button("Stop recording").click());
+    await act(async () =>
+      tauriEvents.emit("clips:native-upload-finished", {
+        recordingId: "example-clip",
+        ok: true,
+        viewUrl: url,
+      }),
+    );
+
+    await act(async () => button("Copy").click());
+    expect(button("Copied").disabled).toBe(true);
+
+    await act(async () => tauriEvents.emit("clips:toolbar-preparing", {}));
+    await act(async () => tauriEvents.emit("clips:toolbar-enabled", true));
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+    expect(button("Stop recording")).toBeDefined();
+    expect(tauriWindow.close).not.toHaveBeenCalled();
   });
 
   it("still dispatches manual stop when the finishing hold fails", async () => {

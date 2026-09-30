@@ -31,14 +31,18 @@ const api = vi.hoisted(() => ({
   toastError: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: (...args: unknown[]) => api.callAction(...args),
   useActionQuery: () => ({
     data: { requests: api.requests },
     refetch: api.refetch,
   }),
 }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   startBackgroundAgentSession: (...args: unknown[]) =>
     api.startBackgroundAgentSession(...args),
   getBackgroundAgentSessionStatus: (...args: unknown[]) =>

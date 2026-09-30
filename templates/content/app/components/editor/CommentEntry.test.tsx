@@ -22,14 +22,15 @@ vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ isPending: false, mutateAsync }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
   useFormatters: () => ({ formatDate: () => "Sep 10" }),
 }));
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => <>{content}</>,
 }));
 vi.mock("@/components/ui/dropdown-menu", () => ({

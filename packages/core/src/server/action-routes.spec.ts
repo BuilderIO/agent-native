@@ -3277,7 +3277,7 @@ describe("mountActionRoutes", () => {
 });
 
 describe("mountWebMcpActionRoutes", () => {
-  it("mounts MCP-only actions without exposing them to the in-app agent", async () => {
+  it("mounts MCP-only actions on the external MCP route", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const run = vi.fn(async () => ({ acknowledged: true }));

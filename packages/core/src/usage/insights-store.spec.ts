@@ -103,7 +103,7 @@ beforeAll(async () => {
     label TEXT NOT NULL DEFAULT 'chat', app TEXT NOT NULL DEFAULT '', org_id TEXT,
     run_id TEXT, thread_id TEXT, task_id TEXT, created_at BIGINT NOT NULL)`);
   await pglite.exec(
-    `CREATE TABLE chat_threads (id TEXT PRIMARY KEY, preview TEXT, thread_data TEXT)`,
+    `CREATE TABLE chat_threads (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, preview TEXT, thread_data TEXT)`,
   );
   await pglite.exec(`CREATE TABLE org_members (org_id TEXT NOT NULL,
     email TEXT NOT NULL, role TEXT NOT NULL, federation_removal_pending_at BIGINT)`);
@@ -473,8 +473,8 @@ describe("getUsageInsights", () => {
   });
 
   it("labels each run with its own prompt and reply, without the hidden context block", async () => {
-    await pglite.exec(`INSERT INTO chat_threads (id, preview, thread_data) VALUES (
-      'thread-1', 'first prompt', '${JSON.stringify({
+    await pglite.exec(`INSERT INTO chat_threads (id, owner_email, preview, thread_data) VALUES (
+      'thread-1', '${OWNER}', 'first prompt', '${JSON.stringify({
         messages: [
           { message: { role: "user", content: "first prompt" } },
           {
@@ -529,5 +529,36 @@ describe("getUsageInsights", () => {
     expect(prompts["run-a"]).toBe("first prompt");
     expect(prompts["run-b"]).toBe("second prompt");
     expect((await getUsageRun({ runId: "run-b" }, ACCESS))!.reply).toBe("done");
+  });
+
+  it("does not read a prompt from a thread someone else owns", async () => {
+    await pglite.exec(`INSERT INTO chat_threads (id, owner_email, preview, thread_data) VALUES (
+      'thread-other', 'someone@else.example', 'secret', '${JSON.stringify({
+        messages: [
+          { message: { role: "user", content: "secret prompt" } },
+          {
+            message: {
+              role: "assistant",
+              content: "secret reply",
+              metadata: { custom: { turnId: "turn-x" } },
+            },
+          },
+        ],
+      })}')`);
+    await seedUsage({
+      id: 44,
+      runId: "run-other-thread",
+      threadId: "thread-other",
+      taskId: "turn-x",
+      input: 10,
+      output: 1,
+      read: 0,
+      write: 0,
+    });
+
+    const run = await getUsageRun({ runId: "run-other-thread" }, ACCESS);
+
+    expect(run!.prompt).toBeNull();
+    expect(run!.reply).toBeNull();
   });
 });

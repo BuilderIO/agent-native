@@ -8,7 +8,7 @@ import {
   SettingsRow,
   type ApiKeysListing,
   type KeyValueDialogMode,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";

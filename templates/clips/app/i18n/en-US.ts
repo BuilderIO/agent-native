@@ -2,8 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   agentChat: {
     setup: {
-      checkingProvider: "Checking AI connection…",
-      providerStatusUnavailable: "Couldn't check AI connection.",
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
     common: { retry: "Retry" },
   },

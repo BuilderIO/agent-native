@@ -3,10 +3,30 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-29
+
+### Improved
+
+- Expand the Analytics chat header across the conversation view
+- Analytics date filters support custom date ranges
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Adding panels now saves without a layout width error.
+- Analytics accepts valid field names that contain SQL keywords and digits
+- Analytics date filters support custom date ranges across dashboards.
+- The Analytics sidebar shows a single divider above Send feedback.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
 ## 2026-09-28
 
 ### Improved
 
+- Analytics starts faster on hosted serverless deployments.
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- The chat sidebar matches the app navigation color, with tighter composer spacing.
 - Ask Analytics now starts with a focused title.
 
 ## 2026-09-27

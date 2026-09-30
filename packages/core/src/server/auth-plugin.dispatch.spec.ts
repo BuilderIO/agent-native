@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  authSessionHandler: vi.fn(),
   autoMountAuth: vi.fn(),
   getSession: vi.fn(),
   runBetterAuthMigrations: vi.fn(),
 }));
 
 vi.mock("./auth.js", () => ({
+  authSessionHandler: mocks.authSessionHandler,
   autoMountAuth: mocks.autoMountAuth,
   getSession: mocks.getSession,
 }));
@@ -54,6 +56,7 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
   it("holds a request to /_agent-native/auth/session until Better Auth mounts, then dispatches to the registered handler", async () => {
     const nitroApp = createNitroApp();
     mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.authSessionHandler.mockResolvedValue({ ok: true });
     mocks.getSession.mockResolvedValue({ ok: true });
     let resolveMount!: () => void;
     mocks.autoMountAuth.mockImplementation(async (app: any) => {
@@ -83,6 +86,7 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
 
     await expect(pending).resolves.toEqual({ ok: true });
     expect(settled).toBe(true);
+    expect(mocks.authSessionHandler).toHaveBeenCalledOnce();
   });
 
   it("holds a request to a BYOA session route the same way", async () => {
@@ -136,7 +140,10 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
   it("marks the early session response no-store", async () => {
     const nitroApp = createNitroApp();
     mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
-    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.authSessionHandler.mockImplementation(async (event: any) => {
+      event.res.headers.set("Cache-Control", "no-store");
+      return { email: "owner@example.com" };
+    });
     mocks.autoMountAuth.mockImplementation(async (app: any) => {
       app.use("/_agent-native/auth/session", () => ({ ok: true }));
       return true;
@@ -150,5 +157,6 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
     );
     expect(result).toEqual({ email: "owner@example.com" });
     expect(event.res.headers.get("Cache-Control")).toBe("no-store");
+    expect(mocks.authSessionHandler).toHaveBeenCalledOnce();
   });
 });

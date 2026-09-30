@@ -1054,19 +1054,25 @@ export async function loadRunExchanges(
     string,
     { prompt: string | null; reply: string | null }
   >();
-  const threadIds = [
-    ...new Set(
+  const threadRefs = [
+    ...new Map(
       rows
-        .map((row) => nullableStringField(row, "thread_id"))
-        .filter((value): value is string => Boolean(value)),
-    ),
+        .map((row) => ({
+          id: nullableStringField(row, "thread_id"),
+          ownerEmail: nullableStringField(row, "owner_email"),
+        }))
+        .filter((ref): ref is { id: string; ownerEmail: string } =>
+          Boolean(ref.id && ref.ownerEmail),
+        )
+        .map((ref) => [JSON.stringify([ref.id, ref.ownerEmail]), ref] as const),
+    ).values(),
   ];
-  if (threadIds.length === 0) return exchanges;
+  if (threadRefs.length === 0) return exchanges;
   let threadRows: ThreadPromptRow[] = [];
   try {
     const result = await getDbExec().execute({
-      sql: `SELECT id, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
-      args: threadIds,
+      sql: `SELECT id, thread_data FROM chat_threads WHERE ${threadRefs.map(() => "(id = ? AND LOWER(owner_email) = LOWER(?))").join(" OR ")}`,
+      args: threadRefs.flatMap((ref) => [ref.id, ref.ownerEmail]),
     });
     threadRows = result.rows as ThreadPromptRow[];
   } catch {

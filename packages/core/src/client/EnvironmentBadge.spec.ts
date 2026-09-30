@@ -9,7 +9,7 @@ import {
   isBuilderIoEmployee,
   resolveEnvironmentChannel,
   resolveEnvironmentTargets,
-} from "./EnvironmentBadge.js";
+} from "../../../toolkit/src/app/shared/EnvironmentBadge.js";
 
 describe("EnvironmentBadge", () => {
   it("recognizes first-party beta and production hosts", () => {
