@@ -4200,7 +4200,7 @@ export function AgentKitChat({
       !thread.messages.some(
         (message) =>
           message.role === "assistant" &&
-          message.status === "streaming" &&
+          (message.status === "streaming" || message.status === "complete") &&
           messageRunIds.get(message.id) === runId &&
           message.parts.some(
             (part) => part.type === "text" && part.text.trim().length > 0,

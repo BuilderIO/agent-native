@@ -1066,6 +1066,60 @@ describe("AgentChat lifecycle", () => {
     expect(
       tree.container.querySelectorAll(".agentkit-activities"),
     ).toHaveLength(1);
+
+    await tree.unmount();
+  });
+
+  it("does not show Thinking after completed output before its run finishes", async () => {
+    const threadId = "thread-completed-output-before-run";
+    const runId = "run-completed-output-before-run";
+    const response = {
+      id: "assistant-response",
+      role: "assistant" as const,
+      status: "complete" as const,
+      parts: [{ type: "text" as const, text: "Here is the result." }],
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [response],
+      events: [
+        {
+          id: "event-response-completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-30T00:00:01.000Z",
+          type: "message.completed" as const,
+          message: response,
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 1,
+          startedAt: "2026-09-30T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    expect(tree.container.textContent).toContain("Here is the result.");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
     await tree.unmount();
   });
 
