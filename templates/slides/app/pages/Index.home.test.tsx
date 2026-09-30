@@ -1797,6 +1797,37 @@ describe("Slides prompt-led home", () => {
       engine: "builder",
       effort: "high" as const,
     };
+    const composerContext = {
+      designSystemId: "design-system-from-composer",
+      references: [
+        {
+          source: "website" as const,
+          id: "https://example.com/reference",
+          title: "Reference site",
+          url: "https://example.com/reference",
+        },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "system:design-system-from-composer",
+        title: "Design system",
+        context: "Use these design tokens",
+        status: "ready" as const,
+      },
+      {
+        key: "website:https://example.com/reference:",
+        title: "Reference site",
+        context: "Reference styling",
+        status: "ready" as const,
+      },
+    ];
+    const referenceSelection = {
+      designSystemId: composerContext.designSystemId,
+      referenceDeckId: null,
+      composerContext,
+      contextItems,
+    };
     act(() => {
       const props = promptProps.mock.lastCall![0] as ComponentProps<
         typeof PromptPopover
@@ -1807,7 +1838,11 @@ describe("Slides prompt-led home", () => {
           [],
           "Reference context",
           [],
-          modelSelection,
+          {
+            ...modelSelection,
+            slidesContext: composerContext,
+            contextItems,
+          },
         ),
       ).toBe(false);
     });
@@ -1817,8 +1852,17 @@ describe("Slides prompt-led home", () => {
     expect(sessionStorage.getItem("slides:pending-deck-prompt")).toBe(
       "My saved outline",
     );
+    expect(
+      JSON.parse(
+        sessionStorage.getItem("slides:pending-deck-reference-selection") ??
+          "null",
+      ),
+    ).toEqual(referenceSelection);
     fireEvent.click(screen.getByRole("button", { name: "home.cancel" }));
     await screen.findByRole("textbox", { name: "Presentation prompt" });
+    expect(contextOptions.mock.lastCall?.[0]).toMatchObject({
+      initialSelection: composerContext,
+    });
     expect(promptProps.mock.lastCall![0].initialModelSelection).toEqual(
       modelSelection,
     );
@@ -1872,6 +1916,30 @@ describe("Slides prompt-led home", () => {
       engine: "builder",
       effort: "high",
     };
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        {
+          source: "slides" as const,
+          id: "reference-deck",
+          title: "Reference deck",
+        },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "slides:reference-deck:",
+        title: "Reference deck",
+        context: "Reference deck style",
+        status: "ready" as const,
+      },
+    ];
+    const referenceSelection = {
+      designSystemId: null,
+      referenceDeckId: null,
+      composerContext,
+      contextItems,
+    };
     sessionStorage.setItem(
       "slides:pending-deck-prompt",
       "Continue after sign-in",
@@ -1883,6 +1951,10 @@ describe("Slides prompt-led home", () => {
     sessionStorage.setItem(
       "slides:pending-deck-model-selection",
       JSON.stringify(modelSelection),
+    );
+    sessionStorage.setItem(
+      "slides:pending-deck-reference-selection",
+      JSON.stringify(referenceSelection),
     );
     signedIn.value = true;
     home.rerenderHome();
@@ -1901,6 +1973,12 @@ describe("Slides prompt-led home", () => {
       modelSelection,
     );
     expect(sessionStorage.getItem("slides:pending-deck-prompt")).toBeNull();
+    expect(
+      sessionStorage.getItem("slides:pending-deck-reference-selection"),
+    ).toBeNull();
+    expect(contextOptions.mock.lastCall?.[0]).toMatchObject({
+      initialSelection: composerContext,
+    });
     await act(async () => {
       await promptProps.mock.lastCall![0].onSubmit(
         "Continue after sign-in",
@@ -1915,13 +1993,28 @@ describe("Slides prompt-led home", () => {
           model: modelSelection.model,
           engine: modelSelection.engine,
           effort: modelSelection.effort,
-          slidesContext: { designSystemId: null, references: [] },
-          contextItems: [],
+          slidesContext: composerContext,
+          contextItems,
         },
       );
     });
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     expect(referenceProps.mock.lastCall![0].open).toBe(false);
     expect(createDeck).toHaveBeenCalledOnce();
+    expect(callAction).toHaveBeenCalledWith(
+      "patch-deck",
+      expect.objectContaining({
+        operations: [
+          expect.objectContaining({
+            fields: {
+              generationContext: expect.objectContaining({
+                composerContext,
+                contextItems,
+              }),
+            },
+          }),
+        ],
+      }),
+    );
   });
 });

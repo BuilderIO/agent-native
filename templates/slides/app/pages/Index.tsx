@@ -61,6 +61,7 @@ import {
   useSearchParams,
 } from "react-router";
 import { toast } from "sonner";
+import { z } from "zod";
 
 import DeckCard from "@/components/deck/DeckCard";
 import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
@@ -111,6 +112,7 @@ import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import {
   formatSlidesComposerContext,
   readSlidesComposerContext,
+  slidesComposerContextSchema,
   type SlidesComposerContext,
   type SlidesPromptSubmitOptions,
 } from "@/lib/composer-context";
@@ -192,6 +194,8 @@ const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
 const PENDING_PROMPT_MODEL_SELECTION_KEY =
   "slides:pending-deck-model-selection";
+const PENDING_PROMPT_REFERENCE_SELECTION_KEY =
+  "slides:pending-deck-reference-selection";
 
 function readStoredHomeLibraryTab(): PromptHomeLibraryTab | undefined {
   try {
@@ -256,6 +260,39 @@ type StoredModelSelectionResult =
   | { state: "unreadable" }
   | { state: "available"; selection: DeckModelSelection };
 
+type StoredReferenceSelectionResult =
+  | { state: "absent" }
+  | { state: "unreadable" }
+  | { state: "available"; selection: NewDeckReferenceSelection };
+
+const storedReferenceSelectionSchema = z.object({
+  composerContext: slidesComposerContextSchema.optional(),
+  contextItems: z
+    .array(
+      z.object({
+        key: z.string(),
+        title: z.string(),
+        context: z.string(),
+        status: z.enum(["ready", "pending", "error"]).optional(),
+        statusMessage: z.string().optional(),
+        removable: z.boolean().optional(),
+        blocksSubmission: z.boolean().optional(),
+      }),
+    )
+    .optional(),
+  designSystemId: z.string().nullable().optional(),
+  referenceDeckId: z.string().nullable().optional(),
+  referenceFilePaths: z.array(z.string()).optional(),
+  importedReferenceFilePath: z.string().optional(),
+  referenceSource: z
+    .object({
+      kind: z.enum(["google-docs", "website", "figma"]),
+      value: z.string(),
+    })
+    .nullable()
+    .optional(),
+});
+
 function readStoredModelSelection(): StoredModelSelectionResult {
   try {
     const raw = sessionStorage.getItem(PENDING_PROMPT_MODEL_SELECTION_KEY);
@@ -300,11 +337,27 @@ function readStoredModelSelection(): StoredModelSelectionResult {
   }
 }
 
+function readStoredReferenceSelection(): StoredReferenceSelectionResult {
+  try {
+    const raw = sessionStorage.getItem(PENDING_PROMPT_REFERENCE_SELECTION_KEY);
+    if (raw === null) return { state: "absent" };
+    const parsed = storedReferenceSelectionSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success) return { state: "unreadable" };
+    return {
+      state: "available",
+      selection: parsed.data,
+    };
+  } catch {
+    return { state: "unreadable" };
+  }
+}
+
 function savePromptForRetry(
   prompt: string,
   options: {
     context?: string;
     modelSelection?: DeckModelSelection;
+    referenceSelection?: NewDeckReferenceSelection;
     persistAcrossSignIn?: boolean;
   } = {},
 ) {
@@ -325,6 +378,14 @@ function savePromptForRetry(
       } else {
         sessionStorage.removeItem(PENDING_PROMPT_MODEL_SELECTION_KEY);
       }
+      if (options.referenceSelection) {
+        sessionStorage.setItem(
+          PENDING_PROMPT_REFERENCE_SELECTION_KEY,
+          JSON.stringify(options.referenceSelection),
+        );
+      } else {
+        sessionStorage.removeItem(PENDING_PROMPT_REFERENCE_SELECTION_KEY);
+      }
       signInHandoffSaved = true;
     } catch {}
   }
@@ -337,6 +398,7 @@ function clearPendingPromptForRetry() {
     sessionStorage.removeItem(PENDING_PROMPT_KEY);
     sessionStorage.removeItem(PENDING_PROMPT_CONTEXT_KEY);
     sessionStorage.removeItem(PENDING_PROMPT_MODEL_SELECTION_KEY);
+    sessionStorage.removeItem(PENDING_PROMPT_REFERENCE_SELECTION_KEY);
   } catch {}
 }
 
@@ -649,7 +711,8 @@ export default function Index({ active = true }: { active?: boolean }) {
   const composerContext = useSlidesComposerContext({
     active,
     initialSelection:
-      generationRetryState?.retryReferenceSelection?.composerContext,
+      generationRetryState?.retryReferenceSelection?.composerContext ??
+      newDeckRetryReferenceSelection?.composerContext,
     defaultDesignSystemId: initialDesignSystemId,
     defaultReferenceDeck: decks.find(
       (deck) => deck.id === initialReferenceDeckId,
@@ -837,6 +900,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         !savePromptForRetry(prompt, {
           context: options.context,
           modelSelection: options.modelSelection,
+          referenceSelection: options.referenceSelection,
           persistAcrossSignIn: true,
         })
       ) {
@@ -893,6 +957,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     let saved: string | null = null;
     let savedContext: string | undefined;
     let savedModelSelection: DeckModelSelection | undefined;
+    let savedReferenceSelection: NewDeckReferenceSelection | undefined;
     try {
       saved = sessionStorage.getItem(PENDING_PROMPT_KEY);
       savedContext =
@@ -902,11 +967,20 @@ export default function Index({ active = true }: { active?: boolean }) {
         storedModelSelection.state === "available"
           ? storedModelSelection.selection
           : undefined;
+      const storedReferenceSelection = readStoredReferenceSelection();
+      if (storedReferenceSelection.state === "available") {
+        savedReferenceSelection = storedReferenceSelection.selection;
+      } else if (storedReferenceSelection.state === "unreadable") {
+        console.warn(
+          "[slides] pending reference selection could not be restored",
+        );
+      }
     } catch {}
     if (!saved) return;
     setNewDeckRetryContext(savedContext);
     setNewDeckRetryPrompt(saved);
     setNewDeckRetryModelSelection(savedModelSelection);
+    setNewDeckRetryReferenceSelection(savedReferenceSelection);
     savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved);
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt({ text: saved, key: Date.now() });
@@ -2317,6 +2391,22 @@ export default function Index({ active = true }: { active?: boolean }) {
                         effort: options.effort,
                       }
                     : undefined,
+                  referenceSelection: {
+                    ...(options?.slidesContext !== undefined
+                      ? {
+                          designSystemId: options.slidesContext.designSystemId,
+                        }
+                      : selectedDesignSystemId !== null
+                        ? { designSystemId: selectedDesignSystemId }
+                        : {}),
+                    referenceDeckId: selectedReferenceDeckId,
+                    ...(options?.slidesContext
+                      ? { composerContext: options.slidesContext }
+                      : {}),
+                    ...(options?.contextItems !== undefined
+                      ? { contextItems: options.contextItems }
+                      : {}),
+                  },
                 });
                 return false;
               }}
