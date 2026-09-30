@@ -331,6 +331,13 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       import("../jobs/scheduler-health.js").then((m) => m.ensureHealthTable()),
   ],
   [
+    "SearchIndex",
+    () =>
+      import("../search/index-store.js").then((m) =>
+        m.ensureSearchIndexTables(),
+      ),
+  ],
+  [
     "Settings",
     () => import("../settings/store.js").then((m) => m.ensureTable()),
   ],

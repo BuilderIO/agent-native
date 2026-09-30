@@ -9,6 +9,10 @@ export const runtimeConfig = z.object({
     env: "AGENT_NATIVE_DB_POOL_MAX",
     doc: "Maximum connections per database pool. Serverless runtimes always use one connection; local runtimes default to twenty.",
   }),
+  searchDrainBudgetMs: z.number().int().default(100).meta({
+    env: "AGENT_NATIVE_SEARCH_DRAIN_BUDGET_MS",
+    doc: "Milliseconds a search spends processing pending search index changes before answering; if changes remain, that search uses the app's fallback. Zero or less processes every pending change first.",
+  }),
   agentChatStreaming: z.boolean().default(false).meta({
     env: "AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME",
     doc: "Run the dedicated Nitro agent-chat response-streaming route used by an AWS Lambda Function URL.",
