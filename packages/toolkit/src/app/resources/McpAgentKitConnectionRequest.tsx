@@ -1,6 +1,12 @@
 import type { AgentConnectionRequest } from "@agent-native/agentkit/protocol";
-import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
+  getWorkspaceConnectionProvider,
+  workspaceProviderOAuthUrl,
+} from "@agent-native/core/client/integrations";
+import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
+import {
+  notifyMcpConnectionComplete,
   consumeMcpConnectionResume,
   saveMcpConnectionResume,
   type McpConnectionResumeRequest,
@@ -9,10 +15,13 @@ import {
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
-import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { AgentConnectionRequestCard } from "../agentkit/react/components.js";
+import {
+  dispatchIntegrationsHref,
+  useOrgSwitcherAppLinks,
+} from "../org/workspace-app-links.js";
 import { McpConnectionSuggestion } from "./McpConnectionSuggestion.js";
 
 export interface McpAgentKitConnectionTarget {
@@ -45,12 +54,28 @@ export function McpAgentKitConnectionRequestCard({
   fallback = null,
 }: McpAgentKitConnectionRequestCardProps) {
   const settledRef = useRef(false);
+  const popupCleanupRef = useRef<(() => void) | null>(null);
   const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
+  useEffect(
+    () => () => {
+      popupCleanupRef.current?.();
+    },
+    [],
+  );
   const integration = integrations.find(
     (candidate) =>
       candidate.id.toLowerCase() === provider.trim().toLowerCase() ||
       candidate.provider.toLowerCase() === provider.trim().toLowerCase(),
   );
+  const workspaceProvider =
+    source?.kind === "workspace_connection" && source.id === provider
+      ? getWorkspaceConnectionProvider(source.id)
+      : null;
+  const needsWorkspaceSetup =
+    source?.kind === "workspace_connection" &&
+    source.id === provider &&
+    (reason === "grant" || !workspaceProvider?.oauth);
+  const { apps: workspaceApps } = useOrgSwitcherAppLinks(needsWorkspaceSetup);
   const settle = async (callback: () => void | Promise<void>) => {
     if (settledRef.current) return;
     settledRef.current = true;
@@ -62,9 +87,7 @@ export function McpAgentKitConnectionRequestCard({
     }
   };
   if (source?.kind === "workspace_connection") {
-    const workspaceProvider =
-      source.id === provider ? getWorkspaceConnectionProvider(source.id) : null;
-    if (!workspaceProvider?.oauth || !appId) return fallback;
+    if (!workspaceProvider || !appId) return fallback;
     const request: AgentConnectionRequest = {
       id: target.requestId,
       provider,
@@ -74,27 +97,86 @@ export function McpAgentKitConnectionRequestCard({
       detail,
       source,
     };
+    if (reason === "grant" || !workspaceProvider.oauth) {
+      return (
+        <AgentConnectionRequestCard
+          request={request}
+          runId={target.runId}
+          providerLabel={source.label}
+          onConnect={() => {
+            window.open(
+              dispatchIntegrationsHref(workspaceApps),
+              "_blank",
+              "noopener,noreferrer",
+            );
+          }}
+        />
+      );
+    }
     return (
       <AgentConnectionRequestCard
         request={request}
         runId={target.runId}
         providerLabel={source.label}
         onConnect={() => {
-          if (
-            !saveMcpConnectionResume(
-              detail ??
-                `Continue after connecting ${source.label ?? provider}.`,
-            )
-          ) {
-            return false;
-          }
-          startWorkspaceProviderOAuth(source.id, {
-            appId,
-            scope: "user",
-            returnPath:
-              window.location.pathname +
-              window.location.search +
-              window.location.hash,
+          const popup = openOAuthPopup({ features: "width=640,height=760" });
+          if (!popup) return false;
+          return new Promise<void>((resolve, reject) => {
+            let closeTimer: number | undefined;
+            const cleanup = () => {
+              window.removeEventListener("message", onMessage);
+              if (closeTimer !== undefined) window.clearInterval(closeTimer);
+              if (popupCleanupRef.current === cancel) {
+                popupCleanupRef.current = null;
+              }
+            };
+            const onMessage = (event: MessageEvent<unknown>) => {
+              if (
+                event.origin !== window.location.origin ||
+                event.source !== popup ||
+                typeof event.data !== "object" ||
+                event.data === null ||
+                !("type" in event.data) ||
+                event.data.type !== "agent-native:workspace-connection-complete"
+              ) {
+                return;
+              }
+              cleanup();
+              popup.close();
+              notifyMcpConnectionComplete();
+              void Promise.resolve().then(onConnected).then(resolve, reject);
+            };
+            const cancel = () => {
+              cleanup();
+              popup.close();
+              resolve();
+            };
+            popupCleanupRef.current = cancel;
+            window.addEventListener("message", onMessage);
+            closeTimer = window.setInterval(() => {
+              if (popup.closed) {
+                cleanup();
+                resolve();
+              }
+            }, 1_000);
+            const returnUrl = new URL(
+              agentNativePath("/_agent-native/oauth/popup"),
+              window.location.href,
+            );
+            returnUrl.searchParams.set("complete", "workspace-connection");
+            try {
+              popup.location.assign(
+                workspaceProviderOAuthUrl(source.id, {
+                  appId,
+                  scope: "user",
+                  returnPath: returnUrl.pathname + returnUrl.search,
+                }),
+              );
+            } catch (error) {
+              cleanup();
+              popup.close();
+              reject(error);
+            }
           });
         }}
       />

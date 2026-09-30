@@ -84,6 +84,25 @@ describe("OAuth popup waiting route", () => {
     expect(await response.text()).not.toContain("script");
   });
 
+  it("notifies the same-origin opener after a workspace OAuth return", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request(
+        "http://example.test/_agent-native/oauth/popup?complete=workspace-connection",
+      ),
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'",
+    );
+    expect(await response.text()).toContain(
+      'postMessage({type:"agent-native:workspace-connection-complete"},window.location.origin)',
+    );
+  });
+
   it("stays reachable from the framework pages that open it", async () => {
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());

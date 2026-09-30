@@ -66,9 +66,9 @@ interface ActiveRunStatus {
   awaitingRedispatch?: unknown;
 }
 
-const RUN_SLOT_TIMEOUT_MS = 5_000;
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const RUN_SLOT_TIMEOUT_MS = RUN_SLOT_POLL_INTERVAL_MS * RUN_SLOT_STABLE_POLLS;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)

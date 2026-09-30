@@ -3891,7 +3891,7 @@ describe("AgentKitClient", () => {
   });
 
   it("retries automatic queue promotion after the run slot becomes free", async () => {
-    const retry = Promise.withResolvers<void>();
+    vi.useFakeTimers();
     let attempts = 0;
     const client = new AgentKitClient({
       transport: {
@@ -3924,22 +3924,28 @@ describe("AgentKitClient", () => {
         },
         async steerQueuedMessage() {
           attempts += 1;
-          if (attempts === 1) throw new AgentKitRunSlotBusyError();
-          retry.resolve();
+          if (attempts < 8) throw new AgentKitRunSlotBusyError();
         },
       },
     });
-    await client.queueMessage({ threadId: "thread-1", text: "Run next" });
+    try {
+      await client.queueMessage({ threadId: "thread-1", text: "Run next" });
+      const run = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Go",
+      });
+      await run.completed;
 
-    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
-    await run.completed;
-    await retry.promise;
-
-    expect(attempts).toBe(2);
-    await vi.waitFor(() => {
+      const retryDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000];
+      for (const [index, delay] of retryDelays.entries()) {
+        await vi.advanceTimersByTimeAsync(delay);
+        expect(attempts).toBe(index + 2);
+      }
       expect(client.getThread("thread-1").queuedMessages).toEqual([]);
-    });
-    await client.dispose();
+    } finally {
+      await client.dispose();
+      vi.useRealTimers();
+    }
   });
 
   it("merges a stale load without discarding newer optimistic and run state", async () => {

@@ -576,6 +576,7 @@ export class AgentKitClient implements AgentKitController {
     ThreadId,
     ReturnType<typeof setTimeout>
   >();
+  private readonly queuePromotionRetryAttempts = new Map<ThreadId, number>();
   private readonly requestAbortController = new AbortController();
   private capabilitiesLoad?: Promise<AgentCapabilities>;
   private shutdownPromise?: Promise<void>;
@@ -1805,6 +1806,7 @@ export class AgentKitClient implements AgentKitController {
       clearTimeout(timer);
     }
     this.queuePromotionTimers.clear();
+    this.queuePromotionRetryAttempts.clear();
     for (const controller of this.consumerAbortControllers.values()) {
       controller.abort(new AgentKitConsumerStoppedError("disposed"));
     }
@@ -2023,7 +2025,7 @@ export class AgentKitClient implements AgentKitController {
       completed &&
       terminalThread.queuedMessages.length > 0 &&
       !hasActiveAgentRuns(terminalThread);
-    if (queuedWorkKnown) this.scheduleQueuePromotion(threadId);
+    if (queuedWorkKnown) this.scheduleQueuePromotion(threadId, true);
     const persistenceError = await snapshotPersistence;
     if (completed) {
       const shouldRefreshProjection =
@@ -2042,7 +2044,7 @@ export class AgentKitClient implements AgentKitController {
         }
       }
       if (!queuedWorkKnown && !hasActiveAgentRuns(this.getThread(threadId))) {
-        this.scheduleQueuePromotion(threadId);
+        this.scheduleQueuePromotion(threadId, true);
       }
     }
     if (persistenceError) {
@@ -3105,17 +3107,24 @@ export class AgentKitClient implements AgentKitController {
     return ["completed", "failed", "cancelled"].includes(status);
   }
 
-  private scheduleQueuePromotion(threadId: ThreadId): void {
+  private scheduleQueuePromotion(threadId: ThreadId, expedite = false): void {
     if (this.disposed) return;
+    const thread = this.getThread(threadId);
+    const queued = thread.queuedMessages[0];
+    if (!queued) {
+      const timer = this.queuePromotionTimers.get(threadId);
+      if (timer) clearTimeout(timer);
+      this.queuePromotionTimers.delete(threadId);
+      this.queuePromotionRetryAttempts.delete(threadId);
+      return;
+    }
     const retryTimer = this.queuePromotionTimers.get(threadId);
     if (retryTimer) {
+      if (!expedite) return;
       clearTimeout(retryTimer);
       this.queuePromotionTimers.delete(threadId);
     }
-    const thread = this.getThread(threadId);
     if (this.queuePromotions.has(threadId)) return;
-    const queued = thread.queuedMessages[0];
-    if (!queued) return;
     if (!this.transport.steerQueuedMessage) {
       this.reportIntegrity({
         code: "queue_promotion_dropped",
@@ -3126,15 +3135,27 @@ export class AgentKitClient implements AgentKitController {
     }
     this.queuePromotions.add(threadId);
     void this.steerQueuedMessage(threadId, queued.id)
+      .then(() => this.queuePromotionRetryAttempts.delete(threadId))
       .catch((error) => {
         if (isAgentKitRunSlotBusyError(error) && !this.disposed) {
+          if (!this.getThread(threadId).queuedMessages.length) {
+            this.queuePromotionRetryAttempts.delete(threadId);
+            return;
+          }
+          const attempts = this.queuePromotionRetryAttempts.get(threadId) ?? 0;
+          const delay = Math.min(1_000 * 2 ** attempts, 30_000);
+          this.queuePromotionRetryAttempts.set(
+            threadId,
+            Math.min(attempts + 1, 5),
+          );
           const timer = setTimeout(() => {
             this.queuePromotionTimers.delete(threadId);
             this.scheduleQueuePromotion(threadId);
-          }, 1_000);
+          }, delay);
           this.queuePromotionTimers.set(threadId, timer);
           return;
         }
+        this.queuePromotionRetryAttempts.delete(threadId);
         // `steerQueuedMessage` already restores state and reports the failure.
       })
       .finally(() => this.queuePromotions.delete(threadId));

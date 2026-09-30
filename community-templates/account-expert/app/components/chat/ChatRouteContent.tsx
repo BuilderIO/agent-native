@@ -269,6 +269,9 @@ function ChatMcpConnectionRequest({
   return (
     <McpAgentKitConnectionRequestCard
       provider={request.provider}
+      reason={request.reason}
+      appId={request.appId}
+      source={request.source}
       {...(request.detail ? { detail: request.detail } : {})}
       target={{ threadId, runId, requestId: request.id }}
       onConnected={() => resolve("connected")}

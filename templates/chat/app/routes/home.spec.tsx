@@ -35,6 +35,7 @@ const routeState = vi.hoisted(() => ({
   }>,
   rootProps: null as Record<string, unknown> | null,
   chatProps: null as Record<string, unknown> | null,
+  connectionRequestProps: null as Record<string, unknown> | null,
   resolveConnectionRequest: vi.fn(),
   sendMessage: vi.fn(),
 }));
@@ -76,7 +77,10 @@ vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/index", () => ({
   },
 }));
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/connections", () => ({
-  McpAgentKitConnectionRequestCard: () => null,
+  McpAgentKitConnectionRequestCard: (props: Record<string, unknown>) => {
+    routeState.connectionRequestProps = props;
+    return null;
+  },
   McpAgentKitConnectionResume: () => null,
 }));
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/questions", () => ({
@@ -185,6 +189,7 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.transports = [];
     routeState.rootProps = null;
     routeState.chatProps = null;
+    routeState.connectionRequestProps = null;
     routeState.resolveConnectionRequest.mockReset();
     routeState.sendMessage.mockReset();
     createTransport.mockClear();
@@ -252,6 +257,51 @@ describe("ChatRoute AgentKit surface", () => {
     expect(
       container.querySelector("[data-agent-page-workspace-toggle]"),
     ).toBeNull();
+  });
+
+  it("passes connection request scope to the MCP connection card", () => {
+    routeState.threadId = "thread-one";
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      connectionRequest: React.ComponentType<{
+        value: {
+          id: string;
+          provider: string;
+          reason: "grant";
+          status: "requested";
+          appId: string;
+          source: { id: string; kind: string; label: string };
+        };
+        runId: string;
+      }>;
+    };
+    const source = {
+      id: "salesforce",
+      kind: "workspace_connection",
+      label: "Salesforce",
+    };
+    act(() =>
+      root.render(
+        React.createElement(slots.connectionRequest, {
+          value: {
+            id: "request-one",
+            provider: "salesforce",
+            reason: "grant",
+            status: "requested",
+            appId: "chat",
+            source,
+          },
+          runId: "run-one",
+        }),
+      ),
+    );
+
+    expect(routeState.connectionRequestProps).toMatchObject({
+      reason: "grant",
+      appId: "chat",
+      source,
+    });
   });
 
   it("keeps the empty chat state to its heading", () => {
