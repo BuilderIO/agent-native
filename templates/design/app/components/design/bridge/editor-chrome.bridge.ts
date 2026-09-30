@@ -9635,6 +9635,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function cornerRadiusHasVisiblePaint(el) {
     if (!cornerRadiusNodeAndAncestorsAllowPaint(el, null)) return false;
+    if (el.tagName.toLowerCase() === "svg") {
+      var paintTarget = vectorPaintTarget(el);
+      if (
+        !paintTarget ||
+        !cornerRadiusNodeAndAncestorsAllowPaint(paintTarget, el) ||
+        !cornerRadiusVisibilityIsVisible(paintTarget)
+      ) {
+        return false;
+      }
+      var paintStyle = window.getComputedStyle(paintTarget);
+      return (
+        (paintStyle.fill !== "none" &&
+          Number(paintStyle.fillOpacity) > 0 &&
+          cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget)) ||
+        (paintStyle.stroke !== "none" &&
+          parseFloat(paintStyle.strokeWidth) > 0 &&
+          Number(paintStyle.strokeOpacity) > 0 &&
+          cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget))
+      );
+    }
     var style = window.getComputedStyle(el);
     if (
       cornerRadiusVisibilityIsVisible(el) &&
@@ -9658,25 +9678,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return true;
       }
     }
-    if (el.tagName.toLowerCase() !== "svg") return false;
-    var paintTarget = vectorPaintTarget(el);
-    if (
-      !paintTarget ||
-      !cornerRadiusNodeAndAncestorsAllowPaint(paintTarget, el) ||
-      !cornerRadiusVisibilityIsVisible(paintTarget)
-    ) {
-      return false;
-    }
-    var paintStyle = window.getComputedStyle(paintTarget);
-    return (
-      (paintStyle.fill !== "none" &&
-        Number(paintStyle.fillOpacity) > 0 &&
-        cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget)) ||
-      (paintStyle.stroke !== "none" &&
-        parseFloat(paintStyle.strokeWidth) > 0 &&
-        Number(paintStyle.strokeOpacity) > 0 &&
-        cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget))
-    );
+    return false;
   }
 
   function cornerRadiusHandleKeys(el) {
