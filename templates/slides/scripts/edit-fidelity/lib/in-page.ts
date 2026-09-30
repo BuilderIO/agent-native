@@ -91,6 +91,7 @@ export interface EditorState {
    * the caret, -1 for the element itself; null with no caret in it.
    */
   caretBlock: number | null;
+  caretBlockTag: string | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
@@ -571,6 +572,14 @@ export function installInPageHelpers(chromeSelector: string) {
     const origin = root.getBoundingClientRect();
     const pm = activeEditor();
     const source = editedSource(root, pm);
+    const caretBlockIndex = caretBlock(source);
+    const caretBlockTag =
+      source && caretBlockIndex !== null
+        ? ((caretBlockIndex === -1
+            ? source
+            : source.querySelectorAll("*")[caretBlockIndex]
+          )?.tagName.toLowerCase() ?? null)
+        : null;
     const slideRoot = root.querySelector(".slide-content") ?? root;
     return {
       editing: !!pm,
@@ -582,7 +591,8 @@ export function installInPageHelpers(chromeSelector: string) {
         : null,
       contentTop: source ? contentTop(source, origin) : null,
       caretRect: caretRect(origin, source),
-      caretBlock: caretBlock(source),
+      caretBlock: caretBlockIndex,
+      caretBlockTag,
       sourceTag: source?.tagName ?? null,
       sourceText: source ? norm(source.textContent) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,

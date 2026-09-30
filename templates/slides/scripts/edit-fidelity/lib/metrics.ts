@@ -535,15 +535,12 @@ export function isSplicedOnce(
 export function restyledAddedText(
   a: Snapshot,
   b: Snapshot,
-  allowPlainParagraphAfterBlockExit = false,
+  startingBlockTag: string | null = null,
 ): string[] {
   const added = new Set(diffSnapshots(a, b).added.map((r) => r.key));
-  const startsInConvertibleBlock = a.records.some(
-    (r) =>
-      r.kind === "text" &&
-      r.inside &&
-      (/^h[1-6]$/i.test(r.tag ?? "") || r.tag?.toLowerCase() === "li"),
-  );
+  const startsInConvertibleBlock =
+    /^h[1-6]$/i.test(startingBlockTag ?? "") ||
+    startingBlockTag?.toLowerCase() === "li";
   const known = new Set(
     a.records
       .filter((r) => r.kind === "text" && r.inside)
@@ -556,7 +553,6 @@ export function restyledAddedText(
         r.inside &&
         added.has(r.key) &&
         !(
-          allowPlainParagraphAfterBlockExit &&
           startsInConvertibleBlock &&
           r.tag === "p" &&
           !r.inlineStyle?.trim()

@@ -4760,7 +4760,7 @@ async function runScenario(
       const restyled = restyledAddedText(
         snapView,
         snapReload,
-        scenario === "enter3",
+        scenario === "enter3" ? state0.caretBlockTag : null,
       );
       if (restyled.length)
         v.push(

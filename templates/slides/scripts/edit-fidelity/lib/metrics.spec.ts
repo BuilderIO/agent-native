@@ -362,7 +362,7 @@ describe("restyledAddedText", () => {
         inlineStyle: "",
       };
       const reload = snap([...view.records, plainParagraph]);
-      expect(restyledAddedText(view, reload, true)).toEqual([]);
+      expect(restyledAddedText(view, reload, tag)).toEqual([]);
       expect(restyledAddedText(view, reload)).toEqual(["text:new line#0"]);
       expect(
         restyledAddedText(
@@ -371,11 +371,27 @@ describe("restyledAddedText", () => {
             ...view.records,
             { ...plainParagraph, inlineStyle: "font-size: 48px" },
           ]),
-          true,
+          tag,
         ),
       ).toEqual(["text:new line#0"]);
     },
   );
+
+  it("does not excuse paragraph style loss when Enter starts in mixed content", () => {
+    const view = snap([
+      { ...rec("text:List item#0", white, true), tag: "li" },
+      { ...rec("text:Paragraph#0", white, true), tag: "p" },
+    ]);
+    const plainParagraph = {
+      ...rec("text:new line#0", { color: "rgb(255, 255, 255)" }, true),
+      tag: "p",
+      inlineStyle: "",
+    };
+    const reload = snap([...view.records, plainParagraph]);
+
+    expect(restyledAddedText(view, reload, "p")).toEqual(["text:new line#0"]);
+    expect(restyledAddedText(view, reload, "li")).toEqual([]);
+  });
 });
 
 describe("isDraftRevert", () => {
