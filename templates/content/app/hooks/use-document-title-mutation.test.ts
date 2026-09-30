@@ -1,5 +1,9 @@
 import { serializeIconValue } from "@agent-native/core/icons";
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import {
+  MutationObserver,
+  QueryClient,
+  QueryObserver,
+} from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const useActionMutation = vi.hoisted(() => vi.fn());
@@ -247,6 +251,12 @@ describe("title changes and database query membership", () => {
         entries[1],
       ]);
       mutation.onError(new Error("Save rejected"), variables, context);
+      mutation.onSettled(
+        undefined,
+        new Error("Save rejected"),
+        variables,
+        context,
+      );
       await vi.waitFor(() =>
         expect(client.getQueryData<any>(recentKey).entries).toEqual(entries),
       );
@@ -295,10 +305,195 @@ describe("title changes and database query membership", () => {
       newerContext,
     );
     mutation.onError(new Error("Earlier save failed"), earlier, earlierContext);
+    mutation.onSettled(
+      undefined,
+      new Error("Earlier save failed"),
+      earlier,
+      earlierContext,
+    );
     expect(client.getQueryData<any>(recentKey).entries[0].icon).toBe("⭐");
     await vi.waitFor(() =>
       expect(client.getQueryData<any>(recentKey).entries).toEqual([saved]),
     );
+    unsubscribe();
+    client.clear();
+  });
+
+  it.each(
+    ["row-1", "row-2"].flatMap((documentId) =>
+      ["saved", "failed"].flatMap((result) =>
+        ["sequential", "simultaneous"].map((settlement) => ({
+          documentId,
+          result,
+          settlement,
+        })),
+      ),
+    ),
+  )(
+    "recovers Recent after $settlement saves of $documentId with the newer $result",
+    async ({ documentId, result, settlement }) => {
+      const client = new QueryClient();
+      useQueryClient.mockReturnValue(client);
+      const recentKey = ["action", "get-content-recent", { scopeKey: "user" }];
+      const serverIcons: Record<string, string> = {
+        "row-1": "📘",
+        "row-2": "❤️",
+      };
+      const entries = () =>
+        Object.entries(serverIcons).map(([id, icon]) => ({
+          target: { documentId: id },
+          title: "Page",
+          icon,
+        }));
+      const cachedIcon = () =>
+        client
+          .getQueryData<any>(recentKey)
+          .entries.find((entry: any) => entry.target.documentId === documentId)
+          .icon;
+      client.setQueryData(recentKey, { entries: entries() });
+      const queryFn = vi.fn(async () => ({ entries: entries() }));
+      const observer = new QueryObserver(client, {
+        queryKey: recentKey,
+        queryFn,
+        staleTime: Infinity,
+      });
+      const unsubscribe = observer.subscribe(() => {});
+      useUpdateDocument();
+      const options = useActionMutation.mock.calls.find(
+        ([name]) => name === "update-document",
+      )![1];
+      let rejectFirst!: (error: Error) => void;
+      const firstResult = new Promise<any>((_resolve, reject) => {
+        rejectFirst = reject;
+      });
+      let resolveSecond!: (data: any) => void;
+      let rejectSecond!: (error: Error) => void;
+      const secondResult = new Promise<any>((resolve, reject) => {
+        resolveSecond = resolve;
+        rejectSecond = reject;
+      });
+      const first = new MutationObserver<
+        any,
+        Error,
+        { id: string; icon: string }
+      >(client, {
+        ...options,
+        mutationFn: () => firstResult,
+      });
+      const second = new MutationObserver<
+        any,
+        Error,
+        { id: string; icon: string }
+      >(client, {
+        ...options,
+        mutationFn: () => secondResult,
+      });
+      const firstSave = first.mutate({ id: "row-1", icon: "👍🏽" });
+      void firstSave.catch(() => {});
+      await vi.waitFor(() =>
+        expect(client.getQueryData<any>(recentKey).entries[0].icon).toBe("👍🏽"),
+      );
+      const secondSave = second.mutate({ id: documentId, icon: "⭐" });
+      void secondSave.catch(() => {});
+      await vi.waitFor(() => expect(cachedIcon()).toBe("⭐"));
+      rejectFirst(new Error("Earlier save failed"));
+      if (settlement === "sequential") {
+        await expect(firstSave).rejects.toThrow("Earlier save failed");
+        expect(queryFn).not.toHaveBeenCalled();
+        expect(cachedIcon()).toBe("⭐");
+      }
+      if (result === "saved") {
+        serverIcons[documentId] = "⭐";
+        resolveSecond({
+          id: documentId,
+          title: "Page",
+          icon: "⭐",
+          softDeletedDatabaseIds: [],
+        });
+        await secondSave;
+      } else {
+        rejectSecond(new Error("Newer save failed"));
+        await expect(secondSave).rejects.toThrow("Newer save failed");
+      }
+      await expect(firstSave).rejects.toThrow("Earlier save failed");
+      await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+      expect(client.getQueryData<any>(recentKey).entries).toEqual(entries());
+      unsubscribe();
+      client.clear();
+    },
+  );
+
+  it("retries recovery when another page edit cancels its authoritative read", async () => {
+    const client = new QueryClient();
+    useQueryClient.mockReturnValue(client);
+    const recentKey = ["action", "get-content-recent", { scopeKey: "user" }];
+    const entries = [
+      { target: { documentId: "row-1" }, title: "Page", icon: "📘" },
+      { target: { documentId: "row-2" }, title: "Other", icon: "❤️" },
+    ];
+    client.setQueryData(recentKey, { entries });
+    let finishFirstRead!: (data: any) => void;
+    const firstRead = new Promise<any>((resolve) => {
+      finishFirstRead = resolve;
+    });
+    const queryFn = vi
+      .fn()
+      .mockImplementationOnce(() => firstRead)
+      .mockImplementation(async () => ({ entries }));
+    const observer = new QueryObserver(client, {
+      queryKey: recentKey,
+      queryFn,
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    useUpdateDocument();
+    const options = useActionMutation.mock.calls.find(
+      ([name]) => name === "update-document",
+    )![1];
+    const first = new MutationObserver<
+      any,
+      Error,
+      { id: string; icon: string }
+    >(client, {
+      ...options,
+      mutationFn: async () => {
+        throw new Error("Save failed");
+      },
+    });
+    await expect(first.mutate({ id: "row-1", icon: "👍🏽" })).rejects.toThrow(
+      "Save failed",
+    );
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+    let finishSecondSave!: (data: any) => void;
+    const secondResult = new Promise<any>((resolve) => {
+      finishSecondSave = resolve;
+    });
+    const second = new MutationObserver<
+      any,
+      Error,
+      { id: string; icon: string }
+    >(client, { ...options, mutationFn: () => secondResult });
+    const secondSave = second.mutate({ id: "row-2", icon: "⭐" });
+    await vi.waitFor(() =>
+      expect(client.getQueryData<any>(recentKey).entries[1].icon).toBe("⭐"),
+    );
+    entries[1] = { ...entries[1], icon: "⭐" };
+    finishSecondSave({
+      id: "row-2",
+      title: "Other",
+      icon: "⭐",
+      softDeletedDatabaseIds: [],
+    });
+    await secondSave;
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(client.getQueryData<any>(recentKey).entries).toEqual(entries),
+    );
+    finishFirstRead({
+      entries: [{ ...entries[0] }, { ...entries[1], icon: "❤️" }],
+    });
+    await Promise.resolve();
+    expect(client.getQueryData<any>(recentKey).entries).toEqual(entries);
     unsubscribe();
     client.clear();
   });
