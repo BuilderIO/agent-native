@@ -1536,9 +1536,7 @@ function drainPendingDeckOps(
               op: rebasedOp,
             });
           }
-          const isUnrecoverableContent = (
-            op: GranularOp,
-          ): op is Extract<GranularOp, { op: "patch-slide" }> =>
+          const isUnrecoverableContent = (op: GranularOp) =>
             op.op === "patch-slide" &&
             typeof op.fields.content === "string" &&
             (globallyConflicted || conflicts.has(op.slideId));
@@ -1547,7 +1545,7 @@ function drainPendingDeckOps(
           const retryablePending: GranularOp[] = [];
           for (const [index, op] of allOps.entries()) {
             let retryOp: GranularOp | undefined;
-            if (isUnrecoverableContent(op)) {
+            if (op.op === "patch-slide" && isUnrecoverableContent(op)) {
               const withoutContent = { ...op, fields: { ...op.fields } };
               delete withoutContent.fields.content;
               delete withoutContent.baseContentHash;
@@ -5398,6 +5396,7 @@ export function DeckProvider({
             onPersisted,
           },
         );
+        if (!op) throw new Error("The slide draft could not be queued");
         try {
           await flushDeckSave(deckId, { allowStaleContentConflicts: true });
           if (!persisted) {
