@@ -86,10 +86,7 @@ vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
       <a href="/settings/keys">Custom keys</a>
     </div>
   ),
-}));
-vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
-  PromptComposer: () => null,
-  snapshotComposerContextItems: () => [],
+  BuilderSetupContent: () => null,
 }));
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
@@ -305,6 +302,19 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@agent-native/toolkit/app/chat/composer/index")
     >()),
+    useAgentKitIntegrationMenu: () => ({
+      id: "integrations",
+      label: "Integrations",
+      intent: "invoke-integration",
+      picker: {
+        scopeKey: "test",
+        searchPlaceholder: "Search integrations",
+        items: [],
+        loading: false,
+        emptyMessage: "No integrations",
+        onSelect: () => {},
+      },
+    }),
     useAgentKitCapabilities: () => ({
       data: { sources: { figma: { available: true } }, integrations: [] },
     }),
@@ -654,12 +664,6 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Connect AI");
   });
 
-  it("shows generic home suggestions while provider setup is pending", async () => {
-    mocks.agentEngine = { state: "missing", missing: true };
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).not.toContain("Generated dashboard");
-    expect(container.textContent).toContain("chat.suggestionLandingPage");
-  });
   it.each([
     { state: "missing", missing: true, ready: false },
     { state: "unknown", missing: false, ready: false },
@@ -671,12 +675,15 @@ describe("Index skip to editor", () => {
     async ({ state, missing, ready }) => {
       mocks.agentEngine = { state, missing };
       await act(async () => root.render(<Index />));
+      expect(mocks.promptProps?.disabled).not.toBe(true);
       expect(mocks.promptProps).toMatchObject({
-        disabled: !ready,
-        submissionDisabled: !ready,
         showModelSelector: ready,
         modelStatusChecksEnabled: ready,
       });
+      expect(container.textContent).not.toContain(
+        "agentChat.setup.checkingProvider",
+      );
+      expect(container.textContent).not.toContain("Checking AI connection");
       expect(
         Boolean(
           container.querySelector('[aria-label="home.suggestedPrompts"]'),

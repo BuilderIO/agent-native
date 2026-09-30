@@ -21,6 +21,7 @@ import type {
   ChatThreadScope,
   ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
+import { buildChatModelGroups } from "@agent-native/core/client/chat-model-groups";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { invalidateClientStatusRequests } from "@agent-native/core/client/status-requests";
 import React, { act } from "react";
@@ -221,6 +222,16 @@ function stubCatalog(
   builderConfigured = false,
 ) {
   invalidateClientStatusRequests();
+  modelCatalogMocks.load = async () => ({
+    state: "available",
+    groups: buildChatModelGroups({
+      engines: engines as Parameters<typeof buildChatModelGroups>[0]["engines"],
+      configuredKeys,
+      builderConnected: builderConfigured,
+    }),
+    defaultModel: "gpt-5-6-luna",
+    loadLiveGroups: async () => null,
+  });
   actionMocks.callAction.mockResolvedValue({ engines } as never);
   vi.stubGlobal(
     "fetch",

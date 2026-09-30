@@ -1180,8 +1180,7 @@ const history = {
 const overrides = {
   close: "बंद करें",
   setup: {
-    checkingProvider: "AI कनेक्शन की जाँच हो रही है…",
-    providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+    providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
   },
   onboarding: {
     fileStorage: {

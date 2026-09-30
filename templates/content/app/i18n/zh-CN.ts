@@ -1272,8 +1272,7 @@ const history = {
 const overrides = {
   close: "关闭",
   setup: {
-    checkingProvider: "正在检查 AI 连接…",
-    providerStatusUnavailable: "无法检查 AI 连接。",
+    providerStatusUnavailable: "无法确认 AI 是否已就绪。",
   },
   onboarding: {
     fileStorage: {

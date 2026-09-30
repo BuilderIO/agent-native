@@ -640,7 +640,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       (candidate) => candidate.textContent?.includes("Soft Cards"),
     );
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
-    expect(container.textContent).toContain("Couldn't check AI connection.");
+    expect(container.textContent).toContain("Couldn't confirm AI is ready.");
 
     await act(async () => {
       softCards?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

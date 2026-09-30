@@ -1229,8 +1229,7 @@ const history = {
 const overrides = {
   close: "Fermer",
   setup: {
-    checkingProvider: "Vérification de la connexion à l’IA…",
-    providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+    providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
   },
   onboarding: {
     fileStorage: {

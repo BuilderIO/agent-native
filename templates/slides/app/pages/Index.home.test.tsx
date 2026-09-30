@@ -1336,8 +1336,7 @@ describe("Slides prompt-led home", () => {
       renderHome();
       await screen.findByRole("textbox", { name: "Presentation prompt" });
       expect(promptProps.mock.lastCall![0]).toMatchObject({
-        disabled: !ready,
-        submissionDisabled: !ready,
+        disabled: false,
         showModelSelector: ready,
         modelStatusChecksEnabled: ready,
       });
