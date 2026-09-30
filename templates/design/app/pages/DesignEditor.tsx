@@ -3943,9 +3943,6 @@ function DesignEditor() {
   const activeBreakpointStateVersion = useChangeVersion(
     id ? `app-state:design-active-breakpoint:${id}` : "",
   );
-  const localhostConsentStateVersion = useChangeVersion(
-    id ? `app-state:design-localhost-write-consent-request:${id}` : "",
-  );
   const designEditorCommandKeys = useMemo(
     () =>
       browserTabId
@@ -3984,6 +3981,18 @@ function DesignEditor() {
   const canEditDesign = !visualEditAccessLost
     ? canShareDesign || designAccessRole === "editor"
     : false;
+  const localhostConsentRequestQuery = useActionQuery(
+    "get-localhost-write-consent-request",
+    { designId: id ?? "" },
+    {
+      enabled: Boolean(id && canEditDesign),
+      refetchInterval: (query) => (query.state.data?.request ? false : 1_000),
+    },
+  );
+  const clearLocalhostConsentRequestMutation = useActionMutation(
+    "clear-localhost-write-consent-request",
+  );
+  const lastLocalhostConsentRequestRef = useRef<string | null>(null);
   const visualEditSnapshotPublicationStateRef =
     useRef<VisualEditSnapshotPublicationState | null>(null);
   if (!visualEditSnapshotPublicationStateRef.current) {
@@ -6456,50 +6465,44 @@ function DesignEditor() {
     };
   }, [activeBreakpointStateVersion, designBreakpoints, id, isSignedIn]);
 
-  // Agent→UI: open the write-consent dialog when the agent requests local file
-  // write access via request-localhost-write-consent (granting stays human-only).
-  // One-shot: consume the app-state key, open the dialog, then clear it so
-  // echoed app-state bumps don't re-open it.
-  //
-  // Keyed on edit access, not ambient session state: the visual-edit handoff can
-  // grant a local capability without a normal Design sign-in. Gating this on
-  // `isSignedIn` would leave that user unable to grant write consent.
+  // Agent requests run in a design-scoped capability session, separate from
+  // the browser's app-state session, so retrieve the handoff through an editor
+  // action instead of reading it from client app state.
   useEffect(() => {
-    if (!id || !canEditDesign) return;
-    let cancelled = false;
-    const key = `design-localhost-write-consent-request:${id}`;
-    void (async () => {
-      const request = await readClientAppState<{
-        designId?: string;
-        connectionId?: string;
-        rootPath?: string;
-        files?: string[];
-        // coercion-ok: missing consent state means no pending request.
-      }>(key).catch(() => null);
-      if (
-        cancelled ||
-        !request ||
-        request.designId !== id ||
-        !request.connectionId
-      ) {
-        return;
-      }
-      setLocalhostConsentConnectionId(request.connectionId);
-      setLocalhostWriteConsentPayload({
-        rootPath: request.rootPath ?? request.connectionId,
-        files: request.files ?? [],
-        onGranted: () => {
-          toast.success("File writes allowed for 8 hours." /* i18n-ignore */);
-        },
-        onCancel: () => {},
-      });
-      setLocalhostWriteConsentOpen(true);
-      await setClientAppState(key, null).catch(() => {});
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [localhostConsentStateVersion, canEditDesign, id]);
+    const request = localhostConsentRequestQuery.data?.request;
+    if (
+      !id ||
+      !canEditDesign ||
+      !request ||
+      request.designId !== id ||
+      !request.connectionId ||
+      lastLocalhostConsentRequestRef.current === `${id}:${request.requestedAt}`
+    ) {
+      return;
+    }
+    lastLocalhostConsentRequestRef.current = `${id}:${request.requestedAt}`;
+    setLocalhostConsentConnectionId(request.connectionId);
+    setLocalhostWriteConsentPayload({
+      rootPath: request.rootPath,
+      files: request.files,
+      onGranted: () => {
+        toast.success("File writes allowed for 8 hours." /* i18n-ignore */);
+      },
+      onCancel: () => {},
+    });
+    setLocalhostWriteConsentOpen(true);
+    void clearLocalhostConsentRequestMutation
+      .mutateAsync({ designId: id, requestedAt: request.requestedAt })
+      .catch((error) =>
+        toast.error(actionErrorMessage(error) ?? t("common.genericError")),
+      );
+  }, [
+    canEditDesign,
+    clearLocalhostConsentRequestMutation.mutateAsync,
+    id,
+    localhostConsentRequestQuery.data?.request,
+    t,
+  ]);
 
   const activeScreenBaseWidthPx = useMemo<number | null>(() => {
     if (!activeFile?.id) return null;
