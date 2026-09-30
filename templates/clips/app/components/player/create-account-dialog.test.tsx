@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 // @vitest-environment happy-dom
 
+import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +11,6 @@ import {
   AccountGateDialog,
   buildCreateAccountHref,
 } from "./create-account-dialog";
-import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 
 vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: vi.fn(),
