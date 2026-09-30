@@ -291,11 +291,12 @@ function setupFetch(options?: {
             );
         });
       }
-      if (options?.staleContentConflicts && accessibleDeck) {
+      const serverDeck = accessibleDeck;
+      if (options?.staleContentConflicts && serverDeck) {
         const operations = actionCallBody(init).operations;
-        const staleContent = Array.isArray(operations)
-          ? operations.some((operation) => {
-              if (!operation || typeof operation !== "object") return false;
+        const staleSlideIds = Array.isArray(operations)
+          ? operations.flatMap((operation) => {
+              if (!operation || typeof operation !== "object") return [];
               const patch = operation as {
                 op?: unknown;
                 slideId?: unknown;
@@ -306,24 +307,25 @@ function setupFetch(options?: {
                 typeof patch.slideId !== "string" ||
                 typeof patch.baseContentHash !== "string"
               ) {
-                return false;
+                return [];
               }
-              const serverSlide = accessibleDeck?.slides.find(
+              const serverSlide = serverDeck.slides.find(
                 (slide) => slide.id === patch.slideId,
               );
-              return (
-                serverSlide !== undefined &&
+              return serverSlide !== undefined &&
                 hashSlideContent(serverSlide.content) !== patch.baseContentHash
-              );
+                ? [patch.slideId]
+                : [];
             })
-          : false;
-        if (staleContent) {
+          : [];
+        const staleSlideId = staleSlideIds[0];
+        if (typeof staleSlideId === "string") {
           return Promise.resolve(
             new Response(
               JSON.stringify({
                 error: "Slide content changed since it was read",
                 errorCode: "slide_content_stale",
-                details: { slideId: "slide-1" },
+                details: { slideId: staleSlideId },
               }),
               { status: 409 },
             ),
@@ -1141,6 +1143,134 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasFailedDeckSave(initial.id)).toBe(true);
   });
 
+  it("retries content edits to other slides after a per-slide conflict", async () => {
+    window.history.pushState({}, "", "/deck/partial-content-conflict-deck");
+    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
+      staleContentConflicts: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "partial-content-conflict-deck",
+      title: "Partial content conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before one", notes: "", layout: "title" },
+        { id: "slide-2", content: "Before two", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "Remote two" },
+      ],
+    });
+
+    act(() => {
+      result.current.updateSlides(initial.id, [
+        { slideId: "slide-1", updates: { content: "Local one" } },
+        { slideId: "slide-2", updates: { content: "Local two" } },
+      ]);
+      flushPendingSaves();
+    });
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "Failed to save deck",
+      );
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toEqual([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Local one" },
+        baseContentHash: hashSlideContent("Before one"),
+      },
+    ]);
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+  });
+
+  it("keeps non-content fields and layout-fit reconciliation after a stale patch", async () => {
+    window.history.pushState({}, "", "/deck/mixed-content-conflict-deck");
+    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
+      staleContentConflicts: true,
+      patchResponse: {
+        layoutFit: {
+          slides: [
+            {
+              slideId: "slide-1",
+              contentHash: hashSlideContent("Remote edit"),
+              layoutFitRevision: "server-layout-revision",
+            },
+          ],
+        },
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "mixed-content-conflict-deck",
+      title: "Mixed content conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [{ ...initial.slides[0]!, content: "Remote edit" }],
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Local edit", notes: "Keep notes", layout: "section" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "Failed to save deck",
+      );
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toEqual([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { notes: "Keep notes", layout: "section" },
+      },
+    ]);
+    expect(
+      result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
+    ).toBe("server-layout-revision");
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+  });
+
   it("lets the editor discard a stale draft for the latest slide content", async () => {
     window.history.pushState({}, "", "/deck/use-latest-conflict-deck");
     const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
@@ -1207,7 +1337,7 @@ describe("DeckContext deck creation persistence", () => {
     ).toHaveLength(patchCallsBeforeResolution);
   });
 
-  it("undoes only fields that a collaborator has not changed", async () => {
+  it("undoes only fields a collaborator has not changed", async () => {
     window.history.pushState({}, "", "/deck/undo-conflict-deck");
     const { fetchMock, setAccessibleDeck } = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });

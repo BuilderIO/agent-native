@@ -32,7 +32,7 @@ export function AgentChatHome({
     <div className={cn("flex min-h-0 w-full flex-1 bg-background", className)}>
       <div
         className={cn(
-          "mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col",
+          "mx-auto flex min-h-0 w-full flex-1 flex-col",
           contentClassName,
         )}
       >

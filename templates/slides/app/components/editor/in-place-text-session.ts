@@ -1880,11 +1880,11 @@ export function startInPlaceTextSession(
             selectedUnmarkedRows.length > 0
           ) {
             const marker = rows[0].firstElementChild;
-            if (marker) {
+            if (marker && isBulletMarker(marker)) {
               for (const row of selectedUnmarkedRows) {
-                const restoredMarker = marker.cloneNode(true) as HTMLElement;
-                stripCopiedIdentity(restoredMarker);
-                row.prepend(restoredMarker);
+                const copy = marker.cloneNode(true) as HTMLElement;
+                stripCopiedIdentity(copy);
+                row.prepend(copy);
               }
               return true;
             }

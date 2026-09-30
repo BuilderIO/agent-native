@@ -606,6 +606,7 @@ describe("validateFirstPartyAnalyticsSql", () => {
 
   it("rejects unapproved SQL functions that can escape tenant scoping", () => {
     for (const sql of [
+      "SELECT Σ.sum(event_count) FROM analytics_event_daily_rollups",
       "SELECT table_to_xml('analytics_events'::regclass, false, true, '') AS leaked FROM analytics_events LIMIT 1",
       "SELECT table_to_xml(('analytics_' || 'events')::regclass, false, true, '') FROM session_recordings LIMIT 1",
       "SELECT query_to_xml('SELECT analytics_' || 'events', false, true, '') FROM session_recordings LIMIT 1",
@@ -623,6 +624,16 @@ describe("validateFirstPartyAnalyticsSql", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT pg_catalog /* split */ . date_trunc('day', event_date), COALESCE(SUM(event_count), 0) FROM analytics_event_daily_rollups WHERE (event_date IS NOT NULL) GROUP BY event_date",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE 1.0 * COUNT(*) FILTER (WHERE event_date IS NOT NULL) / COUNT(*) END AS rate FROM analytics_events",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT .5 * COUNT(*) AS rate FROM analytics_events",
       ),
     ).not.toThrow();
   });
