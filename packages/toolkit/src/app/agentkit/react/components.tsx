@@ -2451,6 +2451,9 @@ export function AgentMessageActions({
     () => resolveAgentMessageRequestId(message, thread.events),
     [message, thread.events],
   );
+  const hasMessageMenuActions = Boolean(
+    requestId || (forkingCapability.visible && onThreadForked),
+  );
   const runId = useMemo(
     () => resolveAgentMessageRunId(message, thread.events),
     [message, thread.events],
@@ -2752,65 +2755,67 @@ export function AgentMessageActions({
                 threadId={threadId}
               />
             ) : null}
-            <Menu
-              open={actionsMenuOpen}
-              onOpenChange={(open) => {
-                setActionsMenuOpen(open);
-                if (!open) setRequestIdCopied(false);
-              }}
-              placement="bottom"
-              align="end"
-              className="agentkit-message-menu w-48"
-              trigger={
-                <IconButton
-                  label={labels.messageActions}
-                  icon={<IconDotsVertical aria-hidden="true" />}
-                  size="compact"
-                  aria-expanded={actionsMenuOpen}
-                  title={labels.messageActions}
-                />
-              }
-              items={[
-                ...(requestId
-                  ? [
-                      {
-                        id: "copy-request-id",
-                        label: requestIdCopied
-                          ? labels.copied
-                          : labels.copyRequestId,
-                        icon: requestIdCopied ? (
-                          <IconCircleCheck size={14} aria-hidden="true" />
-                        ) : (
-                          <IconId size={14} aria-hidden="true" />
-                        ),
-                        disabled: requestIdAction.pending,
-                      },
-                    ]
-                  : []),
-                ...(forkingCapability.visible && onThreadForked
-                  ? [
-                      {
-                        id: "fork-chat",
-                        label: (
-                          <span title={forkingCapability.reason}>
-                            {labels.fork}
-                          </span>
-                        ),
-                        icon: <IconGitBranch size={14} aria-hidden="true" />,
-                        disabled:
-                          !forkingCapability.enabled || forkAction.pending,
-                      },
-                    ]
-                  : []),
-              ]}
-              onAction={(id) => {
-                if (id === "copy-request-id") {
-                  void requestIdAction.execute().catch(() => undefined);
-                } else if (id === "fork-chat") {
-                  void forkAction.execute().catch(() => undefined);
+            {hasMessageMenuActions ? (
+              <Menu
+                open={actionsMenuOpen}
+                onOpenChange={(open) => {
+                  setActionsMenuOpen(open);
+                  if (!open) setRequestIdCopied(false);
+                }}
+                placement="bottom"
+                align="end"
+                className="agentkit-message-menu w-48"
+                trigger={
+                  <IconButton
+                    label={labels.messageActions}
+                    icon={<IconDotsVertical aria-hidden="true" />}
+                    size="compact"
+                    aria-expanded={actionsMenuOpen}
+                    title={labels.messageActions}
+                  />
                 }
-              }}
-            />
+                items={[
+                  ...(requestId
+                    ? [
+                        {
+                          id: "copy-request-id",
+                          label: requestIdCopied
+                            ? labels.copied
+                            : labels.copyRequestId,
+                          icon: requestIdCopied ? (
+                            <IconCircleCheck size={14} aria-hidden="true" />
+                          ) : (
+                            <IconId size={14} aria-hidden="true" />
+                          ),
+                          disabled: requestIdAction.pending,
+                        },
+                      ]
+                    : []),
+                  ...(forkingCapability.visible && onThreadForked
+                    ? [
+                        {
+                          id: "fork-chat",
+                          label: (
+                            <span title={forkingCapability.reason}>
+                              {labels.fork}
+                            </span>
+                          ),
+                          icon: <IconGitBranch size={14} aria-hidden="true" />,
+                          disabled:
+                            !forkingCapability.enabled || forkAction.pending,
+                        },
+                      ]
+                    : []),
+                ]}
+                onAction={(id) => {
+                  if (id === "copy-request-id") {
+                    void requestIdAction.execute().catch(() => undefined);
+                  } else if (id === "fork-chat") {
+                    void forkAction.execute().catch(() => undefined);
+                  }
+                }}
+              />
+            ) : null}
           </div>
         </>
       ) : (

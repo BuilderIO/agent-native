@@ -2781,7 +2781,7 @@ describe("AgentKit subscriptions and recovery", () => {
     }
   });
 
-  it("omits request ID actions when the message has no request ID", async () => {
+  it("omits the message menu when no actions are available", async () => {
     const thread = createAgentThreadState("thread-no-request-id");
     thread.messages = [
       {
@@ -2811,26 +2811,12 @@ describe("AgentKit subscriptions and recovery", () => {
           />
         </AgentKitProvider>,
       );
-      const trigger = tree.container.querySelector(
-        'button[aria-label="Message actions"]',
-      );
-      await act(async () => {
-        trigger?.dispatchEvent(
-          new PointerEvent("pointerdown", {
-            bubbles: true,
-            button: 0,
-            pointerType: "mouse",
-          }),
-        );
-        await Promise.resolve();
-      });
-
-      const actionMenu = document.body.querySelector(
-        '.agentkit-message-menu[role="menu"]',
-      );
-      expect(actionMenu).toBeTruthy();
-      expect(actionMenu?.textContent).not.toContain("Request ID unavailable");
-      expect(actionMenu?.textContent).not.toContain("Copy request ID");
+      expect(
+        tree.container.querySelector('button[aria-label="Message actions"]'),
+      ).toBeNull();
+      expect(
+        document.body.querySelector('.agentkit-message-menu[role="menu"]'),
+      ).toBeNull();
     } finally {
       await tree.unmount();
     }
