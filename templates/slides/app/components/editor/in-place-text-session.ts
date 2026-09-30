@@ -1865,8 +1865,9 @@ export function startInPlaceTextSession(
             ? Array.from(el.children).filter(
                 (child): child is HTMLElement =>
                   child instanceof HTMLElement &&
-                  /^(DIV|LI|P)$/.test(child.tagName) &&
                   !isBulletRow(child) &&
+                  ["DIV", "LI", "P"].includes(child.tagName) &&
+                  rows.some((row) => row.tagName === child.tagName) &&
                   (range.collapsed
                     ? child.contains(range.startContainer)
                     : range.intersectsNode(child)),

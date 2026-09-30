@@ -270,6 +270,47 @@ describe("runMigrationCodemods", () => {
     expect(result.changes.map((change) => change.file)).toContain(packageFile);
   });
 
+  it("moves the legacy chat UI hook out of mixed Core chat imports", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      [
+        'import { useSendToAgentChat as fromClient } from "@agent-native/core/client";',
+        'import { useSendToAgentChat as fromChat } from "@agent-native/core/client/chat";',
+        'import { useSendToAgentChat as fromAgentChat } from "@agent-native/core/client/agent-chat";',
+        "void fromClient; void fromChat; void fromAgentChat;",
+        "",
+      ].join("\n"),
+    );
+    const coreManifest = readMigrationManifest(
+      bundledCoreMigrationManifestPath(),
+    );
+    if (!coreManifest) throw new Error("Core migration manifest is missing");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [coreManifest],
+      apply: true,
+      targetExists: () => true,
+    });
+    const migrated = fs.readFileSync(source, "utf-8");
+
+    expect(migrated).toContain(
+      'import { useSendToAgentChat as fromClient } from "@agent-native/toolkit/app/chat";',
+    );
+    expect(migrated).toContain(
+      'import { useSendToAgentChat as fromChat } from "@agent-native/toolkit/app/chat";',
+    );
+    expect(migrated).toContain(
+      'import { useSendToAgentChat as fromAgentChat } from "@agent-native/toolkit/app/chat";',
+    );
+    expect(
+      JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
+    ).toMatchObject({ "@agent-native/toolkit": ">=0.23.0" });
+    expect(result.changes.map((change) => change.file)).toContain(source);
+    expect(result.changes.map((change) => change.file)).toContain(packageFile);
+  });
+
   it("previews split imports, symbol renames, exports, and dependencies", () => {
     const { root, source, packageFile } = fixture();
     const before = fs.readFileSync(source, "utf-8");

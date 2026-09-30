@@ -1,9 +1,7 @@
-import {
-  navigateWithAgentChatViewTransition,
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
+import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { openCommandMenu } from "@agent-native/toolkit/app/shared";

@@ -171,6 +171,15 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "최신 변경 사항이 이 기기에만 있습니다. 나가기 전에 백업을 다운로드하세요.",
+    slideConflictReview: "검토",
+    slideConflictTitle: "이 슬라이드는 다른 곳에서 변경되었습니다",
+    slideConflictDescription:
+      "다른 편집자가 최신 버전을 저장했습니다. 초안을 유지하면 저장된 슬라이드 내용이 대체됩니다. 최신 버전을 사용할 수도 있습니다.",
+    slideConflictUseLatest: "최신 버전 사용",
+    slideConflictKeepDraft: "내 초안 유지",
+    slideConflictKeepEditing: "계속 편집",
+    slideConflictResolutionFailed:
+      "충돌을 해결하지 못했습니다. 초안은 그대로 유지됩니다.",
     offline: "오프라인",
     selected: "선택됨",
     chooseDesignSystem: "デザインシステムを選択",

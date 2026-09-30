@@ -317,31 +317,38 @@ describe("runDoctorScan", () => {
       ...CLEAN_FILES,
       "app/root.tsx": [
         'import { AgentChatHome, GuidedQuestion } from "@agent-native/core/client/agent-chat";',
-        "void AgentChatHome; void GuidedQuestion;",
+        'import { useSendToAgentChat as fromClient } from "@agent-native/core/client";',
+        'import { useSendToAgentChat as fromChat } from "@agent-native/core/client/chat";',
+        'import { useSendToAgentChat as fromAgentChat } from "@agent-native/core/client/agent-chat";',
+        "void AgentChatHome; void GuidedQuestion; void fromClient; void fromChat; void fromAgentChat;",
         "",
       ].join("\n"),
     });
     const report = runDoctorScan({ root, only: ["migration-manifest"] });
 
-    expect(report.findings).toHaveLength(1);
-    expect(report.findings[0]).toMatchObject({
-      guard: "migration-manifest",
-      file: "app/root.tsx",
-      line: 1,
-    });
-    expect(report.findings[0]?.message).toContain(
-      "@agent-native/core/client/agent-chat",
-    );
-    expect(report.findings[0]?.message).toContain(
+    expect(report.findings).toHaveLength(4);
+    const messages = report.findings.map((finding) => finding.message);
+    expect(messages[0]).toContain(
       "AgentChatHome → @agent-native/toolkit/app/chat",
     );
-    expect(report.findings[0]?.message).toContain(
+    expect(messages[0]).toContain(
       "GuidedQuestion → @agent-native/toolkit/app/chat/agentkit-chat",
     );
-    expect(report.findings[0]?.message).toContain(
-      "npx agent-native upgrade --codemods",
-    );
-    expect(report.findings[0]?.message).toContain("upgrading-core-ui.mdx");
+    for (const specifier of [
+      "@agent-native/core/client",
+      "@agent-native/core/client/chat",
+      "@agent-native/core/client/agent-chat",
+    ]) {
+      const message = messages.find(
+        (value) =>
+          value.includes(specifier) && value.includes("useSendToAgentChat"),
+      );
+      expect(message).toContain(
+        "useSendToAgentChat → @agent-native/toolkit/app/chat",
+      );
+      expect(message).toContain("npx agent-native upgrade --codemods");
+      expect(message).toContain("upgrading-core-ui.mdx");
+    }
   });
 
   it("reports a missing optional peer when its feature is configured", () => {
