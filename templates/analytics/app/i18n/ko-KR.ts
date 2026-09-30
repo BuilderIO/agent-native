@@ -1062,6 +1062,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "사용자 지정 기간",
     untitledDashboard: "제목 없는 대시보드",
     dashboardFallback: "대시보드",
     viewOnly: "이 대시보드에 대한 보기 전용 액세스 권한이 있습니다.",

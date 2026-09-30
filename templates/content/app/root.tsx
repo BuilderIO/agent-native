@@ -1,9 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import {
-  AppProviders,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client/hooks";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import {
   getLocaleInitScript,
   type LocaleCode,
@@ -11,16 +8,13 @@ import {
   type LocalizationPreference,
   useT,
 } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
-import {
-  ErrorReportActions,
-  RouteTransitionIndicator,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
+import { RouteTransitionIndicator } from "@agent-native/toolkit/app/shared";
 import {
   IconDeviceDesktop,
   IconHierarchy2,
@@ -116,7 +110,7 @@ const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
 const LazyAgentSidebar = lazy(async () => {
   const { AgentSidebar } =
-    await import("@agent-native/core/client/AgentSidebar");
+    await import("@agent-native/toolkit/app/chat/AgentSidebar");
   return { default: AgentSidebar };
 });
 

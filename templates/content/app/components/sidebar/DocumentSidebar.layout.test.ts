@@ -386,7 +386,7 @@ describe("document sidebar layout", () => {
       "return handleSelectContentSpace(space, null, true)",
     );
     expect(sidebar).toContain(
-      'import { OrgSwitcher } from "@agent-native/core/client/org";',
+      'import { OrgSwitcher } from "@agent-native/toolkit/app/org";',
     );
     expect(sidebar).toContain("reserveSpace");
     expect(sidebar).toContain("<OrgSwitcher");

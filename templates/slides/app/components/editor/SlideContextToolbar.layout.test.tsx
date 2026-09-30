@@ -102,6 +102,47 @@ describe("contextual toolbar object layout", () => {
     expect(onComment).toHaveBeenCalledOnce();
   });
 
+  it("opens Position for a selected flow object", () => {
+    const onEnablePositioning = vi.fn();
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={objectSnapshot({ isAbsolute: false })}
+          background="#000000"
+          objectSelectionCount={1}
+          onEnablePositioning={onEnablePositioning}
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Position" }));
+
+    expect(onEnablePositioning).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Position available while a selected flow object has no style snapshot", () => {
+    const onEnablePositioning = vi.fn();
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={null}
+          background="#000000"
+          hasSelectedElement
+          objectSelectionCount={0}
+          onEnablePositioning={onEnablePositioning}
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Position" }));
+
+    expect(onEnablePositioning).toHaveBeenCalledOnce();
+  });
+
   it("offers alignment actions for a multi-selection", () => {
     const { onAlignObjects } = renderMultiToolbar(2);
 

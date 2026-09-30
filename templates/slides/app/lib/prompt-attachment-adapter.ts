@@ -1,4 +1,4 @@
-import type { PromptComposerProps } from "@agent-native/core/client/composer";
+import type { PromptComposerProps } from "@agent-native/toolkit/app/chat/composer/index";
 
 import { SLIDES_REFERENCE_FILE_ACCEPT } from "../../shared/upload-types";
 

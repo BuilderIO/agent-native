@@ -71,6 +71,9 @@ export interface AgentThreadState {
   annotations: Record<string, AgentAnnotation>;
   annotationMessageIds: Record<string, string>;
   suggestions: AgentSuggestion[];
+  /** A submitted user turn has not acquired its run identity yet. */
+  suggestionsPendingTurn?: boolean;
+  suggestionsUserMessageId?: string;
   actions: Record<
     string,
     {
@@ -157,6 +160,57 @@ export function hasActiveAgentRuns(
       [...requestIds].some((approvalId) => !resolvedApprovalIds.has(approvalId))
     );
   });
+}
+
+export function selectLatestAgentRun(
+  thread: AgentThreadState,
+): AgentRunState | undefined {
+  return Object.values(thread.runs).reduce<AgentRunState | undefined>(
+    (latest, run) => {
+      if (!latest) return run;
+      const latestTime = latest.startedAt ?? latest.completedAt;
+      const runTime = run.startedAt ?? run.completedAt;
+      return latestTime && runTime && runTime < latestTime ? latest : run;
+    },
+    undefined,
+  );
+}
+
+/** Only model-authored follow-ups belonging to the latest successful turn. */
+export function selectAgentSuggestions(
+  thread: AgentThreadState,
+): AgentSuggestion[] {
+  const run = selectLatestAgentRun(thread);
+  if (
+    !run ||
+    run.status !== "completed" ||
+    thread.suggestionsPendingTurn ||
+    hasActiveAgentRuns(thread) ||
+    Object.keys(thread.approvals).length > 0
+  )
+    return [];
+  const latestUser = thread.messages.findLast(
+    (message) => message.role === "user",
+  );
+  if (
+    latestUser?.status === "error" ||
+    thread.suggestionsUserMessageId !== latestUser?.id
+  )
+    return [];
+  return thread.suggestions.filter((suggestion) => suggestion.runId === run.id);
+}
+
+export function isCurrentAgentSuggestion(
+  thread: AgentThreadState,
+  suggestion: AgentSuggestion,
+): boolean {
+  return selectAgentSuggestions(thread).some(
+    (item) =>
+      item.id === suggestion.id &&
+      item.runId === suggestion.runId &&
+      item.prompt === suggestion.prompt &&
+      item.label === suggestion.label,
+  );
 }
 
 export function selectActiveAgentRoster(
@@ -508,6 +562,8 @@ export function reduceAgentEvent(
           startedAt: event.occurredAt,
         }),
         ...updateActiveRuns(next, event.runId, true),
+        suggestions: [],
+        suggestionsPendingTurn: false,
       };
     case "run.status": {
       const terminal = isTerminalRunStatus(event.status);
@@ -846,7 +902,21 @@ export function reduceAgentEvent(
       return { ...next, annotations, annotationMessageIds };
     }
     case "suggestions.updated":
-      return { ...next, suggestions: event.suggestions };
+      if (
+        next.suggestionsPendingTurn ||
+        selectLatestAgentRun(next)?.id !== event.runId
+      )
+        return next;
+      return {
+        ...next,
+        suggestionsUserMessageId: next.messages.findLast(
+          (message) => message.role === "user",
+        )?.id,
+        suggestions: event.suggestions.map((suggestion) => ({
+          ...suggestion,
+          runId: event.runId,
+        })),
+      };
     case "action.started":
       if (next.actions[event.invocation.id]?.result) return next;
       return {

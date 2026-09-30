@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "연결 해제 중…",
   },
   settings: {
+    backHome: "홈으로 돌아가기",
+    title: "설정",
+    description: "앱과 언어 설정을 관리합니다.",
+    languageTitle: "인터페이스 언어",
+    languageDescription: "이 앱에서 사용할 언어를 선택하세요.",
+    languageLabel: "언어",
     agentTitle: "에이전트 설정",
     agentDescription:
       "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
@@ -637,8 +643,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "목록으로 돌아가기",
     promoteMustContain: "답변에 포함할 내용…",
-    promoteMustContainOptional: "답변에 포함할 내용 (선택 사항)",
-    promoteMustContainLabel: "승격된 평가 답변에 포함되어야 하는 텍스트",
+    promoteMustContainOptional: "답변에서 확인할 선택적 텍스트…",
+    promoteMustContainLabel: "승격된 평가 답변에서 확인할 텍스트",
     promoteNeedsContains:
       "이 실행에는 성공한 도구 호출이 없습니다. 평가로 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
     spans: "Spans",

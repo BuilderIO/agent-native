@@ -1063,6 +1063,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "نطاق مخصص",
     untitledDashboard: "لوحة تحكم بلا عنوان",
     dashboardFallback: "لوحة المعلومات",
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",

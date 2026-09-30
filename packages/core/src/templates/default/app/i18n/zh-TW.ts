@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "正在中斷連線…",
   },
   settings: {
+    backHome: "返回首頁",
+    title: "設定",
+    description: "管理應用程式與語言設定。",
+    languageTitle: "介面語言",
+    languageDescription: "選擇此應用程式使用的語言。",
+    languageLabel: "語言",
     agentTitle: "代理設定",
     agentDescription:
       "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
@@ -619,8 +625,8 @@ const messages = {
     failedCount: "（{{count}} 個失敗）",
     backToList: "返回清單",
     promoteMustContain: "回覆必須包含…",
-    promoteMustContainOptional: "回覆必須包含（選填）",
-    promoteMustContainLabel: "升級後的評測回覆必須包含的文字",
+    promoteMustContainOptional: "回覆中要檢查的選填文字…",
+    promoteMustContainLabel: "在升級後的評估回覆中檢查的文字",
     promoteNeedsContains:
       "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再將其升級為評測。",
     spans: "Spans",

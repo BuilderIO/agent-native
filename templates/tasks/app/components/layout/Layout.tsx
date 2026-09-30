@@ -1,9 +1,6 @@
-import {
-  AgentSidebar,
-  focusAgentChat,
-} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";

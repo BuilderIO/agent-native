@@ -1,12 +1,10 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { compactOutlineButtonClassName } from "@agent-native/toolkit/app/chat";
+import { ActionCard } from "@agent-native/toolkit/app/chat";
 import {
   registerActionChatRenderer,
   type ToolRendererProps,
-} from "@agent-native/core/client/agentkit-chat";
-import {
-  ActionCard,
-  compactOutlineButtonClassName,
-} from "@agent-native/core/client/chat";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import {
   projectSlidesDeckResult,
   SLIDES_DECK_RESULT_RENDERER,

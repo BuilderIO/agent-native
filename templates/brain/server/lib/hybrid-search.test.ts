@@ -234,6 +234,7 @@ const hybridMocks = vi.hoisted(() => {
       embed: vi.fn(async () => [[0.1, 0.2, 0.3]]),
     },
     getDbExec: vi.fn(() => ({ execute: vi.fn() })),
+    resolveBrainEmbeddingFamily: vi.fn(),
     queryPgVectorIndex: vi.fn(),
     queryPostgresFts: vi.fn(),
     rows,
@@ -255,10 +256,15 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => {
     defaultEmbeddingFamily: actual.defaultEmbeddingFamily,
     readEmbeddingFamilyAvailability:
       hybridMocks.readEmbeddingFamilyAvailability,
-    resolveDefaultEmbeddingFamily: async () =>
-      actual.defaultEmbeddingFamily(
-        await hybridMocks.availableEmbeddingFamilies(),
-      ),
+  };
+});
+
+vi.mock("./brain-embedding-family.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./brain-embedding-family.js")>();
+  return {
+    ...actual,
+    resolveBrainEmbeddingFamily: hybridMocks.resolveBrainEmbeddingFamily,
   };
 });
 
@@ -323,6 +329,7 @@ vi.mock("../db/index.js", () => ({
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
+import { BrainEmbeddingUnavailableError } from "./brain-embedding-family.js";
 import {
   hybridSearchArtifacts,
   incrementalIdf,
@@ -508,7 +515,9 @@ describe("Brain search index primitives", () => {
       "Embedding provider builder/builder-multimodal-embedding failed with status 429.",
     );
     const run = vi.fn().mockRejectedValue(providerFailure);
-    await expect(runSearchExternalLane(run)).resolves.toBeUndefined();
+    await expect(runSearchExternalLane(run)).rejects.toThrow(
+      /Search index external lane failed/,
+    );
     await expect(
       runSearchExternalLane(run, "builder:builder-multimodal-embedding:1024"),
     ).rejects.toThrow(
@@ -639,9 +648,9 @@ describe("Brain hybrid search pipeline", () => {
       "audienceMember.principalId": "leader@example.com",
       "audienceMember.status": "active",
     });
-    hybridMocks.availableEmbeddingFamilies.mockResolvedValue([
+    hybridMocks.resolveBrainEmbeddingFamily.mockResolvedValue(
       hybridMocks.embeddingFamily,
-    ]);
+    );
     hybridMocks.queryPostgresFts.mockResolvedValue([]);
     hybridMocks.queryPgVectorIndex.mockResolvedValue([]);
   });
@@ -701,10 +710,14 @@ describe("Brain hybrid search pipeline", () => {
       { vectorKey: "vector-private", score: 0.8 },
     ]);
 
-    const results = await searchAs("leader@example.com", {
+    const { results, lanes } = await searchAs("leader@example.com", {
       query: "reduce customer waiting",
     });
 
+    expect(lanes).toEqual({
+      fts: { status: "ok" },
+      semantic: { status: "ok" },
+    });
     expect(hybridMocks.embeddingFamily.embed).toHaveBeenCalledWith(
       [{ text: "reduce customer waiting" }],
       "query",
@@ -741,13 +754,46 @@ describe("Brain hybrid search pipeline", () => {
     hybridMocks.queryPostgresFts.mockResolvedValue([
       { chunkId: "fts-only", score: 0.9 },
     ]);
-    hybridMocks.availableEmbeddingFamilies.mockRejectedValueOnce(
+    hybridMocks.resolveBrainEmbeddingFamily.mockRejectedValueOnce(
+      new BrainEmbeddingUnavailableError(),
+    );
+
+    await expect(
+      searchAs("leader@example.com", { query: "reduce customer waiting" }),
+    ).resolves.toMatchObject({
+      results: [{ id: "fts-only", lane: "lexical" }],
+      lanes: {
+        fts: { status: "ok" },
+        semantic: {
+          status: "failed",
+          error: "openai-credential-unavailable",
+        },
+      },
+    });
+  });
+
+  it("reports a failed semantic lane instead of an empty success", async () => {
+    hybridMocks.rows.artifacts.push(
+      artifactRow({
+        id: "semantic-only",
+        capturedAt: "2026-07-20T00:00:00.000Z",
+        title: "Enterprise activation decision",
+        summary: "Shorten enterprise onboarding latency.",
+      }),
+    );
+    hybridMocks.resolveBrainEmbeddingFamily.mockRejectedValueOnce(
       new Error("credential store unavailable"),
     );
 
     await expect(
       searchAs("leader@example.com", { query: "reduce customer waiting" }),
-    ).resolves.toMatchObject([{ id: "fts-only", lane: "lexical" }]);
+    ).resolves.toEqual({
+      results: [],
+      lanes: {
+        fts: { status: "ok" },
+        semantic: { status: "failed", error: "credential store unavailable" },
+      },
+    });
   });
 
   it("excludes audience-visible artifacts from inaccessible sources", async () => {
@@ -763,7 +809,7 @@ describe("Brain hybrid search pipeline", () => {
 
     await expect(
       searchAs("leader@example.com", { query: "secret roadmap" }),
-    ).resolves.toEqual([]);
+    ).resolves.toMatchObject({ results: [] });
   });
 
   it("calculates freshness and lets it resolve adjacent external ranks", async () => {
@@ -808,7 +854,9 @@ describe("Brain hybrid search pipeline", () => {
       { vectorKey: "vector-current", score: 0.8 },
     ]);
 
-    const [winner] = await searchAs("leader@example.com", {
+    const {
+      results: [winner],
+    } = await searchAs("leader@example.com", {
       query: "rollout choice",
     });
 
@@ -878,12 +926,14 @@ describe("Brain hybrid search pipeline", () => {
       { vectorKey: "vector-leadership", score: 0.9 },
     ]);
 
-    const leadershipResults = await searchAs("leader@example.com", {
-      query: "restricted roadmap",
-    });
-    const employeeResults = await searchAs("employee@example.com", {
-      query: "restricted roadmap",
-    });
+    const { results: leadershipResults } = await searchAs(
+      "leader@example.com",
+      { query: "restricted roadmap" },
+    );
+    const { results: employeeResults } = await searchAs(
+      "employee@example.com",
+      { query: "restricted roadmap" },
+    );
 
     expect(leadershipResults.map((result) => result.id)).toContain(
       "leadership-decision",

@@ -18,6 +18,7 @@ const SOURCE_EXTENSIONS = new Set([
   ".mts",
   ".cjs",
   ".cts",
+  ".css",
   ".ts",
   ".tsx",
 ]);
@@ -76,6 +77,7 @@ export interface DeprecatedImportFinding {
 
 export interface ScanDeprecatedImportsOptions {
   root: string;
+  files?: string[];
   manifests?: MigrationManifest[];
 }
 
@@ -135,6 +137,13 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function removedSymbolMigrationGuide(
+  removedExport: RemovedExportManifest,
+  symbol: string,
+): string {
+  return removedExport.symbolGuides?.[symbol] ?? removedExport.migrationGuide;
+}
+
 function appendRemovedImportFinding(
   findings: DeprecatedImportFinding[],
   file: string,
@@ -148,15 +157,24 @@ function appendRemovedImportFinding(
     removedExport?.symbols.includes(name),
   );
   if (!removedExport || !removedSymbols?.length) return;
-  findings.push({
-    file,
-    line: lineAt(text, index),
-    from,
-    to: [],
-    symbols: removedSymbols,
-    status: "removed",
-    migrationGuide: removedExport.migrationGuide,
-  });
+  const symbolsByGuide = new Map<string, string[]>();
+  for (const symbol of removedSymbols) {
+    const guide = removedSymbolMigrationGuide(removedExport, symbol);
+    const matches = symbolsByGuide.get(guide) ?? [];
+    matches.push(symbol);
+    symbolsByGuide.set(guide, matches);
+  }
+  for (const [migrationGuide, matchedSymbols] of symbolsByGuide) {
+    findings.push({
+      file,
+      line: lineAt(text, index),
+      from,
+      to: [],
+      symbols: matchedSymbols,
+      status: "removed",
+      migrationGuide,
+    });
+  }
 }
 
 function appendRemovedNamespaceFindings(
@@ -200,7 +218,7 @@ function appendRemovedNamespaceFindings(
         to: [],
         symbols: [symbol],
         status: "removed",
-        migrationGuide: removedExport.migrationGuide,
+        migrationGuide: removedSymbolMigrationGuide(removedExport, symbol),
       });
     }
   }
@@ -865,6 +883,86 @@ function matchingMoveTargets(
   }));
 }
 
+function appendMovedImportFindings(
+  findings: DeprecatedImportFinding[],
+  file: string,
+  text: string,
+  from: string,
+  move: MigrationMove | undefined,
+  names: string[] | null,
+  index: number,
+): void {
+  if (!move) return;
+  for (const matched of matchingMoveTargets(move, names)) {
+    findings.push({
+      file,
+      line: lineAt(text, index),
+      from,
+      to: matched.targets,
+      symbols: matched.symbols,
+      status: matched.status,
+    });
+  }
+}
+
+function appendMovedNamespaceFindings(
+  findings: DeprecatedImportFinding[],
+  file: string,
+  text: string,
+  codeMask: Uint8Array,
+  from: string,
+  namespace: string,
+  move: MigrationMove | undefined,
+  namespaceBindingIndex?: number,
+): void {
+  if (!move) return;
+  if (!move.symbols) {
+    appendMovedImportFindings(
+      findings,
+      file,
+      text,
+      from,
+      move,
+      null,
+      namespaceBindingIndex ?? 0,
+    );
+    return;
+  }
+  const shadowedRanges = namespaceShadowedRanges(
+    text,
+    codeMask,
+    namespace,
+    namespaceBindingIndex,
+  );
+  const namespacePattern = `(?<![\\w$.])\\b${escapeRegExp(namespace)}`;
+  for (const symbol of Object.keys(move.symbols)) {
+    const property = `${escapeRegExp(symbol)}\\b`;
+    const quotedProperty = `\\[\\s*["']${escapeRegExp(symbol)}["']\\s*\\]`;
+    const memberAccess = new RegExp(
+      `${namespacePattern}\\s*(?:\\?\\.\\s*(?:${property}|${quotedProperty})|\\.\\s*${property}|${quotedProperty})`,
+      "g",
+    );
+    for (const match of text.matchAll(memberAccess)) {
+      const index = match.index ?? 0;
+      if (
+        !codeMask[index] ||
+        shadowedRanges.some(({ start, end }) => index >= start && index < end)
+      ) {
+        continue;
+      }
+      appendMovedImportFindings(
+        findings,
+        file,
+        text,
+        from,
+        move,
+        [symbol],
+        index,
+      );
+    }
+  }
+}
+
 export function scanDeprecatedImports(
   options: ScanDeprecatedImportsOptions,
 ): DeprecatedImportFinding[] {
@@ -876,6 +974,21 @@ export function scanDeprecatedImports(
     ...manifests.map((manifest) => manifest.removedExports ?? {}),
   );
   const findings: DeprecatedImportFinding[] = [];
+  const files = options.files
+    ? [...new Set(options.files.map((file) => path.resolve(file)))].filter(
+        (file) => {
+          const relative = path.relative(root, file);
+          return (
+            relative.length > 0 &&
+            !relative.startsWith(`..${path.sep}`) &&
+            relative !== ".." &&
+            SOURCE_EXTENSIONS.has(path.extname(file)) &&
+            !file.endsWith(".d.ts") &&
+            fs.existsSync(file)
+          );
+        },
+      )
+    : sourceFiles(root);
   const fromDeclaration =
     /\b(import|export)\s+([^;]*?)\s+from\s+["']([^"']+)["']\s*;?/g;
   const sideEffectImport = /\bimport\s+["']([^"']+)["']\s*;?/g;
@@ -901,12 +1014,33 @@ export function scanDeprecatedImports(
     /\(\s*await\s+import\(\s*["']([^"']+)["']\s*\)\s*\)\s*(?:\?\.\s*([\w$]+)|\.\s*([\w$]+)|\?\.\s*\[\s*["']([^"']+)["']\s*\]|\[\s*["']([^"']+)["']\s*\])/g;
   const importTypeMember =
     /(?<![\w$.])\bimport\(\s*["']([^"']+)["']\s*\)\s*\.\s*([\w$]+)/g;
+  const commonJsCall = /(?<![\w$.])\brequire\(\s*["']([^"']+)["']\s*\)/g;
+  const dynamicImportCall = /(?<![\w$.])\bimport\(\s*["']([^"']+)["']\s*\)/g;
+  const cssImport =
+    /@import\s+(?:["']([^"']+)["']|url\(\s*(?:(["'])([^"']+)\2|([^)'"\s]+))\s*\))\s*;?/g;
 
-  for (const file of sourceFiles(root)) {
+  for (const file of files) {
     const sourceText = fs.readFileSync(file, "utf-8");
     const commentMask = new Uint8Array(sourceText.length);
     const codeMask = codePositionMask(sourceText, commentMask);
     const text = replaceCommentsWithWhitespace(sourceText, commentMask);
+    if (path.extname(file) === ".css") {
+      for (const match of text.matchAll(cssImport)) {
+        if (!codeMask[match.index ?? 0]) continue;
+        const from = match[1] ?? match[3] ?? match[4];
+        const move = moves[from];
+        if (!move) continue;
+        findings.push({
+          file,
+          line: lineAt(text, match.index ?? 0),
+          from,
+          to: [move.to],
+          symbols: [],
+          status: migrationMoveStatus(move),
+        });
+      }
+      continue;
+    }
     for (const match of text.matchAll(fromDeclaration)) {
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[3];
@@ -966,6 +1100,15 @@ export function scanDeprecatedImports(
     for (const match of text.matchAll(commonJsDestructure)) {
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[2];
+      appendMovedImportFindings(
+        findings,
+        file,
+        text,
+        from,
+        moves[from],
+        destructuredNames(match[1]),
+        match.index ?? 0,
+      );
       appendRemovedImportFinding(
         findings,
         file,
@@ -979,6 +1122,15 @@ export function scanDeprecatedImports(
     for (const match of text.matchAll(dynamicImportDestructure)) {
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[2];
+      appendMovedImportFindings(
+        findings,
+        file,
+        text,
+        from,
+        moves[from],
+        destructuredNames(match[1]),
+        match.index ?? 0,
+      );
       appendRemovedImportFinding(
         findings,
         file,
@@ -992,6 +1144,15 @@ export function scanDeprecatedImports(
     for (const match of text.matchAll(dynamicImportThenDestructure)) {
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
+      appendMovedImportFindings(
+        findings,
+        file,
+        text,
+        from,
+        moves[from],
+        destructuredNames(match[2]),
+        match.index ?? 0,
+      );
       appendRemovedImportFinding(
         findings,
         file,
@@ -1007,6 +1168,15 @@ export function scanDeprecatedImports(
       const from = match[1];
       const parameter = topLevelParts(match[2] ?? "")[0]?.trim() ?? "";
       if (parameter.startsWith("{") && parameter.endsWith("}")) {
+        appendMovedImportFindings(
+          findings,
+          file,
+          text,
+          from,
+          moves[from],
+          destructuredNames(parameter),
+          match.index ?? 0,
+        );
         appendRemovedImportFinding(
           findings,
           file,
@@ -1019,6 +1189,16 @@ export function scanDeprecatedImports(
       } else {
         const namespace = parameter.match(/^[\w$]+/)?.[0];
         if (namespace) {
+          appendMovedNamespaceFindings(
+            findings,
+            file,
+            text,
+            codeMask,
+            from,
+            namespace,
+            moves[from],
+            (match.index ?? 0) + match[0].lastIndexOf(namespace),
+          );
           appendRemovedNamespaceFindings(
             findings,
             file,
@@ -1034,6 +1214,16 @@ export function scanDeprecatedImports(
     }
     for (const match of text.matchAll(commonJsNamespace)) {
       if (!codeMask[match.index ?? 0]) continue;
+      appendMovedNamespaceFindings(
+        findings,
+        file,
+        text,
+        codeMask,
+        match[2],
+        match[1],
+        moves[match[2]],
+        (match.index ?? 0) + match[0].lastIndexOf(match[1]),
+      );
       appendRemovedNamespaceFindings(
         findings,
         file,
@@ -1046,6 +1236,16 @@ export function scanDeprecatedImports(
     }
     for (const match of text.matchAll(dynamicImportNamespace)) {
       if (!codeMask[match.index ?? 0]) continue;
+      appendMovedNamespaceFindings(
+        findings,
+        file,
+        text,
+        codeMask,
+        match[2],
+        match[1],
+        moves[match[2]],
+        (match.index ?? 0) + match[0].lastIndexOf(match[1]),
+      );
       appendRemovedNamespaceFindings(
         findings,
         file,
@@ -1063,6 +1263,18 @@ export function scanDeprecatedImports(
       const namespaceBindingIndex = namespace
         ? (match.index ?? 0) + match[0].lastIndexOf(namespace)
         : undefined;
+      if (namespace) {
+        appendMovedNamespaceFindings(
+          findings,
+          file,
+          text,
+          codeMask,
+          from,
+          namespace,
+          moves[from],
+          namespaceBindingIndex,
+        );
+      }
       appendRemovedNamespaceFindings(
         findings,
         file,
@@ -1076,6 +1288,16 @@ export function scanDeprecatedImports(
     }
     for (const match of text.matchAll(importEquals)) {
       if (!codeMask[match.index ?? 0]) continue;
+      appendMovedNamespaceFindings(
+        findings,
+        file,
+        text,
+        codeMask,
+        match[2],
+        match[1],
+        moves[match[2]],
+        (match.index ?? 0) + match[0].lastIndexOf(match[1]),
+      );
       appendRemovedNamespaceFindings(
         findings,
         file,
@@ -1090,6 +1312,15 @@ export function scanDeprecatedImports(
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
       const symbol = match[2] ?? match[3] ?? match[4] ?? match[5];
+      appendMovedImportFindings(
+        findings,
+        file,
+        text,
+        from,
+        moves[from],
+        symbol ? [symbol] : null,
+        match.index ?? 0,
+      );
       appendRemovedImportFinding(
         findings,
         file,
@@ -1104,6 +1335,15 @@ export function scanDeprecatedImports(
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
       const symbol = match[2] ?? match[3] ?? match[4] ?? match[5];
+      appendMovedImportFindings(
+        findings,
+        file,
+        text,
+        from,
+        moves[from],
+        symbol ? [symbol] : null,
+        match.index ?? 0,
+      );
       appendRemovedImportFinding(
         findings,
         file,
@@ -1116,6 +1356,15 @@ export function scanDeprecatedImports(
     }
     for (const match of text.matchAll(importTypeMember)) {
       if (!/\.[cm]?tsx?$/.test(file) || !codeMask[match.index ?? 0]) continue;
+      appendMovedImportFindings(
+        findings,
+        file,
+        text,
+        match[1],
+        moves[match[1]],
+        [match[2]],
+        match.index ?? 0,
+      );
       appendRemovedImportFinding(
         findings,
         file,
@@ -1123,6 +1372,36 @@ export function scanDeprecatedImports(
         match[1],
         removedExports[match[1]],
         [match[2]],
+        match.index ?? 0,
+      );
+    }
+    for (const match of text.matchAll(commonJsCall)) {
+      if (!codeMask[match.index ?? 0]) continue;
+      const from = match[1];
+      const move = moves[from];
+      if (!move || move.symbols) continue;
+      appendMovedImportFindings(
+        findings,
+        file,
+        text,
+        from,
+        move,
+        null,
+        match.index ?? 0,
+      );
+    }
+    for (const match of text.matchAll(dynamicImportCall)) {
+      if (!codeMask[match.index ?? 0]) continue;
+      const from = match[1];
+      const move = moves[from];
+      if (!move || move.symbols) continue;
+      appendMovedImportFindings(
+        findings,
+        file,
+        text,
+        from,
+        move,
+        null,
         match.index ?? 0,
       );
     }
@@ -1134,5 +1413,18 @@ export function scanDeprecatedImports(
       removedExports,
     );
   }
-  return findings;
+  const unique = new Map<string, DeprecatedImportFinding>();
+  for (const finding of findings) {
+    const key = [
+      finding.file,
+      finding.line,
+      finding.from,
+      finding.to.join(","),
+      finding.symbols.join(","),
+      finding.status,
+      finding.migrationGuide ?? "",
+    ].join("\0");
+    unique.set(key, finding);
+  }
+  return [...unique.values()];
 }

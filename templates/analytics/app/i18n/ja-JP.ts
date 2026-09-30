@@ -1080,6 +1080,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "カスタム範囲",
     untitledDashboard: "無題のダッシュボード",
     dashboardFallback: "ダッシュボード",
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",

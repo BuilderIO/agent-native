@@ -11,6 +11,7 @@ import {
   convertMarkdownPrefixToBullet,
   extractWithoutCopiedIdentity,
   findEnclosingList,
+  hasMarkdownBulletPrefixAtCaret,
   insertBulletAfterCaret,
   isBulletMarker,
   isBulletRow,
@@ -23,6 +24,7 @@ import {
   createSlideList,
   headingTextLook,
   keepTextLook,
+  slideListRows,
   type SlideListKind,
   toggleSlideList,
 } from "./list-editing";
@@ -1727,7 +1729,7 @@ export function startInPlaceTextSession(
     prefix.setStart(block, 0);
     prefix.setEnd(caret.startContainer, caret.startOffset);
     const typed = prefix.toString().replaceAll(ZERO_WIDTH_SPACE, "");
-    if (block === el && /^[-*] $/.test(typed)) {
+    if (block === el && hasMarkdownBulletPrefixAtCaret(el)) {
       command(() => {
         const tag = el.tagName;
         const look = headingTextLook(el);
@@ -1848,6 +1850,48 @@ export function startInPlaceTextSession(
     toggleList: (kind) =>
       command(() =>
         keepingSelection(() => {
+          const range = selectionRange();
+          const rows = slideListRows(el, range);
+          const selectedRows = range
+            ? rows.filter((row) =>
+                range.collapsed
+                  ? row.contains(range.startContainer)
+                  : range.intersectsNode(row),
+              )
+            : [];
+          const selectedUnmarkedRows = range
+            ? Array.from(el.children).filter(
+                (child): child is HTMLElement =>
+                  child instanceof HTMLElement &&
+                  !isBulletRow(child) &&
+                  ["DIV", "LI", "P"].includes(child.tagName) &&
+                  (range.collapsed
+                    ? child.contains(range.startContainer)
+                    : range.intersectsNode(child)),
+              )
+            : [];
+          if (
+            kind === "bullet" &&
+            rows.length > 0 &&
+            selectedRows.length === 0 &&
+            selectedUnmarkedRows.length > 0
+          ) {
+            const marker = rows[0].firstElementChild;
+            if (marker && isBulletMarker(marker)) {
+              for (const row of selectedUnmarkedRows) {
+                const copy = marker.cloneNode(true) as HTMLElement;
+                stripCopiedIdentity(copy);
+                row.prepend(copy);
+              }
+              return true;
+            }
+          }
+          if (selectedRows.length > 0) {
+            const next = toggleSlideList(el, kind, selectedRows);
+            if (!next) return false;
+            if (next !== el) rebind(next);
+            return true;
+          }
           const next = toggleSlideList(el, kind);
           if (!next) return false;
           if (next !== el) rebind(next);

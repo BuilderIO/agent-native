@@ -67,7 +67,7 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   buildSettingsRoute: (section: string) => `/settings/${section}`,
 }));
 
-vi.mock("@agent-native/core/client/observability", () => ({
+vi.mock("@agent-native/toolkit/app/observability", () => ({
   ObservabilityDashboard: ({
     routeBasePath,
     showHumanReview,
@@ -92,7 +92,7 @@ vi.mock("../components/AnalyticsReviewArtifactPreview", () => ({
   AnalyticsReviewArtifactPreview: () => null,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => <div>settings-user@example.com</div>,
   SettingsGroup: ({ children }: { children: React.ReactNode }) => (
     <section>{children}</section>

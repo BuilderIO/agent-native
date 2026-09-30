@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 
 import type { IconValue } from "../../icons/index.js";
 import {
@@ -669,21 +668,6 @@ export function useAppPermissions(appId: string | undefined) {
     isLoading: roles.isLoading || permissions.isLoading,
     error: roles.error ?? permissions.error ?? null,
   };
-}
-
-export function RequirePermission({
-  appId,
-  permission,
-  children,
-  fallback = null,
-}: {
-  appId: string | undefined;
-  permission: string;
-  children: ReactNode;
-  fallback?: ReactNode;
-}) {
-  const access = useAppPermissions(appId);
-  return access.can(permission) ? children : fallback;
 }
 
 export function useAppRole(appId: string | undefined): {

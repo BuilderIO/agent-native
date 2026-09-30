@@ -1,5 +1,5 @@
 // i18n-raw-literal-disable-file -- Static Dispatch artwork, not interactive UI.
-import { AgentNativeIcon } from "@agent-native/core/client/ui";
+import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
 import {
   IconActivity,
   IconAlertTriangle,

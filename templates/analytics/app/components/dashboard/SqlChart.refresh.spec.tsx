@@ -50,7 +50,7 @@ vi.mock("@/lib/sql-query", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/extensions", () => ({
+vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: (props: Record<string, unknown>) => {
     mocks.embeddedExtensionProps = props;
     return null;

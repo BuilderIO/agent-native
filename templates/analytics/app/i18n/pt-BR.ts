@@ -1088,6 +1088,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "Intervalo personalizado",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",

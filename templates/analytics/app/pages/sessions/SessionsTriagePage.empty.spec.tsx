@@ -29,10 +29,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
-vi.mock("@agent-native/core/blocks", () => ({
+vi.mock("@agent-native/toolkit/app/blocks", () => ({
   CodeSurface: () => <div data-testid="installation-snippet" />,
 }));
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   BuilderConnectPopover: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),

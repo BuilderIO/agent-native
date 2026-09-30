@@ -4,13 +4,13 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
   AppSidebarNavItem,
-  FeedbackButton,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,

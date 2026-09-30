@@ -1,4 +1,4 @@
-import { IconFile, IconPlus, IconTextRecognition } from "@tabler/icons-react";
+import { IconPlus } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -11,21 +11,26 @@ import { Button } from "../ui/button.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuCheckboxItem,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu.js";
+import { Skeleton } from "../ui/skeleton.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
+import { ComposerContextMenuSearch } from "./ComposerContextMenuSearch.js";
 import {
   ComposerContextPicker,
   type ComposerContextPickerConfig,
 } from "./ComposerContextPicker.js";
 import { ComposerContextPickerDialog } from "./ComposerContextPickerDialog.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
+import { useComposerPanelPlacement } from "./use-composer-panel-placement.js";
 
 export {
   ComposerContextSearchInput,
@@ -43,11 +48,14 @@ export type {
 interface ComposerContextMenuEntry {
   id: string;
   label: string;
+  description?: string;
+  intent?: "add-context" | "invoke-integration";
   keywords?: readonly string[];
   icon?: ReactNode;
   disabled?: boolean;
 }
 export type ComposerContextMenuAction = ComposerContextMenuEntry & {
+  checked?: boolean;
   onDismiss?: () => void;
   children?: never;
 } & (
@@ -75,11 +83,18 @@ export type ComposerContextMenuItem =
   | ComposerContextMenuCategory;
 export interface ComposerContextMenuProps {
   items: readonly ComposerContextMenuItem[];
+  onSearchChange?: (search: string) => void;
+  loading?: boolean;
+  error?: string;
+  onRetry?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   addAttachment?: (file: File) => Promise<unknown>;
   onAttachmentRequest?: () => void;
   attachmentAccept?: string;
   onAttachmentError?: (message: string) => void;
   onDisabledFocus?: () => void;
+  onRestoreFocus?: () => void;
   contextButtonTooltipDisabled?: boolean;
   disabled?: boolean;
 }
@@ -96,13 +111,27 @@ interface ComposerContextDialogSession {
 function findAction(
   items: readonly ComposerContextMenuItem[],
   id: string,
+  inheritedDisabled = false,
 ): ComposerContextMenuAction | undefined {
   for (const item of items) {
+    const disabled = inheritedDisabled || item.disabled === true;
     if (item.children) {
-      const match = findAction(item.children, id);
+      const match = findAction(item.children, id, disabled);
       if (match) return match;
-    } else if (item.id === id) return item;
+    } else if (item.id === id)
+      return disabled ? { ...item, disabled: true } : item;
   }
+}
+
+function flattenMenuItems(
+  items: readonly ComposerContextMenuItem[],
+  inheritedDisabled = false,
+): ComposerContextMenuAction[] {
+  return items.flatMap((item) => {
+    const disabled = inheritedDisabled || item.disabled === true;
+    if (item.children) return flattenMenuItems(item.children, disabled);
+    return [disabled ? { ...item, disabled: true } : item];
+  });
 }
 
 export function getComposerContextMenuEntries(
@@ -125,7 +154,12 @@ export function getComposerContextMenuEntries(
     disabled = false,
   ) => {
     for (const entry of entries) {
-      const searchable = [...ancestors, entry.label, ...(entry.keywords ?? [])];
+      const searchable = [
+        ...ancestors,
+        entry.label,
+        entry.description ?? "",
+        ...(entry.keywords ?? []),
+      ];
       if (entry.children)
         visit(entry.children, searchable, disabled || entry.disabled === true);
       else if (
@@ -142,14 +176,12 @@ export function getComposerContextMenuEntries(
 
 function ContextSubmenu({
   label,
-  icon,
   disabled,
   open,
   onOpenChange,
   children,
 }: {
   label: string;
-  icon?: ReactNode;
   disabled?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -159,11 +191,10 @@ function ContextSubmenu({
   return (
     <DropdownMenuSub open={open} onOpenChange={onOpenChange}>
       <DropdownMenuSubTrigger ref={trigger} disabled={disabled}>
-        {icon}
-        {label}
+        <span className="min-w-0 truncate">{label}</span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent
-        className="w-64"
+        className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 max-w-[calc(100vw-24px)] overflow-y-auto"
         data-agent-native-composer-popover="true"
         onFocusOutside={(event) => {
           const target = event.target;
@@ -204,13 +235,41 @@ function LegacyContextPage({ children }: { children: ReactNode }) {
   return <div ref={element}>{children}</div>;
 }
 
+function ContextEntryLabel({ label, description }: ComposerContextMenuEntry) {
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5 @md:flex-row @md:items-baseline @md:gap-2">
+      <span
+        className={
+          description
+            ? "min-w-0 truncate @md:max-w-[60%] @md:shrink-0"
+            : "min-w-0 truncate"
+        }
+      >
+        {label}
+      </span>
+      {description && (
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+          {description}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function ComposerContextMenu({
   items,
+  onSearchChange,
+  loading,
+  error: searchError,
+  onRetry,
+  open: controlledOpen,
+  onOpenChange,
   addAttachment,
   onAttachmentRequest,
   attachmentAccept,
   onAttachmentError,
   onDisabledFocus,
+  onRestoreFocus,
   contextButtonTooltipDisabled = false,
   disabled,
 }: ComposerContextMenuProps) {
@@ -225,9 +284,10 @@ export function ComposerContextMenu({
     },
     [],
   );
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const open = controlledOpen ?? internalOpen;
   const [triggerTooltipOpen, setTriggerTooltipOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
   const [path, setPath] = useState<string[]>([]);
   const pathRef = useRef(path);
   const [page, setPage] = useState<ComposerContextPage | null>(null);
@@ -237,6 +297,7 @@ export function ComposerContextMenu({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const placement = useComposerPanelPlacement(triggerRef, open);
   const pendingDialog = useRef<ComposerContextDialogSession | null>(null);
   const pendingAttachmentRequest = useRef(false);
   const [dialog, setDialog] = useState<ComposerContextDialogSession | null>(
@@ -246,15 +307,15 @@ export function ComposerContextMenu({
   dialogRef.current = dialog;
   const dialogAction = dialog ? findAction(items, dialog.id) : undefined;
   const dialogAvailable =
+    !dialogAction?.disabled &&
     dialogAction?.picker &&
-    typeof dialogAction.picker.presentation === "object" &&
     dialogAction.picker.scopeKey === dialog?.scopeKey;
   useEffect(() => {
-    if (dialog && !dialogAvailable) {
+    if (dialog && !dialogAvailable && !disabled) {
       dialogRef.current = null;
       setDialog(null);
     }
-  }, [dialog, dialogAvailable]);
+  }, [dialog, dialogAvailable, disabled]);
   useEffect(() => {
     if (contextButtonTooltipDisabled) setTriggerTooltipOpen(false);
   }, [contextButtonTooltipDisabled]);
@@ -297,14 +358,16 @@ export function ComposerContextMenu({
   }, []);
   const changeOpen = useCallback(
     (next: boolean) => {
-      setOpen(next);
+      if (controlledOpen === undefined) setInternalOpen(next);
+      onOpenChange?.(next);
       if (!next) {
+        setSearch("");
+        onSearchChange?.("");
         dismissPage();
         updatePath([]);
-        setContextOpen(false);
       }
     },
-    [dismissPage, updatePath],
+    [controlledOpen, dismissPage, onOpenChange, onSearchChange, updatePath],
   );
   useEffect(() => {
     if (open || !pendingAttachmentRequest.current) return;
@@ -358,14 +421,21 @@ export function ComposerContextMenu({
   };
   const currentAction = page ? findAction(items, page.id) : undefined;
   useEffect(() => {
-    if (page && !currentAction?.render && !currentAction?.picker) dismissPage();
-  }, [page, currentAction, dismissPage]);
+    if (
+      page &&
+      (currentAction?.disabled ||
+        (!currentAction?.render && !currentAction?.picker))
+    ) {
+      dismissPage();
+      updatePath(page.origin);
+    }
+  }, [page, currentAction, dismissPage, updatePath]);
 
   const renderEntries = (
-    entries: readonly ComposerContextMenuItem[],
+    entries: readonly ComposerContextMenuAction[],
     origin: string[],
   ): ReactNode => (
-    <DropdownMenuGroup>
+    <>
       {entries.map((entry) => {
         if (entry.picker && typeof entry.picker.presentation === "object") {
           return (
@@ -380,14 +450,13 @@ export function ComposerContextMenu({
                 changeOpen(false);
               }}
             >
-              {entry.icon}
-              {entry.label}
+              <ContextEntryLabel {...entry} />
             </DropdownMenuItem>
           );
         }
         const branch = [...origin, entry.id];
         const expanded = branch.every((id, index) => path[index] === id);
-        if (entry.children || entry.picker || entry.render) {
+        if (entry.picker || entry.render) {
           const back = () => {
             dismissPage();
             updatePath(origin);
@@ -397,7 +466,6 @@ export function ComposerContextMenu({
             <ContextSubmenu
               key={entry.id}
               label={entry.label}
-              icon={entry.icon}
               disabled={entry.disabled}
               open={expanded}
               onOpenChange={(next) => {
@@ -410,15 +478,10 @@ export function ComposerContextMenu({
                   return;
                 }
                 setError(null);
-                if (entry.children) {
-                  dismissPage();
-                  updatePath(branch);
-                } else activate(entry, origin);
+                activate(entry, origin);
               }}
             >
-              {entry.children ? (
-                renderEntries(entry.children, branch)
-              ) : entry.picker ? (
+              {entry.picker ? (
                 <ComposerContextPicker
                   key={JSON.stringify([entry.id, entry.picker.scopeKey])}
                   config={entry.picker}
@@ -438,7 +501,7 @@ export function ComposerContextMenu({
                     },
                     onResume: () => {
                       const action = findAction(itemsRef.current, entry.id);
-                      if (!action?.render) {
+                      if (!action?.render || action.disabled) {
                         reportError(
                           new Error(
                             t("agentChat.composer.contextActionFailed", {
@@ -448,14 +511,28 @@ export function ComposerContextMenu({
                         );
                         return;
                       }
-                      setOpen(true);
-                      setContextOpen(true);
+                      changeOpen(true);
                       activate(action, origin, false);
                     },
                   })}
                 </LegacyContextPage>
               ) : null}
             </ContextSubmenu>
+          );
+        }
+        if (entry.checked !== undefined) {
+          return (
+            <DropdownMenuCheckboxItem
+              key={entry.id}
+              checked={entry.checked}
+              disabled={entry.disabled}
+              onSelect={(event) => {
+                event.preventDefault();
+                selectAction(entry);
+              }}
+            >
+              <ContextEntryLabel {...entry} />
+            </DropdownMenuCheckboxItem>
           );
         }
         return (
@@ -467,13 +544,29 @@ export function ComposerContextMenu({
               selectAction(entry);
             }}
           >
-            {entry.icon}
-            {entry.label}
+            <ContextEntryLabel {...entry} />
           </DropdownMenuItem>
         );
       })}
-    </DropdownMenuGroup>
+    </>
   );
+
+  const matches = (entries: readonly ComposerContextMenuItem[]) =>
+    flattenMenuItems(getComposerContextMenuEntries(entries, [], search));
+  const rootEntries = matches(items.filter((item) => !item.children));
+  const groups = items.filter((item): item is ComposerContextMenuCategory =>
+    Boolean(item.children),
+  );
+  const showUpload =
+    (addAttachment || onAttachmentRequest) &&
+    (!search.trim() ||
+      uploadLabel
+        .toLocaleLowerCase()
+        .includes(search.trim().toLocaleLowerCase()));
+  const hasMatches =
+    showUpload ||
+    rootEntries.length > 0 ||
+    groups.some((group) => matches([group]).length > 0);
 
   return (
     <>
@@ -496,7 +589,11 @@ export function ComposerContextMenu({
           }}
         />
       )}
-      <DropdownMenu open={open} onOpenChange={changeOpen}>
+      <DropdownMenu
+        open={open}
+        onOpenChange={changeOpen}
+        dir={placement.direction}
+      >
         <Tooltip
           open={triggerTooltipOpen && !contextButtonTooltipDisabled}
           onOpenChange={setTriggerTooltipOpen}
@@ -509,6 +606,7 @@ export function ComposerContextMenu({
                 variant="ghost"
                 size="icon"
                 className="size-7 shrink-0"
+                data-agent-composer-slot="plus-button"
                 disabled={disabled}
                 aria-label={label}
                 onClick={(event) => event.stopPropagation()}
@@ -521,78 +619,139 @@ export function ComposerContextMenu({
         </Tooltip>
         <DropdownMenuContent
           align="start"
-          className="w-64"
+          side={placement.side}
+          sideOffset={placement.sideOffset}
+          alignOffset={placement.alignOffset}
+          collisionPadding={12}
+          style={{
+            width: placement.width,
+            maxWidth: "calc(100vw - 24px)",
+            maxHeight: placement.maxHeight,
+          }}
+          className="@container flex flex-col rounded-xl p-1 [&_[role^=menuitem]]:min-h-10 [&_[role^=menuitem]]:px-3 [&_[role^=menuitem]]:rounded-lg"
           data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
             if (pendingDialog.current) {
               event.preventDefault();
               setDialog(pendingDialog.current);
               pendingDialog.current = null;
+              return;
             }
             if (!restoreFocusOnClose.current) event.preventDefault();
+            else if (onRestoreFocus) {
+              event.preventDefault();
+              onRestoreFocus();
+            }
             restoreFocusOnClose.current = true;
           }}
         >
-          <DropdownMenuGroup>
-            {(addAttachment || onAttachmentRequest) && (
-              <DropdownMenuItem
-                onSelect={() => {
-                  if (addAttachment) {
-                    changeOpen(false);
-                    inputRef.current?.click();
-                  } else {
-                    pendingAttachmentRequest.current = true;
-                    changeOpen(false);
-                  }
-                }}
-              >
-                <IconFile size={16} />
-                {uploadLabel}
-              </DropdownMenuItem>
-            )}
-            {items.length > 0 ? (
-              <ContextSubmenu
-                label={label}
-                icon={<IconTextRecognition size={16} />}
-                open={contextOpen}
-                onOpenChange={(next) => {
-                  setContextOpen(next);
-                  if (!next) {
-                    dismissPage();
-                    updatePath([]);
-                  }
-                }}
-              >
-                {renderEntries(items, [])}
-              </ContextSubmenu>
-            ) : null}
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {dialog &&
-        dialogAvailable &&
-        dialogAction?.picker &&
-        typeof dialogAction.picker.presentation === "object" && (
-          <ComposerContextPickerDialog
-            key={JSON.stringify([dialog.id, dialogAction.picker.scopeKey])}
-            title={dialogAction.label}
-            config={dialogAction.picker}
-            onClose={() => {
-              if (dialogRef.current !== dialog) return;
-              dialogRef.current = null;
-              setDialog(null);
-              try {
-                dialogAction.onDismiss?.();
-              } catch (cause) {
-                reportError(cause);
-              }
-            }}
-            onRestoreFocus={() => {
-              if (dialogRef.current) return;
-              if (!disabled) triggerRef.current?.focus();
+          <ComposerContextMenuSearch
+            placeholder={t("agentChat.composer.searchContext", {
+              defaultValue: "Search context…",
+            })}
+            value={search}
+            onValueChange={(value) => {
+              setSearch(value);
+              onSearchChange?.(value);
             }}
           />
-        )}
+          <div className="min-h-0 overflow-y-auto">
+            <DropdownMenuGroup>
+              {(showUpload || rootEntries.length > 0) && (
+                <DropdownMenuLabel className="px-3 font-normal text-muted-foreground">
+                  {label}
+                </DropdownMenuLabel>
+              )}
+              {showUpload && (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    if (addAttachment) {
+                      changeOpen(false);
+                      inputRef.current?.click();
+                    } else {
+                      pendingAttachmentRequest.current = true;
+                      changeOpen(false);
+                    }
+                  }}
+                >
+                  {uploadLabel}
+                </DropdownMenuItem>
+              )}
+              {renderEntries(rootEntries, [])}
+            </DropdownMenuGroup>
+            {groups.map((group) => {
+              const entries = matches([group]);
+              if (!entries.length) return null;
+              return (
+                <DropdownMenuGroup key={group.id}>
+                  <DropdownMenuLabel className="px-3 font-normal text-muted-foreground">
+                    {group.label}
+                  </DropdownMenuLabel>
+                  {renderEntries(entries, [])}
+                </DropdownMenuGroup>
+              );
+            })}
+            {loading && (
+              <div
+                role="status"
+                aria-label={t("agentChat.composer.contextPending", {
+                  defaultValue: "Loading context…",
+                })}
+                className="grid gap-2 p-3"
+              >
+                <Skeleton className="h-5 w-2/3" />
+                <Skeleton className="h-5 w-1/2" />
+              </div>
+            )}
+            {searchError && (
+              <div role="alert" className="px-3 py-2 text-sm text-destructive">
+                {searchError}
+              </div>
+            )}
+            {searchError && onRetry && (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onRetry();
+                }}
+              >
+                {t("agentChat.common.retry", { defaultValue: "Retry" })}
+              </DropdownMenuItem>
+            )}
+            {!hasMatches && !loading && !searchError && (
+              <div role="status" className="p-3 text-sm text-muted-foreground">
+                {t("agentChat.composer.noContextResults", {
+                  defaultValue: "No matching context.",
+                })}
+              </div>
+            )}
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {dialog && dialogAvailable && dialogAction?.picker && (
+        <ComposerContextPickerDialog
+          key={JSON.stringify([dialog.id, dialogAction.picker.scopeKey])}
+          title={dialogAction.label}
+          config={dialogAction.picker}
+          onClose={() => {
+            if (dialogRef.current !== dialog) return;
+            dialogRef.current = null;
+            setDialog(null);
+            try {
+              dialogAction.onDismiss?.();
+            } catch (cause) {
+              reportError(cause);
+            }
+          }}
+          onRestoreFocus={() => {
+            if (dialogRef.current) return;
+            if (!disabled) {
+              if (onRestoreFocus) onRestoreFocus();
+              else triggerRef.current?.focus();
+            }
+          }}
+        />
+      )}
       {error && (
         <span role="alert" className="text-xs text-destructive">
           {error}

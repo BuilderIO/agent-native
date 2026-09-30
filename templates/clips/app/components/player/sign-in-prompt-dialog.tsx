@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 
 import { Button } from "@/components/ui/button";
 import {

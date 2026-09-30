@@ -1,10 +1,4 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import {
-  ChatFirstAppPane,
-  defaultChatFirstCopy,
-  type ChatFirstCopy,
-} from "@agent-native/core/client/chat-first";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionMutation,
@@ -13,6 +7,12 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import {
+  ChatFirstAppPane,
+  defaultChatFirstCopy,
+  type ChatFirstCopy,
+} from "@agent-native/toolkit/app/chat/chat-first";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -30,9 +30,7 @@ import {
 import { Link } from "react-router";
 
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
-import { filterOtherApps, type ConnectedAppSummary } from "../lib/other-apps";
 import {
-  mergeChatFirstWorkspaceApps,
   isWorkspaceSsoApp,
   isDispatchWorkspaceAppId,
   navigateToWorkspaceApp,
@@ -61,16 +59,6 @@ interface EmbedSessionInput {
   path?: string;
   url?: string;
   chrome: "minimal";
-}
-
-interface GrantedWorkspaceAppSummary {
-  id: string;
-  name: string;
-  url?: string | null;
-}
-
-interface GrantedWorkspaceAppsResult {
-  apps: GrantedWorkspaceAppSummary[];
 }
 
 type WorkspaceAppTheme = "light" | "dark";
@@ -568,91 +556,10 @@ export function WorkspaceAppHost({
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
   );
-  const workspaceApps = useMemo(
-    () => mergeChatFirstWorkspaceApps(workspaceAppsQuery.data),
+  const apps = useMemo(
+    () => (workspaceAppsQuery.data ?? []).filter((item) => !item.archived),
     [workspaceAppsQuery.data],
   );
-  const visibleWorkspaceApps = useMemo(
-    () => workspaceApps.filter((item) => !item.archived),
-    [workspaceApps],
-  );
-  const workspaceAppIds = useMemo(
-    () => new Set(workspaceApps.map((item) => item.id.trim().toLowerCase())),
-    [workspaceApps],
-  );
-  const workspaceApp = useMemo(
-    () =>
-      visibleWorkspaceApps.find(
-        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
-      ) ?? null,
-    [appId, visibleWorkspaceApps],
-  );
-  const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
-    "list_apps",
-    {},
-    {
-      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
-    },
-  );
-  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
-    "list-connected-agents",
-    {},
-    {
-      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
-    },
-  );
-  const apps = useMemo(() => {
-    const merged = new Map<string, WorkspaceAppSummary>();
-
-    for (const app of visibleWorkspaceApps) {
-      merged.set(app.id.trim().toLowerCase(), app);
-    }
-    for (const app of grantedAppsQuery.data?.apps ?? []) {
-      const id = app.id.trim();
-      if (
-        !id ||
-        workspaceAppIds.has(id.toLowerCase()) ||
-        merged.has(id.toLowerCase())
-      ) {
-        continue;
-      }
-      merged.set(id.toLowerCase(), {
-        id,
-        name: app.name.trim() || id,
-        path: "",
-        url: app.url?.trim() || null,
-        status: "ready",
-      });
-    }
-    for (const app of filterOtherApps(
-      connectedAppsQuery.data ?? [],
-      visibleWorkspaceApps,
-    )) {
-      const id = app.id.trim();
-      if (
-        !id ||
-        workspaceAppIds.has(id.toLowerCase()) ||
-        merged.has(id.toLowerCase())
-      ) {
-        continue;
-      }
-      merged.set(id.toLowerCase(), {
-        id,
-        name: app.name.trim() || id,
-        description: app.description,
-        path: "",
-        url: app.homeUrl?.trim() || app.url.trim(),
-        status: "ready",
-      });
-    }
-
-    return [...merged.values()];
-  }, [
-    connectedAppsQuery.data,
-    grantedAppsQuery.data?.apps,
-    visibleWorkspaceApps,
-    workspaceAppIds,
-  ]);
   const app = useMemo(
     () =>
       apps.find(
@@ -660,17 +567,10 @@ export function WorkspaceAppHost({
       ) ?? null,
     [appId, apps],
   );
-  const isLoading =
-    workspaceAppsQuery.isLoading ||
-    grantedAppsQuery.isLoading ||
-    connectedAppsQuery.isLoading;
+  const isLoading = workspaceAppsQuery.isLoading;
   const queryError = workspaceAppsQuery.isError
     ? workspaceAppsQuery.error
-    : grantedAppsQuery.isError
-      ? grantedAppsQuery.error
-      : connectedAppsQuery.isError
-        ? connectedAppsQuery.error
-        : null;
+    : null;
 
   if (queryError && !app) {
     return (
@@ -678,11 +578,7 @@ export function WorkspaceAppHost({
         <div className="w-full max-w-2xl">
           <ActionQueryError
             error={queryError}
-            onRetry={() => {
-              void workspaceAppsQuery.refetch();
-              void grantedAppsQuery.refetch();
-              void connectedAppsQuery.refetch();
-            }}
+            onRetry={() => void workspaceAppsQuery.refetch()}
           />
         </div>
       </div>

@@ -1,14 +1,14 @@
 import {
+  buildSettingsEntryRoute,
+  buildSettingsRoute,
+} from "@agent-native/core/navigation";
+import {
   CORE_SETTINGS_PAGES,
   createSettingsBridge,
   isSettingsPageVisible,
   type SettingsPageContext,
   type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
-import {
-  buildSettingsEntryRoute,
-  buildSettingsRoute,
-} from "@agent-native/core/navigation";
+} from "@agent-native/toolkit/app/settings";
 
 interface SettingsCommandItem {
   id: string;

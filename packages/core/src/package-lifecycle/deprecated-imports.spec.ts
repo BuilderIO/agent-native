@@ -1,13 +1,15 @@
 import fs from "node:fs";
+import { Module } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { scanDeprecatedImports } from "./deprecated-imports.js";
 import {
   bundledCoreMigrationManifestPath,
   isMigrationManifestActive,
+  loadMigrationManifestsForProject,
   readMigrationManifest,
   resolveMigrationSymbolMove,
   type MigrationManifest,
@@ -35,8 +37,8 @@ const featureDependencies = [
     version: "^5.4.0",
     when: "sentry-source-map-upload",
   },
-  { name: "@better-auth/sso", version: "1.7.4", when: "sso" },
-  { name: "@better-auth/scim", version: "1.7.4", when: "scim" },
+  { name: "@better-auth/sso", version: "1.7.6", when: "sso" },
+  { name: "@better-auth/scim", version: "1.7.6", when: "scim" },
   {
     name: "@amplitude/analytics-browser",
     version: "^2.45.8",
@@ -55,8 +57,78 @@ afterEach(() => {
   }
 });
 
+describe("loadMigrationManifestsForProject", () => {
+  it("allows an absent optional Toolkit package", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-no-toolkit-"),
+    );
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "doctor-no-toolkit" }),
+    );
+    const resolveFilename = Module._resolveFilename;
+    const resolveSpy = vi
+      .spyOn(Module, "_resolveFilename")
+      .mockImplementation((request, parent, isMain, options) => {
+        if (request.startsWith("@agent-native/toolkit")) {
+          throw Object.assign(new Error("Cannot find module"), {
+            code: "MODULE_NOT_FOUND",
+          });
+        }
+        return resolveFilename.call(Module, request, parent, isMain, options);
+      });
+
+    try {
+      expect(loadMigrationManifestsForProject(root)).toHaveLength(1);
+    } finally {
+      resolveSpy.mockRestore();
+    }
+  });
+
+  it("fails when an installed Toolkit has no resolvable migration manifest", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-toolkit-"));
+    roots.push(root);
+    const toolkit = path.join(root, "node_modules/@agent-native/toolkit");
+    fs.mkdirSync(toolkit, { recursive: true });
+    fs.writeFileSync(
+      path.join(toolkit, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/toolkit",
+        exports: {
+          ".": "./index.js",
+          "./migration-manifest.json": "./migration-manifest.json",
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(toolkit, "index.js"), "");
+
+    expect(() => loadMigrationManifestsForProject(root)).toThrow(
+      /could not resolve.*installed/i,
+    );
+  });
+
+  it("fails when the required bundled Core manifest is missing", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-core-manifest-"),
+    );
+    roots.push(root);
+    const readFile = vi.spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
+    });
+
+    try {
+      expect(() => loadMigrationManifestsForProject(root)).toThrow(
+        /required bundled Core migration manifest is missing/i,
+      );
+    } finally {
+      readFile.mockRestore();
+    }
+  });
+});
+
 describe("scanDeprecatedImports", () => {
-  it("documents every removed export in the migration guide", () => {
+  it("documents removed AgentKit chat exports in their migration guide", () => {
     const manifest = JSON.parse(
       fs.readFileSync(
         new URL("../../migration-manifest.json", import.meta.url),
@@ -68,14 +140,65 @@ describe("scanDeprecatedImports", () => {
       "utf-8",
     );
     const symbols = new Set(
-      Object.values(manifest.removedExports ?? {}).flatMap(
-        (removedExport) => removedExport.symbols,
-      ),
+      Object.values(manifest.removedExports ?? {})
+        .filter((removedExport) =>
+          removedExport.migrationGuide.endsWith("/agentkit-chat.md"),
+        )
+        .flatMap((removedExport) =>
+          removedExport.symbols.filter(
+            (symbol) => !removedExport.symbolGuides?.[symbol],
+          ),
+        ),
     );
 
     expect(
       [...symbols].filter((symbol) => !guide.includes(`\`${symbol}\``)),
     ).toEqual([]);
+  });
+
+  it("uses the per-symbol guide for removals sharing an old subpath", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-guides-"));
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "index.ts"),
+      [
+        'import { createAgentChatAdapter } from "@agent-native/core/client/agent-chat";',
+        'import { AgentNative } from "@agent-native/core/client";',
+        "",
+      ].join("\n"),
+    );
+    const manifest: MigrationManifest = {
+      sinceVersion: "0.110.0",
+      moves: {},
+      removedExports: {
+        "@agent-native/core/client/agent-chat": {
+          symbols: ["createAgentChatAdapter"],
+          migrationGuide: "https://example.test/agentkit-chat.md",
+        },
+        "@agent-native/core/client": {
+          symbols: ["AgentNative"],
+          migrationGuide: "https://example.test/agentkit-chat.md",
+          symbolGuides: {
+            AgentNative: "https://example.test/upgrading-core-ui.mdx",
+          },
+        },
+      },
+    };
+
+    expect(scanDeprecatedImports({ root, manifests: [manifest] })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: "@agent-native/core/client/agent-chat",
+          symbols: ["createAgentChatAdapter"],
+          migrationGuide: "https://example.test/agentkit-chat.md",
+        }),
+        expect.objectContaining({
+          from: "@agent-native/core/client",
+          symbols: ["AgentNative"],
+          migrationGuide: "https://example.test/upgrading-core-ui.mdx",
+        }),
+      ]),
+    );
   });
 
   it("activates predictive moves only when their release is running", () => {
@@ -88,13 +211,15 @@ describe("scanDeprecatedImports", () => {
     expect(isMigrationManifestActive(manifest, "0.112.0")).toBe(true);
   });
 
-  it("activates the root-barrel move to the framework-wired composer entry", () => {
+  it("routes root-barrel composer symbols to Toolkit", () => {
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     expect(manifest).not.toBeNull();
     expect(manifest?.sinceVersion).toBe("0.110.0");
-    expect(
-      manifest?.moves["@agent-native/core/client/composer"],
-    ).toBeUndefined();
+    expect(manifest?.moves["@agent-native/core/client/composer"]).toMatchObject(
+      {
+        to: "@agent-native/toolkit/app/chat/composer/index",
+      },
+    );
     const clientMove = manifest?.moves["@agent-native/core/client"];
     expect(clientMove).toBeDefined();
     expect(
@@ -102,7 +227,7 @@ describe("scanDeprecatedImports", () => {
         ? resolveMigrationSymbolMove(clientMove, "PromptComposer")
         : null,
     ).toMatchObject({
-      to: "@agent-native/core/client/composer",
+      to: "@agent-native/toolkit/app/chat",
       status: "active",
     });
   });
@@ -162,15 +287,7 @@ describe("scanDeprecatedImports", () => {
           ? resolveMigrationSymbolMove(move, "RegistryBlockDataProvider")
           : null,
       ).toMatchObject({
-        to: "@agent-native/core/blocks",
-        status: "active",
-      });
-      expect(
-        move
-          ? resolveMigrationSymbolMove(move, "RegistryBlockDataProvider")
-          : null,
-      ).toMatchObject({
-        to: "@agent-native/core/blocks",
+        to: "@agent-native/toolkit/app/blocks",
         status: "active",
       });
     }
@@ -225,6 +342,88 @@ describe("scanDeprecatedImports", () => {
         symbols: ["DeepMoved"],
       }),
     ]);
+  });
+
+  it("reports active moves in dynamic, CommonJS, namespace, and unquoted CSS imports", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-call-moves-"),
+    );
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "consumer.ts"),
+      [
+        'const { AgentSidebar } = await import("@agent-native/core/client");',
+        'const { AppProvidersProps } = require("@agent-native/core/client/hooks");',
+        'const client = await import("@agent-native/core/client");',
+        "void client.AgentSidebar;",
+        'require("@agent-native/core/client/AgentSidebar");',
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(root, "global.css"),
+      "@import url(@agent-native/core/styles/agent-native.css);\n",
+    );
+    const manifest: MigrationManifest = {
+      sinceVersion: "0.110.0",
+      moves: {
+        "@agent-native/core/client": {
+          to: "@agent-native/core/client",
+          symbols: {
+            AgentSidebar: { to: "@agent-native/toolkit/app/chat/AgentSidebar" },
+          },
+        },
+        "@agent-native/core/client/hooks": {
+          to: "@agent-native/core/client/hooks",
+          symbols: {
+            AppProvidersProps: { to: "@agent-native/toolkit/app/providers" },
+          },
+        },
+        "@agent-native/core/client/AgentSidebar": {
+          to: "@agent-native/toolkit/app/chat/AgentSidebar",
+        },
+        "@agent-native/core/styles/agent-native.css": {
+          to: "@agent-native/toolkit/styles.css",
+        },
+      },
+    };
+
+    expect(scanDeprecatedImports({ root, manifests: [manifest] })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: path.join(root, "consumer.ts"),
+          line: 1,
+          from: "@agent-native/core/client",
+          to: ["@agent-native/toolkit/app/chat/AgentSidebar"],
+          symbols: ["AgentSidebar"],
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.ts"),
+          line: 2,
+          from: "@agent-native/core/client/hooks",
+          to: ["@agent-native/toolkit/app/providers"],
+          symbols: ["AppProvidersProps"],
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.ts"),
+          line: 4,
+          from: "@agent-native/core/client",
+          to: ["@agent-native/toolkit/app/chat/AgentSidebar"],
+          symbols: ["AgentSidebar"],
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.ts"),
+          line: 5,
+          from: "@agent-native/core/client/AgentSidebar",
+          to: ["@agent-native/toolkit/app/chat/AgentSidebar"],
+        }),
+        expect.objectContaining({
+          file: path.join(root, "global.css"),
+          line: 1,
+          from: "@agent-native/core/styles/agent-native.css",
+          to: ["@agent-native/toolkit/styles.css"],
+        }),
+      ]),
+    );
   });
 
   it("reports removed chat exports with their migration guide", () => {
@@ -831,6 +1030,21 @@ describe("readMigrationManifest dependencies", () => {
         },
         "removedExports",
       ],
+      [
+        {
+          ...base,
+          removedExports: {
+            "@agent-native/core/client": {
+              symbols: ["AgentNative"],
+              migrationGuide: "https://example.test/guide.md",
+              symbolGuides: {
+                Unknown: "https://example.test/other.md",
+              },
+            },
+          },
+        },
+        "removedExports",
+      ],
     ] as const) {
       fs.writeFileSync(manifestPath, JSON.stringify(manifest));
       expect(() => readMigrationManifest(manifestPath)).toThrow(
@@ -845,7 +1059,25 @@ describe("readMigrationManifest dependencies", () => {
     expect(readMigrationManifest(path.join(root, "missing.json"))).toBeNull();
   });
 
-  it("keeps the feature dependency records in the bundled Core manifest", () => {
+  it("keeps Better Auth peer versions aligned across Core and upgrades", () => {
+    const corePackage = JSON.parse(
+      fs.readFileSync(new URL("../../package.json", import.meta.url), "utf-8"),
+    ) as {
+      dependencies: Record<string, string>;
+      devDependencies: Record<string, string>;
+      peerDependencies: Record<string, string>;
+    };
+    const betterAuthVersion = corePackage.dependencies["better-auth"];
+    expect(betterAuthVersion).toBe("1.7.6");
+    for (const name of ["@better-auth/sso", "@better-auth/scim"]) {
+      expect(corePackage.devDependencies[name]).toBe(betterAuthVersion);
+      expect(corePackage.peerDependencies[name]).toBe(betterAuthVersion);
+      expect(
+        featureDependencies.find((dependency) => dependency.name === name)
+          ?.version,
+      ).toBe(betterAuthVersion);
+    }
+
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     expect(manifest?.dependencies).toEqual(featureDependencies);
   });
