@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
-import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import { interpolateDashboardPanelSql } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import {
   isDashboardPanelSource,
   normalizeDashboardPanelQuery,
@@ -91,7 +91,7 @@ export default defineAction({
 
     const rawQuery =
       typeof panel.sql === "string"
-        ? interpolate(panel.sql, filters, { failClosedTimeVariables: true })
+        ? interpolateDashboardPanelSql(panel.sql, filters, panel)
         : panel.sql;
     const query = normalizeDashboardPanelQuery(panel.source, rawQuery);
     const result = await resolveAnalyticsPanelSource(

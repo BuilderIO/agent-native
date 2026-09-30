@@ -6,7 +6,7 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   InlineMarkdown,
   type InlineMarkdownProtectedSpan,
-} from "@agent-native/core/client/markdown";
+} from "@agent-native/toolkit/app/review";
 import {
   IconArrowUp,
   IconMessageCircle,

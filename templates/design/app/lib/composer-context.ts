@@ -1,4 +1,4 @@
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 
 export const SYSTEM_CONTEXT_KEY = "design-home-system";
 export const TEMPLATE_CONTEXT_KEY = "design-home-template";

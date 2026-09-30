@@ -3,6 +3,10 @@ import path from "path";
 
 import dotenv from "dotenv";
 
+import { findWorkspaceRoot } from "./workspace-root.js";
+
+export { findWorkspaceRoot } from "./workspace-root.js";
+
 export { fail, type FailOptions } from "../action.js";
 
 export { parseArgs, camelCaseArgs } from "./parse-args.js";
@@ -46,28 +50,6 @@ function loadEnvLocalOverrides(
     if (protectedKeys.has(key)) continue;
     process.env[key] = value;
   }
-}
-
-export function findWorkspaceRoot(startDir: string): string | null {
-  let dir = path.resolve(startDir);
-  for (let i = 0; i < 20; i++) {
-    const pkgPath = path.join(dir, "package.json");
-    if (fs.existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-        const wsCore = pkg?.["agent-native"]?.workspaceCore;
-        if (typeof wsCore === "string" && wsCore.length > 0) {
-          return dir;
-        }
-      } catch {
-        // Keep walking on malformed package.json
-      }
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
 }
 
 export function isValidPath(p: string): boolean {

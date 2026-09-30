@@ -1,4 +1,4 @@
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import type { RefObject } from "react";
 import { useEffect } from "react";
 

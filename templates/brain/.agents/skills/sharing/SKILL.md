@@ -247,6 +247,14 @@ Both the agent and the UI use these same actions. The agent calls them as tools;
 UI code should use `ShareButton` / `ShareDialog` or the action client hooks
 instead of hand-writing route calls.
 
+To re-skin the share notification email for the whole app, register
+`overrideTransactionalEmail("core.resource-shared", render)` from a server
+plugin. Do not fork `share-resource` or add another per-resource hook: the
+registration's `getBrandName` / `getLogoUrl` / `getSender` / `getHeroHtml` /
+`getShareEmailExtras` hooks still feed the default template and the override's
+props. See
+`/docs/deployment#email-templates`.
+
 ## Migration pattern for existing tables
 
 When retrofitting an existing resource table:

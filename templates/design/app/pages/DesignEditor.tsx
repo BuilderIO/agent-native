@@ -1,21 +1,17 @@
 import {
   generateTabId,
-  AgentChatSurface,
   buildDynamicAgentSuggestions,
   type AgentDynamicSuggestionContext,
   isAssistantChatHistoryVersion,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
   setAgentChatContextItem,
   removeAgentChatContextItem,
   useAgentChatContext,
-  useExternalAgentHost,
 } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -27,7 +23,6 @@ import {
   type AttributedRecentEdit,
   type OtherPresence,
 } from "@agent-native/core/client/collab";
-import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
@@ -49,17 +44,11 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
-  buildReviewThreads,
   useReviewComments,
   useSendReviewThreadToAgent,
-  type ReviewThread,
 } from "@agent-native/core/client/review";
-import {
-  ShareButton,
-  withShareLinkAttribution,
-} from "@agent-native/core/client/sharing";
+import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
@@ -71,6 +60,19 @@ import {
   useCreativeContextState,
   readCreativeContextState,
 } from "@agent-native/creative-context/client";
+import {
+  AgentChatSurface,
+  useExternalAgentHost,
+} from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  buildReviewThreads,
+  type ReviewThread,
+} from "@agent-native/toolkit/app/review";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   LiveCursorOverlay,
   PresenceBar,
@@ -259,6 +261,7 @@ import {
 import {
   DesignCanvas,
   type EditorDragStateChange,
+  type RuntimeLayerSnapshotReadiness,
 } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
@@ -420,6 +423,7 @@ import {
   type DesignAccessStatus,
 } from "@/components/DesignAccessState";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import { DesignComposerContextProvider } from "@/components/editor/DesignComposerContextProvider";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -1053,6 +1057,7 @@ import {
   writePendingEditSessionMarker,
 } from "./design-editor/pending-edit-session-marker";
 import {
+  activeRuntimeReloadFrameId,
   applyInteractionStateStyleCommit,
   buildPendingVisualStyleRevertPatches,
   deriveStatePreviewTarget,
@@ -1062,6 +1067,7 @@ import {
   isVisualEditHandoffAcknowledged,
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
+  pendingLiveEditFrameTargets,
   pendingLiveStructureEditsFromEdit,
   pendingLiveStructureEditsFromUndoEntry,
   pendingLiveLayerNameUndoRevertValue,
@@ -1070,6 +1076,7 @@ import {
   projectRelativeSourcePath,
   relativeOperationsForStyles,
   reactSourceAnchorForPendingEdit,
+  shouldFinalizePendingLiveEditReload,
   type PendingLiveLayerNameEdit,
   type PendingLiveLayerStateEdit,
   type PendingLiveNonStyleEdit,
@@ -1085,7 +1092,14 @@ import {
   shouldPreferRuntimeLayerProjection,
   shouldUseRuntimeLayerProjection,
   shouldBlockPendingVisualStyleNavigation,
+  shouldClearPendingLiveEditsAfterReload,
+  shouldClearReloadedVisualEditHandoff,
+  shouldSuppressReloadedVisualEditHandoff,
+  shouldPublishVisualEditHandoff,
   shouldShowPendingVisualStyleApply,
+  updateReloadedVisualEditHandoff,
+  updateVisualEditHandoffPublication,
+  type VisualEditHandoffPublicationState,
 } from "./design-editor/pending-edits";
 import { usePendingLiveEditUnloadGuard } from "./design-editor/pending-live-edit-unload-guard";
 import { usePerformanceBufferGuard } from "./design-editor/performance-buffer-guard";
@@ -1799,6 +1813,8 @@ function DesignEditor() {
   ] = useState<number | null>(null);
   const pendingVisualStyleEditsRef = useRef<PendingVisualStyleEdit[]>([]);
   const pendingLiveNonStyleEditsRef = useRef<PendingLiveNonStyleEdit[]>([]);
+  const pendingLiveEditReloadedTargetsRef = useRef<Set<string>>(new Set());
+  const liveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const pendingVisualEditPublicationRevisionRef = useRef(0);
   const pendingVisualEditPublisherIdRef = useRef(crypto.randomUUID());
   const pendingVisualEditPublicationQueueRef = useRef<Promise<void>>(
@@ -1806,11 +1822,17 @@ function DesignEditor() {
   );
   const pendingVisualEditClearRequestedRef = useRef<string | null>(null);
   const pendingVisualEditHadPendingRef = useRef<string | null>(null);
+  const pendingVisualEditHandoffPublicationRef =
+    useRef<VisualEditHandoffPublicationState | null>(null);
+  const pendingVisualEditReloadedHandoffRef =
+    useRef<VisualEditHandoffPublicationState | null>(null);
   useEffect(() => {
     pendingVisualEditPublicationRevisionRef.current = 0;
     pendingVisualEditPublisherIdRef.current = crypto.randomUUID();
     pendingVisualEditClearRequestedRef.current = null;
     pendingVisualEditHadPendingRef.current = null;
+    pendingVisualEditHandoffPublicationRef.current = null;
+    pendingVisualEditReloadedHandoffRef.current = null;
     setPendingVisualEditPublicationFailed(false);
     setPendingVisualEditRecoveryVisible(false);
   }, [id]);
@@ -2030,48 +2052,117 @@ function DesignEditor() {
   );
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
-  const clearPendingLiveEditState = useCallback(() => {
-    if (
-      id &&
-      (pendingVisualStyleEditsRef.current.length > 0 ||
-        pendingLiveNonStyleEditsRef.current.length > 0)
-    ) {
-      pendingVisualEditClearRequestedRef.current = id;
-    }
-    stagedSourceHandoffRef.current = "idle";
-    setApplyingViaHost(false);
-    if (pendingEditSessionDesignIdRef.current === id) {
-      clearPendingEditSessionRecovery();
-    }
-    if (stagedHandoffStartTimerRef.current !== undefined) {
-      window.clearTimeout(stagedHandoffStartTimerRef.current);
-      stagedHandoffStartTimerRef.current = undefined;
-    }
-    cancelPendingStructureVerification();
-    pendingVisualStyleUndoStackRef.current = [];
-    pendingVisualStyleRedoStackRef.current = [];
-    pendingLiveNonStyleUndoStackRef.current = [];
-    pendingLiveNonStyleRedoStackRef.current = [];
-    historyOrderRef.current = historyOrderRef.current.filter(
-      (kind) => kind !== "pending-style" && kind !== "pending-live",
-    );
-    redoOrderRef.current = redoOrderRef.current.filter(
-      (kind) => kind !== "pending-style" && kind !== "pending-live",
-    );
-    pendingStructureRedoReplayRef.current = undefined;
-    if (pendingStructureRedoReplayTimerRef.current !== undefined) {
-      window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
-      pendingStructureRedoReplayTimerRef.current = undefined;
-    }
-    pendingVisualStyleEditsRef.current = [];
-    pendingLiveNonStyleEditsRef.current = [];
-    setPendingVisualStyleEdits([]);
-    setPendingLiveNonStyleEdits([]);
-  }, [cancelPendingStructureVerification, clearPendingEditSessionRecovery, id]);
+  const clearPendingLiveEditState = useCallback(
+    (options: { preserveDurableHandoff?: boolean } = {}) => {
+      pendingLiveEditReloadedTargetsRef.current.clear();
+      if (
+        id &&
+        (pendingVisualStyleEditsRef.current.length > 0 ||
+          pendingLiveNonStyleEditsRef.current.length > 0)
+      ) {
+        if (
+          options.preserveDurableHandoff &&
+          pendingVisualEditHandoffPublicationRef.current?.designId === id
+        ) {
+          pendingVisualEditReloadedHandoffRef.current = {
+            ...pendingVisualEditHandoffPublicationRef.current,
+          };
+          pendingVisualEditClearRequestedRef.current = null;
+          pendingVisualEditHadPendingRef.current = null;
+        } else {
+          pendingVisualEditClearRequestedRef.current = id;
+        }
+      }
+      stagedSourceHandoffRef.current = "idle";
+      setApplyingViaHost(false);
+      if (pendingEditSessionDesignIdRef.current === id) {
+        clearPendingEditSessionRecovery();
+      }
+      if (stagedHandoffStartTimerRef.current !== undefined) {
+        window.clearTimeout(stagedHandoffStartTimerRef.current);
+        stagedHandoffStartTimerRef.current = undefined;
+      }
+      cancelPendingStructureVerification();
+      pendingVisualStyleUndoStackRef.current = [];
+      pendingVisualStyleRedoStackRef.current = [];
+      pendingLiveNonStyleUndoStackRef.current = [];
+      pendingLiveNonStyleRedoStackRef.current = [];
+      historyOrderRef.current = historyOrderRef.current.filter(
+        (kind) => kind !== "pending-style" && kind !== "pending-live",
+      );
+      redoOrderRef.current = redoOrderRef.current.filter(
+        (kind) => kind !== "pending-style" && kind !== "pending-live",
+      );
+      pendingStructureRedoReplayRef.current = undefined;
+      if (pendingStructureRedoReplayTimerRef.current !== undefined) {
+        window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
+        pendingStructureRedoReplayTimerRef.current = undefined;
+      }
+      pendingVisualStyleEditsRef.current = [];
+      pendingLiveNonStyleEditsRef.current = [];
+      setPendingVisualStyleEdits([]);
+      setPendingLiveNonStyleEdits([]);
+    },
+    [cancelPendingStructureVerification, clearPendingEditSessionRecovery, id],
+  );
   const clearPendingLiveEditStateRef = useRef(clearPendingLiveEditState);
   useEffect(() => {
     clearPendingLiveEditStateRef.current = clearPendingLiveEditState;
   }, [clearPendingLiveEditState]);
+  const clearReloadedPendingLiveEdits = useCallback(() => {
+    const pendingTargets = pendingLiveEditFrameTargets(
+      pendingVisualStyleEditsRef.current,
+      pendingLiveNonStyleEditsRef.current,
+    );
+    const reloadedTargets = pendingLiveEditReloadedTargetsRef.current;
+    const handoff = pendingVisualEditHandoffPublicationRef.current;
+    if (
+      !shouldFinalizePendingLiveEditReload({
+        pendingTargets,
+        reloadedTargets,
+        handoff,
+        designId: id,
+      })
+    ) {
+      return;
+    }
+    clearPendingLiveEditStateRef.current({
+      preserveDurableHandoff:
+        handoff !== null &&
+        handoff.designId === id &&
+        handoff.serverRevision !== null,
+    });
+  }, [id]);
+  const handleLiveScreenRuntimeReload = useCallback(
+    (screenId: string, frameId: string) => {
+      const pendingTargets = pendingLiveEditFrameTargets(
+        pendingVisualStyleEditsRef.current,
+        pendingLiveNonStyleEditsRef.current,
+      );
+      // HMR only resets URL-backed previews; it must not discard static edits.
+      if (
+        !pendingTargets.has(screenId) ||
+        Array.from(pendingTargets.keys()).some(
+          (pendingScreenId) => !liveScreenIdsRef.current.has(pendingScreenId),
+        )
+      ) {
+        return;
+      }
+      const reloadedTargets = pendingLiveEditReloadedTargetsRef.current;
+      reloadedTargets.add(`${screenId}\0${frameId}`);
+      if (
+        shouldClearPendingLiveEditsAfterReload(
+          pendingTargets,
+          reloadedTargets,
+          screenId,
+          frameId,
+        )
+      ) {
+        clearReloadedPendingLiveEdits();
+      }
+    },
+    [clearReloadedPendingLiveEdits, id],
+  );
   useEffect(() => {
     if (!pendingVisualStyleRevertRequest) return;
     const timeout = window.setTimeout(() => {
@@ -3091,10 +3182,12 @@ function DesignEditor() {
   );
   useEffect(() => {
     pendingVisualStyleEditsRef.current = pendingVisualStyleEdits;
+    pendingLiveEditReloadedTargetsRef.current.clear();
     syncUndoRedoState();
   }, [pendingVisualStyleEdits, syncUndoRedoState]);
   useEffect(() => {
     pendingLiveNonStyleEditsRef.current = pendingLiveNonStyleEdits;
+    pendingLiveEditReloadedTargetsRef.current.clear();
     syncUndoRedoState();
   }, [pendingLiveNonStyleEdits, syncUndoRedoState]);
   const recordContentHistoryEntry = useCallback(
@@ -3983,6 +4076,9 @@ function DesignEditor() {
     design?.visibility === "public";
   const canApplyPendingVisualEditsWithAgent =
     canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
+  const canApplyPendingVisualEditsFromToolbar =
+    canApplyPendingVisualEditsWithAgent &&
+    (!isVisualEditSurface || hostEmbeddedEditor);
   const canEditLiveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
@@ -4044,6 +4140,7 @@ function DesignEditor() {
     }
   }, [reviewAgentQueueThreadIds, reviewSendingThreadId]);
   const canEditDesignRef = useRef(canEditDesign);
+  const canPersistDesignSourceRef = useRef(canEditDesign && isSignedIn);
   const rawServerFilesByIdRef = useRef(new Map<string, DesignFile>());
   const historyFilesRef = useRef<DesignFile[]>([]);
   const pendingLocalFileContentsRef = useRef<
@@ -4119,7 +4216,8 @@ function DesignEditor() {
 
   useLayoutEffect(() => {
     canEditDesignRef.current = canEditDesign;
-  }, [canEditDesign]);
+    canPersistDesignSourceRef.current = canEditDesign && isSignedIn;
+  }, [canEditDesign, isSignedIn]);
 
   useEffect(() => {
     if (!id || !hasPendingGeneration) return;
@@ -4557,6 +4655,7 @@ function DesignEditor() {
       runPublishCanonicalContent(
         {
           canEditDesignRef,
+          canPersistDesignSourceRef,
           pendingLocalFileContentsRef,
           cancelIdentityMigration,
           queueFileContentSave,
@@ -5042,6 +5141,11 @@ function DesignEditor() {
   const [runtimeLayerSnapshotsById, setRuntimeLayerSnapshotsById] = useState<
     Record<string, RuntimeLayerSnapshot>
   >({});
+  const [runtimeLayerSnapshotReadiness, setRuntimeLayerSnapshotReadiness] =
+    useState<{
+      screenId: string;
+      readiness: RuntimeLayerSnapshotReadiness;
+    } | null>(null);
   const [screenRootComputedStylesById, setScreenRootComputedStylesById] =
     useState<Record<string, Record<string, string>>>({});
   const screenRootComputedStylesByIdRef = useRef(screenRootComputedStylesById);
@@ -5442,9 +5546,42 @@ function DesignEditor() {
   );
   const remoteVisualEditPending =
     canEditDesign &&
+    !shouldSuppressReloadedVisualEditHandoff({
+      marker: pendingVisualEditReloadedHandoffRef.current,
+      designId: id,
+      status: visualEditPendingQuery.data?.status,
+      revision: visualEditPendingQuery.data?.revision,
+    }) &&
     visualEditPendingQuery.data?.status === "ready" &&
     visualEditPendingQuery.data.pendingEditCount > 0 &&
     Boolean(visualEditPendingQuery.data.prompt);
+  useEffect(() => {
+    const marker = pendingVisualEditReloadedHandoffRef.current;
+    if (
+      !shouldClearReloadedVisualEditHandoff({
+        marker,
+        designId: id,
+        status: visualEditPendingQuery.data?.status,
+        revision: visualEditPendingQuery.data?.revision,
+      })
+    ) {
+      return;
+    }
+    pendingVisualEditReloadedHandoffRef.current = null;
+    if (
+      marker &&
+      pendingVisualEditHandoffPublicationRef.current?.publicationRevision ===
+        marker.publicationRevision &&
+      pendingVisualEditHandoffPublicationRef.current.serverRevision ===
+        marker.serverRevision
+    ) {
+      pendingVisualEditHandoffPublicationRef.current = null;
+    }
+  }, [
+    id,
+    visualEditPendingQuery.data?.revision,
+    visualEditPendingQuery.data?.status,
+  ]);
   const exportCanvasFrameGeometryById = useMemo(
     () =>
       getOverviewScreenExportGeometryById({
@@ -6185,6 +6322,18 @@ function DesignEditor() {
 
   const activeFile =
     files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const handleActiveScreenRuntimeReload = useCallback(() => {
+    if (activeFile) {
+      handleLiveScreenRuntimeReload(
+        activeFile.id,
+        activeRuntimeReloadFrameId(activeBreakpointWidthStateRef.current),
+      );
+    }
+  }, [activeFile?.id, handleLiveScreenRuntimeReload]);
+  const activeRuntimeLayerReadinessScreenIdRef = useRef<string | null>(
+    activeFile?.id ?? null,
+  );
+  activeRuntimeLayerReadinessScreenIdRef.current = activeFile?.id ?? null;
   const activePendingSource = activeFile
     ? pendingLocalFileContentsRef.current.get(activeFile.id)
     : undefined;
@@ -7027,6 +7176,7 @@ function DesignEditor() {
     serverFiles,
     publishCanonicalContent,
     canEditDesign,
+    isSignedIn,
     activeFileId,
     viewMode,
     isSynced,
@@ -8198,6 +8348,23 @@ function DesignEditor() {
     },
     [handleScreenRuntimeLayerSnapshot],
   );
+  const runtimeLayerSnapshotReadinessCallbacksRef = useRef(
+    new Map<string, (readiness: RuntimeLayerSnapshotReadiness) => void>(),
+  );
+  const getRuntimeLayerSnapshotReadinessCallback = useCallback(
+    (screenId: string) => {
+      const cache = runtimeLayerSnapshotReadinessCallbacksRef.current;
+      const cached = cache.get(screenId);
+      if (cached) return cached;
+      const callback = (readiness: RuntimeLayerSnapshotReadiness) => {
+        if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) return;
+        setRuntimeLayerSnapshotReadiness({ screenId, readiness });
+      };
+      cache.set(screenId, callback);
+      return callback;
+    },
+    [],
+  );
   const runtimeVerificationSnapshotCallbacksRef = useRef<
     Map<
       string,
@@ -8623,12 +8790,10 @@ function DesignEditor() {
       }),
     [activeFile?.id, activeProjectionContent, codeLayerSourceForScreen],
   );
-  const activeRuntimeCodeLayerProjection = useMemo(() => {
+  const activeRuntimeProjectionEligible = useMemo(() => {
     const fileId = activeFile?.id;
-    if (!fileId) return null;
-    const snapshot = runtimeLayerSnapshotsById[fileId];
-    if (!snapshot) return null;
-    const eligible = shouldUseRuntimeLayerProjection({
+    if (!fileId) return false;
+    return shouldUseRuntimeLayerProjection({
       screen: overviewScreens.find((screen) => screen.id === fileId),
       fallbackSourceType:
         normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
@@ -8636,32 +8801,35 @@ function DesignEditor() {
         "inline",
       content: files.find((file) => file.id === fileId)?.content ?? "",
     });
-    if (!eligible) return null;
+  }, [activeFile?.id, designDataJson, files, overviewScreens]);
+  const activeRuntimeCodeLayerProjection = useMemo(() => {
+    const fileId = activeFile?.id;
+    if (!fileId) return null;
+    const snapshot = runtimeLayerSnapshotsById[fileId];
+    if (!snapshot || !activeRuntimeProjectionEligible) return null;
     const projection = buildCodeLayerProjection(snapshot.html, {
       source: codeLayerSourceForScreen(fileId, "inline-html"),
     });
     return projection.nodes.length > 0 ? projection : null;
   }, [
     activeFile?.id,
+    activeRuntimeProjectionEligible,
     codeLayerSourceForScreen,
-    designDataJson,
-    files,
-    overviewScreens,
     runtimeLayerSnapshotsById,
   ]);
   const activeRuntimeSourceLocationUnavailable = useMemo(() => {
     const fileId = activeFile?.id;
     const snapshot = fileId ? runtimeLayerSnapshotsById[fileId] : undefined;
-    if (!fileId || !snapshot) return false;
-    const eligible = shouldUseRuntimeLayerProjection({
-      screen: overviewScreens.find((screen) => screen.id === fileId),
-      fallbackSourceType:
-        normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
-        normalizeDesignSourceType(designDataJson.sourceMode as unknown) ??
-        "inline",
-      content: files.find((file) => file.id === fileId)?.content ?? "",
-    });
-    if (!eligible) return false;
+    if (
+      !fileId ||
+      !snapshot ||
+      !activeRuntimeProjectionEligible ||
+      runtimeLayerSnapshotReadiness?.screenId !== fileId ||
+      runtimeLayerSnapshotReadiness.readiness.status !== "ready" ||
+      runtimeLayerSnapshotReadiness.readiness.documentId !== snapshot.documentId
+    ) {
+      return false;
+    }
     const projection = buildCodeLayerProjection(snapshot.html, {
       source: codeLayerSourceForScreen(fileId, "inline-html"),
     });
@@ -8670,12 +8838,15 @@ function DesignEditor() {
     );
   }, [
     activeFile?.id,
+    activeRuntimeProjectionEligible,
     codeLayerSourceForScreen,
-    designDataJson,
-    files,
-    overviewScreens,
+    runtimeLayerSnapshotReadiness,
     runtimeLayerSnapshotsById,
   ]);
+  const activeRuntimeSourceLocationSnapshotFailed =
+    activeRuntimeProjectionEligible &&
+    runtimeLayerSnapshotReadiness?.screenId === activeFile?.id &&
+    runtimeLayerSnapshotReadiness.readiness.status === "error";
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
   const activeMotionHydrationFingerprint = activeFile?.id
     ? motionTimelineFingerprint(activeFile.id, activeMotionTimeline)
@@ -8845,6 +9016,7 @@ function DesignEditor() {
       ),
     [designSourceType, overviewScreens],
   );
+  liveScreenIdsRef.current = liveScreenIds;
   canEditLiveScreenIdsRef.current = canEditLiveScreens
     ? new Set([
         ...liveScreenIds,
@@ -18907,9 +19079,12 @@ function DesignEditor() {
       return;
     }
     if (
-      pendingVisualEditCount === 0 &&
-      pendingVisualEditClearRequestedRef.current !== id &&
-      pendingVisualEditHadPendingRef.current !== id
+      !shouldPublishVisualEditHandoff({
+        designId: id,
+        pendingEditCount: pendingVisualEditCount,
+        clearRequestedDesignId: pendingVisualEditClearRequestedRef.current,
+        hadPendingDesignId: pendingVisualEditHadPendingRef.current,
+      })
     ) {
       return;
     }
@@ -18934,6 +19109,13 @@ function DesignEditor() {
             revision,
             pending: null,
           };
+    if (pending.pending) {
+      pendingVisualEditHandoffPublicationRef.current =
+        updateVisualEditHandoffPublication(
+          pendingVisualEditHandoffPublicationRef.current,
+          { status: "queued", designId: id, publicationRevision: revision },
+        );
+    }
     if (pendingVisualEditCount > 0) {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
@@ -18950,6 +19132,45 @@ function DesignEditor() {
         pending,
         pendingVisualEditClearRequestedRef,
         pendingVisualEditHadPendingRef,
+        onHandoffPublicationStatusChange: (
+          status,
+          publicationRevision,
+          serverRevision,
+        ) => {
+          if (status === "ready") {
+            if (typeof serverRevision !== "number") return;
+            const event = {
+              status,
+              designId: id,
+              publicationRevision,
+              serverRevision,
+            };
+            pendingVisualEditHandoffPublicationRef.current =
+              updateVisualEditHandoffPublication(
+                pendingVisualEditHandoffPublicationRef.current,
+                event,
+              );
+            pendingVisualEditReloadedHandoffRef.current =
+              updateReloadedVisualEditHandoff(
+                pendingVisualEditReloadedHandoffRef.current,
+                event,
+              );
+            clearReloadedPendingLiveEdits();
+            return;
+          }
+          const event = { status, designId: id, publicationRevision };
+          pendingVisualEditHandoffPublicationRef.current =
+            updateVisualEditHandoffPublication(
+              pendingVisualEditHandoffPublicationRef.current,
+              event,
+            );
+          pendingVisualEditReloadedHandoffRef.current =
+            updateReloadedVisualEditHandoff(
+              pendingVisualEditReloadedHandoffRef.current,
+              event,
+            );
+          if (status === "local-ready") clearReloadedPendingLiveEdits();
+        },
         setPendingVisualEditPublicationFailed,
         showHandoffErrorToast: (error) => {
           const errorCode = (error as { errorCode?: unknown } | undefined)
@@ -18981,6 +19202,7 @@ function DesignEditor() {
     activeOverviewScreen?.id,
     canEditLiveScreen,
     canEditDesign,
+    clearReloadedPendingLiveEdits,
     id,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
@@ -23990,6 +24212,11 @@ function DesignEditor() {
         selectedElementScreenId === screen.id ||
         screenSelectedLayerGroups.length > 0;
       const screenContent = getScreenContent(screen.id);
+      const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
+        screen,
+        fallbackSourceType: designSourceType,
+        content: screenContent,
+      });
       const screenSourceType = resolveOverviewScreenSourceType(
         screen,
         metadata.source ?? designSourceType,
@@ -24164,6 +24391,7 @@ function DesignEditor() {
           zoom={100}
           deviceFrame="none"
           sourceType={screenSourceType}
+          allowLocalNetworkAccessPrompt={screenIsActive}
           bridgeUrl={screenBridgeUrl}
           connectionId={screenSnapshotOnly ? undefined : screen.connectionId}
           nativePreviewActive={screenIsActive}
@@ -24200,18 +24428,20 @@ function DesignEditor() {
           }
           onBootStart={renderOptions?.onBootStart}
           onBootReady={renderOptions?.onBootReady}
+          onRuntimeReload={renderOptions?.onRuntimeReload}
           onExternalContentSnapshot={
             screenSnapshotOnly
               ? undefined
               : (snapshot) =>
                   handleScreenExternalContentSnapshot(screen.id, snapshot)
           }
+          onRuntimeLayerSnapshotReadinessChange={
+            screenIsActive && runtimeProjectionEligible
+              ? getRuntimeLayerSnapshotReadinessCallback(screen.id)
+              : undefined
+          }
           onRuntimeLayerSnapshot={
-            shouldUseRuntimeLayerProjection({
-              screen,
-              fallbackSourceType: designSourceType,
-              content: screenContent,
-            })
+            runtimeProjectionEligible
               ? getRuntimeLayerSnapshotCallback(screen.id)
               : undefined
           }
@@ -24437,6 +24667,7 @@ function DesignEditor() {
       contentRenderRevision,
       handleScreenExternalContentSnapshot,
       getRuntimeLayerSnapshotCallback,
+      getRuntimeLayerSnapshotReadinessCallback,
       getScreenRootComputedStylesCallback,
       getRuntimeVerificationSnapshotCallback,
       designFusionUrl,
@@ -24540,6 +24771,7 @@ function DesignEditor() {
         {
           onBootStart: frame.onBootStart,
           onBootReady: frame.onBootReady,
+          onRuntimeReload: frame.onRuntimeReload,
         },
       ),
     [renderEditableScreenContent],
@@ -25520,38 +25752,50 @@ function DesignEditor() {
         </TooltipTrigger>
         <TooltipContent>{t("designEditor.signUpToSave")}</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            asChild
-            variant="default"
-            size="sm"
-            className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
-            aria-label={t(
-              hasLocalhostScreens
-                ? "designEditor.signUpToShareLiveCanvas"
-                : "designEditor.share",
-            )}
-          >
-            <a href={signInToShareHref}>
-              <span>
-                {t(
-                  hasLocalhostScreens
-                    ? "designEditor.signUpToShareLiveCanvas"
-                    : "designEditor.share",
-                )}
-              </span>
-            </a>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {t(
-            hasLocalhostScreens
-              ? "designEditor.signUpToShareLiveCanvas"
-              : "designEditor.signUpToShare",
-          )}
-        </TooltipContent>
-      </Tooltip>
+      {hasLocalhostScreens ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+              aria-label={t("designEditor.share")}
+            >
+              {t("designEditor.share")}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 p-2">
+            <Button
+              asChild
+              variant="link"
+              size="sm"
+              className="h-auto whitespace-normal px-1 text-left"
+            >
+              <a href={signInToShareHref}>
+                {t("designEditor.signUpToShareLiveCanvas")}
+              </a>
+            </Button>
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              asChild
+              variant="default"
+              size="sm"
+              className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+              aria-label={t("designEditor.share")}
+            >
+              <a href={signInToShareHref}>
+                <span>{t("designEditor.share")}</span>
+              </a>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("designEditor.signUpToShare")}</TooltipContent>
+        </Tooltip>
+      )}
     </>
   );
 
@@ -26028,6 +26272,7 @@ function DesignEditor() {
       : undefined,
     selectedScreenSource,
     sourceLocationUnavailable: activeRuntimeSourceLocationUnavailable,
+    sourceLocationSnapshotFailed: activeRuntimeSourceLocationSnapshotFailed,
     localhostConnections: activeLocalhostConnectionResult?.connections,
     onScreenSourceChange: canEditDesign ? handleScreenSourceChange : undefined,
     onAddLocalhostScreen: canEditDesign
@@ -26318,6 +26563,9 @@ function DesignEditor() {
                   <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
                 ) : canApplyPendingVisualEditsWithAgent ? (
                   <AgentChatSurface
+                    composerContextProvider={
+                      isSignedIn ? DesignComposerContextProvider : undefined
+                    }
                     mode="panel"
                     className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
                     chatOnly={true}
@@ -27003,14 +27251,14 @@ function DesignEditor() {
                             // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
                             "min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
                             (!shellMode ||
-                              !canApplyPendingVisualEditsWithAgent) &&
+                              !canApplyPendingVisualEditsFromToolbar) &&
                               "rounded-r-none",
                           )}
                           aria-label={t(
                             showSharedVisualEditApply &&
-                              canApplyPendingVisualEditsWithAgent
+                              canApplyPendingVisualEditsFromToolbar
                               ? "designEditor.pendingVisualStyles.applySharedEdits"
-                              : canApplyPendingVisualEditsWithAgent
+                              : canApplyPendingVisualEditsFromToolbar
                                 ? "designEditor.pendingVisualStyles.applyAria"
                                 : "designEditor.pendingVisualStyles.copyPrompt",
                           )}
@@ -27020,7 +27268,7 @@ function DesignEditor() {
                             pendingStructureVerificationBusy
                           }
                           onClick={
-                            canApplyPendingVisualEditsWithAgent
+                            canApplyPendingVisualEditsFromToolbar
                               ? () =>
                                   handleApplyPendingVisualStylesWithAgent(
                                     remoteVisualEditPrompt,
@@ -27036,7 +27284,7 @@ function DesignEditor() {
                           ) : null}
                           <span className="truncate">
                             {t(
-                              !canApplyPendingVisualEditsWithAgent
+                              !canApplyPendingVisualEditsFromToolbar
                                 ? "designEditor.pendingVisualStyles.copyPrompt"
                                 : applyingViaHost
                                   ? "designEditor.pendingVisualStyles.applying"
@@ -27051,9 +27299,9 @@ function DesignEditor() {
                             )}
                           </span>
                         </Button>
-                        {/* Keep explicit copy and cancel available when no in-page agent can receive the handoff. */}
+                        {/* Keep the handoff actions available whenever toolbar Apply is unavailable. */}
                         {shellMode &&
-                        canApplyPendingVisualEditsWithAgent ? null : (
+                        canApplyPendingVisualEditsFromToolbar ? null : (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
@@ -27207,6 +27455,7 @@ function DesignEditor() {
                         onScreenSelectionChange={
                           handleOverviewScreenSelectionChange
                         }
+                        onScreenRuntimeReload={handleLiveScreenRuntimeReload}
                         geometryById={displayedCanvasFrameGeometryById}
                         geometryOverridesById={optimisticFrameGeometryById}
                         onGeometryChange={queueFrameGeometrySave}
@@ -27626,6 +27875,7 @@ function DesignEditor() {
                             ? undefined
                             : handleLiveRoutePathChange
                         }
+                        onRuntimeReload={handleActiveScreenRuntimeReload}
                         publicVisualEdit={
                           !activeScreenSnapshotOnly && publicVisualEdit
                         }
@@ -27650,12 +27900,15 @@ function DesignEditor() {
                               }
                         }
                         onRuntimeLayerSnapshot={
-                          shouldUseRuntimeLayerProjection({
-                            screen: activeOverviewScreen,
-                            fallbackSourceType: designSourceType,
-                            content: activeContent,
-                          })
+                          activeRuntimeProjectionEligible
                             ? handleActiveRuntimeLayerSnapshot
+                            : undefined
+                        }
+                        onRuntimeLayerSnapshotReadinessChange={
+                          activeRuntimeProjectionEligible
+                            ? getRuntimeLayerSnapshotReadinessCallback(
+                                activeFile.id,
+                              )
                             : undefined
                         }
                         onReserveVisualEditSnapshot={

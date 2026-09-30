@@ -20,22 +20,6 @@ export {
   type AgentNativeWorkspaceAppRouteMessage,
 } from "../workspace-app-navigation.js";
 export {
-  COMMAND_MENU_OPEN_EVENT,
-  CommandMenu,
-  openAgentSidebar,
-  openAgentSettings,
-  openCommandMenu,
-  submitToAgent,
-  useCommandMenuNestedDialog,
-  useCommandMenuShortcut,
-  type CommandMenuProps,
-  type CommandMenuDoc,
-  type CommandDocsGroupProps,
-  type CommandGroupProps,
-  type CommandItemProps,
-  type CommandShortcutProps,
-} from "../CommandMenu.js";
-export {
   buildOpenRouteLink,
   buildOpenRoutePath,
   buildLegacyAgentSettingsRoute,
@@ -71,7 +55,6 @@ export {
   openSettingsPage,
   SETTINGS_SHORTCUT_PAGE,
   settingsPagePath,
-  SettingsShortcut,
   useSettingsShortcut,
   type OpenSettingsPageDetail,
 } from "../use-settings-shortcut.js";

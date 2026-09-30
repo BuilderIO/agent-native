@@ -351,6 +351,12 @@ describe("shouldRunCoreRouteBootDatabaseWork", () => {
         NETLIFY: "true",
       }),
     ).toBe(false);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "",
+        NETLIFY_FUNCTION_NAME: "docs",
+      }),
+    ).toBe(false);
   });
 
   it("keeps boot database work for local production and development", () => {
@@ -365,6 +371,13 @@ describe("shouldRunCoreRouteBootDatabaseWork", () => {
       shouldRunCoreRouteBootDatabaseWork({
         NODE_ENV: "development",
         NETLIFY: "true",
+        NETLIFY_DEV: "true",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "development",
+        VERCEL: "1",
       }),
     ).toBe(true);
   });

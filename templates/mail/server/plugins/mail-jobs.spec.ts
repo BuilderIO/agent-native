@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   markJobDone: vi.fn(),
   markJobProcessing: vi.fn(),
   markJobSendStarted: vi.fn(),
+  markJobUncertain: vi.fn(),
+  markExpiredScheduledSendsUncertain: vi.fn(),
   releaseJobProcessing: vi.fn(),
   resetJobProcessingForRetry: vi.fn(),
   resurfaceEmail: vi.fn(),
@@ -80,6 +82,8 @@ vi.mock("../lib/jobs.js", () => ({
   markJobDone: mocks.markJobDone,
   markJobProcessing: mocks.markJobProcessing,
   markJobSendStarted: mocks.markJobSendStarted,
+  markJobUncertain: mocks.markJobUncertain,
+  markExpiredScheduledSendsUncertain: mocks.markExpiredScheduledSendsUncertain,
   resurfaceEmail: mocks.resurfaceEmail,
   releaseJobProcessing: mocks.releaseJobProcessing,
   resetJobProcessingForRetry: mocks.resetJobProcessingForRetry,
@@ -129,6 +133,8 @@ describe("Mail background job scheduling", () => {
     mocks.markJobProcessing.mockResolvedValue(null);
     mocks.markJobDone.mockResolvedValue(true);
     mocks.markJobSendStarted.mockResolvedValue(true);
+    mocks.markJobUncertain.mockResolvedValue(true);
+    mocks.markExpiredScheduledSendsUncertain.mockResolvedValue(0);
     mocks.releaseJobProcessing.mockResolvedValue(true);
     mocks.resetJobProcessingForRetry.mockResolvedValue(true);
     vi.stubEnv("NODE_ENV", "production");
@@ -219,6 +225,9 @@ describe("Mail background job scheduling", () => {
     ).toHaveBeenCalledOnce();
     expect(mocks.purgeExpiredMailAiFilterBackfills).toHaveBeenCalledOnce();
     expect(mocks.getDuePendingJobs).toHaveBeenCalledOnce();
+    expect(mocks.markExpiredScheduledSendsUncertain).toHaveBeenCalledWith(
+      expect.any(Number),
+    );
     expect(mocks.getDuePendingJobs).toHaveBeenCalledWith(
       expect.any(Number),
       20,
@@ -490,6 +499,10 @@ describe("Mail background job scheduling", () => {
     expect(mocks.resetJobProcessingForRetry).not.toHaveBeenCalled();
     expect(mocks.markJobCancelled).not.toHaveBeenCalled();
     expect(mocks.markJobDone).not.toHaveBeenCalled();
+    expect(mocks.markJobUncertain).toHaveBeenCalledWith(
+      "scheduled-send",
+      "send-claim",
+    );
   });
 
   it("includes selected OAuth accounts that do not have a sync row yet", async () => {

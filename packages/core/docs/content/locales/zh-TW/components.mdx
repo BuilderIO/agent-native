@@ -13,11 +13,11 @@ Agent-Native 附帶了完整的側邊欄，但側邊欄不是合同。
 從聚焦的用戶端子路徑匯入瀏覽器 UI：
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { AgentConversation } from "@agent-native/core/client/conversation";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
+import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { ResourcesPanel } from "@agent-native/core/client/resources";
 ```
 
@@ -183,22 +183,22 @@ Toolkit 樣式包含共用版面尺寸。`@agent-native/toolkit/app-shell/prompt
 
 ## 代理並聊天 UI {#agent-chat-ui}
 
-| API                                  | 匯入路徑                                      | 何時使用                                                    |
-| ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` 或 `/client/chat` | 您希望應用程式週圍有完整的側邊欄。                          |
-| `<AgentToggleButton>`                | `@agent-native/core/client` 或 `/client/chat` | 您為側邊欄渲染自己的標題按鈕。                              |
-| `<AgentPanel>`                       | `@agent-native/core/client` 或 `/client/chat` | 您希望在自己的布局、路由、對話框或側欄中顯示完整面板。      |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` 或 `/client/chat` | 您希望在面板或頁面模式下聊天，而不需要側邊欄包裝。          |
-| `<AssistantChat>`                    | `@agent-native/core/client`或`/client/chat`   | 您希望擁有週圍的鑲邊，同時保持標準對話和撰寫器執行時。      |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 或 `/client/chat` | 您希望框架的對話串分頁沒有 `AgentPanel` chrome。            |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` 或 `/client/chat` | 您有一個 BYO 代理端點，用於流式傳輸規範化的聊天事件。       |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` 或 `/client/chat` | 您有一個 OpenAI 代理 SDK 流，並希望圍繞它進行標準聊天 UI。  |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` 或 `/client/chat` | 您有一個 OpenAI 回應事件流，並希望將其規範化到聊天 UI 中。  |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client`或`/client/chat`   | 您有一個 AG-UI 事件流，並希望將其規範化到聊天 UI 中。       |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client`或`/client/chat`   | 您有一個 Claude 代理 SDK 流，並希望將其規範化到聊天 UI 中。 |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` 或 `/client/chat` | 您有一個 Vercel AI SDK 流，並希望將其規範化到聊天 UI 中。   |
-| `useChatThreads()`                   | `@agent-native/core/client`或`/client/chat`   | 您需要自訂話題清單、歷史紀錄選取器或範圍聊天 UI。           |
-| `sendToAgentChat()`                  | `@agent-native/core/client` 或 `/client/chat` | 產品操作應該將工作交給代理聊天。                            |
+| API                                  | 匯入路徑                               | 何時使用                                                    |
+| ------------------------------------ | -------------------------------------- | ----------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat`       | 您希望應用程式週圍有完整的側邊欄。                          |
+| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat`       | 您為側邊欄渲染自己的標題按鈕。                              |
+| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat`       | 您希望在自己的布局、路由、對話框或側欄中顯示完整面板。      |
+| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat`       | 您希望在面板或頁面模式下聊天，而不需要側邊欄包裝。          |
+| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat`       | 您希望擁有週圍的鑲邊，同時保持標準對話和撰寫器執行時。      |
+| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat`       | 您希望框架的對話串分頁沒有 `AgentPanel` chrome。            |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | 您有一個 BYO 代理端點，用於流式傳輸規範化的聊天事件。       |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | 您有一個 OpenAI 代理 SDK 流，並希望圍繞它進行標準聊天 UI。  |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | 您有一個 OpenAI 回應事件流，並希望將其規範化到聊天 UI 中。  |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | 您有一個 AG-UI 事件流，並希望將其規範化到聊天 UI 中。       |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | 您有一個 Claude 代理 SDK 流，並希望將其規範化到聊天 UI 中。 |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | 您有一個 Vercel AI SDK 流，並希望將其規範化到聊天 UI 中。   |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | 您需要自訂話題清單、歷史紀錄選取器或範圍聊天 UI。           |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | 產品操作應該將工作交給代理聊天。                            |
 
 `AgentChatRuntime` 是標準聊天 shell 的 BYO 代理合約。透過
 當外部代理應該為 `runtime` 到 `<AssistantChat>` 供電時
@@ -212,7 +212,7 @@ Agent-Native 保留撰寫器、文字紀錄、工具卡和
 最短的自訂路由仍然是預接線表面：
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -222,7 +222,8 @@ export default function ChatRoute() {
 對於標準執行時的自訂鑲邊：
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -249,7 +250,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## 聊天欄位和撰寫器 {#composer}
 
-當您需要在自訂 UI 中使用與側邊欄相同的聊天欄位時，請使用 `@agent-native/core/client/composer`。
+當您需要在自訂 UI 中使用與側邊欄相同的聊天欄位時，請使用 `@agent-native/toolkit/app/chat/composer`。
 `@agent-native/toolkit/composer` 提供可攜式、純粹的 Tiptap 與 UI 實作；若要使用框架服務，
 請以 `ComposerRuntimeAdaptersProvider` 包裝它並提供這些服務。Core 是已連接附件、提及、技能、語音和模型選擇的包裝器。
 
@@ -264,7 +265,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 大多數自訂 UI 應以 `PromptComposer` 開頭：
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 <PromptComposer
   placeholder="Ask the agent..."
@@ -316,7 +317,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 應用程式可以註冊已獲授權的選項。此處 `labels` 包含本地化文案，`stageReference` 更新宿主暫存的內容脈絡：
 
 ```tsx
-import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import type { ComposerContextMenuItem } from "@agent-native/toolkit/app/chat/composer";
 import { Link } from "react-router";
 
 const contextMenuItems: ComposerContextMenuItem[] = [
@@ -420,7 +421,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 
 ## 對話渲染 {#conversation}
 
-使用 `@agent-native/core/client/conversation` 進行轉錄樣式渲染
+使用 `@agent-native/toolkit/app/chat/conversation` 進行轉錄樣式渲染
 在完整代理執行時之外。
 
 | API                                             | 何時使用                             |
@@ -438,7 +439,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 當操作結果應呈現為應用品質 UI 時，請使用本機工具小工具
 內部聊天而不是普通的 JSON。內建可重複使用的輸出包括
 `DataTableWidget`、`DataChartWidget` 和 `DataWidgetResult`；它們被匯出
-來自 `@agent-native/core/client/chat` 和根用戶端條目。請參閱
+來自 `@agent-native/core/client/widgets` 和根用戶端條目。請參閱
 [Native 聊天介面](/docs/native-chat-ui) 表示操作結果合約。
 
 | API                              | 何時使用                                                                      |
@@ -537,7 +538,7 @@ import {
 
 ## 豐富的編輯器 {#rich-editor}
 
-當需要共用markdown編輯器時使用`@agent-native/core/client/editor`
+當需要共用markdown編輯器時使用`@agent-native/toolkit/editor`
 計畫、內容、資源和協作檔案使用的表面
 經驗。
 
@@ -555,7 +556,7 @@ import {
 基本的受控編輯器只是 markdown in 和 markdown out：
 
 ```tsx
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 <SharedRichEditor
   value={markdown}
@@ -572,7 +573,7 @@ import {
   emailToColor,
   useCollaborativeDoc,
 } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 const editorUser = {
   name: user.name,
@@ -668,9 +669,9 @@ function WorkspaceResources() {
 | 通知         | `<NotificationsBell>`                          | `@agent-native/core/client/notifications` |
 | 進度         | `<RunsTray>`，進度掛鉤和型別                   | `@agent-native/core/client/progress`      |
 | 入職         | `useOnboarding()`，入門面板掛鉤                | `@agent-native/core/client/onboarding`    |
-| 可觀察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>` | `@agent-native/core/client/observability` |
+| 可觀察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>` | `@agent-native/toolkit/app/observability` |
 | 資源         | `<ResourcesPanel>`、`<ResourceTree>`、資源掛鉤 | `@agent-native/core/client/resources`     |
-| 豐富的編輯器 | `<SharedRichEditor>`，斜杠指令，塊節點掛鉤     | `@agent-native/core/client/editor`        |
+| 豐富的編輯器 | `<SharedRichEditor>`，斜杠指令，塊節點掛鉤     | `@agent-native/toolkit/editor`            |
 
 ## 一次性文字完成 {#one-off-text-completion}
 

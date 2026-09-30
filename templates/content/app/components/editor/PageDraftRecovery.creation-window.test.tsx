@@ -30,9 +30,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("./page-draft-journal", () => ({
   readPageDraftJournal: () => null,
   listPageDraftJournal: () => [],
-  hasRetainedPageDraftNotice: () => false,
+  sweepLegacyRetainedPageDraftMarkers: () => undefined,
   clearPageDraftJournal: () => true,
-  markPageDraftJournalRetained: () => true,
 }));
 vi.mock("./document-save-rebase", () => ({
   saveDocumentWithRebase: vi.fn(),
@@ -43,6 +42,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
+  ensurePreviewDocumentDraftRead: vi.fn().mockResolvedValue(undefined),
   isDocumentUpdateConflict: () => false,
   isDocumentUpdatePreservationRequired: () => false,
   isDocumentUpdateSuperseded: () => false,

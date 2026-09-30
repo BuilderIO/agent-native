@@ -14,27 +14,23 @@ that area — most encode a decision the surrounding code cannot show. Prefer
 searching the skill directory over guessing from nearby code. When a rule here
 names a skill, that skill is the authority; this file only states the invariant.
 
-A few are entry points rather than area guides:
+A few entry points:
 
-- `adding-a-feature` — the four-area checklist every feature must satisfy.
-- `content-product-development` — read before planning, implementing,
-  reviewing, testing, or documenting Content behavior or shared framework
-  behavior that changes Content's product contract.
-- `writing-agent-instructions` — read before editing any `AGENTS.md`,
-  `SKILL.md`, or tool/action description, including this file.
-- `verifying-changes` — read before reporting a fix, feature, or deploy as
-  done. Exercising the path that was broken is the step most often skipped,
-  and skipping it is why the same bug gets reported twice.
-- `reporting-progress` — read during any run over a few minutes, and at the
-  moment you are tempted to stop and ask. Chasing status is the single most
-  frequent correction in this repo.
+- `adding-a-feature` — the required four-area feature checklist.
+- `content-product-development` — read for Content or shared changes affecting
+  Content's product contract.
+- `writing-agent-instructions` — read before editing instructions, skills, or
+  tool/action descriptions.
+- `verifying-changes` — exercise the broken path before reporting a fix done.
+- `adding-tests-and-ci` — read before adding a test, CI job, or workflow
+  trigger.
+- `reporting-progress` — read during long runs and before asking for status.
 - `concurrent-agents` — read before working in a shared checkout.
-- `ship` — normal guarded ship through merge and branch rotation; beta and docs
-  production deploys are automatic, while other production promotion is manual.
-- `ship-and-monitor` — read for requested post-merge checks or concrete beta
-  risks local proof cannot cover; routine source changes need no extra beta
-  behavior check.
-- `ship-now` — fast admin-merge path with post-merge monitoring.
+- `ship` — normal guarded ship; beta/docs deploy automatically, other
+  production promotion is manual.
+- `ship-and-monitor` — use for requested post-merge checks or beta risks local
+  proof cannot cover.
+- `ship-now` — fast admin merge with post-merge monitoring.
 
 Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
 contract.
@@ -67,10 +63,11 @@ contract.
   is manual through `.github/workflows/deploy-production-sites-prebuilt.yml` or
   `promote-netlify-deploy.yml`. Let workflows manage Netlify locks; clearing
   one does not promote production.
-- Worktrees are valid PR sources. When the user authorizes shipping or opening
-  or updating a PR from a worktree, use that worktree's current branch and cwd
-  for the commit, push, and PR operation; do not copy changes into the shared
-  checkout.
+- When shipping from a worktree, commit, push, and open or update the PR there;
+  leave the shared checkout untouched.
+- Never push to someone else's PR without explicit authorization for that exact
+  PR in this request. This does not authorize merging. See `ship` and
+  `babysit-pr` for the live author/head verification gate.
 - Use root `.tmp/` for repo-local temp files; it is gitignored.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
@@ -145,10 +142,10 @@ exist, and both are narrow on purpose.
 **Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
 Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
-`no-heavy-dashboard-list-reads`, and `external-result-contract` check only
-lines this branch added, so the pre-existing backlog stays a separate
-cleanup. Each guard has a documented opt-out pragma, and every opt-out is a
-decision a reviewer should see.
+`no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`, and
+`external-result-contract` check only lines this branch added, so the
+pre-existing backlog stays a separate cleanup. Each guard has a documented
+opt-out pragma, and every opt-out is a decision a reviewer should see.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
@@ -260,7 +257,8 @@ argument rots into exactly the patchwork it warns about.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
-- Polling keeps UIs in sync through `useDbSync()` and `/_agent-native/poll`.
+- Chat-run tools refresh UI data; opt in to `useDbSync({ realtime: { reason } })`
+  only when external changes matter. Read `real-time-sync`.
 - Server configuration is one zod schema. Add a field under
   `packages/core/src/app-config/` and read it with `getAppConfig()`; an
   environment variable is a declared `.meta({ env })` alias into that field, not

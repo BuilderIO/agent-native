@@ -98,6 +98,13 @@ export default defineAction({
             "कॉल किए जा रहे action की registry key (जैसे `delete-recording`), हर dispatch साइट पर सेट की जाती है ताकि audit log जैसे cross-cutting concerns कॉल को attribute कर सकें। dispatcher को bypass करने वाले direct प्रोग्रामेटिक `run()` कॉल के लिए `undefined`।",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "इस invocation के लिए मॉडल का tool-call ID (`toolCall.id`)। इसे एजेंट लूप सेट करता है और `defineAction()` wrappers से गुजरने पर भी यह बना रहता है। एक ही action कई बार चलने पर घटनाओं को जोड़ने के लिए इसका उपयोग करें। यह action का input नहीं है और मॉडल tool call के बिना आने वाले callers के लिए `undefined` रहता है।",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

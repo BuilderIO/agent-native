@@ -1,26 +1,50 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { resolveLanding, searchParams, useLastLocationTitleHint } = vi.hoisted(
-  () => ({
-    resolveLanding: {
-      mutateAsync: vi.fn(),
-      isError: false,
-      isPending: false,
-      reset: vi.fn(),
-    },
-    searchParams: new URLSearchParams(),
-    useLastLocationTitleHint: vi.fn(
-      () => null as null | { documentId: string; title: string },
-    ),
-  }),
-);
+const {
+  resolveLanding,
+  searchParams,
+  startPageOpenDocumentReads,
+  useLastLocationTitleHint,
+  locationState,
+} = vi.hoisted(() => ({
+  startPageOpenDocumentReads: vi.fn(),
+  locationState: { current: null as unknown },
+  resolveLanding: {
+    mutateAsync: vi.fn(),
+    isError: false,
+    isPending: false,
+    reset: vi.fn(),
+  },
+  searchParams: new URLSearchParams(),
+  useLastLocationTitleHint: vi.fn(
+    () => null as null | { documentId: string; title: string },
+  ),
+}));
+const landingOptions = vi.hoisted(() => ({
+  current: undefined as
+    | undefined
+    | {
+        skipActionQueryInvalidation?: boolean;
+        onSuccess?: (result: {
+          resolution: string;
+          welcomeCreated?: true;
+        }) => void;
+      },
+}));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionMutation: () => resolveLanding,
+  useActionMutation: (
+    _name: string,
+    options: typeof landingOptions.current,
+  ) => {
+    landingOptions.current = options;
+    return resolveLanding;
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -31,6 +55,11 @@ vi.mock("@/hooks/use-optimistic-document-title", () => ({
   useLastLocationTitleHint,
 }));
 
+vi.mock("@/hooks/use-documents", () => ({
+  LIST_DOCUMENTS_QUERY_KEY: ["action", "list-documents", undefined],
+  startPageOpenDocumentReads,
+}));
+
 vi.mock("sonner", () => ({
   toast: { info: vi.fn() },
 }));
@@ -38,7 +67,13 @@ vi.mock("sonner", () => ({
 const navigate = vi.fn();
 
 vi.mock("react-router", () => ({
-  useLocation: () => ({ pathname: "/home", search: "", hash: "" }),
+  PrefetchPageLinks: () => null,
+  useLocation: () => ({
+    pathname: "/home",
+    search: "",
+    hash: "",
+    state: locationState.current,
+  }),
   useNavigate: () => navigate,
   useSearchParams: () => [searchParams],
 }));
@@ -50,9 +85,15 @@ import {
 
 import HomeRoute from "./_app.home";
 
+const queryClient = new QueryClient();
+
 function renderHome(root: Root) {
   act(() => {
-    root.render(<HomeRoute />);
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <HomeRoute />
+      </QueryClientProvider>,
+    );
   });
 }
 
@@ -65,6 +106,8 @@ describe("home landing route optimistic title", () => {
     resolveLanding.isError = false;
     searchParams.delete("spaceId");
     useLastLocationTitleHint.mockReturnValue(null);
+    startPageOpenDocumentReads.mockReset();
+    locationState.current = null;
     navigate.mockReset();
     stashLandingTitleHint(null);
     container = document.createElement("div");
@@ -76,6 +119,55 @@ describe("home landing route optimistic title", () => {
     act(() => root.unmount());
     container.remove();
     resolveLanding.reset.mockClear();
+  });
+
+  it("refreshes the Files root and recents only when the landing created Welcome", () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    resolveLanding.mutateAsync.mockResolvedValue({
+      documentId: "doc-1",
+      resolution: "restored",
+    });
+    renderHome(root);
+
+    expect(landingOptions.current?.skipActionQueryInvalidation).toBe(true);
+    landingOptions.current?.onSuccess?.({ resolution: "restored" });
+    landingOptions.current?.onSuccess?.({ resolution: "welcome-reused" });
+    expect(invalidate).not.toHaveBeenCalled();
+
+    landingOptions.current?.onSuccess?.({
+      resolution: "fallback",
+      welcomeCreated: true,
+    });
+    const refreshed = invalidate.mock.calls.map(([filters]) => filters);
+    expect(refreshed.map((filters) => filters?.queryKey)).toEqual([
+      ["action", "query-content-database-items"],
+      ["action", "get-content-recent"],
+      ["action", "list-documents", undefined],
+    ]);
+    expect(refreshed).not.toContainEqual({ queryKey: ["action"] });
+    const [navigation] = refreshed;
+    const predicate = navigation?.predicate as (query: {
+      queryKey: readonly unknown[];
+    }) => boolean;
+    expect(
+      predicate({
+        queryKey: [
+          "action",
+          "query-content-database-items",
+          { databaseId: "files", navigation: { parentId: null } },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      predicate({
+        queryKey: [
+          "action",
+          "query-content-database-items",
+          { databaseId: "files", navigation: { parentId: "page" } },
+        ],
+      }),
+    ).toBe(false);
+    invalidate.mockRestore();
   });
 
   it("keeps the plain skeleton when nothing knows the title", async () => {
@@ -215,5 +307,42 @@ describe("home landing route optimistic title", () => {
       "/page/doc-b?databaseId=database-b&viewId=board",
       { replace: true },
     );
+  });
+
+  it("starts the remembered page's reads while the landing validates it", async () => {
+    useLastLocationTitleHint.mockReturnValue({
+      documentId: "doc-1",
+      title: "Quarterly planning notes",
+    });
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+
+    renderHome(root);
+    await act(async () => Promise.resolve());
+
+    expect(startPageOpenDocumentReads).toHaveBeenCalledTimes(1);
+    expect(startPageOpenDocumentReads).toHaveBeenCalledWith(
+      queryClient,
+      "doc-1",
+      { databaseId: null, databaseDocumentId: null },
+    );
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not guess a page for a workspace landing or an unavailable-page recovery", async () => {
+    useLastLocationTitleHint.mockReturnValue({
+      documentId: "doc-1",
+      title: "Quarterly planning notes",
+    });
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+    searchParams.set("spaceId", "space-2");
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    expect(startPageOpenDocumentReads).not.toHaveBeenCalled();
+
+    searchParams.delete("spaceId");
+    locationState.current = { unavailableDocumentId: "doc-1" };
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    expect(startPageOpenDocumentReads).not.toHaveBeenCalled();
   });
 });

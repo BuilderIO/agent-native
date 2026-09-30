@@ -1,20 +1,20 @@
 import {
-  AgentSidebar,
-  AgentToggleButton,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import {
-  buildSettingsRoute,
-  openCommandMenu,
-} from "@agent-native/core/client/navigation";
+  AgentSidebar,
+  AgentToggleButton,
+} from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconMenu2, IconSearch } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -27,10 +27,9 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { TAB_ID } from "@/lib/tab-id";
 
-import { isCrmFullWidthSettingsRoute } from "./layout-route-policy";
+import { isCrmSettingsRoute } from "./layout-route-policy";
 
 export function CrmLayout({ children }: { children: React.ReactNode }) {
   const t = useT();
@@ -38,11 +37,9 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const isAskRoute = location.pathname === "/ask";
-  const settingsRedesign = useSettingsRedesign();
-  const fullWidthSettings = isCrmFullWidthSettingsRoute(
-    location.pathname,
-    settingsRedesign,
-  );
+  // Settings brings its own navigation, header, and agent-panel toggle, so it
+  // replaces CRM's sidebar and mobile header instead of nesting inside them.
+  const fullWidthSettings = isCrmSettingsRoute(location.pathname);
   const dashboardChatHistory = useMemo<
     AssistantChatHistoryConfig | undefined
   >(() => {

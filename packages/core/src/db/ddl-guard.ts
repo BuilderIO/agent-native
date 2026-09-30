@@ -13,15 +13,42 @@ import {
   isProductionServerlessFunctionRuntime,
   type DbExec,
 } from "./client.js";
-import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
+import { appMigratesAtRelease } from "./migration-policy.js";
+import {
+  isHostedFunctionInvocationRuntime,
+  isMigrationExecutingRuntime,
+  isMigrationAuthorizedRuntime,
+  withMigrationExecutionRuntime,
+} from "./migration-runtime.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function schemaEnsureDisabled(): boolean {
-  if (isMigrationAuthorizedRuntime()) return false;
-  if (isProductionServerlessFunctionRuntime()) return true;
+  if (isMigrationExecutingRuntime() || isMigrationAuthorizedRuntime())
+    return false;
+  if (
+    appMigratesAtRelease() &&
+    (isHostedFunctionInvocationRuntime() ||
+      isProductionServerlessFunctionRuntime())
+  ) {
+    return true;
+  }
   const raw = process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES?.trim();
   return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+}
+
+async function withLegacyServerlessSchemaDdl<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  if (
+    !isMigrationExecutingRuntime() &&
+    !appMigratesAtRelease() &&
+    (isHostedFunctionInvocationRuntime() ||
+      isProductionServerlessFunctionRuntime())
+  ) {
+    return withMigrationExecutionRuntime(run);
+  }
+  return run();
 }
 
 type SchemaSnapshot = {
@@ -249,10 +276,9 @@ export async function ensureSchemaObject(options: {
       `ensureSchemaObject: could not probe required schema "${label}"; refusing to issue DDL`,
     );
   }
-  const ran = await runGuardedDdl(ddl, {
-    lockTimeout,
-    injectedClient,
-  });
+  const ran = await withLegacyServerlessSchemaDdl(() =>
+    runGuardedDdl(ddl, { lockTimeout, injectedClient }),
+  );
   invalidateSchemaSnapshot(injectedClient);
   if (ran) return true;
   const existsAfterTimeout = await probe();
@@ -336,7 +362,10 @@ export async function ensureIndexExists(
   } = {},
 ): Promise<boolean> {
   if (!schemaEnsureDisabled()) {
-    await dropInvalidIndex(indexName, options.injectedClient ?? getDbExec());
+    const client = options.injectedClient ?? getDbExec();
+    await withLegacyServerlessSchemaDdl(() =>
+      dropInvalidIndex(indexName, client),
+    );
   }
   return ensureSchemaObject({
     probe: () => pgIndexExists(indexName, options.injectedClient),
@@ -363,6 +392,7 @@ export async function ensureIndexExistsConcurrently(
     injectedClient?: DbExec;
   } = {},
 ): Promise<boolean> {
+  if (schemaEnsureDisabled()) return false;
   const client = options.injectedClient ?? getDbExec();
   const initiallyExists = await pgIndexExists(indexName, client);
   if (initiallyExists === true) return false;
@@ -372,9 +402,11 @@ export async function ensureIndexExistsConcurrently(
     );
   }
 
-  await dropInvalidIndex(indexName, client);
+  await withLegacyServerlessSchemaDdl(() =>
+    dropInvalidIndex(indexName, client),
+  );
 
-  await client.execute(createIndexSql);
+  await withLegacyServerlessSchemaDdl(() => client.execute(createIndexSql));
   invalidateSchemaSnapshot(client);
   const existsAfterCreate = await pgIndexExists(indexName, client);
   if (existsAfterCreate !== true) {

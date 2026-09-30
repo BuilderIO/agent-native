@@ -119,6 +119,9 @@ type PanelPlacement = {
 
 type InsertedPanel = PanelPlacement;`;
 
+const firstPartyDashboardTimeFilter =
+  "event_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}'))";
+
 export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panels(["dau-over-time","wau-over-time"]).moveToTop();',
   'dashboard.panel("recurring-users-by-template").duplicate("recurring-users-by-template-bar", {"title":"Recurring Signed-In Users by Template (Bar)","chartType":"bar"}).nextTo("recurring-users-by-template");',
@@ -129,9 +132,9 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);',
   'dashboard.panel("retention").setConfigPath("yAxis.format","percent");',
   'dashboard.section("retention-activity-section").append(["repeat-users","retention-over-time"]);',
-  `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'"}).atTop();`,
-  `dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_date AS date, COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}' GROUP BY event_date ORDER BY event_date"}).nextTo("retention-over-time");`,
-  `dashboard.insertPanel({"id":"row-chart","title":"Row Chart","source":"first-party","chartType":"bar","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_name AS name, COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}' GROUP BY event_name"}).atRow(2);`,
+  `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter}"}).atTop();`,
+  `dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_date AS date, COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter} GROUP BY event_date ORDER BY event_date"}).nextTo("retention-over-time");`,
+  `dashboard.insertPanel({"id":"row-chart","title":"Row Chart","source":"first-party","chartType":"bar","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_name AS name, COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter} GROUP BY event_name"}).atRow(2);`,
   'dashboard.insertPanel({"id":"pipeline-widget","title":"Pipeline Widget","chartType":"extension","width":3,"config":{"extensionId":"<extension-id>"}}).atBottom();',
   'dashboard.insertPanel({"id":"personal-widget-slot","title":"Personal Widget Slot","chartType":"extension","width":3,"config":{"extensionSlotId":"analytics.dashboard.<dashboard-id>.panel.personal-widget-slot"}}).atBottom();',
 ] as const;

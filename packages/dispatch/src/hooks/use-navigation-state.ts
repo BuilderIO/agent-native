@@ -7,8 +7,8 @@ import {
   appBasePath,
   appPath,
 } from "@agent-native/core/client/api-path";
-import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { extensionIdFromPathname } from "@agent-native/toolkit/app/extensions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";

@@ -31,7 +31,7 @@ vi.mock("@agent-native/core/client/host", () => ({
   isInBuilderFrame: () => frameState.inBuilderFrame,
 }));
 
-vi.mock("@agent-native/core/client/settings/useBuilderStatus", () => ({
+vi.mock("@agent-native/toolkit/app/settings/useBuilderStatus", () => ({
   useBuilderConnectFlow: () => ({
     configured: false,
     connecting: builderConnectFlowState.connecting,
@@ -41,15 +41,13 @@ vi.mock("@agent-native/core/client/settings/useBuilderStatus", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/settings", async (importOriginal) => {
-  const settings =
-    await importOriginal<typeof import("@agent-native/core/client/settings")>();
+vi.mock("@agent-native/toolkit/app/settings", async () => {
   const { BuilderConnectPopover } =
-    await import("../../../core/src/client/settings/BuilderConnectPopover.js");
-  return { ...settings, BuilderConnectPopover };
+    await import("../../../toolkit/src/app/settings/BuilderConnectPopover.js");
+  return { BuilderConnectPopover };
 });
 
-vi.mock("@agent-native/core/client/composer", async () => {
+vi.mock("@agent-native/toolkit/app/chat/composer/index", async () => {
   const ReactModule = await import("react");
   return {
     PromptComposer: ({

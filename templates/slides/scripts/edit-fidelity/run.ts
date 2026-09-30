@@ -135,6 +135,8 @@ const update = argv.includes("--update");
 const acceptFailing = argv.includes("--accept-failing");
 const headed = argv.includes("--headed");
 const typingChatOnly = argv.includes("--typing-chat");
+const imeEscapeOnly = argv.includes("--ime-escape");
+const textSurfaceQaOnly = argv.includes("--text-surface-qa");
 for (const s of scenarios) {
   if (!SCENARIOS.includes(s))
     fatal(`unknown scenario ${s}; expected ${SCENARIOS.join(",")}`);
@@ -321,7 +323,7 @@ async function action<T = any>(
   page: Page,
   name: string,
   body: Record<string, unknown>,
-  method: "GET" | "POST" = "POST",
+  method: "DELETE" | "GET" | "POST" = "POST",
 ): Promise<T> {
   const res = await page.evaluate(
     async ({ name, body, method }: any) => {
@@ -534,6 +536,21 @@ async function exitEdit(
 }
 
 async function runChatTypingRegression(page: Page, base: string) {
+  const problems: string[] = [];
+  const submitRoute = /\/_agent-native\/agent-chat(?:\?.*)?$/;
+  let submitRequestSeen = false;
+  let resolveSubmitRequested!: () => void;
+  let releaseSubmit!: () => void;
+  let resolveSubmitRouteFinished!: () => void;
+  const submitRequested = new Promise<void>((resolve) => {
+    resolveSubmitRequested = resolve;
+  });
+  const submitGate = new Promise<void>((resolve) => {
+    releaseSubmit = resolve;
+  });
+  const submitRouteFinished = new Promise<void>((resolve) => {
+    resolveSubmitRouteFinished = resolve;
+  });
   await page.route("**/_agent-native/agent-engine/status", (route: any) =>
     route.fulfill({
       status: 200,
@@ -541,8 +558,50 @@ async function runChatTypingRegression(page: Page, base: string) {
       body: JSON.stringify({ configured: true, chatEligible: true }),
     }),
   );
+  await page.route(submitRoute, async (route: any) => {
+    if (route.request().method() !== "POST") return route.continue();
+    submitRequestSeen = true;
+    resolveSubmitRequested();
+    try {
+      await submitGate;
+      await route.abort();
+    } finally {
+      resolveSubmitRouteFinished();
+    }
+  });
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
+  const initialSelection = await page.evaluate(async () => {
+    const target = document.createElement("div");
+    target.style.cssText =
+      "position:fixed;left:-10000px;top:0;pointer-events:none";
+    target.textContent = "abc def";
+    document.body.append(target);
+    const text = target.firstChild as Text;
+    const selection = window.getSelection();
+    selection?.setBaseAndExtent(text, 6, text, 1);
+    const source = "/app/components/editor/in-place-text-session.ts";
+    const { startInPlaceTextSession } = await import(source);
+    const session = startInPlaceTextSession(target);
+    const result = {
+      anchor: selection?.anchorOffset,
+      focus: selection?.focusOffset,
+      text: selection?.toString(),
+    };
+    session.end();
+    selection?.removeAllRanges();
+    target.remove();
+    return result;
+  });
+  if (
+    initialSelection.text !== "bc de" ||
+    initialSelection.anchor !== 6 ||
+    initialSelection.focus !== 1
+  ) {
+    problems.push(
+      `entering edit changed an initial backward selection (${JSON.stringify(initialSelection)})`,
+    );
+  }
   const created = await action(page, "create-deck", {
     title: "[edit-fidelity] chat typing regression",
     slides: [
@@ -554,76 +613,1050 @@ async function runChatTypingRegression(page: Page, base: string) {
     ],
   });
   const deckId = String(created.id ?? created.deckId);
-  await openSlide(page, base, deckId, 0, "chat-typing-slide");
-  const [target] = await listTargets(page, "chat-typing-slide");
-  if (!target) throw new Error("synthetic slide has no editable text target");
-  if (!(await enterEdit(page, "chat-typing-slide", target.point, []))) {
-    throw new Error("could not open the synthetic slide text edit session");
-  }
+  try {
+    await openSlide(page, base, deckId, 0, "chat-typing-slide");
+    const [target] = await listTargets(page, "chat-typing-slide");
+    if (!target) throw new Error("synthetic slide has no editable text target");
+    if (!(await enterEdit(page, "chat-typing-slide", target.point, []))) {
+      throw new Error("could not open the synthetic slide text edit session");
+    }
 
-  await page.evaluate(() =>
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:open", { detail: { focus: true } }),
-    ),
-  );
-  const selector =
-    '.agent-sidebar-panel[data-agent-sidebar-state="open"] [data-agent-composer-slot="editor-input"]';
-  const composer = page.locator(selector);
-  await composer.waitFor({ state: "visible", timeout: 45_000 });
-  if (!(await editorState(page, "chat-typing-slide")).editing) {
-    throw new Error(
-      "opening the Agent sidebar ended the slide text edit session",
+    await page.evaluate(() =>
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+      ),
     );
-  }
-  await page.waitForFunction(
-    (inputSelector: string) =>
-      document
-        .querySelector<HTMLElement>(inputSelector)
-        ?.getAttribute("contenteditable") === "true",
-    selector,
-    { timeout: 20_000 },
-  );
-  await composer.focus();
+    const selector =
+      '.agent-sidebar-panel[data-agent-sidebar-state="open"] [data-agent-composer-slot="editor-input"]';
+    const composer = page.locator(selector);
+    await composer.waitFor({ state: "visible", timeout: 45_000 });
+    if (!(await editorState(page, "chat-typing-slide")).editing) {
+      throw new Error(
+        "opening the Agent sidebar ended the slide text edit session",
+      );
+    }
+    await page.waitForFunction(
+      (inputSelector: string) =>
+        document
+          .querySelector<HTMLElement>(inputSelector)
+          ?.getAttribute("contenteditable") === "true",
+      selector,
+      { timeout: 20_000 },
+    );
+    await composer.focus();
 
-  await composer.evaluate((element: HTMLElement) => {
-    (window as any).__typingRegressionComposer = element;
+    await composer.evaluate((element: HTMLElement) => {
+      (window as any).__typingRegressionComposer = element;
+    });
+
+    const first = "Fast typing should keep every character in order.";
+    const second = " A pause must not reset the caret either.";
+    await composer.pressSequentially(first);
+    await sleep(400);
+    await composer.pressSequentially(second);
+
+    const expected = first + second;
+    const result = await page.evaluate((selector: string) => {
+      const editor = document.querySelector<HTMLElement>(selector);
+      const selection = window.getSelection();
+      const focusNode = selection?.focusNode;
+      return {
+        text: editor?.innerText ?? null,
+        sameNode: editor === (window as any).__typingRegressionComposer,
+        focused: document.activeElement === editor,
+        caretOffset:
+          editor && focusNode && editor.contains(focusNode)
+            ? (selection?.focusOffset ?? null)
+            : null,
+      };
+    }, selector);
+    const editAfterTyping = await editorState(page, "chat-typing-slide");
+    if (result.text !== expected) {
+      problems.push(`text mismatch: ${JSON.stringify(result.text)}`);
+    }
+    if (!result.sameNode) problems.push("composer remounted while typing");
+    if (!result.focused) problems.push("composer lost focus while typing");
+    if (result.caretOffset !== expected.length) {
+      problems.push(
+        `caret ended at ${result.caretOffset}, expected ${expected.length}`,
+      );
+    }
+    if (!editAfterTyping.editing) {
+      problems.push("slide text edit session ended while typing in chat");
+    }
+
+    await composer.press(
+      process.platform === "darwin" ? "Meta+A" : "Control+A",
+    );
+    await composer.press("Backspace");
+    await composer.pressSequentially(
+      "Reply only with: local chat input lock check complete. Do not edit the deck.",
+    );
+    const sendButton = page.locator('[data-agent-composer-slot="send-button"]');
+    if (!(await sendButton.isEnabled())) {
+      problems.push("chat send button was disabled before submission");
+    } else {
+      await sendButton.click();
+      const requestStarted = await Promise.race([
+        submitRequested.then(() => true),
+        sleep(10_000).then(() => false),
+      ]);
+      if (!requestStarted) {
+        problems.push("chat submission did not reach the chat request");
+      } else {
+        if ((await composer.getAttribute("contenteditable")) !== "true") {
+          problems.push(
+            "chat editor was disabled while submission was pending",
+          );
+        }
+        const pendingDraft = "Draft typed while the first send is pending.";
+        try {
+          await composer.pressSequentially(pendingDraft, { delay: 100 });
+        } catch {
+          problems.push(
+            "keyboard input was rejected while submission was pending",
+          );
+        }
+        await sleep(250);
+        if ((await composer.getAttribute("contenteditable")) !== "true") {
+          problems.push("chat editor became disabled while typing was pending");
+        }
+        const pendingText = await composer.innerText();
+        if (pendingText !== pendingDraft) {
+          problems.push(
+            `pending draft mismatch: ${JSON.stringify(pendingText)}`,
+          );
+        }
+        if (await sendButton.isEnabled()) {
+          problems.push("chat send button stayed enabled during submission");
+        }
+        await page.screenshot({
+          path: path.join(outRoot, "chat-input-lock-pending.png"),
+        });
+      }
+    }
+    return problems;
+  } finally {
+    releaseSubmit();
+    if (submitRequestSeen) {
+      const routeDrained = await Promise.race([
+        submitRouteFinished.then(() => true),
+        sleep(5000).then(() => false),
+      ]);
+      if (routeDrained) await page.unroute(submitRoute);
+    }
+    // Keep interception installed if preflight timed out; the delayed send must not escape.
+    await action(page, "delete-deck", { id: deckId }, "DELETE");
+  }
+}
+
+async function runImeEscapeRegression(
+  page: Page,
+  base: string,
+  outRoot: string,
+) {
+  await page.addInitScript(() => {
+    const events: any[] = [];
+    (window as any).__imeEscapeEvents = events;
+    for (const type of [
+      "compositionstart",
+      "beforeinput",
+      "input",
+      "compositionend",
+      "keydown",
+    ]) {
+      window.addEventListener(
+        type,
+        (event) => {
+          const input = event as InputEvent;
+          const key = event as KeyboardEvent;
+          events.push({
+            type,
+            key: key.key,
+            keyCode: key.keyCode,
+            data: input.data,
+            inputType: input.inputType,
+            isComposing: input.isComposing,
+            trusted: event.isTrusted,
+            targetIsEditingBlock:
+              event.target instanceof Element &&
+              event.target.matches(
+                '[contenteditable="true"][data-editing-block="true"]',
+              ),
+          });
+        },
+        true,
+      );
+    }
   });
-
-  const first = "Fast typing should keep every character in order.";
-  const second = " A pause must not reset the caret either.";
-  await composer.pressSequentially(first);
-  await sleep(400);
-  await composer.pressSequentially(second);
-
-  const expected = first + second;
-  const result = await page.evaluate((selector: string) => {
-    const editor = document.querySelector<HTMLElement>(selector);
-    const selection = window.getSelection();
-    const focusNode = selection?.focusNode;
-    return {
-      text: editor?.innerText ?? null,
-      sameNode: editor === (window as any).__typingRegressionComposer,
-      focused: document.activeElement === editor,
-      caretOffset:
-        editor && focusNode && editor.contains(focusNode)
-          ? (selection?.focusOffset ?? null)
-          : null,
-    };
-  }, selector);
-  const editAfterTyping = await editorState(page, "chat-typing-slide");
-  const problems: string[] = [];
-  if (result.text !== expected) {
-    problems.push(`text mismatch: ${JSON.stringify(result.text)}`);
+  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true, chatEligible: true }),
+    }),
+  );
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  const slideId = "ime-escape-slide";
+  const created = await action(page, "create-deck", {
+    title: "[edit-fidelity] IME Escape regression",
+    slides: [
+      {
+        id: slideId,
+        content: '<div class="fmd-slide"><p>Composition target</p></div>',
+      },
+    ],
+  });
+  const deckId = String(created.id ?? created.deckId);
+  let detach: (() => Promise<void>) | undefined;
+  try {
+    await openSlide(page, base, deckId, 0, slideId);
+    const [target] = await listTargets(page, slideId);
+    if (!target) throw new Error("synthetic slide has no editable text target");
+    const entryProblems: string[] = [];
+    if (!(await enterEdit(page, slideId, target.point, entryProblems))) {
+      throw new Error("could not open the synthetic slide text edit session");
+    }
+    const selector = `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+    const editor = page.locator(selector);
+    await editor.focus();
+    await page.keyboard.press("End");
+    const cdp = await page.context().newCDPSession(page);
+    detach = () => cdp.detach();
+    await cdp.send("Input.imeSetComposition", {
+      text: "に",
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    const composingText = await editor.innerText();
+    await page.screenshot({
+      path: path.join(outRoot, "ime-composition-active.png"),
+    });
+    await page.keyboard.press("Escape");
+    const editingAfterComposingEscape = await editorState(page, slideId);
+    if (!editingAfterComposingEscape.editing) {
+      throw new Error(
+        "Escape during IME composition exited inline text editing",
+      );
+    }
+    // Headless Chromium has no platform IME to consume Escape. Cancel through
+    // the same CDP input domain after checking that Escape left editing active.
+    await cdp.send("Input.imeSetComposition", {
+      text: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+    });
+    await waitFor(
+      () =>
+        page.evaluate(() =>
+          (window as any).__imeEscapeEvents.some(
+            (event: any) =>
+              event.type === "compositionend" && event.targetIsEditingBlock,
+          ),
+        ),
+      2000,
+    );
+    await sleep(100);
+    const editState = await editorState(page, slideId);
+    const afterEscapeText = await page
+      .locator(`${canvasSelector(slideId)} [data-slide-text-block="true"]`)
+      .first()
+      .innerText();
+    const events = await page.evaluate(() => (window as any).__imeEscapeEvents);
+    const editorEvents = events.filter(
+      (event: any) => event.targetIsEditingBlock,
+    );
+    const escape = editorEvents.find(
+      (event: any) => event.type === "keydown" && event.key === "Escape",
+    );
+    const problems = [...entryProblems];
+    if (
+      !editorEvents.some(
+        (event: any) => event.type === "compositionstart" && event.trusted,
+      )
+    ) {
+      problems.push(
+        "Chromium did not deliver a trusted compositionstart event",
+      );
+    }
+    if (
+      !editorEvents.some(
+        (event: any) =>
+          event.type === "beforeinput" &&
+          event.inputType === "insertCompositionText" &&
+          event.isComposing &&
+          event.trusted,
+      )
+    ) {
+      problems.push("Chromium did not deliver trusted composing beforeinput");
+    }
+    if (!escape?.isComposing && escape?.keyCode !== 229) {
+      problems.push(
+        "Escape was not delivered while Chromium reported composition active",
+      );
+    }
+    if (!events.some((event: any) => event.type === "compositionend")) {
+      problems.push("composition Escape did not end the active composition");
+    }
+    if (!composingText.endsWith("に")) {
+      problems.push(
+        `IME candidate was not visible in the editor: ${JSON.stringify(composingText)}`,
+      );
+    }
+    if (!editState.editing || !editingAfterComposingEscape.editing) {
+      problems.push("Escape during IME composition exited inline text editing");
+    }
+    if (afterEscapeText !== "Composition target") {
+      problems.push(
+        `composing Escape did not cancel the candidate: ${JSON.stringify(afterEscapeText)}`,
+      );
+    }
+    await page.screenshot({
+      path: path.join(outRoot, "ime-composition-after-escape.png"),
+    });
+    if (editState.editing) {
+      await page.keyboard.press("Escape");
+      if (
+        !(await waitFor(
+          async () => !(await editorState(page, slideId)).editing,
+          5000,
+        ))
+      ) {
+        problems.push(
+          "a non-composing Escape did not exit inline text editing",
+        );
+      }
+    }
+    return problems;
+  } finally {
+    try {
+      await detach?.();
+    } finally {
+      await action(page, "delete-deck", { id: deckId }, "DELETE");
+    }
   }
-  if (!result.sameNode) problems.push("composer remounted while typing");
-  if (!result.focused) problems.push("composer lost focus while typing");
-  if (result.caretOffset !== expected.length) {
+}
+
+async function runTextSurfaceQa(page: Page, base: string) {
+  const problems: string[] = [];
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  const normalizeText = (text: string) =>
+    text
+      .replace(/\u200b/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const slideText = (html: string) =>
+    page.evaluate((content: string) => {
+      const element = document.createElement("div");
+      element.innerHTML = content;
+      for (const lineBreak of element.querySelectorAll("br")) {
+        lineBreak.replaceWith(" ");
+      }
+      element.style.cssText = "position:fixed;left:-100000px;top:0";
+      document.body.append(element);
+      try {
+        return element.innerText;
+      } finally {
+        element.remove();
+      }
+    }, html);
+  const slideOne = "text-surface-slide-one";
+  const slideTwo = "text-surface-slide-two";
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(base).origin,
+  });
+  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true, chatEligible: true }),
+    }),
+  );
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  const blockText = await slideText("<p>First<br>line</p><p>Second</p>");
+  if (normalizeText(blockText) !== "First line Second") {
     problems.push(
-      `caret ended at ${result.caretOffset}, expected ${expected.length}`,
+      `slide text: saved block markup produced ${JSON.stringify(blockText)}`,
     );
   }
-  if (!editAfterTyping.editing) {
-    problems.push("slide text edit session ended while typing in chat");
+  const title = `[edit-fidelity] text surface QA ${Date.now()}`;
+  const created = await action(page, "create-deck", {
+    title,
+    slides: [
+      {
+        id: slideOne,
+        content: '<div class="fmd-slide"><p>Rapid typing target</p></div>',
+      },
+      {
+        id: slideTwo,
+        content: '<div class="fmd-slide"><p>Second slide target</p></div>',
+      },
+    ],
+  });
+  const deckId = String(created.id ?? created.deckId);
+  const readDeck = () =>
+    action<any>(page, "get-deck", { id: deckId, compact: "false" }, "GET");
+  const surfaceText = (locator: any) => locator.inputValue();
+  const waitForText = (locator: any, expected: string) =>
+    waitFor(async () => (await surfaceText(locator)) === expected, 4000, 50);
+  const composingEscape = async (locator: any, label: string) => {
+    const cdp = await page.context().newCDPSession(page);
+    const before = await surfaceText(locator);
+    await locator.focus();
+    await locator.evaluate(
+      (element: HTMLInputElement | HTMLTextAreaElement) => {
+        element.setSelectionRange(element.value.length, element.value.length);
+      },
+    );
+    await locator.evaluate((element: HTMLElement) => {
+      (window as any).__textSurfaceCompositionEvents = [];
+      for (const type of [
+        "compositionstart",
+        "beforeinput",
+        "compositionend",
+        "keydown",
+      ]) {
+        element.addEventListener(type, (event) => {
+          const input = event as InputEvent;
+          const key = event as KeyboardEvent;
+          (window as any).__textSurfaceCompositionEvents.push({
+            type,
+            key: key.key,
+            keyCode: key.keyCode,
+            data: input.data,
+            inputType: input.inputType,
+            isComposing: input.isComposing,
+            trusted: event.isTrusted,
+          });
+        });
+      }
+    });
+    await cdp.send("Input.imeSetComposition", {
+      text: "に",
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    const candidateVisible = await waitForText(locator, `${before}に`);
+    if (!candidateVisible) {
+      const failedCandidate = await locator.evaluate(
+        (element: HTMLInputElement | HTMLTextAreaElement) => ({
+          value: element.value,
+          caret: element.selectionStart,
+          focused: document.activeElement === element,
+        }),
+      );
+      const events = await page.evaluate(
+        () => (window as any).__textSurfaceCompositionEvents ?? [],
+      );
+      problems.push(
+        `${label}: Chromium did not show the active IME candidate ${JSON.stringify({ before, failedCandidate, events })}`,
+      );
+      await cdp.send("Input.imeSetComposition", {
+        text: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+      });
+      await waitFor(
+        () =>
+          page.evaluate(() =>
+            (window as any).__textSurfaceCompositionEvents?.some(
+              (event: any) => event.type === "compositionend",
+            ),
+          ),
+        2000,
+      );
+      await cdp.detach();
+      return await locator.isVisible();
+    }
+    await locator.press("Escape");
+    const remainsOpen = await locator.isVisible();
+    if (!remainsOpen) {
+      problems.push(
+        `${label}: Escape closed the editor during IME composition`,
+      );
+      await cdp.detach();
+      return false;
+    }
+    const escape = await page.evaluate(() =>
+      (window as any).__textSurfaceCompositionEvents?.find(
+        (event: any) => event.type === "keydown" && event.key === "Escape",
+      ),
+    );
+    if (!escape?.isComposing && escape?.keyCode !== 229) {
+      problems.push(`${label}: Escape was not delivered during composition`);
+    }
+    // Headless Chromium has no platform IME to consume Escape. Cancel through
+    // the same CDP input domain after asserting the app left the field mounted.
+    await cdp.send("Input.imeSetComposition", {
+      text: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+    });
+    await waitFor(
+      () =>
+        page.evaluate(() =>
+          (window as any).__textSurfaceCompositionEvents?.some(
+            (event: any) => event.type === "compositionend",
+          ),
+        ),
+      2000,
+    );
+    const after = await surfaceText(locator);
+    if (after !== before) {
+      problems.push(`${label}: Escape did not cancel the candidate cleanly`);
+    }
+    const events = await page.evaluate(
+      () => (window as any).__textSurfaceCompositionEvents ?? [],
+    );
+    if (
+      !events.some(
+        (event: any) => event.type === "compositionstart" && event.trusted,
+      ) ||
+      !events.some(
+        (event: any) =>
+          event.type === "beforeinput" && event.isComposing && event.trusted,
+      ) ||
+      !events.some((event: any) => event.type === "compositionend")
+    ) {
+      problems.push(`${label}: Escape did not end the active composition`);
+    }
+    await cdp.detach();
+    return remainsOpen;
+  };
+  const exerciseControl = async (
+    locator: any,
+    label: string,
+    multiline: boolean,
+  ) => {
+    await locator.waitFor({ state: "visible", timeout: 10_000 });
+    await locator.focus();
+    const key = `text-surface-${label}`;
+    await locator.evaluate(
+      (element: HTMLInputElement | HTMLTextAreaElement, ref: string) => {
+        (window as any).__textSurfaceRefs ??= {};
+        (window as any).__textSurfaceRefs[ref] = element;
+        element.setSelectionRange(element.value.length, element.value.length);
+      },
+      key,
+    );
+    const start = await surfaceText(locator);
+    await locator.pressSequentially(" fast");
+    await sleep(600);
+    await locator.pressSequentially(" pause");
+    let expected = `${start} fast pause`;
+    if (!(await waitForText(locator, expected))) {
+      problems.push(
+        `${label}: rapid typing and debounce pause changed the text`,
+      );
+    }
+    if (multiline) {
+      await locator.press("Enter");
+      await locator.pressSequentially("lineX");
+      await locator.press("Backspace");
+      await locator.pressSequentially("2");
+      expected += "\nline2";
+      if (!(await waitForText(locator, expected))) {
+        problems.push(
+          `${label}: Enter or Backspace changed the text unexpectedly`,
+        );
+      }
+    } else {
+      await locator.press("Backspace");
+      expected = expected.slice(0, -1);
+      await locator.pressSequentially("e");
+      expected += "e";
+      if (!(await waitForText(locator, expected))) {
+        problems.push(`${label}: Backspace changed the text unexpectedly`);
+      }
+    }
+
+    const beforePaste = expected;
+    await page.evaluate(
+      (text: string) => navigator.clipboard.writeText(text),
+      " paste",
+    );
+    await locator.press(`${modifier}+V`);
+    expected += " paste";
+    if (!(await waitForText(locator, expected))) {
+      problems.push(
+        `${label}: native clipboard paste did not land at the caret`,
+      );
+    }
+    await locator.press(`${modifier}+Z`);
+    if (!(await waitForText(locator, beforePaste))) {
+      problems.push(`${label}: undo did not remove the paste`);
+    }
+    await locator.press(`${modifier}+Shift+Z`);
+    if (!(await waitForText(locator, expected))) {
+      problems.push(`${label}: redo did not restore the paste`);
+    }
+
+    const cdp = await page.context().newCDPSession(page);
+    await locator.press("End");
+    await cdp.send("Input.imeSetComposition", {
+      text: "に",
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    if (!(await waitForText(locator, `${expected}に`))) {
+      problems.push(`${label}: IME composition did not update the text`);
+    }
+    await cdp.send("Input.insertText", { text: "日" });
+    expected += "日";
+    if (!(await waitForText(locator, expected))) {
+      problems.push(`${label}: IME commit changed the text unexpectedly`);
+    }
+    const state = await locator.evaluate(
+      (element: HTMLInputElement | HTMLTextAreaElement, ref: string) => ({
+        value: element.value,
+        caret: element.selectionStart,
+        focused: document.activeElement === element,
+        sameNode: element === (window as any).__textSurfaceRefs?.[ref],
+      }),
+      key,
+    );
+    if (state.value !== expected)
+      problems.push(`${label}: final value did not match the typed text`);
+    if (state.caret !== expected.length)
+      problems.push(
+        `${label}: caret ended at ${state.caret}, expected ${expected.length}`,
+      );
+    if (!state.focused) problems.push(`${label}: typing lost focus`);
+    if (!state.sameNode)
+      problems.push(`${label}: input DOM node was replaced while typing`);
+    await cdp.detach();
+    return expected;
+  };
+
+  try {
+    await openSlide(page, base, deckId, 0, slideOne);
+    const [target] = await listTargets(page, slideOne);
+    if (!target) throw new Error("synthetic slide has no editable text target");
+    if (!(await enterEdit(page, slideOne, target.point, []))) {
+      throw new Error("could not open the synthetic slide text edit session");
+    }
+    const editorSelector = `${canvasSelector(slideOne)} [contenteditable="true"][data-editing-block="true"]`;
+    const editor = page.locator(editorSelector);
+    const original = await editor.innerText();
+    await editor.evaluate((element: HTMLElement) => {
+      (window as any).__textSurfaceSlideEditor = element;
+    });
+    await editor.press("End");
+    await editor.pressSequentially(" fast");
+    await sleep(400);
+    await editor.pressSequentially(" pause");
+    let expectedSlideText = `${original} fast pause`;
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: rapid typing and debounce pause changed the text",
+      );
+    }
+    const titleInput = page
+      .locator('[data-slides-editor-root="true"] input[type="text"]')
+      .first();
+    await titleInput.focus();
+    await editor.focus();
+    await editor.pressSequentially(" focus");
+    expectedSlideText += " focus";
+    const afterRefocus = await editor.innerText();
+    if (afterRefocus !== expectedSlideText) {
+      problems.push(
+        `slide text: focus loss and return changed it to ${JSON.stringify(afterRefocus)}`,
+      );
+    }
+    await page.screenshot({
+      path: path.join(outRoot, "slide-text-focus-return.png"),
+      fullPage: true,
+    });
+    const backwardsSelection = await editor.evaluate((element: HTMLElement) => {
+      const nodes: Text[] = [];
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        nodes.push(node as Text);
+      }
+      const pointAt = (offset: number): [Text, number] | null => {
+        let remaining = offset;
+        for (const node of nodes) {
+          if (remaining <= node.length) return [node, remaining];
+          remaining -= node.length;
+        }
+        return null;
+      };
+      const length = nodes.reduce((total, node) => total + node.length, 0);
+      const end = pointAt(length);
+      const start = pointAt(length - 5);
+      if (!start || !end) return false;
+      const [endNode, endOffset] = end;
+      const [startNode, startOffset] = start;
+      const selection = window.getSelection();
+      selection?.setBaseAndExtent(endNode, endOffset, startNode, startOffset);
+      return selection?.toString() === "focus";
+    });
+    if (!backwardsSelection) {
+      problems.push(
+        "slide text: could not make the backwards selection target",
+      );
+    } else {
+      await titleInput.focus();
+      await editor.focus();
+      const restoredSelection = await editor.evaluate(
+        (element: HTMLElement) => {
+          const selection = window.getSelection();
+          if (!selection?.anchorNode || !selection.focusNode) return null;
+          const offset = (node: Node, nodeOffset: number) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            range.setEnd(node, nodeOffset);
+            return range.toString().length;
+          };
+          return {
+            anchor: offset(selection.anchorNode, selection.anchorOffset),
+            focus: offset(selection.focusNode, selection.focusOffset),
+            text: selection.toString(),
+          };
+        },
+      );
+      if (
+        !restoredSelection ||
+        restoredSelection.anchor <= restoredSelection.focus ||
+        restoredSelection.text !== "focus"
+      ) {
+        problems.push(
+          `slide text: refocus changed backwards selection direction (${JSON.stringify(restoredSelection)})`,
+        );
+      } else {
+        await editor.press("Shift+ArrowLeft");
+        const extendedSelection = await editor.evaluate(
+          (element: HTMLElement) => {
+            const selection = window.getSelection();
+            if (!selection?.anchorNode || !selection.focusNode) return null;
+            const offset = (node: Node, nodeOffset: number) => {
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              range.setEnd(node, nodeOffset);
+              return range.toString().length;
+            };
+            return {
+              anchor: offset(selection.anchorNode, selection.anchorOffset),
+              focus: offset(selection.focusNode, selection.focusOffset),
+              text: selection.toString(),
+            };
+          },
+        );
+        if (
+          !extendedSelection ||
+          extendedSelection.anchor <= extendedSelection.focus ||
+          extendedSelection.text !== " focus"
+        ) {
+          problems.push(
+            `slide text: Shift+ArrowLeft did not extend the backwards selection (${JSON.stringify(extendedSelection)})`,
+          );
+        }
+      }
+    }
+    const clickPoint = await editor.evaluate((element: HTMLElement) => {
+      const text = document
+        .createTreeWalker(element, NodeFilter.SHOW_TEXT)
+        .nextNode() as Text | null;
+      if (!text || text.length < 4) return null;
+      const range = document.createRange();
+      range.setStart(text, 2);
+      range.setEnd(text, 3);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.right - 0.5, y: rect.top + rect.height / 2 };
+    });
+    await titleInput.focus();
+    if (clickPoint) {
+      await page.mouse.click(clickPoint.x, clickPoint.y);
+      const caretOffset = await editor.evaluate((element: HTMLElement) => {
+        const selection = window.getSelection();
+        const range =
+          selection?.rangeCount === 1 ? selection.getRangeAt(0) : null;
+        if (!range || !element.contains(range.startContainer)) return null;
+        const before = document.createRange();
+        before.selectNodeContents(element);
+        before.setEnd(range.startContainer, range.startOffset);
+        return before.toString().length;
+      });
+      if (caretOffset === null || caretOffset < 1 || caretOffset > 4) {
+        problems.push(
+          `slide text: pointer re-entry landed at ${caretOffset}, outside the clicked word`,
+        );
+      }
+      await editor.pressSequentially(" click");
+      if (caretOffset !== null) {
+        const pointerExpected =
+          expectedSlideText.slice(0, caretOffset) +
+          " click" +
+          expectedSlideText.slice(caretOffset);
+        const afterPointerClick = await editor.innerText();
+        if (afterPointerClick !== pointerExpected) {
+          problems.push(
+            `slide text: pointer re-entry inserted at the wrong caret (${JSON.stringify(afterPointerClick)})`,
+          );
+        }
+        expectedSlideText = pointerExpected;
+      }
+    } else {
+      problems.push("slide text: could not locate the pointer re-entry target");
+    }
+    await editor.press("End");
+    await page.evaluate(
+      (text: string) => navigator.clipboard.writeText(text),
+      " paste",
+    );
+    await editor.press(`${modifier}+V`);
+    expectedSlideText += " paste";
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: paste produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    await editor.press(`${modifier}+Z`);
+    expectedSlideText = expectedSlideText.slice(0, -6);
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: undo produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    await editor.press(`${modifier}+Shift+Z`);
+    expectedSlideText += " paste";
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: redo produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    await editor.press("End");
+    await editor.press("Enter");
+    await editor.pressSequentially("lineX");
+    await editor.press("Backspace");
+    await editor.pressSequentially("2");
+    expectedSlideText += "\nline2";
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: Enter/Backspace produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    const cdp = await page.context().newCDPSession(page);
+    await editor.press("End");
+    await cdp.send("Input.imeSetComposition", {
+      text: "に",
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === `${expectedSlideText}に`,
+        3000,
+      ))
+    ) {
+      problems.push("slide text: IME composition did not update the text");
+    }
+    await cdp.send("Input.insertText", { text: "日" });
+    expectedSlideText += "日";
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: IME commit produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    await cdp.detach();
+    await editor.pressSequentially(" switch");
+    expectedSlideText += " switch";
+    await page.locator(`[data-slide-thumbnail-id="${slideTwo}"]`).click();
+    if (
+      !(await waitFor(
+        async () => !(await editorState(page, slideTwo)).editing,
+        5000,
+      ))
+    ) {
+      problems.push("slide switching left the old text session active");
+    }
+    let savedContent: string | undefined;
+    const switchedTextSaved = await waitFor(
+      async () => {
+        const saved = await action<any>(
+          page,
+          "get-deck",
+          {
+            id: deckId,
+            slideId: slideOne,
+            compact: "false",
+          },
+          "GET",
+        );
+        savedContent = saved.slides?.find(
+          (slide: any) => slide.id === slideOne,
+        )?.content;
+        if (!savedContent) return false;
+        const savedText = await slideText(savedContent);
+        return normalizeText(savedText) === normalizeText(expectedSlideText);
+      },
+      5000,
+      100,
+    );
+    if (!switchedTextSaved) {
+      const savedText = savedContent ? await slideText(savedContent) : "";
+      problems.push(
+        `slide switching saved ${JSON.stringify(savedText)}, expected ${JSON.stringify(expectedSlideText)}`,
+      );
+    }
+
+    await page.getByRole("button", { name: "Speaker Notes" }).click();
+    const notes = page.getByPlaceholder("Add speaker notes...");
+    const expectedNotes = await exerciseControl(notes, "speaker notes", true);
+    await sleep(900);
+    const notesDeck = await action<any>(
+      page,
+      "get-deck",
+      {
+        id: deckId,
+        slideId: slideTwo,
+        compact: "false",
+      },
+      "GET",
+    );
+    const notesSlide = notesDeck.slides?.find(
+      (slide: any) => slide.id === slideTwo,
+    );
+    if (
+      normalizeText(notesSlide?.notes ?? "") !== normalizeText(expectedNotes)
+    ) {
+      problems.push(
+        `speaker notes: saved ${JSON.stringify(notesSlide?.notes)}, expected ${JSON.stringify(expectedNotes)}`,
+      );
+    }
+
+    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("menuitem", { name: "Comments", exact: true }).click();
+    const commentsHeading = page.getByText("Comments", { exact: true }).last();
+    const addComment = commentsHeading.locator("..").locator("button").first();
+    await addComment.click();
+    const comment = page.getByPlaceholder("Add a comment...");
+    if (!(await composingEscape(comment, "comment composer"))) {
+      await addComment.click();
+    }
+    await exerciseControl(comment, "comment composer", true);
+    await comment.press("Escape");
+    await addComment.click();
+    const rootComposer = page.getByPlaceholder("Add a comment...");
+    await rootComposer.fill("Text surface QA root");
+    await rootComposer.press(`${modifier}+Enter`);
+    const rootComment = page.getByText("Text surface QA root", {
+      exact: true,
+    });
+    await rootComment.waitFor({ state: "visible", timeout: 5000 });
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    const reply = page.getByPlaceholder("Reply...");
+    if (!(await composingEscape(reply, "comment reply"))) {
+      await page.getByRole("button", { name: "Reply", exact: true }).click();
+      await reply.waitFor({ state: "visible", timeout: 5000 });
+    }
+    await exerciseControl(reply, "comment reply", true);
+    await reply.press("Escape");
+    await rootComment.hover();
+    await page.getByRole("button", { name: "Edit comment" }).click();
+    const editComment = page.getByRole("textbox", { name: "Edit comment" });
+    if (!(await composingEscape(editComment, "comment edit"))) {
+      await rootComment.hover();
+      await page.getByRole("button", { name: "Edit comment" }).click();
+    }
+    await exerciseControl(editComment, "comment edit", true);
+    await editComment.press("Escape");
+    await page.getByRole("button", { name: "More" }).click();
+    await page.locator("[data-toolbar-pin-button]").click();
+    const [pinTarget] = await listTargets(page, slideTwo);
+    if (!pinTarget)
+      throw new Error("second slide has no comment anchor target");
+    await page.mouse.click(pinTarget.point.x, pinTarget.point.y);
+    const pinComment = page.locator("[data-pin-popover] textarea");
+    await pinComment.waitFor({ state: "visible", timeout: 5000 });
+    if (!(await composingEscape(pinComment, "pinned comment composer"))) {
+      await page.mouse.click(pinTarget.point.x, pinTarget.point.y);
+      await pinComment.waitFor({ state: "visible", timeout: 5000 });
+    }
+    await exerciseControl(pinComment, "pinned comment composer", true);
+    await pinComment.press("Escape");
+    await page.getByRole("button", { name: "More" }).click();
+    await page.locator("[data-toolbar-pin-button]").click();
+
+    const deckTitle = page
+      .locator('[data-slides-editor-root="true"] input[type="text"]')
+      .first();
+    await exerciseControl(deckTitle, "deck title", false);
+    const titleAfterTyping = await deckTitle.inputValue();
+    await sleep(900);
+    const titledDeck = await readDeck();
+    if (titledDeck.title !== titleAfterTyping) {
+      problems.push("deck title: the debounced title was not saved");
+    }
+
+    await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("tab", { name: "Recent" }).click();
+    const card = page
+      .locator(".agent-template-library-card")
+      .filter({ has: page.locator(`a[href="/deck/${deckId}"]`) })
+      .first();
+    await card.waitFor({ state: "visible", timeout: 20_000 });
+    await card.hover();
+    await card.locator('button[aria-label="Deck options"]').click();
+    await page.getByRole("menuitem", { name: "Rename" }).click();
+    let rename = card.locator("input");
+    await rename.waitFor({ state: "visible", timeout: 5000 });
+    if (!(await composingEscape(rename, "deck-card rename"))) {
+      await card.hover();
+      await card.locator('button[aria-label="Deck options"]').click();
+      await page.getByRole("menuitem", { name: "Rename" }).click();
+      rename = card.locator("input");
+      await rename.waitFor({ state: "visible", timeout: 5000 });
+    }
+    const renameAfterTyping = await exerciseControl(
+      rename,
+      "deck-card rename",
+      false,
+    );
+    await rename.press("Enter");
+    await sleep(900);
+    const renamedDeck = await readDeck();
+    if (renamedDeck.title !== renameAfterTyping) {
+      problems.push("deck-card rename: the committed title was not saved");
+    }
+  } catch (error) {
+    problems.push(`text-surface QA could not finish: ${String(error)}`);
+  } finally {
+    try {
+      await action(page, "delete-deck", { id: deckId }, "DELETE");
+    } catch (error) {
+      problems.push(
+        `text-surface QA could not delete its synthetic deck: ${String(error)}`,
+      );
+    }
   }
   return problems;
 }
@@ -1941,7 +2974,39 @@ async function main() {
         return 1;
       }
       console.log(
-        "[edit-fidelity] chat typing regression passed with a slide edit session open",
+        "[edit-fidelity] selection direction and chat typing regressions passed",
+      );
+      return 0;
+    }
+
+    if (imeEscapeOnly) {
+      const page = await context.newPage();
+      const problems = await runImeEscapeRegression(page, base, outRoot);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] IME Escape regression: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        "[edit-fidelity] composition Escape kept inline text editing active",
+      );
+      return 0;
+    }
+
+    if (textSurfaceQaOnly) {
+      const page = await context.newPage();
+      const problems = await runTextSurfaceQa(page, base);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] text-surface QA: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        "[edit-fidelity] Slides text surfaces passed typing, composition, paste, undo/redo, and switching checks",
       );
       return 0;
     }

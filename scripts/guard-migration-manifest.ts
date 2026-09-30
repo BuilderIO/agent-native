@@ -22,7 +22,9 @@ type MigrationMove = {
 };
 type MigrationManifest = {
   moves?: Record<string, MigrationMove>;
+  removedExports?: Record<string, unknown>;
 };
+type RemovedExport = { symbols: string[]; migrationGuide: string };
 type ExportSnapshot = {
   exports?: Record<string, string[]>;
 };
@@ -49,6 +51,13 @@ const GUARDED_PACKAGES: GuardedPackage[] = [
   { directory: "packages/core", name: "@agent-native/core" },
   { directory: "packages/toolkit", name: "@agent-native/toolkit" },
 ];
+
+// Preserve the pre-migration Core stylesheet surface if the snapshot is refreshed.
+const HISTORICAL_CORE_STYLESHEET_EXPORTS: Record<string, string[]> = {
+  "./styles/agent-conversation.css": ["dist/styles/agent-conversation.css"],
+  "./styles/agent-native.css": ["dist/styles/agent-native.css"],
+  "./styles/chat-history-list.css": ["dist/styles/chat-history-list.css"],
+};
 
 export type MigrationManifestViolation = {
   packageName: string;
@@ -240,6 +249,9 @@ function buildExportedSymbolCatalog(
       specifiers.add(from);
       for (const target of activeMoveTargets(move)) specifiers.add(target);
     }
+    for (const specifier of Object.keys(manifest.removedExports ?? {})) {
+      specifiers.add(specifier);
+    }
   }
   const { Project } = createRequire(
     path.join(repoRoot, "packages/core/package.json"),
@@ -321,6 +333,55 @@ export function checkMigrationManifest(
   const snapshotExports = snapshot.exports ?? {};
   const moves = migrationManifest.moves ?? {};
   const violations: MigrationManifestViolation[] = [];
+  const removedExports: Array<[string, RemovedExport]> = [];
+
+  for (const [specifier, value] of Object.entries(
+    migrationManifest.removedExports ?? {},
+  )) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      violations.push({
+        packageName,
+        message: `${specifier} must be an object with a symbols array and migrationGuide URL.`,
+      });
+      continue;
+    }
+    const candidate = value as { symbols?: unknown; migrationGuide?: unknown };
+    if (
+      !Array.isArray(candidate.symbols) ||
+      candidate.symbols.some((symbol) => typeof symbol !== "string")
+    ) {
+      violations.push({
+        packageName,
+        message: `${specifier} removedExports.symbols must be a string array.`,
+      });
+      continue;
+    }
+    if (candidate.symbols.length === 0) {
+      violations.push({
+        packageName,
+        message: `${specifier} must list at least one removed symbol in removedExports.`,
+      });
+    }
+    if (
+      typeof candidate.migrationGuide !== "string" ||
+      !/^https:\/\//.test(candidate.migrationGuide)
+    ) {
+      violations.push({
+        packageName,
+        message: `${specifier} removedExports must link to a migration guide.`,
+      });
+    }
+    removedExports.push([
+      specifier,
+      {
+        symbols: candidate.symbols as string[],
+        migrationGuide:
+          typeof candidate.migrationGuide === "string"
+            ? candidate.migrationGuide
+            : "",
+      },
+    ]);
+  }
 
   if (packageCatalog) {
     const checkedTargets = new Set<string>();
@@ -363,12 +424,46 @@ export function checkMigrationManifest(
         });
       }
     }
+    for (const [specifier, removed] of removedExports) {
+      const sourceSymbols = exportedSymbols[specifier];
+      for (const symbol of removed.symbols) {
+        if (!sourceSymbols?.has(symbol)) continue;
+        violations.push({
+          packageName,
+          message: `${specifier} marks ${symbol} removed, but the package still exports it. Update the removal inventory or remove the stale export.`,
+        });
+      }
+    }
+  }
+
+  for (const [specifier] of removedExports) {
+    if (packageCatalog && !targetIsExported(specifier, packageCatalog)) {
+      violations.push({
+        packageName,
+        message: `${specifier} lists removed exports but is not a published package entrypoint.`,
+      });
+    }
   }
 
   for (const [exportKey, previousTargets] of Object.entries(snapshotExports)) {
     const specifier = packageSpecifier(packageName, exportKey);
     const exportValue = exports[exportKey];
     if (exportValue === undefined) {
+      const move = moves[specifier];
+      const moveTargets = move ? activeMoveTargets(move) : [];
+      const migratedStylesheet = Boolean(
+        move &&
+        packageCatalog &&
+        previousTargets.length > 0 &&
+        previousTargets.every((target) => target.endsWith(".css")) &&
+        hasExactMove(moves, specifier) &&
+        moveTargets.length > 0 &&
+        moveTargets.every(
+          (target) =>
+            target.endsWith(".css") && targetIsExported(target, packageCatalog),
+        ),
+      );
+      if (migratedStylesheet) continue;
       violations.push({
         packageName,
         message: `${specifier} was removed from exports; keep the export and point it to a tombstone so consumers receive the upgrade guidance.`,
@@ -436,6 +531,33 @@ export function checkMigrationManifest(
   return violations;
 }
 
+export function checkPackageMigrationManifest(
+  packageManifest: PackageManifest,
+  snapshot: ExportSnapshot,
+  migrationManifest: MigrationManifest,
+  packageCatalog?: Record<string, PackageManifest>,
+  exportedSymbols?: ExportedSymbolCatalog,
+): MigrationManifestViolation[] {
+  const completeSnapshot =
+    packageManifest.name === "@agent-native/core"
+      ? {
+          ...snapshot,
+          exports: {
+            ...HISTORICAL_CORE_STYLESHEET_EXPORTS,
+            ...snapshot.exports,
+          },
+        }
+      : snapshot;
+
+  return checkMigrationManifest(
+    packageManifest,
+    completeSnapshot,
+    migrationManifest,
+    packageCatalog,
+    exportedSymbols,
+  );
+}
+
 function main(): void {
   const repoRoot = path.resolve(import.meta.dirname, "..");
   const packageDirectories = Object.fromEntries(
@@ -480,7 +602,7 @@ function main(): void {
         },
       ];
     }
-    return checkMigrationManifest(
+    return checkPackageMigrationManifest(
       packageManifest,
       readJson<ExportSnapshot>("export-snapshot.json"),
       migrationManifests[name],

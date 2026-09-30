@@ -334,6 +334,13 @@ Chaque requête `useActionQuery()`, `useActionMutation()`, et `callAction()` est
           description: "URL du point de terminaison d'interrogation.",
         },
         {
+          name: "realtime",
+          type: "{ reason: string }",
+          optional: true,
+          description:
+            "Active la synchronisation en arrière-plan pour cette page. Une courte raison rend la décision et son coût visibles. Sans cette option, aucun transport en arrière-plan n'est ouvert.",
+        },
+        {
           name: "sseUrl",
           type: "string | false",
           optional: true,
@@ -346,7 +353,8 @@ Chaque requête `useActionQuery()`, `useActionMutation()`, et `callAction()` est
           type: "number",
           optional: true,
           default: "2000",
-          description: "Intervalle d'interrogation en ms.",
+          description:
+            "Intervalle d'interrogation en ms pendant une exécution de l'agent. Au repos, il passe à 1, puis 2, puis 5 minutes.",
         },
         {
           name: "fallbackInterval",
@@ -354,15 +362,15 @@ Chaque requête `useActionQuery()`, `useActionMutation()`, et `callAction()` est
           optional: true,
           default: "60000",
           description:
-            "Intervalle d'interrogation tant que SSE est connecté, comme secours au cas où un événement serait manqué. Un onglet déconnecté interroge à la cadence plus rapide `interval` (ou une cadence d'inactivité fixe) à la place.",
+            "Intervalle minimal d'interrogation en ms quand SSE est connecté. Les interrogations vides réussies passent à 1, 2 puis 5 minutes.",
         },
         {
           name: "pauseWhenHidden",
           type: "boolean",
           optional: true,
-          default: "false",
+          default: "true",
           description:
-            "Suspend l'interrogation lorsque l'onglet du navigateur est masqué. Les onglets masqués gardent SSE connecté et n'interrogent pas plus vite que toutes les 10 s tant qu'ils sont actifs, 60 s une fois inactifs.",
+            "Met en pause la synchronisation en arrière-plan lorsque l'onglet du navigateur est masqué.",
         },
         {
           name: "ignoreSource",
@@ -376,7 +384,7 @@ Chaque requête `useActionQuery()`, `useActionMutation()`, et `callAction()` est
           type: "(data) => void",
           optional: true,
           description:
-            "Callback facultatif lorsque SSE ou l'interrogation reçoit un événement de changement.",
+            "Callback facultatif pour les événements de synchronisation distants et les fins d'outils pendant l'exécution locale du chat.",
         },
         {
           name: "actionInvalidatePredicate",
@@ -405,7 +413,7 @@ Chaque requête `useActionQuery()`, `useActionMutation()`, et `callAction()` est
   returns={{ type: "void" }}
 />
 
-Ce hook est destiné à maintenir l'UI synchronisée avec les changements de base de données qui se produisent en dehors de vos propres actions, comme une écriture de l'agent, un webhook, ou un changement effectué depuis un autre onglet du navigateur. Il écoute les changements via des événements envoyés par le serveur, et revient à l'interrogation lorsque les événements envoyés par le serveur ne sont pas disponibles. Sur un déploiement serverless de production, le flux `/_agent-native/events` propre à l'app n'est pas disponible par conception — le serveur répond immédiatement par un 204 plutôt que de garder une instance de fonction ouverte —, si bien que l'interrogation y assure toute la synchronisation, au même rythme, sauf si l'app a activé la [passerelle de synchronisation temps réel hébergée](/docs/real-time-collaboration#hosted-gateway).
+`useDbSync()` traite les fins d'outils du flux de chat local et actualise les données à la fin de l'exécution. Les modifications d'un agent seul restent ainsi à jour sans requête en arrière-plan. La synchronisation des changements venant d'autres onglets, personnes, webhooks ou tâches reste désactivée, sauf si cette page l'active avec une courte raison. Chaque onglet partage un transport, le met en pause lorsqu'il est masqué et espace les interrogations à vide à 1, 2 puis 5 minutes.
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";
@@ -416,6 +424,7 @@ function App() {
 
   useDbSync({
     queryClient,
+    realtime: { reason: "teammates can edit this shared record" },
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -424,7 +433,7 @@ function App() {
 }
 ```
 
-Pour les CRUD normaux, préférez `useActionQuery()` et `useActionMutation()`. Les actions de mutation émettent `source: "action"`, donc ces hooks se relancent immédiatement. Les changements provenant de l'agent, d'un webhook, ou d'un autre onglet arrivent via `useDbSync()` à la place, via SSE ou le secours par interrogation. Si un appel `useQuery()` brut a besoin de se synchroniser sur une clé personnalisée, voir [Synchronisation interne](/docs/client-sync-internals). Si vous avez besoin d'écrire directement dans `application_state`, voir [Avancé](/docs/client-advanced).
+N'activez le temps réel que si les données peuvent changer sans action de l'utilisateur actuel et si celui-ci doit voir le changement avant d'actualiser. L'édition collaborative dans Slides et la boîte de réception Mail sont de bons exemples. Laissez désactivés les pages publiques, Docs, paramètres, formulaires, listes rarement modifiées et changements d'un agent seul ; actualisez au retour du focus ou à la navigation. Chaque onglet ouvert abonné ajoute une interrogation par intervalle à vide.
 
 ## Quelle est la prochaine étape
 

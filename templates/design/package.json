@@ -29,6 +29,7 @@
     "@agent-native/core": "workspace:*",
     "@agent-native/creative-context": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@electric-sql/pglite": "^0.5.8",
     "@fontsource-variable/inter": "^5.2.8",
     "@jridgewell/trace-mapping": "0.3.31",
     "@noble/hashes": "^2.3.0",

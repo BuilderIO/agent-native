@@ -28,7 +28,7 @@ vi.mock("@agent-native/core/client/labs", () => ({
   useLab: () => state.meetingsLab,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   SettingsGroup: ({
     id,
     title,

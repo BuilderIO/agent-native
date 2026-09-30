@@ -99,7 +99,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 सबसे सरल full-page chat:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -109,12 +109,11 @@ export default function ChatRoute() {
 जब किसी ऐप में full-page chat tab और `AgentSidebar` दोनों हों, तो दोनों surfaces पर एक ही `storageKey` का उपयोग करें, `chatViewTransition` सक्षम करें, और layout में chat-home handoff helpers इंस्टॉल करें। chat पेज से बाहर के सामान्य in-app links तब full chat को sidebar में morph कर सकते हैं जबकि active thread बनाए रखते हैं:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { useLocation } from "react-router";
 
 function ChatRoute() {
@@ -147,7 +146,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 अपने chrome के साथ सबसे सरल embedded chat:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -251,7 +250,7 @@ Tables, charts, cards, approvals, और typed results chat में first-part
 फ़र्स्ट-पार्टी टेम्पलेट इसे mount नहीं करते: Settings वही सब कवर करती है (Agent › Model, Instructions, Memory, Skills, Files और Sub-agents, साथ ही ऐप के Automations और MCP server पेज), `/agent` Settings पर रीडायरेक्ट करता है, और `AgentSidebar` पर `agentPageHref="/settings/agent"` Settings › Agent › Model खोलता है। जब किसी ऐप को पूरी agent सतह एक पेज पर चाहिए, तो `AgentTabsPage` को उसके अपने route पर mount करें।
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -515,10 +514,8 @@ Automation-first sessions और runs टिकाऊ objects हैं। Share
 इस path का उपयोग तब करें जब आपका एजेंट किसी अन्य framework या runtime के साथ पहले से बना हो और आप उसके चारों ओर Agent-Native का chat UI चाहते हों। `AgentChatRuntime` boundary है: आपका runtime normalized events stream करता है, और Agent-Native composer, transcript, tool calls, approvals, native widgets, और app layout render करता है।
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

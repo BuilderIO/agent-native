@@ -4,6 +4,15 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import dotenv from "dotenv";
+
+import {
+  isMigrationManifestActive,
+  loadMigrationManifestsForProject,
+  type MigrationDependency,
+  type MigrationDependencyCondition,
+} from "../package-lifecycle/migration-manifest.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import type { MigrationCodemodResult } from "./migration-codemod.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
@@ -45,6 +54,7 @@ export interface PackageJsonLike {
   resolutions?: Record<string, string>;
   scripts?: Record<string, string>;
   workspaces?: string[] | { packages?: string[] };
+  "agent-native"?: { workspaceCore?: string };
 }
 
 export interface FrameworkOverrideFinding {
@@ -67,6 +77,14 @@ export interface AgentNativeDepPin {
   section: (typeof PINNABLE_SECTIONS)[number];
   name: string;
   version: string;
+}
+
+export interface UpgradeDependencyAddition {
+  file: string;
+  name: string;
+  version: string;
+  action: "add" | "promote" | "update";
+  from?: string;
 }
 
 export interface AgentNativePinResult {
@@ -185,12 +203,13 @@ export function printUpgradeHelp(io: Pick<UpgradeIo, "log"> = defaultIo): void {
       "  agent-native upgrade              Bring this app/workspace to current @agent-native/*",
       "  agent-native upgrade check        Doctor only: overrides, patches, pending bumps",
       "  agent-native upgrade --dry-run    Show the plan without writing or installing",
-      "  agent-native upgrade --codemods   Preview manifest-driven import migrations",
+      "  agent-native upgrade --codemods   Apply manifest-driven import migrations",
       "",
       "Options:",
       "  --skip-install   Bump package.json only; do not run the package manager",
-      "  --codemods       Rewrite moved Agent-Native imports and exports (preview by default)",
-      "  --yes            Apply codemods; without this flag --codemods is a dry run",
+      "  --codemods       Rewrite moved Agent-Native imports and exports",
+      "  --dry-run        Preview the upgrade and codemods without writing files",
+      "  --yes            Accepted for compatibility; codemods apply by default",
       "  --skip-skills    Skip `skills update scaffold --project`",
       "  --skip-verify    Skip typecheck after upgrade",
       "  --force          Continue even when framework overrides/patches are present",
@@ -305,6 +324,285 @@ function collectBumps(
     }
   }
   return bumps;
+}
+
+function firstConfigured(...values: Array<string | undefined>): boolean {
+  return values.some((value) => Boolean(value?.trim()));
+}
+
+function hasSentryKeyTuple(environment: NodeJS.ProcessEnv): boolean {
+  return (
+    firstConfigured(
+      environment.SENTRY_CLIENT_KEY,
+      environment.VITE_SENTRY_CLIENT_KEY,
+    ) &&
+    firstConfigured(
+      environment.SENTRY_PROJECT_ID,
+      environment.VITE_SENTRY_PROJECT_ID,
+    ) &&
+    firstConfigured(
+      environment.SENTRY_INGEST_HOST,
+      environment.VITE_SENTRY_INGEST_HOST,
+    )
+  );
+}
+
+function isEnabled(value: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
+}
+
+export function selectMigrationDependencies(
+  dependencies: MigrationDependency[],
+  environment: NodeJS.ProcessEnv,
+): MigrationDependency[] {
+  const appName =
+    environment.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+    environment.VITE_AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+    environment.APP_NAME?.trim();
+  const appDatabaseUrl = appName
+    ? environment[
+        `${appName.toUpperCase().replace(/-/g, "_")}_DATABASE_URL`
+      ]?.trim()
+    : undefined;
+  const databaseUrl = appDatabaseUrl || environment.DATABASE_URL?.trim();
+  const sentryKeyTuple = hasSentryKeyTuple(environment);
+  const enabled = new Set<MigrationDependencyCondition>();
+
+  if (!databaseUrl || /^pglite:/i.test(databaseUrl)) {
+    enabled.add("pglite-database");
+  }
+  if (
+    firstConfigured(environment.SENTRY_SERVER_DSN, environment.SENTRY_DSN) ||
+    sentryKeyTuple
+  ) {
+    enabled.add("server-sentry");
+  }
+  if (
+    firstConfigured(
+      environment.SENTRY_CLIENT_DSN,
+      environment.VITE_SENTRY_CLIENT_DSN,
+      environment.VITE_SENTRY_DSN,
+      environment.SENTRY_DSN,
+    ) ||
+    sentryKeyTuple
+  ) {
+    enabled.add("browser-sentry");
+  }
+  if (
+    firstConfigured(environment.SENTRY_AUTH_TOKEN) &&
+    firstConfigured(environment.SENTRY_ORG, environment.SENTRY_ORG_SLUG) &&
+    firstConfigured(
+      environment.SENTRY_PROJECT,
+      environment.SENTRY_CLIENT_PROJECT,
+    )
+  ) {
+    enabled.add("sentry-source-map-upload");
+  }
+  if (isEnabled(environment.AUTH_SSO)) enabled.add("sso");
+  if (isEnabled(environment.AUTH_SCIM)) enabled.add("scim");
+  if (firstConfigured(environment.VITE_AMPLITUDE_API_KEY)) {
+    enabled.add("amplitude");
+  }
+  if (
+    firstConfigured(environment.MICROSOFT_TEAMS_APP_ID) &&
+    firstConfigured(environment.MICROSOFT_TEAMS_APP_PASSWORD)
+  ) {
+    enabled.add("microsoft-teams");
+  }
+
+  const selected = new Map<string, MigrationDependency>();
+  for (const dependency of dependencies) {
+    if (enabled.has(dependency.when)) selected.set(dependency.name, dependency);
+  }
+  return [...selected.values()];
+}
+
+function isDirectCoreDependency(pkg: PackageJsonLike): boolean {
+  return [pkg.dependencies, pkg.devDependencies, pkg.optionalDependencies].some(
+    (dependencies) => Boolean(dependencies?.["@agent-native/core"]),
+  );
+}
+
+function findWorkspaceEnvironmentRoot(
+  packageDir: string,
+  fallbackRoot: string,
+): string {
+  let dir = packageDir;
+  while (true) {
+    const packageRead = readJsonFile(path.join(dir, "package.json"));
+    const isWorkspaceRoot =
+      fs.existsSync(path.join(dir, "pnpm-workspace.yaml")) ||
+      (packageRead.ok &&
+        (packageWorkspacePatterns(packageRead.value).length > 0 ||
+          Boolean(packageRead.value["agent-native"]?.workspaceCore)));
+    if (isWorkspaceRoot) return dir;
+
+    const parent = path.dirname(dir);
+    if (parent === dir) return fallbackRoot;
+    dir = parent;
+  }
+}
+
+export function readUpgradeEnvironment(
+  projectRoot: string,
+  packageDir: string,
+  shellEnvironment: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const workspaceRoot = findWorkspaceEnvironmentRoot(packageDir, projectRoot);
+  const directories = [...new Set([workspaceRoot, projectRoot, packageDir])]
+    .filter((directory) => {
+      const relative = path.relative(directory, packageDir);
+      return (
+        !path.isAbsolute(relative) &&
+        relative !== ".." &&
+        !relative.startsWith(`..${path.sep}`)
+      );
+    })
+    .sort(
+      (left, right) =>
+        left.split(path.sep).length - right.split(path.sep).length,
+    );
+  const environment: NodeJS.ProcessEnv = {};
+  for (const directory of directories) {
+    for (const file of [".env", ".env.local"]) {
+      const filePath = path.join(directory, file);
+      let contents: string;
+      try {
+        contents = fs.readFileSync(filePath, "utf-8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw new Error(
+          `Could not read ${path.relative(projectRoot, filePath)}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      Object.assign(environment, dotenv.parse(contents));
+    }
+  }
+  Object.assign(environment, shellEnvironment);
+  return environment;
+}
+
+export function loadActiveMigrationDependencies(
+  projectRoot: string,
+  packageVersion: string | null,
+  manifests = loadMigrationManifestsForProject(projectRoot),
+): MigrationDependency[] {
+  return manifests
+    .filter((manifest) => isMigrationManifestActive(manifest, packageVersion))
+    .flatMap((manifest) => manifest.dependencies ?? []);
+}
+
+export function planMigrationDependencyAdditions(
+  project: UpgradeProject,
+  shellEnvironment: NodeJS.ProcessEnv = process.env,
+): UpgradeDependencyAddition[] {
+  const cliCoreVersion = readCliCoreVersion();
+  if (!cliCoreVersion) {
+    throw new Error(
+      "Could not read the Core version for dependency migration.",
+    );
+  }
+  const dependencies = loadActiveMigrationDependencies(
+    project.root,
+    cliCoreVersion,
+  );
+  if (dependencies.length === 0) return [];
+
+  const additions: UpgradeDependencyAddition[] = [];
+  for (const file of project.packageFiles) {
+    const read = readJsonFile(file);
+    if (!read.ok || !isDirectCoreDependency(read.value)) continue;
+    const packageJson = read.value;
+    const packageDependencies = selectMigrationDependencies(
+      dependencies,
+      readUpgradeEnvironment(
+        project.root,
+        path.dirname(file),
+        shellEnvironment,
+      ),
+    );
+    for (const dependency of packageDependencies) {
+      const runtimeVersion = packageJson.dependencies?.[dependency.name];
+      const otherVersions = [
+        packageJson.devDependencies?.[dependency.name],
+        packageJson.optionalDependencies?.[dependency.name],
+        packageJson.peerDependencies?.[dependency.name],
+      ];
+      const existingVersion = runtimeVersion ?? otherVersions.find(Boolean);
+      const version = preserveCompatibleMigrationVersion(
+        existingVersion,
+        dependency.version,
+      );
+      const hasOtherDeclarations = otherVersions.some(Boolean);
+      if (runtimeVersion === version && !hasOtherDeclarations) continue;
+      additions.push({
+        file,
+        name: dependency.name,
+        version,
+        action: runtimeVersion ? "update" : existingVersion ? "promote" : "add",
+        ...(existingVersion && existingVersion !== version
+          ? { from: existingVersion }
+          : {}),
+      });
+    }
+  }
+  return additions;
+}
+
+function preserveCompatibleMigrationVersion(
+  existing: string | undefined,
+  required: string,
+): string {
+  if (!existing) return required;
+  return required.split("||").some((range) => range.trim() === existing.trim())
+    ? existing
+    : required;
+}
+
+function applyMigrationDependencyAdditions(
+  additions: UpgradeDependencyAddition[],
+): void {
+  const byFile = new Map<string, UpgradeDependencyAddition[]>();
+  for (const addition of additions) {
+    const list = byFile.get(addition.file) ?? [];
+    list.push(addition);
+    byFile.set(addition.file, list);
+  }
+  for (const [file, fileAdditions] of byFile) {
+    const read = readJsonFile(file);
+    if (!read.ok) continue;
+    const dependencies = (read.value.dependencies ??= {});
+    for (const addition of fileAdditions) {
+      dependencies[addition.name] = addition.version;
+      for (const section of [
+        read.value.devDependencies,
+        read.value.optionalDependencies,
+        read.value.peerDependencies,
+      ]) {
+        if (section) delete section[addition.name];
+      }
+      for (const field of [
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+      ] as const) {
+        const section = read.value[field];
+        if (section && Object.keys(section).length === 0) {
+          delete read.value[field];
+        }
+      }
+    }
+    writeJsonFile(file, read.value);
+  }
+}
+
+export function addConfiguredMigrationDependencies(
+  project: UpgradeProject,
+  shellEnvironment: NodeJS.ProcessEnv = process.env,
+): void {
+  applyMigrationDependencyAdditions(
+    planMigrationDependencyAdditions(project, shellEnvironment),
+  );
 }
 
 export function pinResolvedAgentNativeVersions(
@@ -512,7 +810,7 @@ function isYarnPnpProject(projectRoot: string): boolean {
   }
 }
 
-function resolveInstalledPackageVersion(
+export function resolveInstalledPackageVersion(
   projectRoot: string,
   packageName: string,
 ): string | null {
@@ -575,7 +873,7 @@ function resolveInstalledPackageVersion(
   return null;
 }
 
-function readCliCoreVersion(): string | null {
+export function readCliCoreVersion(): string | null {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pkgPath = path.resolve(here, "../../package.json");
@@ -742,7 +1040,7 @@ export async function runUpgrade(
     return doctorOk ? 0 : 1;
   }
 
-  const dryRun = Boolean(opts.dryRun || (opts.codemods && !opts.yes));
+  const dryRun = Boolean(opts.dryRun);
   const result: UpgradeRunResult = {
     ok: true,
     dryRun,
@@ -796,6 +1094,63 @@ export async function runUpgrade(
         : "No framework overrides/patches",
   });
 
+  let dependencyAdditions: UpgradeDependencyAddition[];
+  try {
+    dependencyAdditions = planMigrationDependencyAdditions(project);
+  } catch (error) {
+    result.ok = false;
+    result.exitCode = 1;
+    result.message =
+      error instanceof Error
+        ? error.message
+        : "Could not plan feature dependency migrations.";
+    result.steps.push({
+      id: "feature-dependencies",
+      status: "failed",
+      detail: result.message,
+    });
+    emitResult(io, opts, result);
+    return result.exitCode;
+  }
+
+  const conditionalPeers = [
+    ...new Set(
+      loadActiveMigrationDependencies(project.root, doctor.cliCoreVersion).map(
+        ({ name }) => name,
+      ),
+    ),
+  ];
+  const deploymentEnvironmentNote = `Remote deployment environment and database-backed feature settings cannot be inspected by this command; verify configured features against these conditional peers: ${conditionalPeers.join(", ") || "none declared"}.`;
+
+  if (dependencyAdditions.length === 0) {
+    result.steps.push({
+      id: "feature-dependencies",
+      status: "skipped",
+      detail: `No local dependency additions are pending. ${deploymentEnvironmentNote}`,
+    });
+  } else {
+    const detail = dependencyAdditions
+      .map(
+        (addition) =>
+          `${addition.action} ${relativeTo(project.root, addition.file)} ${addition.name}${addition.from ? ` ${addition.from} →` : ""} ${addition.version}`,
+      )
+      .join("; ");
+    if (dryRun) {
+      result.steps.push({
+        id: "feature-dependencies",
+        status: "planned",
+        detail: `Would align ${detail}. ${deploymentEnvironmentNote}`,
+      });
+    } else {
+      applyMigrationDependencyAdditions(dependencyAdditions);
+      result.steps.push({
+        id: "feature-dependencies",
+        status: "ok",
+        detail: `Aligned ${detail}. ${deploymentEnvironmentNote}`,
+      });
+    }
+  }
+
   if (doctor.bumps.length === 0) {
     result.steps.push({
       id: "bump",
@@ -841,7 +1196,10 @@ export async function runUpgrade(
     | undefined;
 
   if (opts.codemods) {
-    const codemodModule = await import("./migration-codemod.js");
+    const codemodModule = await loadOptionalPeer(
+      "ts-morph",
+      () => import("./migration-codemod.js"),
+    );
     const codemodResult = codemodModule.runMigrationCodemods({
       root: project.root,
       targetExists: codemodModule.createMigrationPlanningTargetResolver(
@@ -1125,8 +1483,8 @@ export async function runUpgrade(
   }
 
   result.message = dryRun
-    ? opts.codemods && !opts.yes
-      ? "Codemod preview complete. Re-run with --codemods --yes to apply."
+    ? opts.codemods
+      ? "Codemod preview complete. Re-run without --dry-run to apply."
       : "Dry run complete. Re-run without --dry-run to apply."
     : "Upgrade complete. If the app still fails to run, fix app-level code — do not patch @agent-native/*.";
   emitResult(io, opts, result);

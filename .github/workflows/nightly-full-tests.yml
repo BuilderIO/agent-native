@@ -2,7 +2,7 @@ name: Nightly full fast-test suite
 
 on:
   schedule:
-    - cron: "0 8 * * *"
+    - cron: "17 0,6,12,18 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -16,7 +16,7 @@ jobs:
   full-tests:
     name: Full fast-test suite
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -35,4 +35,4 @@ jobs:
         run: pnpm exec playwright install --only-shell chromium
 
       - name: Run full fast-test suite
-        run: pnpm test:fast
+        run: TEST_WORKSPACE_CONCURRENCY=1 VITEST_CONCURRENCY=100% pnpm test:fast

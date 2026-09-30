@@ -9,6 +9,11 @@ const cancelPrewarmMock = vi.hoisted(() => vi.fn());
 const sendToAgentChatMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  markAgentChatHomeHandoff: vi.fn(),
+  sendToAgentChat: sendToAgentChatMock,
+}));
+
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentChatHome: (props: Record<string, unknown>) => {
     agentChatSurfaceMock({
       mode: "page",
@@ -26,8 +31,6 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
       </div>
     );
   },
-  markAgentChatHomeHandoff: vi.fn(),
-  sendToAgentChat: sendToAgentChatMock,
 }));
 
 vi.mock("@agent-native/toolkit/agentkit", () => ({

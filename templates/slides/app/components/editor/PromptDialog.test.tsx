@@ -41,6 +41,9 @@ function render(
 }
 
 const ensureEmbedAuthFetchInterceptor = vi.hoisted(() => vi.fn());
+const tryDelegateBuildRequestToBuilder = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
 const promptComposerProps = vi.hoisted(() => vi.fn());
 const promptFile = new File(["pdf"], "large.pdf", {
   type: "application/pdf",
@@ -107,7 +110,7 @@ function useEagerFileUploadsMock<T>(
   };
 }
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: (props: {
     disabled?: boolean;
     attachmentsEnabled?: boolean;
@@ -214,8 +217,12 @@ vi.mock("@agent-native/core/client/composer", () => ({
   useEagerFileUploads: useEagerFileUploadsMock,
 }));
 
-vi.mock("@agent-native/core/client/host", () => ({
+vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
   ensureEmbedAuthFetchInterceptor,
+  isTrustedBuilderMessage: vi.fn(() => false),
+  isTrustedFrameMessage: vi.fn(() => false),
+  tryDelegateBuildRequestToBuilder,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -1381,7 +1388,7 @@ describe("inline prompt starters", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders immediately and shows submitting while provider readiness is checked", async () => {
+  it("renders immediately without a loading indicator during provider readiness checks", async () => {
     let resolveCheck!: (result: boolean) => void;
     const readiness = new Promise<boolean>((resolve) => {
       resolveCheck = resolve;
@@ -1408,7 +1415,15 @@ describe("inline prompt starters", () => {
       check = promptComposerProps.mock.lastCall![0].onBeforeSubmit!();
       await Promise.resolve();
     });
-    expect(promptComposerProps.mock.lastCall![0].submitting).toBe(true);
+    expect(promptComposerProps.mock.lastCall![0].submitting).toBe(false);
+    expect(promptComposerProps.mock.lastCall![0].submissionDisabled).toBe(
+      false,
+    );
+    expect(promptComposerProps.mock.lastCall![0].disabled).toBe(false);
+    expect(
+      (screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(false);
     await act(async () => {
       resolveCheck(false);
       expect(await check).toBe(false);

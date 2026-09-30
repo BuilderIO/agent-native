@@ -30,7 +30,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   writeChatFirstMode: () => ({ ok: true }),
 }));
 
-vi.mock("@agent-native/core/client/changelog", () => ({
+vi.mock("@agent-native/toolkit/app/changelog", () => ({
   ChangelogSettingsCard: ({ markdown }: { markdown: string }) => (
     <div data-changelog>{markdown}</div>
   ),
@@ -49,10 +49,13 @@ vi.mock("@agent-native/core/feature-flags/registry", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/toolkit/app/shared", () => ({
   LanguagePicker: () => null,
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/org", () => ({
   TeamPage: () => null,
   OrgMembersPage: ({ appRoles }: { appRoles?: unknown }) => {
     state.membersAppRoles = appRoles;
@@ -60,7 +63,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => null,
   CORE_SETTINGS_PAGES: [
     { id: "profile", component: () => null },

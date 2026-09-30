@@ -2608,6 +2608,56 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("adds the preview token to import and export clauses that span multiple lines", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/javascript" });
+      res.end(
+        [
+          "import {",
+          "  require_react_dom",
+          '} from "/node_modules/.vite/deps/chunk-WPQCFWW4.js?v=7f02add7";',
+          "export {",
+          "  useState,",
+          "  useEffect",
+          '} from "./hooks.js";',
+        ].join("\n"),
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const module = await getText(
+        `http://127.0.0.1:${port}/node_modules/.vite/deps/react-dom_client.js?previewToken=${bridge.previewToken}`,
+      );
+      expect(module.status).toBe(200);
+      expect(module.body).toContain(
+        `/node_modules/.vite/deps/chunk-WPQCFWW4.js?v=7f02add7&previewToken=${bridge.previewToken}`,
+      );
+      expect(module.body).toContain(
+        `./hooks.js?previewToken=${bridge.previewToken}`,
+      );
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("survives a client resetting a proxied WebSocket upgrade", async () => {
     const root = tmpDir();
     const devPort = await freePort();
@@ -3386,6 +3436,48 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
+    }
+  });
+
+  it("accepts and canonicalizes equivalent loopback hostnames for live previews", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><p>Local app is live</p>");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await getJson(
+        `http://127.0.0.1:${port}/snapshot?url=${encodeURIComponent(`http://localhost:${devPort}/library`)}&previewToken=${bridge.previewToken}`,
+      );
+      expect(result.status).toBe(200);
+      expect(result.body.url).toBe(`http://127.0.0.1:${devPort}/library`);
+      expect(result.body.html).toContain("Local app is live");
+
+      const livePreview = await getText(
+        `http://127.0.0.1:${port}/live-edit?url=${encodeURIComponent(`http://localhost:${devPort}/library`)}&previewToken=${bridge.previewToken}`,
+      );
+      expect(livePreview.status).toBe(200);
+      expect(livePreview.body).toContain("<p>Local app is live</p>");
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
     }
   });
 

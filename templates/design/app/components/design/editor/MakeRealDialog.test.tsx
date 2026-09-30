@@ -19,7 +19,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   useBuilderConnectFlow: () => ({
     error: null,
     connecting: false,

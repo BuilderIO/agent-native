@@ -650,6 +650,34 @@ const editor = {
     pageCount_few: "{{count}} ページ",
     pageCount_many: "{{count}} ページ",
     pageCount_other: "{{count}} ページ",
+    back: "戻る",
+    relatedDatabase: "関連データベース",
+    searchDatabases: "データベースを検索",
+    thisDatabase: "このデータベース",
+    noDatabases: "データベースが見つかりません",
+    searchPages: "ページを検索",
+    noMatchingPages: "一致するページはありません",
+    removeRelation: "{{name}} を削除",
+    openPage: "{{name}} を開く",
+    unavailablePage: "利用できないページ",
+    unavailablePageCount_zero: "{{count}} 件は利用できません",
+    unavailablePageCount_one: "{{count}} 件は利用できません",
+    unavailablePageCount_two: "{{count}} 件は利用できません",
+    unavailablePageCount_few: "{{count}} 件は利用できません",
+    unavailablePageCount_many: "{{count}} 件は利用できません",
+    unavailablePageCount_other: "{{count}} 件は利用できません",
+    noRelatedDatabase: "関連データベースが設定されていません",
+    linkAPage: "ページをリンクまたは作成…",
+    createPage: "「{{name}}」を作成",
+    reorderRelation: "{{name}} を並べ替え",
+    selectMore: "さらに選択",
+    selectAPage: "ページを選択",
+    selectedCount_zero: "{{count}} 件選択中",
+    selectedCount_one: "{{count}} 件選択中",
+    selectedCount_two: "{{count}} 件選択中",
+    selectedCount_few: "{{count}} 件選択中",
+    selectedCount_many: "{{count}} 件選択中",
+    selectedCount_other: "{{count}} 件選択中",
     pasteFileOrMediaLink: "ファイルまたはメディアのリンクを貼り付けます",
     personOrEmail: "個人または電子メール",
     propertyMenuFor: "{{name}}のプロパティメニュー",
@@ -1166,7 +1194,9 @@ const history = {
 
 const overrides = {
   close: "閉じる",
-  setup: { checkingProvider: "AI 接続を確認しています…" },
+  setup: {
+    providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
+  },
   onboarding: {
     fileStorage: {
       title: "ファイルをアップロードするストレージを接続",
@@ -1273,10 +1303,6 @@ const overrides = {
   },
   settings: {
     title: "設定",
-    description: "Content の言語とワークスペース設定。",
-    emailNotifications: "メール通知",
-    emailNotificationsDescription:
-      "誰かがあなたのドキュメントにコメント、返信、またはあなたにメンションしたときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
     notificationsEmail: "メール",
     commentsRepliesMentions: "コメント、返信、メンション",
@@ -1285,10 +1311,6 @@ const overrides = {
     retry: "再試行",
     mcpAbout:
       "Content を Claude、ChatGPT、Cursor など MCP に対応した AI アプリに接続します。接続したアプリは、ドキュメントの検索、作成、編集など、Content での作業を代わりに行えます。アプリが見られるのは、あなたが見られるものだけです。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "共同編集者と共有ドキュメントのアクセスを管理します。",

@@ -12,6 +12,7 @@ import {
   validateManagedDrizzleMigrationOwnership,
   validateNetlifyReleaseMigrationConfig,
   validatePublishedNetlifyReleaseMigrationConfig,
+  validateReleaseMigrationCoversPlugins,
   validateReleaseMigrationLoadsEnv,
 } from "./guard-netlify-release-migrations.ts";
 
@@ -209,15 +210,47 @@ try {
     );
   });
 
+  it("requires release entrypoints to migrate plugin-owned schemas", () => {
+    const file = "templates/example/scripts/migrate-production.ts";
+    const plugin =
+      'import { setupCreativeContext } from "@agent-native/creative-context/server";\nexport default setupCreativeContext({ appId: "example" });\n';
+    assert.deepEqual(
+      validateReleaseMigrationCoversPlugins(
+        [plugin],
+        "await runFrameworkReleaseMigrations(null);\nawait creativeContextDbPlugin(null);\n",
+        file,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      validateReleaseMigrationCoversPlugins(
+        [plugin],
+        "await runFrameworkReleaseMigrations(null);\n// await creativeContextDbPlugin(null);\n",
+        file,
+      ),
+      [
+        `${file}: server plugins mount setupCreativeContext, so the release script must await creativeContextDbPlugin(null)`,
+      ],
+    );
+    assert.deepEqual(
+      validateReleaseMigrationCoversPlugins(
+        ["export default defineNitroPlugin(() => {});\n"],
+        "await runFrameworkReleaseMigrations(null);\n",
+        file,
+      ),
+      [],
+    );
+  });
+
   it("requires the beta schema owner marker to reach runtime", () => {
     assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(), []);
   });
 
-  it("accepts the config-backed migration consumer without a raw env read", () => {
+  it("accepts the config-backed migration policy without a raw env read", () => {
     const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
     try {
       for (const relativeFile of [
-        "packages/core/src/db/migrations.ts",
+        "packages/core/src/db/migration-policy.ts",
         "packages/core/src/vite/client.ts",
         "packages/core/src/deploy/build.ts",
       ]) {
@@ -225,7 +258,7 @@ try {
         mkdirSync(path.dirname(file), { recursive: true });
         writeFileSync(
           file,
-          relativeFile.endsWith("migrations.ts")
+          relativeFile.endsWith("migration-policy.ts")
             ? 'import { getAppConfig } from "../app-config/index.js";\nreturn getAppConfig().migration.betaSchemaOwner;\n'
             : "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER\n",
         );
@@ -237,11 +270,11 @@ try {
     }
   });
 
-  it("rejects a migration runtime that stops consuming the config marker", () => {
+  it("rejects a build configuration that stops embedding the marker", () => {
     const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
     try {
       for (const relativeFile of [
-        "packages/core/src/db/migrations.ts",
+        "packages/core/src/db/migration-policy.ts",
         "packages/core/src/vite/client.ts",
         "packages/core/src/deploy/build.ts",
       ]) {
@@ -249,14 +282,42 @@ try {
         mkdirSync(path.dirname(file), { recursive: true });
         writeFileSync(
           file,
-          relativeFile.endsWith("migrations.ts")
+          relativeFile.endsWith("migration-policy.ts")
+            ? 'import { getAppConfig } from "../app-config/index.js";\nreturn getAppConfig().migration.betaSchemaOwner;\n'
+            : relativeFile.endsWith("client.ts")
+              ? "export function configureBuild() {}\n"
+              : "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER\n",
+        );
+      }
+
+      assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(repoRoot), [
+        "packages/core/src/vite/client.ts: must embed AGENT_NATIVE_BETA_SCHEMA_OWNER in the release build configuration",
+      ]);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a migration runtime that stops consuming the config marker", () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
+    try {
+      for (const relativeFile of [
+        "packages/core/src/db/migration-policy.ts",
+        "packages/core/src/vite/client.ts",
+        "packages/core/src/deploy/build.ts",
+      ]) {
+        const file = path.join(repoRoot, relativeFile);
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(
+          file,
+          relativeFile.endsWith("migration-policy.ts")
             ? "export function runMigrations() {}\n"
             : "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER\n",
         );
       }
 
       assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(repoRoot), [
-        "packages/core/src/db/migrations.ts: must consume or embed AGENT_NATIVE_BETA_SCHEMA_OWNER instead of treating it as a config-only marker",
+        "packages/core/src/db/migration-policy.ts: must consume or embed AGENT_NATIVE_BETA_SCHEMA_OWNER instead of treating it as a config-only marker",
       ]);
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });

@@ -43,10 +43,10 @@ import {
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
   shouldRenderModelSelector,
-  shouldShowModelSelectorSkeleton,
   shouldShowOnlyConnectPath,
   TiptapComposer,
   type TiptapComposerHandle,
+  type TiptapComposerProps,
 } from "./TiptapComposer.js";
 
 const emptyChatModelAdapter: ChatModelAdapter = {
@@ -347,11 +347,17 @@ describe("createTiptapComposerExtensions", () => {
     });
     act(() => {
       container
-        .querySelector<HTMLButtonElement>('button[aria-label="Add..."]')
-        ?.click();
+        .querySelector<HTMLButtonElement>('button[aria-label="Add context"]')
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
     });
     act(() => {
-      Array.from(document.querySelectorAll("button"))
+      Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
         .find((button) => button.textContent?.trim() === "Schedule Task")
         ?.click();
     });
@@ -377,6 +383,56 @@ describe("createTiptapComposerExtensions", () => {
     expect(
       container.querySelector('[data-agent-composer-slot="mode-row"]'),
     ).toBeNull();
+  });
+
+  it("does not restore a stale draft after the composer is cleared", async () => {
+    const scope = "draft-recovery:clear";
+    localStorage.setItem(getComposerDraftKey(scope), "<p>d</p>");
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness({ initialText }: { initialText: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            initialText,
+            initialTextKey: "same-draft",
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { initialText: "Seed prompt" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("d");
+
+    act(() => focusRef.current?.setText(""));
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("");
+
+    // Model the debounced draft write still holding the final character.
+    localStorage.setItem(getComposerDraftKey(scope), "<p>d</p>");
+    await act(async () => {
+      root.render(React.createElement(Harness, { initialText: "" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("");
   });
 
   it("moves focus outside Home when its hidden context picker closes", async () => {
@@ -412,6 +468,7 @@ describe("createTiptapComposerExtensions", () => {
             React.createElement(TiptapComposer, {
               disabled,
               contextMenuItems,
+              includeDefaultMentionSearch: false,
               includeDefaultSlashSkills: false,
               plusMenuMode: "hidden",
               toolbarSlot: React.createElement(
@@ -455,7 +512,6 @@ describe("createTiptapComposerExtensions", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
     };
-    await clickMenuItem("Add context");
     await clickMenuItem("Source");
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 
@@ -1385,12 +1441,6 @@ describe("createTiptapComposerExtensions", () => {
     expect(MODEL_SELECTOR_POPOVER_STYLE).not.toHaveProperty("height");
   });
 
-  it("shows the model picker skeleton only while the initial list is loading", () => {
-    expect(shouldShowModelSelectorSkeleton(true, 0)).toBe(true);
-    expect(shouldShowModelSelectorSkeleton(true, 2)).toBe(false);
-    expect(shouldShowModelSelectorSkeleton(false, 0)).toBe(false);
-  });
-
   it("replaces the model list with connect CTAs only when nothing is configured", () => {
     const unconfigured = [{ configured: false }, { configured: false }];
     expect(shouldShowOnlyConnectPath(true, unconfigured)).toBe(true);
@@ -1836,6 +1886,64 @@ describe("TiptapComposer paste handling", () => {
   });
 });
 
+describe("TiptapComposer references", () => {
+  it("reports slot reference insertions and removals to the host", async () => {
+    const onReferencesChange = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onReferencesChange,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    onReferencesChange.mockClear();
+
+    await act(async () => {
+      focusRef.current?.insertReference({
+        label: "Document",
+        refType: "file",
+        refId: "document-reference",
+        slotKey: "document",
+      });
+    });
+
+    expect(onReferencesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        type: "file",
+        name: "Document",
+        refId: "document-reference",
+        slotKey: "document",
+      }),
+    ]);
+
+    const removeButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="context-row"] button',
+    );
+    expect(removeButton).not.toBeNull();
+    await act(async () => removeButton!.click());
+
+    expect(onReferencesChange).toHaveBeenLastCalledWith([]);
+  });
+});
+
 describe("TiptapComposer slash commands", () => {
   it("locks submission without blurring the editable surface", () => {
     const focusRef = React.createRef<TiptapComposerHandle>();
@@ -1871,11 +1979,12 @@ describe("TiptapComposer slash commands", () => {
 
     expect(editor.getAttribute("contenteditable")).toBe("true");
     expect(document.activeElement).toBe(editor);
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        '[data-agent-composer-slot="send-button"]',
-      )?.disabled,
-    ).toBe(true);
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    );
+    expect(sendButton?.disabled).toBe(true);
+    expect(sendButton?.getAttribute("aria-label")).toMatch(/loading/i);
+    expect(sendButton?.getAttribute("aria-label")).not.toMatch(/checking/i);
   });
 
   it("keeps the editor focused after a successful submission", async () => {
@@ -2047,6 +2156,765 @@ describe("TiptapComposer slash commands", () => {
     await act(async () => {});
   });
 
+  it("clears before async preflight and submits the captured prompt", async () => {
+    let resolvePreflight!: (ready: boolean) => void;
+    const preflight = new Promise<boolean>((resolve) => {
+      resolvePreflight = resolve;
+    });
+    let resolveSubmit!: () => void;
+    const submission = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    const onBeforeSubmit = vi.fn(() => preflight);
+    const onSubmit = vi.fn(() => submission);
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onBeforeSubmit,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("submitted prompt"));
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(editor.textContent).toBe("");
+    expect(onSubmit).not.toHaveBeenCalled();
+    act(() => focusRef.current?.setText("follow-up prompt"));
+
+    await act(async () => {
+      resolvePreflight(true);
+      await preflight;
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      "submitted prompt",
+      expect.any(Array),
+      expect.any(Array),
+      expect.objectContaining({ intent: "immediate" }),
+    );
+    expect(editor.textContent).toBe("follow-up prompt");
+    await act(async () => resolveSubmit());
+  });
+
+  it("restores a prompt when async preflight declines it", async () => {
+    const onBeforeSubmit = vi.fn(async () => false);
+    const onSubmit = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onBeforeSubmit,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("keep this prompt"));
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe("keep this prompt");
+  });
+
+  it("preserves a follow-up when async preflight declines the submitted prompt", async () => {
+    let resolvePreflight!: (ready: boolean) => void;
+    const preflight = new Promise<boolean>((resolve) => {
+      resolvePreflight = resolve;
+    });
+    const onBeforeSubmit = vi.fn(() => preflight);
+    const onSubmit = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onBeforeSubmit,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("submitted prompt"));
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await Promise.resolve();
+    });
+    expect(editor.textContent).toBe("");
+    act(() => focusRef.current?.setText("follow-up prompt"));
+
+    await act(async () => {
+      resolvePreflight(false);
+      await preflight;
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(
+      [...editor.querySelectorAll("p")].map(
+        (paragraph) => paragraph.textContent,
+      ),
+    ).toEqual(["submitted prompt", "follow-up prompt"]);
+    expect(localStorage.getItem(getComposerDraftKey())).toContain(
+      "submitted prompt",
+    );
+    expect(localStorage.getItem(getComposerDraftKey())).toContain(
+      "follow-up prompt",
+    );
+  });
+
+  it("clears immediately while submitting and restores the draft on failure", async () => {
+    let rejectSubmit!: (error: Error) => void;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSubmit = reject;
+        }),
+    );
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("send this once"));
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(editor.textContent).toBe("");
+
+    await act(async () => {
+      rejectSubmit(new Error("network unavailable"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(editor.textContent).toBe("send this once");
+  });
+
+  it("restores the persisted draft when an immediate submit fails after unmount", async () => {
+    const scope = "restore-after-unmount";
+    let rejectSubmit!: (error: Error) => void;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSubmit = reject;
+        }),
+    );
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const localContainer = document.createElement("div");
+    document.body.appendChild(localContainer);
+    const localRoot = createRoot(localContainer);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      localRoot.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("restore after a failed send"));
+
+    const editor = localContainer.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toBeNull();
+    await act(async () => {
+      localRoot.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    localContainer.remove();
+
+    await act(async () => {
+      rejectSubmit(new Error("network unavailable"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "restore after a failed send",
+    );
+  });
+
+  it("restores slot-only references when an immediate submit fails after unmount", async () => {
+    const scope = "restore-slot-only-after-unmount";
+    let rejectSubmit!: (error: Error) => void;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSubmit = reject;
+        }),
+    );
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const localContainer = document.createElement("div");
+    document.body.appendChild(localContainer);
+    const localRoot = createRoot(localContainer);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      localRoot.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      focusRef.current?.insertReference({
+        label: "Selected document",
+        refType: "file",
+        refId: "document-1",
+        slotKey: "document",
+      });
+    });
+
+    const editor = localContainer.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      localRoot.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    localContainer.remove();
+
+    await act(async () => {
+      rejectSubmit(new Error("network unavailable"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const saved = localStorage.getItem(getComposerDraftKey(scope));
+    expect(saved).not.toBeNull();
+    expect(JSON.parse(saved!).slotReferences).toEqual([
+      expect.objectContaining({
+        label: "Selected document",
+        refId: "document-1",
+        slotKey: "document",
+      }),
+    ]);
+
+    const restoredContainer = document.createElement("div");
+    document.body.appendChild(restoredContainer);
+    const restoredRoot = createRoot(restoredContainer);
+    await act(async () => {
+      restoredRoot.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(restoredContainer.textContent).toContain("Selected document");
+    await act(async () => {
+      restoredRoot.unmount();
+      await Promise.resolve();
+    });
+    restoredContainer.remove();
+  });
+
+  it("keeps a newer persisted draft when an immediate submit fails after unmount", async () => {
+    const scope = "keep-newer-after-unmount";
+    let rejectSubmit!: (error: Error) => void;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSubmit = reject;
+        }),
+    );
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const localContainer = document.createElement("div");
+    document.body.appendChild(localContainer);
+    const localRoot = createRoot(localContainer);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      localRoot.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("submitted prompt"));
+
+    const editor = localContainer.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await Promise.resolve();
+    });
+    await act(async () => {
+      localRoot.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    localContainer.remove();
+
+    const draftKey = getComposerDraftKey(scope);
+    localStorage.setItem(draftKey, "<p>newer prompt</p>");
+    await act(async () => {
+      rejectSubmit(new Error("network unavailable"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem(draftKey)).toBe("<p>newer prompt</p>");
+  });
+
+  it("keeps submission locked until status-updated attachments are removed", async () => {
+    let resolveStatusUpdate!: () => void;
+    const statusUpdate = new Promise<void>((resolve) => {
+      resolveStatusUpdate = resolve;
+    });
+    let finishUpload!: () => void;
+    const uploadFinished = new Promise<void>((resolve) => {
+      finishUpload = resolve;
+    });
+    let resolveRemoval!: () => void;
+    const removal = new Promise<void>((resolve) => {
+      resolveRemoval = resolve;
+    });
+    const removeAttachment = vi.fn(() => removal);
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async function* ({ file }) {
+        const attachment = {
+          id: file.name,
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: {
+            type: "running" as const,
+            reason: "uploading" as const,
+            progress: 0,
+          },
+        };
+        yield attachment;
+        await statusUpdate;
+        yield {
+          ...attachment,
+          status: { type: "requires-action", reason: "composer-send" },
+        };
+        finishUpload();
+      },
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    let resolveSubmit!: () => void;
+    const submission = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    const onSubmit = vi.fn<NonNullable<TiptapComposerProps["onSubmit"]>>(
+      () => submission,
+    );
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("send this once"));
+    const fileInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [new File(["once"], "once.txt", { type: "text/plain" })],
+    });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    const submit = () =>
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    await act(async () => {
+      submit();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(removeAttachment).not.toHaveBeenCalled();
+
+    resolveStatusUpdate();
+    await act(async () => {
+      await uploadFinished;
+      resolveSubmit();
+      await submission;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(removeAttachment).toHaveBeenCalledOnce();
+    expect(removeAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+    );
+
+    await act(async () => {
+      submit();
+      await Promise.resolve();
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveRemoval();
+      await removal;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(editor.textContent).toBe("");
+
+    act(() => focusRef.current?.setText("next message"));
+    await act(async () => {
+      submit();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(onSubmit.mock.calls[1][0]).toBe("next message");
+    expect(onSubmit.mock.calls[1][2]).toEqual([]);
+  });
+
+  it("reports attachment cleanup failure after a successful submit", async () => {
+    let failRemoval = true;
+    const removeAttachment = vi.fn(async () => {
+      if (failRemoval) throw new Error("storage unavailable");
+    });
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: file.name,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const onSubmit = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      localRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("send this once"));
+    const fileInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [new File(["once"], "once.txt", { type: "text/plain" })],
+    });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(removeAttachment).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "The message was sent, but some attachments remain. Remove them before sending again.",
+    );
+    expect(editor.textContent).toBe("");
+    expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
+      1,
+    );
+
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Send message"]',
+    )!;
+    expect(sendButton.disabled).toBe(true);
+    act(() => focusRef.current?.setText("retry after cleanup failure"));
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "The message was sent, but some attachments remain. Remove them before sending again.",
+    );
+
+    failRemoval = false;
+    await act(async () => {
+      await localRuntime!.thread.composer.getAttachmentByIndex(0).remove();
+    });
+    expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
+      0,
+    );
+    expect(sendButton.disabled).toBe(false);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(onSubmit.mock.calls[1][0]).toBe("retry after cleanup failure");
+    expect(onSubmit.mock.calls[1][2]).toEqual([]);
+  });
+
   it("acknowledges an executed slash command", async () => {
     const onSlashCommand = vi.fn();
     const focusRef = React.createRef<TiptapComposerHandle>();
@@ -2093,6 +2961,82 @@ describe("TiptapComposer slash commands", () => {
         description: "Switch back to acting",
         duration: 1800,
       }),
+    );
+  });
+
+  it("loads and attaches a runtime skill from the slash menu by default", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        skills: [
+          {
+            name: "design-systems",
+            description: "Create design systems",
+            path: ".agents/skills/design-systems/SKILL.md",
+            source: "codebase",
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onReferencesChange = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit: vi.fn(),
+            onReferencesChange,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    editor.focus();
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "/",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/_agent-native/agent-chat/skills", {
+      signal: expect.any(AbortSignal),
+    });
+    const skill = document.body.querySelector<HTMLButtonElement>(
+      '[data-mention-index="0"]',
+    );
+    expect(skill?.textContent).toContain("design-systems");
+    act(() => skill?.click());
+
+    expect(onReferencesChange).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "skill",
+          name: "design-systems",
+          path: ".agents/skills/design-systems/SKILL.md",
+        }),
+      ]),
     );
   });
 });

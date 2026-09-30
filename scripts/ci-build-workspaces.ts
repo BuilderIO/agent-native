@@ -51,6 +51,9 @@ export function buildPasses(input: {
   const excluded = [input.rootPackage, ...input.prerenderPackages].flatMap(
     (name) => ["--filter", `!${name}`],
   );
+  if (input.full) {
+    excluded.push("--filter", "!./community-templates/**");
+  }
   const passes = [["-r", ...mode, ...selection, ...excluded, "run", "build"]];
   if (input.prerenderPackages.length) {
     passes.push([
@@ -100,7 +103,9 @@ function main(): void {
   const filters = full
     ? []
     : parseWorkspaceFilters(process.env.CI_WORKSPACE_FILTERS);
-  const prerenderPackages = selectedPrerenderPackages(filters);
+  const prerenderPackages = selectedPrerenderPackages(
+    full ? ["!./community-templates/**"] : filters,
+  );
   let failed = false;
   const rootPackage = JSON.parse(readFileSync("package.json", "utf8")).name;
   for (const args of buildPasses({

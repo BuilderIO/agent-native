@@ -38,6 +38,7 @@
   "devDependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
+    "@agent-native/toolkit": "workspace:*",
     "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

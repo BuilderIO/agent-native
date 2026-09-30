@@ -192,16 +192,25 @@ interface AccessCtx {
 
 async function getScopedLegacySettings(
   ctx: Pick<AccessCtx, "email" | "orgId">,
-  options?: { dashboardKind?: DashboardKind; limit?: number },
+  options?: {
+    resourceKind?: DashboardKind | "analysis";
+    limit?: number;
+  },
 ): Promise<Record<string, Record<string, unknown>>> {
   // User scope first, then org: callers append these to the SQL rows in
   // iteration order and never re-sort, so the order is user-visible. The
   // previous full-table read inherited whatever order the settings table
   // returned, which no query pinned.
   const prefixes: string[] = [];
-  if (options?.dashboardKind === "sql") {
-    if (ctx.email) prefixes.push(`u:${ctx.email}:${SQL_PREFIX}`);
-    if (ctx.orgId) prefixes.push(`o:${ctx.orgId}:${SQL_PREFIX}`);
+  const keyPrefix =
+    options?.resourceKind === "sql"
+      ? SQL_PREFIX
+      : options?.resourceKind === "analysis"
+        ? ANALYSIS_PREFIX
+        : null;
+  if (keyPrefix) {
+    if (ctx.email) prefixes.push(`u:${ctx.email}:${keyPrefix}`);
+    if (ctx.orgId) prefixes.push(`o:${ctx.orgId}:${keyPrefix}`);
   } else {
     if (ctx.email) prefixes.push(`u:${ctx.email}:`);
     if (ctx.orgId) prefixes.push(`o:${ctx.orgId}:`);
@@ -1053,7 +1062,7 @@ export async function listDashboardSummaries(
       ctx,
       summaryLimit === undefined
         ? undefined
-        : { dashboardKind: filter?.kind, limit: summaryLimit },
+        : { resourceKind: filter?.kind, limit: summaryLimit },
     );
     for (const [key, value] of Object.entries(all)) {
       if (summaryLimit !== undefined && out.length >= summaryLimit) break;
@@ -2501,36 +2510,34 @@ export async function listAnalyses(
   const out: AnalysisRecord[] = rows.map(listRowToAnalysis);
   const seen = new Set<string>(out.map((r) => r.id));
   if (hidden === "hidden") return out;
-  try {
-    const all = await getScopedLegacySettings(ctx);
-    for (const [key, value] of Object.entries(all)) {
-      let id: string | null = null;
-      let ownerEmail = ctx.email;
-      let orgId: string | null = null;
-      let visibility: AnalysisRecord["visibility"] = "private";
-      if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${ANALYSIS_PREFIX}`)) {
-        id = key.slice(`o:${ctx.orgId}:${ANALYSIS_PREFIX}`.length);
-        orgId = ctx.orgId;
-        visibility = "org";
-      } else if (
-        ctx.email &&
-        key.startsWith(`u:${ctx.email}:${ANALYSIS_PREFIX}`)
-      ) {
-        id = key.slice(`u:${ctx.email}:${ANALYSIS_PREFIX}`.length);
-      }
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      const rec = await migrateAnalysisFromSettings(
-        id,
-        value as Record<string, unknown>,
-        ownerEmail,
-        orgId,
-        visibility,
-      );
-      out.push(rec);
+  const all = await getScopedLegacySettings(ctx, {
+    resourceKind: "analysis",
+  });
+  for (const [key, value] of Object.entries(all)) {
+    let id: string | null = null;
+    const ownerEmail = ctx.email;
+    let orgId: string | null = null;
+    let visibility: AnalysisRecord["visibility"] = "private";
+    if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${ANALYSIS_PREFIX}`)) {
+      id = key.slice(`o:${ctx.orgId}:${ANALYSIS_PREFIX}`.length);
+      orgId = ctx.orgId;
+      visibility = "org";
+    } else if (
+      ctx.email &&
+      key.startsWith(`u:${ctx.email}:${ANALYSIS_PREFIX}`)
+    ) {
+      id = key.slice(`u:${ctx.email}:${ANALYSIS_PREFIX}`.length);
     }
-  } catch {
-    // legacy scan best-effort
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const rec = await migrateAnalysisFromSettings(
+      id,
+      value as Record<string, unknown>,
+      ownerEmail,
+      orgId,
+      visibility,
+    );
+    out.push(rec);
   }
   return out;
 }

@@ -241,6 +241,13 @@ const messages = {
   agentResources: {
     openDocs: "Open {{section}} documentation",
     backToResources: "Back to agent resources",
+    exportPack: "Export pack",
+    importPack: "Import pack",
+    exportPackSuccess: "Downloaded resource pack",
+    exportPackFailed: "Could not export pack",
+    importPackSuccess: "Imported {{imported}} files, skipped {{skipped}}",
+    importPackFailed: "Could not import pack",
+    importPackInvalid: "That file is not a valid resource pack",
     createFile: {
       nameLabel: "File name",
       namePlaceholder: "notes/ideas",
@@ -753,7 +760,6 @@ const messages = {
     useProvider: "Use {{provider}}",
     saveAndUseProvider: "Save and use {{provider}}",
     getApiKey: "Get an API key",
-    checkingAiConnection: "Checking AI connection...",
     delegatedAgent: {
       asking: "Asking {{name}}...",
       asked: "Asked {{name}}",
@@ -890,6 +896,7 @@ const messages = {
   jobs: {
     timezone: "Timezone",
     pageTitle: "Automations",
+    // guard:allow-unscoped — localized user-facing copy mentions webhooks, not SQL
     pageDescription:
       "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
     personalDescription:
@@ -1578,7 +1585,7 @@ const messages = {
           "Search Gong calls and generate account and deal insights.",
         useCase: "Sales calls, transcripts, deal insights, account summaries",
         setupNote:
-          "Gong requires a tech admin to create an MCP integration and choose personal or shared authorization. The generated client ID and secret must be configured before connecting.",
+          "A Gong tech admin must create an MCP integration with personal or shared authorization. For Manual registration, save the generated client ID and secret as workspace secrets `GONG_MCP_CLIENT_ID` and `GONG_MCP_CLIENT_SECRET`; Automatic registration needs no client credentials.",
       },
       semgrep: {
         description: "Scan code for security findings.",
@@ -1788,6 +1795,11 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
+    promoteMustContain: "Reply must contain…",
+    promoteMustContainOptional: "Optional text to check for in the reply…",
+    promoteMustContainLabel: "Text to check for in the promoted eval reply",
+    promoteNeedsContains:
+      "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",
     output: "Output",
     error: "Error",

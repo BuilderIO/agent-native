@@ -322,8 +322,34 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # The CLI is cached outside the checkout and installed before any repo
+      # code runs. Preview runs build PR code in this job, so they may restore
+      # the cache but never save it.
+      - name: Restore the pinned Netlify CLI
+        id: netlify-cli-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.netlify-cli
+          key: netlify-cli-27.5.2-build-36.4.8-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc') }}
+
       - name: Install the pinned Netlify CLI
-        run: npm install --global netlify-cli@27.5.2 @netlify/build@36.4.8 --ignore-scripts
+        if: steps.netlify-cli-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ runner.temp }}
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: npm install --global --prefix "$HOME/.netlify-cli" netlify-cli@27.5.2 @netlify/build@36.4.8 --ignore-scripts
+
+      - name: Save the pinned Netlify CLI
+        if: steps.netlify-cli-cache.outputs.cache-hit != 'true' && inputs.target != 'preview'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.netlify-cli
+          key: netlify-cli-27.5.2-build-36.4.8-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc') }}
+
+      - name: Put the pinned Netlify CLI on PATH
+        run: |
+          echo "$HOME/.netlify-cli/bin" >> "$GITHUB_PATH"
+          "$HOME/.netlify-cli/bin/netlify" --version
 
       - name: Validate rollout mode
         env:
@@ -968,6 +994,52 @@ jobs:
           echo "::error::Mail release migration failed after 3 attempts."
           exit 1
 
+      - name: Run Chat release migrations
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'chat'
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url="$(
+            netlify api getSiteDatabase \
+              --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" 2>/dev/null |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts 2>/dev/null ||
+              true
+          )"
+          if [[ -z "$migration_database_url" ]]; then
+            migration_database_url="$(
+              netlify api getEnvVars \
+                --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
+                BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+            )"
+          fi
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter chat migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Chat migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Chat release migration failed after 3 attempts."
+          exit 1
+
       - name: Unlock the published production deploy
         id: unlock
         if: >-
@@ -1497,6 +1569,66 @@ jobs:
             }
             core.setOutput('current', 'true');
 
+      - name: Place Functions near the database
+        id: functions_region
+        if: >-
+          inputs.deploy &&
+          steps.target.outputs.source_template != '@agent-native/docs' &&
+          (inputs.target == 'beta' || inputs.target == 'production') &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+          const fs = require("node:fs");
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+          const { parseNeonDatabaseRegion } = await import("./scripts/netlify-database-region.ts");
+
+          const siteId = process.env.NETLIFY_SITE_ID;
+          // Never log DATABASE_URL_SECRET or any substring of it below; only
+          // the derived region is safe to print.
+          const databaseUrl = process.env.DATABASE_URL_SECRET || "";
+          const region = databaseUrl ? parseNeonDatabaseRegion(databaseUrl) : null;
+          if (!region) {
+            console.log("::notice::Database region is unknown for this site; leaving its Netlify functions region unchanged.");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "region=\n");
+            return;
+          }
+
+          const url = `https://api.netlify.com/api/v1/sites/${siteId}`;
+          const headers = { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` };
+          async function siteRequest(method, body) {
+            const response = await requestNetlifyApi(url, {
+              method,
+              headers: body ? { ...headers, "Content-Type": "application/json" } : headers,
+              ...(body ? { body: JSON.stringify(body) } : {}),
+            });
+            if (!response.ok) throw new Error(`Netlify functions region ${method} failed: HTTP ${response.status}`);
+            return response.json();
+          }
+          const site = await siteRequest("GET");
+          if (site.id !== siteId || site.account_slug !== "builder-io") {
+            throw new Error(`Refusing to change region for unexpected Netlify site ${siteId}`);
+          }
+          if (site.functions_region !== region) {
+            await siteRequest("PATCH", { functions_region: region });
+          }
+          const verified = await siteRequest("GET");
+          if (verified.functions_region !== region) {
+            throw new Error(`Netlify functions region did not persist for ${siteId}`);
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `region=${region}\n`);
+          console.log(`Site ${siteId} functions region: ${region}`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Upload the prebuilt deploy
         id: deploy
         if: >-
@@ -1641,6 +1773,45 @@ jobs:
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;
           });
+          NODE
+
+      - name: Verify Functions deployed near the database
+        if: >-
+          inputs.deploy &&
+          steps.functions_region.outputs.region != '' &&
+          steps.deploy.outputs.deploy_id != ''
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          FUNCTIONS_REGION: ${{ steps.functions_region.outputs.region }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+
+          const response = await requestNetlifyApi(
+            `https://api.netlify.com/api/v1/deploys/${process.env.DEPLOY_ID}`,
+            { headers: { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` } },
+          );
+          if (!response.ok) throw new Error(`Netlify deploy lookup failed: HTTP ${response.status}`);
+          const deploy = await response.json();
+          const region = process.env.FUNCTIONS_REGION;
+          const functions = Array.isArray(deploy.available_functions) ? deploy.available_functions : [];
+          const name = (fn) => fn.n ?? fn.name;
+          const regionOf = (fn) => fn.rg ?? fn.region;
+          const isTracked = (fn) => {
+            const fnName = name(fn);
+            return fnName === "server" || (typeof fnName === "string" && fnName.endsWith("-background"));
+          };
+          if (!functions.some((fn) => name(fn) === "server")) {
+            throw new Error(`Deploy ${process.env.DEPLOY_ID} has no "server" function to verify.`);
+          }
+          for (const fn of functions.filter(isTracked)) {
+            if (regionOf(fn) !== region) {
+              throw new Error(`Function ${name(fn)} is not deployed in ${region} (got ${regionOf(fn) ?? "unknown"}).`);
+            }
+          }
+          console.log(`Deploy ${process.env.DEPLOY_ID} functions are in ${region}.`);
           NODE
 
       - name: Verify first beta deploy source immediately before publish

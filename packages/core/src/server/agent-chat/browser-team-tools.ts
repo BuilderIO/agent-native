@@ -9,7 +9,6 @@ import type { ActionEntry } from "../../agent/production-agent.js";
 import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
-  buildMergedConfig,
   setBuiltinMcpCapabilityEnabled,
   type BuiltinMcpCapabilityId,
 } from "../../mcp-client/index.js";
@@ -18,7 +17,7 @@ import {
   resolveBuilderBranchProjectId,
 } from "../builder-browser.js";
 import { getRequestUserEmail } from "../request-context.js";
-import { getGlobalMcpManager } from "./mcp-glue.js";
+import { getMcpManagerForCurrentRequest } from "./mcp-glue.js";
 
 const MAX_EXTENSION_PROMOTION_CONTENT_CHARS = 200_000;
 const MAX_AGENT_TEAM_PROGRESS_TASKS = 3;
@@ -177,10 +176,7 @@ export function createBuilderBrowserTool(deps: {
       id,
       enabled,
     );
-    const manager = getGlobalMcpManager();
-    if (manager) {
-      await manager.reconfigure(await buildMergedConfig());
-    }
+    await getMcpManagerForCurrentRequest(true);
     return { ok: true, enabledIds: enabledIds ?? [] };
   };
 
@@ -445,13 +441,7 @@ export function createBuilderBrowserTool(deps: {
           });
         }
 
-        const manager = getGlobalMcpManager();
-        if (!manager) {
-          return JSON.stringify({
-            error: "no-mcp-manager",
-            message: "MCP manager is not available.",
-          });
-        }
+        const manager = await getMcpManagerForCurrentRequest();
 
         const currentConfig = manager.getConfig();
         const servers = { ...(currentConfig?.servers ?? {}) };

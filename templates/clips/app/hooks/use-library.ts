@@ -2,6 +2,8 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { useOrg } from "@agent-native/core/client/org";
+import type { RecordingKind } from "@shared/recording-kind";
 
 import { isLiveRecordingUpload } from "@/lib/recording-status";
 
@@ -13,6 +15,8 @@ export interface RecordingSummary {
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   description: string;
+  /** "image" rows are screenshots: no duration, no transcript, no player. */
+  kind: RecordingKind;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   durationMs: number;
@@ -44,6 +48,8 @@ export interface RecordingSummary {
 
 export interface ListRecordingsArgs {
   view?: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  /** "image" is the Screenshots view; omitted means clips and screenshots. */
+  kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   tag?: string | null;
@@ -152,6 +158,22 @@ export function useCreateSpace() {
   >("create-space");
 }
 
+export function useCreateScreenshot() {
+  return useActionMutation<
+    { id: string; kind: "image"; imageUrl: string | null },
+    {
+      dataUrl: string;
+      width: number;
+      height: number;
+      title?: string;
+      sourceAppName?: string | null;
+      sourceWindowTitle?: string | null;
+      folderId?: string | null;
+      spaceIds?: string[];
+    }
+  >("create-screenshot");
+}
+
 export function useRenameFolder() {
   return useActionMutation<any, { id: string; name: string }>("rename-folder");
 }
@@ -199,24 +221,24 @@ export function useTagRecording() {
   >("tag-recording");
 }
 
-export function useOrganizationState(
+/**
+ * Keyed by the org id, defaulting to the caller's active org, so every caller
+ * shares one request per org. An unscoped key would keep serving the previous
+ * org's cached state across an org switch or after the last org is left.
+ */
+export function useOrganizationState<T = any>(
   organizationId?: string,
   options: { enabled?: boolean } = {},
 ) {
-  const enabled = options.enabled ?? true;
-  const active = useActionQuery<any>("list-organization-state", undefined, {
-    enabled,
-  });
-  const needsOtherOrganization =
-    Boolean(organizationId) &&
-    active.isFetched &&
-    active.data?.organization?.id !== organizationId;
-  const other = useActionQuery<any>(
+  const { data: org } = useOrg();
+  const scopedOrganizationId = organizationId ?? org?.orgId ?? undefined;
+  return useActionQuery<T>(
     "list-organization-state",
-    { organizationId },
-    { enabled: enabled && needsOtherOrganization },
+    { organizationId: scopedOrganizationId },
+    {
+      enabled: (options.enabled ?? true) && Boolean(scopedOrganizationId),
+    },
   );
-  return needsOtherOrganization ? other : active;
 }
 
 export function useFolders(

@@ -154,6 +154,7 @@ export function RecordingPill() {
   const completionActionsRef = useRef<ReturnType<
     typeof createCompletionCardActions
   > | null>(null);
+  const completionGenerationRef = useRef(0);
   const [savedLocally, setSavedLocally] = useState(false);
   const [pendingAction, setPendingAction] = useState<
     "restart" | "cancel" | null
@@ -504,9 +505,12 @@ export function RecordingPill() {
   }
 
   function resetToRest() {
+    completionGenerationRef.current += 1;
+    completionActionsRef.current = null;
     revealedRef.current = false;
     modeRef.current = "recording";
     setMode("recording");
+    setCompletionActionBusy(false);
     clearPauseTransition();
     setPaused(false);
   }
@@ -554,6 +558,7 @@ export function RecordingPill() {
     setViewUrl(sessionRef.current.viewUrl ?? null);
     setSavedLocally(false);
     setCopied(false);
+    completionGenerationRef.current += 1;
     completionActionsRef.current = null;
     setCompletionActionError(null);
     setCompletionActionBusy(false);
@@ -641,6 +646,7 @@ export function RecordingPill() {
     url?: string,
   ) {
     if (completionActionBusy) return;
+    const completionGeneration = completionGenerationRef.current;
     completionActionsRef.current ??= createCompletionCardActions({
       copy: (value) =>
         hasTauri ? writeText(value) : navigator.clipboard.writeText(value),
@@ -649,7 +655,16 @@ export function RecordingPill() {
         else if (!window.open(value, "_blank"))
           throw new Error("Browser blocked opening clip");
       },
-      dismiss: async () => {
+      dismiss: async (dismissedAction) => {
+        if (completionGeneration !== completionGenerationRef.current) return;
+        if (dismissedAction === "copy") {
+          setCopied(true);
+          setAnnouncement("Link copied");
+          await new Promise<void>((resolve) =>
+            window.setTimeout(resolve, 1_000),
+          );
+          if (completionGeneration !== completionGenerationRef.current) return;
+        }
         if (hasTauri) {
           await dismissCompletionCardWindow({
             releaseHold: () => invoke("set_toolbar_finishing", { hold: false }),
@@ -670,15 +685,8 @@ export function RecordingPill() {
     setCompletionActionError(null);
     setCompletionActionBusy(true);
     const result = await completionActionsRef.current(action, url);
+    if (completionGeneration !== completionGenerationRef.current) return;
     if (result.status === "busy") return;
-    if (
-      action === "copy" &&
-      (result.status === "dismissed" ||
-        (result.status === "failed" && result.stage === "dismiss"))
-    ) {
-      setCopied(true);
-      setAnnouncement("Link copied");
-    }
     if (result.status === "failed") {
       const message =
         result.stage === "copy"
@@ -1347,9 +1355,16 @@ export function RecordingPill() {
                   type="button"
                   onClick={() => void runCompletionAction("copy", viewUrl)}
                   disabled={completionActionBusy}
-                  className="h-[34px] flex-1 rounded-lg border border-[var(--pill-card-border-strong)] bg-[var(--pill-on-chrome)] text-[13px] font-semibold text-[var(--pill-card-ink)]"
+                  className="inline-flex h-[34px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--pill-card-border-strong)] bg-[var(--pill-on-chrome)] text-[13px] font-semibold text-[var(--pill-card-ink)]"
                 >
-                  {copied ? "Copied" : "Copy"}
+                  {copied ? (
+                    <>
+                      Copied
+                      <IconCheck size={14} aria-hidden />
+                    </>
+                  ) : (
+                    "Copy"
+                  )}
                 </button>
               </>
             ) : null}

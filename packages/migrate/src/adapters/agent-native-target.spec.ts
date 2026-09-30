@@ -100,18 +100,25 @@ describe("scaffoldAgentNativeTarget", () => {
     expect(packageJson.name).toBe("migrated-agent-native-app");
     expect(packageJson.private).toBe(true);
     expect(packageJson.scripts.dev).toBe("agent-native dev --open");
+    expect(packageJson.dependencies["@agent-native/toolkit"]).toBe("latest");
 
     const agentRoute = await fs.readFile(
       path.join(outputRoot, "app/routes/agent.tsx"),
       "utf-8",
     );
-    expect(agentRoute).toContain("AgentTabsPage");
+    expect(agentRoute).toContain('from "@agent-native/toolkit/app/agent-page"');
 
     const rootRoute = await fs.readFile(
       path.join(outputRoot, "app/root.tsx"),
       "utf-8",
     );
-    expect(rootRoute).toContain("@agent-native/core/client/AgentSidebar");
+    expect(rootRoute).toContain('from "@agent-native/toolkit/app/chat"');
+
+    const globalCss = await fs.readFile(
+      path.join(outputRoot, "app/global.css"),
+      "utf-8",
+    );
+    expect(globalCss).toContain('@import "@agent-native/toolkit/styles.css";');
 
     const navigateAction = await fs.readFile(
       path.join(outputRoot, "actions/navigate.ts"),

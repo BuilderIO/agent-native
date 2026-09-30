@@ -2080,12 +2080,60 @@ describe("mountActionRoutes", () => {
     const event = {
       _method: "POST",
       _headers: { "content-length": String(512) },
-      req: { json: async () => ({}) },
+      req: {
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"ok":true}'));
+            controller.close();
+          },
+        }),
+      },
     };
     const result = await mounted[0].handler(event);
 
     expect(result).toEqual({ ok: true });
     expect(actions["validate-local-plan-source"].run).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects oversized streamed bodies when Content-Length is absent", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "validate-local-plan-source": {
+        maxBodyBytes: 16,
+        requiresAuth: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: {},
+      req: {
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode('{"value":"too long"}'),
+            );
+            controller.close();
+          },
+        }),
+      },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(413);
+    expect(result).toEqual({
+      error: "Request body too large (max 16 bytes)",
+    });
+    expect(actions["validate-local-plan-source"].run).not.toHaveBeenCalled();
   });
 
   it("does not gate actions without maxBodyBytes on Content-Length", async () => {
@@ -3229,7 +3277,7 @@ describe("mountActionRoutes", () => {
 });
 
 describe("mountWebMcpActionRoutes", () => {
-  it("mounts MCP-only actions without exposing them to the in-app agent", async () => {
+  it("mounts MCP-only actions on the external MCP route", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const run = vi.fn(async () => ({ acknowledged: true }));

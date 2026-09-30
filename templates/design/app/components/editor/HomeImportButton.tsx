@@ -1,9 +1,9 @@
-import { openAgentSettings } from "@agent-native/core/client/command-navigation";
 import {
   actionErrorMessage,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { openAgentSettings } from "@agent-native/toolkit/app/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import { IconChevronDown, IconUpload } from "@tabler/icons-react";
 import { useId, useRef, useState } from "react";
@@ -104,7 +104,6 @@ export function HomeImportButton() {
                 <Button
                   ref={menuTrigger}
                   size="sm"
-                  className="design-home-import-button"
                   disabled={busy}
                   aria-label={t("home.import")}
                 >
@@ -112,7 +111,7 @@ export function HomeImportButton() {
                   <span className="design-home-import-label">
                     {t("home.import")}
                   </span>
-                  <IconChevronDown className="design-home-import-chevron" />
+                  <IconChevronDown />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent

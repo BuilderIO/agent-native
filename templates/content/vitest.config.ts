@@ -1,6 +1,8 @@
 import path from "node:path";
 
-import baseConfig from "@agent-native/core/vitest-config";
+import baseConfig, {
+  resolveMaxWorkers,
+} from "@agent-native/core/vitest-config";
 import react from "@vitejs/plugin-react-swc";
 import { defineConfig, mergeConfig } from "vitest/config";
 
@@ -25,7 +27,7 @@ export default mergeConfig(
       ],
       hookTimeout: 60_000,
       testTimeout: 60_000,
-      maxWorkers: "50%",
+      maxWorkers: resolveMaxWorkers(process.env, "50%"),
     },
   }),
 );

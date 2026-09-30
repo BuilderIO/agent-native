@@ -360,23 +360,26 @@ Cada consumidor llama a la misma función subyacente, así que solo hay una impl
 
 ## Sincronización en vivo {#polling-sync}
 
-Cuando el agente cambia datos, la UI necesita reflejarlo sin un refresco manual. `useDbSync()` es lo que hace eso automático. En un host de larga duración, las escrituras del mismo proceso se transmiten por `/_agent-native/events`; `/_agent-native/poll` sigue siendo el respaldo entre procesos. Cuando el agente escribe en la base de datos (estado de la aplicación, settings o datos de dominio), un contador de versión se incrementa y el cliente invalida las cachés relevantes de React Query.
+El flujo de ejecución del chat invalida las consultas de acción y los contadores de origen afectados tras cada herramienta con efectos y otra vez al terminar la ejecución. Por eso, las modificaciones de un agente individual no necesitan sondeo en segundo plano. La sincronización de `useDbSync()` se activa para cambios que ocurren sin que actúe el usuario, como la edición de un registro compartido por otra persona o la llegada de correo nuevo. En un host de larga duración, esos cambios se transmiten por `/_agent-native/events`; `/_agent-native/poll` es el respaldo.
 
-SSE cubre el caso habitual en lugar de WebSockets porque ofrece a las escrituras del mismo proceso una vía inmediata hacia el navegador mediante HTTP simple, mientras que el sondeo por contador de versión sigue existiendo como respaldo que funciona en cualquier entorno de despliegue. En un host serverless de producción (Netlify, Lambda, Vercel), el propio stream `/_agent-native/events` de la app no es una vía más lenta: está desactivado. Mantener ese stream abierto ocuparía una instancia de función que atiende una sola solicitud a la vez (por lo que nunca podría ver la escritura de otra invocación de todos modos) hasta que la plataforma la mate, reciclando el contenedor; en su lugar, el servidor responde de inmediato con 204 y `/_agent-native/poll` se encarga de toda la sincronización, al mismo ritmo, a menos que la app se haya suscrito a la [puerta de enlace de sincronización en tiempo real alojada](/docs/real-time-collaboration#hosted-gateway), que transmite desde su propio proceso de larga duración.
+Cada página que active `useDbSync()` debe incluir un motivo breve. La pestaña comparte un solo transporte; las pestañas visibles suscritas sondean al minuto, a los 2 minutos y luego a los 5. La actividad del usuario o una mutación local restablece el intervalo. Las pestañas ocultas se pausan. Mantén desactivada la sincronización en páginas públicas o SSR, Docs, ajustes, formularios y listas que cambian poco; actualízalas al recuperar el foco o navegar. Yjs conserva su propio canal.
 
 ```ts
-// Client: subscribe to agent/UI data changes once near the app shell
+// Client: opt in only when this page needs external changes live
 import { useDbSync } from "@agent-native/core/client/hooks";
-useDbSync({ queryClient });
+useDbSync({
+  queryClient,
+  realtime: { reason: "teammates can edit this shared deck" },
+});
 ```
 
-Llama a esto una vez, cerca de la raíz de la aplicación. Suscribe toda la aplicación a los eventos de cambio, de modo que cualquier componente que use `useActionQuery` o un `useQuery` con versión de origen vuelve a obtener los datos automáticamente cuando cambian los datos que lee.
+Llama a este hook solo desde una ruta privada cuyos datos puedan cambiar sin que actúe el usuario actual y cuyo usuario necesite ver la actualización antes de recargar. Cada suscriptor en segundo plano añade un sondeo por pestaña abierta e intervalo.
 
-El flujo es:
+El flujo de un cambio externo es:
 
-1. El agente ejecuta una acción que escribe en la base de datos
+1. Otra persona o una tarea en segundo plano cambia un registro compartido
 2. El servidor emite un evento de cambio con un origen (source) como `"action"` o `"settings"`
-3. `useDbSync` lo recibe por SSE o por el respaldo de sondeo
+3. Una página con `useDbSync` activado recibe el evento por SSE o sondeo; las ejecuciones locales del agente usan el flujo del chat
 4. Los hooks `useActionQuery` y los hooks `useQuery` con versión de origen vuelven a obtener los datos
 5. Los componentes renderizan los nuevos datos sin recargar la página
 

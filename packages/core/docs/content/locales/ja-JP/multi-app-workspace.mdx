@@ -232,6 +232,29 @@ pnpm dev
 
 アクティブな組織は自動的にフローします: `session.orgId` → `AGENT_ORG_ID` → SQL 行スコープ。そのため、`org_id` でタグ付けされたデータは、エージェントであっても他の組織には表示されません。完全なモデルについては、[Security & Data Scoping](/docs/security) を参照してください。
 
+## 組み込みアプリ {#builtin-apps}
+
+既定では、すべてのワークスペースがホストされたファーストパーティアプリ（Mail、Calendar、Content、Design、Clips など）を組み込みエージェントとして利用できます。ワークスペースで提供するアプリは、ルートの `package.json` の `agent-native.builtinAgents` で選択します。
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"]
+    }
+  }
+}
+```
+
+- `mode`: `"all"`（既定。公開されているすべてのファーストパーティアプリ）、`"none"`（組み込みアプリなし）、`"selected"`（`include` のみ）。
+- `include`: `mode` が `"selected"` のときにこのワークスペースが提供する組み込みアプリ。それ以外はワークスペースから認識されません。
+
+不明な ID は警告を出して無視されます。スタンドアロンアプリは自身の `package.json` で同じキーを使えます。`agent-native dev` とワークスペースのデプロイは、この値を `AGENT_NATIVE_BUILTIN_AGENTS_JSON` として各アプリに渡します。
+
+この設定は、アプリ一覧、エージェントの検出、エージェント間の呼び出しに適用されます。マウントされたワークスペースアプリと接続済みのリモートエージェントは影響を受けず、MCP アプリアクセスは別のルーティング権限のままです。
+
 ## 共有 MCP サーバー {#shared-mcp}
 
 ワークスペース アプリ間で MCP サーバーを共有するための推奨オプション (優先順):

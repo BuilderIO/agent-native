@@ -1,17 +1,17 @@
-import { AgentNativeWebMcpActionRegistration } from "@agent-native/core/client/hooks";
-import {
-  AgentNativeRouteWarmup,
-  defineClientAction,
-  isClientRouteUrl,
-} from "@agent-native/core/client/host";
+import { defineClientAction } from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
   getLocaleInitScript,
   useT,
 } from "@agent-native/core/client/i18n";
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
-import { ErrorReportActions } from "@agent-native/core/client/ui";
+import {
+  AgentNativeRouteWarmup,
+  isClientRouteUrl,
+} from "@agent-native/core/client/route-warmup";
 import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import { AgentNativeWebMcpActionRegistration } from "@agent-native/toolkit/app/providers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   lazy,
@@ -69,7 +69,7 @@ const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 const GITHUB_STAR_REVALIDATION_DELAY_MS = 1_500;
 
 const LazyAgentSidebar = lazy(async () => {
-  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  const { AgentSidebar } = await import("@agent-native/toolkit/app/chat");
   return { default: AgentSidebar };
 });
 
@@ -670,7 +670,7 @@ export function RootShell({ mounted }: { mounted: boolean }) {
       <Suspense fallback={fallback}>
         {mounted ? (
           <LazyAgentSidebar
-            screenRefreshOnlyWhenPanelActive
+            screenRefreshEnabled={false}
             storageKey="docs"
             position="right"
             defaultOpen={false}

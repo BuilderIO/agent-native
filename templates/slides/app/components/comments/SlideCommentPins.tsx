@@ -64,6 +64,10 @@ type PendingComment = {
   anchor: SlideCommentAnchor;
 };
 
+function keepPopoverOpenDuringComposition(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) event.preventDefault();
+}
+
 function initials(name: string | null | undefined, email: string) {
   return (name || email)
     .split(/[@.\s]/)
@@ -209,6 +213,7 @@ function CommentThreadPopover({
               align="start"
               className="z-[300] w-80 p-3"
               data-slide-comment-popover
+              onEscapeKeyDown={keepPopoverOpenDuringComposition}
             >
               <div className="space-y-3">
                 <CommentItem
@@ -603,6 +608,7 @@ export function SlideCommentPins({
                 align="start"
                 className="z-[300] w-80 p-3"
                 data-pin-popover
+                onEscapeKeyDown={keepPopoverOpenDuringComposition}
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -629,6 +635,12 @@ export function SlideCommentPins({
                       if (error) setError(null);
                     }}
                     onKeyDown={(event) => {
+                      if (
+                        event.nativeEvent.isComposing ||
+                        event.nativeEvent.keyCode === 229
+                      ) {
+                        return;
+                      }
                       if (
                         event.key === "Enter" &&
                         (event.metaKey || event.ctrlKey)

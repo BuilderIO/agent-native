@@ -2059,7 +2059,12 @@ export const cancelBookingByToken = defineEventHandler(
       await db
         .update(schema.bookings)
         .set({ status: "cancelled", zoomNeedsReview: false })
-        .where(eq(schema.bookings.id, row.id));
+        .where(
+          and(
+            eq(schema.bookings.id, row.id),
+            eq(schema.bookings.ownerEmail, row.ownerEmail),
+          ),
+        );
 
       const hostEmail = link?.ownerEmail;
       const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);

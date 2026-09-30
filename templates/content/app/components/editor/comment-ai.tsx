@@ -9,7 +9,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/core/client/markdown";
+import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import type {
   CommentAiIntent,
   CommentAiRequest,

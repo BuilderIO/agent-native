@@ -1,11 +1,12 @@
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+} from "@agent-native/toolkit/app/settings";
+import { LanguagePicker } from "@agent-native/toolkit/app/shared";
 import { Link } from "react-router";
 
 export function meta() {
