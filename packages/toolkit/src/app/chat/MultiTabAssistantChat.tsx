@@ -370,6 +370,7 @@ function HistoryPopover({
   onSearch,
   onTogglePin,
   onRename,
+  popoverAlign = "end",
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
@@ -386,6 +387,7 @@ function HistoryPopover({
   onTogglePin?: (id: string, pinned: boolean) => void;
   /** Presence enables the inline rename row action. */
   onRename?: (id: string, nextTitle: string) => void;
+  popoverAlign?: "start" | "end";
 }) {
   const t = useT();
   const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
@@ -493,10 +495,13 @@ function HistoryPopover({
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
       <PopoverAnchor asChild>
-        <span aria-hidden className="absolute end-2 top-0 h-px w-px" />
+        <span
+          aria-hidden
+          className={`absolute top-0 h-px w-px ${popoverAlign === "start" ? "start-2" : "end-2"}`}
+        />
       </PopoverAnchor>
       <PopoverContent
-        align="end"
+        align={popoverAlign}
         side="bottom"
         sideOffset={0}
         onOpenAutoFocus={(event) => {
@@ -3110,6 +3115,7 @@ export function MultiTabAssistantChat({
             onSearch={searchThreads}
             onTogglePin={pinThread}
             onRename={renameThread}
+            popoverAlign={renderOverlay ? "start" : "end"}
           />
         )}
 

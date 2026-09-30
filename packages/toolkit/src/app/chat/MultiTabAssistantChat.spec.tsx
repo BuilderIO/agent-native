@@ -3471,6 +3471,40 @@ describe("MultiTabAssistantChat history popover", () => {
     expect(titles).toEqual(["Pinned chat", "Active chat", "Other chat"]);
   });
 
+  it("anchors page-overlay chat history to the left below the page header", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="history-test"
+          renderOverlay={({ toggleHistory }) => (
+            <button
+              type="button"
+              data-testid="page-history-trigger"
+              onClick={toggleHistory}
+            >
+              All chats
+            </button>
+          )}
+        />,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="page-history-trigger"]',
+        )
+        ?.click();
+    });
+
+    const anchor = Array.from(
+      container.querySelectorAll<HTMLElement>("span"),
+    ).find((span) => span.classList.contains("w-px"));
+    expect(anchor).toBeDefined();
+    expect(anchor?.className).toContain("start-2");
+    expect(anchor?.className).not.toContain("end-2");
+  });
+
   it("does not expose an untitled prompt in history", async () => {
     threadMocks.threads = [
       ...threadMocks.threads,

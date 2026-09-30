@@ -1046,52 +1046,59 @@ describe("MCP app host client helpers", () => {
     expect(sendFollowUpMessage).not.toHaveBeenCalled();
   });
 
-  it("does not expose assistant-audience text through the OpenAI fallback", async () => {
-    const parent = parentWindow();
-    setDirectParent(parent);
-    const sendFollowUpMessage = vi.fn(async () => ({}));
-    vi.stubGlobal("openai", { sendFollowUpMessage });
+  it.each([
+    ["assistant-only", ["assistant"], false],
+    ["user-only", ["user"], false],
+    ["both audiences", ["assistant", "user"], true],
+  ])(
+    "respects %s annotations in the OpenAI fallback",
+    async (_label, audience, expected) => {
+      const parent = parentWindow();
+      setDirectParent(parent);
+      const sendFollowUpMessage = vi.fn(async () => ({}));
+      vi.stubGlobal("openai", { sendFollowUpMessage });
 
-    const result = sendMcpAppHostMessage({
-      message: "Summarize this row",
-      content: [
-        {
-          type: "text",
-          text: "Private selection context",
-          annotations: { audience: ["assistant", "user"] },
-        },
-      ],
-    });
+      const result = sendMcpAppHostMessage({
+        message: "Summarize this row",
+        content: [
+          {
+            type: "text",
+            text: "Selection detail",
+            annotations: { audience },
+          },
+        ],
+      });
 
-    await flushMicrotasks();
-    const initCall = getJsonRpcCalls(parent).find(
-      (call) => call.method === "ui/initialize",
-    )!;
-    dispatchHostMessage({
-      jsonrpc: "2.0",
-      id: initCall.id,
-      result: { protocolVersion: "2026-01-26" },
-    });
-    await flushHostLifecycleTurn();
+      await flushMicrotasks();
+      const initCall = getJsonRpcCalls(parent).find(
+        (call) => call.method === "ui/initialize",
+      )!;
+      dispatchHostMessage({
+        jsonrpc: "2.0",
+        id: initCall.id,
+        result: { protocolVersion: "2026-01-26" },
+      });
+      await flushHostLifecycleTurn();
 
-    const contextCall = getJsonRpcCalls(parent).find(
-      (call) => call.method === "ui/update-model-context",
-    )!;
-    dispatchHostMessage({ jsonrpc: "2.0", id: contextCall.id, result: {} });
-    await flushMicrotasks();
+      const contextCall = getJsonRpcCalls(parent).find(
+        (call) => call.method === "ui/update-model-context",
+      )!;
+      dispatchHostMessage({ jsonrpc: "2.0", id: contextCall.id, result: {} });
+      await flushMicrotasks();
 
-    const messageCall = getJsonRpcCalls(parent).find(
-      (call) => call.method === "ui/message",
-    )!;
-    dispatchHostMessage({
-      jsonrpc: "2.0",
-      id: messageCall.id,
-      error: { code: -32601, message: "Method not found" },
-    });
+      const messageCall = getJsonRpcCalls(parent).find(
+        (call) => call.method === "ui/message",
+      )!;
+      dispatchHostMessage({
+        jsonrpc: "2.0",
+        id: messageCall.id,
+        error: { code: -32601, message: "Method not found" },
+      });
 
-    await expect(result).resolves.toBe(false);
-    expect(sendFollowUpMessage).not.toHaveBeenCalled();
-  });
+      await expect(result).resolves.toBe(expected);
+      expect(sendFollowUpMessage).toHaveBeenCalledTimes(expected ? 1 : 0);
+    },
+  );
 
   it("does not replay a direct chat after an ambiguous message timeout", async () => {
     const parent = parentWindow();
