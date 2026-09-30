@@ -54,6 +54,7 @@ vi.mock("../db/index.js", () => ({
   schema,
 }));
 
+import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import {
   DEPLOYED_NEW_VS_RECURRING_USERS_SQL,
   FIRST_PARTY_BIGQUERY_RETENTION_SQL,
@@ -61,6 +62,7 @@ import {
   FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
+  PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL,
   PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
   repairCanonicalFirstPartyDashboardQueries,
   repairFirstPartyBigQueryDashboardQueries,
@@ -473,7 +475,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       "DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 5 DAY)",
     );
     expect(panels[1].sql).toContain(
-      "LEAST(DATE_ADD(DATE('{{timeRangeEnd}}'), INTERVAL 14 DAY), CURRENT_DATE())",
+      "LEAST(DATE_ADD(LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE())",
     );
     expect(panels[1].sql).toContain(
       "DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)",
@@ -587,6 +589,63 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     >;
     expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
       FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    );
+  });
+
+  it("repairs the persisted last-valid BigQuery retention query for custom ranges", () => {
+    const retention = requiredFirstPartyPanel("retention-over-time");
+    const repaired = repairFirstPartyBigQueryDashboardQueries({
+      panels: [
+        {
+          ...retention,
+          source: "bigquery",
+          sql: PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL,
+        },
+      ],
+    });
+    const panel = (
+      repaired.config.panels as Array<{
+        sql: string;
+        source: string;
+      }>
+    )[0]!;
+    const sql = interpolateDashboardPanelSql(
+      panel.sql,
+      {
+        timeRange: "custom",
+        timeRangeStart: "2026-08-31",
+        timeRangeEnd: "2026-09-30",
+      },
+      panel,
+    );
+
+    expect(repaired.changed).toBe(true);
+    expect(panel.sql).toBe(FIRST_PARTY_BIGQUERY_RETENTION_SQL);
+    expect(sql).not.toContain("__unsupported_custom_date_range__");
+    expect(sql).toContain("DATE_SUB(DATE('2026-08-31'), INTERVAL 365 DAY)");
+    expect(sql).toContain(
+      "LEAST(DATE_ADD(LEAST(DATE('2026-09-30'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE())",
+    );
+    expect(sql).toContain("DATE('2026-08-31') ELSE DATE_SUB");
+    expect(sql).toContain(
+      "LEAST(DATE('2026-09-30'), CURRENT_DATE()) ELSE CURRENT_DATE()",
+    );
+
+    const maxEndSql = interpolateDashboardPanelSql(
+      panel.sql,
+      {
+        timeRange: "custom",
+        timeRangeStart: "9990-01-01",
+        timeRangeEnd: "9999-12-31",
+      },
+      panel,
+    );
+    expect(maxEndSql).not.toContain("__invalid_custom_date_range__");
+    expect(maxEndSql).toContain(
+      "LEAST(DATE_ADD(LEAST(DATE('9999-12-31'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE())",
+    );
+    expect(maxEndSql).not.toContain(
+      "DATE_ADD(DATE('9999-12-31'), INTERVAL 14 DAY)",
     );
   });
 
