@@ -7982,6 +7982,16 @@ describe("runAgentLoop", () => {
           "before this is saved.\ncode: permanent_precondition",
       ),
     ).toBeNull();
+    expect(
+      permanentPreconditionReason(
+        "call-agent",
+        "Error running call-agent: Error: The Brain agent ended failed " +
+          "(a2a_task_failed): I stopped because provider-api-request can't " +
+          "run yet: slack credential not configured. Tried: SLACK_BOT_TOKEN. " +
+          "That needs to be fixed outside this chat (a credential), then you " +
+          "can retry.\ncode: permanent_precondition",
+      ),
+    ).toBe("slack credential not configured. Tried: SLACK_BOT_TOKEN");
   });
 
   it("never classifies precondition markers quoted inside a diagnostic-snippet fence, but still classifies them outside it", () => {

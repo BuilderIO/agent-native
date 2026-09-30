@@ -3910,6 +3910,12 @@ export function permanentPreconditionReason(
     .trim()
     // The headline appends its own sentence punctuation.
     .replace(/[.。]+$/, "");
+  const nestedPrecondition = reason
+    .match(
+      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)\. That needs to be fixed outside this chat\b/i,
+    )?.[1]
+    ?.trim();
+  if (nestedPrecondition) return nestedPrecondition;
   if (!reason) return null;
   if (
     /\bI stopped because\b/i.test(reason) ||
