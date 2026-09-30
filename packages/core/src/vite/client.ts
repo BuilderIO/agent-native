@@ -2764,7 +2764,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     load(id) {
       if (id !== STUB_ID) return null;
       return (
-        "function makeStub() { if (new.target) return new Proxy({}, handler); } " +
+        "function makeStub() { return new Proxy(makeStub, handler); } " +
         "const handler = { get(_, p) { " +
         "if (p === Symbol.toPrimitive) return () => ''; " +
         "if (p === 'then') return undefined; " +

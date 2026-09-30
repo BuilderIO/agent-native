@@ -3453,6 +3453,10 @@ describe("Vite SSR stubs", () => {
       `data:text/javascript,${encodeURIComponent(code)}`
     );
     expect(() => new stubs.PluginKey("ssr")).not.toThrow();
+    const called = stubs.default("ssr");
+    expect(typeof called).toBe("function");
+    expect(() => called.chain("ssr")).not.toThrow();
+    expect(() => new called.PluginKey("ssr")).not.toThrow();
     expect(code).toContain("export const Doc = stub;");
     expect(code).toContain("export const Map = stub;");
     expect(code).toContain("export const encodeStateVector = stub;");
