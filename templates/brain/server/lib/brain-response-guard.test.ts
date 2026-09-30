@@ -125,7 +125,9 @@ describe("Brain company-knowledge response guard", () => {
         }),
       );
 
-    expect(guardWith([{ type: "capture", id: "capture-1" }])).not.toBeNull();
+    expect(
+      guardWith([{ type: "capture", id: "capture-1", answerEligible: true }]),
+    ).not.toBeNull();
     expect(guardWith([{ type: "knowledge", id: "knowledge-1" }])).toBeNull();
   });
 
@@ -166,6 +168,7 @@ describe("Brain company-knowledge response guard", () => {
               id: "capture-1",
               provider: "slack",
               capturedAt: "2026-09-20T15:00:00.000Z",
+              answerEligible: true,
             },
           ]),
         ],
@@ -173,6 +176,35 @@ describe("Brain company-knowledge response guard", () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  it("does not accept search-everything captures the source answer policy excludes", () => {
+    const guardWith = (capture: Record<string, unknown>) =>
+      brainFinalResponseGuard(
+        guardContext({
+          requestText: "What did we decide about pricing?",
+          text: "The team decided to keep annual plans.",
+          toolResults: [
+            searchEverythingResult([
+              {
+                type: "capture",
+                id: "capture-1",
+                provider: "slack",
+                ...capture,
+              },
+            ]),
+          ],
+        }),
+      );
+
+    expect(
+      guardWith({
+        answerEligible: false,
+        answerExclusionReasons: ["answer-ineligible"],
+      }),
+    ).not.toBeNull();
+    expect(guardWith({})).not.toBeNull();
+    expect(guardWith({ answerEligible: true })).toBeNull();
   });
 
   it("still retries when search-everything returns no results", () => {

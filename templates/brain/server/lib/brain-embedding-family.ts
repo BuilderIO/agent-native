@@ -5,7 +5,7 @@ import { resolveSourceCredential } from "./source-credentials.js";
 
 export const BRAIN_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small";
 export const BRAIN_EMBEDDING_DIMENSIONS = 1024;
-const INPUT_CHAR_LIMIT = 24_000;
+const INPUT_TOKEN_BUDGET = 8_000;
 const TIMEOUT_MS = 30_000;
 const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
 const PROVIDER_LABEL = `openai/${BRAIN_OPENAI_EMBEDDING_MODEL}`;
@@ -16,6 +16,20 @@ export class BrainEmbeddingUnavailableError extends Error {
     super("OpenAI embedding credential OPENAI_API_KEY is not configured.");
     this.name = "BrainEmbeddingUnavailableError";
   }
+}
+
+// text-embedding-3-small rejects inputs over 8,191 tokens. Without a tokenizer,
+// over-count: ASCII ids/code approach 2 chars per token, while CJK and other
+// non-Latin scripts approach 1-2 tokens per code point.
+export function truncateToTokenBudget(text: string): string {
+  let tokens = 0;
+  let end = 0;
+  for (const char of text) {
+    tokens += char.charCodeAt(0) < 128 ? 0.5 : 2;
+    if (tokens > INPUT_TOKEN_BUDGET) break;
+    end += char.length;
+  }
+  return text.slice(0, end);
 }
 
 function malformed(): Error {
@@ -78,7 +92,7 @@ export function createOpenAIEmbeddingFamily(apiKey: string): EmbeddingFamily {
           body: JSON.stringify({
             model: BRAIN_OPENAI_EMBEDDING_MODEL,
             input: inputs.map((input) =>
-              (input.text ?? "").slice(0, INPUT_CHAR_LIMIT),
+              truncateToTokenBudget(input.text ?? ""),
             ),
             dimensions: BRAIN_EMBEDDING_DIMENSIONS,
             encoding_format: "float",

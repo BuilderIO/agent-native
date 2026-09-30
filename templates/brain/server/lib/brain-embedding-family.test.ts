@@ -15,6 +15,7 @@ import {
   BrainEmbeddingUnavailableError,
   createOpenAIEmbeddingFamily,
   resolveBrainEmbeddingFamily,
+  truncateToTokenBudget,
 } from "./brain-embedding-family.js";
 import { runSearchExternalLane } from "./search-index.js";
 
@@ -175,5 +176,27 @@ describe("runSearchExternalLane", () => {
     ).rejects.toThrow(
       "Embedding backfill external lane failed: OpenAI embedding provider HTTP 429.",
     );
+  });
+});
+describe("truncateToTokenBudget", () => {
+  it("keeps short text intact", () => {
+    expect(truncateToTokenBudget("Decision: ship Tuesday.")).toBe(
+      "Decision: ship Tuesday.",
+    );
+  });
+
+  it("caps dense CJK text well under the 8,191-token model limit", () => {
+    const truncated = truncateToTokenBudget("会".repeat(30_000));
+    expect(truncated.length).toBe(4_000);
+  });
+
+  it("caps long ASCII text at a conservative 2 chars per token", () => {
+    const truncated = truncateToTokenBudget("a1".repeat(20_000));
+    expect(truncated.length).toBe(16_000);
+  });
+
+  it("does not split a surrogate pair", () => {
+    const truncated = truncateToTokenBudget("😀".repeat(5_000));
+    expect(truncated.length % 2).toBe(0);
   });
 });

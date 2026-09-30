@@ -220,9 +220,15 @@ function latestAskBrainResult(
 
 function isEvidenceSearchResult(item: unknown, strict: boolean): boolean {
   if (!item || typeof item !== "object") return false;
-  const type = (item as { type?: unknown }).type;
-  // Strict policy answers from distilled knowledge only; raw captures are not evidence.
-  return type === "knowledge" || (!strict && type === "capture");
+  const { type, answerEligible } = item as {
+    type?: unknown;
+    answerEligible?: unknown;
+  };
+  if (type === "knowledge") return true;
+  // Strict policy answers from distilled knowledge only. Otherwise a capture
+  // counts only when search-everything marked it answerEligible; a missing flag
+  // means the source answer policy was never applied.
+  return !strict && type === "capture" && answerEligible === true;
 }
 
 function latestSearchEverythingResult(
