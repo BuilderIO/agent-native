@@ -2003,8 +2003,9 @@ describe("provider API runtime", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it("does not fall back after a custom credential resolver returns null", async () => {
+  it("requests a workspace connection when a custom resolver finds no credential", async () => {
     resolveCredential.mockResolvedValue("local-token");
+    describeCredentialScopeGap.mockResolvedValue(null);
     const fetchMock = vi.spyOn(globalThis, "fetch");
     const runtime = createProviderApiRuntime({
       appId: "analytics",
@@ -2013,15 +2014,48 @@ describe("provider API runtime", () => {
       resolveCredential: async () => null,
     });
 
-    await expect(
-      runtime.executeRequest({
+    const error = await runtime
+      .executeRequest({
         provider: "hubspot",
         path: "/crm/v3/objects/deals",
-      }),
-    ).rejects.toThrow(/hubspot credential not configured/);
+      })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
 
+    expect(error).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "hubspot",
+      reason: "connect",
+      appId: "analytics",
+    });
     expect(resolveCredential).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("requests a workspace connection for required credentials with a custom resolver", async () => {
+    describeCredentialScopeGap.mockResolvedValue(null);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["jira"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async () => null,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "jira", path: "/rest/api/3/myself" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "jira",
+      reason: "connect",
+      appId: "analytics",
+    });
   });
 
   it("explains an out-of-scope credential instead of reporting it missing", async () => {

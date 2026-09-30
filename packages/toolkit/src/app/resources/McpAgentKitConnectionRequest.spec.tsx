@@ -2,7 +2,9 @@
 
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import {
+  clearMcpConnectionResume,
   consumeMcpConnectionResume,
+  notifyMcpConnectionComplete,
   saveMcpConnectionResume,
 } from "@agent-native/core/client/resources/mcp-connection-resume";
 import React, { act } from "react";
@@ -17,7 +19,11 @@ import {
 
 const popupState = vi.hoisted(() => ({ popup: null as unknown }));
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  clearMcpConnectionResume();
+  window.localStorage.clear();
+  vi.unstubAllEnvs();
+});
 
 vi.mock("@agent-native/core/client/oauth-popup", () => ({
   openOAuthPopup: vi.fn(() => popupState.popup as Window | null),
@@ -122,19 +128,25 @@ describe("McpAgentKitConnectionRequestCard", () => {
 
     await act(async () => {
       root.render(
-        <McpAgentKitConnectionRequestCard
-          provider="google_drive"
-          reason="connect"
-          appId="dispatch"
-          source={{
-            id: "google_drive",
-            kind: "workspace_connection",
-            label: "Google Drive",
-          }}
-          target={target}
-          onConnected={onConnected}
-          onDeclined={() => undefined}
-        />,
+        <>
+          <McpAgentKitConnectionRequestCard
+            provider="google_drive"
+            reason="connect"
+            appId="dispatch"
+            source={{
+              id: "google_drive",
+              kind: "workspace_connection",
+              label: "Google Drive",
+            }}
+            target={target}
+            onConnected={onConnected}
+            onDeclined={() => undefined}
+          />
+          <McpAgentKitConnectionResume
+            onResume={() => onConnected()}
+            onMessageResume={() => undefined}
+          />
+        </>,
       );
     });
     const button = container.querySelector("button");
@@ -152,11 +164,19 @@ describe("McpAgentKitConnectionRequestCard", () => {
     );
     expect(oauthUrl.searchParams.get("appId")).toBe("dispatch");
     expect(oauthUrl.searchParams.get("scope")).toBe("user");
-    expect(oauthUrl.searchParams.get("return")).toBe(
-      "/_agent-native/oauth/popup?complete=workspace-connection",
+    const returnPath = oauthUrl.searchParams.get("return");
+    expect(returnPath).toContain(
+      "/_agent-native/oauth/popup?complete=workspace-connection&resume=",
     );
-    expect(oauthUrl.searchParams.get("return")).not.toContain("#selected");
+    expect(returnPath).not.toContain("#selected");
     expect(consumeMcpConnectionResume()).toBeNull();
+    const completionId = new URL(
+      returnPath!,
+      window.location.origin,
+    ).searchParams.get("resume");
+    expect(completionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
 
     await act(async () => {
       window.dispatchEvent(
@@ -177,19 +197,21 @@ describe("McpAgentKitConnectionRequestCard", () => {
     });
     expect(onConnected).not.toHaveBeenCalled();
 
+    act(() => root.unmount());
+    expect(popup.close).not.toHaveBeenCalled();
+    const resumedRoot = createRoot(container);
     await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "agent-native:workspace-connection-complete" },
-          origin: window.location.origin,
-          source: popup as unknown as MessageEventSource,
-        }),
+      notifyMcpConnectionComplete(completionId!);
+      resumedRoot.render(
+        <McpAgentKitConnectionResume
+          onResume={() => onConnected()}
+          onMessageResume={() => undefined}
+        />,
       );
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(onConnected).toHaveBeenCalledOnce();
-    expect(popup.close).toHaveBeenCalledOnce();
-    act(() => root.unmount());
+    act(() => resumedRoot.unmount());
   });
 
   it("keeps a granted connection request pending until the user retries", async () => {

@@ -4050,11 +4050,7 @@ async function resolveAnyCredential(options: {
     options.keys,
     options.ctx,
   ).catch(() => null);
-  if (
-    options.workspaceProvider &&
-    !options.runtime.resolveCredential &&
-    !scopeGap
-  ) {
+  if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
       provider: options.workspaceProvider,
@@ -4083,11 +4079,7 @@ async function resolveRequiredCredential(options: {
     // coercion-ok: only enriches an error we throw either way — losing the scope
     // hint still surfaces the real "not configured" failure, never a success.
     .catch(() => null);
-  if (
-    options.workspaceProvider &&
-    !options.runtime.resolveCredential &&
-    !scopeGap
-  ) {
+  if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
       provider: options.workspaceProvider,

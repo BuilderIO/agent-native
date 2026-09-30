@@ -2420,6 +2420,13 @@ const OAUTH_POPUP_WAITING_HTML =
   '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title></title></head><body></body></html>';
 const OAUTH_POPUP_COMPLETE_HTML =
   '<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>window.opener?.postMessage({type:"agent-native:workspace-connection-complete"},window.location.origin);window.close();</script></body></html>';
+const OAUTH_POPUP_RESUME_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function oauthPopupCompletionHtml(completionId: string): string {
+  const storageKey = `agent-native:mcp-connection-completion:${completionId}`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>try{localStorage.setItem("${storageKey}","1")}catch(error){console.error("Could not persist OAuth completion",error)}window.opener?.postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"},window.location.origin);window.close();</script></body></html>`;
+}
 
 export function createOAuthPopupWaitingHandler() {
   return defineEventHandler((event: H3Event) => {
@@ -2430,6 +2437,7 @@ export function createOAuthPopupWaitingHandler() {
     const completingWorkspaceConnection =
       getRequestURL(event).searchParams.get("complete") ===
       "workspace-connection";
+    const resumeId = getRequestURL(event).searchParams.get("resume");
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
     setResponseHeader(
       event,
@@ -2450,7 +2458,9 @@ export function createOAuthPopupWaitingHandler() {
     // `same-origin` severs the popup here and leaves it blank.
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
     return completingWorkspaceConnection
-      ? OAUTH_POPUP_COMPLETE_HTML
+      ? resumeId && OAUTH_POPUP_RESUME_ID.test(resumeId)
+        ? oauthPopupCompletionHtml(resumeId)
+        : OAUTH_POPUP_COMPLETE_HTML
       : OAUTH_POPUP_WAITING_HTML;
   });
 }

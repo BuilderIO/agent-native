@@ -3,14 +3,16 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   getWorkspaceConnectionProvider,
   workspaceProviderOAuthUrl,
 } from "@agent-native/core/client/integrations";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import {
-  notifyMcpConnectionComplete,
-  consumeMcpConnectionResume,
+  addMcpConnectionCompleteListener,
+  clearMcpConnectionResume,
+  getPendingMcpConnectionResume,
   saveMcpConnectionResume,
   type McpConnectionResumeRequest,
 } from "@agent-native/core/client/resources/mcp-connection-resume";
@@ -18,6 +20,7 @@ import {
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
+import { IconAlertCircle } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { AgentConnectionRequestCard } from "../agentkit/react/components.js";
@@ -59,15 +62,8 @@ export function McpAgentKitConnectionRequestCard({
   fallback = null,
 }: McpAgentKitConnectionRequestCardProps) {
   const settledRef = useRef(false);
-  const popupCleanupRef = useRef<(() => void) | null>(null);
   const [workspaceSetupOpened, setWorkspaceSetupOpened] = useState(false);
   const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
-  useEffect(
-    () => () => {
-      popupCleanupRef.current?.();
-    },
-    [],
-  );
   const integration = integrations.find(
     (candidate) =>
       candidate.id.toLowerCase() === provider.trim().toLowerCase() ||
@@ -133,70 +129,38 @@ export function McpAgentKitConnectionRequestCard({
         onConnect={() => {
           const popup = openOAuthPopup({ features: "width=640,height=760" });
           if (!popup) return false;
-          return new Promise<void>((resolve, reject) => {
-            let closeTimer: number | undefined;
-            const cleanup = () => {
-              window.removeEventListener("message", onMessage);
-              if (closeTimer !== undefined) window.clearInterval(closeTimer);
-              if (popupCleanupRef.current === cancel) {
-                popupCleanupRef.current = null;
-              }
-            };
-            const onMessage = (event: MessageEvent<unknown>) => {
-              if (
-                event.origin !== window.location.origin ||
-                event.source !== popup ||
-                typeof event.data !== "object" ||
-                event.data === null ||
-                !("type" in event.data) ||
-                event.data.type !== "agent-native:workspace-connection-complete"
-              ) {
-                return;
-              }
-              cleanup();
-              popup.close();
-              notifyMcpConnectionComplete();
-              void Promise.resolve().then(onConnected).then(resolve, reject);
-            };
-            const cancel = () => {
-              cleanup();
-              popup.close();
-              resolve();
-            };
-            popupCleanupRef.current = cancel;
-            window.addEventListener("message", onMessage);
-            closeTimer = window.setInterval(() => {
-              if (popup.closed) {
-                cleanup();
-                resolve();
-              }
-            }, 1_000);
-            const returnUrl = new URL(
-              agentNativePath("/_agent-native/oauth/popup"),
-              window.location.href,
+          const completionId = crypto.randomUUID();
+          const message = detail ?? `Continue after connecting ${provider}.`;
+          if (!saveMcpConnectionResume(message, target, completionId)) {
+            popup.close();
+            return false;
+          }
+          const returnUrl = new URL(
+            agentNativePath("/_agent-native/oauth/popup"),
+            window.location.href,
+          );
+          returnUrl.searchParams.set("complete", "workspace-connection");
+          returnUrl.searchParams.set("resume", completionId);
+          const basePath = appBasePath();
+          const hasBasePath =
+            basePath && returnUrl.pathname.startsWith(basePath + "/");
+          const returnPath =
+            (hasBasePath
+              ? returnUrl.pathname.slice(basePath.length)
+              : returnUrl.pathname) + returnUrl.search;
+          try {
+            popup.location.assign(
+              workspaceProviderOAuthUrl(source.id, {
+                appId,
+                scope: "user",
+                returnPath,
+              }),
             );
-            returnUrl.searchParams.set("complete", "workspace-connection");
-            const basePath = appBasePath();
-            const hasBasePath =
-              basePath && returnUrl.pathname.startsWith(basePath + "/");
-            const returnPath =
-              (hasBasePath
-                ? returnUrl.pathname.slice(basePath.length)
-                : returnUrl.pathname) + returnUrl.search;
-            try {
-              popup.location.assign(
-                workspaceProviderOAuthUrl(source.id, {
-                  appId,
-                  scope: "user",
-                  returnPath,
-                }),
-              );
-            } catch (error) {
-              cleanup();
-              popup.close();
-              reject(error);
-            }
-          });
+          } catch (error) {
+            clearMcpConnectionResume(completionId);
+            popup.close();
+            throw error;
+          }
         }}
       />
     );
@@ -237,14 +201,53 @@ export function McpAgentKitConnectionResume({
   onResume,
   onMessageResume,
 }: McpAgentKitConnectionResumeProps) {
+  const t = useT();
+  const onResumeRef = useRef(onResume);
+  const onMessageResumeRef = useRef(onMessageResume);
+  const processingRef = useRef(false);
+  const [failed, setFailed] = useState(false);
+  onResumeRef.current = onResume;
+  onMessageResumeRef.current = onMessageResume;
+
   useEffect(() => {
-    const pending: McpConnectionResumeRequest | null =
-      consumeMcpConnectionResume();
-    if (pending?.agentKit) {
-      void Promise.resolve(onResume(pending.agentKit, pending)).catch(() => {});
-    } else if (pending) {
-      void Promise.resolve(onMessageResume?.(pending)).catch(() => {});
-    }
-  }, [onMessageResume, onResume]);
-  return null;
+    const resumePending = async () => {
+      if (processingRef.current) return;
+      const pending = getPendingMcpConnectionResume();
+      if (!pending) return;
+      processingRef.current = true;
+      try {
+        if (pending.agentKit) {
+          try {
+            await onResumeRef.current(pending.agentKit, pending);
+          } catch (error) {
+            if (
+              !(error instanceof Error) ||
+              !error.message.startsWith("Unknown AgentKit run:") ||
+              !onMessageResumeRef.current
+            ) {
+              throw error;
+            }
+            await onMessageResumeRef.current(pending);
+          }
+        } else {
+          if (!onMessageResumeRef.current) return;
+          await onMessageResumeRef.current(pending);
+        }
+        clearMcpConnectionResume(pending);
+      } finally {
+        processingRef.current = false;
+      }
+    };
+    const resume = () => {
+      void resumePending().catch(() => setFailed(true));
+    };
+    resume();
+    return addMcpConnectionCompleteListener(resume);
+  }, []);
+  return failed ? (
+    <div className="agentkit-command-error" role="alert">
+      <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
+      <span>{t("agentChat.connection.failed")}</span>
+    </div>
+  ) : null;
 }

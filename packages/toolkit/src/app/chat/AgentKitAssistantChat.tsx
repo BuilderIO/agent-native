@@ -2775,7 +2775,11 @@ const AgentKitAssistantChatBody = forwardRef<
             { threadId: targetThreadId, runId, requestId },
             request,
           ) => {
-            if (targetThreadId !== threadId) return;
+            if (targetThreadId !== threadId) {
+              throw new Error(
+                "Cannot resume a connection request in another chat.",
+              );
+            }
             return control.resolveConnectionRequest(runId, requestId, {
               status: "connected",
               message: request.message,

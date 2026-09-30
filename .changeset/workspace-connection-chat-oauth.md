@@ -3,4 +3,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Restore the workspace-provider OAuth path for typed chat connection requests.
+Restore typed workspace connection requests when chat resumes OAuth or a custom credential resolver finds no connection.

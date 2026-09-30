@@ -103,6 +103,29 @@ describe("OAuth popup waiting route", () => {
     );
   });
 
+  it("persists a popup completion before notifying the opener", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    const completionId = "8d1bd7cf-419e-4ff0-8545-19dedb819154";
+
+    const response = await app.fetch(
+      new Request(
+        `http://example.test/_agent-native/oauth/popup?complete=workspace-connection&resume=${completionId}`,
+      ),
+    );
+    const html = await response.text();
+
+    expect(html).toContain(
+      `localStorage.setItem("agent-native:mcp-connection-completion:${completionId}","1")`,
+    );
+    expect(html).toContain(
+      `postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"},window.location.origin)`,
+    );
+    expect(html.indexOf("localStorage.setItem")).toBeLessThan(
+      html.indexOf("postMessage"),
+    );
+  });
+
   it("stays reachable from the framework pages that open it", async () => {
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());
