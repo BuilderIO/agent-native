@@ -173,11 +173,13 @@ describe("<ImageCropOverlay>", () => {
     expect(onFinish).not.toHaveBeenCalled();
   });
 
-  it("moves the dimmed image when a drag starts outside the crop frame", () => {
+  it("moves the dimmed image when an overlay receives the outside press", () => {
     const nodes = createCropCanvas();
     render(<ImageCropOverlay {...nodes} onFinish={vi.fn()} />);
+    const selectionOverlay = document.createElement("div");
+    nodes.canvas.append(selectionOverlay);
 
-    fireEvent.pointerDown(nodes.image, {
+    fireEvent.pointerDown(selectionOverlay, {
       button: 0,
       pointerId: 7,
       clientX: 45,

@@ -720,7 +720,18 @@ export default function ImageCropOverlay({
         point.y >= 0 &&
         point.y <= frame.offsetHeight;
       if (insideFrame) return;
-      if (event.target instanceof Node && image.contains(event.target)) {
+      const imageLeft = viewport.offsetLeft + image.offsetLeft;
+      const imageTop = viewport.offsetTop + image.offsetTop;
+      const insideImage =
+        point !== null &&
+        point.x >= imageLeft &&
+        point.x <= imageLeft + image.offsetWidth &&
+        point.y >= imageTop &&
+        point.y <= imageTop + image.offsetHeight;
+      if (
+        insideImage ||
+        (event.target instanceof Node && image.contains(event.target))
+      ) {
         startGesture(event, "move-image");
         event.stopImmediatePropagation();
         return;
