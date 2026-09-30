@@ -56,6 +56,12 @@ function getNeonServerlessDrizzle() {
   return _neonServerlessDrizzle;
 }
 
+function drizzleRawQuery(text: string, params: unknown[] = []) {
+  const query = sql.raw(text);
+  query.toQuery = () => ({ sql: text, params });
+  return query;
+}
+
 function drizzleTransactionExec(transaction: any): DbExec {
   const exec: DbExec = {
     async execute(statement: DbExecStatement) {
@@ -65,32 +71,75 @@ function drizzleTransactionExec(transaction: any): DbExec {
           : statement;
       const postgresSql = toPostgresParams(query.sql);
       const args = (query.args ?? []).map((arg) => arg ?? null);
-      const prepared = sql.raw(postgresSql);
-      // Preserve bound values when Drizzle compiles this raw SQL again.
-      prepared.toQuery = () => ({ sql: postgresSql, params: args });
+      const prepared = drizzleRawQuery(postgresSql, args);
 
       const { timeoutMs } = dbExecQueryBudget(statement);
       const startedAt = Date.now();
       const remainingMs = () =>
         Math.max(1, timeoutMs - (Date.now() - startedAt));
+      let timedOut = false;
       let result: any;
       try {
         result = await withDbTimeout(
           "query",
           async () => {
-            if (hasExplicitDbTimeout(statement)) {
-              const statementTimeoutSql = `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(remainingMs())}`;
-              const statementTimeout = sql.raw(statementTimeoutSql);
-              statementTimeout.toQuery = () => ({
-                sql: statementTimeoutSql,
-                params: [],
-              });
-              await transaction.execute(statementTimeout);
+            if (!hasExplicitDbTimeout(statement)) {
+              return transaction.execute(prepared);
             }
-            return transaction.execute(prepared);
+
+            const currentTimeout = await transaction.execute(
+              drizzleRawQuery(
+                "SELECT current_setting('statement_timeout') AS statement_timeout",
+              ),
+            );
+            const currentRows = Array.isArray(currentTimeout)
+              ? currentTimeout
+              : currentTimeout?.rows;
+            const previousTimeout = currentRows?.[0]?.statement_timeout;
+            if (typeof previousTimeout !== "string") {
+              throw new Error("Could not read the active statement timeout");
+            }
+            if (timedOut) return undefined;
+
+            await transaction.execute(
+              drizzleRawQuery(
+                `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(remainingMs())}`,
+              ),
+            );
+            const restoreTimeout = () =>
+              transaction.execute(
+                drizzleRawQuery(
+                  "SELECT set_config('statement_timeout', $1, true)",
+                  [previousTimeout],
+                ),
+              );
+            if (timedOut) {
+              // The client timeout is already the result; restore locally if the SET finished late.
+              await restoreTimeout().catch(() => {});
+              return undefined;
+            }
+
+            let queryResult: any;
+            let queryError: unknown;
+            let queryFailed = false;
+            try {
+              queryResult = await transaction.execute(prepared);
+            } catch (err) {
+              queryFailed = true;
+              queryError = err;
+            }
+            try {
+              await restoreTimeout();
+            } catch (err) {
+              if (!queryFailed) throw err;
+            }
+            if (queryFailed) throw queryError;
+            return queryResult;
           },
           timeoutMs,
-          undefined,
+          () => {
+            timedOut = true;
+          },
           { sql: query.sql },
         );
       } catch (err) {

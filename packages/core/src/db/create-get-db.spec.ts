@@ -12,9 +12,24 @@ describe("createGetDb pooled transaction scoping", () => {
 
   it("keeps raw queries, access checks, nested scopes, and timeouts in Neon transactions", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://db.neon.tech/agent-native");
+    let statementTimeout = "5s";
     const execute = vi.fn(async (query: any) => {
       const compiled = query.toQuery();
-      if (compiled.sql.startsWith("SET LOCAL statement_timeout")) {
+      if (
+        compiled.sql.startsWith("SELECT current_setting('statement_timeout')")
+      ) {
+        return { rows: [{ statement_timeout: statementTimeout }], rowCount: 1 };
+      }
+      if (compiled.sql.startsWith("SET LOCAL statement_timeout = ")) {
+        statementTimeout = `${compiled.sql.match(/= (\d+)/)?.[1]}ms`;
+        return { rows: [], rowCount: 0 };
+      }
+      if (
+        compiled.sql.startsWith(
+          "SELECT set_config('statement_timeout', $1, true)",
+        )
+      ) {
+        statementTimeout = String(compiled.params[0]);
         return { rows: [], rowCount: 0 };
       }
       if (compiled.sql.includes('"transaction_scope_access_docs"')) {
@@ -25,7 +40,15 @@ describe("createGetDb pooled transaction scoping", () => {
           rowCount: 1,
         };
       }
-      if (compiled.sql.includes("pg_sleep")) return new Promise(() => {});
+      if (compiled.sql.includes("pg_sleep")) {
+        return new Promise((_, reject) =>
+          setTimeout(
+            () =>
+              reject(new Error("canceling statement due to statement timeout")),
+            10,
+          ),
+        );
+      }
       return { rows: [{ id: 42 }], rowCount: 1 };
     });
     const makeTransaction = () => ({
@@ -83,6 +106,14 @@ describe("createGetDb pooled transaction scoping", () => {
         { userEmail: "owner@example.com", orgId: "org-1" },
         () => assertAccess("transaction-scope-access-doc", "doc-1", "owner"),
       );
+      await getDbExec().execute({
+        sql: "SELECT ?::int AS id",
+        args: [43],
+        timeoutMs: 250,
+      });
+      expect(statementTimeout).toBe("5s");
+      await getDbExec().execute("SELECT 1");
+      expect(statementTimeout).toBe("5s");
       await expect(
         tx.transaction(async () => {
           expect(getScopedDbExec()).not.toBe(parentScope);
@@ -104,7 +135,8 @@ describe("createGetDb pooled transaction scoping", () => {
           timeoutMs: 25,
         }),
       ),
-    ).rejects.toThrow("DB query timed out after 25ms");
+    ).rejects.toThrow("canceling statement due to statement timeout");
+    expect(statementTimeout).toBe("5s");
     expect(
       execute.mock.calls.some(([query]) =>
         query.toQuery().sql.startsWith("SET LOCAL statement_timeout = "),
