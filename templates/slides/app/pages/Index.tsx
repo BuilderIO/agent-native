@@ -1001,13 +1001,6 @@ export default function Index({ active = true }: { active?: boolean }) {
     );
     const importedReferenceFilePath =
       referenceSelection.importedReferenceFilePath;
-    const importedReferenceSource: ImportedReferenceSource | undefined =
-      referenceSelection.referenceDeckId && importedReferenceFilePath
-        ? {
-            deckId: referenceSelection.referenceDeckId,
-            filePath: importedReferenceFilePath,
-          }
-        : undefined;
     const filesForSourceImprovement = filesForGeneration.filter(
       (file) => !referenceFilePaths.has(file.path),
     );
