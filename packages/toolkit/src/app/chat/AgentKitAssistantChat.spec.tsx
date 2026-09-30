@@ -3382,6 +3382,19 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("keeps failed integration prompt submissions resumable", async () => {
+    chatMocks.thread.activeRunIds = ["run-1"];
+    const submissionError = new Error("Temporary send failure");
+    chatMocks.control.queueMessage.mockRejectedValueOnce(submissionError);
+    await mount(baseProps());
+
+    await expect(
+      chatMocks.resumeProps.onMessageResume({
+        message: "Continue after OAuth.",
+      }),
+    ).rejects.toBe(submissionError);
+  });
+
   it("shows the missing-final-response warning from recovered run metadata", async () => {
     chatMocks.thread.messages = [
       {
