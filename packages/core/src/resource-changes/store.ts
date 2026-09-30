@@ -16,6 +16,11 @@
  * one resource a larger `seq` always means a later committed change. Consumers
  * use it to reject stale work and to delete only what they processed.
  *
+ * A change that fails is retried with backoff, and after its last allowed
+ * attempt it is marked failed but still retried every few minutes. It stays
+ * pending the whole time, so a consumer that reports freshness never treats
+ * it as done.
+ *
  * Consumers never poll. They process changes only where the database is
  * already awake: before a read that needs fresh data, right after a write, or
  * inside the framework's recurring sweep. See docs/search-architecture.md.
@@ -32,9 +37,11 @@ export const RESOURCE_CHANGE_CONSUMERS_TABLE = "app_resource_change_consumers";
 export const RESOURCE_CHANGE_SEQUENCE = "app_resource_change_seq";
 export const RESOURCE_CHANGED_FUNCTION = "agent_native_app_resource_changed";
 
-/** A change is retried this many times before it is parked as failed. */
+/** After this many attempts a change is marked failed. */
 export const RESOURCE_CHANGE_MAX_ATTEMPTS = 5;
 const CLAIM_LEASE_SECONDS = 60;
+/** The longest wait between retries of a failing change. */
+const MAX_RETRY_SECONDS = 300;
 
 const RESOURCE_CHANGE_CONSUMERS_CREATE_SQL = `
   CREATE TABLE IF NOT EXISTS ${RESOURCE_CHANGE_CONSUMERS_TABLE} (
@@ -63,6 +70,10 @@ const RESOURCE_CHANGES_CREATE_SQL = `
 `;
 
 const RESOURCE_CHANGES_ORDER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS app_resource_changes_seq_idx ON ${RESOURCE_CHANGES_TABLE} (consumer, app, resource_type, seq)`;
+
+// Failed changes are rare, so a partial index keeps "is anything failing?"
+// instant even while a large backlog is pending.
+const RESOURCE_CHANGES_FAILED_INDEX_SQL = `CREATE INDEX IF NOT EXISTS app_resource_changes_failed_idx ON ${RESOURCE_CHANGES_TABLE} (consumer, app, resource_type) WHERE failed_at IS NOT NULL`;
 
 const RESOURCE_CHANGE_SEQUENCE_SQL = `CREATE SEQUENCE IF NOT EXISTS ${RESOURCE_CHANGE_SEQUENCE}`;
 
@@ -123,6 +134,11 @@ async function ensureAll(injectedClient?: DbExec): Promise<void> {
   await ensureIndexExists(
     "app_resource_changes_seq_idx",
     RESOURCE_CHANGES_ORDER_INDEX_SQL,
+    options,
+  );
+  await ensureIndexExists(
+    "app_resource_changes_failed_idx",
+    RESOURCE_CHANGES_FAILED_INDEX_SQL,
     options,
   );
   await ensureSchemaObject({
@@ -194,14 +210,28 @@ export function assertResourceKey(value: string, label: string): string {
   return value;
 }
 
-/** Names of the function and triggers generated for one source. */
+/** FNV-1a, as 8 hex digits. */
+function shortHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * Names of the function and triggers generated for one source. Functions are
+ * schema-wide and the readable part is shortened to fit Postgres's 63
+ * characters, so a hash of the app, table, and type keeps every source's
+ * names distinct.
+ */
 export function resourceChangeTriggerNames(source: ResourceChangeSource) {
   const table = assertIdentifier(source.table, "Resource table");
-  const base =
-    `an_rc_${table}__${assertResourceKey(source.resourceType, "Resource type").replace(/-/g, "_")}`.slice(
-      0,
-      56,
-    );
+  const app = assertResourceKey(source.app, "App");
+  const type = assertResourceKey(source.resourceType, "Resource type");
+  const readable = `an_rc_${table}__${type.replace(/-/g, "_")}`.slice(0, 50);
+  const base = `${readable}_${shortHash(`${app}\u0000${table}\u0000${type}`)}`;
   return {
     function: base,
     insertDeleteTrigger: `${base}_iud`,
@@ -213,6 +243,10 @@ export function resourceChangeTriggerNames(source: ResourceChangeSource) {
  * SQL that makes every committed insert, update, and delete on the source
  * table call the producer function. An update that changes nothing is
  * skipped. An update that changes the id reports both ids.
+ *
+ * "Changes nothing" compares the rows' stored bytes (`*<>`), not their
+ * values: a `json` or `point` column has no equality operator, and comparing
+ * such rows by value would make every update on the table fail.
  */
 export function resourceChangeTriggerSql(
   source: ResourceChangeSource,
@@ -243,7 +277,7 @@ $an_rc$`,
     `DROP TRIGGER IF EXISTS "${names.insertDeleteTrigger}" ON "${table}"`,
     `CREATE TRIGGER "${names.insertDeleteTrigger}" AFTER INSERT OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION "${names.function}"()`,
     `DROP TRIGGER IF EXISTS "${names.updateTrigger}" ON "${table}"`,
-    `CREATE TRIGGER "${names.updateTrigger}" AFTER UPDATE ON "${table}" FOR EACH ROW WHEN (OLD.* IS DISTINCT FROM NEW.*) EXECUTE FUNCTION "${names.function}"()`,
+    `CREATE TRIGGER "${names.updateTrigger}" AFTER UPDATE ON "${table}" FOR EACH ROW WHEN (OLD *<> NEW) EXECUTE FUNCTION "${names.function}"()`,
   ];
 }
 
@@ -305,6 +339,23 @@ export interface ClaimedResourceChange {
 }
 
 /**
+ * A condition a consumer attaches to its claim, complete, and fail
+ * statements. It is checked inside each statement, so once it stops holding,
+ * those statements change nothing. Search uses it so a process running an
+ * older index version can't consume changes queued for a newer one.
+ */
+export interface ResourceChangeFence {
+  sql: string;
+  args: unknown[];
+}
+
+function fenced(fence: ResourceChangeFence | undefined) {
+  return fence
+    ? { sql: ` AND ${fence.sql}`, args: fence.args }
+    : { sql: "", args: [] };
+}
+
+/**
  * Leases up to `limit` ready changes, oldest first. Rows another claimant is
  * locking right now are skipped, and the lease expires on its own if this
  * process dies, so there is nothing to clean up.
@@ -313,7 +364,9 @@ export async function claimResourceChanges(
   exec: DbExec,
   feed: ResourceChangeFeed,
   limit: number,
+  fence?: ResourceChangeFence,
 ): Promise<ClaimedResourceChange[]> {
+  const guard = fenced(fence);
   // The pick is an uncorrelated ARRAY(...) sub-select, which Postgres runs
   // once, and the update then finds each row by its full primary key. Two
   // other shapes go wrong: a subquery in FROM can be rescanned inside a
@@ -329,11 +382,11 @@ export async function claimResourceChanges(
             AND c.resource_id = ANY (ARRAY(
               SELECT resource_id FROM ${RESOURCE_CHANGES_TABLE}
               WHERE consumer = ? AND app = ? AND resource_type = ?
-                AND failed_at IS NULL AND available_at <= clock_timestamp()
+                AND available_at <= clock_timestamp()
               ORDER BY seq
               LIMIT ?
               FOR UPDATE SKIP LOCKED
-            ))
+            ))${guard.sql}
           RETURNING c.resource_id, c.seq::text AS seq, c.attempts`,
     args: [
       feed.consumer,
@@ -343,6 +396,7 @@ export async function claimResourceChanges(
       feed.app,
       feed.resourceType,
       limit,
+      ...guard.args,
     ],
   });
   return rows
@@ -383,56 +437,81 @@ export async function completeResourceChanges(
   exec: DbExec,
   feed: ResourceChangeFeed,
   changes: readonly ClaimedResourceChange[],
+  fence?: ResourceChangeFence,
 ): Promise<void> {
   if (!changes.length) return;
   const values = valuesList(changes);
+  const guard = fenced(fence);
   await exec.execute({
     sql: `DELETE FROM ${RESOURCE_CHANGES_TABLE} AS c
           USING (VALUES ${values.sql}) AS done (resource_id, seq)
           WHERE c.consumer = ? AND c.app = ? AND c.resource_type = ?
             AND c.resource_id IN (${values.ids})
-            AND c.resource_id = done.resource_id AND c.seq = done.seq`,
+            AND c.resource_id = done.resource_id AND c.seq = done.seq${guard.sql}`,
     args: [
       ...values.args,
       feed.consumer,
       feed.app,
       feed.resourceType,
       ...values.idArgs,
+      ...guard.args,
     ],
   });
 }
 
 /**
- * Backs off failed changes. After the last attempt a change is parked with
- * `failed_at` so one bad row can't hold the rest of the feed hostage; a
- * later write to the same resource clears it.
+ * Backs off failed changes, doubling the wait up to five minutes. After the
+ * last allowed attempt a change is also marked failed, which a consumer can
+ * report, but it keeps being retried: a failure that was only temporary
+ * clears itself, and a later write to the resource starts it fresh.
  */
 export async function failResourceChanges(
   exec: DbExec,
   feed: ResourceChangeFeed,
   changes: readonly ClaimedResourceChange[],
+  fence?: ResourceChangeFence,
 ): Promise<void> {
   if (!changes.length) return;
   const values = valuesList(changes);
+  const guard = fenced(fence);
   await exec.execute({
     sql: `UPDATE ${RESOURCE_CHANGES_TABLE} AS c
-          SET available_at = clock_timestamp() + make_interval(secs => least(300, 5 * power(2, c.attempts))),
-              failed_at = CASE WHEN c.attempts >= ${RESOURCE_CHANGE_MAX_ATTEMPTS} THEN clock_timestamp() ELSE NULL END
+          SET available_at = clock_timestamp() + make_interval(secs => least(${MAX_RETRY_SECONDS}, 5 * power(2, c.attempts))),
+              failed_at = CASE WHEN c.attempts >= ${RESOURCE_CHANGE_MAX_ATTEMPTS} THEN coalesce(c.failed_at, clock_timestamp()) ELSE c.failed_at END
           FROM (VALUES ${values.sql}) AS failed (resource_id, seq)
           WHERE c.consumer = ? AND c.app = ? AND c.resource_type = ?
             AND c.resource_id IN (${values.ids})
-            AND c.resource_id = failed.resource_id AND c.seq = failed.seq`,
+            AND c.resource_id = failed.resource_id AND c.seq = failed.seq${guard.sql}`,
     args: [
       ...values.args,
       feed.consumer,
       feed.app,
       feed.resourceType,
       ...values.idArgs,
+      ...guard.args,
     ],
   });
 }
 
-/** True while any unparked change is waiting or leased for this feed. */
+/**
+ * Two boolean columns for a caller's own SELECT, so checking the feed costs
+ * no extra round trip: `pending` while any change is waiting, leased, or
+ * backing off, and `failing` while any has used up its attempts.
+ */
+export function resourceChangeBacklogColumns(feed: ResourceChangeFeed): {
+  sql: string;
+  args: unknown[];
+} {
+  const where = `consumer = ? AND app = ? AND resource_type = ?`;
+  const args = [feed.consumer, feed.app, feed.resourceType];
+  return {
+    sql: `EXISTS (SELECT 1 FROM ${RESOURCE_CHANGES_TABLE} WHERE ${where}) AS pending,
+          EXISTS (SELECT 1 FROM ${RESOURCE_CHANGES_TABLE} WHERE ${where} AND failed_at IS NOT NULL) AS failing`,
+    args: [...args, ...args],
+  };
+}
+
+/** True while any change at or below `seq` is still pending for this feed. */
 export async function hasPendingResourceChanges(
   exec: DbExec,
   feed: ResourceChangeFeed,
@@ -442,7 +521,7 @@ export async function hasPendingResourceChanges(
     options.atOrBelowSeq === undefined ? "" : " AND seq <= ?::bigint";
   const { rows } = await exec.execute({
     sql: `SELECT 1 FROM ${RESOURCE_CHANGES_TABLE}
-          WHERE consumer = ? AND app = ? AND resource_type = ? AND failed_at IS NULL${bound}
+          WHERE consumer = ? AND app = ? AND resource_type = ?${bound}
           LIMIT 1`,
     args: [
       feed.consumer,
@@ -456,8 +535,12 @@ export async function hasPendingResourceChanges(
 
 /**
  * Records a change for every row of the source table, for this consumer
- * only, and returns a seq at or above every one it assigned. Existing rows
- * keep their place. Consumers use it to rebuild from scratch.
+ * only, and returns a seq at or above every one it assigned. Consumers use
+ * it to rebuild from scratch.
+ *
+ * A change already queued is replaced by a fresh one, even if another
+ * process has it leased or it has failed: that work was done for the old
+ * consumer state, so it must not complete what the rebuild queued.
  */
 export async function enqueueAllResourceChanges(
   exec: DbExec,
@@ -467,10 +550,18 @@ export async function enqueueAllResourceChanges(
 ): Promise<string> {
   const table = assertIdentifier(source.table, "Resource table");
   const id = assertIdentifier(source.idColumn, "Resource id column");
+  // As in the producer function, the replacement seq is taken after the
+  // row lock, so it is newer than any change a writer committed meanwhile.
   await exec.execute({
     sql: `INSERT INTO ${RESOURCE_CHANGES_TABLE} (consumer, app, resource_type, resource_id, reason, seq)
           SELECT ?, ?, ?, "${id}"::text, ?, nextval('${RESOURCE_CHANGE_SEQUENCE}') FROM "${table}"
-          ON CONFLICT (consumer, app, resource_type, resource_id) DO NOTHING`,
+          ON CONFLICT (consumer, app, resource_type, resource_id) DO UPDATE SET
+            reason = EXCLUDED.reason,
+            seq = nextval('${RESOURCE_CHANGE_SEQUENCE}'),
+            changed_at = clock_timestamp(),
+            available_at = clock_timestamp(),
+            attempts = 0,
+            failed_at = NULL`,
     args: [consumer, source.app, source.resourceType, reason],
   });
   const { rows } = await exec.execute(

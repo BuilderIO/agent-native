@@ -87,7 +87,7 @@ describe("search tokens", () => {
 });
 
 describe("tsvector literals", () => {
-  it("shares one position space across weighted fields", () => {
+  it("shares one position space across fields, with a gap between them", () => {
     expect(
       buildSearchVector([
         { text: "Roadmap", weight: "A" },
@@ -95,7 +95,7 @@ describe("tsvector literals", () => {
         { text: "the roadmap", weight: "C" },
       ]),
     ).toEqual({
-      literal: "'roadmap':1A,3C 'the':2C",
+      literal: "'roadmap':1A,4C 'the':3C",
       positionsComplete: true,
     });
   });
@@ -112,6 +112,22 @@ describe("tsvector literals", () => {
     const words = Array.from({ length: 16_400 }, (_, index) => `w${index}`);
     const vector = buildSearchVector([{ text: words.join(" "), weight: "C" }]);
     expect(vector.literal).toContain("'w16399':16383C");
+    expect(vector.positionsComplete).toBe(false);
+  });
+
+  it("keeps the first words of a document with too many distinct words", () => {
+    // About 1.2 MB of distinct words; Postgres rejects a vector whose words
+    // alone take 1 MB.
+    const words = Array.from(
+      { length: 130_000 },
+      (_, index) => `w${index.toString(36).padStart(8, "x")}`,
+    );
+    const vector = buildSearchVector([
+      { text: "Title", weight: "A" },
+      { text: words.join(" "), weight: "C" },
+    ]);
+    expect(vector.literal.startsWith("'title':1A 'wxxxxxxx0':3C")).toBe(true);
+    expect(vector.literal).not.toContain(`'${words.at(-1)}'`);
     expect(vector.positionsComplete).toBe(false);
   });
 

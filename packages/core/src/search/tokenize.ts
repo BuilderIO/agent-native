@@ -31,8 +31,15 @@ const CAMEL_ACRONYM = /(\p{Lu})(\p{Lu}\p{Ll})/gu;
 const MAX_POSITION = 16_383;
 const MAX_POSITIONS_PER_LEXEME = 255;
 const MAX_LEXEME_BYTES = 2_047;
-/** Stay well under the 1 MB tsvector limit. */
+/**
+ * Budget for a vector's estimated size. Postgres rejects a vector whose
+ * lexemes alone take 1 MB, so this stays well under that.
+ */
 const MAX_VECTOR_BYTES = 900_000;
+/** Per-lexeme overhead: its entry and position count. */
+const LEXEME_OVERHEAD_BYTES = 6;
+/** One stored position. */
+const POSITION_BYTES = 2;
 
 export type SearchWeight = "A" | "B" | "C" | "D";
 
@@ -76,6 +83,21 @@ function camelParts(word: string): string[] {
 }
 
 const encoder = new TextEncoder();
+
+/** UTF-8 length without encoding: 1-3 bytes per UTF-16 unit, 4 per pair. */
+function utf8Bytes(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      bytes += 4;
+      index += 1;
+    } else bytes += 3;
+  }
+  return bytes;
+}
 
 function usable(lexeme: string): boolean {
   return (
@@ -162,10 +184,12 @@ export interface SearchVector {
 }
 
 /**
- * A `tsvector` for the fields, in order, sharing one position space. Postgres
- * keeps at most 255 positions per word and none past 16,383: later ones are
- * dropped or collapse onto the last, and a very large document keeps one
- * position per word so the vector stays under 1 MB. Any of these makes
+ * A `tsvector` for the fields, in order, sharing one position space with a
+ * gap between fields, so a phrase never spans two of them. Postgres keeps at
+ * most 255 positions per word and none past 16,383: later ones are dropped
+ * or collapse onto the last. A very large document keeps one position per
+ * word, and one with more distinct words than fit keeps the words that come
+ * first, so the vector stays under Postgres's size limit. Any of these makes
  * `positionsComplete` false.
  */
 export function buildSearchVector(
@@ -177,7 +201,7 @@ export function buildSearchVector(
   for (const field of fields) {
     if (!field.text) continue;
     const { tokens, next } = documentTokens(field.text, position);
-    position = next;
+    if (tokens.length) position = next + 1;
     for (const token of tokens) {
       const list = entries.get(token.lexeme) ?? [];
       if (
@@ -192,19 +216,32 @@ export function buildSearchVector(
       entries.set(token.lexeme, list);
     }
   }
-  let bytes = 0;
+  let lexemeBytes = 0;
+  let positionCount = 0;
+  const sized: { lexeme: string; positions: string[]; bytes: number }[] = [];
   for (const [lexeme, positions] of entries) {
-    bytes += lexeme.length * 3 + positions.length * 2 + 8;
+    const bytes = utf8Bytes(lexeme) + LEXEME_OVERHEAD_BYTES;
+    sized.push({ lexeme, positions, bytes });
+    lexemeBytes += bytes;
+    positionCount += positions.length;
   }
-  const keepAll = bytes <= MAX_VECTOR_BYTES;
+  const keepAllPositions =
+    lexemeBytes + positionCount * POSITION_BYTES <= MAX_VECTOR_BYTES;
   const parts: string[] = [];
-  for (const [lexeme, positions] of entries) {
-    const kept = keepAll ? positions : positions.slice(0, 1);
+  let total = 0;
+  let keptEveryLexeme = true;
+  for (const { lexeme, positions, bytes } of sized) {
+    const kept = keepAllPositions ? positions : positions.slice(0, 1);
+    total += bytes + kept.length * POSITION_BYTES;
+    if (total > MAX_VECTOR_BYTES) {
+      keptEveryLexeme = false;
+      break;
+    }
     parts.push(`${quoteLexeme(lexeme)}:${kept.join(",")}`);
   }
   return {
     literal: parts.join(" "),
-    positionsComplete: positionsComplete && keepAll,
+    positionsComplete: positionsComplete && keepAllPositions && keptEveryLexeme,
   };
 }
 

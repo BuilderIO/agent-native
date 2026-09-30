@@ -6,6 +6,7 @@ import {
   assertResourceKey,
   installResourceChangeCapture,
   registerAfterWriteDrain,
+  resourceChangeTriggerNames,
   type ResourceChangeSource,
 } from "../resource-changes/store.js";
 import { ensureSearchIndexTables } from "./index-store.js";
@@ -89,7 +90,21 @@ export function registerSearchableResource(
   if (!Number.isInteger(registration.version) || registration.version < 1) {
     throw new Error("Search registration version must be a positive integer.");
   }
-  searchableResourceSource(registration);
+  const triggers = resourceChangeTriggerNames(
+    searchableResourceSource(registration),
+  ).function;
+  for (const other of registrations.values()) {
+    if (key(other.app, other.type) === key(registration.app, registration.type))
+      continue;
+    if (
+      resourceChangeTriggerNames(searchableResourceSource(other)).function ===
+      triggers
+    ) {
+      throw new Error(
+        `Search registrations ${other.app}/${other.type} and ${registration.app}/${registration.type} would share change-capture trigger names. Rename one resource type.`,
+      );
+    }
+  }
   registrations.set(key(registration.app, registration.type), registration);
   registerDrainHooks();
   return registration;
