@@ -9,7 +9,6 @@ import dotenv from "dotenv";
 import {
   isMigrationManifestActive,
   loadMigrationManifestsForProject,
-  type MigrationManifest,
   type MigrationDependency,
   type MigrationDependencyCondition,
 } from "../package-lifecycle/migration-manifest.js";
@@ -418,7 +417,7 @@ export function selectMigrationDependencies(
   return [...selected.values()];
 }
 
-function isDirectCoreDependency(pkg: PackageJsonLike): boolean {
+export function isDirectCoreDependency(pkg: PackageJsonLike): boolean {
   return [pkg.dependencies, pkg.devDependencies, pkg.optionalDependencies].some(
     (dependencies) => Boolean(dependencies?.["@agent-native/core"]),
   );
@@ -595,6 +594,15 @@ function applyMigrationDependencyAdditions(
     }
     writeJsonFile(file, read.value);
   }
+}
+
+export function addConfiguredMigrationDependencies(
+  project: UpgradeProject,
+  shellEnvironment: NodeJS.ProcessEnv = process.env,
+): void {
+  applyMigrationDependencyAdditions(
+    planMigrationDependencyAdditions(project, shellEnvironment),
+  );
 }
 
 export function pinResolvedAgentNativeVersions(

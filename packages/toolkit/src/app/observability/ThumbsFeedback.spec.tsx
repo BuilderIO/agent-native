@@ -52,11 +52,14 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+const catalog = createToolkitI18nCatalog({ messages: {} });
+
 describe("ThumbsFeedback localization", () => {
   it("renders localized accessible labels and explanation copy", async () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="de-DE"
           initialPreference="de-DE"
           persistPreference={false}
@@ -87,6 +90,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -181,6 +185,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -295,6 +300,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -421,6 +427,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -511,6 +518,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -558,6 +566,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -596,6 +605,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -639,6 +649,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -674,6 +685,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -709,6 +721,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -746,6 +759,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -797,6 +811,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}

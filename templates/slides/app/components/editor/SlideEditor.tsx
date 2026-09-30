@@ -265,6 +265,7 @@ import {
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
+import { SlideSlashCommandMenu } from "./SlideSlashCommandMenu";
 import {
   SlidesLayersPanel,
   type SlidesLayerKind,
@@ -2147,6 +2148,10 @@ export default function SlideEditor({
   const marqueePrevSelectionRef = useRef<Set<string>>(new Set());
   /** Currently-edited smart block (leaf or group). State, not ref, so menu re-renders. */
   const [editingEl, setEditingEl] = useState<HTMLElement | null>(null);
+  const [keyboardLinkRequest, setKeyboardLinkRequest] = useState<{
+    editingEl: HTMLElement;
+    range: Range;
+  } | null>(null);
   /**
    * Mirror of `editingEl` readable outside render. Exit paths must not read it
    * through a `setEditingEl` updater: updaters run during the render phase, so
@@ -2448,6 +2453,7 @@ export default function SlideEditor({
       const session = textSessionRef.current;
       if (!session) return null;
       textSessionRef.current = null;
+      setKeyboardLinkRequest(null);
       session.text.end();
       const element = session.text.element;
       const { slideContent } = session;
@@ -3006,6 +3012,11 @@ export default function SlideEditor({
       const text = startInPlaceTextSession(el, {
         caretPoint: point,
         selectWord,
+        onRequestLink: (range) => {
+          const currentEl = textSessionRef.current?.text.element;
+          if (currentEl)
+            setKeyboardLinkRequest({ editingEl: currentEl, range });
+        },
         onInput: () => {
           if (textSessionRef.current?.text !== text) return;
           // A list toggle or its undo can retag the edited element.
@@ -10047,6 +10058,7 @@ export default function SlideEditor({
       <BlockBubbleMenu
         editingEl={editingEl}
         textSession={textSessionRef.current?.text ?? null}
+        linkRequest={keyboardLinkRequest}
         slideId={slide.id}
         deckId={deckId}
         slideContentHash={hashSlideContent(slide.content)}
@@ -10072,6 +10084,10 @@ export default function SlideEditor({
             : undefined;
           onComment?.(quotedText, anchor);
         }}
+      />
+      <SlideSlashCommandMenu
+        editingEl={editingEl}
+        textSession={textSessionRef.current?.text ?? null}
       />
 
       {pendingUpdateCount > 0 && (

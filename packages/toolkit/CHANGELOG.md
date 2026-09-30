@@ -1,5 +1,56 @@
 # @agent-native/toolkit
 
+## 0.198.6
+
+### Patch Changes
+
+- 0670eb1: Improve chat activity status, tool error disclosure, and composer feedback.
+- 77540af: Keep Sonner toast actions inside the toast when content and actions share a narrow viewport.
+- df12726: Wait for the chat menu to close before opening its history popover.
+- Release all public npm packages with a patch version bump.
+- 4dfe557: Keep homepage submissions in the active full-page chat and hide unavailable request ID actions.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.6
+
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.5
+
+## 0.198.4
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- cefc33b: Align full-page chat headers to the pane edges and remove the extra gap below them.
+- 7a25922: Support Manual and Automatic Gong MCP OAuth registration.
+- df67544: Keep icon upload validation and transfer errors visible in the shared picker, with localized feedback for unsupported image formats and failed uploads.
+- 2fdd284: Chat history reports load failures and offers a retry instead of hiding undo controls.
+- c82ae28: Resolve migrated Labs choices against existing feature flag settings while preserving explicit Off and showing inherited mixed settings.
+- Release all public npm packages with a patch version bump.
+- c650ba5: Keep the Docs server bundle from loading the rich editor for file-storage setup.
+- 9fa81ab: Keep shared chat drafts editable while a message is being sent.
+- 20d3bb8: Restore typed workspace connection requests when chat resumes OAuth or a custom credential resolver finds no connection.
+- Updated dependencies [85a87e6]
+- Updated dependencies
+- Updated dependencies [20d3bb8]
+  - @agent-native/agentkit@0.198.4
+
+## 0.198.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ce1245c: Preserve queued chat intent through asynchronous preparation and resumed runtime streams.
+- e6de282: Keep the current route and filters available to agents when the sidebar is closed.
+- d2b14cf: Respect host submission guards when selecting agent suggestions.
+- Updated dependencies
+- Updated dependencies [ce1245c]
+  - @agent-native/agentkit@0.198.3
+
 ## 0.198.2
 
 ### Patch Changes
@@ -945,29 +996,5 @@
 ### Patch Changes
 
 - dcd0810: Add clear creation actions to empty resource views and improve collaboration usage feedback.
-
-## 0.8.1
-
-### Patch Changes
-
-- 6d96437: Add clear creation actions to empty resource views and improve collaboration usage feedback.
-
-## 0.8.0
-
-### Minor Changes
-
-- 8453025: Publish ejection units for every Toolkit entry point so apps can take ownership of individual presentation features while preserving protected runtime contracts.
-
-## 0.7.0
-
-### Minor Changes
-
-- e53a34e: Move the reusable ChatHistoryList and its stylesheet to the Toolkit chat-history entrypoint while preserving Core compatibility imports. Adopt it across first-party full-page chat sidebars, ship readable Toolkit source, and add generated-app guidance for selective app-owned UI customization.
-
-## 0.6.0
-
-### Minor Changes
-
-- 01a3f27: BREAKING: move the portable composer, rich editor, collaboration display, visual controls, and shared UI primitives to focused Toolkit entrypoints. Core's removed deep compatibility paths now throw an actionable migration error, and moved symbols are removed from the legacy `@agent-native/core/client` barrel. Run `npx @agent-native/core@latest upgrade --codemods --yes` to rewrite supported imports. Framework-wired composer APIs remain available from `@agent-native/core/client/composer`; bare reusable composer UI is available from `@agent-native/toolkit/composer`.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -234,6 +234,18 @@ vi.mock("../agentkit/react/root.js", async () => {
   return {
     AgentKitRoot: (props: any) => {
       chatMocks.rootProps = props;
+      if (chatMocks.useRealRoot) {
+        return React.createElement(actual.AgentKitRoot, {
+          ...props,
+          ...(chatMocks.realComposerController
+            ? {
+                controller: chatMocks.realComposerController,
+                transport: undefined,
+                endpoint: undefined,
+              }
+            : {}),
+        });
+      }
       if (chatMocks.realComposerController) {
         return React.createElement(AgentKitProvider, {
           ...props,
@@ -747,6 +759,29 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("shows a retry when chat history fails to load", async () => {
+    const retryHistory = vi.fn();
+    chatMocks.history = {
+      historyLoadFailed: true,
+      isRetryingHistory: false,
+      retryHistory,
+    };
+
+    await mount(baseProps());
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "agentChat.message.historyUnavailable",
+    );
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.common.retry",
+    );
+    expect(retry).toBeDefined();
+
+    await act(async () => retry?.click());
+
+    expect(retryHistory).toHaveBeenCalledOnce();
+  });
+
   it("shows Thinking in the transcript while a submitted user message is pending", async () => {
     chatMocks.history = { isSubmissionInFlight: true };
     chatMocks.thread.messages = [
@@ -759,9 +794,49 @@ describe("AgentKitAssistantChat host behavior", () => {
     ];
     await mount(baseProps());
 
+    const thinking = container.querySelector('[role="status"]');
+    expect(thinking?.textContent).toBe("agentChat.status.thinking");
+    expect(thinking?.classList.contains("agent-thinking-indicator")).toBe(true);
+    expect(
+      thinking?.querySelector(".agent-thinking-indicator__text"),
+    ).not.toBeNull();
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+    expect(chatMocks.composerProps.announcePendingSubmission).toBe(false);
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "agentChat.status.thinking",
     );
+  });
+
+  it("does not duplicate Thinking after the run becomes active", async () => {
+    chatMocks.history = { isSubmissionInFlight: true };
+    chatMocks.thread.activeRunIds = ["run-active"];
+    chatMocks.thread.messages = [
+      {
+        id: "user-pending",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize my inbox" }],
+        metadata: {},
+      },
+    ];
+    await mount(baseProps());
+
+    expect(container.querySelector(".agent-thinking-indicator")).toBeNull();
+  });
+
+  it("keeps the pending announcement when the transcript has no visible user message", async () => {
+    chatMocks.history = { isSubmissionInFlight: true };
+    chatMocks.thread.messages = [
+      {
+        id: "assistant-last",
+        role: "assistant",
+        parts: [{ type: "text", text: "Earlier response" }],
+      },
+    ];
+    await mount(baseProps());
+
+    expect(chatMocks.composerProps.announcePendingSubmission).toBe(true);
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("gives JS callers a migration error for the removed createAdapter prop", async () => {
@@ -847,6 +922,29 @@ describe("AgentKitAssistantChat host behavior", () => {
     return client;
   }
 
+  it("keeps the real editor editable while a submission is in flight", async () => {
+    chatMocks.useRealChat = true;
+    chatMocks.history = { isSubmissionInFlight: true };
+    await useRealComposer();
+    await mount(baseProps({ showModelSelector: false }));
+
+    const editor = container.querySelector<HTMLElement>(
+      '[contenteditable="true"]',
+    );
+    expect(editor).not.toBeNull();
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+
+    await act(async () =>
+      chatMocks.composerProps.composerRef.current.setText("Keep this draft"),
+    );
+    expect(editor?.textContent).toBe("Keep this draft");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )?.disabled,
+    ).toBe(true);
+  });
+
   it.each(["default", "compact"] as const)(
     "clears the real %s composer before startRun resolves and preserves the next draft",
     async (composerLayoutVariant) => {
@@ -855,12 +953,13 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.useRealChat = true;
       const client = await useRealComposer(startRun);
       try {
-        await mount(
-          baseProps({
-            composerLayoutVariant,
-            showModelSelector: false,
-          }),
-        );
+        const props = baseProps({
+          composerLayoutVariant,
+          showModelSelector: false,
+        });
+        const openThread = vi.spyOn(client, "openThread");
+        chatMocks.useRealRoot = true;
+        await mount(props);
         container.style.width =
           composerLayoutVariant === "compact" ? "320px" : "960px";
         const composer = chatMocks.composerProps.composerRef.current;
@@ -884,6 +983,18 @@ describe("AgentKitAssistantChat host behavior", () => {
         expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([]);
         expect(editor.textContent).toBe("");
 
+        await act(async () =>
+          root.render(<AgentKitAssistantChat {...props} isNewThread={false} />),
+        );
+        await flush();
+
+        expect(chatMocks.rootProps.load).toBe("manual");
+        expect(openThread).not.toHaveBeenCalled();
+        expect(
+          container
+            .querySelector<HTMLElement>("[contenteditable]")
+            ?.getAttribute("contenteditable"),
+        ).toBe("true");
         await act(async () => composer.setText("Next draft"));
         await act(async () => started.resolve({ runId: "run-latency" }));
 
@@ -932,6 +1043,28 @@ describe("AgentKitAssistantChat host behavior", () => {
       ).toEqual([suggestion]);
     },
   );
+
+  it("disables host suggestions while async submission is pending", async () => {
+    const suggestion = seedFollowup();
+    await mount(baseProps());
+    const chips = () =>
+      [...container.querySelectorAll("button")].filter(
+        (button) => button.textContent === suggestion.label,
+      );
+    expect(chips().length).toBeGreaterThan(0);
+    expect(chips().some((button) => button.disabled)).toBe(false);
+
+    await act(async () => {
+      chatMocks.composerProps.onSubmissionPendingChange(true);
+    });
+
+    expect(chips().every((button) => button.disabled)).toBe(true);
+
+    await act(async () => {
+      chatMocks.composerProps.onSubmissionPendingChange(false);
+    });
+    expect(chips().every((button) => !button.disabled)).toBe(true);
+  });
 
   it.each([undefined, "context-chips", "after-composer", "hidden"] as const)(
     "preserves initial starters with the real composer (placement: %s)",
@@ -1585,7 +1718,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.appState.has(stateKey!)).toBe(false);
   });
 
-  it("keeps a queued follow-up queued if its run finishes during provider discovery", async () => {
+  it("preserves queued intent when its run finishes during provider discovery", async () => {
     chatMocks.readiness = {
       canChat: false,
       missing: false,
@@ -1611,11 +1744,26 @@ describe("AgentKitAssistantChat host behavior", () => {
         [],
         [],
         { intent: "queued" },
+        async () => ({}),
       );
     });
 
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
     expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
+
+    const stateKey = [...chatMocks.appState.keys()].find((key) =>
+      key.startsWith("agentkit-deferred-provider-submissions:"),
+    );
+    expect(chatMocks.appState.get(stateKey!)).toMatchObject({
+      submissions: [
+        {
+          composerOptions: {
+            intent: "queued",
+            queuedWhileRunActive: true,
+          },
+        },
+      ],
+    });
 
     chatMocks.thread.activeRunIds = [];
     chatMocks.thread.runs["analytics-run"].status = "completed";
@@ -1640,6 +1788,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       }),
     );
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.appState.has(stateKey!)).toBe(false);
   });
 
   it("keeps the draft rejected if provider status becomes missing before submit", async () => {
@@ -3338,11 +3487,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.thread.activeRunIds = ["run-1"];
     await mount(baseProps());
 
-    await act(async () => {
-      await chatMocks.resumeProps.onMessageResume({
-        message: "Continue after connecting the integration.",
-      });
+    const resume = chatMocks.resumeProps.onMessageResume({
+      message: "Continue after connecting the integration.",
     });
+    expect(resume).toBeInstanceOf(Promise);
+    await act(async () => resume);
     expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "Continue after connecting the integration.",
@@ -3380,6 +3529,19 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect.objectContaining({ text: "Continue after OAuth." }),
     );
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps failed integration prompt submissions resumable", async () => {
+    chatMocks.thread.activeRunIds = ["run-1"];
+    const submissionError = new Error("Temporary send failure");
+    chatMocks.control.queueMessage.mockRejectedValueOnce(submissionError);
+    await mount(baseProps());
+
+    await expect(
+      chatMocks.resumeProps.onMessageResume({
+        message: "Continue after OAuth.",
+      }),
+    ).rejects.toBe(submissionError);
   });
 
   it("shows the missing-final-response warning from recovered run metadata", async () => {

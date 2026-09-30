@@ -432,6 +432,23 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
 });
 
 describe("formatVisualEditClipboardPrompt", () => {
+  it("copies the full source instructions by default", () => {
+    const prompt = "Apply the exact source edits from this canvas.";
+    const copied = formatVisualEditClipboardPrompt(
+      prompt,
+      "claude",
+      undefined,
+      "design-1",
+    );
+
+    expect(copied).toContain("Design ID: design-1");
+    expect(copied).toContain("idiomatic code changes");
+    expect(copied).toContain(prompt);
+    expect(copied).not.toContain(
+      "Use the Agent-Native Design MCP tool get-visual-edit-pending with",
+    );
+  });
+
   it("uses the hosted MCP handoff across detected and unknown hosts", () => {
     const prompt = "Apply the exact source edits from this canvas.";
     for (const host of [
@@ -451,6 +468,12 @@ describe("formatVisualEditClipboardPrompt", () => {
       expect(copied).toContain("get-visual-edit-pending");
       expect(copied).toContain('{ designId: "design-1" }');
       expect(copied).toContain("acknowledge-visual-edit-pending");
+      expect(copied).toContain(prompt);
+      expect(copied).toContain("apply the included edit details directly");
+      expect(copied).toContain("cannot acknowledge the handoff");
+      expect(copied).toContain("remain pending until Design MCP is available");
+      expect(copied).toContain("verify the edits are already present");
+      expect(copied).toContain('no "Apply design updates in Design" button');
       const browserToolIndex = copied.indexOf("get-visual-edit-prompt");
       if (browserToolIndex !== -1) {
         expect(copied.indexOf("get-visual-edit-pending")).toBeLessThan(
@@ -471,12 +494,15 @@ describe("formatVisualEditClipboardPrompt", () => {
     expect(copied).toContain('{ designId: "design-1" }');
     expect(copied).toContain("get-visual-edit-prompt");
     expect(copied).toContain("If you cannot access the Design MCP server");
+    expect(copied).toContain("retrieve edit details");
+    expect(copied).toContain("cannot acknowledge or clear the handoff");
+    expect(copied).toContain("Apply edits.");
   });
 
   it("uses the design id from the URL when it is not passed", () => {
     const copied = formatVisualEditClipboardPrompt("Apply these edits.", null);
     expect(copied).toContain("get-visual-edit-pending");
-    expect(copied).toContain("using the design ID from this URL");
+    expect(copied).toContain("Use the design ID from this URL.");
   });
 
   it("copies full implementation instructions and the detailed handoff", () => {
@@ -491,6 +517,8 @@ describe("formatVisualEditClipboardPrompt", () => {
     expect(copied).toContain("idiomatic code changes");
     expect(copied).toContain("Verify the running app after HMR");
     expect(copied).toContain("get-visual-edit-pending");
+    expect(copied).toContain("cannot acknowledge the handoff");
+    expect(copied).toContain("remain pending until Design MCP is available");
     expect(copied).toContain(prompt);
     expect(copied).not.toContain("If you cannot access the Design MCP server");
   });

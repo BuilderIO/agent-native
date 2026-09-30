@@ -5,6 +5,7 @@ import {
 import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
 import { ForbiddenError } from "@agent-native/core/sharing";
 
+import { isDispatchEnvironmentAdmin } from "./admin-config.js";
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 
 const CONFIG_ENV_KEY = "AGENT_NATIVE_THREAD_DEBUG_DATABASES";
@@ -108,24 +109,8 @@ class UnsupportedThreadDebugSchemaError extends Error {
   }
 }
 
-function envEmails(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 function escapeLike(value: string): string {
   return value.replace(/([\\%_])/g, "\\$1");
-}
-
-function isEnvAdmin(email: string): boolean {
-  const normalized = email.trim().toLowerCase();
-  return [
-    ...envEmails("DISPATCH_ADMIN_EMAILS"),
-    ...envEmails("WORKSPACE_OWNER_EMAIL"),
-    ...envEmails("DISPATCH_DEFAULT_OWNER_EMAIL"),
-  ].includes(normalized);
 }
 
 function missingTableName(error: unknown): string | null {
@@ -457,7 +442,7 @@ async function resolveDebugAccess(): Promise<DebugAccess> {
   const viewerEmail = currentOwnerEmail();
   const orgId = currentOrgId();
   const role = await viewerOrgRole(orgId, viewerEmail);
-  const envAdmin = isEnvAdmin(viewerEmail);
+  const envAdmin = isDispatchEnvironmentAdmin(viewerEmail);
   const canInspectAll = envAdmin || role === "owner" || role === "admin";
   const memberEmails = canInspectAll
     ? await currentOrgMembers(orgId)

@@ -13,9 +13,8 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core/feature-flags", () => ({
-  defineFeatureFlag: (definition: Record<string, unknown>) => definition,
-  isFeatureFlagEnabled: vi.fn().mockResolvedValue(true),
+vi.mock("../server/lib/full-app-lab.js", () => ({
+  isFullAppBuildingEnabled: vi.fn().mockResolvedValue(true),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,

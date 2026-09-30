@@ -1,3 +1,27 @@
+## 0.164.21
+
+### Patch Changes
+
+- 68f299c: Clarify deployment targets and document Agent-Native app configuration.
+
+## 0.164.20
+
+### Patch Changes
+
+- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
+## 0.164.19
+
+### Patch Changes
+
+- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
+
+## 0.164.18
+
+### Patch Changes
+
+- b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
 ## 0.164.17
 
 ### Patch Changes

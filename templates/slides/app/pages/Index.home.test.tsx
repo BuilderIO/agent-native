@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { type ComponentProps, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { renderToString } from "react-dom/server";
 import { Link, MemoryRouter, useMatch } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -129,10 +130,10 @@ const translate = (key: string) =>
   })[key] ?? key;
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
-vi.mock("@agent-native/core/client/notifications", () => ({
+vi.mock("@agent-native/toolkit/app/notifications", () => ({
   NotificationsBell: () => null,
 }));
-vi.mock("@agent-native/core/client/progress", () => ({ RunsTray: () => null }));
+vi.mock("@agent-native/toolkit/app/progress", () => ({ RunsTray: () => null }));
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -141,7 +142,26 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   return {
     ...actual,
     sendToAgentChat: vi.fn(),
-    AgentToggleButton: () => null,
+    useAgentEngineConfigured: () => agentEngine,
+    useChatModels: () => ({
+      selectedEngine: "builder",
+      selectedModel: "gpt-5.6-terra",
+      availableModels: [],
+      isLoading: false,
+    }),
+    fetchAgentEngineConfiguredState,
+  };
+});
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
+  AgentToggleButton: () => null,
+}));
+vi.mock(
+  "@agent-native/toolkit/app/chat/chat/run-recovery",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/chat/run-recovery")
+    >()),
     BuilderSetupCard: ({
       bouncePulse = 0,
       onConnected,
@@ -157,44 +177,9 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
         <a href="/settings/keys">Custom keys</a>
       </div>
     ),
-    useAgentEngineConfigured: () => agentEngine,
-    useChatModels: () => ({
-      selectedEngine: "builder",
-      selectedModel: "gpt-5.6-terra",
-      availableModels: [],
-      isLoading: false,
-    }),
-    fetchAgentEngineConfiguredState,
-  };
-});
-vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
-  BuilderSetupCard: ({
-    bouncePulse = 0,
-    onConnected,
-  }: {
-    bouncePulse?: number;
-    onConnected?: () => void;
-  }) => (
-    <div data-testid="builder-setup-card" data-bounce-pulse={bouncePulse}>
-      <h3>Connect AI</h3>
-      <button type="button" onClick={onConnected}>
-        Connect Builder.io
-      </button>
-      <a href="/settings/keys">Custom keys</a>
-    </div>
-  ),
-  useAgentEngineConfigured: () => agentEngine,
-  useChatModels: () => ({ models: [], isLoading: false, isError: false }),
-  fetchAgentEngineConfiguredState,
-  useVoiceProviderStatus: () => ({ status: "unavailable" }),
-  SIDEBAR_STATE_CHANGE_EVENT: "sidebar-state-change",
-  sendToAgentChat: vi.fn(),
-  setAgentChatContextItem: vi.fn(),
-  requestAgentChatThreadOpen: vi.fn(),
-  formatAgentChatContextItemsForPrompt: () => "",
-  normalizeAgentComposerReference: vi.fn(),
-  BuilderSetupContent: () => null,
-}));
+    BuilderSetupContent: () => null,
+  }),
+);
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
   actionErrorMessage: (error: Error) => error.message,
@@ -228,7 +213,7 @@ vi.mock("@agent-native/core/client/onboarding", () => ({
   fetchFirstRunOnboardingStatus: vi.fn().mockResolvedValue({ firstRun: false }),
   isFirstRunOnboardingEnabled: () => false,
 }));
-vi.mock("@agent-native/core/client/ui", () => ({
+vi.mock("@agent-native/core/client/sign-in-return", () => ({
   buildSignInReturnHref: () => "/sign-in",
 }));
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => {
@@ -360,24 +345,6 @@ vi.mock("@/components/editor/PromptDialog", () => ({
       />
     );
   },
-}));
-vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
-  BuilderSetupCard: ({
-    bouncePulse = 0,
-    onConnected,
-  }: {
-    bouncePulse?: number;
-    onConnected?: () => void;
-  }) => (
-    <div data-testid="builder-setup-card" data-bounce-pulse={bouncePulse}>
-      <h3>Connect AI</h3>
-      <button type="button" onClick={onConnected}>
-        Connect Builder.io
-      </button>
-      <a href="/settings/keys">Custom keys</a>
-    </div>
-  ),
-  BuilderSetupContent: () => null,
 }));
 
 import { Header } from "@/components/layout/Header";
@@ -1193,6 +1160,42 @@ describe("Slides prompt-led home", () => {
       screen
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(localStorage.getItem("slides:home-library-tab")).toBe("templates");
+
+    home.unmount();
+    renderHome({ decks: [ownDeck] });
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("does not server-render the home library before restoring its saved tab", () => {
+    localStorage.setItem("slides:home-library-tab", "recent");
+    const markup = renderToString(
+      <MemoryRouter initialEntries={["/home"]}>
+        <TooltipProvider>
+          <ActiveIndex />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("agent-prompt-home-library");
+  });
+
+  it("remembers the automatic Recent selection across home opens", () => {
+    const home = renderHome({ decks: [ownDeck] });
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(localStorage.getItem("slides:home-library-tab")).toBe("recent");
+
+    home.unmount();
+    renderHome({ decks: [], loading: true });
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
     ).toBe("true");
   });
 

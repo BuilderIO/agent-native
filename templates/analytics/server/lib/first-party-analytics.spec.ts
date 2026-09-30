@@ -638,6 +638,30 @@ describe("validateFirstPartyAnalyticsSql", () => {
     ).not.toThrow();
   });
 
+  it.each(["1.0", ".5", "1.", "1e+2", "1.0e-3"])(
+    "allows numeric literal %s before an approved aggregate",
+    (literal) => {
+      expect(() =>
+        validateFirstPartyAnalyticsSql(
+          `SELECT ${literal} * COUNT(*) AS scaled_count FROM analytics_events`,
+        ),
+      ).not.toThrow();
+    },
+  );
+
+  it.each([
+    "1.0 * public.COUNT(*)",
+    '1.0 * "public"."count"(*)',
+    ".0foo.COUNT(*)",
+    "1e2public.COUNT(*)",
+  ])("rejects unapproved qualified aggregates after %s", (expression) => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        `SELECT ${expression} FROM analytics_events`,
+      ),
+    ).toThrow("cannot call unapproved SQL function");
+  });
+
   it("rejects direct replay chunk queries", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(

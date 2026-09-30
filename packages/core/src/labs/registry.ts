@@ -1,6 +1,8 @@
 export interface LabDefinition {
   key: string;
   defaultEnabled?: boolean;
+  legacyFlagKeys?: readonly string[];
+  inheritedMixedDescription?: string;
   displayName?: string;
   description?: string;
   keywords?: string;
@@ -26,6 +28,12 @@ function normalizeDefinition(definition: LabDefinition): LabDefinition {
     key,
     ...(definition.defaultEnabled !== undefined && {
       defaultEnabled: definition.defaultEnabled,
+    }),
+    ...(definition.legacyFlagKeys?.length && {
+      legacyFlagKeys: Object.freeze([...new Set(definition.legacyFlagKeys)]),
+    }),
+    ...(definition.inheritedMixedDescription?.trim() && {
+      inheritedMixedDescription: definition.inheritedMixedDescription.trim(),
     }),
     ...(definition.displayName?.trim() && {
       displayName: definition.displayName.trim(),
@@ -69,6 +77,10 @@ export function registerLabs(definitions: readonly LabDefinition[]): void {
     }
     if (
       existing.defaultEnabled !== definition.defaultEnabled ||
+      JSON.stringify(existing.legacyFlagKeys) !==
+        JSON.stringify(definition.legacyFlagKeys) ||
+      existing.inheritedMixedDescription !==
+        definition.inheritedMixedDescription ||
       existing.displayName !== definition.displayName ||
       existing.description !== definition.description ||
       existing.keywords !== definition.keywords
@@ -86,6 +98,13 @@ export function listLabs(): readonly LabDefinition[] {
 
 export function getLabDefinition(key: string): LabDefinition | null {
   return registry.get(key) ?? null;
+}
+
+export function getLabForLegacyFlag(key: string): LabDefinition | null {
+  return (
+    [...registry.values()].find((lab) => lab.legacyFlagKeys?.includes(key)) ??
+    null
+  );
 }
 
 export function _resetLabRegistryForTests(): void {

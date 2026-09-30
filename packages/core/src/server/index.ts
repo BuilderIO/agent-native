@@ -686,6 +686,7 @@ export {
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
+  resolveBuilderLegacyRequestAuthorization,
   resolveBuilderRequestAuthorization,
   type BuilderLegacyCredentialKey,
   type BuilderRequestAuthorization,

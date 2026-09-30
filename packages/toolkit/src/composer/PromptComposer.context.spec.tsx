@@ -407,6 +407,9 @@ describe("controlled composer context", () => {
         expect(panel.style.width).toBe(`${width}px`);
         if (!plusMenu) expect(panel.style.left).toBe("100px");
       }
+      bounds = { ...bounds, y: window.innerHeight + 500 };
+      await act(async () => observation.resize());
+      if (plusMenu) expect(panel.style.maxHeight).toBe("280px");
       bounds = { ...bounds, x: 120, y: 160 };
       await act(async () => window.dispatchEvent(new Event("scroll")));
       if (!plusMenu) {
@@ -791,19 +794,16 @@ describe("controlled composer context", () => {
       expect(option).toBeDefined();
       await act(async () => option.click());
       expect(onSelect).toHaveBeenCalledOnce();
+      const contextRow = container.querySelector('[data-context-key="brief"]');
+      expect(contextRow?.querySelectorAll("button")).toHaveLength(1);
       await act(async () => {
-        container
-          .querySelector<HTMLButtonElement>(
-            'button[aria-label="Retry Brief context"]',
-          )!
-          .click();
         container
           .querySelector<HTMLButtonElement>(
             'button[aria-label="Remove Brief context"]',
           )!
           .click();
       });
-      expect(onRetry).toHaveBeenCalledWith("brief");
+      expect(onRetry).not.toHaveBeenCalled();
       expect(onRemove).toHaveBeenCalledWith("brief");
       expect(onDisabledClick).not.toHaveBeenCalled();
       const send = container.querySelector<HTMLButtonElement>(
@@ -1456,7 +1456,7 @@ describe("controlled composer context", () => {
       expect(remove).not.toHaveBeenCalled();
     },
   );
-  it("renders context inside the frame, forwards inspection/retry/removal, and blocks click and keyboard submission until ready", async () => {
+  it("renders a noninteractive context chip with only removal and blocks submission until ready", async () => {
     const onSubmit = vi.fn();
     const onRemoveContextItem = vi.fn();
     const onInspectContextItem = vi.fn();
@@ -1522,24 +1522,40 @@ describe("controlled composer context", () => {
     await pressEnter();
     expect(onSubmit).not.toHaveBeenCalled();
     const contextRow = container.querySelector('[data-context-key="brief"]')!;
+    expect(contextRow.className).toContain("py-0.5");
+    expect(contextRow.querySelector("span")?.textContent).toBe("Brief");
+    expect(contextRow.querySelectorAll("button")).toHaveLength(1);
+    expect(
+      contextRow.querySelector('[aria-label="Context failed"]'),
+    ).not.toBeNull();
+    const retryContext = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry Brief context"]',
+    );
+    expect(retryContext).not.toBeNull();
+    expect(contextRow.contains(retryContext)).toBe(false);
+    await act(async () => retryContext!.click());
+    expect(onRetryContextItem).toHaveBeenCalledWith("brief");
     await act(async () => {
-      contextRow.querySelector<HTMLButtonElement>("button")!.click();
-      contextRow
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="Retry Brief context"]',
-        )!
-        .click();
       contextRow
         .querySelector<HTMLButtonElement>(
           'button[aria-label="Remove Brief context"]',
         )!
         .click();
     });
-    expect(onInspectContextItem).toHaveBeenCalledWith("brief");
-    expect(onRetryContextItem).toHaveBeenCalledWith("brief");
+    expect(onInspectContextItem).not.toHaveBeenCalled();
+    expect(onRetryContextItem).toHaveBeenCalledOnce();
     expect(onRemoveContextItem).toHaveBeenCalledWith("brief");
     expect(
       container.querySelector('[data-context-key="brief"]'),
+    ).not.toBeNull();
+    item.removable = false;
+    await render();
+    const nonremovableContextRow = container.querySelector(
+      '[data-context-key="brief"]',
+    )!;
+    expect(nonremovableContextRow.querySelectorAll("button")).toHaveLength(0);
+    expect(
+      container.querySelector('button[aria-label="Retry Brief context"]'),
     ).not.toBeNull();
     item.status = "ready";
     await render();

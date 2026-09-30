@@ -191,6 +191,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-app-permissions": "orgAdministration",
   "set-app-permission-roles": "orgAdministration",
   "list-workspace-app-access": "orgAdministration",
+  "list-workspace-icons": "orgAdministration",
   "set-workspace-app-access": "orgAdministration",
   "list-sign-in-methods": "orgAdministration",
   "explain-access": "orgAdministration",
@@ -214,6 +215,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-launchdarkly-flags": "launchDarkly",
 
   "get-labs": "labs",
+  "get-lab-states": "labs",
   "set-lab": "labs",
   "get-chatgpt-subscription-status": "chat",
   "disconnect-chatgpt-subscription": "chat",
