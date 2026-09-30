@@ -1521,6 +1521,37 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("uses a build-only auth secret for production Docs prerendering", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const docsNetlify = readFileSync("packages/docs/netlify.toml", "utf8");
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+    const docsBuildStart = build.indexOf(
+      'if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "@agent-native/docs" ]]; then',
+    );
+    const docsBuildEnd = build.indexOf("\n          fi", docsBuildStart);
+    const docsBuild = build.slice(docsBuildStart, docsBuildEnd);
+
+    assert.ok(docsBuildStart >= 0 && docsBuildEnd > docsBuildStart);
+    assert.match(docsBuild, /agentNativePrebuiltBuild=true/);
+    assert.match(
+      docsBuild,
+      /agentNativePrebuiltAuthSecret=.*randomBytes\(32\)/,
+    );
+    assert.match(docsNetlify, /agentNativePrebuiltBuild/);
+    assert.match(docsNetlify, /BETTER_AUTH_SECRET/);
+    assert.match(docsNetlify, /agentNativePrebuiltAuthSecret/);
+  });
+
   it("keeps Analytics migrations on its app-scoped database URL", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",

@@ -545,6 +545,12 @@ jobs:
           if [[ "$SKIP_BUILD_MIGRATIONS" == "true" && "$SOURCE_TEMPLATE" == "@agent-native/docs" ]]; then
             export AGENT_NATIVE_PREBUILT_SKIP_RELEASE_MIGRATIONS=1
           fi
+          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "@agent-native/docs" ]]; then
+            # Public Docs prerender initializes auth, but uploaded Functions read the real site secret at runtime.
+            export agentNativePrebuiltBuild=true
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
             # Netlify's local CLI receives masked site secrets. These templates
             # only need valid build-time shapes; uploaded Functions read the

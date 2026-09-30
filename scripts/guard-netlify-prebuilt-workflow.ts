@@ -8,6 +8,7 @@ const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
 const clipsNetlifyPath = "templates/clips/netlify.toml";
 const crmNetlifyPath = "templates/crm/netlify.toml";
 const chatNetlifyPath = "templates/chat/netlify.toml";
+const docsNetlifyPath = "packages/docs/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
 const pullRequestPath = ".github/workflows/deploy-netlify-pr-previews.yml";
@@ -32,6 +33,7 @@ const reusable = readFileSync(reusablePath, "utf8");
 const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
 const crmNetlify = readFileSync(crmNetlifyPath, "utf8");
 const chatNetlify = readFileSync(chatNetlifyPath, "utf8");
+const docsNetlify = readFileSync(docsNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
 const pullRequest = readFileSync(pullRequestPath, "utf8");
@@ -963,6 +965,29 @@ const hasChatBuildOverride =
 if (!hasChatBuildOverride) {
   issues.push(
     `${reusablePath} and ${chatNetlifyPath} must provide beta, production, and PR preview Chat build-only overrides for masked Netlify secrets`,
+  );
+}
+const docsBuildOverrideStart = clipsBuild.indexOf(
+  'if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "@agent-native/docs" ]]; then',
+);
+const docsBuildOverrideEnd = clipsBuild.indexOf(
+  "\n          fi",
+  docsBuildOverrideStart,
+);
+const docsBuildOverride =
+  docsBuildOverrideStart >= 0 && docsBuildOverrideEnd > docsBuildOverrideStart
+    ? clipsBuild.slice(docsBuildOverrideStart, docsBuildOverrideEnd)
+    : "";
+if (
+  !docsBuildOverride.includes("export agentNativePrebuiltBuild=true") ||
+  !docsBuildOverride.includes('agentNativePrebuiltAuthSecret="$(node -e') ||
+  !docsBuildOverride.includes("export agentNativePrebuiltAuthSecret") ||
+  !docsNetlify.includes("agentNativePrebuiltBuild") ||
+  !docsNetlify.includes("BETTER_AUTH_SECRET") ||
+  !docsNetlify.includes("agentNativePrebuiltAuthSecret")
+) {
+  issues.push(
+    `${reusablePath} and ${docsNetlifyPath} must provide a build-only auth secret for production Docs prerendering`,
   );
 }
 const hasClipsAndPlanBuildOverride = clipsBuild.includes(
