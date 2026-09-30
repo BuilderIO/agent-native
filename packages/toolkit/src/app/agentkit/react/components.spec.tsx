@@ -476,7 +476,7 @@ describe("AgentKitChat", () => {
     expect(source).toContain(
       "submissionDisabled={submissionDisabled || command.pending}",
     );
-    expect(source).not.toContain("submitting={command.pending");
+    expect(source).toContain("submitting={command.pending}");
     expect(source).toContain("if (disabled)");
     expect(source).toContain(
       "willQueue={active && queueWhileRunning && canQueue}",
