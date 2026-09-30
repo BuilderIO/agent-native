@@ -24,15 +24,17 @@ function mailGlobalCss(): string {
 }
 
 describe("Mail Inbox Zero chat contrast", () => {
-  it("sets the dark glass surface for its white foreground", () => {
+  it("sets a dark control surface for its white foreground", () => {
     const panelTheme = mailGlobalCss().match(
       /\.inbox-zero \.agent-sidebar-panel\s*\{([^}]+)\}/,
     )?.[1];
 
     expect(panelTheme).toContain(
-      "--agent-kit-nav-surface: rgba(0, 0, 0, 0.4);",
+      "--agent-kit-nav-surface: rgba(0, 0, 0, 0.72);",
     );
+    expect(panelTheme).toContain("--background: 240 5.9% 10%;");
     expect(panelTheme).toContain("--foreground: 0 0% 95%;");
+    expect(panelTheme).toContain("--muted-foreground: 0 0% 85%;");
   });
 });
 
