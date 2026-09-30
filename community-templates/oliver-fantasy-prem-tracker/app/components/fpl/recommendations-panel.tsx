@@ -22,7 +22,7 @@ type ListKey = (typeof LISTS)[number]["value"];
 
 export function RecommendationsPanel() {
   const [list, setList] = useState<ListKey>("essentialPicks");
-  const { data, isLoading } = useActionQuery(
+  const { data, isLoading, isError } = useActionQuery(
     "get-fpl-recommendations",
     { limit: 6 },
     { refetchInterval: 5 * 60_000 },
@@ -51,6 +51,10 @@ export function RecommendationsPanel() {
               <Skeleton key={index} className="h-16 w-full" />
             ))}
           </div>
+        ) : isError ? (
+          <p className="text-sm text-destructive">
+            Couldn't load recommendations. Try again shortly.
+          </p>
         ) : players.length === 0 ? (
           <p className="text-sm text-muted-foreground">{activeList.empty}</p>
         ) : (

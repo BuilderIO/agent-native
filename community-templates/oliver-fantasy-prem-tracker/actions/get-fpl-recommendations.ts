@@ -14,15 +14,24 @@ function upcomingDifficultyForTeam(
   teamId: number,
   fixtures: FplFixture[],
 ): { average: number; opponents: string[] } | null {
-  const upcoming = fixtures
+  const teamFixtures = fixtures
     .filter(
       (fixture) =>
         !fixture.finished &&
+        fixture.event !== null &&
         (fixture.teamHomeId === teamId || fixture.teamAwayId === teamId),
     )
-    .sort((a, b) => (a.event ?? 0) - (b.event ?? 0))
-    .slice(0, FIXTURE_WINDOW);
-  if (upcoming.length === 0) return null;
+    .sort((a, b) => (a.event as number) - (b.event as number));
+
+  const nextGameweeks = [
+    ...new Set(teamFixtures.map((fixture) => fixture.event as number)),
+  ].slice(0, FIXTURE_WINDOW);
+  if (nextGameweeks.length === 0) return null;
+
+  const gameweekSet = new Set(nextGameweeks);
+  const upcoming = teamFixtures.filter((fixture) =>
+    gameweekSet.has(fixture.event as number),
+  );
   const difficulties = upcoming.map((fixture) =>
     fixture.teamHomeId === teamId
       ? fixture.teamHomeDifficulty

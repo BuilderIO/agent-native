@@ -1,13 +1,13 @@
-import { AgentNativeIcon } from "@agent-native/core/client/agent-native-icon";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   navigateWithAgentChatViewTransition,
   useAgentChatRunningThreads,
   useChatThreads,
   type ChatThreadSummary,
-} from "@agent-native/core/client/agentkit-chat/rail";
-import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
+import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
 import {
   ChatHistoryList,
   type ChatHistoryItem,
@@ -228,6 +228,7 @@ function persistedActiveThreadId() {
   try {
     return localStorage.getItem(CHAT_ACTIVE_THREAD_KEY);
   } catch {
+    // coercion-ok: localStorage is optional; caller treats a missing value as no active thread.
     return null;
   }
 }
@@ -235,7 +236,9 @@ function persistedActiveThreadId() {
 function persistActiveThreadId(threadId: string) {
   try {
     localStorage.setItem(CHAT_ACTIVE_THREAD_KEY, threadId);
-  } catch {}
+  } catch {
+    // coercion-ok: localStorage is optional; in-memory navigation state remains authoritative.
+  }
 }
 
 function threadIdFromPath(pathname: string) {
@@ -245,6 +248,7 @@ function threadIdFromPath(pathname: string) {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
   } catch {
+    // coercion-ok: a malformed URI segment is treated as no thread id, not a successful parse.
     return null;
   }
 }

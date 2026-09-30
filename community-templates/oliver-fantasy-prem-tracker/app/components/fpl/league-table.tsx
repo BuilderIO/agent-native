@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 
 export function LeagueTable() {
-  const { data, isLoading } = useActionQuery(
+  const { data, isLoading, isError } = useActionQuery(
     "get-fpl-table",
     {},
     { refetchInterval: 60_000 },
@@ -31,6 +31,10 @@ export function LeagueTable() {
               <Skeleton key={index} className="h-8 w-full" />
             ))}
           </div>
+        ) : isError ? (
+          <p className="text-sm text-destructive">
+            Couldn't load the league table. Try again shortly.
+          </p>
         ) : (
           <Table>
             <TableHeader>

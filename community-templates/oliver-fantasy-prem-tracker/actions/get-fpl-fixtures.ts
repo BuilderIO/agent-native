@@ -26,8 +26,8 @@ export default defineAction({
     ]);
     const teamsById = new Map(bootstrap.teams.map((team) => [team.id, team]));
     const upcoming = fixtures
-      .filter((fixture) => !fixture.finished)
-      .sort((a, b) => (a.event ?? 0) - (b.event ?? 0))
+      .filter((fixture) => !fixture.finished && fixture.event !== null)
+      .sort((a, b) => (a.event as number) - (b.event as number))
       .slice(0, limit)
       .map((fixture) => ({
         gameweek: fixture.event,

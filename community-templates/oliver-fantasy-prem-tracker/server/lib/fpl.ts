@@ -19,6 +19,7 @@ interface CacheEntry<T> {
 }
 
 const cache = new Map<string, CacheEntry<unknown>>();
+const inFlight = new Map<string, Promise<unknown>>();
 
 async function cached<T>(
   key: string,
@@ -27,9 +28,20 @@ async function cached<T>(
 ): Promise<T> {
   const hit = cache.get(key);
   if (hit && hit.expiresAt > Date.now()) return hit.value as T;
-  const value = await fetcher();
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
-  return value;
+
+  const pending = inFlight.get(key);
+  if (pending) return pending as Promise<T>;
+
+  const promise = fetcher()
+    .then((value) => {
+      cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+      return value;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
+  inFlight.set(key, promise);
+  return promise;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

@@ -1,11 +1,11 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell/header-actions";
 import {
   isAgentChatHomeHandoffActive,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/agentkit-chat/rail";
-import { useT } from "@agent-native/core/client/i18n";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
-import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell/header-actions";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { IconMenu2 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useLocation } from "react-router";
@@ -85,7 +85,7 @@ export function Layout({ children }: LayoutProps) {
       const stored = window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
       if (stored !== null) setSidebarCollapsed(stored === "1");
     } catch {
-      // Ignore storage access errors; the default collapsed state still works.
+      // coercion-ok: localStorage is optional; the default collapsed state still works.
     }
   }, []);
 
@@ -96,7 +96,7 @@ export function Layout({ children }: LayoutProps) {
         sidebarCollapsed ? "1" : "0",
       );
     } catch {
-      // Ignore storage access errors.
+      // coercion-ok: localStorage is optional; in-memory state remains authoritative.
     }
   }, [sidebarCollapsed]);
 

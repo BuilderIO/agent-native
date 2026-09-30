@@ -33,6 +33,7 @@ function threadIdFromPath(pathname: string): string | null {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
   } catch {
+    // coercion-ok: a malformed URI segment is treated as no thread id, not a successful parse.
     return null;
   }
 }

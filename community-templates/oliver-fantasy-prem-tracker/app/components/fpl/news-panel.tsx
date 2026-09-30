@@ -14,8 +14,18 @@ function formatPubDate(value: string | null): string | null {
   });
 }
 
+function safeHttpsUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    // coercion-ok: an unparseable URL is treated as no safe link, not a successful one.
+    return null;
+  }
+}
+
 export function NewsPanel() {
-  const { data, isLoading } = useActionQuery(
+  const { data, isLoading, isError } = useActionQuery(
     "get-fpl-news",
     { limit: 8 },
     { refetchInterval: 5 * 60_000 },
@@ -34,28 +44,41 @@ export function NewsPanel() {
               <Skeleton key={index} className="h-10 w-full" />
             ))}
           </div>
+        ) : isError ? (
+          <p className="text-sm text-destructive">
+            Couldn't load the latest news. Try again shortly.
+          </p>
         ) : (
           <ul className="space-y-3">
-            {news.map((item) => (
-              <li key={item.link}>
-                <a
-                  href={item.link}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="group flex items-start gap-2 text-sm"
-                >
-                  <span className="flex-1 font-medium leading-snug group-hover:underline">
-                    {item.title}
-                  </span>
-                  <IconExternalLink className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                </a>
-                {formatPubDate(item.pubDate) ? (
-                  <span className="text-xs text-muted-foreground">
-                    {formatPubDate(item.pubDate)}
-                  </span>
-                ) : null}
-              </li>
-            ))}
+            {news.map((item) => {
+              const href = safeHttpsUrl(item.link);
+              return (
+                <li key={item.link}>
+                  {href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group flex items-start gap-2 text-sm"
+                    >
+                      <span className="flex-1 font-medium leading-snug group-hover:underline">
+                        {item.title}
+                      </span>
+                      <IconExternalLink className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                    </a>
+                  ) : (
+                    <span className="flex-1 block font-medium leading-snug text-sm">
+                      {item.title}
+                    </span>
+                  )}
+                  {formatPubDate(item.pubDate) ? (
+                    <span className="text-xs text-muted-foreground">
+                      {formatPubDate(item.pubDate)}
+                    </span>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
       </CardContent>

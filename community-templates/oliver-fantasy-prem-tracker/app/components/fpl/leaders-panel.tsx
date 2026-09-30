@@ -25,7 +25,7 @@ type Category = (typeof CATEGORIES)[number]["value"];
 export function LeadersPanel() {
   const [category, setCategory] = useState<Category>("points");
   const activeCategory = CATEGORIES.find((entry) => entry.value === category)!;
-  const { data, isLoading } = useActionQuery(
+  const { data, isLoading, isError } = useActionQuery(
     "get-fpl-leaders",
     { category, limit: 10 },
     { refetchInterval: 60_000 },
@@ -56,6 +56,10 @@ export function LeadersPanel() {
               <Skeleton key={index} className="h-8 w-full" />
             ))}
           </div>
+        ) : isError ? (
+          <p className="text-sm text-destructive">
+            Couldn't load leaderboards. Try again shortly.
+          </p>
         ) : (
           <Table>
             <TableHeader>
