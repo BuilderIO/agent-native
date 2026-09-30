@@ -8366,10 +8366,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         onEdit?.(id);
         return;
       }
+      if (onEdit) {
+        onEdit(id);
+        return;
+      }
       updateSelectedDraftIds(() => []);
       updateSelectedIds(() => [id]);
       onPick(id);
-      onEdit?.(id);
     },
     [
       lockedScreenIdSet,

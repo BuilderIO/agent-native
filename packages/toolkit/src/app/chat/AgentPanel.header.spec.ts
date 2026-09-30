@@ -827,6 +827,36 @@ describe("AgentSidebar composer focus", () => {
     }
   });
 
+  it("stops retrying when the document is torn down", () => {
+    vi.useFakeTimers();
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.dataset.agentSidebarState = "open";
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+
+    try {
+      focusAgentChat();
+      frames[0]!(0);
+      vi.stubGlobal("document", undefined);
+
+      expect(() => vi.advanceTimersByTime(50)).not.toThrow();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it("focuses a frame-owned composer", () => {
     const previousRequestAnimationFrame = window.requestAnimationFrame;
     const frames: Array<FrameRequestCallback> = [];

@@ -71,14 +71,17 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
-  AgentChatSurface: () => null,
+vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
   AgentToggleButton: () => null,
   AgentSidebar: ({ children }: { children: React.ReactNode }) => (
     <div data-agent-sidebar>{children}</div>
   ),
   focusAgentChat: vi.fn(),
+}));
+
+vi.mock("../deferred-chat-components.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../deferred-chat-components.js")>()),
+  AgentChatSurface: () => null,
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({

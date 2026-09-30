@@ -169,6 +169,12 @@ export default {
     openAgentSettings: "Gerenciar agente",
     labTweaks: "Ajustes de design",
     labTweaksDescription: "Experimente ajustes de design com IA.",
+    labFullAppBuilding: "Criação de apps completos",
+    labFullAppBuildingDescription:
+      "Experimente criar apps funcionais a partir dos seus designs com o Builder.",
+    labDesignReviewTools: "Ferramentas de revisão de design",
+    labDesignReviewToolsDescription:
+      "Verifique problemas de acessibilidade nos seus designs e compare alterações visuais.",
     mcpAbout:
       "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },

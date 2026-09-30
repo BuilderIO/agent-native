@@ -5,6 +5,8 @@ export interface FeatureFlagActor {
 
 export interface FeatureFlagMetadata {
   key: string;
+  canManage?: boolean;
+  movedToLab?: string;
   displayName?: string | null;
   description?: string | null;
   defaultValue: boolean;

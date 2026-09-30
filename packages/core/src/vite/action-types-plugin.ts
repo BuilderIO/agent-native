@@ -35,6 +35,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/labs/actions/get-labs",
   },
   {
+    name: "get-lab-states",
+    specifier: "@agent-native/core/labs/actions/get-lab-states",
+  },
+  {
     name: "set-lab",
     specifier: "@agent-native/core/labs/actions/set-lab",
   },

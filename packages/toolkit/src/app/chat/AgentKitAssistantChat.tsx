@@ -460,6 +460,15 @@ type AgentKitSuggestionSubmitOptions = PromptComposerSubmitOptions & {
   queuedWhileRunActive?: boolean;
 };
 
+function preserveQueuedIntent(
+  preparedOptions: PromptComposerSubmitOptions,
+  originalOptions: PromptComposerSubmitOptions,
+): PromptComposerSubmitOptions {
+  return originalOptions.intent === "queued"
+    ? { ...preparedOptions, intent: "queued" }
+    : preparedOptions;
+}
+
 function captureQueuedRunState(
   options: PromptComposerSubmitOptions,
   runWasActive: boolean,
@@ -2219,7 +2228,7 @@ const AgentKitAssistantChatBody = forwardRef<
           try {
             const preparedOptions = prepare ? await prepare() : composerOptions;
             const submittedOptions = captureQueuedRunState(
-              preparedOptions,
+              preserveQueuedIntent(preparedOptions, composerOptions),
               runWasActiveAtSubmit,
             );
             const result = await submit(
@@ -2246,7 +2255,10 @@ const AgentKitAssistantChatBody = forwardRef<
           text,
           files,
           references,
-          captureQueuedRunState(preparedOptions, runWasActiveAtSubmit),
+          captureQueuedRunState(
+            preserveQueuedIntent(preparedOptions, composerOptions),
+            runWasActiveAtSubmit,
+          ),
         );
       } catch (error) {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
