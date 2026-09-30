@@ -290,6 +290,13 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       ),
   ],
   [
+    "ResourceChanges",
+    () =>
+      import("../resource-changes/store.js").then((m) =>
+        m.ensureResourceChangeTables(),
+      ),
+  ],
+  [
     "ResourceVersions",
     () =>
       import("../history/store.js").then((m) =>
