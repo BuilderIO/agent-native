@@ -217,13 +217,16 @@ Instead:
    transaction through one SQL function,
    `agent_native_app_resource_changed(app, type, id, reason)`:
    - after every insert and delete, and after an update only when the row
-     actually changed;
+     actually changed. Rows are compared by their stored bytes, so a table
+     with a `json` column, which has no equality operator, still works;
    - a changed primary key is recorded as a delete of the old ID.
 
    Every writer is caught, including sync jobs, raw SQL, cascades, and
    deletes, and a rolled-back write records nothing. Each entry carries a
    `seq` from one sequence, taken after the row lock, so a later change to the
-   same resource always has a higher `seq`.
+   same resource always has a higher `seq`. Generated trigger and function
+   names end in a hash of the app, table, and resource type, so two sources
+   never share them.
 
    Search is the first consumer. A later one (webhooks, realtime, audit)
    subscribes in `app_resource_change_consumers` and gets its own queue from
@@ -238,7 +241,11 @@ Instead:
    search never polls. It processes changes only when something else already
    has the database awake:
    - before a search, within a 100 ms budget
-     (`AGENT_NATIVE_SEARCH_DRAIN_BUDGET_MS`);
+     (`AGENT_NATIVE_SEARCH_DRAIN_BUDGET_MS`). The search stops waiting when
+     the budget runs out, even if it joined a longer drain, such as the
+     sweep's. A drain the search started finishes its current batch through
+     `waitUntil`, so the changes it holds don't wait out their lease. A budget
+     of zero processes nothing before a search;
    - after an action writes, within 250 ms, through `waitUntil` where the
      platform provides it, so the response doesn't wait;
    - in the `search-index` recurring sweep handler, for up to 20 seconds of
@@ -246,31 +253,57 @@ Instead:
 
    An app without recurring jobs catches up at its next write or search.
 
-4. **Strict read-your-writes.** Search answers from the index only when every
-   committed change has been processed and the index is at the current
-   version. Otherwise `prepareSearchIndex()` says why (`backlog`,
-   `rebuilding`, `capture-missing`, `outdated-registration`, or
-   `unavailable`), and the app's previous search answers that request. Results
-   are never stale; sometimes they're slower.
+4. **Read-your-writes.** Search answers from the index only when all of these
+   are true:
+   - the index targets this registration's version;
+   - its rebuild is complete;
+   - no change is pending or failing.
+
+   One statement reads all of that, in the same round trip as the pending
+   check it replaced. Otherwise `prepareSearchIndex()` says why (`backlog`,
+   `rebuilding`, `failed-changes`, `capture-missing`,
+   `outdated-registration`, or `unavailable`), and the app's previous search
+   answers that request. An indexed search reflects every change committed
+   before the search started. A write that commits while it runs may or may
+   not appear, as with the scan.
+
 5. **Safe processing.**
    - A drain claims a batch with a 60-second lease using
      `FOR UPDATE SKIP LOCKED`, so concurrent drains never process the same
      change, and a crashed drain's lease simply expires.
    - After indexing, a change is deleted only if its `seq` is unchanged, so a
      change recorded during processing is kept.
-   - An index row is written only if its `indexed_seq` isn't newer.
-   - A failed batch is logged and backs off exponentially. After five
-     attempts a change is parked: it stops holding the index back, and the
-     next write to that resource retries it.
+   - An index row is replaced only by a later change at the same or a newer
+     version.
+   - One failing resource holds back only itself:
+     - when a batch fails, each of its changes is retried alone, so only the
+       ones that fail back off;
+     - a change that has failed before is always retried alone;
+     - the backoff doubles, up to five minutes.
+   - After five attempts a change is marked failed and logged, and search
+     uses the fallback (`failed-changes`) until it succeeds. It keeps being
+     retried, so a temporary failure clears itself. So do a new write to the
+     resource and a rebuild.
    - If nothing the index stores has changed, the content hash skips the
      rewrite and only the newer `seq` is recorded.
-6. **Rebuilds.** A higher registration `version` rebuilds the index. The first
-   process to see it records the new target version, enqueues every row with
-   one `INSERT … SELECT`, and records the highest `seq` it assigned. The rebuild
-   is complete when nothing at or below that `seq` is pending, and rows whose
-   source is gone are removed. A process still on the older version sees the
-   newer target and uses its previous search, so old and new deploys don't
-   fight over the index.
+6. **Rebuilds.** A higher registration `version` rebuilds the index:
+   - The first process to see it raises the target version.
+   - It enqueues every row with one `INSERT … SELECT`. That replaces changes
+     already queued, including leased and failing ones, and it records the
+     highest `seq` it assigned.
+   - The rebuild is complete when nothing at or below that `seq` is pending.
+     Rows whose source is gone are then removed.
+
+   Every claim, index write, and completion carries a fence: it takes effect
+   only while the target version is still the drain's own. A process on the
+   older version can't consume or overwrite the rebuild, even if it was
+   mid-batch when the version rose. It reports `outdated-registration` and
+   uses its previous search.
+
+   Versions only go up. Rolling back a deploy leaves search on the fallback
+   until code at the index's version or higher runs again. To roll back a
+   `load` change for good, ship the old `load` under a new, higher version.
+
 7. **Reconciliation** (planned). A slow batched job compares `content_hash`
    with the source and requeues differences. Queue depth, queue age, and index
    lag are reported as metrics.
@@ -288,10 +321,14 @@ Matching, for each term:
   finds "Task Priorities").
 - **Bodies** match whole words through the GIN index, every word as a prefix.
   A multi-word term is a phrase whose last word is a prefix.
+- **Fields.** A title, summary, and body share one position space, with a gap
+  between them, so a phrase never spans two fields.
 - **Positions.** Postgres keeps at most 255 positions per word and none past
-  16,383, and core keeps a vector under 900 KB. A document past those limits
-  has `positions_complete` false, and a phrase matches it when every word is
-  present. Chunks will make that exact.
+  16,383. It also rejects a vector whose words alone take 1 MB. Core keeps a
+  vector's estimated size under 900 KB: past that, it keeps one position per
+  word, and then only the words that come first. A document past any of these
+  limits has `positions_complete` false, and a phrase matches it when every
+  word is present. Chunks will make that exact.
 
 Ranking uses the tiers the browser lane uses: exact title 5, title prefix 4,
 title word prefixes 3, title substrings 2, title or summary 1. Ties go to how
@@ -404,12 +441,13 @@ back a `CommandSearchProvider` when the shared command menu lands.
   `pg_trgm`, which core's PGlite client must pass at construction. There is no
   semantic lane; the action will report `semantic: "unavailable"`.
 - **Neon:** `pg_trgm` and `vector` are created at release when those lanes
-  land. Each search checks for pending changes in its own round trip. That's
-  short when the app runs in the database's region; from a distant client it
-  was the whole latency difference from the previous engine. If it ever
-  matters, the check can move into the search statement.
-- **Serverless:** writes don't wait on indexing. Search processes its own
-  small backlog before answering, and the sweep handler handles the rest.
+  land. Each search reads the index state and pending changes in its own
+  round trip. That's short when the app runs in the database's region; from a
+  distant client it was the whole latency difference from the previous
+  engine. If it ever matters, the check can move into the search statement.
+- **Serverless:** writes don't wait on indexing. A search processes what it
+  can of a small backlog within its budget, and the sweep handler handles the
+  rest.
 - **Shared-database workspaces:** `app` and `resource_type` keep apps apart.
   The latency harness includes other tenants' rows.
 
@@ -419,14 +457,20 @@ Built:
 
 - **Core** (`packages/core/src/search/`), on real PGlite:
   - capture of inserts, updates, no-op updates, deletes, and rolled-back
-    writes;
+    writes, including on a table with `json` and `point` columns;
+  - distinct trigger names for every source;
   - a change recorded while its batch is processing is kept;
   - a claim never takes more than its limit;
-  - backlog and rebuild readiness, including an older process deferring to a
-    newer version;
+  - backlog and rebuild readiness;
+  - an older process can't consume a newer version's rebuild, whether it was
+    already warm or mid-batch when the version rose;
+  - one failing document holds back only itself and keeps search on the
+    fallback until it succeeds;
+  - a document with more distinct words than Postgres allows still indexes;
+  - a search's budget bounds it, including when it joins a longer drain;
   - ranking tiers, mid-word titles against word-start bodies, camelCase,
-    snake_case, URLs, Japanese, phrases in repetitive documents, and the query
-    operators.
+    snake_case, URLs, Japanese, phrases in repetitive documents, phrases
+    across fields, and the query operators.
 - **Content:**
   - the relevance eval (`evals/search-relevance/`) with a recorded baseline;
   - a parity test that runs the same queries through the index and the
@@ -437,15 +481,22 @@ Built:
   - 10,000 documents on Neon (PostgreSQL 17), in a table that also holds
     other tenants' rows, with the broad query words in every document. From a
     client outside the database's region, p95 over 180 searches per query class
-    was 175–319 ms against the 400 ms budget. Server execution time matched
-    the previous engine when every document matches (about 110 ms) and was 3
-    to 6 times lower for selective queries. The pending-changes check adds one
-    round trip, so from that client broad queries took about 35 ms longer than
+    was 175–319 ms against the 400 ms budget, and 188–307 ms in a second
+    180 after the review fixes. Server execution time matched the previous
+    engine when every document matches (about 110 ms) and was 3 to 6 times
+    lower for selective queries. The pending-changes check adds one round
+    trip, so from that client broad queries took about 35–40 ms longer than
     before and selective ones about the same. Per batch of 30, though, the
-    broadest query ("task prio") went over 400 ms in 2 of 6 batches, and the
-    previous engine never did. When every document matches, the index
-    statement touches about five times as many buffers, because it looks up
-    each match in `documents` by ID.
+    broadest query ("task prio") went over 400 ms in 3 of 12 batches, and the
+    previous engine never did.
+  - On the server, both engines' statements for that query occasionally
+    stall: 2 to 3 of 200 executions ran over 200 ms, up to 475 ms for the
+    previous engine and 715 ms for the index. The index's extra round trip
+    leaves about 40 ms less headroom for a stall. Its statement looks up each
+    match in `documents` by ID (60,000 buffer hits, against the previous
+    engine's 11,000). A hash join that reads `documents` once took 81 ms,
+    touched 3,700 buffers, and never ran over 200 ms in 200 executions, but
+    Postgres doesn't choose it (open question 4).
 
 Planned:
 
@@ -475,7 +526,10 @@ Planned:
 - **Search never wakes a sleeping database.** There is no in-process interval;
   processing piggybacks on searches, writes, and the existing recurring tick.
 - **Strict read-your-writes with a fallback,** instead of answering from an
-  index that's partly behind.
+  index that's partly behind. A change that keeps failing also holds search
+  on the fallback, rather than letting the index answer without it.
+- **The version is fenced in the database,** in each statement a drain runs,
+  rather than trusted from what each process last saw.
 - **Core tokenizes in JavaScript,** with no Postgres text-search configuration,
   so results don't depend on the database's locale.
 - **Titles and summaries match by substring; bodies by word prefix.**
@@ -488,12 +542,16 @@ Planned:
 1. Is a 100 ms drain budget enough to keep p95 at or under 400 ms on Neon after
    an import leaves a large backlog? Correctness doesn't depend on it, since a
    backlog falls back to the previous search. Search with nothing pending is
-   measured; a backlog isn't yet. Indexing 12,000 documents took about 45
-   seconds from a distant client.
+   measured; a backlog isn't yet. Indexing 12,000 documents took 45 to 65
+   seconds from a distant client, where each batch of 50 costs about six
+   round trips.
 2. Does the recurring-jobs tick keep Netlify-hosted databases from ever
    suspending? It runs every minute and touches the database. Measure first;
    search's sweep handler only adds work to ticks that already run.
 3. Does `ts_rank_cd` improve the relevance eval over the title tiers alone?
 4. Can a query that matches nearly every document read `documents` once
-   instead of looking up each match by ID? Its occasional slow searches on
-   Neon come from that larger working set.
+   without slowing selective ones? Postgres picks the join from how many
+   matches it expects, and it can't estimate substring or prefix matches: it
+   expected about 3,000 of 12,000 rows to match "task prio" when all did.
+   Turning off nested loops per statement would need a transaction per search
+   and would make selective queries scan every document the caller can see.
