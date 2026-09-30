@@ -65,6 +65,27 @@ agent answers about browser recordings in the Analytics template.
   console events plus the additive `networkErrorCount` column on
   `session_recordings`. Keep new columns additive.
 
+## App Events In Sessions
+
+- `trackEvent` also emits an `agent-native.event` custom event holding only
+  `{ name }` (120 chars max, 1000 per page). Telemetry names such as
+  `pageview`, `action.response`, and `session status` stay unmarked; lifecycle
+  aliases don't get a second marker. Never add event properties to the payload.
+- The replay viewer shows these markers, plus failed
+  `/_agent-native/actions/<name>` requests as "Action failed", only while the
+  Sessions triage Lab is on. With the Lab off the viewer and the agent timeline
+  keep their earlier shape.
+- `recordAnalyticsEvents` writes the per-session event index
+  (`analytics_session_events`), the daily catalog
+  (`analytics_event_catalog_daily`), and a per-tenant coverage start at ingest
+  in every sink mode. Lists, did/didn't filters, and the catalog read only
+  these tables, never BigQuery. The index write is best-effort and must never
+  fail ingest.
+- Sessions that started before a tenant's coverage start are excluded from
+  event filters, so "didn't" never matches a session the index never saw. The
+  retention sweep keeps index rows two days past replay retention. The
+  BigQuery-cutover purge leaves these tables alone.
+
 ## Agent Diagnostics Surface
 
 - `buildSessionReplayAgentContext` includes a `diagnostics` section: up to 50

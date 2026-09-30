@@ -45,6 +45,10 @@ import {
   resolveAnalyticsEventDimensions,
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
+import {
+  pruneSessionEventIndex,
+  sessionEventFilterConditions,
+} from "./session-event-index.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -101,6 +105,10 @@ export interface SessionReplayListFilters {
   offset?: number;
   status?: "active" | "completed";
   limit?: number;
+  /** Sessions that tracked every one of these events. */
+  didEvents?: string[];
+  /** Sessions that tracked none of these events. */
+  didNotEvents?: string[];
 }
 
 export interface SessionReplayEventReadOptions {
@@ -1719,7 +1727,9 @@ export async function listSessionRecordings(
     filters.visitorType ||
     filters.emailDomain ||
     filters.sort ||
-    filters.offset
+    filters.offset ||
+    filters.didEvents?.length ||
+    filters.didNotEvents?.length
   ) {
     return (await listSessionRecordingsPage(scope, filters)).recordings;
   }
@@ -1918,6 +1928,12 @@ export async function listSessionRecordingsPage(
   }
   const search = replayListSearchCondition(filters.query);
   if (search) conditions.push(search);
+  conditions.push(
+    ...sessionEventFilterConditions({
+      didEvents: filters.didEvents,
+      didNotEvents: filters.didNotEvents,
+    }),
+  );
   const appConditions = [...conditions];
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
@@ -2736,6 +2752,11 @@ export async function runSessionReplayRetentionSweep(
 }> {
   const finalized = await finalizeAbandonedSessionRecordings(now);
   const expired = await expireOldSessionRecordings(now);
+  try {
+    await pruneSessionEventIndex(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Session event index pruning failed:", err);
+  }
   return {
     finalized: finalized.finalized,
     expired: expired.expired,

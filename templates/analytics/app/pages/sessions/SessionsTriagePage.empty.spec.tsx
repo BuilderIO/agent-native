@@ -29,6 +29,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+vi.mock("@agent-native/core/client/labs", () => ({
+  useLabState: () => ({ enabled: false, isLoading: false }),
+}));
 vi.mock("@agent-native/toolkit/app/blocks", () => ({
   CodeSurface: () => <div data-testid="installation-snippet" />,
 }));

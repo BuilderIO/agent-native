@@ -33,6 +33,7 @@ import {
 } from "./first-party-analytics-health.js";
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
+import { recordSessionEventIndex } from "./session-event-index.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -802,6 +803,9 @@ export async function recordAnalyticsEvents(
     } catch (error) {
       persistenceError = error;
     }
+  }
+  if (rows.length && !persistenceError) {
+    await recordSessionEventIndex(rows, receivedAt);
   }
   if (rows.length) {
     await touchPublicKeyLastUsedAt(key.id, receivedAt);

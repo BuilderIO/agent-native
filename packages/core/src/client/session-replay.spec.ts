@@ -392,6 +392,66 @@ describe("session replay", () => {
     );
   });
 
+  it("marks tracked app events on the replay with only their name", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const {
+      emitSessionReplayAnalyticsEvent,
+      startSessionReplay,
+      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+    } = await freshSessionReplay();
+
+    emitSessionReplayAnalyticsEvent("before_start");
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    emitSessionReplayAnalyticsEvent("  recording_started  ");
+    emitSessionReplayAnalyticsEvent("   ");
+    emitSessionReplayAnalyticsEvent("x".repeat(300));
+
+    expect(addCustomEvent).toHaveBeenCalledTimes(2);
+    expect(addCustomEvent).toHaveBeenNthCalledWith(
+      1,
+      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+      { name: "recording_started" },
+    );
+    expect(addCustomEvent).toHaveBeenNthCalledWith(
+      2,
+      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+      { name: "x".repeat(120) },
+    );
+  });
+
+  it("caps app event markers per page", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const { emitSessionReplayAnalyticsEvent, startSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    for (let index = 0; index < 1_005; index += 1) {
+      emitSessionReplayAnalyticsEvent("clip_viewed");
+    }
+
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+  });
+
   it("keeps numeric agent-chat marker metadata usable", async () => {
     installBrowser("https://analytics.agent-native.com/ask");
     const addCustomEvent = vi.fn();

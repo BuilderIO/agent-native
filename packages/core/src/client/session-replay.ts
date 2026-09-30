@@ -343,11 +343,15 @@ const SESSION_REPLAY_CLAIM_TIMEOUT_MS = 150;
 export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
+export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
 const SESSION_REPLAY_LIFECYCLE_EVENT_TAG = "agent-native.session_replay";
 
 const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
 const DEFAULT_MAX_NETWORK_EVENTS = 2000;
 const MAX_CONSOLE_MESSAGE_LENGTH = 500;
+const MAX_ANALYTICS_EVENT_NAME_LENGTH = 120;
+const MAX_ANALYTICS_EVENTS_PER_PAGE = 1000;
+let replayAnalyticsEventCount = 0;
 const MAX_CONSOLE_ARGS = 10;
 const MAX_CONSOLE_STACK_LENGTH = 2000;
 const MAX_CONSOLE_SERIALIZE_DEPTH = 4;
@@ -3615,6 +3619,22 @@ export function emitSessionReplayException(input: {
       ? { stack: input.stack.slice(0, MAX_CONSOLE_STACK_LENGTH) }
       : {}),
     ...(input.url ? { url: input.url } : {}),
+  });
+}
+
+/**
+ * Mark a tracked analytics event on the replay timeline. Only the event name
+ * is recorded; event properties stay out of the replay.
+ */
+export function emitSessionReplayAnalyticsEvent(name: string): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  if (replayAnalyticsEventCount >= MAX_ANALYTICS_EVENTS_PER_PAGE) return;
+  const bounded = name.trim().slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH);
+  if (!bounded) return;
+  replayAnalyticsEventCount += 1;
+  emitReplayCustomEvent(state, SESSION_REPLAY_ANALYTICS_EVENT_TAG, {
+    name: bounded,
   });
 }
 

@@ -21,6 +21,9 @@ const backendMocks = vi.hoisted(() => ({
 const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
 }));
+const sessionEventIndexMocks = vi.hoisted(() => ({
+  record: vi.fn(),
+}));
 const deliveryMocks = vi.hoisted(() => ({
   queueMissing: vi.fn(),
   fallbackKey: (eventId: string) =>
@@ -84,6 +87,9 @@ vi.mock("./first-party-analytics-rollups.js", () => ({
 vi.mock("./error-capture.js", () => ({
   EXCEPTION_EVENT_NAME: "$exception",
   ingestAnalyticsExceptionEvents: exceptionMocks.ingest,
+}));
+vi.mock("./session-event-index.js", () => ({
+  recordSessionEventIndex: sessionEventIndexMocks.record,
 }));
 vi.mock("./first-party-analytics-health.js", () => ({
   classifyFirstPartyAnalyticsQuery: healthMocks.classify,
@@ -156,6 +162,8 @@ beforeEach(() => {
     }));
   backendMocks.query.mockReset();
   exceptionMocks.ingest.mockReset();
+  sessionEventIndexMocks.record.mockReset();
+  sessionEventIndexMocks.record.mockResolvedValue(undefined);
   deliveryMocks.queueMissing.mockReset();
   deliveryMocks.queueMissing.mockReturnValue(false);
   backendMocks.get.mockResolvedValue({
@@ -440,6 +448,49 @@ describe("recordAnalyticsEvents", () => {
       [expect.objectContaining({ eventName: "pageview" })],
       "builder-3b0a2.analytics.first_party_analytics_events_raw",
     );
+  });
+
+  it.each(["postgres", "dual", "bigquery"] as const)(
+    "indexes session events in Postgres at ingest with the %s sink",
+    async (sink) => {
+      backendMocks.get.mockResolvedValueOnce({
+        sink,
+        table:
+          sink === "postgres"
+            ? null
+            : "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        backfillCursor: sink === "postgres" ? null : "evt_last",
+        backfillCompleted: sink === "bigquery",
+      });
+
+      await recordAnalyticsEvents("anpk_test", [
+        {
+          event: "recording_started",
+          properties: { sessionId: "rs_1", app: "clips" },
+        },
+      ]);
+
+      expect(sessionEventIndexMocks.record).toHaveBeenCalledOnce();
+      expect(sessionEventIndexMocks.record).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            eventName: "recording_started",
+            ownerEmail: "owner@example.com",
+          }),
+        ],
+        expect.any(String),
+      );
+    },
+  );
+
+  it("does not index session events when persistence fails", async () => {
+    rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow();
+
+    expect(sessionEventIndexMocks.record).not.toHaveBeenCalled();
   });
 
   it("enforces the Postgres volume limit during dual writes", async () => {

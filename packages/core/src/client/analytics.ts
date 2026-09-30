@@ -2139,9 +2139,33 @@ function emitBrowserTrackingEvent(
   );
 }
 
+// Browser events that are telemetry or already have their own replay marker.
+const REPLAY_UNMARKED_EVENT_NAMES = new Set([
+  "pageview",
+  "session status",
+  "session_status",
+  "action.response",
+  "agent_chat_lifecycle",
+  "session_replay_started",
+  AGENT_NATIVE_EXCEPTION_EVENT_NAME,
+]);
+
+function markTrackedEventInSessionReplay(name: string): void {
+  if (REPLAY_UNMARKED_EVENT_NAMES.has(name)) return;
+  _sessionReplayModuleForCapture?.emitSessionReplayAnalyticsEvent?.(name);
+}
+
 export function trackEvent(
   name: string,
   params?: Record<string, unknown>,
+): void {
+  trackBrowserEvent(name, params, true);
+}
+
+function trackBrowserEvent(
+  name: string,
+  params: Record<string, unknown> | undefined,
+  markInReplay: boolean,
 ): void {
   if (typeof window === "undefined") return;
   if (isSyntheticBrowserTraffic()) return;
@@ -2159,9 +2183,11 @@ export function trackEvent(
       sendGtag: !gtagNameMatchesCanonical,
     });
   }
+  if (markInReplay) markTrackedEventInSessionReplay(canonical?.name ?? name);
   void recordTrackingEvent(name, props, "client");
   const lifecycle = legacyLifecycleEvent(name, props);
-  if (lifecycle) trackEvent(lifecycle.name, lifecycle.properties);
+  // The alias describes the same moment, so it gets no second replay marker.
+  if (lifecycle) trackBrowserEvent(lifecycle.name, lifecycle.properties, false);
 }
 
 export function trackAnonymousEvent(

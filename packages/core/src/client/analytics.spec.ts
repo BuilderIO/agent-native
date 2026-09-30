@@ -22,6 +22,7 @@ const amplitudeMock = vi.hoisted(() => ({
 
 const replayMock = vi.hoisted(() => ({
   emitSessionReplayAgentChatEvent: vi.fn(),
+  emitSessionReplayAnalyticsEvent: vi.fn(),
   emitSessionReplayException: vi.fn(),
   getSessionReplayId: vi.fn(() => undefined),
   getSessionReplayContext: vi.fn(() => null),
@@ -195,6 +196,7 @@ describe("browser analytics pageviews", () => {
     replayMock.startSessionReplay.mockClear();
     replayMock.stopSessionReplay.mockClear();
     replayMock.emitSessionReplayAgentChatEvent.mockClear();
+    replayMock.emitSessionReplayAnalyticsEvent.mockClear();
     tracingMock.recordTrackingEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -1266,6 +1268,46 @@ describe("browser analytics pageviews", () => {
     expect(replayMock.emitSessionReplayAgentChatEvent).toHaveBeenCalledWith(
       event,
     );
+  });
+
+  it("marks named app events on the replay once, without telemetry events", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    installFetch({
+      session: { email: "dev@example.com", userId: "auth-user-1" },
+    });
+    replayMock.startSessionReplay.mockResolvedValue({
+      started: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+    });
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    trackEvent("recording_started", { clip_id: "clip-1" });
+    trackEvent("share_link_copied", { clip_id: "clip-1" });
+    trackEvent("pageview");
+    trackEvent("action.response", { action: "list-clips" });
+    trackEvent("session status", { signed_in: true });
+    await tick();
+
+    const marked = replayMock.emitSessionReplayAnalyticsEvent.mock.calls.map(
+      ([name]) => name,
+    );
+    expect(marked).toContain("recording_started");
+    // The lifecycle alias (output_shared) describes the same moment.
+    expect(marked.filter((name) => name !== "recording_started")).toHaveLength(
+      1,
+    );
+    expect(marked).not.toContain("output_shared");
+    expect(marked).not.toContain("pageview");
+    expect(marked).not.toContain("action.response");
+    expect(marked).not.toContain("session status");
+    expect(marked).not.toContain("session_status");
   });
 
   it("switches content capture before emitting client-side pageviews", async () => {

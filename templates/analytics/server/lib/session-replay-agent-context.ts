@@ -6,6 +6,7 @@ import {
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 
+import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../shared/session-events.js";
 import {
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
   SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
@@ -564,7 +565,12 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         label: event.data.type === MOUSE_INTERACTION.Focus ? "Focus" : "Click",
         detail: null,
       });
-    } else if (event.type === RRWEB_EVENT_TYPE.Custom) {
+    } else if (
+      event.type === RRWEB_EVENT_TYPE.Custom &&
+      // App event markers belong to the Sessions triage Lab; agent timelines
+      // keep their existing shape until that Lab covers agent surfaces.
+      event.data?.tag !== SESSION_REPLAY_ANALYTICS_EVENT_TAG
+    ) {
       markers.push({
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),

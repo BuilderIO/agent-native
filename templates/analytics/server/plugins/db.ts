@@ -1474,6 +1474,48 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       ON CONFLICT (lease_id) DO NOTHING`,
       },
     },
+    {
+      version: 153,
+      name: "analytics-session-event-index",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_session_events (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      event_count INTEGER NOT NULL DEFAULT 0,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_events_key_idx
+      ON analytics_session_events (tenant_key, session_id, event_name);
+    CREATE INDEX IF NOT EXISTS analytics_session_events_tenant_last_at_idx
+      ON analytics_session_events (tenant_key, last_at);
+    CREATE TABLE IF NOT EXISTS analytics_event_catalog_daily (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      event_count INTEGER NOT NULL DEFAULT 0,
+      last_seen_at TEXT NOT NULL,
+      property_keys TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_catalog_daily_key_idx
+      ON analytics_event_catalog_daily (tenant_key, event_date, event_name, app);
+    CREATE TABLE IF NOT EXISTS analytics_session_event_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );
