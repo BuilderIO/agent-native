@@ -391,8 +391,8 @@ function buildOneApp(
       : {}),
     [WORKSPACE_APPS_ENV_KEY]: JSON.stringify(workspaceApps),
   };
-  // The root build leaves an empty prefix in process.env; drop it before
-  // forwarding only a configured one.
+  // A blank inherited value (for example an empty deployment env var) would
+  // otherwise pass through the spread above; forward only a configured one.
   delete env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   Object.assign(env, workspaceFrameworkRoutePrefixEnvEntries());
 

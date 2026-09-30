@@ -215,8 +215,8 @@ describe("workspace deploy", () => {
   });
 
   it("omits an empty framework route prefix that older app Cores reject", async () => {
-    // The root build leaves an empty prefix behind; apps pinned to an older
-    // Core throw on any config env key they do not know, even an empty one.
+    // Apps pinned to an older Core throw on any config env key they do not
+    // know, even an empty one, so a blank inherited value must not reach them.
     process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "";
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
     makeWorkspaceApp(tmpDir, "dispatch");
