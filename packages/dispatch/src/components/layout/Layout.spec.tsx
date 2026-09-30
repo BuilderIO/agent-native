@@ -13,6 +13,7 @@ import {
   dispatchNavLinkTarget,
   formatThreadAge,
   isElectronEmbeddedSearch,
+  isRedesignedSettingsPath,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
@@ -60,10 +61,20 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
     renameThread: vi.fn(),
     refreshThreads: vi.fn(),
   }),
+  useChatModels: () => ({
+    availableModels: [],
+    defaultModel: "auto",
+    selectedModel: "auto",
+    selectedEngine: "auto",
+    selectedEffort: "medium",
+    setSelectedModel: vi.fn(),
+  }),
 }));
 
 vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
+  AgentChatSurface: () => null,
+  AgentToggleButton: () => null,
   AgentSidebar: ({ children }: { children: React.ReactNode }) => (
     <div data-agent-sidebar>{children}</div>
   ),
@@ -225,14 +236,34 @@ describe("Dispatch workspace app sidebar", () => {
 
 describe("Dispatch Settings frame", () => {
   it("drops the Dispatch chrome on Settings", () => {
-    expect(isSettingsPathname("/settings")).toBe(true);
-    expect(isSettingsPathname("/settings/members")).toBe(true);
-    expect(isSettingsPathname("/settings/app")).toBe(true);
+    const settingsEnabled = { enabled: true, status: "ready" } as const;
+    expect(isRedesignedSettingsPath("/settings", settingsEnabled)).toBe(true);
+    expect(isRedesignedSettingsPath("/settings/members", settingsEnabled)).toBe(
+      true,
+    );
+    expect(isRedesignedSettingsPath("/settings/app", settingsEnabled)).toBe(
+      true,
+    );
+    expect(
+      isRedesignedSettingsPath("/settings", {
+        enabled: false,
+        status: "loading",
+      }),
+    ).toBe(true);
   });
 
   it("keeps the Dispatch chrome off Settings", () => {
-    expect(isSettingsPathname("/admin")).toBe(false);
-    expect(isSettingsPathname("/apps/mail/settings")).toBe(false);
+    const settingsEnabled = { enabled: true, status: "ready" } as const;
+    expect(isRedesignedSettingsPath("/admin", settingsEnabled)).toBe(false);
+    expect(
+      isRedesignedSettingsPath("/apps/mail/settings", settingsEnabled),
+    ).toBe(false);
+    expect(
+      isRedesignedSettingsPath("/settings", {
+        enabled: false,
+        status: "unavailable",
+      }),
+    ).toBe(false);
   });
 });
 

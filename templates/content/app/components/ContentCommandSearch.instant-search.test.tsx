@@ -18,7 +18,7 @@ vi.mock("react-router", async (importOriginal) => ({
 // internal context (dialog chrome, changelog, agent fallback — none of it
 // relevant here). Stand in with plain elements that keep the same children,
 // so assertions can read rendered titles and order without mounting that.
-vi.mock("@agent-native/core/client/navigation", async (importOriginal) => ({
+vi.mock("@agent-native/toolkit/app/shared", async (importOriginal) => ({
   ...(await importOriginal()),
   CommandMenu: {
     Group: ({ children }: { children?: ReactNode; heading?: ReactNode }) => (

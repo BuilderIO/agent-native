@@ -32,11 +32,12 @@ export default defineConfig({
       // 62.8MB -> 55.9MB, and the deploy uploads two copies of it, so 125.6MB
       // -> 111.8MB. Excalidraw does not resolve from this package directly; it
       // arrives through @agent-native/core, which is why naming it still works.
-      // The editor stack and terminal are client-only here: docs never
-      // server-renders the agent sidebar or the resource editor, but their leaf
-      // code still landed in the SSR bundle. lowlight stays real (core's doc
-      // block highlighter runs server-side via preloadDocBlocksContent), and so
-      // do yjs/y-protocols/lib0 (core collab uses yjs on the server).
+      // Do not stub Tiptap or ProseMirror: Toolkit editor modules call them at
+      // module scope, and SSR chunking can place them in an eagerly imported
+      // server chunk even though docs do not render the editor UI.
+      // lowlight stays real (core's doc block highlighter runs server-side via
+      // preloadDocBlocksContent), and so do yjs/y-protocols/lib0 (core collab
+      // uses yjs on the server).
       // Deliberately NOT stubbing "vgpu": the hero ocean renderer imports its
       // named exports at module scope, and a stub exports nothing, so the SSR
       // build fails on MISSING_EXPORT rather than tree-shaking cleanly. It is
@@ -51,29 +52,6 @@ export default defineConfig({
         "@excalidraw/excalidraw",
         "@excalidraw/mermaid-to-excalidraw",
         "@assistant-ui/react",
-        "@tiptap/core",
-        "@tiptap/react",
-        "@tiptap/pm",
-        "@tiptap/starter-kit",
-        "@tiptap/extension-blockquote",
-        "@tiptap/extension-code",
-        "@tiptap/extension-code-block-lowlight",
-        "@tiptap/extension-collaboration",
-        "@tiptap/extension-collaboration-caret",
-        "@tiptap/extension-color",
-        "@tiptap/extension-image",
-        "@tiptap/extension-link",
-        "@tiptap/extension-placeholder",
-        "@tiptap/extension-table",
-        "@tiptap/extension-table-cell",
-        "@tiptap/extension-table-header",
-        "@tiptap/extension-table-row",
-        "@tiptap/extension-task-item",
-        "@tiptap/extension-task-list",
-        "@tiptap/extension-text-style",
-        "@tiptap/y-tiptap",
-        "tiptap-markdown",
-        "prosemirror-markdown",
       ],
       routeWarmup: {
         strategy: "viewport",

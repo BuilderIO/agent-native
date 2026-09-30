@@ -17,16 +17,28 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: () => undefined,
+  getBrowserTabId: () => "test-tab",
   useActionMutation: (name: string) =>
     name === "save-generated-image" ? mocks.save : mocks.update,
   useActionQuery: () => mocks.query,
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  setAgentChatContextItem: mocks.setContext,
-}));
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/client/agent-chat")
+    >();
+  return {
+    ...actual,
+    setAgentChatContextItem: mocks.setContext,
+    useChatModels: vi.fn(),
+    useAgentEngineConfigured: vi.fn(),
+    fetchAgentEngineConfiguredState: vi.fn(),
+  };
+});
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
   useT: () => (key: string) => key,
 }));
 import { resolveToolRenderer } from "@agent-native/toolkit/app/chat";

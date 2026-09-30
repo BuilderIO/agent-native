@@ -8,9 +8,9 @@ actions and shared state.
 
 Read the matching skill before deeper work:
 
-- `brain` — ingestion, distillation, retrieval, and review flows, the
-  `sourcePolicy` table, publish-tier/proposal gating, evidence quotes, capture
-  sanitization, and the full per-action reference.
+- `brain` — ingestion, distillation, retrieval, the `sourcePolicy` table,
+  publish tiers, evidence quotes, capture sanitization, and the full
+  per-action reference.
 - `ask-across-everything` — cross-source answers and `federatedCoverage`
   delegation.
 - `ingestion-and-connectors` — source lifecycle, providers, health states,
@@ -46,8 +46,8 @@ Read the matching skill before deeper work:
   is unclear.
 - Evidence quotes must be exact substrings of the referenced capture; copy them
   from `get-capture` output.
-- Sources support exactly six providers: `manual`, `generic`, `clips`, `slack`,
-  `granola`, `github`. `create-source` rejects anything else.
+- Sources support exactly seven providers: `manual`, `generic`, `clips`,
+  `slack`, `granola`, `github`, `zoom`. `create-source` rejects anything else.
 - Use a blessed `generic` source for approved FAQs, docs, and handbooks. See
   `ingestion-and-connectors` for answer policy, updates, and deletion semantics.
 - Reuse existing workspace integration grants (check `list-connection-providers`
@@ -55,8 +55,6 @@ Read the matching skill before deeper work:
   actions are convenience readers, not integration limits — for an endpoint,
   filter, or payload they do not model, use `provider-api-catalog` /
   `provider-api-docs` / `provider-api-request`.
-- If `write-knowledge` returns `mode: "proposal"`, leave it in review unless the
-  user explicitly asks to approve it now.
 
 ## Application State
 
@@ -75,16 +73,16 @@ Read the matching skill before deeper work:
 | Action | Purpose |
 | --- | --- |
 | `get-brain-settings` | Identity, tone, `sourcePolicy`, citation, distillation settings. |
-| `search-everything` | Broad search over knowledge, captures, sources + `federatedCoverage`. |
+| `search-everything` | Broad search over knowledge, captures, sources + `federatedCoverage`; pgvector semantic search over Slack/Zoom; returns source, location, content, capturedAt, sourceUrl. |
 | `search-knowledge` | Text search over distilled knowledge only. |
 | `ask-brain` | Cited-answer endpoint with `federatedCoverage`. |
 | `get-knowledge` / `list-knowledge` | Read or list distilled knowledge. |
 | `get-capture` / `list-captures` | Read or list raw captures (redacted by default). |
 | `import-capture` / `import-transcript` / `import-markdown-files` | Ingest captures or a bounded Markdown batch and queue it for distillation. |
 | `enqueue-distillation` / `mark-capture-distilled` | Queue distillation; close the queue row. |
-| `write-knowledge` | Write/update knowledge; may return a pending proposal. |
-| `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Human review of gated writes. |
-| `set-knowledge-canonical` | Mirror approved knowledge into workspace resources. |
+| `write-knowledge` | Write/update knowledge; publishes directly. |
+| `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Legacy proposal records; new writes never create proposals. |
+| `set-knowledge-canonical` | Mirror published knowledge into workspace resources. |
 | `create-source` / `update-source` / `delete-source` / `list-sources` / `get-source` | Source lifecycle. |
 | `set-resource-visibility` / `share-resource` | Set source visibility or grant explicit access. |
 | `sync-source` / `sync-due-sources` | Run one connector, or sweep all due sources. |

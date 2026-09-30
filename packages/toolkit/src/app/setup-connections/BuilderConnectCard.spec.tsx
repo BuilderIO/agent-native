@@ -1,11 +1,15 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { BuilderConnectCard } from "./BuilderConnectCard.js";
 import type { BuilderConnectCardViewModel } from "./useBuilderConnectCardController.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 const mocks = vi.hoisted(() => ({
   useBuilderConnectCardController: vi.fn(),
@@ -80,6 +84,17 @@ describe("BuilderConnectCard", () => {
     root = createRoot(container);
   });
 
+  function renderWithToolkitI18n(children: React.ReactNode) {
+    root.render(
+      <AgentNativeI18nProvider
+        catalog={toolkitI18nCatalog}
+        persistPreference={false}
+      >
+        {children}
+      </AgentNativeI18nProvider>,
+    );
+  }
+
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
@@ -88,7 +103,9 @@ describe("BuilderConnectCard", () => {
   });
 
   it("keeps the default view and action on the shared controller", () => {
-    act(() => root.render(<BuilderConnectCard trackingSource="settings" />));
+    act(() =>
+      renderWithToolkitI18n(<BuilderConnectCard trackingSource="settings" />),
+    );
 
     expect(mocks.useBuilderConnectCardController).toHaveBeenCalledOnce();
     expect(mocks.useBuilderConnectCardController).toHaveBeenCalledWith(
@@ -121,7 +138,9 @@ describe("BuilderConnectCard", () => {
     );
 
     act(() =>
-      root.render(<BuilderConnectCard className="host-card" render={render} />),
+      renderWithToolkitI18n(
+        <BuilderConnectCard className="host-card" render={render} />,
+      ),
     );
 
     expect(mocks.useBuilderConnectCardController).toHaveBeenCalledOnce();
@@ -140,7 +159,7 @@ describe("BuilderConnectCard", () => {
       disabled: true,
     };
 
-    act(() => root.render(<BuilderConnectCard />));
+    act(() => renderWithToolkitI18n(<BuilderConnectCard />));
 
     expect(container.querySelector("[data-semantic-action]")).not.toBeNull();
     expect(mocks.semanticActionProps).toMatchObject({
@@ -183,7 +202,7 @@ describe("BuilderConnectCard", () => {
     mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
 
     act(() =>
-      root.render(
+      renderWithToolkitI18n(
         <BuilderConnectCard showManage trackingSource="settings_connections" />,
       ),
     );
@@ -229,7 +248,7 @@ describe("BuilderConnectCard", () => {
     };
     mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
 
-    act(() => root.render(<BuilderConnectCard showManage />));
+    act(() => renderWithToolkitI18n(<BuilderConnectCard showManage />));
     act(() => {
       (
         container.querySelector(
@@ -281,7 +300,7 @@ describe("BuilderConnectCard", () => {
     mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
 
     act(() => {
-      root.render(
+      renderWithToolkitI18n(
         <BuilderConnectCard showManage trackingSource="settings_connections" />,
       );
     });
@@ -343,7 +362,7 @@ describe("BuilderConnectCard", () => {
         ...(scope ? { scope } : {}),
       };
       mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
-      act(() => root.render(<BuilderConnectCard showManage />));
+      act(() => renderWithToolkitI18n(<BuilderConnectCard showManage />));
     }
 
     function openMenu() {
@@ -519,7 +538,7 @@ describe("BuilderConnectCard", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     act(() =>
-      root.render(
+      renderWithToolkitI18n(
         <BuilderConnectCard
           render={() => {
             throw new Error("broken company card");

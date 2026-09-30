@@ -76,7 +76,7 @@ const resolvedComment = vi.hoisted(
     }) satisfies ReviewComment,
 );
 
-vi.mock("./use-review.js", () => ({
+vi.mock("@agent-native/core/client/review/use-review", () => ({
   useReviewComments: (...args: unknown[]) => reviewComments(...args),
   useCreateReviewComment: () => ({
     mutate,
@@ -115,7 +115,7 @@ import {
   isTrustedReviewAttachmentUrl,
   ReviewThreadPanel,
 } from "./ReviewThreadPanel.js";
-vi.mock("../clipboard.js", () => ({ writeClipboardText }));
+vi.mock("@agent-native/toolkit/clipboard", () => ({ writeClipboardText }));
 
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(

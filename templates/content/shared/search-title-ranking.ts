@@ -136,15 +136,24 @@ function editDistanceWithin(
     rowPrevious = new Int32Array(bLength + 1);
     rowCurrent = new Int32Array(bLength + 1);
   }
+  const unreachable = max + 1;
   let before = rowBefore;
   let previous = rowPrevious;
   let current = rowCurrent;
-  for (let j = 0; j <= bLength; j += 1) previous[j] = j;
+  const initialEnd = Math.min(bLength, max);
+  for (let j = 0; j <= initialEnd; j += 1) previous[j] = j;
+  if (initialEnd < bLength) previous[initialEnd + 1] = unreachable;
   for (let i = 1; i <= a.length; i += 1) {
-    current[0] = i;
-    let rowMin = i;
+    const start = Math.max(1, i - max);
+    const end = Math.min(bLength, i + max);
+    const previousEnd = Math.min(bLength, i - 1 + max);
+    if (end > previousEnd) previous[end] = unreachable;
+    current[0] = i <= max ? i : unreachable;
+    if (start > 1) current[start - 1] = unreachable;
+    if (end < bLength) current[end + 1] = unreachable;
+    let rowMin = current[0]!;
     const ai = a[i - 1];
-    for (let j = 1; j <= bLength; j += 1) {
+    for (let j = start; j <= end; j += 1) {
       const cost = ai === b[j - 1] ? 0 : 1;
       let value = previous[j]! + 1;
       const insertion = current[j - 1]! + 1;
@@ -158,7 +167,7 @@ function editDistanceWithin(
       current[j] = value;
       if (value < rowMin) rowMin = value;
     }
-    if (rowMin > max) return max + 1;
+    if (rowMin > max) return unreachable;
     const recycled = before;
     before = previous;
     previous = current;
