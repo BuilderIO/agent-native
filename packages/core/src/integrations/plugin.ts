@@ -41,6 +41,7 @@ import {
   type IntervalJobHandle,
 } from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { dispatchAutomationWebhookTask } from "../triggers/dispatcher.js";
 import {
   AUTOMATION_WEBHOOK_PLATFORM,
@@ -1913,7 +1914,11 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 401);
           return { error: "Invalid or expired internal token" };
         }
-        const webhookBaseUrl = getBaseUrl(event);
+        // Scheduled recovery functions call this route with a rebuilt request
+        // that carries no Host header, so the request cannot say where this
+        // deployment answers and its host fell back to localhost. Resolve the
+        // deployment's own URL the way webhook ingress does.
+        const webhookBaseUrl = resolveSelfDispatchBaseUrl(event);
         const [pendingTasks, campaigns, a2aContinuations] = await Promise.all([
           retryStuckPendingTasks({
             webhookBaseUrl,

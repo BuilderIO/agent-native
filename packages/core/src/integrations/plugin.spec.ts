@@ -1050,6 +1050,46 @@ describe("integrations plugin routes", () => {
     });
   });
 
+  it("dispatches recovered work to the deployment URL, not the sweep request host", async () => {
+    // Scheduled recovery functions rebuild the sweep request without a Host
+    // header; its host is not where this deployment answers.
+    process.env.A2A_SECRET = "test-secret";
+    process.env.APP_BASE_PATH = "/dispatch";
+    process.env.URL = "https://deploy.example";
+    try {
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      const result = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/retry-stuck-tasks",
+        "POST",
+        { taskId: "integration-pending-tasks-sweep" },
+        {
+          ...signedTaskHeaders("integration-pending-tasks-sweep"),
+          host: "localhost:3000",
+          "x-forwarded-proto": "http",
+        },
+      );
+
+      expect(result.status).toBe(200);
+      const expected = "https://deploy.example/dispatch";
+      expect(retryStuckPendingTasksMock).toHaveBeenCalledWith({
+        webhookBaseUrl: expected,
+        limit: 20,
+      });
+      expect(recoverDueIntegrationCampaignsMock).toHaveBeenCalledWith(
+        expect.objectContaining({ webhookBaseUrl: expected }),
+      );
+      expect(recoverDueA2AContinuationsMock).toHaveBeenCalledWith({
+        webhookBaseUrl: expected,
+        limit: 10,
+      });
+    } finally {
+      delete process.env.URL;
+    }
+  });
+
   it("records the durable lease as part of the background worker claim", async () => {
     process.env.NODE_ENV = "development";
     claimPendingTaskMock.mockResolvedValueOnce(null);

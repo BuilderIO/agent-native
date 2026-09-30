@@ -191,6 +191,7 @@ describe("pending task retry job", () => {
           Date.now() - 90_000,
           Date.now() - 16 * 60_000,
           Date.now() - 75_000,
+          Date.now() - 24 * 60 * 60_000,
           100,
         ],
       }),
