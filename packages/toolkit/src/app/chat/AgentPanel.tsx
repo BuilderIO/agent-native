@@ -1852,7 +1852,10 @@ function AgentPanelInner({
                   <h1 className="truncate text-xs font-medium text-foreground">
                     {activeTab?.label || t("agentPanel.newChat")}
                   </h1>
-                  <DropdownMenu>
+                  <DropdownMenu
+                    open={headerMenuOpen}
+                    onOpenChange={setHeaderMenuOpen}
+                  >
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
@@ -1867,9 +1870,24 @@ function AgentPanelInner({
                       align="start"
                       sideOffset={5}
                       className="w-44"
+                      onCloseAutoFocus={(event) => {
+                        consumeAgentPanelOverlayFocusRestore(
+                          preventHeaderMenuFocusRestoreRef,
+                          event,
+                        );
+                      }}
                     >
                       {toggleHistory ? (
-                        <DropdownMenuItem onSelect={toggleHistory}>
+                        <DropdownMenuItem
+                          onSelect={(event) =>
+                            deferAgentPanelOverlayOpen(
+                              event,
+                              closeHeaderMenuForOverlay,
+                              toggleHistory,
+                              "timeout",
+                            )
+                          }
+                        >
                           <IconHistory size={14} className="shrink-0" />
                           {showHistory
                             ? t("agentPanel.hideChats")
@@ -1926,9 +1944,13 @@ function AgentPanelInner({
     },
     [
       getChatThreadShareUrl,
+      closeHeaderMenuForOverlay,
+      headerMenuOpen,
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
       pageToolbarSlot,
+      preventHeaderMenuFocusRestoreRef,
+      setHeaderMenuOpen,
       showPageNewChatButton,
       t,
     ],
