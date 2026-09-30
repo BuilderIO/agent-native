@@ -479,14 +479,23 @@ export function useComposerDefaultActions({
 function ComposerFullContextMenu(props: ComposerPlusMenuProps) {
   const defaults = useComposerDefaultActions(props);
   const runtime = useComposerRuntime();
+  const mergedItems = mergeComposerMenuItems(
+    defaults.items,
+    props.contextMenuItems ?? [],
+  );
+  const defaultActionIds = new Set(defaults.items.map((item) => item.id));
+  const menuActionItems = mergedItems.filter((item) =>
+    defaultActionIds.has(item.id),
+  );
+  const contextItems = mergedItems.filter(
+    (item) => !defaultActionIds.has(item.id),
+  );
   return (
     <>
       <ComposerContextMenu
         {...props}
-        items={mergeComposerMenuItems(
-          defaults.items,
-          props.contextMenuItems ?? [],
-        )}
+        items={contextItems}
+        menuActionItems={menuActionItems}
         addAttachment={
           props.attachmentsEnabled === false
             ? undefined
@@ -543,14 +552,20 @@ export function ComposerPlusMenu({
         },
       ]
     : [];
+  const mergedTerminalItems =
+    mode === "terminal"
+      ? mergeComposerMenuItems(terminalItems, contextMenuItems)
+      : contextMenuItems;
+  const terminalActionIds = new Set(terminalItems.map((item) => item.id));
   return (
     <ComposerContextMenu
       {...props}
-      items={
-        mode === "terminal"
-          ? mergeComposerMenuItems(terminalItems, contextMenuItems)
-          : contextMenuItems
-      }
+      items={mergedTerminalItems.filter(
+        (item) => !terminalActionIds.has(item.id),
+      )}
+      menuActionItems={mergedTerminalItems.filter((item) =>
+        terminalActionIds.has(item.id),
+      )}
       addAttachment={
         mode === "upload-only" && attachmentsEnabled
           ? (props.addAttachment ?? runtime.addAttachment)

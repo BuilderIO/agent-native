@@ -1521,10 +1521,10 @@ describe("Slides prompt-led home", () => {
       {
         retryPrompt: "Create a roadmap",
         retryFiles: [uploadedFile],
-        retryReferenceFilePaths: [uploadedFile.path],
-        retryImportedReference: {
-          deckId: "reference-deck",
-          filePath: uploadedFile.path,
+        retryReferenceSelection: {
+          referenceDeckId: "reference-deck",
+          referenceFilePaths: [uploadedFile.path],
+          importedReferenceFilePath: uploadedFile.path,
         },
         retryContext: "Saved source context",
         retryAttachments: [chatAttachment],

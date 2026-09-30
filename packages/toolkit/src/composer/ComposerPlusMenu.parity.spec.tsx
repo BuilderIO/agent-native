@@ -96,7 +96,7 @@ async function mount(props: Partial<PromptComposerProps> = {}) {
   });
   return { composerRef, onSubmit };
 }
-async function open(trigger: "+" | "@") {
+async function open(trigger: "+" | "@", enterAddContext = false) {
   const target =
     trigger === "+"
       ? container.querySelector<HTMLElement>('button[aria-label="Add context"]')
@@ -113,10 +113,7 @@ async function open(trigger: "+" | "@") {
     );
     await settle();
   });
-  if (
-    document.querySelector('[role="menuitem"]') &&
-    labels().includes("Add context")
-  )
+  if (enterAddContext && labels().includes("Add context"))
     await choose("Add context");
 }
 function item(label: string) {
@@ -214,19 +211,18 @@ describe("shared default action preservation", () => {
             expect(document.querySelector('[role="menu"]')).toBeNull();
           }
         } else {
-          await open(trigger);
+          await open(trigger, false);
           const expected =
             mode === "full"
               ? [
                   "Upload File",
-                  "Add context",
                   "Schedule Task",
                   "Create Automation",
                   "Integrations",
                   "Create Skill",
                 ]
               : mode === "terminal"
-                ? ["Add context", "New terminal", "CLI terminal mode"]
+                ? ["New terminal", "CLI terminal mode"]
                 : ["Upload File"];
           expect(labels()).toEqual(expected);
         }
@@ -259,8 +255,8 @@ describe("shared default action preservation", () => {
           ],
           extensionTools: true,
         });
-        await open(trigger);
-        expect(labels()).toContain("Host source");
+        await open(trigger, false);
+        expect(labels()).not.toContain("Host source");
         if (action === "Create new skill") await choose("Create Skill");
         await choose(action);
         expect(
@@ -287,7 +283,7 @@ describe("shared default action preservation", () => {
 
     it(`${trigger} clears automation mode through its accessible Cancel button`, async () => {
       const { composerRef, onSubmit } = await mount();
-      await open(trigger);
+      await open(trigger, false);
       await choose("Create Automation");
       const cancel = container.querySelector<HTMLButtonElement>(
         '[data-agent-composer-slot="mode-row"] button[aria-label="Cancel"]',
@@ -329,7 +325,7 @@ describe("shared default action preservation", () => {
           },
         ],
       });
-      await open(trigger);
+      await open(trigger, false);
       expect(labels().filter((label) => label === "Integrations")).toHaveLength(
         1,
       );
@@ -342,7 +338,7 @@ describe("shared default action preservation", () => {
     it(`${trigger} preserves native upload and storage-setup handoff`, async () => {
       const onAttachmentRequest = vi.fn();
       await mount({ attachmentsEnabled: false, onAttachmentRequest });
-      await open(trigger);
+      await open(trigger, false);
       expect(onAttachmentRequest).not.toHaveBeenCalled();
       await choose("Upload File");
       await act(async () => {
@@ -350,7 +346,7 @@ describe("shared default action preservation", () => {
       });
       expect(onAttachmentRequest).toHaveBeenCalledOnce();
       await mount({ attachmentsEnabled: false });
-      await open(trigger);
+      await open(trigger, false);
       expect(labels()).not.toContain("Upload File");
       await close();
       await mount();
@@ -358,7 +354,7 @@ describe("shared default action preservation", () => {
         'input[type="file"][multiple]',
       )!;
       const click = vi.spyOn(input, "click").mockImplementation(() => {});
-      await open(trigger);
+      await open(trigger, false);
       await choose("Upload File");
       expect(click).toHaveBeenCalledOnce();
     });
@@ -370,7 +366,7 @@ describe("shared default action preservation", () => {
         plusMenuMode: "terminal",
         terminalModeControl: { enabled: false, onChange, onNewTerminal },
       });
-      await open(trigger);
+      await open(trigger, false);
       await choose("New terminal");
       expect(onChange).toHaveBeenCalledExactlyOnceWith(true);
       expect(onNewTerminal).not.toHaveBeenCalled();
@@ -378,13 +374,13 @@ describe("shared default action preservation", () => {
         plusMenuMode: "terminal",
         terminalModeControl: { enabled: true, onChange, onNewTerminal },
       });
-      await open(trigger);
+      await open(trigger, false);
       expect(item("CLI terminal mode").getAttribute("aria-checked")).toBe(
         "true",
       );
       await choose("New terminal");
       expect(onNewTerminal).toHaveBeenCalledOnce();
-      await open(trigger);
+      await open(trigger, false);
       await choose("CLI terminal mode");
       expect(onChange).toHaveBeenLastCalledWith(false);
       expect(useOrg).not.toHaveBeenCalled();
@@ -400,7 +396,7 @@ describe("shared default action preservation", () => {
       );
       vi.stubGlobal("fetch", fetch);
       await mount();
-      await open(trigger);
+      await open(trigger, false);
       const form = await uploadSkill();
       expect(form).not.toBeNull();
       expect(form.textContent).toContain(
@@ -448,7 +444,7 @@ describe("shared default action preservation", () => {
       plusMenuMode: "hidden",
       contextMenuItems: [{ id: "host", label: "Host source", onSelect }],
     });
-    await open("@");
+    await open("@", true);
     expect(labels()).toEqual(["Upload File", "Add context", "Host source"]);
     await choose("Host source");
     expect(onSelect).toHaveBeenCalledOnce();
@@ -576,7 +572,7 @@ describe("shared default action preservation", () => {
         root.render(<Host />);
         await settle();
       });
-      await open("@");
+      await open("@", true);
       await choose("Attach integration");
       await open("+");
       await choose("Schedule Task");
@@ -674,13 +670,21 @@ describe("shared default action preservation", () => {
     );
   });
 
-  it("keeps creator actions in the regular menu and omits Generate Image", async () => {
-    await mount();
+  it("keeps chat actions at the root, nests context sources, and omits Generate Image", async () => {
+    await mount({
+      contextMenuItems: [
+        { id: "host-source", label: "Host source", onSelect: vi.fn() },
+      ],
+    });
     await open("+");
     expect(labels()).toContain("Schedule Task");
     expect(labels()).toContain("Create Automation");
     expect(labels()).toContain("Create Skill");
     expect(labels()).not.toContain("Generate Image");
+    expect(labels()).not.toContain("Host source");
+    await choose("Add context");
+    expect(labels()).toContain("Host source");
+    expect(labels()).toContain("Schedule Task");
   });
 
   it("cancels a skill save when its submenu closes and retains retry after errors", async () => {
@@ -696,7 +700,7 @@ describe("shared default action preservation", () => {
       );
     vi.stubGlobal("fetch", fetch);
     await mount();
-    await open("+");
+    await open("+", false);
     const form = await uploadSkill();
     await act(async () => {
       form.dispatchEvent(

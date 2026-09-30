@@ -245,12 +245,9 @@ interface ImportedReferenceSource {
 interface DeckGenerationRetryState {
   retryPrompt?: string;
   retryFiles?: UploadedFile[];
-  retryReferenceFilePaths?: string[];
-  retryImportedReference?: ImportedReferenceSource;
+  retryReferenceSelection?: NewDeckReferenceSelection;
   retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
-  retryComposerContext?: SlidesComposerContext;
-  retryContextItems?: SlidesPromptSubmitOptions["contextItems"];
   modelSelection?: DeckModelSelection;
 }
 
@@ -545,23 +542,19 @@ export default function Index({ active = true }: { active?: boolean }) {
   const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
     [],
   );
-  const [newDeckRetryReferenceFilePaths, setNewDeckRetryReferenceFilePaths] =
-    useState<string[]>([]);
-  const [newDeckRetryImportedReference, setNewDeckRetryImportedReference] =
-    useState<ImportedReferenceSource | undefined>();
+  const [newDeckRetryReferenceSelection, setNewDeckRetryReferenceSelection] =
+    useState<NewDeckReferenceSelection>();
   const [newDeckRetryContext, setNewDeckRetryContext] = useState<
     string | undefined
   >();
   const [newDeckRetryPrompt, setNewDeckRetryPrompt] = useState<
     string | undefined
   >();
+  const [newDeckRetryRequiresExactPrompt, setNewDeckRetryRequiresExactPrompt] =
+    useState(false);
   const [newDeckRetryAttachments, setNewDeckRetryAttachments] = useState<
     ReadonlyArray<PromptChatAttachment>
   >([]);
-  const [newDeckRetryComposerContext, setNewDeckRetryComposerContext] =
-    useState<SlidesComposerContext>();
-  const [newDeckRetryContextItems, setNewDeckRetryContextItems] =
-    useState<SlidesPromptSubmitOptions["contextItems"]>();
   const [newDeckRetryModelSelection, setNewDeckRetryModelSelection] = useState<
     DeckModelSelection | undefined
   >();
@@ -655,7 +648,8 @@ export default function Index({ active = true }: { active?: boolean }) {
   const initialReferenceDeckId = lastUsedReferenceDeckId;
   const composerContext = useSlidesComposerContext({
     active,
-    initialSelection: generationRetryState?.retryComposerContext,
+    initialSelection:
+      generationRetryState?.retryReferenceSelection?.composerContext,
     defaultDesignSystemId: initialDesignSystemId,
     defaultReferenceDeck: decks.find(
       (deck) => deck.id === initialReferenceDeckId,
@@ -816,13 +810,11 @@ export default function Index({ active = true }: { active?: boolean }) {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
-          setNewDeckRetryReferenceFilePaths([]);
-          setNewDeckRetryImportedReference(undefined);
+          setNewDeckRetryReferenceSelection(undefined);
           setNewDeckRetryContext(undefined);
           setNewDeckRetryPrompt(undefined);
+          setNewDeckRetryRequiresExactPrompt(false);
           setNewDeckRetryAttachments([]);
-          setNewDeckRetryComposerContext(undefined);
-          setNewDeckRetryContextItems(undefined);
           setNewDeckRetryModelSelection(undefined);
         }
       }
@@ -851,12 +843,10 @@ export default function Index({ active = true }: { active?: boolean }) {
       }
       setNewDeckRetryContext(options.context);
       setNewDeckRetryPrompt(prompt);
+      setNewDeckRetryRequiresExactPrompt(false);
       setNewDeckRetryFiles([]);
-      setNewDeckRetryReferenceFilePaths([]);
-      setNewDeckRetryImportedReference(undefined);
+      setNewDeckRetryReferenceSelection(undefined);
       setNewDeckRetryAttachments(options.attachments ?? []);
-      setNewDeckRetryComposerContext(undefined);
-      setNewDeckRetryContextItems(undefined);
       setNewDeckRetryModelSelection(options.modelSelection);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
@@ -930,13 +920,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, state.retryPrompt);
     setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     setNewDeckRetryFiles(state.retryFiles ?? []);
-    setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? []);
-    setNewDeckRetryImportedReference(state.retryImportedReference);
+    setNewDeckRetryReferenceSelection(state.retryReferenceSelection);
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
+    setNewDeckRetryRequiresExactPrompt(true);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
-    setNewDeckRetryComposerContext(state.retryComposerContext);
-    setNewDeckRetryContextItems(state.retryContextItems);
     setNewDeckRetryModelSelection(state.modelSelection);
     setShowNewDeckPrompt(true);
     void navigate(".", { replace: true, state: null });
@@ -1089,12 +1077,10 @@ export default function Index({ active = true }: { active?: boolean }) {
       }
       setNewDeckRetryContext(additionalContext || undefined);
       setNewDeckRetryPrompt(prompt);
+      setNewDeckRetryRequiresExactPrompt(true);
       setNewDeckRetryFiles(filesForGeneration);
-      setNewDeckRetryReferenceFilePaths([...referenceFilePaths]);
-      setNewDeckRetryImportedReference(importedReferenceSource);
+      setNewDeckRetryReferenceSelection(referenceSelection);
       setNewDeckRetryAttachments(attachmentsForGeneration);
-      setNewDeckRetryComposerContext(referenceSelection.composerContext);
-      setNewDeckRetryContextItems(referenceSelection.contextItems);
       setNewDeckRetryModelSelection(modelSelection);
       setIsStartingNewDeck(false);
       clearStartedGenerationAttempt(generationAttemptId, deckId);
@@ -1109,12 +1095,9 @@ export default function Index({ active = true }: { active?: boolean }) {
           state: {
             retryPrompt: prompt,
             retryFiles: filesForGeneration,
-            retryReferenceFilePaths: [...referenceFilePaths],
-            retryImportedReference: importedReferenceSource,
+            retryReferenceSelection: referenceSelection,
             retryContext: additionalContext || undefined,
             retryAttachments: attachmentsForGeneration,
-            retryComposerContext: referenceSelection.composerContext,
-            retryContextItems: referenceSelection.contextItems,
             modelSelection,
           } satisfies DeckGenerationRetryState,
           flushSync: true,
@@ -1174,13 +1157,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
-    setNewDeckRetryReferenceFilePaths([]);
-    setNewDeckRetryImportedReference(undefined);
+    setNewDeckRetryReferenceSelection(undefined);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryRequiresExactPrompt(false);
     setNewDeckRetryAttachments([]);
-    setNewDeckRetryComposerContext(undefined);
-    setNewDeckRetryContextItems(undefined);
     setNewDeckRetryModelSelection(undefined);
     const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
@@ -1401,12 +1382,14 @@ export default function Index({ active = true }: { active?: boolean }) {
       attachments: ReadonlyArray<PromptChatAttachment> = [],
       modelSelection?: DeckModelSelection,
     ) => {
+      const reusingRetryInputs =
+        !newDeckRetryRequiresExactPrompt || prompt === newDeckRetryPrompt;
       const filesForGeneration = mergeUploadedFilesForRetry(
-        newDeckRetryFiles,
+        reusingRetryInputs ? newDeckRetryFiles : [],
         files,
       );
       const attachmentsForGeneration = [
-        ...newDeckRetryAttachments,
+        ...(reusingRetryInputs ? newDeckRetryAttachments : []),
         ...attachments,
       ];
       const generation = Promise.resolve().then(() =>
@@ -1438,6 +1421,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       handleCreateDeckWithPrompt,
       newDeckRetryFiles,
       newDeckRetryAttachments,
+      newDeckRetryPrompt,
+      newDeckRetryRequiresExactPrompt,
       newDeckRetryModelSelection,
       settlePendingDeckAttachments,
     ],
@@ -1460,22 +1445,28 @@ export default function Index({ active = true }: { active?: boolean }) {
     ) => {
       if (!canChatRef.current) return "retain" as const;
       pendingDeckAttachmentActionsRef.current = attachments;
+      const reusingRetryInputs =
+        !newDeckRetryRequiresExactPrompt || prompt === newDeckRetryPrompt;
+      const retryReferenceSelection = newDeckRetryReferenceSelection;
       const retryContext =
         attachments.context ??
-        (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
-      const retryComposerContext =
-        options?.slidesContext ??
-        (prompt === newDeckRetryPrompt
-          ? newDeckRetryComposerContext
-          : undefined);
-      const retryContextItems =
-        options?.contextItems ??
-        (prompt === newDeckRetryPrompt ? newDeckRetryContextItems : undefined);
-      const retryReferenceFilePaths =
-        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
+        (reusingRetryInputs ? newDeckRetryContext : undefined);
+      const retryComposerContext = retryReferenceSelection
+        ? retryReferenceSelection.composerContext
+        : options?.slidesContext;
+      const retryContextItems = retryReferenceSelection
+        ? retryReferenceSelection.contextItems
+        : options?.contextItems;
+      const retryReferenceFilePaths = reusingRetryInputs
+        ? (retryReferenceSelection?.referenceFilePaths ?? [])
+        : [];
       const carriedImportedReference =
-        newDeckRetryFiles.length > 0
-          ? newDeckRetryImportedReference
+        retryReferenceSelection?.referenceDeckId &&
+        retryReferenceSelection.importedReferenceFilePath
+          ? {
+              deckId: retryReferenceSelection.referenceDeckId,
+              filePath: retryReferenceSelection.importedReferenceFilePath,
+            }
           : undefined;
       const carriedDeckMissing =
         carriedImportedReference !== undefined &&
@@ -1492,24 +1483,44 @@ export default function Index({ active = true }: { active?: boolean }) {
         ) ?? false;
       const referenceDeckId = carriedDeckMissing
         ? null
-        : (carriedImportedReference?.deckId ??
-          (hasExplicitComposerDeckReference
-            ? null
-            : (promptReferenceDeckId ??
-              (retryComposerContext ? null : undefined))));
+        : hasExplicitComposerDeckReference
+          ? null
+          : retryReferenceSelection?.referenceDeckId !== undefined
+            ? retryReferenceSelection.referenceDeckId
+            : (carriedImportedReference?.deckId ??
+              promptReferenceDeckId ??
+              (retryComposerContext ? null : undefined));
       void runPendingDeckGeneration(
         prompt,
         files,
         {
+          ...(retryReferenceSelection
+            ? {
+                ...retryReferenceSelection,
+                ...(!reusingRetryInputs || carriedDeckMissing
+                  ? {
+                      referenceFilePaths: [],
+                      importedReferenceFilePath: undefined,
+                    }
+                  : {}),
+              }
+            : {}),
           ...(referenceDeckId !== undefined ? { referenceDeckId } : {}),
-          ...(retryComposerContext
+          ...(retryComposerContext &&
+          retryReferenceSelection?.designSystemId === undefined
             ? {
                 designSystemId: retryComposerContext.designSystemId,
+              }
+            : {}),
+          ...(retryComposerContext
+            ? {
                 composerContext: retryComposerContext,
                 contextItems: retryContextItems,
               }
             : {}),
-          ...(!carriedDeckMissing && carriedImportedReference
+          ...(reusingRetryInputs &&
+          !carriedDeckMissing &&
+          carriedImportedReference
             ? { importedReferenceFilePath: carriedImportedReference.filePath }
             : {}),
           ...(retryReferenceFilePaths.length > 0
@@ -1529,14 +1540,11 @@ export default function Index({ active = true }: { active?: boolean }) {
       return "retain" as const;
     },
     [
-      newDeckRetryFiles,
-      newDeckRetryReferenceFilePaths,
-      newDeckRetryImportedReference,
+      newDeckRetryReferenceSelection,
       newDeckRetryContext,
-      newDeckRetryComposerContext,
-      newDeckRetryContextItems,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
+      newDeckRetryRequiresExactPrompt,
       decks,
       setNewDeckPromptOpen,
       runPendingDeckGeneration,
@@ -1548,12 +1556,10 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryFiles([]);
-    setNewDeckRetryReferenceFilePaths([]);
-    setNewDeckRetryImportedReference(undefined);
+    setNewDeckRetryRequiresExactPrompt(false);
+    setNewDeckRetryReferenceSelection(undefined);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryAttachments([]);
-    setNewDeckRetryComposerContext(undefined);
-    setNewDeckRetryContextItems(undefined);
     setNewDeckRetryModelSelection(undefined);
     setPendingDeck({
       prompt: "",
@@ -2481,15 +2487,20 @@ export default function Index({ active = true }: { active?: boolean }) {
             if (pending) {
               settlePendingDeckAttachments("commit");
               setNewDeckRetryPrompt(pending.prompt);
+              setNewDeckRetryRequiresExactPrompt(false);
               setNewDeckRetryFiles((files) =>
                 mergeUploadedFilesForRetry(files, pending.files),
               );
-              setNewDeckRetryReferenceFilePaths(pending.referenceFilePaths);
-              setNewDeckRetryImportedReference(pending.importedReference);
+              setNewDeckRetryReferenceSelection({
+                designSystemId: pending.composerContext?.designSystemId,
+                referenceDeckId: pending.referenceDeckId,
+                referenceFilePaths: pending.referenceFilePaths,
+                importedReferenceFilePath: pending.importedReference?.filePath,
+                composerContext: pending.composerContext,
+                contextItems: pending.contextItems,
+              });
               setNewDeckRetryContext(pending.context);
               setNewDeckRetryAttachments(pending.attachments);
-              setNewDeckRetryComposerContext(pending.composerContext);
-              setNewDeckRetryContextItems(pending.contextItems);
               setNewDeckRetryModelSelection(pending.modelSelection);
               setNewDeckInitialPrompt({
                 text: pending.prompt,

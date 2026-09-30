@@ -69,8 +69,8 @@
 
 .slides-home-mobile-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, min(30rem, 60vw)) minmax(
-      0,
+  grid-template-columns: minmax(4rem, 1fr) minmax(0, min(30rem, 60vw)) minmax(
+      4rem,
       1fr
     );
   min-width: 0;
@@ -88,8 +88,16 @@
 .slides-home-mobile-toolbar > :last-child {
   grid-column: 3;
   justify-self: end;
+  min-width: 0;
+  max-width: 100%;
   flex-shrink: 0;
   margin-inline-start: 0;
+}
+
+@media (max-width: 40rem) {
+  .slides-home-mobile-toolbar .slides-home-import-label {
+    display: none;
+  }
 }
 
 .deck-template-preview-frame {

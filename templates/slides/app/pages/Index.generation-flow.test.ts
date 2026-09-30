@@ -56,10 +56,21 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
-  it("carries the already-imported reference source into a retry", () => {
-    expect(source).toContain("retryImportedReference: importedReferenceSource");
+  it("restores the complete reference selection after a failed generation", () => {
     expect(source).toContain(
-      "setNewDeckRetryImportedReference(state.retryImportedReference)",
+      "retryReferenceSelection?: NewDeckReferenceSelection",
+    );
+    expect(source).toContain("retryReferenceSelection: referenceSelection");
+    expect(source).toContain("setNewDeckRetryRequiresExactPrompt(true)");
+    expect(source).toContain(
+      "setNewDeckRetryReferenceSelection(state.retryReferenceSelection)",
+    );
+    expect(source).toContain("...retryReferenceSelection");
+    expect(source).toContain("retryReferenceSelection?.composerContext");
+    expect(source).toContain("retryReferenceSelection?.referenceFilePaths");
+    expect(source).toContain("referenceSelection.referenceSource");
+    expect(source).toContain(
+      "retryReferenceSelection?.referenceDeckId !== undefined",
     );
     expect(source).toContain(
       "selection.referenceDeckId === carriedImportedReference.deckId",
@@ -150,20 +161,24 @@ describe("new deck generation flow", () => {
       "initialModelSelection={newDeckRetryModelSelection}",
     );
     expect(source).toContain(
-      "prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined",
+      "reusingRetryInputs ? newDeckRetryContext : undefined",
     );
   });
 
   it("keeps imported reference exclusions through skip, repeats, and retries", () => {
-    expect(source).toContain("retryReferenceFilePaths?: string[]");
-    expect(source).toContain(
-      "newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : []",
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+
+    expect(promptSubmit).toContain(
+      "reusingRetryInputs\n        ? (retryReferenceSelection?.referenceFilePaths ?? [])\n        : []",
     );
     expect(source).toContain(
       "...(retryReferenceFilePaths.length > 0\n            ? { referenceFilePaths: retryReferenceFilePaths }\n            : {}),",
     );
     expect(source).toContain(
-      "setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? [])",
+      "retryReferenceSelection.importedReferenceFilePath",
     );
     expect(source).toContain(
       "referenceFilePaths: [\n                  ...new Set([",
@@ -260,12 +275,18 @@ describe("new deck generation flow", () => {
     );
   });
 
-  it("keeps prior attachment chips when a generation retry adds files", () => {
+  it("reuses failed-run files and attachments only for the original prompt", () => {
+    expect(runner).toContain(
+      "const reusingRetryInputs =\n        !newDeckRetryRequiresExactPrompt || prompt === newDeckRetryPrompt;",
+    );
+    expect(runner).toContain("reusingRetryInputs ? newDeckRetryFiles : []");
     expect(runner).toContain("const attachmentsForGeneration = [");
-    expect(runner).toContain("...newDeckRetryAttachments");
+    expect(runner).toContain(
+      "...(reusingRetryInputs ? newDeckRetryAttachments : [])",
+    );
     expect(runner).toContain("...attachments");
     expect(runner).toContain(
-      "mergeUploadedFilesForRetry(\n        newDeckRetryFiles,\n        files,\n      )",
+      "mergeUploadedFilesForRetry(\n        reusingRetryInputs ? newDeckRetryFiles : [],\n        files,\n      )",
     );
     expect(runner).toContain("modelSelection ?? newDeckRetryModelSelection");
   });
@@ -280,8 +301,13 @@ describe("new deck generation flow", () => {
     expect(promptSubmit).toContain("files,");
     expect(promptSubmit).toContain("attachments.attachments");
     expect(promptSubmit).toContain("composerContext: retryComposerContext");
+    expect(promptSubmit).toContain(
+      "const retryReferenceSelection = newDeckRetryReferenceSelection;",
+    );
     expect(runner).toContain("mergeUploadedFilesForRetry(");
-    expect(runner).toContain("...newDeckRetryAttachments");
+    expect(runner).toContain(
+      "...(reusingRetryInputs ? newDeckRetryAttachments : [])",
+    );
   });
   it("passes uploaded image references through the home agent submission", () => {
     expect(flow).toContain(

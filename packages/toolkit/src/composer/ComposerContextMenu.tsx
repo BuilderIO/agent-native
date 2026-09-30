@@ -81,6 +81,7 @@ export type ComposerContextMenuItem =
   | ComposerContextMenuCategory;
 export interface ComposerContextMenuProps {
   items: readonly ComposerContextMenuItem[];
+  menuActionItems?: readonly ComposerContextMenuItem[];
   loading?: boolean;
   error?: string;
   onRetry?: () => void;
@@ -247,6 +248,7 @@ function ContextEntryLabel({ label, description }: ComposerContextMenuEntry) {
 
 export function ComposerContextMenu({
   items,
+  menuActionItems = [],
   loading,
   error: searchError,
   onRetry,
@@ -262,6 +264,7 @@ export function ComposerContextMenu({
   disabled,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
+  const allItems = [...menuActionItems, ...items];
   const onDisabledFocusRef = useRef(onDisabledFocus);
   onDisabledFocusRef.current = onDisabledFocus;
   const disabledFocusFrame = useRef<number | null>(null);
@@ -279,8 +282,8 @@ export function ComposerContextMenu({
   const pathRef = useRef(path);
   const [page, setPage] = useState<ComposerContextPage | null>(null);
   const pageRef = useRef(page);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
+  const itemsRef = useRef(allItems);
+  itemsRef.current = allItems;
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -292,7 +295,7 @@ export function ComposerContextMenu({
   );
   const dialogRef = useRef(dialog);
   dialogRef.current = dialog;
-  const dialogAction = dialog ? findAction(items, dialog.id) : undefined;
+  const dialogAction = dialog ? findAction(allItems, dialog.id) : undefined;
   const dialogAvailable =
     !dialogAction?.disabled &&
     dialogAction?.picker &&
@@ -404,7 +407,7 @@ export function ComposerContextMenu({
     updatePath([...origin, action.id]);
     if (select && !action.picker) selectAction(action);
   };
-  const currentAction = page ? findAction(items, page.id) : undefined;
+  const currentAction = page ? findAction(allItems, page.id) : undefined;
   useEffect(() => {
     if (
       page &&
@@ -703,6 +706,7 @@ export function ComposerContextMenu({
                   )}
                 </ContextSubmenu>
               )}
+              {renderEntries(menuActionItems, [])}
             </DropdownMenuGroup>
           </div>
         </DropdownMenuContent>

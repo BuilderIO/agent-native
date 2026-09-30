@@ -78,8 +78,8 @@
 
 .design-home-mobile-header-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, min(30rem, 60vw)) minmax(
-      0,
+  grid-template-columns: minmax(4rem, 1fr) minmax(0, min(30rem, 60vw)) minmax(
+      4rem,
       1fr
     );
   height: auto;
@@ -91,8 +91,16 @@
 .design-home-mobile-header-actions > div:last-child {
   grid-column: 3;
   justify-self: end;
+  min-width: 0;
+  max-width: 100%;
   flex-shrink: 0;
   margin-inline-start: 0;
+}
+
+@media (max-width: 40rem) {
+  .design-home-mobile-header-actions .design-home-import-label {
+    display: none;
+  }
 }
 
 @container design-home-toolbar (max-width: 26rem) {
