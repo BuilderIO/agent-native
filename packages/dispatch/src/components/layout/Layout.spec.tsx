@@ -6,7 +6,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminShell } from "../admin-navigation";
-import { TooltipProvider } from "../ui/tooltip";
+import { Tooltip, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import {
   buildChatFirstEmbedSessionInput,
   CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME,
@@ -14,6 +14,7 @@ import {
   formatThreadAge,
   isElectronEmbeddedSearch,
   isRedesignedSettingsPath,
+  Layout,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
@@ -110,7 +111,10 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
+  useFeatureFlagState: () => ({ enabled: false, status: "ready" }),
 }));
+
+vi.mock("../../hooks/use-mobile", () => ({ useIsMobile: () => false }));
 
 vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: "light" }),
@@ -309,6 +313,24 @@ describe("Dispatch NavContent", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("provides tooltip context to chrome-less route content", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/approval"]}>
+          <Layout>
+            <Tooltip open>
+              <TooltipTrigger asChild>
+                <button type="button">Approval details</button>
+              </TooltipTrigger>
+            </Tooltip>
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Approval details");
   });
 
   it("puts Overview before Chat in the primary navigation", async () => {

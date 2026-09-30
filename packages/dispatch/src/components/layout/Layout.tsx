@@ -137,7 +137,12 @@ import {
 import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 import {
   WorkspaceAppChatRail,
   WorkspaceAppFrame,
@@ -1365,7 +1370,15 @@ export function renderChatFirstAppSurfaceTab({
   );
 }
 
-export function Layout({
+export function Layout(props: DispatchLayoutProps) {
+  return (
+    <TooltipProvider>
+      <DispatchLayout {...props} />
+    </TooltipProvider>
+  );
+}
+
+function DispatchLayout({
   children,
   extensions,
   agentPageHref,
