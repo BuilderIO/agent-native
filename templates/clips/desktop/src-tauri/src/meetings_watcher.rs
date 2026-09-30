@@ -114,6 +114,9 @@ struct MeetingsWatcherInner {
     /// Bumped by `invalidate_cache` so a fetch that was in flight when the
     /// session, server, or lab changed can't store another identity's result.
     fetch_generation: u64,
+    /// Set by `invalidate_cache` so the next tick empties the tray menu, which
+    /// otherwise keeps the previous identity's meetings until a fetch succeeds.
+    tray_needs_clear: bool,
 }
 
 impl MeetingsWatcherInner {
@@ -125,6 +128,7 @@ impl MeetingsWatcherInner {
         self.cached_meetings.clear();
         self.last_fetch_ok_at = None;
         self.fetch_generation += 1;
+        self.tray_needs_clear = true;
         self.request_refresh();
     }
 }
@@ -277,9 +281,15 @@ impl MeetingsWatcherState {
         }
     }
 
-    /// Marks and returns the cached meetings whose banner is due now, with
-    /// their seconds until start.
-    fn take_due_alerts(&self, now: chrono::DateTime<chrono::Utc>) -> Vec<(MeetingItem, i64)> {
+    fn take_tray_clear(&self) -> bool {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut g.tray_needs_clear)
+    }
+
+    /// Returns the cached meetings whose banner is due now, with their seconds
+    /// until start. Callers mark them with `mark_notified` only once they know
+    /// the banner will be delivered, so a skipped one stays due.
+    fn due_alerts(&self, now: chrono::DateTime<chrono::Utc>) -> Vec<(MeetingItem, i64)> {
         let now_ts = now.timestamp();
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let inner = &mut *g;
@@ -314,10 +324,18 @@ impl MeetingsWatcherState {
             if !eligible || inner.notified.get(&m.id).map(String::as_str) == Some(start) {
                 continue;
             }
-            inner.notified.insert(m.id.clone(), start.to_string());
             due.push((m.clone(), secs_until));
         }
         due
+    }
+
+    fn mark_notified(&self, due: &[(MeetingItem, i64)]) {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        for (m, _) in due {
+            if let Some(start) = m.scheduled_start.clone() {
+                g.notified.insert(m.id.clone(), start);
+            }
+        }
     }
 
     pub(crate) fn should_poll(
@@ -575,9 +593,16 @@ async fn tick_once(
     let state = app
         .try_state::<MeetingsWatcherState>()
         .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
+    if state.take_tray_clear() {
+        let _ = app.emit("meetings:updated", serde_json::json!({ "meetings": [] }));
+    }
     if !state.lab_enabled()? {
         return Ok(());
     }
+
+    // Alert from the cache before fetching: a fetch can take up to the 10s
+    // request timeout, and the banner must not wait on it.
+    notify_due_meetings(app, &state, state.due_alerts(now_utc)).await;
 
     let mut fetch_error = None;
     if let Some(generation) = state.fetch_due(now_utc.timestamp()) {
@@ -592,7 +617,6 @@ async fn tick_once(
         }
     }
 
-    notify_due_meetings(app, state.take_due_alerts(now_utc)).await;
     fetch_error.map_or(Ok(()), Err)
 }
 
@@ -659,7 +683,9 @@ async fn fetch_meetings(
     }
     state.note_authorized(Poller::Meetings, &credentials);
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(FetchOutcome::Fetched(parse_meetings(&body)))
+    try_parse_meetings(&body)
+        .map(FetchOutcome::Fetched)
+        .ok_or_else(|| "list-meetings returned an unreadable payload".to_string())
 }
 
 fn tray_snapshot(meetings: &[MeetingItem]) -> Vec<TrayMeetingItem> {
@@ -674,14 +700,21 @@ fn tray_snapshot(meetings: &[MeetingItem]) -> Vec<TrayMeetingItem> {
         .collect()
 }
 
-async fn notify_due_meetings(app: &AppHandle, due: Vec<(MeetingItem, i64)>) {
-    let mut config = None;
+async fn notify_due_meetings(
+    app: &AppHandle,
+    state: &MeetingsWatcherState,
+    due: Vec<(MeetingItem, i64)>,
+) {
+    if due.is_empty() {
+        return;
+    }
+    // Read from disk only when a banner is due, not on every 1s tick.
+    let config = feature_config(app);
+    if !config.meetings_enabled {
+        return;
+    }
+    state.mark_notified(&due);
     for (m, secs_until) in due {
-        // Read from disk only when a banner is due, not on every 1s tick.
-        let config = config.get_or_insert_with(|| feature_config(app));
-        if !config.meetings_enabled {
-            continue;
-        }
         if config.meeting_transcription_mode == MeetingTranscriptionMode::Manual
             && !config.show_meeting_widget_enabled
         {
@@ -692,9 +725,7 @@ async fn notify_due_meetings(app: &AppHandle, due: Vec<(MeetingItem, i64)>) {
         if config.show_meeting_widget_enabled
             || config.meeting_transcription_mode == MeetingTranscriptionMode::Auto
         {
-            if let Some(state) = app.try_state::<MeetingsWatcherState>() {
-                state.note_calendar_notify(m.platform.as_deref());
-            }
+            state.note_calendar_notify(m.platform.as_deref());
             let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
             if let Err(err) = crate::notifications::notify_meeting_starting(
                 app.clone(),
@@ -1161,8 +1192,10 @@ mod tests {
         let start = now + chrono::Duration::seconds(30);
         let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
 
-        assert_eq!(state.take_due_alerts(now).len(), 1);
-        assert!(state.take_due_alerts(now).is_empty());
+        let due = state.due_alerts(now);
+        assert_eq!(due.len(), 1);
+        state.mark_notified(&due);
+        assert!(state.due_alerts(now).is_empty());
 
         let moved = start + chrono::Duration::seconds(15);
         let generation = state.inner.lock().expect("state lock").fetch_generation;
@@ -1171,7 +1204,28 @@ mod tests {
             now.timestamp(),
             Ok(FetchOutcome::Fetched(vec![meeting("m", Some(moved))])),
         );
-        assert_eq!(state.take_due_alerts(now).len(), 1);
+        assert_eq!(state.due_alerts(now).len(), 1);
+    }
+
+    #[test]
+    fn an_undelivered_alert_stays_due() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 30, 10, 0, 0).unwrap();
+        let start = now + chrono::Duration::seconds(30);
+        let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
+
+        assert_eq!(state.due_alerts(now).len(), 1);
+        assert_eq!(state.due_alerts(now).len(), 1);
+    }
+
+    #[test]
+    fn invalidating_the_cache_clears_the_tray_once() {
+        let state = state_with_cache(vec![meeting("a", None)], 1_000_000);
+        assert!(!state.take_tray_clear());
+
+        state.set_lab_enabled(true).expect("state lock");
+
+        assert!(state.take_tray_clear());
+        assert!(!state.take_tray_clear());
     }
 
     #[test]
