@@ -57,10 +57,10 @@ separate defect.
 
 Add `✅` to every claimed thread resolved by a verified **Fixed** item (all
 Phase 2 bars). Add `🎫` when any investigated item remains unfixed, including
-subjective or deferred work; it marks follow-up needed, not an existing ticket.
-Mixed threads get both. **Shipped** or **Live verified** alone do not earn
-`✅`. The item ledger and newer thread evidence determine current disposition
-when older reactions remain. Never remove reactions.
+subjective, deferred, or out-of-scope work; it means “not fixed” and does not
+imply an existing ticket. Mixed threads get both. **Shipped** or **Live
+verified** alone do not earn `✅`. Use the ledger and newer evidence for current
+disposition. Never remove reactions.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -468,12 +468,14 @@ in the thread.
 
 ### After a PR merges
 
-When a Slack-fix PR merges, reply in every affected source thread, including
-clusters, unless that update is already there. Name fixed items; for app fixes
-covered by the beta publisher, say they should be live on beta in the next few
-hours. Otherwise give package publication/upgrade timing. Never claim live
-without runtime proof; if the beta window passes, check the publisher and
-report its status.
+When a Slack-fix PR merges, reply once in every affected source thread,
+including each clustered source. This post-merge status is an exception to the
+single-owner reply rule; keep each reply concise and thread-specific. Name fixed
+items. For beta-publisher app fixes, confirm the merge-triggered publisher run
+and expected window first; then say it should be live on beta in the next few
+hours. If the run is missing or failed, say beta publication is pending and
+check/report the publisher. For package fixes, give publication/upgrade timing.
+Never claim live without runtime proof.
 
 For mixed reports, list each unaddressed item and why, including subjective or
 out-of-scope items. Ask one targeted question if needed. Say clear deferred

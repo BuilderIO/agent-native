@@ -122,9 +122,9 @@ the invoking user's assignment; do not override it with a generic UX exclusion.
 New-capability requests still need the invoking identity's `:upvote:`. Once an
 item is in scope, add `👀` before investigation or delegation.
 
-Never post the same sentence into several threads. For shared causes, follow
-the single-owner reply rule in `review-latest-feedback`; answer non-owning
-reports only for a distinct question or update.
+During triage, follow the single-owner rule. After merge, follow
+`review-latest-feedback`: reply once in every affected source thread, including
+clusters.
 
 A tracked clear bug or authorized upvoted improvement receives at most one
 disposition per run. **Verified locally**, **Built - live unverified**,
