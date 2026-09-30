@@ -536,11 +536,12 @@ jobs:
     needs: change-scope
     if: >-
       needs.change-scope.outputs.full == 'true' ||
-      contains(needs.change-scope.outputs.workspace_filters, 'templates/slides') ||
-      contains(needs.change-scope.outputs.workspace_filters, 'packages/core') ||
-      contains(needs.change-scope.outputs.workspace_filters, 'packages/toolkit')
+      contains(needs.change-scope.outputs.workspace_filters, '{templates/slides}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/core}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/toolkit}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/creative-context}')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
