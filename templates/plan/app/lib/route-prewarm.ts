@@ -57,6 +57,8 @@ export function prewarmCommonPlanRoutes() {
     prewarmPlanRoutePath("/plans/__route_prewarm__"),
     prewarmPlanRoutePath("/recaps"),
     prewarmPlanRoutePath("/recaps/__route_prewarm__"),
+    prewarmPlanRoutePath("/editions"),
+    prewarmPlanRoutePath("/editions/__route_prewarm__"),
     prewarmPlanRoutePath("/local-plans/__route_prewarm__"),
   ]);
 }

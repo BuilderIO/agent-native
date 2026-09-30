@@ -335,6 +335,30 @@ agents.example.com {
 
 </Callout>
 
+## Configurar o Dispatch para um espaço de trabalho auto-hospedado {#dispatch-workspace-apps}
+
+As imagens de produção do Dispatch geralmente contêm apenas `.output/`, então o servidor não consegue descobrir os diretórios dos apps durante a execução. Configure este manifesto no serviço do Dispatch. Use o mesmo JSON nas duas variáveis: a variável Vite é lida ao compilar o Dispatch e a outra durante a execução do servidor. Liste apenas os apps deste espaço de trabalho. Cada `path` deve corresponder a `APP_BASE_PATH` e à rota do proxy. Defina também APP_URL como a origem pública servida pelo proxy reverso.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## Ativar convites em um novo espaço de trabalho {#workspace-invites}
+
+Se o cadastro exigir convite, configure estas variáveis de acesso em cada contêiner de app que compartilha o banco de dados e a autenticação:
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+Substitua o endereço de exemplo pelo e-mail verificado da primeira pessoa administradora de cada espaço de trabalho. Em um banco vazio, ela entra primeiro, torna-se proprietária da organização inicial e pode convidar a equipe em Settings → Organization → Members. Consulte [Implantações administradas](/docs/administered-deployments) para ver o processo completo de inicialização.
+
 ## O que vem a seguir
 
 - [**Implantação**](/docs/deployment) — escolha um banco de dados persistente, um preset do Nitro e uma plataforma antes de implantar um espaço de trabalho

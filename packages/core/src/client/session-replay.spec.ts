@@ -1457,7 +1457,7 @@ describe("session replay", () => {
 
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
     const { fetchMock } = installBrowser(
-      "https://app.agent-native.com/inbox?code=secret&keep=1",
+      "https://app.agent-native.com/all?code=secret&q=private.sender%40example.com&keep=1",
     );
     let recordOptions: any;
     const stop = vi.fn();
@@ -1471,9 +1471,12 @@ describe("session replay", () => {
     const result = await startSessionReplay({
       publicKey: "anpk_test",
       endpoint: "https://analytics.example.test/session-replay",
+      sensitiveQueryParams: ["q"],
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
-      extraProperties: { route: "/inbox?token=private" },
+      extraProperties: {
+        route: "/all?token=private&q=private.sender%40example.com",
+      },
     });
 
     expect(result).toMatchObject({ started: true, sampled: true });
@@ -1501,7 +1504,7 @@ describe("session replay", () => {
       type: 3,
       timestamp: eventTimestamp,
       data: {
-        href: "https://app.agent-native.com/path?token=secret&ok=1",
+        href: "https://app.agent-native.com/path?token=secret&q=private.sender%40example.com&ok=1",
         source: "/oauth/callback?code=private",
       },
     });
@@ -1529,14 +1532,14 @@ describe("session replay", () => {
       startedAt: expect.any(String),
       endedAt: new Date(eventTimestamp).toISOString(),
       durationMs: expect.any(Number),
-      url: "https://app.agent-native.com/inbox?code=%3Credacted%3E&keep=1",
-      properties: { route: "/inbox?token=%3Credacted%3E" },
+      url: "https://app.agent-native.com/all?code=%3Credacted%3E&q=%3Credacted%3E&keep=1",
+      properties: { route: "/all?token=%3Credacted%3E&q=%3Credacted%3E" },
     });
     expect(Date.parse(body.startedAt)).toBeLessThanOrEqual(
       Date.parse(body.endedAt),
     );
     expect(body.events[0].data.href).toBe(
-      "https://app.agent-native.com/path?token=%3Credacted%3E&ok=1",
+      "https://app.agent-native.com/path?token=%3Credacted%3E&q=%3Credacted%3E&ok=1",
     );
     expect(body.events[0].data.source).toBe(
       "/oauth/callback?code=%3Credacted%3E",
@@ -1928,6 +1931,91 @@ describe("session replay", () => {
     );
     expect(changedLinkMutation.attributes.href).toBe(
       "https://app.example.test/next.js?token=%3Credacted%3E",
+    );
+  });
+
+  it("redacts configured query parameters in preserved resource URLs", async () => {
+    const { fetchMock } = installBrowser();
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, startSessionReplay } =
+      await freshSessionReplay();
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      sensitiveQueryParams: ["q"],
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+
+    recordOptions.emit({
+      type: 2,
+      data: {
+        node: {
+          type: 0,
+          childNodes: [
+            {
+              type: 2,
+              id: 1,
+              tagName: "img",
+              attributes: {
+                src: "https://cdn.example.test/mail.png?token=signed-image&q=sender%40example.test,other%40example.test",
+                srcset:
+                  "https://cdn.example.test/mail-2x.png?token=signed-2x&q=sender%40example.test,other%40example.test 2x, https://cdn.example.test/mail-3x.png?token=signed-3x&q=third%40example.test 3x",
+              },
+            },
+            {
+              type: 2,
+              id: 2,
+              tagName: "link",
+              attributes: {
+                rel: "stylesheet",
+                href: "https://cdn.example.test/mail.css?token=signed-style&q=sender%40example.test",
+              },
+            },
+          ],
+        },
+      },
+    });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const snapshot = await parseReplayUpload(
+      fetchMock.mock.calls[0][1] as RequestInit,
+    );
+    const [image, stylesheet] = snapshot.events[0].data.node.childNodes;
+    expect(image.attributes.src).toBe(
+      "https://cdn.example.test/mail.png?token=signed-image&q=%3Credacted%3E",
+    );
+    expect(image.attributes.srcset).toBe(
+      "https://cdn.example.test/mail-2x.png?token=signed-2x&q=%3Credacted%3E 2x, https://cdn.example.test/mail-3x.png?token=signed-3x&q=%3Credacted%3E 3x",
+    );
+    expect(stylesheet.attributes.href).toBe(
+      "https://cdn.example.test/mail.css?token=signed-style&q=%3Credacted%3E",
+    );
+
+    recordOptions.emit({
+      type: 3,
+      data: {
+        source: 0,
+        attributes: [
+          {
+            id: 1,
+            attributes: {
+              src: "https://cdn.example.test/next.png?token=rotated&q=private,also-private",
+            },
+          },
+        ],
+      },
+    });
+    await flushSessionReplay("test");
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const mutation = await parseReplayUpload(
+      fetchMock.mock.calls[1][1] as RequestInit,
+    );
+    expect(mutation.events[0].data.attributes[0].attributes.src).toBe(
+      "https://cdn.example.test/next.png?token=rotated&q=%3Credacted%3E",
     );
   });
 

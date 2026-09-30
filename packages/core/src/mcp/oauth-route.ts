@@ -810,9 +810,9 @@ async function handleAuthorize(
         error: "login_required",
       });
     }
-    const loginHtml = getConfiguredLoginHtml(event);
-    return loginHtml
-      ? html(loginHtml, 200)
+    const loginPage = getConfiguredLoginHtml(event);
+    return loginPage
+      ? html(loginPage.html, loginPage.status)
       : oauthError("login_required", "Sign in required", 401);
   }
 

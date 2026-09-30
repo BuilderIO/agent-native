@@ -22,7 +22,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "onboarding.fileStorage.title": "Connect storage to upload files",
     })[key] ?? key,
 }));
-vi.mock("@agent-native/core/client/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/setup-connections", () => ({
   FileStorageSetupPopover: ({
     open,
     status,

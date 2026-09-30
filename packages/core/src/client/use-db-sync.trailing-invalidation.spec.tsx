@@ -51,7 +51,9 @@ function Probe({ queryClient }: { queryClient: QueryClientProbe }) {
   useDbSync({
     queryClient,
     sseUrl: false,
+    realtime: { reason: "test trailing invalidation after remote sync" },
     interval: 100,
+    fallbackInterval: 100,
     pauseWhenHidden: false,
   });
   return null;
@@ -99,7 +101,7 @@ describe("useDbSync trailing invalidation", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(700);
+      await vi.advanceTimersByTimeAsync(1_200);
     });
 
     expect(queryClient.refetchOptions).toEqual([
@@ -180,7 +182,7 @@ describe("useDbSync trailing invalidation", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(700);
+      await vi.advanceTimersByTimeAsync(1_200);
     });
 
     const predicateFilters = queryClient.calls.filter(

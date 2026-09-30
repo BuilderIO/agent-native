@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
 import { IconAlertCircle, IconChevronDown, IconX } from "@tabler/icons-react";
 import { type ReactNode, useState } from "react";
 

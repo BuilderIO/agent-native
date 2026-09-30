@@ -1,5 +1,5 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";

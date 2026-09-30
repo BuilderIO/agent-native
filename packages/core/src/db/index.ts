@@ -25,6 +25,7 @@ export {
   isSchemaMutationStatement,
   isProductionServerlessFunctionRuntime,
   closeDbExec,
+  isUniqueViolation,
   type DbExec,
   type DbExecConfig,
   type DbExecQuery,

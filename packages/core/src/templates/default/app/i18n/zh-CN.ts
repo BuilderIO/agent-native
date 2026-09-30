@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "正在断开连接…",
   },
   settings: {
+    backHome: "返回首页",
+    title: "设置",
+    description: "管理应用和语言设置。",
+    languageTitle: "界面语言",
+    languageDescription: "选择此应用使用的语言。",
+    languageLabel: "语言",
     agentTitle: "代理设置",
     agentDescription:
       "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
@@ -619,8 +625,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "返回列表",
     promoteMustContain: "回复必须包含…",
-    promoteMustContainOptional: "回复必须包含（可选）",
-    promoteMustContainLabel: "晋升后的评测回复必须包含的文本",
+    promoteMustContainOptional: "回复中要检查的可选文本…",
+    promoteMustContainLabel: "在升级后的评测回复中检查的文本",
     promoteNeedsContains:
       "此运行没有成功的工具调用。请先输入回复必须包含的文本，再将其晋升为评测。",
     spans: "Spans",

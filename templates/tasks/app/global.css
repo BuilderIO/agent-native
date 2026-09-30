@@ -1,7 +1,6 @@
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
-@import "@agent-native/core/styles/agent-native.css";
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";

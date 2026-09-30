@@ -3,14 +3,42 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-09-28
+## 2026-09-29
 
 ### Improved
 
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Clips Desktop shows a brief confirmation after copying a share link
+- Chat composers no longer show temporary status rows.
+- Fixed library and signup loading flashes and made desktop recording startup cues and countdowns reliable.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- Stopping during setup cancels cleanly, while active clips still finish and save.
+- The comment sign-in prompt stays visible while a clip is fullscreen.
+
+## 2026-09-28
+
+### Added
+
+- Clips can capture screenshots, annotate them, redact sensitive details, and share them.
+
+### Improved
+
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- The chat sidebar matches the app navigation color, with tighter composer spacing.
+- The recording viewer keeps Agent, comments, and transcripts together, and the app sidebar now moves the full page.
 - Viewers can share recordings with agents from shared recording menus
 
 ### Fixed
 
+- Clip share previews show a branded image while the recording thumbnail is unavailable.
+- Meeting and feature-flag polling resumes after your session is accepted again
+- Older recording links preserve the selected viewer tab when panel and Agent sidebar state are both present
+- Opening Agent from a recording keeps the latest selected text attached to your prompt.
+- Stop repeated Clips requests after session expiry
 - Agent links stay valid when clip details change
 
 ### Security

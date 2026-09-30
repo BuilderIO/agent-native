@@ -40,10 +40,11 @@ import {
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
+import { BACKGROUND_FUNCTION_WALL_HEADROOM_MS } from "../../app-config/run-lifecycle-invariants.js";
 import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
-} from "../chat-first.js";
+} from "../chat-first-state.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeCapabilities,
@@ -128,6 +129,7 @@ interface ProtocolRun {
   activeMessageCompleted: boolean;
   runtimeSequence?: number;
   resumeAttempts?: number;
+  continuationStartedAtMs?: number;
   pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
   activeTools: Map<string, AgentToolCall>;
@@ -2026,6 +2028,9 @@ export function createAgentKitProtocolAdapter(
             }),
           },
         ];
+      case "continuation":
+        run.continuationStartedAtMs ??= Date.now();
+        return [];
       case "suggestions":
         return [
           {
@@ -2441,19 +2446,23 @@ export function createAgentKitProtocolAdapter(
   function notifyWhenChanged(
     run: ProtocolRun,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<void> {
     return new Promise((resolve) => {
       if (signal?.aborted) {
         resolve();
         return;
       }
+      let timeout: ReturnType<typeof setTimeout> | undefined;
       const listener = () => {
         run.listeners.delete(listener);
         signal?.removeEventListener("abort", listener);
+        if (timeout) clearTimeout(timeout);
         resolve();
       };
       run.listeners.add(listener);
       signal?.addEventListener("abort", listener, { once: true });
+      if (timeoutMs !== undefined) timeout = setTimeout(listener, timeoutMs);
     });
   }
 
@@ -2461,12 +2470,17 @@ export function createAgentKitProtocolAdapter(
     run: ProtocolRun,
     cause?: unknown,
   ): Promise<AgentChatRuntimeTurn | null> {
+    const continuationDeadline =
+      run.continuationStartedAtMs === undefined
+        ? undefined
+        : run.continuationStartedAtMs + BACKGROUND_FUNCTION_WALL_HEADROOM_MS;
     if (
       capabilities.resumableRuns !== true ||
       (!runtime.resume && !runtime.subscribe) ||
       (typeof asRecord(cause)?.retryable === "boolean" &&
         asRecord(cause)?.retryable === false) ||
-      (run.resumeAttempts ?? 0) >= MAX_DURABLE_RESUME_ATTEMPTS
+      (continuationDeadline === undefined &&
+        (run.resumeAttempts ?? 0) >= MAX_DURABLE_RESUME_ATTEMPTS)
     ) {
       return null;
     }
@@ -2479,7 +2493,23 @@ export function createAgentKitProtocolAdapter(
       metadata: run.metadata,
     };
     let lastError: unknown;
-    while ((run.resumeAttempts ?? 0) < MAX_DURABLE_RESUME_ATTEMPTS) {
+    while (
+      continuationDeadline === undefined
+        ? (run.resumeAttempts ?? 0) < MAX_DURABLE_RESUME_ATTEMPTS
+        : Date.now() < continuationDeadline
+    ) {
+      if (run.terminal || run.streamClosed) return null;
+      if (continuationDeadline !== undefined && (run.resumeAttempts ?? 0) > 0) {
+        const remainingMs = continuationDeadline - Date.now();
+        if (remainingMs <= 0) return null;
+        const retryDelayMs = Math.min(
+          250 * 2 ** Math.min((run.resumeAttempts ?? 1) - 1, 4),
+          4_000,
+          remainingMs,
+        );
+        await notifyWhenChanged(run, undefined, retryDelayMs);
+        if (run.terminal || run.streamClosed) return null;
+      }
       run.resumeAttempts = (run.resumeAttempts ?? 0) + 1;
       try {
         const resumed = runtime.resume
@@ -2501,6 +2531,9 @@ export function createAgentKitProtocolAdapter(
         if (asRecord(error)?.retryable === false) throw error;
       }
     }
+    if (continuationDeadline !== undefined && lastError === undefined) {
+      return null;
+    }
     if (lastError !== undefined) throw lastError;
     return null;
   }
@@ -2513,6 +2546,7 @@ export function createAgentKitProtocolAdapter(
     if (resumed.runId && resumed.runId !== runtimeRunId) {
       run.runtimeSequence = undefined;
       run.resumeAttempts = 0;
+      run.continuationStartedAtMs = undefined;
     }
     run.turn = resumed;
   }
@@ -2544,6 +2578,7 @@ export function createAgentKitProtocolAdapter(
             }
             if (run.terminal || run.waitingForContinuation) break;
             const resumed = await resumeRuntimeTurn(run);
+            if (run.terminal || run.waitingForContinuation) break;
             if (resumed) {
               setResumedRuntimeTurn(run, resumed);
               continue;
@@ -2563,6 +2598,7 @@ export function createAgentKitProtocolAdapter(
             if (run.streamClosed || run.terminal) return;
             try {
               const resumed = await resumeRuntimeTurn(run, error);
+              if (run.streamClosed || run.terminal) return;
               if (resumed) {
                 setResumedRuntimeTurn(run, resumed);
                 continue;

@@ -784,14 +784,7 @@ export function releaseSlideObjectFromLeftBoxes(
   }
   if (!home || home === parent) return false;
   home.append(element);
-  const objectId = element.getAttribute("data-slide-object-id");
-  for (const spacer of Array.from(
-    layer.querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]"),
-  )) {
-    if (spacer.getAttribute("data-slide-layout-spacer-for") === objectId) {
-      spacer.remove();
-    }
-  }
+  // The spacer belongs to the original flow slot and survives reparenting.
   restoreViewportPosition(element, rect);
   return true;
 }
@@ -926,7 +919,10 @@ export function removeSlideObjectAndLayoutSpacer(
   }
   const objectId = element.getAttribute("data-slide-object-id");
   if (objectId) {
-    const owner = element.parentElement ?? element.ownerDocument;
+    const owner =
+      element.closest<HTMLElement>(".fmd-slide, [data-slide-canvas]") ??
+      element.parentElement ??
+      element.ownerDocument;
     for (const spacer of Array.from(
       owner.querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]"),
     )) {

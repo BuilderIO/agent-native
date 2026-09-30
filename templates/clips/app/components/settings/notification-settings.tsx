@@ -7,7 +7,7 @@ import {
   SettingsGroup,
   SettingsLoadingRow,
   SettingsRow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   applyClipsNotificationPrefsPatch,
   CLIPS_NOTIFICATION_CATEGORIES,

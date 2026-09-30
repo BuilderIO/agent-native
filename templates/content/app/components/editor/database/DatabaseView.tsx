@@ -10,7 +10,7 @@ import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import type { DataGridColumn } from "@agent-native/toolkit/data-grid";
 import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
@@ -4152,7 +4152,10 @@ export function databaseSelectionCapabilities(args: {
 export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
   return properties.filter(
     (property) =>
-      property.editable && !isComputedPropertyType(property.definition.type),
+      property.editable &&
+      !isComputedPropertyType(property.definition.type) &&
+      // Row mutations do not accept relation values yet.
+      property.definition.type !== "relation",
   );
 }
 
@@ -14190,7 +14193,9 @@ function databaseTableCellDisplayValue(
     );
   }
 
-  return displayValue(property, undefined, wrapCells ? "wrapped" : "compact");
+  return displayValue(property, undefined, wrapCells ? "wrapped" : "compact", {
+    interactiveRelations: true,
+  });
 }
 
 export function isDatabasePropertyVisibleInView(

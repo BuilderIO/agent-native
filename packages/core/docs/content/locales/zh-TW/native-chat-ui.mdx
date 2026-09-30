@@ -226,7 +226,7 @@ export default defineAction({
 關於行動：
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/agent-chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -363,10 +363,8 @@ when: (args, result) => {
 可以公開返回 SSE 或 NDJSON 執行時事件的 POST 端點：
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",

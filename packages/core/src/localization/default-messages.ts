@@ -760,7 +760,6 @@ const messages = {
     useProvider: "Use {{provider}}",
     saveAndUseProvider: "Save and use {{provider}}",
     getApiKey: "Get an API key",
-    checkingAiConnection: "Checking AI connection...",
     delegatedAgent: {
       asking: "Asking {{name}}...",
       asked: "Asked {{name}}",
@@ -897,6 +896,7 @@ const messages = {
   jobs: {
     timezone: "Timezone",
     pageTitle: "Automations",
+    // guard:allow-unscoped — localized user-facing copy mentions webhooks, not SQL
     pageDescription:
       "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
     personalDescription:
@@ -1796,8 +1796,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
     promoteMustContain: "Reply must contain…",
-    promoteMustContainOptional: "Reply must contain (optional)",
-    promoteMustContainLabel: "Text the promoted eval reply must contain",
+    promoteMustContainOptional: "Optional text to check for in the reply…",
+    promoteMustContainLabel: "Text to check for in the promoted eval reply",
     promoteNeedsContains:
       "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",

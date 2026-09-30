@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrations" } },
   templatesPage: {
     actions: "Template actions for {{title}}",
     previewAction: "Preview",
@@ -170,6 +171,15 @@ const messages = {
     saveReconnect: "Changes will save when reconnected",
     saveFailedDescription:
       "Your latest edits are only on this device. Download a backup before leaving.",
+    slideConflictReview: "Review",
+    slideConflictTitle: "This slide changed elsewhere",
+    slideConflictDescription:
+      "Another editor saved a newer version. Keeping your draft will replace that slide's saved content, or use the latest version.",
+    slideConflictUseLatest: "Use latest",
+    slideConflictKeepDraft: "Keep my draft",
+    slideConflictKeepEditing: "Keep editing",
+    slideConflictResolutionFailed:
+      "Could not resolve the conflict. Your draft is still here.",
     offline: "Offline",
     selected: "selected",
     chooseDesignSystem: "Choose a design system",
@@ -852,7 +862,7 @@ const messages = {
     },
     importDeck: "Import Deck",
     context: {
-      websiteReference: "Attach website",
+      websiteReference: "Add website",
       websiteUrlLabel: "Website URL",
       websiteUrl: "Paste a website URL",
       figmaUrlLabel: "Figma link",
@@ -866,7 +876,7 @@ const messages = {
       searchPresentations: "Search presentations…",
       menu: {
         system: "Use a design system",
-        figma: "Attach Figma",
+        figma: "Add Figma",
         design: "Reference a design",
         deck: "Reference a presentation",
         searchDesign: "Search design…",
@@ -1048,7 +1058,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "Couldn't check AI connection.",
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
   },
 };

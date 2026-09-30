@@ -46,9 +46,12 @@ includeRawContent=true for the provided capture id when exact quote validation
 is needed. Write supported durable entries with write-knowledge;
 that action will route uncertain, sensitive, or low-confidence items through
 the review queue when needed. Preserve exact short evidence quotes from the
-capture. Exclude personal or out-of-scope material. Always finish by calling
-mark-capture-distilled with status distilled, or status ignored when the capture
-should not become company knowledge.`;
+capture. A brief, dated company or product go-live announcement can become
+knowledge about the announced plan, not proof that the launch happened. Route
+uncertain announcements to review with proposalMode=always. Exclude personal
+or out-of-scope material. Always finish by calling mark-capture-distilled with
+status distilled after writing knowledge or a proposal, or status ignored only
+when no company-relevant fact remains.`;
 
 function recheckAt(now: string) {
   return new Date(Date.parse(now) + DISTILLATION_RECHECK_MS).toISOString();

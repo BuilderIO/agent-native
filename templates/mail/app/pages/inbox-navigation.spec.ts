@@ -120,6 +120,10 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("does not append placeholder rows while visible mail syncs", () => {
+    expect(emailListSource()).not.toContain("isSyncing");
+  });
+
   it("does not search Gmail for a focused contact on the SQL-backed inbox", () => {
     const source = inboxSource();
 

@@ -4,14 +4,14 @@ import {
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { useReviewComments } from "@agent-native/core/client/review";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   buildReviewThreads,
-  ReviewStatusBadge,
-  useReviewComments,
   type ReviewThread,
-} from "@agent-native/core/client/review";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
-import { normalizeDocumentTitle } from "@agent-native/core/shared";
+} from "@agent-native/toolkit/app/review";
+import { ReviewStatusBadge } from "@agent-native/toolkit/app/review";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

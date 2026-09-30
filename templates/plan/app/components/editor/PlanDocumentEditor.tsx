@@ -1,14 +1,14 @@
 import {
-  useOptionalBlockRegistry,
   type BlockRegistry,
   type BlockDataChangeMeta,
-} from "@agent-native/core/blocks";
+} from "@agent-native/core/blocks/server";
 import { generateTabId } from "@agent-native/core/client/agent-chat";
 import {
   useCollaborativeDoc,
   type UseCollaborativeDocResult,
 } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOptionalBlockRegistry } from "@agent-native/toolkit/app/blocks";
 import {
   applyDocSurgically,
   DragHandle,

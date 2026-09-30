@@ -59,7 +59,7 @@ const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
 const UNAUTHORIZED_PR_PUSH_RE =
-  /\b(?:never|stop|don['’]?t|do not|must not)\b(?!\s+(?:\w+\s+){0,3}forget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b))[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b|\b(?:never|stop|don['’]?t|do not|must not)\b(?!\s+(?:\w+\s+){0,3}forget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b))[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,60}\b(?:(?:I|we)(?:['’]ve| have)?\s+(?:(?:don['’]?t|do not|must not)\s+)?(?:own|opened|created|authored)|you\s+(?:don['’]?t|do not|must not)\s+own|(?:(?:is|are)(?:n['’]?t|\s+not)|not)\s+yours?|unless\s+you\s+(?:(?:don['’]?t|do not|must not)\s+)?own|(?:that\s+)?(?:don['’]?t|do not|doesn['’]?t|does not)\s+belong\s+to\s+you)\b|\bpush(?:ed|ing)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b|\bpush(?:ed|ing)\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|(?:(?:I|we)(?:['’]ve| have)?\s+(?:(?:don['’]?t|do not|must not)\s+)?(?:own|opened|created|authored)|you\s+(?:don['’]?t|do not|must not)\s+own|(?:(?:is|are)(?:n['’]?t|\s+not)|not)\s+yours?|unless\s+you\s+(?:(?:don['’]?t|do not|must not)\s+)?own|(?:that\s+)?(?:don['’]?t|do not|doesn['’]?t|does not)\s+belong\s+to\s+you))\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b/i;
+  /\b(?:never|stop|don['’]?t|do not|must not|should not|shouldn['’]?t)\b(?!\s+(?:\w+\s+){0,3}forget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b))[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b|\b(?:never|stop|don['’]?t|do not|must not|should not|shouldn['’]?t)\b(?!\s+(?:\w+\s+){0,3}forget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b))[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,60}\b(?:(?:I|we)(?:['’]ve| have)?\s+(?:(?:don['’]?t|do not|must not)\s+)?(?:own|opened|created|authored)|you\s+(?:don['’]?t|do not|must not)\s+own|(?:(?:is|are)(?:n['’]?t|\s+not)|not)\s+yours?|unless\s+you\s+(?:(?:don['’]?t|do not|must not)\s+)?own|(?:that\s+)?(?:don['’]?t|do not|doesn['’]?t|does not)\s+belong\s+to\s+you)\b|\bpush(?:ed|ing)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b|\bpush(?:ed|ing)\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|(?:(?:I|we)(?:['’]ve| have)?\s+(?:(?:don['’]?t|do not|must not)\s+)?(?:own|opened|created|authored)|you\s+(?:don['’]?t|do not|must not)\s+own|(?:(?:is|are)(?:n['’]?t|\s+not)|not)\s+yours?|unless\s+you\s+(?:(?:don['’]?t|do not|must not)\s+)?own|(?:that\s+)?(?:don['’]?t|do not|doesn['’]?t|does not)\s+belong\s+to\s+you))\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b/i;
 
 const AFFIRMATIVE_PR_PUSH_REMINDER_RE =
   /\b(?:never|must not|don['’]?t|do not)\b[^.!?\n]{0,100}\bforget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b)[^.!?\n]{0,100}\bpush(?:ed|ing)?\b/i;
@@ -1529,6 +1529,9 @@ const UNAUTHORIZED_PR_PUSH_REGEX_CASES = [
   [true, "Do not push to a PR I do not own."],
   [true, "Stop pushing to a PR you don't own."],
   [true, "Stop pushing PRs that aren't yours."],
+  [true, "You shouldn't push to PRs you don't own."],
+  [true, "Stop pushing a PR I don't own."],
+  [false, "You should push to PRs you don't own."],
   [false, "Please push fixes to a PR you don't own."],
   [true, "Don't push to a PR I’ve opened without permission."],
   [true, "Pushed a PR we've authored without permission."],
@@ -2135,6 +2138,13 @@ const PATTERNS = [
     re: /\b(?:list|lists|query|queries|search|sidebar|dashboard|page|endpoint|request|chats?|threads?|results?|rows?|load(?:ing)?)\b[^.!?]{0,80}\b(?:takes? forever|so slow|insanely slow|really slow|super slow|\d+\s*(?:s|sec|seconds)\s*to\s*(?:load|populate|render))\b/i,
   },
   {
+    key: "unnecessary-realtime-sync",
+    label: "Had to stop broad or unnecessary background sync",
+    fixedBy:
+      "guard:realtime-opt-in + .agents/skills/real-time-sync (2026-09-28)",
+    re: /\b(?:too many|too much|every page|all pages|all tabs|unnecessary|unneeded|don't need|do not need|shouldn't|should not|default on|by default)\b[^.!?]{0,100}\b(?:real[- ]?time|realtime|poll(?:ing|s)?|SSE|background sync|sync transport)\b|\b(?:real[- ]?time|realtime|poll(?:ing|s)?|SSE|background sync|sync transport)\b[^.!?]{0,100}\b(?:too many|too much|every page|all pages|all tabs|unnecessary|unneeded|don't need|do not need|shouldn't|should not|default on|by default)\b/i,
+  },
+  {
     key: "stopped-early",
     label: "Stopped mid-task / queued instead of doing",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
@@ -2297,6 +2307,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/configuration + packages/core/src/app-config (2026-08-13)",
     re: /\b((another|a new|more|adding|stop adding|why (another|a new|an?))[^.!?]{0,40}\benv(ironment)? ?(vars?|variables?|keys?)|env(ironment)? ?(vars?|variables?) (should (only|just|not)|are (only|just)|only for)|shouldn'?t need (an? )?env|without (needing |requiring )?(an? )?env(ironment)? ?(var|variable|key)|no more env|too many env|why (is|does) this (an? )?env|hardcod\w+ (the )?(env|config)|second (way|namespace) to (set|configure))/i,
+  },
+  {
+    key: "ci-overspend",
+    label: "Told CI runs work a change cannot affect",
+    fixedBy:
+      ".agents/skills/adding-tests-and-ci + scripts/ci-change-scope.ts per-app outputs (2026-09-29)",
+    re: /\b(?:runs?|running|triggers?|fires?) on every (?:ci|pr|push|merge|commit|template|change)\b|\brunning so (?:often|frequently)\b|\bunnecessarily (?:running|runs?|triggered)\b|\b(?:ci|tests?|jobs?|lanes?|workflows?)\b[^.!?]{0,40}\b(?:absur\w*ly|way too|so|super) expensive\b|\bshould(?:n'?t| not) it (?:only )?(?:listen|run|trigger) (?:to|on|for)\b|\beats? up (?:our|the) (?:entire )?(?:quota|capacity|runners?)\b|\bwaiting for (?:a )?(?:runner|resources)\b/i,
   },
   {
     key: "admin-grant-hack",

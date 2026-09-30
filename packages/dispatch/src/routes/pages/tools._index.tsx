@@ -1,4 +1,4 @@
-import { ToolsListPage } from "@agent-native/core/client/tools";
+import { ToolsListPage } from "@agent-native/toolkit/app/extensions";
 
 export function meta() {
   return [{ title: "Extensions \u2014 Dispatch" }];

@@ -1,7 +1,5 @@
-import {
-  McpIntegrationLogo,
-  resolveAgentProviderLogo,
-} from "@agent-native/core/client/resources";
+import { resolveAgentProviderLogo } from "@agent-native/core/client/resources";
+import { McpIntegrationLogo } from "@agent-native/toolkit/app/resources";
 import { IconDeviceDesktop, IconSparkles } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";

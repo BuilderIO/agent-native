@@ -7,7 +7,7 @@ import {
   SettingsGroup,
   SettingsLoadingRow,
   SettingsRow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   DEFAULT_CLIPS_RECORDING_VISIBILITY,
   type ClipsDefaultVisibility,

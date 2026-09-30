@@ -1,9 +1,9 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   PromptComposer,
   useEagerFileUploads,
-} from "@agent-native/core/client/composer";
-import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
+} from "@agent-native/toolkit/app/chat/composer/index";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
 import {
   useCallback,

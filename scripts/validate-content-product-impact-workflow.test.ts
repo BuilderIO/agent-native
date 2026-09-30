@@ -39,8 +39,8 @@ describe("Content product conformance workflow boundary", () => {
     assert(result.issues.some((issue) => issue.includes("credentials")));
   });
 
-  it("requires declaration and label edits to rerun the pilot", () => {
-    const unsafe = workflow.replace("        edited,\n", "");
+  it("requires declaration edits to rerun the pilot", () => {
+    const unsafe = workflow.replace("edited, ", "");
     const result = validateContentProductImpactWorkflow(unsafe);
     assert.equal(result.ok, false);
     assert(result.issues.some((issue) => issue.includes("recalibration")));
@@ -155,7 +155,7 @@ describe("Content product conformance workflow boundary", () => {
   it("rejects a candidate-controlled controller or package script", () => {
     const unsafe = workflow
       .replace(
-        "ref: 03caa13fd5bf6176ee01ab223452db9932b7ca8c",
+        "ref: 72715043afb74b9e4ab82bdb763f812ce180becd",
         "ref: ${{ github.event.pull_request.head.sha }}",
       )
       .replace(

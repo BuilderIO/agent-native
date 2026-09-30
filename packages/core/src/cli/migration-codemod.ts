@@ -4,8 +4,10 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import {
+  Node,
   Project,
   QuoteKind,
+  SyntaxKind,
   type ImportDeclaration,
   type ImportSpecifierStructure,
   type SourceFile,
@@ -22,6 +24,7 @@ import {
 } from "../package-lifecycle/migration-manifest.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx"]);
+const CSS_EXTENSIONS = new Set([".css"]);
 const SKIP_DIRECTORIES = new Set([
   ".git",
   ".next",
@@ -57,7 +60,7 @@ interface PendingDependency {
   packageName: string;
 }
 
-function collectSourceFiles(root: string): string[] {
+function collectFiles(root: string, extensions: Set<string>): string[] {
   const files: string[] = [];
   const visit = (directory: string): void => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -66,7 +69,7 @@ function collectSourceFiles(root: string): string[] {
       if (entry.isDirectory()) {
         visit(entryPath);
       } else if (
-        SOURCE_EXTENSIONS.has(path.extname(entry.name)) &&
+        extensions.has(path.extname(entry.name)) &&
         !entry.name.endsWith(".d.ts")
       ) {
         files.push(entryPath);
@@ -75,6 +78,64 @@ function collectSourceFiles(root: string): string[] {
   };
   visit(root);
   return files.sort();
+}
+
+function rewriteCssImports(
+  file: string,
+  moves: Record<string, MigrationMove>,
+  root: string,
+  apply: boolean,
+  pendingDependencies: PendingDependency[],
+  warnings: string[],
+  targetExists: (specifier: string, sourceFile?: string) => boolean,
+): MigrationCodemodFileChange | null {
+  const before = fs.readFileSync(file, "utf-8");
+  const after = before.replace(
+    /(@import\s+)(?:(["'])([^"']+)\2|url\((\s*)(?:(["'])([^"']+)\5|([^)'"\s]+))(\s*)\))/g,
+    (
+      whole,
+      prefix: string,
+      quote: string | undefined,
+      quotedSpecifier: string | undefined,
+      urlLeadingWhitespace: string | undefined,
+      urlQuote: string | undefined,
+      urlSpecifier: string | undefined,
+      urlUnquotedSpecifier: string | undefined,
+      urlTrailingWhitespace: string | undefined,
+    ) => {
+      const specifier = quotedSpecifier ?? urlSpecifier ?? urlUnquotedSpecifier;
+      if (!specifier) return whole;
+      const move = moves[specifier];
+      if (!move) return whole;
+      if (move.symbols) {
+        warnings.push(`${file}: cannot split CSS import from ${specifier}`);
+        return whole;
+      }
+      if (migrationMoveStatus(move) === "planned") {
+        warnSkippedTarget(warnings, file, move.to, "planned");
+        return whole;
+      }
+      if (!targetExists(move.to, file)) {
+        warnSkippedTarget(warnings, file, move.to, "unresolved");
+        return whole;
+      }
+      recordIntroducedDependency(
+        pendingDependencies,
+        file,
+        root,
+        specifier,
+        move.to,
+      );
+      if (quote) return `${prefix}${quote}${move.to}${quote}`;
+      const rewrittenSpecifier = urlQuote
+        ? `${urlQuote}${move.to}${urlQuote}`
+        : move.to;
+      return `${prefix}url(${urlLeadingWhitespace}${rewrittenSpecifier}${urlTrailingWhitespace})`;
+    },
+  );
+  if (before === after) return null;
+  if (apply) fs.writeFileSync(file, after);
+  return { file, before, after };
 }
 
 function mergeManifestMoves(
@@ -366,6 +427,60 @@ function rewriteImportDeclaration(
   return true;
 }
 
+function rewriteDynamicImports(
+  sourceFile: SourceFile,
+  moves: Record<string, MigrationMove>,
+  root: string,
+  pendingDependencies: PendingDependency[],
+  warnings: string[],
+  targetExists: (specifier: string, sourceFile?: string) => boolean,
+): void {
+  for (const call of sourceFile.getDescendantsOfKind(
+    SyntaxKind.CallExpression,
+  )) {
+    if (call.getExpression().getKind() !== SyntaxKind.ImportKeyword) continue;
+    const argument = call.getArguments()[0];
+    if (
+      !Node.isStringLiteral(argument) &&
+      !Node.isNoSubstitutionTemplateLiteral(argument)
+    ) {
+      continue;
+    }
+
+    const originalSpecifier = argument.getLiteralValue();
+    const move = moves[originalSpecifier];
+    if (!move) continue;
+    if (move.symbols && Object.keys(move.symbols).length > 0) {
+      warnings.push(
+        `${sourceFile.getFilePath()}: cannot split dynamic import from ${originalSpecifier} across symbol destinations`,
+      );
+      continue;
+    }
+    if (migrationMoveStatus(move) === "planned") {
+      warnSkippedTarget(warnings, sourceFile.getFilePath(), move.to, "planned");
+      continue;
+    }
+    if (!targetExists(move.to, sourceFile.getFilePath())) {
+      warnSkippedTarget(
+        warnings,
+        sourceFile.getFilePath(),
+        move.to,
+        "unresolved",
+      );
+      continue;
+    }
+
+    argument.replaceWithText(JSON.stringify(move.to));
+    recordIntroducedDependency(
+      pendingDependencies,
+      sourceFile.getFilePath(),
+      root,
+      originalSpecifier,
+      move.to,
+    );
+  }
+}
+
 function rewriteExportDeclarations(
   sourceFile: SourceFile,
   moves: Record<string, MigrationMove>,
@@ -500,6 +615,7 @@ function readPackageJson(packageFile: string): Record<string, unknown> | null {
 
 function addDependencies(
   pending: PendingDependency[],
+  dependencyVersions: Record<string, string>,
   apply: boolean,
 ): MigrationCodemodFileChange[] {
   const changes: MigrationCodemodFileChange[] = [];
@@ -535,8 +651,9 @@ function addDependencies(
       packageJson.dependencies && typeof packageJson.dependencies === "object"
         ? (packageJson.dependencies as Record<string, string>)
         : {};
-    for (const packageName of missing.sort())
-      dependencies[packageName] = "latest";
+    for (const packageName of missing.sort()) {
+      dependencies[packageName] = dependencyVersions[packageName] ?? "latest";
+    }
     packageJson.dependencies = Object.fromEntries(
       Object.entries(dependencies).sort(([left], [right]) =>
         left.localeCompare(right),
@@ -555,13 +672,19 @@ export function runMigrationCodemods(
   const root = path.resolve(options.root);
   const manifests = options.manifests ?? loadMigrationManifests(root);
   const moves = mergeManifestMoves(manifests);
+  const dependencyVersions: Record<string, string> = Object.assign(
+    {},
+    ...manifests.map((manifest) => manifest.dependencyVersions ?? {}),
+  );
   const targetExists =
     options.targetExists ?? createFreshMigrationTargetResolver(root);
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
     manipulationSettings: { quoteKind: QuoteKind.Double },
   });
-  const sourceFiles = project.addSourceFilesAtPaths(collectSourceFiles(root));
+  const sourceFiles = project.addSourceFilesAtPaths(
+    collectFiles(root, SOURCE_EXTENSIONS),
+  );
   const pendingDependencies: PendingDependency[] = [];
   const warnings: string[] = [];
   const changes: MigrationCodemodFileChange[] = [];
@@ -580,6 +703,14 @@ export function runMigrationCodemods(
         targetExists,
       );
     }
+    rewriteDynamicImports(
+      sourceFile,
+      moves,
+      root,
+      pendingDependencies,
+      warnings,
+      targetExists,
+    );
     rewriteExportDeclarations(
       sourceFile,
       moves,
@@ -594,8 +725,22 @@ export function runMigrationCodemods(
     if (options.apply) sourceFile.saveSync();
   }
 
+  for (const file of collectFiles(root, CSS_EXTENSIONS)) {
+    const change = rewriteCssImports(
+      file,
+      moves,
+      root,
+      Boolean(options.apply),
+      pendingDependencies,
+      warnings,
+      targetExists,
+    );
+    if (change) changes.push(change);
+  }
+
   const dependencyChanges = addDependencies(
     pendingDependencies,
+    dependencyVersions,
     Boolean(options.apply),
   );
   return {
