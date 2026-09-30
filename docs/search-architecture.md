@@ -441,7 +441,11 @@ Built:
     the previous engine when every document matches (about 110 ms) and was 3
     to 6 times lower for selective queries. The pending-changes check adds one
     round trip, so from that client broad queries took about 35 ms longer than
-    before and selective ones about the same.
+    before and selective ones about the same. Per batch of 30, though, the
+    broadest query ("task prio") went over 400 ms in 2 of 6 batches, and the
+    previous engine never did. When every document matches, the index
+    statement touches about five times as many buffers, because it looks up
+    each match in `documents` by ID.
 
 Planned:
 
@@ -490,3 +494,6 @@ Planned:
    suspending? It runs every minute and touches the database. Measure first;
    search's sweep handler only adds work to ticks that already run.
 3. Does `ts_rank_cd` improve the relevance eval over the title tiers alone?
+4. Can a query that matches nearly every document read `documents` once
+   instead of looking up each match by ID? Its occasional slow searches on
+   Neon come from that larger working set.
