@@ -3615,8 +3615,10 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).not.toContain("@agent-native/core > @uiw/react-codemirror");
     expect(deps).toContain("@agent-native/toolkit > @xterm/xterm");
     expect(deps).not.toContain("@agent-native/core > @xterm/xterm");
-    expect(deps).toContain("@agent-native/core > i18next");
-    expect(deps).toContain("@agent-native/core > react-i18next");
+    expect(deps).toContain("@agent-native/toolkit > i18next");
+    expect(deps).not.toContain("@agent-native/core > i18next");
+    expect(deps).toContain("@agent-native/toolkit > react-i18next");
+    expect(deps).not.toContain("@agent-native/core > react-i18next");
     expect(deps).toContain("@agent-native/toolkit > shiki/core");
     expect(deps).toContain("@paper-design/shaders-react");
     expect(deps).not.toContain(
