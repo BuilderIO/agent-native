@@ -776,6 +776,23 @@ describe("in-place text session: Enter", () => {
     expect(session.element.querySelector("p")?.textContent).toBe("Plain line");
   });
 
+  it("keeps inline styling when the empty list item exits into a paragraph", () => {
+    const el = mount(
+      '<ul id="t"><li><span style="color: red"><strong>One</strong></span></li></ul>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "One"), 3);
+
+    beforeInput(el, "insertParagraph");
+    beforeInput(el, "insertParagraph");
+    type(session.element, "Two");
+    session.end();
+
+    expect(session.element.querySelector("p")?.innerHTML).toBe(
+      '<span style="color: red"><strong>Two</strong></span>',
+    );
+  });
+
   it("steps an empty nested last item out a level", () => {
     const el = mount(
       '<ul id="t"><li>One<ul><li>Sub</li><li></li></ul></li></ul>',

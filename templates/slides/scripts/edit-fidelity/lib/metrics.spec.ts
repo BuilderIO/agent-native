@@ -349,26 +349,51 @@ describe("restyledAddedText", () => {
     expect(restyledAddedText(view, reload)).toEqual([]);
   });
 
-  it("allows an unstyled paragraph after a heading while still flagging styled text", () => {
-    const view = snap([{ ...rec("text:Title#0", white, true), tag: "h1" }]);
+  it.each([
+    ["heading", "h1"],
+    ["list item", "li"],
+  ])(
+    "allows an unstyled paragraph after a %s while still flagging styled text",
+    (_, tag) => {
+      const view = snap([{ ...rec("text:Title#0", white, true), tag }]);
+      const plainParagraph = {
+        ...rec("text:new line#0", { color: "rgb(255, 255, 255)" }, true),
+        tag: "p",
+        inlineStyle: "",
+      };
+      const reload = snap([...view.records, plainParagraph]);
+      expect(restyledAddedText(view, reload, tag)).toEqual([]);
+      expect(restyledAddedText(view, reload)).toEqual(["text:new line#0"]);
+      expect(
+        restyledAddedText(
+          view,
+          snap([
+            ...view.records,
+            { ...plainParagraph, inlineStyle: "font-size: 48px" },
+          ]),
+          tag,
+        ),
+      ).toEqual(["text:new line#0"]);
+    },
+  );
+
+  it("does not exempt a paragraph edit because a sibling is a list item", () => {
+    const view = snap([
+      { ...rec("text:List item#0", white, true), tag: "li" },
+      {
+        ...rec("text:Paragraph#0", { color: "rgb(0, 0, 255)" }, true),
+        tag: "p",
+      },
+    ]);
     const plainParagraph = {
-      ...rec("text:new line#0", { color: "rgb(255, 255, 255)" }, true),
+      ...rec("text:new line#0", { color: "rgb(0, 0, 0)" }, true),
       tag: "p",
       inlineStyle: "",
     };
-    const reload = snap([...view.records, plainParagraph]);
-    expect(restyledAddedText(view, reload, true)).toEqual([]);
-    expect(restyledAddedText(view, reload)).toEqual(["text:new line#0"]);
-    expect(
-      restyledAddedText(
-        view,
-        snap([
-          ...view.records,
-          { ...plainParagraph, inlineStyle: "font-size: 48px" },
-        ]),
-        true,
-      ),
-    ).toEqual(["text:new line#0"]);
+    const after = snap([...view.records, plainParagraph]);
+
+    expect(restyledAddedText(view, after, "p")).toEqual(["text:new line#0"]);
+    expect(restyledAddedText(view, after, "li")).toEqual([]);
   });
 });
 

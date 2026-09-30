@@ -534,16 +534,14 @@ jobs:
   slides-chat-e2e:
     name: Slides chat caret in Chromium
     needs: change-scope
-    # ponytail: skip this 30-minute suite; re-enable once it fits the CI budget.
     if: >-
-      false && (
       needs.change-scope.outputs.full == 'true' ||
-      contains(needs.change-scope.outputs.workspace_filters, 'templates/slides') ||
-      contains(needs.change-scope.outputs.workspace_filters, 'packages/core') ||
-      contains(needs.change-scope.outputs.workspace_filters, 'packages/toolkit')
-      )
+      contains(needs.change-scope.outputs.workspace_filters, '{templates/slides}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/core}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/toolkit}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/creative-context}')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 

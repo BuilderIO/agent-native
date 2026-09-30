@@ -2545,7 +2545,10 @@ export function startInPlaceTextSession(
       paragraph.style.removeProperty(property);
     }
     if (!paragraph.style.margin) paragraph.style.margin = "0";
-    if (empty || !hasRenderedContent(paragraph)) {
+    if (
+      (empty || !hasRenderedContent(paragraph)) &&
+      !PLACEHOLDER_ONLY.test(paragraph.textContent ?? "")
+    ) {
       paragraph.replaceChildren(ZERO_WIDTH_SPACE);
     }
 

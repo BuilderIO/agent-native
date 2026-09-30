@@ -91,6 +91,7 @@ export interface EditorState {
    * the caret, -1 for the element itself; null with no caret in it.
    */
   caretBlock: number | null;
+  caretConvertibleTag: string | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
@@ -350,23 +351,44 @@ export function installInPageHelpers(chromeSelector: string) {
     return n;
   }
 
-  /** Deepest-first match for text an edit may have extended. */
+  /** Deepest match also covers a source split across sibling text targets. */
   function findByText(root: Element, text: string): Element | null {
     const want = strip(text);
     if (!want) return null;
     const prefix = want.slice(0, 40);
     let best: Element | null = null;
     let bestScore = Infinity;
+    let bestDepth = -1;
     let bestCount = 0;
-    for (const el of textTargets(root)) {
+    const candidates = new Set<Element>();
+    for (const target of textTargets(root)) {
+      for (
+        let el: Element | null = target;
+        el && el !== root;
+        el = el.parentElement
+      ) {
+        candidates.add(el);
+      }
+    }
+    for (const el of candidates) {
+      if (!visible(el)) continue;
       const have = strip(el.textContent);
       if (!have.includes(prefix)) continue;
       const score = Math.abs(have.length - want.length);
-      if (score < bestScore) {
+      let depth = 0;
+      for (
+        let parent = el.parentElement;
+        parent && parent !== root;
+        parent = parent.parentElement
+      ) {
+        depth++;
+      }
+      if (score < bestScore || (score === bestScore && depth > bestDepth)) {
         best = el;
         bestScore = score;
+        bestDepth = depth;
         bestCount = 1;
-      } else if (score === bestScore) {
+      } else if (score === bestScore && depth === bestDepth) {
         bestCount += 1;
       }
     }
@@ -518,6 +540,19 @@ export function installInPageHelpers(chromeSelector: string) {
       : Array.from(source.querySelectorAll("*")).indexOf(el);
   }
 
+  function caretConvertibleTag(editor: HTMLElement | null): string | null {
+    const focus = getSelection()?.focusNode;
+    if (!editor || !focus || !editor.contains(focus)) return null;
+    let el = focus instanceof Element ? focus : focus.parentElement;
+    while (el) {
+      const tag = el.tagName.toLowerCase();
+      if (/^h[1-6]$/.test(tag) || tag === "li") return tag;
+      if (el === editor) break;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
   /**
    * Top of the element's rendered text and line breaks. A range over the
    * whole element would also take in the border box of every child, so a
@@ -562,6 +597,7 @@ export function installInPageHelpers(chromeSelector: string) {
       contentTop: source ? contentTop(source, origin) : null,
       caretRect: caretRect(origin, source),
       caretBlock: caretBlock(source),
+      caretConvertibleTag: caretConvertibleTag(pm),
       sourceTag: source?.tagName ?? null,
       sourceText: source ? norm(source.textContent) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,
