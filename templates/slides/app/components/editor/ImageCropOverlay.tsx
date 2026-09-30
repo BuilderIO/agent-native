@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -42,7 +43,6 @@ type CropDomSnapshot = {
   imageStyle: string | null;
   frame: SlideObjectGeometry;
   image: SlideObjectGeometry;
-  previewStyles: Array<[HTMLElement, string, string, string]>;
 };
 
 const CROP_HANDLES: ResizeHandle[] = [
@@ -116,30 +116,6 @@ function handlePosition(handle: ResizeHandle): CSSProperties {
     else style.right = 0;
   }
   return style;
-}
-
-function setPreviewStyle(
-  element: HTMLElement,
-  property: string,
-  value: string,
-  snapshots: Array<[HTMLElement, string, string, string]>,
-) {
-  snapshots.push([
-    element,
-    property,
-    element.style.getPropertyValue(property),
-    element.style.getPropertyPriority(property),
-  ]);
-  element.style.setProperty(property, value);
-}
-
-function restorePreviewStyles(
-  snapshots: Array<[HTMLElement, string, string, string]>,
-) {
-  for (const [element, property, value, priority] of snapshots) {
-    if (value) element.style.setProperty(property, value, priority);
-    else element.style.removeProperty(property);
-  }
 }
 
 function sameGeometry(
@@ -259,15 +235,15 @@ function updateOutsideImageMasks(
   );
   const regions = [
     {
-      left: overlapLeft,
+      left: imageBounds.left,
       top: imageBounds.top,
-      width: overlapWidth,
+      width: imageBounds.right - imageBounds.left,
       height: Math.max(0, crop.top - imageBounds.top),
     },
     {
-      left: overlapLeft,
+      left: imageBounds.left,
       top: crop.bottom,
-      width: overlapWidth,
+      width: imageBounds.right - imageBounds.left,
       height: Math.max(0, imageBounds.bottom - crop.bottom),
     },
     {
@@ -452,18 +428,56 @@ export default function ImageCropOverlay({
   const finishRef = useRef(onFinish);
   const finishedRef = useRef(false);
   const cropMaskRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const startGesture = useCallback(
+    (
+      event: Pick<
+        PointerEvent,
+        | "button"
+        | "pointerId"
+        | "clientX"
+        | "clientY"
+        | "preventDefault"
+        | "stopPropagation"
+      >,
+      kind: CropGesture["kind"],
+      handle?: ResizeHandle,
+    ) => {
+      if (event.button !== 0 || finishedRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const geometry = readGeometry(frame);
+      const transform = readSlideObjectTransformSnapshot(frame);
+      const imageLeft = readPixels(image.style.left, image.offsetLeft);
+      const imageTop = readPixels(image.style.top, image.offsetTop);
+      activeGestureRef.current = {
+        pointerId: event.pointerId,
+        kind,
+        handle,
+        pointer: { x: event.clientX, y: event.clientY },
+        geometry,
+        transform,
+        image: {
+          left: imageLeft,
+          top: imageTop,
+          width: image.offsetWidth,
+          height: image.offsetHeight,
+        },
+        viewport: { left: viewport.offsetLeft, top: viewport.offsetTop },
+      };
+    },
+    [frame, image, viewport],
+  );
 
   useLayoutEffect(() => {
-    const previewStyles: Array<[HTMLElement, string, string, string]> = [];
     const initialStyles = {
       frameStyle: frame.getAttribute("style"),
       viewportStyle: viewport.getAttribute("style"),
       imageStyle: image.getAttribute("style"),
     };
     frame.style.boxSizing = "border-box";
-    setPreviewStyle(viewport, "overflow", "visible", previewStyles);
-    setPreviewStyle(viewport, "clip-path", "none", previewStyles);
-    setPreviewStyle(viewport, "border-radius", "0", previewStyles);
+    viewport.style.overflow = "visible";
+    viewport.style.clipPath = "none";
+    viewport.style.borderRadius = "0";
     image.style.position = "absolute";
     image.style.left = `${image.offsetLeft}px`;
     image.style.top = `${image.offsetTop}px`;
@@ -480,7 +494,6 @@ export default function ImageCropOverlay({
         width: image.offsetWidth,
         height: image.offsetHeight,
       },
-      previewStyles,
     };
   }, [frame, image, viewport]);
 
@@ -515,7 +528,6 @@ export default function ImageCropOverlay({
             height: image.offsetHeight,
           })),
       );
-      if (snapshot) restorePreviewStyles(snapshot.previewStyles);
       if (!commit) restore();
       finishRef.current(commit, changed);
     };
@@ -623,63 +635,39 @@ export default function ImageCropOverlay({
     };
 
     const onOutsidePointerDown = (event: PointerEvent) => {
-      if (!frame.contains(event.target as Node)) finish(true);
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" || event.key === "Enter") {
-        event.preventDefault();
+      const bounds = frame.getBoundingClientRect();
+      const insideFrame =
+        event.clientX >= bounds.left &&
+        event.clientX <= bounds.right &&
+        event.clientY >= bounds.top &&
+        event.clientY <= bounds.bottom;
+      if (insideFrame) return;
+      if (event.target instanceof Node && image.contains(event.target)) {
+        startGesture(event, "move-image");
         event.stopImmediatePropagation();
-        finish(true);
-      } else if (event.key !== "Tab") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
+        return;
       }
+      finish(true);
     };
 
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
     document.addEventListener("pointerdown", onOutsidePointerDown, true);
-    window.addEventListener("keydown", onKeyDown, true);
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerCancel);
       document.removeEventListener("pointerdown", onOutsidePointerDown, true);
-      window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [canvas, frame, image, viewport]);
+  }, [canvas, frame, image, startGesture, viewport]);
 
   const beginGesture = (
     event: ReactPointerEvent<HTMLDivElement | HTMLButtonElement>,
     kind: CropGesture["kind"],
     handle?: ResizeHandle,
   ) => {
-    if (event.button !== 0 || finishedRef.current) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const geometry = readGeometry(frame);
-    const transform = readSlideObjectTransformSnapshot(frame);
-    const imageLeft = readPixels(image.style.left, image.offsetLeft);
-    const imageTop = readPixels(image.style.top, image.offsetTop);
-    const viewportLeft = viewport.offsetLeft;
-    const viewportTop = viewport.offsetTop;
-    activeGestureRef.current = {
-      pointerId: event.pointerId,
-      kind,
-      handle,
-      pointer: { x: event.clientX, y: event.clientY },
-      geometry,
-      transform,
-      image: {
-        left: imageLeft,
-        top: imageTop,
-        width: image.offsetWidth,
-        height: image.offsetHeight,
-      },
-      viewport: { left: viewportLeft, top: viewportTop },
-    };
+    startGesture(event, kind, handle);
   };
 
   if (typeof document === "undefined") return null;

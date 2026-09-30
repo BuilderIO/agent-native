@@ -1606,6 +1606,7 @@ type ActiveImageCrop = {
   viewport: HTMLElement;
   image: HTMLImageElement;
   frozen: { restoreMarkdownTree?: () => void };
+  restorePreviewStyles: () => void;
   restoreChrome: () => void;
   hasChanges: () => boolean;
   cancel: () => HTMLElement | null;
@@ -2221,6 +2222,7 @@ export default function SlideEditor({
       // into; the only writes that reach here are explicit conversions of the
       // slide to HTML (a text box, a freeform move), which store the DOM.
       if (slideContent.hasAttribute("data-slide-autofit-root")) {
+        prepareSerializationRoot(clone);
         return stripBuilderIds(clone.innerHTML);
       }
       console.error(
@@ -2250,9 +2252,10 @@ export default function SlideEditor({
   const finishImageCrop = useCallback((commit: boolean, changed?: boolean) => {
     const crop = imageCropRef.current;
     if (!crop) return;
+    const cropChanged = changed ?? crop.hasChanges();
+    crop.restorePreviewStyles();
     imageCropRef.current = null;
     setImageCrop(null);
-    const cropChanged = changed ?? crop.hasChanges();
     if (commit && cropChanged) {
       crop.restoreChrome();
       writeImageCropPercentGeometry(crop.image, crop.viewport);
@@ -2301,13 +2304,7 @@ export default function SlideEditor({
 
   useEffect(() => {
     const onCropKeyDown = (event: KeyboardEvent) => {
-      if (
-        !imageCropRef.current ||
-        event.key === "Escape" ||
-        event.key === "Tab"
-      ) {
-        return;
-      }
+      if (!imageCropRef.current || event.key === "Escape") return;
       if (event.key === "Enter") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -7673,6 +7670,10 @@ export default function SlideEditor({
   const handleSlidePointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return; // left click only
+      if (imageCropRef.current) {
+        e.preventDefault();
+        return;
+      }
       clearCanvasHover();
       const slideContent = getSlideContent();
       if (!slideContent) return;
@@ -8214,6 +8215,26 @@ export default function SlideEditor({
           height: image.offsetHeight,
         },
       };
+      const previewStyles = (
+        [
+          [frame, "box-sizing"],
+          [frame, "clip-path"],
+          [frame, "border-radius"],
+          [viewport!, "overflow"],
+          [viewport!, "clip-path"],
+          [viewport!, "border-radius"],
+        ] as const
+      ).map(
+        ([element, property]) =>
+          [
+            element,
+            property,
+            element.style.getPropertyValue(property),
+            element.style.getPropertyPriority(property),
+          ] as const,
+      );
+      frame.style.clipPath = "none";
+      frame.style.borderRadius = "0";
       const activeCrop: ActiveImageCrop = {
         slideId: slide.id,
         content: slide.content,
@@ -8221,6 +8242,12 @@ export default function SlideEditor({
         viewport: viewport!,
         image,
         frozen: { restoreMarkdownTree: frozen.restoreMarkdownTree },
+        restorePreviewStyles: () => {
+          for (const [element, property, value, priority] of previewStyles) {
+            if (value) element.style.setProperty(property, value, priority);
+            else element.style.removeProperty(property);
+          }
+        },
         restoreChrome: () => {
           frame.style.overflow = "hidden";
           if (originalZIndex) frame.style.zIndex = originalZIndex;

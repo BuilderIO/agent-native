@@ -55,6 +55,7 @@ function createCropCanvas() {
       get: () => Number.parseFloat(frame.style.height) || 0,
     },
   });
+  frame.getBoundingClientRect = () => new DOMRect(50, 40, 200, 150);
 
   const viewport = document.createElement("div");
   viewport.style.cssText =
@@ -119,8 +120,8 @@ describe("<ImageCropOverlay>", () => {
     );
     expect(masks).toHaveLength(4);
     expect(masks.map((mask) => [mask.style.width, mask.style.height])).toEqual([
-      ["200px", "10px"],
-      ["200px", "50px"],
+      ["260px", "10px"],
+      ["260px", "50px"],
       ["20px", "100px"],
       ["40px", "100px"],
     ]);
@@ -131,7 +132,7 @@ describe("<ImageCropOverlay>", () => {
     ).toContain("bg-black");
   });
 
-  it("moves the image in frame coordinates and commits on Enter", () => {
+  it("moves the image in frame coordinates", () => {
     const nodes = createCropCanvas();
     const onFinish = vi.fn();
 
@@ -153,8 +154,27 @@ describe("<ImageCropOverlay>", () => {
     expect(nodes.image.style.left).toBe("0px");
     expect(nodes.image.style.top).toBe("0px");
     fireEvent.pointerUp(window, { pointerId: 1 });
-    fireEvent.keyDown(window, { key: "Enter" });
-    expect(onFinish).toHaveBeenCalledWith(true, true);
+    expect(onFinish).not.toHaveBeenCalled();
+  });
+
+  it("moves the dimmed image when a drag starts outside the crop frame", () => {
+    const nodes = createCropCanvas();
+    render(<ImageCropOverlay {...nodes} onFinish={vi.fn()} />);
+
+    fireEvent.pointerDown(nodes.image, {
+      button: 0,
+      pointerId: 7,
+      clientX: 45,
+      clientY: 50,
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 7,
+      clientX: 55,
+      clientY: 50,
+    });
+
+    expect(nodes.image.style.left).toBe("0px");
+    fireEvent.pointerUp(window, { pointerId: 7 });
   });
 
   it("converts image movement through the frame rotation", () => {
@@ -242,7 +262,7 @@ describe("<ImageCropOverlay>", () => {
     expect(onFinish).toHaveBeenCalledWith(true, false);
   });
 
-  it("clamps crop resize to the full image and commits a no-op without changes", () => {
+  it("clamps crop resize to the full image and commits when clicking away", () => {
     const nodes = createCropCanvas();
     const onFinish = vi.fn();
     render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
@@ -259,8 +279,27 @@ describe("<ImageCropOverlay>", () => {
       clientY: 100,
     });
     expect(nodes.frame.style.width).toBe("240px");
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.pointerDown(document.body, {
+      button: 0,
+      pointerId: 6,
+      clientX: 400,
+      clientY: 200,
+    });
     expect(onFinish).toHaveBeenCalledWith(true, true);
+  });
+
+  it("commits an unchanged crop as a no-op", () => {
+    const nodes = createCropCanvas();
+    const onFinish = vi.fn();
+    render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
+
+    fireEvent.pointerDown(document.body, {
+      button: 0,
+      pointerId: 8,
+      clientX: 400,
+      clientY: 200,
+    });
+    expect(onFinish).toHaveBeenCalledWith(true, false);
   });
 
   it("stores crop image geometry relative to the frame so a 2x resize scales it", () => {
@@ -278,14 +317,5 @@ describe("<ImageCropOverlay>", () => {
         2 *
         (Number.parseFloat(nodes.image.style.width) / 100),
     ).toBe(originalImageWidth * 2);
-  });
-
-  it("commits an unchanged crop as a no-op", () => {
-    const nodes = createCropCanvas();
-    const onFinish = vi.fn();
-    render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
-
-    fireEvent.keyDown(window, { key: "Enter" });
-    expect(onFinish).toHaveBeenCalledWith(true, false);
   });
 });
