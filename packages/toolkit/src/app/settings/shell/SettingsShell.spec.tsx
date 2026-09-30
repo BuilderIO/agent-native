@@ -127,10 +127,7 @@ describe("SettingsShell", () => {
       ...rail().querySelectorAll<HTMLElement>("[data-settings-group]"),
     ].map((group) => ({
       id: group.dataset.settingsGroup,
-      label:
-        group.dataset.settingsGroup === "footer"
-          ? null
-          : group.firstElementChild?.textContent,
+      label: group.firstElementChild?.textContent,
       pages: [
         ...group.querySelectorAll<HTMLElement>("[data-settings-page]"),
       ].map((item) => item.dataset.settingsPage),
@@ -149,7 +146,7 @@ describe("SettingsShell", () => {
     });
   }
 
-  it("renders the five groups in spec order, named after the app", async () => {
+  it("renders the five groups in spec order with Labs in the app group", async () => {
     await render();
     expect(groupLabels()).toEqual([
       {
@@ -160,7 +157,7 @@ describe("SettingsShell", () => {
       {
         id: "app",
         label: "Clips",
-        pages: ["app", "automations", "channels", "mcp"],
+        pages: ["app", "automations", "channels", "mcp", "labs"],
       },
       {
         id: "connections",
@@ -185,7 +182,6 @@ describe("SettingsShell", () => {
         label: "Organization",
         pages: ["org", "members", "usage"],
       },
-      { id: "footer", label: null, pages: ["labs"] },
     ]);
     expect(container.textContent).toContain("Back to app");
   });
@@ -201,10 +197,10 @@ describe("SettingsShell", () => {
       "automations",
       "channels",
       "mcp",
+      "labs",
+      "whats-new",
     ]);
-    expect(groupLabels().find((group) => group.id === "footer")?.pages).toEqual(
-      ["labs", "whats-new"],
-    );
+    expect(rail().querySelector('[data-settings-group="footer"]')).toBeNull();
   });
 
   it("shows owners and admins the four extra Organization pages", async () => {
@@ -537,10 +533,34 @@ describe("SettingsShell", () => {
       "automations",
       "channels",
       "mcp",
+      "labs",
     ]);
     clickPage("drafting");
     await waitFor(() =>
       Boolean(container.textContent?.includes("Drafting body")),
+    );
+  });
+
+  it("keeps Observability under Agent and opens its page", async () => {
+    await render({
+      extraTabs: [
+        {
+          id: "observability",
+          label: "Agent Observability",
+          group: "agent",
+          content: <p>Human review body</p>,
+        },
+      ],
+    });
+
+    expect(
+      groupLabels()
+        .find((group) => group.id === "agent")
+        ?.pages.at(-1),
+    ).toBe("observability");
+    clickPage("observability");
+    await waitFor(() =>
+      Boolean(container.textContent?.includes("Human review body")),
     );
   });
 

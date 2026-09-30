@@ -70,7 +70,7 @@ describe("settings page registry", () => {
     expect(getSettingsPages().map((page) => page.label)).toEqual(["B"]);
   });
 
-  it("orders core pages as the spec's five groups plus the footer", () => {
+  it("orders core pages in the five navigation groups", () => {
     const ids = sortSettingsPages(CORE_SETTINGS_PAGES).map((page) => page.id);
     expect(ids).toEqual([
       "profile",
@@ -82,6 +82,8 @@ describe("settings page registry", () => {
       "channels",
       "mcp",
       "creative-context",
+      "labs",
+      "whats-new",
       "integrations",
       "api-keys",
       "model",
@@ -98,8 +100,6 @@ describe("settings page registry", () => {
       "apps",
       "infra",
       "audit",
-      "labs",
-      "whats-new",
     ]);
     expect(new Set(ids)).toEqual(new Set(Object.values(SETTINGS_PAGE_IDS)));
   });
