@@ -413,8 +413,6 @@ const messages = {
       "新來源會收到一次性攝取權杖。現有來源保留其權杖，除非單獨輪換。",
     autoSync: "自動同步",
     autoSyncDescription: "背景輪詢在到期時使用此來源",
-    reviewRequired: "需要審核",
-    reviewRequiredDescription: "在核准之前對擷取的知識進行排隊",
     cancel: "取消",
     saveSource: "儲存來源",
     createSource: "建立來源",

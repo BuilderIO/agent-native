@@ -87,6 +87,7 @@ type ParsedAskBrainResult = {
 
 type ParsedSearchEverythingResult = {
   results?: unknown[];
+  policy?: { sourcePolicy?: unknown };
 };
 
 function latestUserText(
@@ -217,10 +218,11 @@ function latestAskBrainResult(
   return { called: false, hasCitations: false };
 }
 
-function isEvidenceSearchResult(item: unknown): boolean {
+function isEvidenceSearchResult(item: unknown, strict: boolean): boolean {
   if (!item || typeof item !== "object") return false;
   const type = (item as { type?: unknown }).type;
-  return type === "capture" || type === "knowledge";
+  // Strict policy answers from distilled knowledge only; raw captures are not evidence.
+  return type === "knowledge" || (!strict && type === "capture");
 }
 
 function latestSearchEverythingResult(
@@ -233,11 +235,12 @@ function latestSearchEverythingResult(
     const parsed = parseToolResultRecord<ParsedSearchEverythingResult>(
       result.content,
     );
+    const strict = parsed?.policy?.sourcePolicy === "strict";
     return {
       called: true,
       hasResults:
         Array.isArray(parsed?.results) &&
-        parsed.results.some(isEvidenceSearchResult),
+        parsed.results.some((item) => isEvidenceSearchResult(item, strict)),
     };
   }
   return { called: false, hasResults: false };

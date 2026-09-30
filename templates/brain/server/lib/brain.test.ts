@@ -1403,6 +1403,34 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
+  it("does not requeue an unchanged capture re-pulled by a later sync run", async () => {
+    seedSource();
+    const enqueue = vi.mocked(enqueueCaptureInvalidation);
+    const input = {
+      sourceId: "source-1",
+      externalId: "zoom:meeting-1",
+      title: "Launch review",
+      kind: "transcript",
+      content: "Decision: ship the beta on May 20.",
+    } as const;
+
+    await createCapture({
+      ...input,
+      metadata: { meetingTopic: "Launch review", syncRunId: "run-1" },
+    });
+    Object.assign(mocks.rows.captures[0], {
+      status: "distilled",
+      distilledAt: "2026-05-16T12:00:00.000Z",
+    });
+    const repulled = await createCapture({
+      ...input,
+      metadata: { meetingTopic: "Launch review", syncRunId: "run-2" },
+    });
+
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(repulled).toMatchObject({ status: "distilled" });
+  });
+
   it("invalidates a capture when publisher metadata changes", async () => {
     seedSource();
     const enqueue = vi.mocked(enqueueCaptureInvalidation);

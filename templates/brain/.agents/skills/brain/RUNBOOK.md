@@ -51,7 +51,10 @@ Brain access.
 
 Semantic indexing starts when a capture is `allowed`, rather than waiting for
 distillation. Items are embedded with OpenAI `text-embedding-3-small` (1024
-dimensions, vault key `OPENAI_API_KEY`) into pgvector. A derived row is current
+dimensions, vault key `OPENAI_API_KEY`) into pgvector. Semantic search queries
+only that embedding set, so captures embedded by an earlier provider are found
+by keyword search alone until they are re-embedded: run
+`backfill-search-embeddings` once after the switch. A derived row is current
 only when its staleness key matches
 `contentHash + BRAIN_SEARCH_INDEX_VERSION + sensitivityPolicyVersion + aclHash`.
 Changing content, policy, or membership invalidates indexed artifacts,

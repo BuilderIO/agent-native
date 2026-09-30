@@ -25,14 +25,14 @@ Grace Hopper: Pricing ships Tuesday.
 Thanks everyone.
 `;
 
-const meeting: ZoomMeeting = {
+const meeting = {
   uuid: "abc123==",
   id: 987654321,
   topic: "  Launch review  ",
   start_time: "2026-09-01T15:00:00Z",
   host_email: "host@example.test",
   share_url: "https://zoom.us/rec/share/example",
-};
+} satisfies ZoomMeeting & { host_email: string };
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -78,7 +78,6 @@ describe("normalizeZoomRecording", () => {
         zoomMeetingId: "987654321",
         zoomMeetingUuid: "abc123==",
         meetingTopic: "Launch review",
-        hostEmail: "host@example.test",
         sourceUrl: "https://zoom.us/rec/share/example",
       },
     });

@@ -568,7 +568,6 @@ export async function readBrainHealth() {
     const latestRun = latestRunBySource.get(source.id) ?? null;
     const nextSyncAt = nextBrainSourceSyncAt(source);
     const health = sourceHealthState(source, latestRun, nextSyncAt, nowMs);
-    const config = sourceConfig(source);
     return {
       id: source.id,
       title: source.title,
@@ -577,7 +576,6 @@ export async function readBrainHealth() {
       health,
       demo: isDemoSource(source),
       autoSync: sourceAutoSync(source),
-      reviewRequired: config.reviewRequired !== false,
       hasChannelAllowList:
         source.provider === "slack" ? sourceHasSlackChannels(source) : null,
       lastSyncedAt: source.lastSyncedAt,

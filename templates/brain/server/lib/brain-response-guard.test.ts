@@ -95,7 +95,7 @@ describe("Brain company-knowledge response guard", () => {
     });
   });
 
-  it("accepts the not-found reply that the retry message prescribes", () => {
+  it("accepts the not-found reply that the retry message prescribes", function () {
     const result = brainFinalResponseGuard(
       guardContext({
         requestText: "What is Builder's mission statement?",
@@ -105,6 +105,28 @@ describe("Brain company-knowledge response guard", () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  it("does not accept raw capture hits as evidence under the strict source policy", () => {
+    const strictSearch = (results: unknown[]) => ({
+      name: "search-everything",
+      isError: false,
+      content: JSON.stringify({
+        policy: { sourcePolicy: "strict" },
+        results,
+      }),
+    });
+    const guardWith = (results: unknown[]) =>
+      brainFinalResponseGuard(
+        guardContext({
+          requestText: "What did we decide about pricing?",
+          text: "Pricing ships Tuesday.",
+          toolResults: [strictSearch(results)],
+        }),
+      );
+
+    expect(guardWith([{ type: "capture", id: "capture-1" }])).not.toBeNull();
+    expect(guardWith([{ type: "knowledge", id: "knowledge-1" }])).toBeNull();
   });
 
   it("accepts a response grounded by cited ask-brain evidence", () => {

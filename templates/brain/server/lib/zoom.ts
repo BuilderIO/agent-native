@@ -32,7 +32,6 @@ export interface ZoomMeeting {
   id: number | string;
   topic?: string;
   start_time: string;
-  host_email?: string;
   share_url?: string;
   recording_files?: ZoomRecordingFile[];
 }
@@ -224,7 +223,6 @@ export function normalizeZoomRecording(meeting: ZoomMeeting, vtt: string) {
       zoomMeetingId: String(meeting.id),
       zoomMeetingUuid: meeting.uuid,
       meetingTopic: title,
-      hostEmail: meeting.host_email ?? null,
       sourceUrl: meeting.share_url ?? null,
     },
   };

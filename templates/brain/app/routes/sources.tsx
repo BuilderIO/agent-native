@@ -114,7 +114,6 @@ import {
   sourceLastSync,
   sourceName,
   sourceRetryAfter,
-  sourceReviewRequired,
   sourceType,
 } from "@/lib/brain";
 import {
@@ -154,7 +153,6 @@ interface SourceFormState {
   pollMinutes: string;
   sourceKey: string;
   autoSync: boolean;
-  reviewRequired: boolean;
   includePublicChannels: boolean;
 }
 
@@ -243,7 +241,6 @@ function defaultForm(
     sourceKey: provider === "generic" || provider === "clips" ? provider : "",
     autoSync:
       provider === "slack" || provider === "granola" || provider === "github",
-    reviewRequired: true,
     includePublicChannels: false,
   };
 }
@@ -295,7 +292,6 @@ function formFromSource(source: BrainSource): SourceFormState {
         : "60",
     sourceKey: "",
     autoSync: sourceAutoSync(source),
-    reviewRequired: sourceReviewRequired(source),
     includePublicChannels: config.includePublicChannels === true,
   };
 }
@@ -321,7 +317,6 @@ function numberValue(
 
 function buildConfig(form: SourceFormState) {
   const config: Record<string, unknown> = {
-    reviewRequired: form.reviewRequired,
     autoSync: form.autoSync,
     pollMinutes: numberValue(form.pollMinutes, 60, 5, 1440),
   };
@@ -3331,20 +3326,6 @@ export default function SourcesRoute() {
                 <Switch
                   checked={form.autoSync}
                   onCheckedChange={(autoSync) => updateForm({ autoSync })}
-                />
-              </label>
-              <label className="flex items-center justify-between gap-3 text-sm">
-                <span>
-                  {t("sources.reviewRequired")}
-                  <span className="block text-xs text-muted-foreground">
-                    {t("sources.reviewRequiredDescription")}
-                  </span>
-                </span>
-                <Switch
-                  checked={form.reviewRequired}
-                  onCheckedChange={(reviewRequired) =>
-                    updateForm({ reviewRequired })
-                  }
                 />
               </label>
             </div>

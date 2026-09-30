@@ -132,7 +132,6 @@ export interface BrainSource {
   lastSyncAt?: string | null;
   lastSyncedAt?: string | null;
   nextSyncAt?: string | null;
-  reviewRequired?: boolean;
   visibility?: "private" | "org" | "public";
   config?: Record<string, unknown>;
   cursor?: Record<string, unknown>;
@@ -304,7 +303,6 @@ export interface BrainHealthResponse {
       health: BrainSourceHealthState;
       demo?: boolean;
       autoSync?: boolean;
-      reviewRequired?: boolean;
       hasChannelAllowList?: boolean | null;
       lastSyncedAt?: string | null;
       nextSyncAt?: string | null;
@@ -1184,12 +1182,6 @@ export function sourceHealth(source: BrainSource): SourceHealth {
 export function sourceEnabled(source: BrainSource) {
   if (typeof source.enabled === "boolean") return source.enabled;
   return source.status !== "paused" && source.status !== "archived";
-}
-
-export function sourceReviewRequired(source: BrainSource) {
-  if (typeof source.reviewRequired === "boolean") return source.reviewRequired;
-  const value = source.config?.reviewRequired;
-  return typeof value === "boolean" ? value : true;
 }
 
 export function sourceAutoSync(source: BrainSource) {

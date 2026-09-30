@@ -719,6 +719,8 @@ async function findUpstreamDeletionReceipt(
 function captureMetadataFingerprint(metadata: Record<string, unknown>) {
   const comparable = { ...metadata };
   delete comparable.captureSanitization;
+  // Connectors stamp every re-pull with a fresh run id; it must not re-queue unchanged captures.
+  delete comparable.syncRunId;
   return stableJson(comparable);
 }
 

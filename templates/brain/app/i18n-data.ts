@@ -457,8 +457,6 @@ const enUS = {
       "New sources receive a one-time ingest token. Existing sources keep their token unless rotated separately.",
     autoSync: "Auto-sync",
     autoSyncDescription: "Background polling uses this source when due",
-    reviewRequired: "Review required",
-    reviewRequiredDescription: "Queue extracted knowledge before approval",
     cancel: "Cancel",
     saveSource: "Save source",
     createSource: "Create source",
@@ -3212,9 +3210,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "مراجعة المواد الخام المستوردة قبل التقطير.",
       reviewRawCaptures: "مراجعة اللقطات الخام",
-      reviewRequiredDescription:
-        "قائمة الانتظار استخراج المعرفة قبل الموافقة عليها",
-      reviewRequired: "المراجعة مطلوبة",
       runDueSyncs: "تشغيل المزامنات المستحقة",
       scopedCredentialsReady: "أوراق الاعتماد ذات النطاق جاهزة",
       selectAll: "حدد الكل",
@@ -3641,9 +3636,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "Überprüfen Sie importierte Rohstoffe vor der Destillation.",
       reviewRawCaptures: "Überprüfen Sie Rohaufnahmen",
-      reviewRequiredDescription:
-        "Extrahiertes Wissen vor der Genehmigung in die Warteschlange stellen",
-      reviewRequired: "Überprüfung erforderlich",
       runDueSyncs: "Führen Sie fällige Synchronisierungen durch",
       scopedCredentialsReady: "Begrenzte Anmeldeinformationen bereit",
       selectAll: "Alles auswählen",
@@ -4066,9 +4058,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "Revisar la materia prima importada antes de la destilación.",
       reviewRawCaptures: "Revisar capturas sin procesar",
-      reviewRequiredDescription:
-        "Poner en cola el conocimiento extraído antes de la aprobación",
-      reviewRequired: "Revisión requerida",
       runDueSyncs: "Ejecutar sincronizaciones debidas",
       scopedCredentialsReady: "Credenciales con alcance listas",
       selectAll: "Seleccionar todo",
@@ -4496,9 +4485,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "Examiner les matières premières importées avant la distillation.",
       reviewRawCaptures: "Examiner les captures brutes",
-      reviewRequiredDescription:
-        "Mettre en file d'attente les connaissances extraites avant l'approbation",
-      reviewRequired: "Examen requis",
       runDueSyncs: "Exécuter les synchronisations nécessaires",
       scopedCredentialsReady: "Informations d'identification étendues prêtes",
       selectAll: "Tout sélectionner",
@@ -4892,8 +4878,6 @@ const exactEnglishDebtOverrides: Partial<
       },
       reviewRawCapturesDescription: "आसवन से पहले आयातित कच्चे माल की समीक्षा करें।",
       reviewRawCaptures: "कच्चे कैप्चर की समीक्षा करें",
-      reviewRequiredDescription: "अनुमोदन से पहले कतार से ज्ञान निकाला गया",
-      reviewRequired: "समीक्षा आवश्यक है",
       runDueSyncs: "उचित सिंक चलाएँ",
       scopedCredentialsReady: "दायरे वाले क्रेडेंशियल तैयार हैं",
       selectAll: "सभी का चयन करें",
@@ -5302,8 +5286,6 @@ const exactEnglishDebtOverrides: Partial<
       },
       reviewRawCapturesDescription: "蒸留前に輸入原料を確認してください。",
       reviewRawCaptures: "生のキャプチャを確認する",
-      reviewRequiredDescription: "抽出されたナレッジを承認前にキューに入れる",
-      reviewRequired: "要レビュー",
       runDueSyncs: "期限付き同期を実行する",
       scopedCredentialsReady: "スコープ付き認証情報の準備が完了しました",
       selectAll: "すべて選択",
@@ -5706,8 +5688,6 @@ const exactEnglishDebtOverrides: Partial<
       },
       reviewRawCapturesDescription: "증류하기 전에 수입된 원료를 검토하십시오.",
       reviewRawCaptures: "원시 캡처 검토",
-      reviewRequiredDescription: "승인 전 큐 추출 지식",
-      reviewRequired: "검토 필요",
       runDueSyncs: "예정된 동기화 실행",
       scopedCredentialsReady: "범위가 지정된 자격 증명 준비됨",
       selectAll: "모두 선택",
@@ -6124,9 +6104,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "Revise a matéria-prima importada antes da destilação.",
       reviewRawCaptures: "Revise capturas brutas",
-      reviewRequiredDescription:
-        "Fila de conhecimento extraído antes da aprovação",
-      reviewRequired: "Revisão necessária",
       runDueSyncs: "Execute as sincronizações devidas",
       scopedCredentialsReady: "Credenciais com escopo pronto",
       selectAll: "Selecionar tudo",
@@ -6487,8 +6464,6 @@ const exactEnglishDebtOverrides: Partial<
       },
       reviewRawCapturesDescription: "蒸馏前审查进口原料。",
       reviewRawCaptures: "查看原始捕获",
-      reviewRequiredDescription: "在批准之前对提取的知识进行排队",
-      reviewRequired: "需要审核",
       runDueSyncs: "运行到期同步",
       scopedCredentialsReady: "范围凭证已准备就绪",
       selectAll: "选择全部",
