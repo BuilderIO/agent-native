@@ -94,7 +94,7 @@ carga útil correspondente:
 
 O servidor actions deve importar os auxiliares e esquemas seguros para o servidor de
 `@agent-native/core/data-widgets`; o código do cliente pode importar os mesmos tipos de
-`@agent-native/core/client/chat` ou `@agent-native/core/client`.
+`@agent-native/core/client/widgets` ou `@agent-native/core/client`.
 
 ```ts
 import { defineAction } from "@agent-native/core/action";
@@ -228,7 +228,7 @@ Registre componentes específicos do produto pelo ID exato do renderizador e, em
 na ação:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -364,15 +364,13 @@ descrito abaixo.
 
 </Diagram>
 
-Todos os conectores são exportados de `@agent-native/core/client/chat` (e da raiz
+Todos os conectores são exportados de `@agent-native/core/client/agent-chat` (e da raiz
 entrada `@agent-native/core/client`). Use o tempo de execução genérico HTTP quando seu agente
 pode expor um endpoint POST que retorna eventos de tempo de execução SSE ou NDJSON:
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",
@@ -398,7 +396,7 @@ import {
   createOpenAIAgentsChatRuntime,
   createOpenAIResponsesChatRuntime,
   createVercelAiChatRuntime,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 
 const openAiAgentsRuntime = createOpenAIAgentsChatRuntime({
   endpoint: "/api/openai-agents/chat",
@@ -441,7 +439,7 @@ iframes.
 Quando desejar o transporte Agent-Native integrado como um objeto de tempo de execução, use:
 
 ```ts
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/chat";
+import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createAgentNativeChatRuntime({
   threadId: "forms-chat",
@@ -450,6 +448,8 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 Use `<AssistantChat createTransport={...} />` para um transporte AgentKit personalizado ou passe `runtime` se o host já executar os turnos. Implementações existentes de `assistant-ui ChatModelAdapter` precisam ser portadas para `AgentTransport` ou `AgentChatRuntime` para usar a transcrição e o compositor do AgentKit. Use `PromptComposer` sozinho quando seu produto possuir toda a transcrição externa e precisar apenas do campo de composição Agent-Native.
+
+Consulte o [guia de migração do chat do AgentKit](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md) para ver o mapa das APIs antigas e novas e as etapas de migração.
 
 Os fluxos OpenAI, AG-UI, Claude Agent SDK e Vercel AI SDK podem usar o padrão
 ajudantes de conector. ACP permanece interoperabilidade agente de codificação/editor, não o

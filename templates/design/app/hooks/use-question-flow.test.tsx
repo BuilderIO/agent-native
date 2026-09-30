@@ -5,14 +5,24 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const coreClientMocks = vi.hoisted(() => ({
+const agentkitChatMocks = vi.hoisted(() => ({
   useGuidedQuestionFlow: vi.fn(),
   formatGuidedAnswersForAgent: vi.fn((answers: Record<string, unknown>) =>
     JSON.stringify(answers),
   ),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => coreClientMocks);
+vi.mock(
+  "@agent-native/toolkit/app/chat/agentkit-chat",
+  () => agentkitChatMocks,
+);
+vi.mock("@agent-native/toolkit/composer", () => ({
+  isLocalRuntimeEngine: vi.fn((engine?: string) =>
+    ["codex-cli", "claude-cli", "pi-cli", "opencode-cli"].includes(
+      engine ?? "",
+    ),
+  ),
+}));
 
 const agentChatMocks = vi.hoisted(() => ({
   sendToDesignAgentChat: vi.fn(
@@ -73,12 +83,12 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
 
   beforeEach(() => {
     clearMock.mockClear();
-    coreClientMocks.useGuidedQuestionFlow.mockClear();
+    agentkitChatMocks.useGuidedQuestionFlow.mockClear();
     agentChatMocks.sendToDesignAgentChat.mockClear();
     agentChatMocks.sendToDesignAgentChat.mockImplementation(
       () => "generated-tab-id",
     );
-    coreClientMocks.useGuidedQuestionFlow.mockReturnValue({
+    agentkitChatMocks.useGuidedQuestionFlow.mockReturnValue({
       payload: null,
       questions: null,
       title: undefined,
@@ -231,7 +241,7 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
   });
 
   it("does not submit answers or skip while provider setup is required", async () => {
-    coreClientMocks.useGuidedQuestionFlow.mockReturnValue({
+    agentkitChatMocks.useGuidedQuestionFlow.mockReturnValue({
       payload: null,
       questions: null,
       title: undefined,
@@ -265,7 +275,7 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
       engine: "claude-cli",
     });
 
-    expect(coreClientMocks.useGuidedQuestionFlow).toHaveBeenCalledWith(
+    expect(agentkitChatMocks.useGuidedQuestionFlow).toHaveBeenCalledWith(
       expect.objectContaining({ providerStatusChecksEnabled: false }),
     );
     await cleanup();

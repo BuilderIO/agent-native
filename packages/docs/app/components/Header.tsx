@@ -1,5 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";

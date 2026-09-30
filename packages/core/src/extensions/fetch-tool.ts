@@ -434,7 +434,7 @@ export function createFetchToolEntry(
           let displayBody: string;
           let processedMode = "raw";
           try {
-            const processed = processWebContent({
+            const processed = await processWebContent({
               url: resolvedUrl,
               body,
               contentType,

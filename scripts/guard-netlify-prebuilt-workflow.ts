@@ -1070,6 +1070,7 @@ const parsedClipsMigrationIndex = parsedStepIndex(
 );
 const parsedCrmMigrationIndex = parsedStepIndex("Run CRM release migrations");
 const parsedMailMigrationIndex = parsedStepIndex("Run Mail release migrations");
+const parsedChatMigrationIndex = parsedStepIndex("Run Chat release migrations");
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -1217,6 +1218,26 @@ if (
 ) {
   issues.push(
     `${reusablePath} must skip Mail build-time migrations and run production Mail migrations with Netlify's writable owner connection before unlocking the deploy`,
+  );
+}
+const chatMigrationStep = reusableSteps[parsedChatMigrationIndex];
+const chatMigrationIf = String(chatMigrationStep?.if ?? "");
+const chatMigrationRun = String(chatMigrationStep?.run ?? "");
+if (
+  parsedChatMigrationIndex < 0 ||
+  parsedChatMigrationIndex <= parsedPauseIndex ||
+  parsedChatMigrationIndex >= parsedUnlockIndex ||
+  !chatMigrationIf.includes("inputs.target == 'production'") ||
+  !chatMigrationIf.includes("inputs.deploy") ||
+  !chatMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !chatMigrationIf.includes("source_template == 'chat'") ||
+  !chatMigrationRun.includes("netlify api getSiteDatabase") ||
+  !chatMigrationRun.includes("netlify api getEnvVars") ||
+  !chatMigrationRun.includes("netlifydb_owner") ||
+  !chatMigrationRun.includes("pnpm --filter chat migrate:production")
+) {
+  issues.push(
+    `${reusablePath} must run Chat framework release migrations against its Netlify site database before unlocking a production deploy`,
   );
 }
 if (
@@ -1991,6 +2012,23 @@ if (
   )
 ) {
   issues.push(`${betaPath} must reject manual source_ref values outside main`);
+}
+
+const netlifyCliSaveIndex = parsedStepIndex("Save the pinned Netlify CLI");
+const netlifyCliSave = reusableSteps[netlifyCliSaveIndex];
+const firstRepoInstallIndex = reusableSteps.findIndex((step) =>
+  String(step?.run ?? "").includes("pnpm install"),
+);
+if (
+  netlifyCliSaveIndex < 0 ||
+  !String(netlifyCliSave?.if ?? "").includes("inputs.target != 'preview'") ||
+  !String(asRecord(netlifyCliSave?.with)?.path ?? "").startsWith("~/") ||
+  firstRepoInstallIndex < 0 ||
+  netlifyCliSaveIndex > firstRepoInstallIndex
+) {
+  issues.push(
+    `${reusablePath} must save the Netlify CLI cache outside the checkout, before any repo install, and never from preview runs`,
+  );
 }
 
 if (issues.length) {

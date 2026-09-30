@@ -76,17 +76,7 @@ export function buildAutomaticBetaRedirectUrl(
   sourceHref: string,
   betaHost: string,
 ): string | null {
-  const targetHref = buildEnvironmentUrl(sourceHref, betaHost);
-  if (!targetHref) return null;
-
-  try {
-    const target = new URL(targetHref);
-    target.searchParams.set(BETA_LANE_REDIRECT_QUERY_PARAM, "1");
-    return target.toString();
-  } catch {
-    // coercion-ok: buildEnvironmentUrl already validated the URL.
-    return null;
-  }
+  return buildEnvironmentUrl(sourceHref, betaHost);
 }
 
 export function buildEnvironmentOptOutUrl(

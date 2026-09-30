@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  authSessionHandler: vi.fn(),
   autoMountAuth: vi.fn(),
   getSession: vi.fn(),
   markFrameworkRoutesReadyBeforeBootstrap: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./auth.js", () => ({
+  authSessionHandler: mocks.authSessionHandler,
   autoMountAuth: mocks.autoMountAuth,
   getSession: mocks.getSession,
 }));

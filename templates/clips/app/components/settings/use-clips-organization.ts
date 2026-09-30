@@ -1,8 +1,4 @@
-import {
-  useActionMutation,
-  useActionQuery,
-  useSession,
-} from "@agent-native/core/client/hooks";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg, useOrgRole } from "@agent-native/core/client/org";
 import type { ClipsDefaultVisibility } from "@shared/clips-ai-prefs";
@@ -11,6 +7,7 @@ import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
 import type { MemberRole } from "@/components/workspace/members-list";
+import { useOrganizationState } from "@/hooks/use-library";
 
 const ORGANIZATION_STATE_ACTION = "list-organization-state";
 
@@ -45,11 +42,8 @@ export function useClipsOrganization() {
   const email = session?.email ?? "";
   const orgQuery = useOrg();
   const activeOrgId = orgQuery.data?.orgId ?? null;
-  // Scoped per org so a switch never seeds the next org with this one's
-  // cached branding.
-  const stateQuery = useActionQuery<OrganizationStateResponse>(
-    ORGANIZATION_STATE_ACTION,
-    activeOrgId ? { organizationId: activeOrgId } : undefined,
+  const stateQuery = useOrganizationState<OrganizationStateResponse>(
+    activeOrgId ?? undefined,
     { enabled: Boolean(activeOrgId) },
   );
   const organization = stateQuery.data?.organization ?? null;

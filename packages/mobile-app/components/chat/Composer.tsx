@@ -357,14 +357,14 @@ export function Composer({
 }) {
   const t = useT();
   const chatPlaceholder =
-    chatEligibility === "checking"
-      ? t("setup.checkingProvider")
+    chatEligibility === "checking" || chatEligibility === "eligible"
+      ? t("composer.messageAgent")
       : chatEligibility === "unavailable"
         ? t("setup.providerStatusUnavailable")
         : t("setup.connectToStart");
   const chatAccessibilityHint =
-    chatEligibility === "checking"
-      ? t("setup.checkingProvider")
+    chatEligibility === "checking" || chatEligibility === "eligible"
+      ? undefined
       : chatEligibility === "unavailable"
         ? t("setup.providerStatusUnavailable")
         : t("setup.connectToStart");
@@ -792,17 +792,15 @@ export function Composer({
       )}
 
       <View className="rounded-[22px] bg-card-dark border border-border-dark px-3.5 pt-3 pb-2.5">
-        {!chatReady ? (
+        {!chatReady && providerStatus !== "unknown" ? (
           <View
             className="mb-2 gap-2 rounded-lg border border-border-dark bg-zinc-900/70 px-3 py-2"
             accessibilityRole="alert"
           >
             <Text className="text-muted-foreground text-[12px]">
-              {providerStatus === "unknown"
-                ? t("agentChat.setup.checkingProvider")
-                : providerStatus === "unavailable"
-                  ? t("agentChat.setup.providerStatusUnavailable")
-                  : t("agentChat.setup.connectToStart")}
+              {providerStatus === "unavailable"
+                ? t("agentChat.setup.providerStatusUnavailable")
+                : t("agentChat.setup.connectToStart")}
             </Text>
             {providerStatus === "missing" ? (
               <View className="flex-row flex-wrap gap-3">
@@ -820,8 +818,7 @@ export function Composer({
                   </Text>
                 </Pressable>
               </View>
-            ) : providerStatus === "unavailable" ||
-              providerStatus === "unknown" ? (
+            ) : providerStatus === "unavailable" ? (
               <Pressable
                 accessibilityRole="button"
                 onPress={refreshChatEligibility}
@@ -858,12 +855,10 @@ export function Composer({
           onSelectionChange={(event) =>
             setSelection(event.nativeEvent.selection)
           }
-          placeholder={
-            canChat ? "Message the agent…  (@ to mention)" : chatPlaceholder
-          }
+          placeholder={chatPlaceholder}
           placeholderTextColor={mutedForeground}
           multiline
-          editable={chatReady && !isRestoring}
+          editable={(chatReady || providerStatus === "unknown") && !isRestoring}
           accessibilityHint={canChat ? undefined : chatAccessibilityHint}
           keyboardAppearance={theme}
           accessibilityLabel="Message input"
@@ -930,7 +925,7 @@ export function Composer({
 
             {isStreaming ? (
               <Pressable
-                className="w-8 h-8 rounded-xl bg-primary items-center justify-center active:opacity-75"
+                className="w-8 h-8 rounded-full bg-primary items-center justify-center active:opacity-75"
                 onPress={onStop}
                 accessibilityRole="button"
                 accessibilityLabel="Stop generating"
@@ -939,7 +934,7 @@ export function Composer({
               </Pressable>
             ) : (
               <Pressable
-                className={`w-8 h-8 rounded-xl items-center justify-center active:opacity-75 ${
+                className={`w-8 h-8 rounded-full items-center justify-center active:opacity-75 ${
                   canSend ? "bg-primary" : "bg-zinc-800/80"
                 }`}
                 onPress={submit}

@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   creativeContextEnabled: false,
-  settingsRedesign: false,
   pageProps: null as Record<string, unknown> | null,
   mutateAsync: vi.fn(async () => ({ success: true })),
   // Stable like react-query's structurally shared data.
@@ -33,10 +32,6 @@ const mocks = vi.hoisted(() => ({
       isError: false,
     }),
   ),
-  useReplayStorageStatus: vi.fn(() => ({
-    data: { configured: false },
-    isLoading: false,
-  })),
 }));
 
 vi.mock("@agent-native/core/client/changelog", () => ({
@@ -55,13 +50,6 @@ vi.mock("@agent-native/creative-context/client", () => ({
   useCreativeContextLab: () => mocks.creativeContextEnabled,
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlagState: () => ({
-    status: "ready",
-    enabled: mocks.settingsRedesign,
-  }),
-}));
-
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: mocks.useActionMutation,
   useActionQuery: mocks.useActionQuery,
@@ -72,7 +60,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  LanguagePicker: () => null,
   useT: () => (key: string) => key,
 }));
 
@@ -80,7 +67,7 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   buildSettingsRoute: (section: string) => `/settings/${section}`,
 }));
 
-vi.mock("@agent-native/core/client/observability", () => ({
+vi.mock("@agent-native/toolkit/app/observability", () => ({
   ObservabilityDashboard: ({
     routeBasePath,
     showHumanReview,
@@ -105,7 +92,7 @@ vi.mock("../components/AnalyticsReviewArtifactPreview", () => ({
   AnalyticsReviewArtifactPreview: () => null,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => <div>settings-user@example.com</div>,
   SettingsGroup: ({ children }: { children: React.ReactNode }) => (
     <section>{children}</section>
@@ -164,7 +151,7 @@ vi.mock("@agent-native/core/client/settings", () => ({
           ))}
         </nav>
         {props.labs?.map((lab) => (
-          <div key={lab.key} data-testid="creative-context-lab">
+          <div key={lab.key} data-testid={lab.key}>
             {lab.displayName}
             {lab.description}
             <span data-default-enabled={String(lab.defaultEnabled === true)} />
@@ -238,15 +225,7 @@ vi.mock("sonner", () => ({
   toast: { error: vi.fn() },
 }));
 vi.mock("./settings/AlertRulesSettingsCard", () => ({
-  AlertRulesSettingsCard: ({ embedded }: { embedded?: boolean }) => (
-    <div data-alert-rules={embedded ? "embedded" : "card"} />
-  ),
-}));
-vi.mock("../hooks/use-replay-storage-status", () => ({
-  useReplayStorageStatus: mocks.useReplayStorageStatus,
-}));
-vi.mock("./sessions/SessionsPage", () => ({
-  ReplayStorageHint: () => null,
+  AlertRulesSettingsCard: () => <div data-alert-rules />,
 }));
 vi.mock("react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -261,7 +240,6 @@ describe("Analytics Settings", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.creativeContextEnabled = false;
-    mocks.settingsRedesign = false;
     mocks.pageProps = null;
     mocks.useOrg.mockReturnValue({
       data: { orgId: "org-1", role: "member" },
@@ -334,10 +312,20 @@ describe("Analytics Settings", () => {
     expect(container.textContent).toContain("creativeContext.description");
     expect(
       container.querySelector(
-        '[data-testid="creative-context-lab"] [data-default-enabled="false"]',
+        '[data-testid="creative-context.library"] [data-default-enabled="false"]',
       ),
     ).not.toBeNull();
     expect(container.querySelector("#creative-context-agent-tab")).toBeNull();
+  });
+
+  it("does not expose the reserved Sessions Lab before its gated features ship", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="analytics.sessions-triage"]'),
+    ).toBeNull();
   });
 
   it("shows the Creative Context settings tab when its Lab is enabled", async () => {
@@ -352,26 +340,7 @@ describe("Analytics Settings", () => {
     ).not.toBeNull();
   });
 
-  it("keeps today's tabs with the settings redesign off", async () => {
-    await act(async () => {
-      root.render(<Settings />);
-    });
-
-    expect(container.querySelector("#language")).not.toBeNull();
-    expect(
-      container.querySelector('[data-tab="alerts"] [data-alert-rules="card"]'),
-    ).not.toBeNull();
-    expect(
-      container.querySelector('[data-tab="agent"] #bell-sound'),
-    ).not.toBeNull();
-    expect(container.querySelector('[data-page="notifications"]')).toBeNull();
-    expect(mocks.pageProps).not.toHaveProperty("team");
-    expect(mocks.pageProps).not.toHaveProperty("appAreas");
-  });
-
-  it("moves rows into the redesigned pages with the flag on", async () => {
-    mocks.settingsRedesign = true;
-
+  it("puts Analytics' rows on its app areas and Notifications", async () => {
     await act(async () => {
       root.render(<Settings />);
     });
@@ -381,9 +350,7 @@ describe("Analytics Settings", () => {
     );
     expect(areas).toEqual(["alerts", "data-sources"]);
     expect(
-      container.querySelector(
-        '[data-area="alerts"] [data-alert-rules="embedded"]',
-      ),
+      container.querySelector('[data-area="alerts"] [data-alert-rules]'),
     ).not.toBeNull();
     expect(
       container.querySelector('[data-area="data-sources"] #credentials'),
@@ -407,8 +374,6 @@ describe("Analytics Settings", () => {
   });
 
   it("saves only the notification preference that changed", async () => {
-    mocks.settingsRedesign = true;
-
     await act(async () => {
       root.render(<Settings />);
     });
@@ -482,27 +447,5 @@ describe("Analytics Settings", () => {
     expect(
       container.querySelector("[data-testid='observability-dashboard']"),
     ).toBeNull();
-  });
-
-  it("keeps the org observability page with the settings redesign on", async () => {
-    mocks.settingsRedesign = true;
-    mocks.useOrg.mockReturnValue({
-      data: { orgId: "org-1", role: "owner" },
-      isLoading: false,
-      isError: false,
-    });
-
-    await act(async () => {
-      root.render(<Settings />);
-    });
-
-    expect(
-      container
-        .querySelector('[data-testid="settings-tab-observability"]')
-        ?.getAttribute("href"),
-    ).toBe("/settings/observability/overview");
-    expect(
-      container.querySelector("[data-testid='observability-dashboard']"),
-    ).not.toBeNull();
   });
 });

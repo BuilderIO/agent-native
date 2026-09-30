@@ -2,7 +2,6 @@ import type { H3Event } from "h3";
 import {
   defineEventHandler,
   getCookie,
-  getHeader,
   getMethod,
   setCookie,
   setResponseHeader,
@@ -16,6 +15,7 @@ import {
 import { getSession } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
+import { isHttpsRequest } from "./https-request.js";
 import {
   signShortLivedToken,
   verifyShortLivedToken,
@@ -31,12 +31,6 @@ const mountedApps = new WeakSet<object>();
 function normalizedEmail(value: string | undefined): string | undefined {
   const normalized = value?.trim().toLowerCase();
   return normalized || undefined;
-}
-
-function isHttpsRequest(event: H3Event): boolean {
-  const forwarded = getHeader(event, "x-forwarded-proto");
-  if (forwarded?.split(",")[0]?.trim() === "https") return true;
-  return event.url?.protocol === "https:";
 }
 
 function capabilityCookiePath(appBasePath?: string): string {

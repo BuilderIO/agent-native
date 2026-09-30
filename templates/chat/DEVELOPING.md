@@ -62,9 +62,9 @@ conversation.
 The `/` route is the app's primary AgentKit surface. Its default integration is:
 
 - `createAgentNativeAgentKitTransport()` from
-  `@agent-native/core/client/agentkit-chat/transport` for the production Agent-Native
+  `@agent-native/toolkit/app/chat/agentkit-chat` for the production Agent-Native
   runtime.
-- `CoreAgentKitRoot` from `@agent-native/core/client/agentkit-chat` for one
+- `CoreAgentKitRoot` from `@agent-native/toolkit/app/chat/agentkit-chat` for one
   managed controller, thread context, and the default action-widget renderer.
 - `AgentKitChat` for the reference transcript, composer, queue, approvals,
   activities, and suggestions.
@@ -81,7 +81,7 @@ provides Core's `AgentKitActionWidget` in `slots.widget`; it resolves the
 declared React renderer from the stored tool input and result, then keeps the
 widget with its assistant message after activity rollup and thread reload. App
 renderers can register with `registerActionChatRenderer()` from
-`@agent-native/core/client/agentkit-chat` using the same renderer id declared by
+`@agent-native/toolkit/app/chat/agentkit-chat` using the same renderer id declared by
 the action. Built-in Core renderers need no app registration.
 
 This template is also the canonical AgentKit reference surface. Develop and
@@ -97,7 +97,7 @@ zone: bring the existing actions over, keep their names stable, and let the chat
 call them before adding extra screens. For a custom agent backend, keep the app
 shell and implement `AgentTransport`, or adapt an existing Core
 `AgentChatRuntime` with `createAgentKitProtocolAdapter()` from
-`@agent-native/core/client/chat`.
+`@agent-native/core/client/agent-chat`.
 
 ### Package and scaffold path
 
@@ -118,16 +118,16 @@ imports. Install the generated manifest as written.
 
 ### Migrate an older Core chat surface
 
-Migrate the presentation boundary while keeping application contracts stable:
+Core's `AssistantChat` remains supported as the AgentKit-backed surface, as do
+`AgentPanel`, `AgentSidebar`, `AgentChatSurface`, `AgentChatHome`, and
+`MultiTabAssistantChat`. Apps that only mount these components do not need to
+replace their chat UI.
 
-1. Keep actions, application-state keys, thread routes, auth, access checks,
-   and the Core agent runtime.
-2. Create one `createAgentNativeAgentKitTransport()` and pass it to
-   `AgentKitRoot` or `AgentChat`.
-3. Replace the old Core transcript component. Move visual overrides to AgentKit
-   slots and kind registries, and move commands to `useAgentKitControl()`.
-4. Remove the old controller, queue, approval store, and stream subscription.
-   One conversation must have one behavioral owner.
+If your app used the removed `AssistantChat.createAdapter`, adapter helpers, or
+assistant-ui transcript/runtime APIs, follow the version-matched guide at
+`node_modules/@agent-native/core/docs/migrations/agentkit-chat.md`. It maps each
+removed API to `runtime`, `createTransport`, AgentKit slots, or a custom
+`AgentTransport`. Keep one conversation controller and stream owner.
 
 Widgets invoke stable action ids through the transport. Map them to the same
 `defineAction` surface used by the app and agent. Smart objects and client

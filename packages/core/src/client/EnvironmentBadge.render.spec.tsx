@@ -8,14 +8,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const useSessionMock = vi.fn();
 const injectedAgentNativeConfigMock = vi.fn();
 
-vi.mock("./use-session.js", () => ({
+vi.mock("@agent-native/core/client/use-session", () => ({
   useSession: () => useSessionMock(),
 }));
-vi.mock("./app-config.js", () => ({
+vi.mock("@agent-native/core/client/app-config", () => ({
   injectedAgentNativeConfig: () => injectedAgentNativeConfigMock(),
 }));
 
-import { EnvironmentBadge } from "./EnvironmentBadge.js";
+import { EnvironmentBadge } from "../../../toolkit/src/app/shared/EnvironmentBadge.js";
 
 describe("EnvironmentBadge render", () => {
   let container: HTMLDivElement;
@@ -393,7 +393,7 @@ describe("EnvironmentBadge render", () => {
     act(() => root.render(<EnvironmentBadge />));
 
     expect(replace).toHaveBeenCalledWith(
-      "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs",
+      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
     );
   });
 

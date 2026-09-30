@@ -1,5 +1,87 @@
 # @agent-native/dispatch
 
+## 0.40.4
+
+### Patch Changes
+
+- 036c2c7: Tighten test-only assertions for the dev auth secret and the Dispatch auth plugin so they fail when the behavior they name breaks. No runtime change.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [ce1245c]
+- Updated dependencies [e6de282]
+- Updated dependencies [d2b14cf]
+  - @agent-native/toolkit@0.198.3
+
+## 0.40.3
+
+### Patch Changes
+
+- 181ca1d: Keep the package changelog in Dispatch's route wrapper so generated workspaces can render the shared Settings page during SSR.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [63c4c02]
+  - @agent-native/toolkit@0.198.2
+
+## 0.40.2
+
+### Patch Changes
+
+- d09fdb0: Keep full-page chat headers and history controls aligned with the conversation surface.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0b127e9]
+- Updated dependencies [4873d09]
+- Updated dependencies [d09fdb0]
+- Updated dependencies
+- Updated dependencies [d25ddc1]
+- Updated dependencies [affa25c]
+- Updated dependencies [b1bbe7e]
+- Updated dependencies [905b078]
+- Updated dependencies [6a627af]
+  - @agent-native/toolkit@0.198.1
+
+## 0.40.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- fb3eacd: Show only apps mounted in the active workspace in Dispatch app views.
+- Updated dependencies [20cd76f]
+- Updated dependencies [bbe8cbf]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [b6ffae6]
+- Updated dependencies [8853f61]
+  - @agent-native/toolkit@0.198.0
+
+## 0.40.0
+
+### Minor Changes
+
+- 8fd97ec: Let workspaces choose which hosted first-party apps they offer with `agent-native.builtinAgents` (`mode: "all" | "none" | "selected"`, `include`) in the root or standalone `package.json`. Dispatch's app list now follows that config instead of always adding the chat-first defaults, and local workspaces outside the framework repo link built-ins to their hosted URLs.
+- 1fd5c7a: Restore the searchable Dispatch app directory and localize its action labels.
+
+### Patch Changes
+
+- b8845eb: Bound framework list reads and remove the vault-wide resync from process startup.
+- 9e87b45: Align settings content widths and controls with the shared settings layout.
+- 29d7dfa: Include CHANGELOG.md in the published package so the Settings route no longer fails to load with an Internal Server Error.
+- Release all public npm packages with a patch version bump.
+- bee46b1: Dispatch always renders the redesigned Settings, with no feature flag.
+- b8845eb: Scope ownable reads and writes to their authorized user, organization, or share.
+- Updated dependencies [f2e8ffe]
+- Updated dependencies [023ee9b]
+- Updated dependencies [47985fe]
+- Updated dependencies
+- Updated dependencies [fa62fdf]
+  - @agent-native/toolkit@0.23.1
+
 ## 0.39.0
 
 ### Minor Changes
@@ -997,50 +1079,5 @@
 
 - Updated dependencies [f07ec04]
   - @agent-native/toolkit@0.15.0
-
-## 0.25.0
-
-### Minor Changes
-
-- 89f194f: Add a default-off Dispatch workspace sign-in rollout for iframe app panes. The
-  flagged path mints short-lived, app-scoped embed sessions for exact first-party
-  origins, explicitly registered custom workspace apps, and same-origin mounted
-  workspace apps without changing the existing MCP access policy.
-- 89f194f: Add folder-backed agent packs with safe Claude/Cowork-style import, agent-owned
-  references and skills, and a shared Factory Agents surface for managing simple
-  agents alongside mounted agentic apps.
-- 89f194f: Add a simple Agents workspace for creating reusable profiles, importing Claude-style or generic agent definitions, and connecting existing HTTP/A2A agents.
-
-### Patch Changes
-
-- 89f194f: Keep visited workspace app frames mounted while switching apps so returning restores live state instantly.
-- 89f194f: Provision cross-app SSO state and authorization-code tables during release migrations so production serverless requests never perform schema DDL.
-- Updated dependencies [89f194f]
-  - @agent-native/toolkit@0.14.3
-
-## 0.24.6
-
-### Patch Changes
-
-- Updated dependencies [2db503b]
-  - @agent-native/toolkit@0.14.2
-
-## 0.24.5
-
-### Patch Changes
-
-- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
-
-## 0.24.4
-
-### Patch Changes
-
-- 47ba57a: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
-
-## 0.24.3
-
-### Patch Changes
-
-- 405e17e: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

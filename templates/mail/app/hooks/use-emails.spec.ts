@@ -715,8 +715,17 @@ describe("useUpdateSettings", () => {
     expect(source).toContain("rebasePinnedLabelsUpdate(");
     expect(source).toContain("resetPinnedLabelsState(owner)");
     expect(source).toContain("settingsLoading || !prev || !owner");
-    expect(source).toContain('if ("showAllTab" in variables)');
-    expect(source).toContain("invalidations.push(invalidateInboxThreads(qc))");
+    expect(source).toContain('"pinnedLabels" in variables ||');
+    expect(source).toContain('"combineInbox" in variables ||');
+    expect(source).toContain('"showAllTab" in variables ||');
+    expect(source).toContain('"savedFilters" in variables ||');
+    expect(source).toContain('"labelAliases" in variables');
+    expect(source).toContain(
+      "qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY })",
+    );
+    expect(source).toContain(
+      'qc.invalidateQueries({ queryKey: ["mail-inbox-overview"] })',
+    );
     expect(source).toContain("requestSource: TAB_ID");
   });
 });

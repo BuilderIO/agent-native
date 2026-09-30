@@ -12,6 +12,17 @@ describe("assertReadOnlySql", () => {
   });
 
   it.each([
+    ["SELECT customer1delete FROM source", "bigquery"],
+    ["SELECT update2_count FROM source", "bigquery"],
+    ["SELECT value$merge FROM source", "standard"],
+  ] as const)(
+    "allows mutation words inside identifiers: %s",
+    (sql, dialect) => {
+      expect(() => assertReadOnlySql(sql, dialect)).not.toThrow();
+    },
+  );
+
+  it.each([
     "DELETE FROM `project.dataset.table`",
     "WITH rows AS (SELECT 1) UPDATE target SET value = 2",
     "SELECT 1; DELETE FROM target",

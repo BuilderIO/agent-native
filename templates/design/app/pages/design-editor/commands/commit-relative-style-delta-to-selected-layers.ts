@@ -92,6 +92,20 @@ export interface CommitRelativeStyleDeltaToSelectedLayersArgs {
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
 }
 
+function oppositeSpacingProperty(property: string): string | undefined {
+  const match = /^(padding|margin)(Top|Right|Bottom|Left)$/.exec(property);
+  if (!match) return undefined;
+  const oppositeSide =
+    match[2] === "Top"
+      ? "Bottom"
+      : match[2] === "Bottom"
+        ? "Top"
+        : match[2] === "Left"
+          ? "Right"
+          : "Left";
+  return `${match[1]}${oppositeSide}`;
+}
+
 export function applyRelativeRotationToTransform(
   transform: string | undefined,
   operation: number | ScrubRelativeExpression,
@@ -146,13 +160,21 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
     ...new Set(Array.isArray(property) ? property : [property]),
   ];
   if (properties.length === 0) return false;
+  const mirroredProperty =
+    properties.length === 2
+      ? oppositeSpacingProperty(properties[0]!) === properties[1]
+        ? properties[1]
+        : oppositeSpacingProperty(properties[1]!) === properties[0]
+          ? properties[0]
+          : undefined
+      : undefined;
   const relativeStylesByTarget = new Map<
     SelectedLayerTarget,
     Record<string, string>
   >();
   const stylesForTarget = (target: SelectedLayerTarget) => {
     const styles: Record<string, string> = {};
-    for (const property of properties) {
+    for (const property of mirroredProperty ? [properties[0]!] : properties) {
       const writeProperty = property === "rotation" ? "transform" : property;
       const currentValue =
         property === "rotation"
@@ -169,6 +191,7 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
             : applyRelativeExpressionToStyleValue(currentValue, operation);
       if (nextValue === null) return null;
       styles[writeProperty] = nextValue;
+      if (mirroredProperty) styles[mirroredProperty] = nextValue;
     }
     return styles;
   };

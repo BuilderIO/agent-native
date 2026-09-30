@@ -820,6 +820,231 @@ export function pendingLiveNonStyleEditsFromUndoStack(
   return edits;
 }
 
+export function pendingLiveEditFrameTargets(
+  styleEdits: readonly PendingVisualStyleEdit[],
+  liveEdits: readonly PendingLiveNonStyleEdit[],
+): Map<string, Set<string>> {
+  const targets = new Map<string, Set<string>>();
+  const addTarget = (screenId: string, frameId: string) => {
+    const frameIds = targets.get(screenId) ?? new Set<string>();
+    frameIds.add(frameId);
+    targets.set(screenId, frameIds);
+  };
+  for (const edit of styleEdits) {
+    addTarget(
+      edit.screenId,
+      edit.breakpoint
+        ? `breakpoint:${edit.breakpoint.activeWidthPx}`
+        : "primary",
+    );
+  }
+  for (const edit of liveEdits) {
+    const members =
+      edit.kind === "structure"
+        ? pendingLiveStructureEditsFromEdit(edit)
+        : [edit];
+    for (const member of members) addTarget(member.screenId, "primary");
+  }
+  return targets;
+}
+
+export function shouldClearPendingLiveEditsAfterReload(
+  pendingTargets: ReadonlyMap<string, ReadonlySet<string>>,
+  reloadedTargets: ReadonlySet<string>,
+  reloadingScreenId: string,
+  reloadingFrameId: string,
+): boolean {
+  if (!pendingTargets.get(reloadingScreenId)?.has(reloadingFrameId)) {
+    return false;
+  }
+  const completedTargets = new Set(reloadedTargets);
+  completedTargets.add(`${reloadingScreenId}\0${reloadingFrameId}`);
+  return haveAllPendingLiveEditFramesReloaded(pendingTargets, completedTargets);
+}
+
+export function haveAllPendingLiveEditFramesReloaded(
+  pendingTargets: ReadonlyMap<string, ReadonlySet<string>>,
+  reloadedTargets: ReadonlySet<string>,
+): boolean {
+  return (
+    pendingTargets.size > 0 &&
+    Array.from(pendingTargets).every(([screenId, frameIds]) =>
+      Array.from(frameIds).every((frameId) =>
+        reloadedTargets.has(`${screenId}\0${frameId}`),
+      ),
+    )
+  );
+}
+
+export function activeRuntimeReloadFrameId(
+  activeBreakpointWidthPx: number | undefined,
+): string {
+  return activeBreakpointWidthPx === undefined
+    ? "primary"
+    : `breakpoint:${activeBreakpointWidthPx}`;
+}
+
+export function shouldPublishVisualEditHandoff(args: {
+  designId: string | null | undefined;
+  pendingEditCount: number;
+  clearRequestedDesignId: string | null;
+  hadPendingDesignId: string | null;
+}): boolean {
+  return (
+    Boolean(args.designId) &&
+    (args.pendingEditCount > 0 ||
+      args.clearRequestedDesignId === args.designId ||
+      args.hadPendingDesignId === args.designId)
+  );
+}
+
+export interface VisualEditHandoffPublicationState {
+  designId: string;
+  publicationRevision: number;
+  serverRevision: number | null;
+  localBridgeConfirmed: boolean;
+}
+
+export function isVisualEditHandoffPublicationUnconfirmed(
+  state: VisualEditHandoffPublicationState | null,
+  designId: string | null | undefined,
+): boolean {
+  if (!designId) return false;
+  if (!state || state.designId !== designId) return true;
+  return state.serverRevision === null && !state.localBridgeConfirmed;
+}
+
+export function shouldFinalizePendingLiveEditReload(args: {
+  pendingTargets: ReadonlyMap<string, ReadonlySet<string>>;
+  reloadedTargets: ReadonlySet<string>;
+  handoff: VisualEditHandoffPublicationState | null;
+  designId: string | null | undefined;
+}): boolean {
+  return (
+    haveAllPendingLiveEditFramesReloaded(
+      args.pendingTargets,
+      args.reloadedTargets,
+    ) && !isVisualEditHandoffPublicationUnconfirmed(args.handoff, args.designId)
+  );
+}
+
+type VisualEditHandoffPublicationEvent =
+  | {
+      status: "queued";
+      designId: string;
+      publicationRevision: number;
+    }
+  | {
+      status: "ready";
+      designId: string;
+      publicationRevision: number;
+      serverRevision: number;
+    }
+  | {
+      status: "local-ready";
+      designId: string;
+      publicationRevision: number;
+    }
+  | {
+      status: "empty" | "failed";
+      designId: string;
+      publicationRevision: number;
+    };
+
+export function updateVisualEditHandoffPublication(
+  current: VisualEditHandoffPublicationState | null,
+  event: VisualEditHandoffPublicationEvent,
+): VisualEditHandoffPublicationState | null {
+  if (event.status === "queued") {
+    return current?.designId === event.designId &&
+      current.publicationRevision > event.publicationRevision
+      ? current
+      : {
+          designId: event.designId,
+          publicationRevision: event.publicationRevision,
+          serverRevision: null,
+          localBridgeConfirmed: false,
+        };
+  }
+  if (!current || current.designId !== event.designId) {
+    return current;
+  }
+  if (event.status === "empty") {
+    return current.publicationRevision <= event.publicationRevision
+      ? null
+      : current;
+  }
+  if (current.publicationRevision !== event.publicationRevision) return current;
+  if (event.status === "ready") {
+    return { ...current, serverRevision: event.serverRevision };
+  }
+  if (event.status === "local-ready") {
+    return { ...current, localBridgeConfirmed: true };
+  }
+  return current;
+}
+
+export function updateReloadedVisualEditHandoff(
+  current: VisualEditHandoffPublicationState | null,
+  event: Exclude<VisualEditHandoffPublicationEvent, { status: "queued" }>,
+): VisualEditHandoffPublicationState | null {
+  if (event.status === "local-ready") return current;
+  if (
+    !current ||
+    current.designId !== event.designId ||
+    current.publicationRevision > event.publicationRevision
+  ) {
+    return current;
+  }
+  if (event.status === "ready") {
+    return { ...current, serverRevision: event.serverRevision };
+  }
+  return event.status === "empty" ||
+    current.publicationRevision === event.publicationRevision
+    ? null
+    : current;
+}
+
+export function shouldSuppressReloadedVisualEditHandoff(args: {
+  marker: VisualEditHandoffPublicationState | null;
+  designId: string | null | undefined;
+  status: "empty" | "ready" | undefined;
+  revision: number | null | undefined;
+}): boolean {
+  if (!args.marker || args.marker.designId !== args.designId) return false;
+  if (args.status !== "ready") return false;
+  return (
+    args.marker.serverRevision === null ||
+    args.revision == null ||
+    args.revision <= args.marker.serverRevision
+  );
+}
+
+export function shouldClearReloadedVisualEditHandoff(args: {
+  marker: VisualEditHandoffPublicationState | null;
+  designId: string | null | undefined;
+  status: "empty" | "ready" | undefined;
+  revision: number | null | undefined;
+}): boolean {
+  if (
+    !args.marker ||
+    args.marker.designId !== args.designId ||
+    args.marker.serverRevision === null
+  ) {
+    return false;
+  }
+  return (
+    (args.status === "empty" &&
+      args.revision !== null &&
+      args.revision !== undefined &&
+      args.revision >= args.marker.serverRevision) ||
+    (args.status === "ready" &&
+      args.revision !== null &&
+      args.revision !== undefined &&
+      args.revision > args.marker.serverRevision)
+  );
+}
+
 export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {

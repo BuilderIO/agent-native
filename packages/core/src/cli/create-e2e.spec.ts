@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import { PROVIDER_PACKAGES } from "../agent/engine/ai-sdk-engine.js";
 import { addAppToWorkspace, createApp } from "./create.js";
@@ -12,6 +13,7 @@ import {
   _scaffoldWorkspaceRoot,
   _scaffoldAppTemplate,
   _scaffoldRequiredPackages,
+  _mergeWorkspaceYamlSections,
   _fixPackageJsonName,
   _renameGitignore,
   _loadCatalog,
@@ -43,6 +45,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   process.chdir(origCwd);
   removeTmpDir(tmpDir);
 }, 30_000);
@@ -116,6 +119,29 @@ function readAllTextFiles(dir: string): string {
 }
 
 describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
+  it("adds optional peers for features configured in the scaffold environment", async () => {
+    vi.stubEnv("SENTRY_AUTH_TOKEN", "dummy-upload-token");
+    vi.stubEnv("SENTRY_ORG", "dummy-org");
+    vi.stubEnv("SENTRY_PROJECT", "dummy-project");
+
+    await createApp("configured-chat", { template: "chat" });
+    await createApp("configured-workspace", {
+      template: "chat",
+      forceWorkspace: true,
+    });
+
+    for (const appDir of [
+      path.join(tmpDir, "configured-chat"),
+      path.join(tmpDir, "configured-workspace", "apps", "chat"),
+      path.join(tmpDir, "configured-workspace", "apps", "dispatch"),
+    ]) {
+      const dependencies = readPkg(appDir).dependencies;
+      expect(dependencies["@sentry/vite-plugin"]).toBe("^5.4.0");
+      expect(dependencies["@sentry/browser"]).toBeUndefined();
+      expect(dependencies["@sentry/node"]).toBeUndefined();
+    }
+  });
+
   it("rewrites the copied chat tracking app id to the generated app id", async () => {
     await createApp("test-app", { template: "chat" });
     const root = fs.readFileSync(
@@ -422,6 +448,9 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     );
     expect(workspaceYaml).toContain("allowBuilds:");
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
+    expect(workspaceYaml).toContain('"@agent-native/agentkit"');
+    expect(workspaceYaml).toContain('"@agent-native/toolkit"');
+    expect(workspaceYaml).toContain('"@agent-native/recap-cli"');
     expect(workspaceYaml).toContain('"@modelcontextprotocol/client"');
     expect(workspaceYaml).toContain('"@modelcontextprotocol/core"');
     expect(workspaceYaml).toContain('"@modelcontextprotocol/node"');
@@ -770,6 +799,28 @@ describe.skipIf(!RUN_HEADLESS_INSTALL_E2E)(
 );
 
 describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
+  it("merges workspace entries only within their own YAML section", () => {
+    const yaml = [
+      "minimumReleaseAgeExclude:",
+      '  - "@agent-native/toolkit"',
+      "",
+      "overrides:",
+      '  "@agent-native/recap-cli": "latest"',
+      "",
+    ].join("\n");
+    const merged = _mergeWorkspaceYamlSections(yaml, {
+      overrides: {
+        '"@agent-native/toolkit"': '"file:///toolkit.tgz"',
+        '"@agent-native/recap-cli"': '"file:///recap-cli"',
+      },
+    });
+
+    expect(merged).toContain(
+      '  "@agent-native/toolkit": "file:///toolkit.tgz"',
+    );
+    expect(merged.split('"@agent-native/recap-cli":')).toHaveLength(2);
+  });
+
   async function scaffoldWorkspace(
     name: string,
     templates: string[],
@@ -879,6 +930,18 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         ).toBe(true);
       }
     }
+  });
+
+  it("keeps release-age checks while allowing fresh first-party workspace packages", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const workspaceYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(workspaceYaml).toContain("minimumReleaseAge: 1440");
+    expect(workspaceYaml).toContain('- "@agent-native/*"');
+    expect(workspaceYaml).toContain('- "@modelcontextprotocol/client"');
   });
 
   it("converts @agent-native/core workspace:* in scaffolded packages", async () => {
@@ -1001,9 +1064,11 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
-      expect(workspaceYaml).toContain(".tgz");
+      const workspaceOverrides = parseYaml(workspaceYaml).overrides;
+      expect(workspaceOverrides["@agent-native/toolkit"]).toMatch(/\.tgz$/);
       expect(workspaceYaml).toContain('"@agent-native/agentkit": "file://');
       expect(workspaceYaml).toContain("agent-native-agentkit-");
+      expect(workspaceOverrides["@agent-native/agentkit"]).toMatch(/\.tgz$/);
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
       expect(workspaceYaml).not.toContain("packages:");
@@ -1147,7 +1212,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       "utf-8",
     );
     expect(wsYaml).toContain("better-auth");
-    expect(wsYaml).toContain("1.7.4");
+    expect(wsYaml).toContain("1.7.6");
   });
 
   it("keeps the default workspace chat app branded as Chat", async () => {
@@ -1397,7 +1462,9 @@ describe("template/core version compatibility", () => {
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
-      expect(_getToolkitDependencyVersion()).toBe("latest");
+      expect(_getToolkitDependencyVersion()).toBe(
+        `^${_getCorePackageVersion()}`,
+      );
       expect(_getAgentKitDependencyVersion()).toBe(
         `^${readPkg(path.join(__dirname, "../../../agentkit")).version}`,
       );

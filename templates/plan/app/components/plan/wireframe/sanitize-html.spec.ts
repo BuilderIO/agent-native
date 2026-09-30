@@ -1,11 +1,10 @@
 // @vitest-environment happy-dom
-
 import {
   sanitizeDiagramHtml,
   sanitizeWireframeCss,
   sanitizeWireframeHtml,
   scopeDesignCss,
-} from "@agent-native/core/blocks";
+} from "@agent-native/toolkit/app/blocks";
 import { describe, it, expect } from "vitest";
 
 describe("sanitizeWireframeHtml", () => {

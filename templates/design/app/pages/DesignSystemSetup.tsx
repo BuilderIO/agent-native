@@ -9,12 +9,12 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowLeft,
   IconBrandGithub,

@@ -29,7 +29,7 @@ export const PLAN_SOURCES = [
   "imported",
 ] as const;
 
-export const PLAN_KINDS = ["plan", "recap"] as const;
+export const PLAN_KINDS = ["plan", "recap", "edition"] as const;
 
 export const PLAN_SECTION_TYPES = [
   "summary",

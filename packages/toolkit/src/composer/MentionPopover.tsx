@@ -301,7 +301,10 @@ export const MentionPopover = forwardRef<
             ),
           ),
           width: Math.min(position.width ?? 640, window.innerWidth - 32),
-          maxHeight: Math.max(0, Math.min(440, position.top - 16)),
+          maxHeight: Math.max(
+            0,
+            Math.min(440, position.top - COMPOSER_POPOVER_GAP - 16),
+          ),
         }}
       >
         {isLoading && itemCount === 0 ? (

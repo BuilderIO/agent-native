@@ -214,7 +214,10 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
   useChatModels: () => ({
     configuredModels: [],
@@ -227,7 +230,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   }),
   sendToAgentChat: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -243,7 +247,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "editor.sourceComponent.previewUnavailable": "Preview unavailable",
     })[key] ?? key,
 }));
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => (
     <>{content.trimEnd()}</>
   ),

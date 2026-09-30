@@ -121,6 +121,10 @@ describe("AgentKit thread history", () => {
       {
         runId: "runtime-continuation",
         turnId: "turn-approval",
+        threadId: "thread-approval",
+        status: "completed",
+        startedAt: Date.now(),
+        events: [{ seq: 0, event: { type: "done" } }],
         agentKitApprovalContinuation: true,
       },
     );

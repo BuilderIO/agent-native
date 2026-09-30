@@ -15,7 +15,7 @@ import {
   IconStar,
   IconStarFilled,
 } from "@tabler/icons-react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Link } from "react-router";
 
 import {
@@ -61,21 +61,10 @@ export default function DeckCard({
   const [renameValue, setRenameValue] = useState(deck.title);
   const [contextOpen, setContextOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef(false);
   const pendingDeleteRef = useRef(false);
   const pendingWorkspaceDefaultRef = useRef(false);
   const pendingShareRef = useRef(false);
-
-  useEffect(() => {
-    if (isRenaming) {
-      setRenameValue(deck.title);
-      setTimeout(() => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }, 0);
-    }
-  }, [isRenaming, deck.title]);
 
   const commitRename = () => {
     const trimmed = renameValue.trim();
@@ -86,6 +75,7 @@ export default function DeckCard({
   };
 
   const handleRenameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
@@ -130,11 +120,12 @@ export default function DeckCard({
           <div className="flex items-center gap-2 min-w-0">
             {isRenaming ? (
               <input
-                ref={inputRef}
+                autoFocus
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
                 onBlur={commitRename}
                 onKeyDown={handleRenameKeyDown}
+                onFocus={(e) => e.currentTarget.select()}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -202,6 +193,7 @@ export default function DeckCard({
               if (pendingRenameRef.current) {
                 e.preventDefault();
                 pendingRenameRef.current = false;
+                setRenameValue(deck.title);
                 setIsRenaming(true);
               }
               if (pendingWorkspaceDefaultRef.current) {

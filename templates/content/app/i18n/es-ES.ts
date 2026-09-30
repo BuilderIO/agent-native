@@ -660,6 +660,34 @@ const editor = {
     pageCount_few: "Páginas {{count}}",
     pageCount_many: "Páginas {{count}}",
     pageCount_other: "Páginas {{count}}",
+    back: "Atrás",
+    relatedDatabase: "Base de datos relacionada",
+    searchDatabases: "Buscar bases de datos",
+    thisDatabase: "Esta base de datos",
+    noDatabases: "No se encontraron bases de datos",
+    searchPages: "Buscar páginas",
+    noMatchingPages: "No hay páginas coincidentes",
+    removeRelation: "Quitar {{name}}",
+    openPage: "Abrir {{name}}",
+    unavailablePage: "Página no disponible",
+    unavailablePageCount_zero: "{{count}} no disponibles",
+    unavailablePageCount_one: "{{count}} no disponibles",
+    unavailablePageCount_two: "{{count}} no disponibles",
+    unavailablePageCount_few: "{{count}} no disponibles",
+    unavailablePageCount_many: "{{count}} no disponibles",
+    unavailablePageCount_other: "{{count}} no disponibles",
+    noRelatedDatabase: "No hay ninguna base de datos relacionada",
+    linkAPage: "Vincular o crear una página…",
+    createPage: "Crear «{{name}}»",
+    reorderRelation: "Reordenar {{name}}",
+    selectMore: "Seleccionar más",
+    selectAPage: "Selecciona una página",
+    selectedCount_zero: "{{count}} seleccionadas",
+    selectedCount_one: "{{count}} seleccionadas",
+    selectedCount_two: "{{count}} seleccionadas",
+    selectedCount_few: "{{count}} seleccionadas",
+    selectedCount_many: "{{count}} seleccionadas",
+    selectedCount_other: "{{count}} seleccionadas",
     pasteFileOrMediaLink: "Pegar archivo o enlace multimedia",
     personOrEmail: "Persona o correo electrónico",
     propertyMenuFor: "Menú de propiedades para {{name}}",
@@ -1447,7 +1475,9 @@ const history = {
 
 const overrides = {
   close: "Cerrar",
-  setup: { checkingProvider: "Comprobando la conexión de IA…" },
+  setup: {
+    providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
+  },
   onboarding: {
     fileStorage: {
       title: "Conecta almacenamiento para subir archivos",
@@ -1557,10 +1587,6 @@ const overrides = {
   },
   settings: {
     title: "Ajustes",
-    description: "Preferencias de idioma y espacio de trabajo para Content.",
-    emailNotifications: "Notificaciones por correo",
-    emailNotificationsDescription:
-      "Recibe un correo cuando alguien comente, responda o te mencione en tu documento.",
     saveFailed: "No se pudo guardar",
     notificationsEmail: "Correo electrónico",
     commentsRepliesMentions: "Comentarios, respuestas y menciones",
@@ -1569,10 +1595,6 @@ const overrides = {
     retry: "Reintentar",
     mcpAbout:
       "Conecta Content con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Content por ti: buscar, escribir y editar documentos. Solo ve lo que tú puedes ver.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
     workspaceTitle: "Espacio de trabajo",
     workspaceDescription:
       "Gestiona colaboradores y acceso a documentos compartidos.",

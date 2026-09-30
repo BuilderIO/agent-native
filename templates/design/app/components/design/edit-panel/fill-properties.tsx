@@ -91,10 +91,6 @@ const EXISTING_LAYER_PAINT_TYPES: DesignPaintType[] = [
   "angular",
   "diamond",
   "image",
-  "video",
-  "shader",
-  "noise",
-  "pattern",
 ];
 
 let layerKeyCounter = 0;
@@ -997,6 +993,7 @@ export function FillProperties({
                           <ScrubInput
                             label={t("editPanel.labels.opacity")}
                             labelClassName="hidden"
+                            inputClassName="px-1"
                             value={opacity}
                             min={0}
                             max={100}

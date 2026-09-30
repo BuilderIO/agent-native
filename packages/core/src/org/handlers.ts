@@ -34,15 +34,16 @@ import { getAppConfig } from "../app-config/index.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
+import { renderTransactionalEmail } from "../email-catalog/templates.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
+import { verifyFederatedWorkspaceIconOwner } from "../icon-assets/workspace-transport.js";
 import { offboardMember } from "../identity/offboard.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import {
   isTrustedSelfHostedRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/credential-provider.js";
-import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveDeploymentSignInMethods } from "../server/social-sign-in-providers.js";
@@ -68,6 +69,10 @@ import {
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { canManageOrgA2ASecret, canManageOrgDomain } from "./permissions.js";
+import {
+  assertOwnedLocalWorkspaceIcon,
+  requirePrivateWorkspaceIconId,
+} from "./private-icon-handlers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
 import {
@@ -436,6 +441,7 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
       email,
       nextOrgId,
       "completed pending organization removal",
+      event,
     );
 
     return { success: true, orgId };
@@ -487,7 +493,7 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
       const bootstrapped =
         emailVerified &&
         isBootstrapAdmin(email) &&
-        (await bootstrapAdminOrganization(email));
+        (await bootstrapAdminOrganization(email, event));
       if (!bootstrapped) {
         throw createError({
           statusCode: 403,
@@ -505,7 +511,7 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
           message: "Verify your email before bootstrapping this workspace.",
         });
       }
-      if (!(await bootstrapAdminOrganization(email))) {
+      if (!(await bootstrapAdminOrganization(email, event))) {
         throw createError({
           statusCode: 403,
           message:
@@ -531,7 +537,11 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  const { id, name: createdName, role } = await createOrganization(name, email);
+  const {
+    id,
+    name: createdName,
+    role,
+  } = await createOrganization(name, email, "owner", { event });
   await syncFederatedOrgBestEffort(event, {
     email,
     orgId: id,
@@ -779,12 +789,15 @@ async function inviteOne(
   let emailError: string | undefined;
   if (await isEmailConfigured()) {
     try {
-      const { subject, html, text } = renderInviteEmail({
-        invitee: email,
-        orgName: ctx.orgName || "your team",
-        acceptUrl: getInviteAppUrl(event),
-        inviter: ctx.email,
-      });
+      const { subject, html, text } = await renderTransactionalEmail(
+        CORE_INVITE_EMAIL_ID,
+        {
+          invitee: email,
+          orgName: ctx.orgName || "your team",
+          acceptUrl: getInviteAppUrl(event),
+          inviter: ctx.email,
+        },
+      );
       await sendEmail({
         to: email,
         subject,
@@ -988,7 +1001,7 @@ export const acceptInvitationHandler = defineEventHandler(
           event,
         });
       }
-      await setActiveOrgId(email, invOrgId, "accepted invitation");
+      await setActiveOrgId(email, invOrgId, "accepted invitation", event);
       return {
         orgId: invOrgId,
         orgName,
@@ -1085,7 +1098,7 @@ export const acceptInvitationHandler = defineEventHandler(
       });
     }
 
-    await setActiveOrgId(email, invOrgId, "accepted invitation");
+    await setActiveOrgId(email, invOrgId, "accepted invitation", event);
 
     return { orgId: invOrgId, orgName, role: inviteRole };
   },
@@ -1381,7 +1394,7 @@ export const setOrgVisualIdentityHandler = defineEventHandler(
 
     const e = await exec();
     const currentResult = await e.execute({
-      sql: `SELECT name, icon_revision, identity_authority, identity_id
+      sql: `SELECT name, icon_revision, identity_authority, identity_id, allowed_domain
             FROM organizations WHERE id = ? LIMIT 1`,
       args: [ctx.orgId],
     });
@@ -1394,6 +1407,36 @@ export const setOrgVisualIdentityHandler = defineEventHandler(
       String(current.identity_authority ?? "").trim() ||
       String(current.identity_id ?? "").trim(),
     );
+    if (icon?.kind === "image") {
+      if (icon.authority !== "private-icon") {
+        throw createError({
+          statusCode: 400,
+          message: "Workspace images must use private icon storage",
+        });
+      }
+      requirePrivateWorkspaceIconId(icon.assetId);
+      if (isFederated) {
+        const owned = await verifyFederatedWorkspaceIconOwner(
+          event,
+          {
+            identityAuthority: String(current.identity_authority ?? "") || null,
+            identityId: String(current.identity_id ?? "") || null,
+            allowedDomain: String(current.allowed_domain ?? "") || null,
+          },
+          ctx.email,
+          icon.assetId,
+        );
+        if (!owned) {
+          throw createError({
+            statusCode: 403,
+            message:
+              "Workspace icon asset is not owned by this organization administrator",
+          });
+        }
+      } else {
+        await assertOwnedLocalWorkspaceIcon(icon.assetId, ctx.email, ctx.orgId);
+      }
+    }
     const updated = await e.execute({
       sql: `UPDATE organizations
             SET icon_json = ?, icon_revision = ?
@@ -1549,7 +1592,12 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
         )
       : null;
 
-  await setActiveOrgId(ctx.email, nextOrgId, "deleted active organization");
+  await setActiveOrgId(
+    ctx.email,
+    nextOrgId,
+    "deleted active organization",
+    event,
+  );
 
   return { success: true, orgId: ctx.orgId, nextOrgId };
 });
@@ -1562,8 +1610,8 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const orgId = body?.orgId;
 
   if (!orgId) {
-    await setActiveOrgId(email, null, "cleared active organization");
-    return { orgId: null, orgName: null, role: null };
+    const ctx = await getOrgContext(event);
+    return { orgId: ctx.orgId, orgName: ctx.orgName, role: ctx.role };
   }
 
   const e = await exec();
@@ -1584,7 +1632,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  await setActiveOrgId(email, orgId, "user switched organization");
+  await setActiveOrgId(email, orgId, "user switched organization", event);
 
   const row = membership.rows[0] as any;
   return {
@@ -1660,7 +1708,12 @@ export const joinByDomainHandler = defineEventHandler(
     });
     invalidateMemberOrgCaches();
 
-    await setActiveOrgId(email, orgId, "joined domain-matched organization");
+    await setActiveOrgId(
+      email,
+      orgId,
+      "joined domain-matched organization",
+      event,
+    );
 
     return {
       orgId,

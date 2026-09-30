@@ -47,7 +47,7 @@ vi.mock("@agent-native/core/client/uploads", () => ({
     refetch: fileStorage.refetch,
   }),
 }));
-vi.mock("@agent-native/core/client/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
   FileStorageSetupPopover: ({
     open,
     status,

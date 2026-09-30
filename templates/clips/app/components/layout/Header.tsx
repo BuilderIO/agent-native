@@ -1,9 +1,9 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useHeaderTitle,
   useHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { useLocation } from "react-router";
 
 const pageTitleKeys: Record<string, string> = {
@@ -11,6 +11,7 @@ const pageTitleKeys: Record<string, string> = {
   "/library": "navigation.library",
   "/shared": "navigation.sharedWithMe",
   "/spaces": "navigation.spaces",
+  "/screenshots": "navigation.screenshots",
   "/archive": "navigation.archive",
   "/trash": "navigation.trash",
   "/notifications": "navigation.notifications",

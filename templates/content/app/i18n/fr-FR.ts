@@ -668,6 +668,34 @@ const editor = {
     pageCount_few: "Pages {{count}}",
     pageCount_many: "Pages {{count}}",
     pageCount_other: "Pages {{count}}",
+    back: "Retour",
+    relatedDatabase: "Base de données liée",
+    searchDatabases: "Rechercher des bases de données",
+    thisDatabase: "Cette base de données",
+    noDatabases: "Aucune base de données trouvée",
+    searchPages: "Rechercher des pages",
+    noMatchingPages: "Aucune page correspondante",
+    removeRelation: "Retirer {{name}}",
+    openPage: "Ouvrir {{name}}",
+    unavailablePage: "Page indisponible",
+    unavailablePageCount_zero: "{{count}} indisponible(s)",
+    unavailablePageCount_one: "{{count}} indisponible(s)",
+    unavailablePageCount_two: "{{count}} indisponible(s)",
+    unavailablePageCount_few: "{{count}} indisponible(s)",
+    unavailablePageCount_many: "{{count}} indisponible(s)",
+    unavailablePageCount_other: "{{count}} indisponible(s)",
+    noRelatedDatabase: "Aucune base de données liée configurée",
+    linkAPage: "Lier ou créer une page…",
+    createPage: "Créer « {{name}} »",
+    reorderRelation: "Réordonner {{name}}",
+    selectMore: "En sélectionner d’autres",
+    selectAPage: "Sélectionner une page",
+    selectedCount_zero: "{{count}} sélectionnée(s)",
+    selectedCount_one: "{{count}} sélectionnée(s)",
+    selectedCount_two: "{{count}} sélectionnée(s)",
+    selectedCount_few: "{{count}} sélectionnée(s)",
+    selectedCount_many: "{{count}} sélectionnée(s)",
+    selectedCount_other: "{{count}} sélectionnée(s)",
     pasteFileOrMediaLink: "Coller un fichier ou un lien multimédia",
     personOrEmail: "Personne ou email",
     propertyMenuFor: "Menu Propriétés pour {{name}}",
@@ -1200,7 +1228,9 @@ const history = {
 
 const overrides = {
   close: "Fermer",
-  setup: { checkingProvider: "Vérification de la connexion à l’IA…" },
+  setup: {
+    providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
+  },
   onboarding: {
     fileStorage: {
       title: "Connecter un stockage pour envoyer des fichiers",
@@ -1310,10 +1340,6 @@ const overrides = {
   },
   settings: {
     title: "Paramètres",
-    description: "Préférences de langue et d’espace de travail pour Content.",
-    emailNotifications: "Notifications par e-mail",
-    emailNotificationsDescription:
-      "Recevez un e-mail lorsqu’une personne commente, répond ou vous mentionne dans votre document.",
     saveFailed: "Échec de l’enregistrement",
     notificationsEmail: "E-mail",
     commentsRepliesMentions: "Commentaires, réponses et mentions",
@@ -1322,10 +1348,6 @@ const overrides = {
     retry: "Réessayer",
     mcpAbout:
       "Connectez Content à Claude, ChatGPT, Cursor ou toute app d’IA compatible MCP. Cette app peut alors travailler dans Content pour vous : rechercher, rédiger et modifier des documents. Elle ne voit que ce que vous pouvez voir.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
     workspaceTitle: "Espace de travail",
     workspaceDescription:
       "Gérez les collaborateurs et l’accès aux documents partagés.",

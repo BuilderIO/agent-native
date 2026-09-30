@@ -1,34 +1,29 @@
+<picture>
+  <source
+    media="(prefers-color-scheme: dark)"
+    srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5476444e54ee4a958966c90caca468e3"
+  />
+  <source
+    media="(prefers-color-scheme: light)"
+    srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7628600bc10a4940b78f42c5df7628b0"
+  />
+  <img
+    alt="Agent-Native: The agentic application framework"
+    src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7628600bc10a4940b78f42c5df7628b0"
+  />
+</picture>
+
 # Agent-Native
-
-**The agentic application framework**
-
-Build autonomous agents with intuitive UIs.
-
-[Documentation](https://agent-native.com/docs) · [Getting started](https://agent-native.com/docs/getting-started) · [Examples](https://agent-native.com/apps) · [Discord](https://discord.gg/qm82StQ2NC)
-
-[![npm version](https://img.shields.io/npm/v/%40agent-native%2Fcore)](https://www.npmjs.com/package/@agent-native/core)
-[![Node.js compatibility](https://img.shields.io/node/v/%40agent-native%2Fcore)](https://nodejs.org)
 
 Agent-Native is an open-source TypeScript framework for building agents that pair autonomous work with a purpose-built UI. Define each capability once as an [action](https://agent-native.com/docs/actions-overview): the agent uses it as a tool, and the UI calls it from code.
 
 ## Quick start
 
-You need [Node.js](https://nodejs.org) 22.22 or later, [pnpm](https://pnpm.io) available on your `PATH`, and an LLM connection.
-
 ```bash
 npx --yes @agent-native/core@latest create my-agent --standalone --template chat
-cd my-agent
-pnpm install
-pnpm dev
 ```
 
-The browser UI opens at `http://localhost:8080`. Select **Continue as local dev**, then connect Builder.io, your Anthropic or OpenAI API key, or a local Ollama model.
-
-Ask the agent:
-
-> Call the hello action for Alex.
-
-The agent runs the included `hello` action and replies with `Hello, Alex!`. Follow the [getting started guide](https://agent-native.com/docs/getting-started) to call the same action from the UI and create your own.
+Follow the [getting started guide](https://agent-native.com/docs/getting-started) for a full intro to the framework.
 
 ## Why build agents with UIs?
 
@@ -52,6 +47,7 @@ Create `actions/hello.ts`:
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({
@@ -75,19 +71,40 @@ The agent receives `hello` as a tool. React calls the same function with `useAct
 - **[Agent teams](https://agent-native.com/docs/agent-teams):** Delegate work to specialist agents in the same workspace or across connected agents.
 - **[PostgreSQL backend](https://agent-native.com/docs/server-database):** Use PostgreSQL in production and PGlite for local development on any Nitro-compatible host.
 
+### Example: edit a running app visually
+
+Use `/visual-edit` in Claude Code to edit a running app on a canvas instead of
+prompting for each small UI nudge. Compare live pages together, then ask Claude
+to apply the chosen edits to your source. For example:
+
+```text
+/visual-edit the onboarding flow, plus home at every breakpoint
+```
+
+Review the onboarding screens alongside Home at desktop, tablet, and mobile
+sizes, adjust a button's color or spacing directly, then ask Claude to apply the
+pending edits to your source. See the [Visual Edit guide](./skills/visual-edit/README.md)
+for the full walkthrough and sharing details.
+
 Bring your LLM, SQL database, tools, and infrastructure. Everything you build stays yours.
 
 See Agent-Native in action:
 
 https://github.com/user-attachments/assets/ef51644b-6506-46d8-8083-0af7b7e5b65c
 
+<br />
+
 ## Open-source agents
 
 Start from one of these agents or use it as an example for your own.
 
+<br />
+
 <table>
 <tr>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Clips**
 
@@ -100,8 +117,12 @@ Start from one of these agents or use it as an example for your own.
 
 Record and understand meetings, screens, and voice notes.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Design**
 
@@ -114,8 +135,12 @@ Record and understand meetings, screens, and voice notes.
 
 Generate and refine interactive designs.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Slides**
 
@@ -128,10 +153,14 @@ Generate and refine interactive designs.
 
 Create and edit on-brand presentations.
 
+<br />
+
 </td>
 </tr>
 <tr>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Analytics**
 
@@ -144,8 +173,12 @@ Create and edit on-brand presentations.
 
 Ask questions of your data and build dashboards.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Calendar**
 
@@ -158,8 +191,12 @@ Ask questions of your data and build dashboards.
 
 Find time, schedule events, and manage bookings.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Mail**
 
@@ -172,10 +209,14 @@ Find time, schedule events, and manage bookings.
 
 Prioritize email, draft replies, and follow up.
 
+<br />
+
 </td>
 </tr>
 <tr>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Assets**
 
@@ -188,8 +229,12 @@ Prioritize email, draft replies, and follow up.
 
 Create and organize on-brand media.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Content**
 
@@ -202,8 +247,27 @@ Create and organize on-brand media.
 
 Draft, organize, and publish content.
 
+<br />
+
 </td>
-<td width="33%"></td>
+<td width="33%" align="center" valign="top">
+
+<br />
+
+**Plans**
+
+<a href="https://agent-native.com/apps/plan/">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe89439e917044fc9ac9663737e35bf1f?format=webp&width=800">
+<img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F98427229c8c84c30afee56172503c294?format=webp&width=800" alt="Plans app screenshot" width="100%">
+</picture>
+</a>
+
+Create and review visual plans with diagrams, wireframes, and prototypes.
+
+<br />
+
+</td>
 </tr>
 </table>
 
@@ -216,7 +280,7 @@ Explore the [full app gallery](https://agent-native.com/apps), or start with the
 
 ## Contributing
 
-Working on this repository itself? See [DEVELOPMENT.md](https://github.com/BuilderIO/agent-native/blob/main/DEVELOPMENT.md) for local setup, workspace structure, and guard scripts.
+Working on this repository itself? See [DEVELOPMENT.md](./DEVELOPMENT.md) for local setup, workspace structure, and guard scripts.
 
 ## License
 

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   BlockRegistry,
   BlockRegistryProvider,
@@ -6,8 +7,7 @@ import {
   useBlockRegistry,
   type BlockRenderContext,
   type NestedBlock,
-} from "@agent-native/core/blocks";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/blocks";
 import { useMemo, type ReactNode } from "react";
 
 import {

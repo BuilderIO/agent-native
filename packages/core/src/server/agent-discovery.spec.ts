@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   agentHandleNumberVariant,
-  BUILTIN_AGENTS_FOR_SEEDING,
   discoverAgents,
   discoverOrgDirectoryAgents,
   findAgent,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
+  getBuiltinAgentsForSeeding,
   loadWorkspaceAppsManifest,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
@@ -136,7 +136,9 @@ describe("agent discovery", () => {
   });
 
   it("seeds built-in remote agents with production URLs only", () => {
-    for (const agent of BUILTIN_AGENTS_FOR_SEEDING) {
+    const seeded = getBuiltinAgentsForSeeding();
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const agent of seeded) {
       expect(agent.url).toMatch(/^https:\/\/.+\.agent-native\.com$/);
       expect(agent.url).not.toContain("localhost");
       expect(agent.url).not.toContain("127.0.0.1");

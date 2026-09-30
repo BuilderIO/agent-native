@@ -8,6 +8,7 @@ import {
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../mcp/route-paths.js";
 import { findWorkspaceRoot } from "../mcp/workspace-resolve.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   CLIENTS,
   ClientId,
@@ -18,10 +19,6 @@ import {
   writeHttpEntryForClient,
   writeJsonMcpEntryForClient,
 } from "./mcp-config-writers.js";
-import {
-  isFirstPartyPlanHost,
-  writePlanPublishAuth,
-} from "./plan-publish-store.js";
 import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start`;
@@ -77,8 +74,10 @@ const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
   "github-copilot",
 ]);
 
-let logOutImpl = (msg: string) => process.stdout.write(`${msg}\n`);
-let logErrImpl = (msg: string) => process.stderr.write(`${msg}\n`);
+let logOutImpl: (msg: string) => void = (msg) =>
+  process.stdout.write(`${msg}\n`);
+let logErrImpl: (msg: string) => void = (msg) =>
+  process.stderr.write(`${msg}\n`);
 
 function logOut(msg: string): void {
   logOutImpl(msg);
@@ -1873,10 +1872,7 @@ async function resolveReconnectTarget(
   const urlList = [...byUrl.keys()];
   if (shouldPrompt(deps)) {
     const clack = await import("@clack/prompts");
-    const result = await clack.select<
-      { value: string; label: string; hint: string }[],
-      string
-    >({
+    const result = await clack.select({
       message:
         "Multiple Agent-Native apps found. Which one do you want to reconnect?",
       options: urlList.map((u) => {
@@ -1892,9 +1888,9 @@ async function resolveReconnectTarget(
       clack.cancel("Cancelled.");
       return null;
     }
-    const bucket = byUrl.get(result as string);
+    const bucket = byUrl.get(result);
     const chosen = bucket
-      ? (preferredReconnectEntry(result as string, bucket) ?? bucket[0])
+      ? (preferredReconnectEntry(result, bucket) ?? bucket[0])
       : undefined;
     if (!chosen || !bucket) return null;
     return {
@@ -2121,10 +2117,19 @@ async function connectOne(
   // Plans server gets a usable token and `publish-visual-plan` doesn't send the
   // user back to `agent-native connect` right after they just ran it.
   let publishToken = token;
+  const planHost =
+    new URL(baseUrl).hostname.toLowerCase() === "plan.agent-native.com";
+  const planPublishStore =
+    planHost && (Boolean(publishToken) || oauthClients.length > 0)
+      ? await loadOptionalPeer(
+          "@agent-native/recap-cli",
+          () => import("@agent-native/recap-cli"),
+        )
+      : undefined;
   if (
     !publishToken &&
     oauthClients.length > 0 &&
-    isFirstPartyPlanHost(baseUrl)
+    planPublishStore?.isFirstPartyPlanHost(baseUrl)
   ) {
     try {
       logOut("");
@@ -2147,8 +2152,8 @@ async function connectOne(
       );
     }
   }
-  if (publishToken && isFirstPartyPlanHost(baseUrl)) {
-    const canonicalPath = writePlanPublishAuth({
+  if (publishToken && planPublishStore?.isFirstPartyPlanHost(baseUrl)) {
+    const canonicalPath = planPublishStore.writePlanPublishAuth({
       url: baseUrl,
       token: publishToken,
     });
