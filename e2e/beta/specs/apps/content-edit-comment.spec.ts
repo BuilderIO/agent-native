@@ -80,6 +80,7 @@ test("Content beta saves a page edit and comment", async ({ browser }) => {
       timeout: 45_000,
     });
     const editor = page.locator(".notion-editor.ProseMirror");
+    await expect(editor).toBeEditable({ timeout: 60_000 });
     await expect(editor).toContainText(originalBody, { timeout: 60_000 });
     await editor.fill(editedBody);
     await expect
@@ -91,10 +92,6 @@ test("Content beta saves a page edit and comment", async ({ browser }) => {
         { timeout: 60_000 },
       )
       .toContain(editedBody);
-    await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 });
-    await expect(editor).toBeEditable({ timeout: 60_000 });
-    await expect(editor).toContainText(editedBody, { timeout: 60_000 });
-
     await editor.selectText();
     await page.getByRole("button", { name: "Comment", exact: true }).click();
     const pendingComment = page.locator("[data-comment-pending]");
@@ -107,6 +104,9 @@ test("Content beta saves a page edit and comment", async ({ browser }) => {
     );
     await pendingComment.locator("button[data-comment-send]").click();
     expect((await savedComment).ok()).toBe(true);
+
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 });
+    await expect(editor).toContainText(editedBody, { timeout: 60_000 });
 
     const comments = (
       await readAction(page, origin, "list-comments", {
