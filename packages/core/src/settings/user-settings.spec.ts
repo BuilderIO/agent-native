@@ -39,7 +39,10 @@ describe("user-settings", () => {
 
       const result = await getUserSetting("alice@test.com", "theme");
 
-      expect(mockGetSetting).toHaveBeenCalledWith("u:alice@test.com:theme");
+      expect(mockGetSetting).toHaveBeenCalledWith(
+        "u:alice@test.com:theme",
+        undefined,
+      );
       expect(result).toEqual({ theme: "dark" });
     });
 
@@ -50,11 +53,35 @@ describe("user-settings", () => {
       expect(result).toBeNull();
     });
 
+    it("passes the transaction to normalized and legacy setting reads", async () => {
+      const options = { transaction: { execute: vi.fn() } };
+      mockGetSetting
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ enabled: true });
+
+      expect(await getUserSetting("Alice@test.com", "labs", options)).toEqual({
+        enabled: true,
+      });
+      expect(mockGetSetting).toHaveBeenNthCalledWith(
+        1,
+        "u:alice@test.com:labs",
+        options,
+      );
+      expect(mockGetSetting).toHaveBeenNthCalledWith(
+        2,
+        "u:Alice@test.com:labs",
+        options,
+      );
+    });
+
     it("handles email with special characters", async () => {
       mockGetSetting.mockResolvedValue({ val: 1 });
 
       await getUserSetting("user+tag@example.com", "key");
-      expect(mockGetSetting).toHaveBeenCalledWith("u:user+tag@example.com:key");
+      expect(mockGetSetting).toHaveBeenCalledWith(
+        "u:user+tag@example.com:key",
+        undefined,
+      );
     });
   });
 
@@ -473,8 +500,14 @@ describe("user-settings", () => {
       await getUserSetting("alice@test.com", "theme");
       await getUserSetting("bob@test.com", "theme");
 
-      expect(mockGetSetting).toHaveBeenCalledWith("u:alice@test.com:theme");
-      expect(mockGetSetting).toHaveBeenCalledWith("u:bob@test.com:theme");
+      expect(mockGetSetting).toHaveBeenCalledWith(
+        "u:alice@test.com:theme",
+        undefined,
+      );
+      expect(mockGetSetting).toHaveBeenCalledWith(
+        "u:bob@test.com:theme",
+        undefined,
+      );
     });
   });
 });

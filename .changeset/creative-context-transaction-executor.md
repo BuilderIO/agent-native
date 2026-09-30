@@ -3,4 +3,4 @@
 "@agent-native/creative-context": patch
 ---
 
-Export execForDrizzleTransaction and withDbExec so Creative Context lab and access checks use the supplied Drizzle transaction connection.
+Core exports execForDrizzleTransaction and lets getUserSetting and getUserLabs accept an optional transaction. Creative Context runs its lab, artifact, and pack checks on the caller's transaction when it passes db.

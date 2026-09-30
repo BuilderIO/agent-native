@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import type { DbExec } from "../db/client.js";
+import { registerLabs } from "../labs/registry.js";
+import { getUserLabs } from "../labs/store.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let originalEnv: NodeJS.ProcessEnv;
@@ -211,6 +214,39 @@ it("reads settings through a supplied transaction without another connection", a
   expect(execute).toHaveBeenCalledOnce();
   expect(rawClient.execute).not.toHaveBeenCalled();
 });
+
+it.each([false, true])(
+  "reads user labs through the transaction without consulting or changing the request cache (warm cache: %s)",
+  async (warmCache) => {
+    const email = "labs-reader@example.test";
+    const lab = "settings.transaction-lab";
+    registerLabs([{ key: lab }]);
+    await putSetting(`u:${email}:labs`, { [lab]: true });
+    const execute = vi.fn<DbExec["execute"]>(async (statement) => {
+      if (typeof statement === "string") throw new Error("Unexpected DDL");
+      expect(statement.sql).toMatch(/^SELECT value FROM public.settings/i);
+      return {
+        rows:
+          statement.args?.[0] === `u:${email}:labs`
+            ? [{ value: JSON.stringify({ [lab]: false }) }]
+            : [],
+        rowsAffected: 0,
+      };
+    });
+
+    await runWithRequestContext({ userEmail: email }, async () => {
+      if (warmCache) expect((await getUserLabs(email))[lab]).toBe(true);
+      rawClient.execute.mockClear();
+      expect(
+        (await getUserLabs(email, { transaction: { execute } }))[lab],
+      ).toBe(false);
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(rawClient.execute).not.toHaveBeenCalled();
+      expect((await getUserLabs(email))[lab]).toBe(true);
+      expect(rawClient.execute).toHaveBeenCalledTimes(warmCache ? 0 : 2);
+    });
+  },
+);
 
 describe("getSettings (batched read)", () => {
   it("reads N distinct keys in a single query", async () => {

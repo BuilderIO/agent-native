@@ -1,4 +1,5 @@
 import { fail } from "@agent-native/core/action";
+import type { DbExec } from "@agent-native/core/db";
 import { getUserLabs } from "@agent-native/core/labs/server";
 import type { ActionEntry } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -9,9 +10,12 @@ import { getCreativeContext } from "./context.js";
 export async function isCreativeContextLabAvailable(
   userEmail: string | undefined,
   labKey = CREATIVE_CONTEXT_LIBRARY_LAB.key,
+  options: { transaction?: DbExec } = {},
 ): Promise<boolean> {
   if (!userEmail) return false;
-  const labs = await getUserLabs(userEmail);
+  const labs = options.transaction
+    ? await getUserLabs(userEmail, options)
+    : await getUserLabs(userEmail);
   return labs[labKey] === true;
 }
 

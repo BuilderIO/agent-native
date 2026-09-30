@@ -1,3 +1,4 @@
+import type { StoreReadOptions } from "../settings/store.js";
 import {
   getUserSetting,
   mutateUserSetting,
@@ -9,10 +10,11 @@ const LEGACY_LABS_SETTING_KEY = "experiments";
 
 async function getStoredLabs(
   email: string,
+  options?: Pick<StoreReadOptions, "transaction">,
 ): Promise<Record<string, unknown> | null> {
   const [labs, legacy] = await Promise.all([
-    getUserSetting(email, LABS_SETTING_KEY),
-    getUserSetting(email, LEGACY_LABS_SETTING_KEY),
+    getUserSetting(email, LABS_SETTING_KEY, options),
+    getUserSetting(email, LEGACY_LABS_SETTING_KEY, options),
   ]);
   return labs || legacy ? { ...(legacy ?? {}), ...(labs ?? {}) } : null;
 }
@@ -31,8 +33,9 @@ export function normalizeLabValues(
 
 export async function getUserLabs(
   email: string,
+  options?: Pick<StoreReadOptions, "transaction">,
 ): Promise<Record<string, boolean>> {
-  return normalizeLabValues(await getStoredLabs(email));
+  return normalizeLabValues(await getStoredLabs(email, options));
 }
 
 export async function setUserLab(

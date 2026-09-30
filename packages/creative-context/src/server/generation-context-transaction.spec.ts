@@ -17,7 +17,7 @@ import {
   getShareableResource,
   registerShareableResource,
 } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import {
   afterAll,
@@ -139,7 +139,7 @@ describe("generation context uses the supplied transaction", () => {
       CREATE TABLE IF NOT EXISTS org_members (
         id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
         role TEXT NOT NULL, joined_at BIGINT NOT NULL,
-        federation_removal_pending_at INTEGER
+        federation_removal_pending_at BIGINT
       )
     `);
     for (const email of [EDITOR, VIEWER, NO_PACK_ACCESS]) {
@@ -248,13 +248,11 @@ describe("generation context uses the supplied transaction", () => {
       expect(await records()).toHaveLength(1);
       expect(globalQueries).toEqual([]);
       expect(globalDbCalls).toBe(0);
-      if (!warmCache) {
-        expect(
-          queries.some((query) =>
-            /SELECT value FROM public.settings/i.test(query),
-          ),
-        ).toBe(true);
-      }
+      expect(
+        queries.some((query) =>
+          /SELECT value FROM public.settings/i.test(query),
+        ),
+      ).toBe(true);
       for (const name of [
         "generation_test_decks",
         "generation_test_deck_shares",
@@ -298,6 +296,34 @@ describe("generation context uses the supplied transaction", () => {
       expect(globalQueries).toEqual([]);
     },
   );
+
+  it("does not cache a lab value read from a rolled-back transaction in the same request", async () => {
+    await asUser(EDITOR, async () => {
+      await expect(
+        inTransaction(async (tx) => {
+          await tx.execute(
+            sql`UPDATE public.settings SET value = ${JSON.stringify({ [LAB]: false })} WHERE key = ${`u:${EDITOR}:labs`}`,
+          );
+          expect(
+            await recordGenerationCreativeContext(input(), { db: tx }),
+          ).toBeNull();
+          expect(
+            await tx
+              .select()
+              .from(schema.generationRecords)
+              .where(eq(schema.generationRecords.artifactId, artifactId)),
+          ).toEqual([]);
+          throw new Error("Roll back the lab change");
+        }),
+      ).rejects.toThrow("Roll back the lab change");
+      expect(await recordGenerationCreativeContext(input())).toMatchObject({
+        artifactId,
+        contextPackId: packId,
+        orgId: ORG,
+      });
+    });
+    expect(await records()).toHaveLength(1);
+  });
 
   it("keeps global lab and access reads when no db is supplied", async () => {
     const result = await asUser(EDITOR, () =>

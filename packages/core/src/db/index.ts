@@ -28,7 +28,6 @@ export {
   closeDbExec,
   isUniqueViolation,
   toPostgresParams,
-  withDbExec,
   type DbExec,
   type DbExecConfig,
   type DbExecQuery,

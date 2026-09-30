@@ -8,6 +8,7 @@ import {
   mutateSetting,
   putSetting,
   deleteSettingIfValue,
+  type StoreReadOptions,
   type StoreWriteOptions,
 } from "./store.js";
 
@@ -29,11 +30,12 @@ function afterUserSettingWrite(key: string): void {
 export async function getUserSetting(
   email: string,
   key: string,
+  options?: StoreReadOptions,
 ): Promise<Record<string, unknown> | null> {
-  const normalized = await getSetting(userKey(email, key));
+  const normalized = await getSetting(userKey(email, key), options);
   if (normalized !== null) return normalized;
   const legacy = legacyUserKey(email, key);
-  return legacy === userKey(email, key) ? null : getSetting(legacy);
+  return legacy === userKey(email, key) ? null : getSetting(legacy, options);
 }
 
 export async function getUserSettings(
