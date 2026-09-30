@@ -1,10 +1,12 @@
 # Search index architecture
 
-Status: proposed, revision 2. This is the API sketch for the core search layer,
-written before implementation. Revision 2 incorporates an independent
-design review; the main changes are whole-resource matching, access checked
-inside the query, change capture by database triggers, and a search-owned
-queue driver. Update this document when the design changes.
+Status: accepted, revision 3. Revision 1 was the API sketch written before
+implementation. Revision 2 incorporated an independent design review:
+whole-resource matching, access checked inside the query, and change capture by
+database triggers. Revision 3 records the first implementation. Change capture
+became a general resource change feed that search consumes, search never wakes
+a sleeping database, and core tokenizes text itself. Each section says what is
+built and what is planned. Update this document when the design changes.
 
 ## Decision
 
@@ -30,13 +32,27 @@ It builds on the existing `@agent-native/core/search` primitives (rank fusion,
 per-dimension pgvector tables). Brain and Creative Context keep their current
 namespaced tables; this layer adds its own fixed tables.
 
+## Built so far
+
+- **Core:** the resource change feed (`packages/core/src/resource-changes/`),
+  the index tables, the indexer, the query SQL, and the query parser, exported
+  from `@agent-native/core/search` and `@agent-native/core/search-query`.
+- **Content:** registers `documents`, installs change capture as migration
+  117, and `search-documents` answers from the index when it's ready. When it
+  isn't, the request falls back to the scan Content used before the index.
+- **Not built yet:** the `searchResources` library call, `createSearchAction`,
+  the per-app `search` action, cursors, chunks and passage snippets, audience
+  tokens, `ts_rank_cd` ordering, the typo fallback, the semantic lane, and
+  lifting the browser lane into core. Until the library call exists, an app
+  composes the index into its own query (see [Querying](#querying)).
+
 ## Shape of the system
 
-| Lane     | Where   | What it matches                                        | When                        |
-| -------- | ------- | ------------------------------------------------------ | --------------------------- |
-| Title    | Browser | Titles the app already loaded, including fuzzy matches | Every keystroke, no network |
-| Lexical  | Server  | Words and word prefixes in title, summary, and body    | After a short debounce      |
-| Semantic | Server  | Meaning, via chunk embeddings (hosted Postgres only)   | Later                       |
+| Lane     | Where   | What it matches                                                  | When                        |
+| -------- | ------- | ---------------------------------------------------------------- | --------------------------- |
+| Title    | Browser | Titles the app already loaded, including fuzzy matches           | Every keystroke, no network |
+| Lexical  | Server  | Substrings of titles and summaries; words and prefixes in bodies | After a short debounce      |
+| Semantic | Server  | Meaning, via chunk embeddings (hosted Postgres only)             | Later                       |
 
 One ordering function defines results for every caller. Modes change only the
 latency budget, never the result set or its order. The last query term is
@@ -46,50 +62,56 @@ first, but its final state equals what an agent gets for the same inputs.
 
 ## Registration
 
-```ts
-import { registerSearchableResource } from "@agent-native/core/search";
+Built:
 
-registerSearchableResource({
+```ts
+import {
+  registerSearchableResource,
+  searchIndexMigration,
+} from "@agent-native/core/search";
+
+export const documentSearchIndex = registerSearchableResource({
   app: "content",
   type: "document", // matches the shareable resource type
-  getDb,
   table: schema.documents,
-  sharesTable: schema.documentShares,
-  version: 1, // bump when projection logic changes; triggers a rebuild
+  idColumn: schema.documents.id,
+  version: 1, // bump when load() changes; the index rebuilds
 
-  // Batched and async: rows -> searchable text and prefilter fields.
-  // Return null for a row to keep it out of the index.
-  async load(ids, db) {
-    return projectDocuments(ids, db); // title, summary, body, updatedAt, filters
+  // Batched: IDs -> title, summary, body, modifiedAt. An ID left out of the
+  // result is removed from the index.
+  async load(ids) {
+    return projectDocuments(ids);
   },
+});
 
-  // The exact access and eligibility condition, as SQL over the source table,
-  // joined into the candidate query. For Content: documentDiscoveryWhere with
-  // the caller's orgs and live filters, plus hideFromSearch for query searches.
-  authorizeWhere(caller, filters) {
-    return contentSearchWhere(caller, filters);
-  },
-
-  // Validated org memberships the caller searches across.
-  callerOrgIds: (caller) => authorizedOrgIdsFor(caller),
-
-  deepLink: (hit) =>
-    buildDeepLink({ app: "content", view: "page", params: { id: hit.id } }),
+// In the app's runMigrations list: installs the change triggers.
+searchIndexMigration(documentSearchIndex, {
+  version: 117,
+  name: "search-index-documents",
 });
 ```
+
+Planned for the library call and the action factory:
+
+- `sharesTable`, once the index holds audience tokens;
+- `authorizeWhere(caller, filters)`, the app's access and eligibility
+  condition as SQL over the source table;
+- `callerOrgIds(caller)`, the validated orgs the caller searches across; it
+  defaults to the active org, and Content opts into its multi-org search;
+- `deepLink(hit)`, built with `buildDeepLink`.
 
 Rules:
 
 - **Project only the resource's own text.** A child never indexes its parent's
   title. Breadcrumbs are resolved at query time from ancestors the caller can
   see.
-- **Filters in the index are prefilters only.** They can be stale; for example,
-  a cross-space move doesn't touch every descendant's `updatedAt`, and a
-  document's type comes from `content_databases`. `authorizeWhere` re-applies
-  every filter live against the source rows.
-- **`authorizeWhere` must match what the app already trusts for listing.** For
-  Content that is `documentDiscoveryWhere` plus the `hideFromSearch` clause
-  that `search-documents` adds for query searches.
+- **The index never decides access.** Filters stored in the index can be stale;
+  for example, a cross-space move doesn't touch every descendant's
+  `updatedAt`. The source rows decide access and filters, live, in the same
+  statement that reads the index.
+- **The access condition matches what the app already trusts for listing.**
+  For Content that is `documentDiscoveryWhere` plus the `hideFromSearch`
+  clause that `search-documents` adds for query searches.
 
 ## Tables
 
@@ -97,57 +119,76 @@ Created at release through `FRAMEWORK_SCHEMA_ENSURES`, additive only, fixed
 names, scoped by `app` and `resource_type`. That keeps them safe in self-built
 workspaces where several apps share one database.
 
-- **`search_resources`**: one row per resource, used for matching and access.
-  - `title_norm` (btree, `text_pattern_ops`) for title tiers.
-  - `title_vector` (`'simple'`, GIN) for word-prefix title matches.
-  - `doc_vector` (`'simple'`, GIN): title A, summary B, whole body C. When a
-    body would exceed tsvector limits (1 MB, 16,383 positions), its body part
-    is `strip()`ped; phrase checks then fall to chunks.
-  - `audience text[]` (GIN), prefilter columns (`scope`, `parent`, `kind`,
-    `modified_at`, `extra jsonb`).
-  - Bookkeeping: `content_hash`, `acl_hash`, `source_updated_at`,
-    `index_version`, `indexed_at`.
+Built:
+
+- **`search_resources`**: one row per resource.
+  - `title`, plus `title_norm` and `summary_norm` (NFKC, lowercased) for
+    substring matches and title tiers.
+  - `doc_vector` (GIN): title at weight A, summary B, body C.
+  - `positions_complete`: false when Postgres's limits made the vector drop
+    word positions (see [Querying](#querying)).
+  - `modified_at`, and bookkeeping: `content_hash`, `index_version`,
+    `indexed_seq`, `indexed_at`.
+- **`search_index_state`**: per `app` and `resource_type`: `target_version`,
+  `index_version`, `rebuild_high_seq`, `rebuild_started_at`,
+  `rebuild_completed_at`.
+- **`app_resource_changes`** and **`app_resource_change_consumers`**: the
+  change feed (see [Keeping the index fresh](#keeping-the-index-fresh)).
+
+Planned:
+
+- `audience text[]` (GIN) and prefilter columns (`scope`, `parent`, `kind`,
+  `extra jsonb`), with an `acl_hash`.
 - **`search_chunks`**: body chunks, used only to rank passages and build
-  snippets for final candidates. Stores the chunk vector, raw-source start and
-  end offsets, and a chunk hash. Chunks overlap by at least the longest
-  supported phrase.
-- **`search_queue`**: `(resource_type, resource_id)` primary key, `reason`,
-  `enqueued_at`, `attempts`.
-- **`search_index_state`**: per `app` and `resource_type`: `index_version`,
-  `rebuild_started_at`, `rebuild_completed_at`.
-- Later: `search_vocabulary` (typo correction), `resource_views` (recently
-  opened), `search_misses` (failed searches), and per-dimension pgvector
-  tables (semantic search).
+  snippets for final candidates. Each stores the chunk vector, raw-source start
+  and end offsets, and a chunk hash. Chunks overlap by at least the longest
+  supported phrase. Chunks also make phrase matching exact in documents whose
+  vector lost positions.
+- A trigram index on `title_norm`, if title substring matching needs it at
+  scale.
+- `search_vocabulary` (typo correction), `resource_views` (recently opened),
+  `search_misses` (failed searches), and per-dimension pgvector tables
+  (semantic search).
 
-Everything uses an explicit `'simple'` text-search configuration: no stemming,
-no stopwords, identical on Neon and PGlite. A stemmed body vector can be added
-later if the relevance eval shows it helps.
+### Tokens
 
-### Tokens beyond the Postgres parser
+Core tokenizes text in JavaScript, never with Postgres's text parser. That
+parser depends on the database's locale: on some locales it drops Japanese
+entirely, and PGlite and Neon don't agree. Core builds `tsvector` and `tsquery`
+literals itself, and Postgres only stores, indexes, and matches them. The same
+code tokenizes documents and queries, so they always agree.
 
-Word search loses things substring search found. At index time and query time,
-core adds extra tokens:
-
-- **Compound words:** camelCase, snake_case, and kebab-case split into their parts.
-- **URLs and paths:** host and path segments.
-- **CJK text:** overlapping character bigrams, because Postgres doesn't
-  segment Chinese or Japanese.
+- Text is NFKC-normalized and lowercased. There is no stemming and there are
+  no stopwords. A stemmed vector can be added later if the relevance eval
+  shows it helps.
+- A word is a run of letters, numbers, and combining marks. Everything else
+  separates words, so `snake_case`, kebab-case, URLs, and paths become their
+  parts at consecutive positions, and a query for the same text matches them
+  as a phrase.
+- A camelCase word is indexed whole and as its parts, so `searchIndexState`,
+  `index`, and `index state` all find it.
+- Chinese, Japanese, and Korean runs become overlapping character pairs,
+  because they have no spaces to split on. A query becomes the same pairs as a
+  phrase, which matches exactly that substring.
 
 Mid-word matches in bodies ("port" inside "report") are deliberately not
-matched. Titles keep mid-word matching through the browser lane and the title
-tiers.
+matched. Titles and summaries match anywhere, including mid-word.
 
 ## Access
 
-`authorizeWhere` is the authority, and it runs inside the candidate query.
-Because unauthorized rows never become candidates:
+The access condition runs inside the candidate query. Because unauthorized rows
+never become candidates:
 
 - `OFFSET` counts only visible rows;
-- `limit + 1` gives an exact `hasMore`;
+- totals are exact, and `limit + 1` gives an exact `hasMore`;
 - no post-filter loop can leak or stall.
 
-Audience tokens are a GIN prefilter that keeps that live check cheap on broad
-queries:
+Built: the app's own statement applies its access condition next to the index
+join. Content uses the same condition as its listing. The index holds no access
+data, so sharing changes need no reindexing.
+
+Planned: audience tokens as a GIN prefilter that keeps the live check cheap on
+broad queries. They arrive with `sharesTable`, whose triggers keep them fresh.
 
 | Grant            | Row token                           | Notes                                                                                     |
 | ---------------- | ----------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -160,8 +201,8 @@ queries:
 Emails are lowercased. Caller tokens are computed after `resolveAccessContext`
 from live, validated memberships, so joining or leaving orgs and groups needs
 no reindexing. A registration whose access comes from outside `accessFilter`
-(for example `canManageAccess`) sets `prefilter: false` and relies on
-`authorizeWhere` alone.
+(for example `canManageAccess`) sets `prefilter: false` and relies on the live
+condition alone.
 
 ## Keeping the index fresh
 
@@ -170,88 +211,129 @@ update rows without bumping it, it's stored as text in mixed formats, and a
 `CURRENT_TIMESTAMP` default is the transaction's start, not its commit.
 Instead:
 
-1. **Change capture by triggers.** Each registration installs AFTER triggers on
-   its source table and its shares table, through an app migration that uses
-   core-provided SQL. The triggers upsert into `search_queue` in the writer's
-   own transaction. This catches every writer, including sync jobs, raw SQL,
-   subtree cascades, and deletes, and nothing is enqueued unless the write
-   commits. A startup check fails loudly if a registered table lacks its
-   triggers.
-2. **Read-your-writes.** Before querying, the search library drains pending
-   queue entries for that app within a small budget (for example, 100 ms).
-   The editor's next search, and anyone else's, sees committed changes. Heavy
-   backlogs such as a rebuild are left to the background driver.
-3. **Background driver.** Search owns its own driver:
-   - an in-process interval on long-lived servers and local development;
-   - a `registerRecurringSweepHandler` handler for Netlify, time-boxed because
-     handlers run in series.
+1. **A general resource change feed.** `app_resource_changes` is a coalescing
+   queue of changed resources for each consumer, keyed by consumer, app,
+   resource type, and resource ID. Triggers write it in the writer's own
+   transaction through one SQL function,
+   `agent_native_app_resource_changed(app, type, id, reason)`:
+   - after every insert and delete, and after an update only when the row
+     actually changed;
+   - a changed primary key is recorded as a delete of the old ID.
 
-   An advisory lock or lease keeps overlapping runs from double-processing. The
-   recurring-jobs runtime doesn't run sweep handlers locally or on other
-   serverless platforms, which is why search can't rely on it alone.
+   Every writer is caught, including sync jobs, raw SQL, cascades, and
+   deletes, and a rolled-back write records nothing. Each entry carries a
+   `seq` from one sequence, taken after the row lock, so a later change to the
+   same resource always has a higher `seq`.
 
-4. **Safe writes.**
-   - Indexing reads the source row and its shares, then writes the
-     `search_resources` row only if its stored `source_updated_at` and
-     `acl_hash` are not newer.
-   - A queue row is deleted only if its `enqueued_at` is unchanged since it
-     was read, so a newer enqueue is never swallowed.
-5. **Rebuilds.** A new `index_version` enqueues every row in batches
-   (`INSERT … SELECT id`), which avoids cursors over random IDs. Until the
-   rebuild completes, the app's existing search path serves requests, and the
-   response reports `indexComplete: false`.
-6. **Reconciliation.** A slow batched job compares `content_hash` and
-   `acl_hash` with the source and requeues differences. Queue depth, queue
-   age, and index lag are reported as metrics.
+   Search is the first consumer. A later one (webhooks, realtime, audit)
+   subscribes in `app_resource_change_consumers` and gets its own queue from
+   the same triggers. If core ever routes every write through one data layer,
+   that layer calls the same function and the triggers retire.
 
-Unchanged content only refreshes audience and filters. Chunks are rewritten
-only when their hash changes, so autosave on a 200 KB page doesn't reindex the
-whole body.
+2. **Capture is installed by a migration.** `searchIndexMigration()` installs
+   the triggers and subscribes search. If they're missing, search reports
+   `capture-missing`, logs an error, and the app's previous search answers.
+3. **Search never wakes a sleeping database.** Neon suspends an idle database
+   after five minutes, and a self-hoster pays for every minute it's awake. So
+   search never polls. It processes changes only when something else already
+   has the database awake:
+   - before a search, within a 100 ms budget
+     (`AGENT_NATIVE_SEARCH_DRAIN_BUDGET_MS`);
+   - after an action writes, within 250 ms, through `waitUntil` where the
+     platform provides it, so the response doesn't wait;
+   - in the `search-index` recurring sweep handler, for up to 20 seconds of
+     the tick core already runs.
+
+   An app without recurring jobs catches up at its next write or search.
+
+4. **Strict read-your-writes.** Search answers from the index only when every
+   committed change has been processed and the index is at the current
+   version. Otherwise `prepareSearchIndex()` says why (`backlog`,
+   `rebuilding`, `capture-missing`, `outdated-registration`, or
+   `unavailable`), and the app's previous search answers that request. Results
+   are never stale; sometimes they're slower.
+5. **Safe processing.**
+   - A drain claims a batch with a 60-second lease using
+     `FOR UPDATE SKIP LOCKED`, so concurrent drains never process the same
+     change, and a crashed drain's lease simply expires.
+   - After indexing, a change is deleted only if its `seq` is unchanged, so a
+     change recorded during processing is kept.
+   - An index row is written only if its `indexed_seq` isn't newer.
+   - A failed batch is logged and backs off exponentially. After five
+     attempts a change is parked: it stops holding the index back, and the
+     next write to that resource retries it.
+   - If nothing the index stores has changed, the content hash skips the
+     rewrite and only the newer `seq` is recorded.
+6. **Rebuilds.** A higher registration `version` rebuilds the index. The first
+   process to see it records the new target version, enqueues every row with
+   one `INSERT … SELECT`, and records the highest `seq` it assigned. The rebuild
+   is complete when nothing at or below that `seq` is pending, and rows whose
+   source is gone are removed. A process still on the older version sees the
+   newer target and uses its previous search, so old and new deploys don't
+   fight over the index.
+7. **Reconciliation** (planned). A slow batched job compares `content_hash`
+   with the source and requeues differences. Queue depth, queue age, and index
+   lag are reported as metrics.
 
 ## Querying
 
-At most three round trips:
+Built: `indexedSearchSql({ registration, query, fields })` returns Drizzle SQL
+that the app composes into its own statement: a join to `search_resources`, the
+match condition, and the ranking terms. The app keeps its own access condition,
+filters, snippets, parents, paging, and totals, all in the same statement.
+
+Matching, for each term:
+
+- **Titles and summaries** match by substring, including mid-word ("prio"
+  finds "Task Priorities").
+- **Bodies** match whole words through the GIN index, every word as a prefix.
+  A multi-word term is a phrase whose last word is a prefix.
+- **Positions.** Postgres keeps at most 255 positions per word and none past
+  16,383, and core keeps a vector under 900 KB. A document past those limits
+  has `positions_complete` false, and a phrase matches it when every word is
+  present. Chunks will make that exact.
+
+Ranking uses the tiers the browser lane uses: exact title 5, title prefix 4,
+title word prefixes 3, title substrings 2, title or summary 1. Ties go to how
+many query groups the title and then the summary cover, and then to whether
+the body contains the whole query as a phrase. The app adds `updatedAt` and ID.
+
+Content's parser moved to core, at `@agent-native/core/search-query`; Content
+re-exports it. Its operators keep their meaning: phrases, `-term`, uppercase
+`OR`, `intitle:`, and implicit AND, evaluated against the whole resource. The
+`tsquery` is built from parsed words, so operator characters in user input
+can't break it.
+
+Planned, for the library call, in at most three round trips:
 
 1. **Caller context:** validated org and group memberships, often already
    loaded by the request.
 2. **The ranked page.** One statement over `search_resources`, joined to the
-   source table:
-   - it filters by `app`, `type`, prefilters, `audience && caller tokens`,
-     `authorizeWhere`, and the match;
-   - it orders by title tier (string expressions on `title_norm`, the same
-     rules the browser lane uses), then `ts_rank_cd` on `doc_vector`, then
-     personal signals as of the cursor's snapshot time (once views are
-     recorded), then
-     `updatedAt`, then ID;
-   - it returns `limit + 1` rows at the cursor's offset.
-
-   For broad queries, passage ranking over chunks applies only to a
-   deterministic top slice (for example, the first 200 by document rank), so
-   pagination stays stable.
-
+   source table. It filters by `app`, `type`, prefilters,
+   `audience && caller tokens`, the access condition, and the match. It orders
+   by the title tiers, then `ts_rank_cd` on `doc_vector` (if the relevance
+   eval shows it helps), then personal signals as of the cursor's snapshot
+   time (once views are recorded), then `updatedAt`, then ID. It returns
+   `limit + 1` rows at the cursor's offset. For broad queries, passage ranking
+   over chunks applies only to a deterministic top slice (for example, the
+   first 200 by document rank), so pagination stays stable.
 3. **Snippets and breadcrumbs** for the returned rows only. Each snippet reads
-   `substring(source, start, end)` for the best chunk, verifies the chunk hash
-   (falling back to the summary on mismatch), strips the chunk, and locates
-   the match. Breadcrumbs come from authorized ancestors.
+   `substring(source, start, end)` for the best chunk and verifies the chunk
+   hash, falling back to the summary on a mismatch. Breadcrumbs come from
+   authorized ancestors.
 
-The query compiler builds the `tsquery` in SQL from parsed terms, so operator
-characters in user input can't break it. Content's parser
-(`templates/content/shared/search-query.ts`) moves to core. Its operators keep
-their meaning: phrases, `-term`, uppercase `OR`, `intitle:`, and implicit AND.
-They are evaluated against the whole resource. Phrases are verified on chunks.
+Cursors will encode the engine (fallback or index), `index_version`, offset,
+and signal snapshot time. A cursor from one engine is rejected by the other,
+and the search restarts.
 
-Cursors encode the engine (legacy or index), `index_version`, offset, and
-signal snapshot time. A cursor from one engine is rejected by the other, and
-the search restarts.
-
-The typo fallback draws its suggestions only from vocabulary the
-caller may see. Vocabulary rows carry audience tokens, and "matched nothing"
-is decided after authorization, so a suggestion can't reveal a word from a
-document the caller can't open.
+The typo fallback will draw suggestions only from vocabulary the caller may
+see. Vocabulary rows carry audience tokens, and "matched nothing" is decided
+after authorization, so a suggestion can't reveal a word from a document the
+caller can't open.
 
 ## Library and actions
 
-Core exports:
+Planned. Core will export:
 
 - **`searchResources(options)`**: the library call described above, returning
   a `SearchPage`.
@@ -262,10 +344,10 @@ Core exports:
   A2A callers use one well-known name.
 
 Apps with an existing contract keep their own action. Content keeps
-`search-documents` and calls `searchResources`; its inputs (`exactTitle`,
-`excludeSubtreeOf`, `searchFields`, offset paging) and outputs stay, minus
-exact totals. Core registration never overrides an app-defined action of the
-same name.
+`search-documents`; today it calls `prepareSearchIndex()` and
+`indexedSearchSql()` directly. Its inputs (`exactTitle`, `excludeSubtreeOf`,
+`searchFields`, offset paging) and outputs stay. Core registration never
+overrides an app-defined action of the same name.
 
 ```ts
 interface SearchResult {
@@ -316,33 +398,61 @@ back a `CommandSearchProvider` when the shared command menu lands.
 
 ## Runtime notes
 
-- **PGlite (local):** the lexical lane and triggers work. The typo fallback
-  needs `pg_trgm`, which core's PGlite client must pass at construction. There
-  is no semantic lane; the action reports `semantic: "unavailable"`.
-- **Neon:** `pg_trgm` and `vector` are created at release.
-- **Serverless:** writes don't wait on indexing. Search drains its own small
-  backlog, and the background driver handles the rest.
+- **PGlite (local):** the lexical lane and triggers work. PGlite never gathers
+  table statistics, so the feed's statements find rows by primary key rather
+  than relying on the planner to pick a good join. The typo fallback will need
+  `pg_trgm`, which core's PGlite client must pass at construction. There is no
+  semantic lane; the action will report `semantic: "unavailable"`.
+- **Neon:** `pg_trgm` and `vector` are created at release when those lanes
+  land. Each search checks for pending changes in its own round trip. That's
+  short when the app runs in the database's region; from a distant client it
+  was the whole latency difference from the previous engine. If it ever
+  matters, the check can move into the search statement.
+- **Serverless:** writes don't wait on indexing. Search processes its own
+  small backlog before answering, and the sweep handler handles the rest.
 - **Shared-database workspaces:** `app` and `resource_type` keep apps apart.
   The latency harness includes other tenants' rows.
 
 ## Testing
 
-- **Core:**
-  - token derivation checked against `accessFilter` for every registration
-    flag;
-  - triggers capture every write kind (insert, update, cascade, delete, share
-    grant and revoke);
-  - races (stale indexer, re-enqueue during processing);
-  - AND and negation across chunks, and phrases across chunk boundaries;
-  - cursor stability and engine switches;
-  - rebuild completeness;
-  - runs on PGlite and on the Postgres service container.
+Built:
+
+- **Core** (`packages/core/src/search/`), on real PGlite:
+  - capture of inserts, updates, no-op updates, deletes, and rolled-back
+    writes;
+  - a change recorded while its batch is processing is kept;
+  - a claim never takes more than its limit;
+  - backlog and rebuild readiness, including an older process deferring to a
+    newer version;
+  - ranking tiers, mid-word titles against word-start bodies, camelCase,
+    snake_case, URLs, Japanese, phrases in repetitive documents, and the query
+    operators.
 - **Content:**
-  - the relevance eval, including infix, camelCase, URL, and CJK cases;
-  - lifecycle tests for share, unshare, visibility, cross-space moves,
-    hide-from-search on a subtree, and inline database deletion;
-  - latency measured against Neon on 10,000-document corpora with short and
-    long bodies: p95 at or under 400 ms for each query class.
+  - the relevance eval (`evals/search-relevance/`) with a recorded baseline;
+  - a parity test that runs the same queries through the index and the
+    fallback, which must agree except on mid-word body text;
+  - the existing search suites, which run on the index path;
+  - 10,000 documents on PGlite: the index builds in about 5 seconds, and warm
+    search p95 is under 200 ms against a 400 ms budget.
+  - 10,000 documents on Neon (PostgreSQL 17), in a table that also holds
+    other tenants' rows, with the broad query words in every document. From a
+    client outside the database's region, p95 over 180 searches per query class
+    was 175–319 ms against the 400 ms budget. Server execution time matched
+    the previous engine when every document matches (about 110 ms) and was 3
+    to 6 times lower for selective queries. The pending-changes check adds one
+    round trip, so from that client broad queries took about 35 ms longer than
+    before and selective ones about the same.
+
+Planned:
+
+- lifecycle tests for share, unshare, visibility, cross-space moves,
+  hide-from-search on a subtree, and inline database deletion, once audience
+  tokens land;
+- AND and negation across chunks, and phrases across chunk boundaries;
+- cursor stability and engine switches;
+- runs on the Postgres service container;
+- latency on Neon with long bodies, and from a function in the database's
+  region.
 
 ## Decisions made in revision 2
 
@@ -352,8 +462,31 @@ back a `CommandSearchProvider` when the shared command menu lands.
 - **Caller orgs:** `callerOrgIds` defaults to the active org only. Content opts
   into its existing multi-org search.
 
+## Decisions made in revision 3
+
+- **Change capture is a general feed, not a search queue.** Other core
+  features record changes in separate ways today. One coalescing feed with a
+  consumer per feature lets later consumers reuse the same triggers. Whether
+  every write should go through one core data layer is a separate decision.
+- **Search never wakes a sleeping database.** There is no in-process interval;
+  processing piggybacks on searches, writes, and the existing recurring tick.
+- **Strict read-your-writes with a fallback,** instead of answering from an
+  index that's partly behind.
+- **Core tokenizes in JavaScript,** with no Postgres text-search configuration,
+  so results don't depend on the database's locale.
+- **Titles and summaries match by substring; bodies by word prefix.**
+- **The first slice leaves out** audience tokens, chunks, `ts_rank_cd`, and
+  cursors. The app's own statement enforces access, and Content keeps exact
+  totals and offset paging.
+
 ## Open questions
 
-1. Is a 100 ms read-your-writes drain budget compatible with the 400 ms p95
-   target when an import leaves a large backlog? The alternative is draining
-   only the caller's own recent writes. Measure before choosing.
+1. Is a 100 ms drain budget enough to keep p95 at or under 400 ms on Neon after
+   an import leaves a large backlog? Correctness doesn't depend on it, since a
+   backlog falls back to the previous search. Search with nothing pending is
+   measured; a backlog isn't yet. Indexing 12,000 documents took about 45
+   seconds from a distant client.
+2. Does the recurring-jobs tick keep Netlify-hosted databases from ever
+   suspending? It runs every minute and touches the database. Measure first;
+   search's sweep handler only adds work to ticks that already run.
+3. Does `ts_rank_cd` improve the relevance eval over the title tiers alone?
