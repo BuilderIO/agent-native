@@ -333,6 +333,32 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Approval details");
   });
 
+  it("provides tooltip context to embedded workspace app content", async () => {
+    window.history.replaceState({}, "", "/apps/mail?embedded=1");
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/apps/mail"]}>
+            <Layout>
+              <Tooltip open>
+                <TooltipTrigger asChild>
+                  <button type="button">Embedded app details</button>
+                </TooltipTrigger>
+              </Tooltip>
+            </Layout>
+          </MemoryRouter>,
+        );
+      });
+
+      expect(
+        container.querySelector("[data-dispatch-workspace-app-chrome-less]"),
+      ).not.toBeNull();
+      expect(container.textContent).toContain("Embedded app details");
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
+  });
+
   it("puts Overview before Chat in the primary navigation", async () => {
     await act(async () => {
       root.render(
