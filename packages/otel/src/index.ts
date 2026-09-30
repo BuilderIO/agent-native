@@ -56,6 +56,21 @@ function signalEnabled(signal: Signal): boolean {
       `${exporterKey}="${exporter}" is not supported by @agent-native/otel. Set it to "otlp" or "none".`,
     );
   }
+  // The exporters are the http/protobuf ones, so any other transport would
+  // start cleanly and then send the wrong wire format to the collector.
+  for (const protocolKey of [
+    `OTEL_EXPORTER_OTLP_${signal}_PROTOCOL`,
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+  ]) {
+    const protocol = envValue(protocolKey)?.toLowerCase();
+    if (protocol === undefined) continue;
+    if (protocol !== "http/protobuf") {
+      throw new Error(
+        `${protocolKey}="${protocol}" is not supported by @agent-native/otel. Set it to "http/protobuf" or leave it unset.`,
+      );
+    }
+    break;
+  }
   return Boolean(
     envValue(`OTEL_EXPORTER_OTLP_${signal}_ENDPOINT`) ??
     envValue("OTEL_EXPORTER_OTLP_ENDPOINT"),

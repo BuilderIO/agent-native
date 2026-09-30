@@ -25,5 +25,6 @@ Configuration uses the standard OpenTelemetry variables:
 | `OTEL_RESOURCE_ATTRIBUTES`                                 | Extra resource attributes, e.g. `deployment.environment.name`      |
 | `OTEL_TRACES_SAMPLER` / `_ARG`                             | Trace sampling, e.g. `parentbased_traceidratio` / `0.01`           |
 | `OTEL_METRICS_EXPORTER` / `OTEL_TRACES_EXPORTER`           | `otlp` (default) or `none`; any other value fails startup          |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` (and per-signal overrides)   | `http/protobuf` only; any other value fails startup                |
 
 Metrics use cumulative temporality with a random `service.instance.id` per process, so each process is its own series. On serverless runtimes (Netlify, AWS Lambda, Vercel, Cloudflare), as `@agent-native/core` detects them, core force-flushes both providers on every response, capped at 2 seconds; elsewhere metrics export every 60 seconds.

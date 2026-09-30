@@ -135,6 +135,27 @@ describe("startAgentNativeOtel", () => {
     expect(registerObservabilityProvider).not.toHaveBeenCalled();
   });
 
+  it("rejects an OTLP protocol other than http/protobuf", () => {
+    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ENDPOINT);
+    vi.stubEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc");
+
+    expect(() => startAgentNativeOtel()).toThrow(
+      'OTEL_EXPORTER_OTLP_PROTOCOL="grpc" is not supported',
+    );
+    expect(registerObservabilityProvider).not.toHaveBeenCalled();
+  });
+
+  it("lets a signal's protocol override the shared one", () => {
+    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ENDPOINT);
+    vi.stubEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc");
+    vi.stubEnv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf");
+    vi.stubEnv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "http/protobuf");
+    handle = startAgentNativeOtel();
+
+    expect(registered()?.meterProvider).toBeDefined();
+    expect(registered()?.tracerProvider).toBeDefined();
+  });
+
   it("applies OTEL_TRACES_SAMPLER to the tracer provider", () => {
     vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ENDPOINT);
     vi.stubEnv("OTEL_TRACES_SAMPLER", "always_off");
