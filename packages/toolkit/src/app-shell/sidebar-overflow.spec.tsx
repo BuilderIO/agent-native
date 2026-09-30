@@ -33,8 +33,9 @@ describe("AppSidebar overflow affordances", () => {
   });
 
   afterEach(async () => {
+    // Radix debounces ResizeObserver callbacks; flush them before happy-dom teardown.
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     });
     act(() => root.unmount());
     container.remove();

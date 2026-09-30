@@ -293,6 +293,7 @@ const AGENT_PANEL_CONTROL_STYLE = {
   lineHeight: 1,
 } satisfies React.CSSProperties;
 const ACTIVATE_KEYS = new Set(["Enter", " "]);
+const AGENT_PANEL_MENU_EXIT_DURATION_MS = 100;
 type AgentPanelOverlayOpenTiming = "animation-frame" | "timeout";
 
 export function deferAgentPanelOverlayOpen(
@@ -304,7 +305,7 @@ export function deferAgentPanelOverlayOpen(
   event.preventDefault();
   closeMenu();
   if (timing === "timeout") {
-    setTimeout(openOverlay, 0);
+    setTimeout(openOverlay, AGENT_PANEL_MENU_EXIT_DURATION_MS);
     return;
   }
   if (
