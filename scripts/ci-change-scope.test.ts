@@ -148,15 +148,26 @@ test("measures only the changed templates for a template-only change", () => {
   assert.deepEqual(scope.queryBudgetApps, ["forms", "mail"]);
 });
 
-test("measures every template when shared code or the budget changes", () => {
+test("measures every template for Core and budget changes, and Creative Context consumers", () => {
   const core = classifyChangedPaths([
     "packages/core/src/db/client.ts",
     "templates/forms/actions/list-forms.ts",
+  ]);
+  const creativeContext = classifyChangedPaths([
+    "packages/creative-context/src/jobs/server-worker.ts",
   ]);
   const budget = classifyChangedPaths(["scripts/neon-query-budgets.json"]);
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
 
   assert.deepEqual(core.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+  assert.equal(creativeContext.checks.neon_query_budget, true);
+  assert.deepEqual(creativeContext.queryBudgetApps, [
+    "analytics",
+    "assets",
+    "content",
+    "design",
+    "slides",
+  ]);
   assert.equal(budget.checks.neon_query_budget, true);
   assert.deepEqual(budget.queryBudgetApps, [...QUERY_BUDGET_APPS]);
   assert.equal(full.full, true);
@@ -484,6 +495,22 @@ test("still runs changed root script tests when the change set is full", () => {
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
   ]);
+});
+
+test("runs the change-scope test when the selector or its test changes", () => {
+  for (const path of [
+    "scripts/ci-change-scope.ts",
+    "scripts/ci-change-scope.test.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+
+    assert.equal(scope.full, true, path);
+    assert.deepEqual(scope.scriptTests, ["scripts/ci-change-scope.test.ts"]);
+    if (path === "scripts/ci-change-scope.ts") {
+      assert.equal(scope.checks.neon_query_budget, true);
+      assert.deepEqual(scope.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+    }
+  }
 });
 
 test("selects the changeset check for package, changeset, and checker changes", () => {

@@ -130,6 +130,7 @@ export function embedApp(
     let wrapperRequestId = 0;
     let hostChatQueue = Promise.resolve();
     const wrapperRequests = new Map();
+    const hostChatRequests = new Map();
     let toolInput = {};
     let toolResultData = {};
     let openUrl = "";
@@ -392,9 +393,13 @@ export function embedApp(
       wrapperRequests.delete(id);
       clearTimeout(pending.timer);
       if (message.error) {
-        pending.resolve({ ok: false, error: message.error });
+        pending.resolve({
+          ok: false,
+          error: message.error,
+          code: message.error.code
+        });
       } else {
-        pending.resolve({ ok: true, result: message.result });
+        pending.resolve(message.result);
       }
       return true;
     }
@@ -1409,8 +1414,7 @@ export function embedApp(
       }
       if (app && typeof app.updateModelContext === "function") {
         await ensureHostAppConnected();
-        await app.updateModelContext(params);
-        return { ok: true };
+        return await app.updateModelContext(params);
       }
       return await wrapperRpcRequest("ui/update-model-context", params);
     }
@@ -1424,6 +1428,11 @@ export function embedApp(
       const extraText = [];
       for (const part of content) {
         if (!part || part.type !== "text" || typeof part.text !== "string") return null;
+        const audience = objectValue(part.annotations).audience;
+        if (
+          Array.isArray(audience) &&
+          audience.includes("assistant")
+        ) return null;
         const text = part.text.trim();
         if (text && text !== message && !extraText.includes(text)) extraText.push(text);
       }
@@ -1487,13 +1496,45 @@ export function embedApp(
         });
     }
 
+    function acknowledgeHostChatNotSubmitted(requestId, request) {
+      if (!requestId || (request && request.acknowledgedNotSubmitted)) return;
+      if (request) request.acknowledgedNotSubmitted = true;
+      respondToWrapperRequest(requestId, { ok: false, notSubmitted: true });
+    }
+
+    function cancelHostChat(requestId) {
+      if (typeof requestId !== "string" || !requestId) return;
+      const request = hostChatRequests.get(requestId);
+      if (!request) return;
+      request.cancelled = true;
+      if (request.state === "queued") {
+        acknowledgeHostChatNotSubmitted(requestId, request);
+      }
+    }
+
     function sendHostChat(chat) {
-      const result = hostChatQueue.then(() => sendHostChatNow(chat));
+      const requestId = typeof (chat && chat.requestId) === "string" ? chat.requestId : "";
+      const request = { state: "queued", cancelled: false };
+      if (requestId) hostChatRequests.set(requestId, request);
+      const result = hostChatQueue.then(() => {
+        if (request.cancelled) {
+          acknowledgeHostChatNotSubmitted(requestId, request);
+          return;
+        }
+        request.state = "context";
+        return sendHostChatNow(chat, request);
+      });
       hostChatQueue = result.then(() => undefined, () => undefined);
+      const finish = () => {
+        if (requestId && hostChatRequests.get(requestId) === request) {
+          hostChatRequests.delete(requestId);
+        }
+      };
+      void result.then(finish, finish);
       return result;
     }
 
-    async function sendHostChatNow(chat) {
+    async function sendHostChatNow(chat, hostChatRequest) {
       const requestId = typeof (chat && chat.requestId) === "string" ? chat.requestId : "";
       if (!chat || chat.submit === false) return;
       const message = typeof chat.message === "string" ? chat.message : "";
@@ -1502,6 +1543,15 @@ export function embedApp(
       const content = Array.isArray(chat.content) && chat.content.length
         ? chat.content
         : [{ type: "text", text: message }];
+      const requestMode = chat.requestMode === "act" || chat.requestMode === "plan"
+        ? chat.requestMode
+        : chat.mode === "act" || chat.mode === "plan"
+          ? chat.mode
+          : null;
+      const requestModePayload =
+        requestMode
+          ? { mode: requestMode, requestMode }
+          : {};
       const structuredContent =
         chat && chat.structuredContent !== undefined
           ? chat.structuredContent
@@ -1522,39 +1572,61 @@ export function embedApp(
           throw new Error("MCP host rejected model context update.");
         }
       } catch (err) {
+        if (hostChatRequest && hostChatRequest.cancelled) {
+          acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
+          return;
+        }
         console.warn("[agent-native] MCP host rejected model context update", err);
         respondToWrapperRequest(requestId, {
           ok: false,
+          notSubmitted: true,
           error: err && err.message ? err.message : String(err)
         });
         return;
       }
+      if (hostChatRequest && hostChatRequest.cancelled) {
+        acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
+        return;
+      }
+      if (hostChatRequest) hostChatRequest.state = "sending";
       try {
         let result = null;
         if (app && typeof app.sendMessage === "function") {
           await ensureHostAppConnected();
           result = await app.sendMessage({
             role: "user",
-            content
+            content,
+            ...requestModePayload
           });
         } else {
           result = await wrapperRpcRequest("ui/message", {
             role: "user",
-            content
+            content,
+            ...requestModePayload
           });
         }
         if ((result && result.isError) || (result && result.ok === false)) {
-          throw new Error("MCP host rejected the chat message.");
+          const error = new Error("MCP host rejected the chat message.");
+          if (result.code !== undefined) error.code = result.code;
+          throw error;
         }
         respondToWrapperRequest(requestId, { ok: true, result });
       } catch (err) {
-        if (openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
+        const methodNotFound = err && Number(err.code) === -32601;
+        if (hostChatRequest && hostChatRequest.cancelled) {
+          if (methodNotFound) {
+            acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
+          }
+          return;
+        }
+        if (methodNotFound && openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
           try {
             const fallbackPrompt = openAiFollowUpPrompt(chat);
             if (!fallbackPrompt) throw err;
             await openAiBridge.sendFollowUpMessage({
               prompt: fallbackPrompt,
-              scrollToBottom: true
+              scrollToBottom: true,
+              ...requestModePayload
             });
             respondToWrapperRequest(requestId, { ok: true });
             return;
@@ -1612,6 +1684,10 @@ export function embedApp(
       }
       if (message.type === "agentNative.submitChat") {
         void sendHostChat(data);
+        return;
+      }
+      if (message.type === "agentNative.cancelChat") {
+        cancelHostChat(data.requestId);
         return;
       }
       if (message.type === "agentNative.mcpHost.updateModelContext") {
@@ -1895,6 +1971,7 @@ export function embedApp(
         if (message.error) {
           const error = new Error(message.error.message || "MCP Apps bridge request failed.");
           error.data = message.error.data;
+          error.code = message.error.code;
           pending.reject(error);
           return true;
         }

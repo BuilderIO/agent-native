@@ -26,7 +26,7 @@ const teamPageModules = [
 const buttonWrapperSurfaces = [...settingsSurfaces, "org/TeamPrimitives.tsx"];
 const toolkitAppRoot = new URL("../../../toolkit/src/app/", import.meta.url);
 
-describe("Core design-system primitive normalization", () => {
+describe("Toolkit design-system primitive normalization", () => {
   it.each([...settingsSurfaces, ...teamPageModules])(
     "%s routes buttons and pickers through Toolkit primitives",
     (sourcePath) => {
@@ -56,13 +56,13 @@ describe("Core design-system primitive normalization", () => {
     },
   );
 
-  it("shared/PrimitiveButton.tsx encapsulates Toolkit button and explicit icon dimensions", () => {
-    const source = readFileSync(
-      new URL("shared/PrimitiveButton.tsx", toolkitAppRoot),
-      "utf8",
-    );
+  it.each(["PrimitiveButton.tsx", "shared/PrimitiveButton.tsx"])(
+    "%s encapsulates Toolkit button and explicit icon dimensions",
+    (sourcePath) => {
+      const source = readFileSync(new URL(sourcePath, toolkitAppRoot), "utf8");
 
-    expect(source).toContain("@agent-native/toolkit/ui/button");
-    expect(source).toContain("[&_svg]:!size-auto");
-  });
+      expect(source).toContain("@agent-native/toolkit/ui/button");
+      expect(source).toContain("[&_svg]:!size-auto");
+    },
+  );
 });

@@ -261,6 +261,7 @@ import {
 import {
   DesignCanvas,
   type EditorDragStateChange,
+  type RuntimeLayerSnapshotReadiness,
 } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
@@ -422,6 +423,7 @@ import {
   type DesignAccessStatus,
 } from "@/components/DesignAccessState";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import { DesignComposerContextProvider } from "@/components/editor/DesignComposerContextProvider";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -5048,7 +5050,10 @@ function DesignEditor() {
     Record<string, RuntimeLayerSnapshot>
   >({});
   const [runtimeLayerSnapshotReadiness, setRuntimeLayerSnapshotReadiness] =
-    useState<{ screenId: string; ready: boolean } | null>(null);
+    useState<{
+      screenId: string;
+      readiness: RuntimeLayerSnapshotReadiness;
+    } | null>(null);
   const [screenRootComputedStylesById, setScreenRootComputedStylesById] =
     useState<Record<string, Record<string, string>>>({});
   const screenRootComputedStylesByIdRef = useRef(screenRootComputedStylesById);
@@ -8210,16 +8215,16 @@ function DesignEditor() {
     [handleScreenRuntimeLayerSnapshot],
   );
   const runtimeLayerSnapshotReadinessCallbacksRef = useRef(
-    new Map<string, (ready: boolean) => void>(),
+    new Map<string, (readiness: RuntimeLayerSnapshotReadiness) => void>(),
   );
   const getRuntimeLayerSnapshotReadinessCallback = useCallback(
     (screenId: string) => {
       const cache = runtimeLayerSnapshotReadinessCallbacksRef.current;
       const cached = cache.get(screenId);
       if (cached) return cached;
-      const callback = (ready: boolean) => {
+      const callback = (readiness: RuntimeLayerSnapshotReadiness) => {
         if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) return;
-        setRuntimeLayerSnapshotReadiness({ screenId, ready });
+        setRuntimeLayerSnapshotReadiness({ screenId, readiness });
       };
       cache.set(screenId, callback);
       return callback;
@@ -8686,7 +8691,8 @@ function DesignEditor() {
       !snapshot ||
       !activeRuntimeProjectionEligible ||
       runtimeLayerSnapshotReadiness?.screenId !== fileId ||
-      !runtimeLayerSnapshotReadiness.ready
+      runtimeLayerSnapshotReadiness.readiness.status !== "ready" ||
+      runtimeLayerSnapshotReadiness.readiness.documentId !== snapshot.documentId
     ) {
       return false;
     }
@@ -8703,6 +8709,10 @@ function DesignEditor() {
     runtimeLayerSnapshotReadiness,
     runtimeLayerSnapshotsById,
   ]);
+  const activeRuntimeSourceLocationSnapshotFailed =
+    activeRuntimeProjectionEligible &&
+    runtimeLayerSnapshotReadiness?.screenId === activeFile?.id &&
+    runtimeLayerSnapshotReadiness.readiness.status === "error";
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
   const activeMotionHydrationFingerprint = activeFile?.id
     ? motionTimelineFingerprint(activeFile.id, activeMotionTimeline)
@@ -24196,6 +24206,7 @@ function DesignEditor() {
           zoom={100}
           deviceFrame="none"
           sourceType={screenSourceType}
+          allowLocalNetworkAccessPrompt={screenIsActive}
           bridgeUrl={screenBridgeUrl}
           connectionId={screenSnapshotOnly ? undefined : screen.connectionId}
           nativePreviewActive={screenIsActive}
@@ -26074,6 +26085,7 @@ function DesignEditor() {
       : undefined,
     selectedScreenSource,
     sourceLocationUnavailable: activeRuntimeSourceLocationUnavailable,
+    sourceLocationSnapshotFailed: activeRuntimeSourceLocationSnapshotFailed,
     localhostConnections: activeLocalhostConnectionResult?.connections,
     onScreenSourceChange: canEditDesign ? handleScreenSourceChange : undefined,
     onAddLocalhostScreen: canEditDesign
@@ -26364,6 +26376,9 @@ function DesignEditor() {
                   <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
                 ) : canApplyPendingVisualEditsWithAgent ? (
                   <AgentChatSurface
+                    composerContextProvider={
+                      isSignedIn ? DesignComposerContextProvider : undefined
+                    }
                     mode="panel"
                     className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
                     chatOnly={true}

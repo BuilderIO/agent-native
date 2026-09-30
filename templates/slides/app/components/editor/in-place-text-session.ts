@@ -11,6 +11,7 @@ import {
   convertMarkdownPrefixToBullet,
   extractWithoutCopiedIdentity,
   findEnclosingList,
+  hasMarkdownBulletPrefixAtCaret,
   insertBulletAfterCaret,
   isBulletMarker,
   isBulletRow,
@@ -1727,7 +1728,7 @@ export function startInPlaceTextSession(
     prefix.setStart(block, 0);
     prefix.setEnd(caret.startContainer, caret.startOffset);
     const typed = prefix.toString().replaceAll(ZERO_WIDTH_SPACE, "");
-    if (block === el && /^[-*] $/.test(typed)) {
+    if (block === el && hasMarkdownBulletPrefixAtCaret(el)) {
       command(() => {
         const tag = el.tagName;
         const look = headingTextLook(el);
@@ -1848,6 +1849,29 @@ export function startInPlaceTextSession(
     toggleList: (kind) =>
       command(() =>
         keepingSelection(() => {
+          const range = selectionRange();
+          const rows = Array.from(el.children).filter(
+            (child): child is HTMLElement =>
+              child instanceof HTMLElement && isBulletRow(child),
+          );
+          const selectedRows = range
+            ? rows.filter((row) =>
+                range.collapsed
+                  ? row.contains(range.startContainer)
+                  : range.intersectsNode(row),
+              )
+            : [];
+          if (
+            kind === "bullet" &&
+            selectedRows.length !== 0 &&
+            selectedRows.length < rows.length
+          ) {
+            for (const row of selectedRows) {
+              const marker = row.firstElementChild;
+              if (marker && isBulletMarker(marker)) marker.remove();
+            }
+            return true;
+          }
           const next = toggleSlideList(el, kind);
           if (!next) return false;
           if (next !== el) rebind(next);

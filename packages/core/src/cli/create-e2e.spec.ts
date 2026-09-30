@@ -1185,7 +1185,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       "utf-8",
     );
     expect(wsYaml).toContain("better-auth");
-    expect(wsYaml).toContain("1.7.4");
+    expect(wsYaml).toContain("1.7.6");
   });
 
   it("keeps the default workspace chat app branded as Chat", async () => {

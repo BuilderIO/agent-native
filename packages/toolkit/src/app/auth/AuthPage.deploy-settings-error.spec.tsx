@@ -4,12 +4,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AuthPage,
-  type AuthPageProps,
-} from "../../../../toolkit/src/app/auth/AuthPage.js";
-import { getOnboardingHtml } from "../../server/onboarding-html.js";
-import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../../shared/runtime-config.js";
+import { getOnboardingHtml } from "../../../../core/src/server/onboarding-html.js";
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../../../../core/src/shared/runtime-config.js";
+import { AuthPage, type AuthPageProps } from "./AuthPage.js";
 
 function propsFromHtml(html: string): AuthPageProps {
   const match = html.match(

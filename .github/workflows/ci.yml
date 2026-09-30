@@ -832,7 +832,7 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, core, toolkit, and creative context
+      - name: Build recap CLI, AgentKit, core, Toolkit, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build

@@ -1,16 +1,20 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RunStuckBanner } from "../../../toolkit/src/app/chat/RunStuckBanner.js";
+import { createToolkitI18nCatalog } from "../../../toolkit/src/app/i18n.js";
 import {
   clearActiveRun,
   setActiveRun,
   updateActiveRunSeq,
 } from "./active-run-state.js";
+import { AgentNativeI18nProvider } from "./i18n.js";
 import { useRunStuckDetection } from "./use-run-stuck-detection.js";
+
+const toolkitCatalog = createToolkitI18nCatalog({ messages: {} });
 
 vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: vi.fn(),
@@ -20,7 +24,8 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, options?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "agentChat.common.cancel": "Cancel",
@@ -62,6 +67,17 @@ describe("RunStuckBanner", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  function renderWithCatalog(node: ReactNode) {
+    root.render(
+      <AgentNativeI18nProvider
+        catalog={toolkitCatalog}
+        persistPreference={false}
+      >
+        {node}
+      </AgentNativeI18nProvider>,
+    );
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -88,7 +104,9 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+      renderWithCatalog(
+        <RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />,
+      );
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -129,7 +147,7 @@ describe("RunStuckBanner", () => {
     }
 
     await act(async () => {
-      root.render(<InactiveProbe />);
+      renderWithCatalog(<InactiveProbe />);
       await vi.advanceTimersByTimeAsync(30_000);
     });
 
@@ -154,7 +172,9 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+      renderWithCatalog(
+        <RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />,
+      );
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -197,7 +217,9 @@ describe("RunStuckBanner", () => {
     });
 
     await act(async () => {
-      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+      renderWithCatalog(
+        <RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />,
+      );
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -229,7 +251,9 @@ describe("RunStuckBanner", () => {
     });
 
     await act(async () => {
-      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+      renderWithCatalog(
+        <RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />,
+      );
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -263,7 +287,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(
+      renderWithCatalog(
         <RunStuckBanner threadId="thread-1" autoRetry onRetry={onRetry} />,
       );
     });
@@ -320,7 +344,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(
+      renderWithCatalog(
         <RunStuckBanner threadId="thread-1" autoRetry onRetry={onRetry} />,
       );
     });
@@ -358,7 +382,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(<RunStuckBanner threadId="thread-1" autoRetry />);
+      renderWithCatalog(<RunStuckBanner threadId="thread-1" autoRetry />);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -388,7 +412,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(<RunStuckBanner threadId="thread-1" autoRetry />);
+      renderWithCatalog(<RunStuckBanner threadId="thread-1" autoRetry />);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -427,7 +451,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(<RunStuckBanner threadId="thread-1" autoRetry />);
+      renderWithCatalog(<RunStuckBanner threadId="thread-1" autoRetry />);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -468,7 +492,9 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+      renderWithCatalog(
+        <RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />,
+      );
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -496,7 +522,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(
+      renderWithCatalog(
         <RunStuckBanner threadId="thread-1" autoRetry onRetry={onRetry} />,
       );
     });
@@ -536,7 +562,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(
+      renderWithCatalog(
         <RunStuckBanner threadId="thread-1" autoRetry onRetry={onRetry} />,
       );
     });
@@ -573,7 +599,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(<RunStuckBanner threadId="thread-1" autoRetry />);
+      renderWithCatalog(<RunStuckBanner threadId="thread-1" autoRetry />);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -599,7 +625,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(<RunStuckBanner threadId="thread-1" />);
+      renderWithCatalog(<RunStuckBanner threadId="thread-1" />);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -644,7 +670,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(
+      renderWithCatalog(
         <RunStuckBanner
           threadId="thread-1"
           autoRetry
@@ -696,7 +722,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(
+      renderWithCatalog(
         <RunStuckBanner
           threadId="thread-1"
           autoRetry
@@ -739,7 +765,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(
+      renderWithCatalog(
         <RunStuckBanner
           threadId="thread-1"
           onRetry={onRetry}
@@ -782,7 +808,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(
+      renderWithCatalog(
         <RunStuckBanner threadId="thread-1" hasInFlightWork={() => inFlight} />,
       );
     });
@@ -824,7 +850,7 @@ describe("RunStuckBanner", () => {
 
     try {
       await act(async () => {
-        root.render(
+        renderWithCatalog(
           <RunStuckBanner
             threadId="thread-1"
             autoRetry
@@ -879,7 +905,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(
+      renderWithCatalog(
         <RunStuckBanner
           threadId="thread-1"
           autoRetry
@@ -922,7 +948,7 @@ describe("RunStuckBanner", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await act(async () => {
-      root.render(<RunStuckBanner threadId="thread-1" autoRetry />);
+      renderWithCatalog(<RunStuckBanner threadId="thread-1" autoRetry />);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);

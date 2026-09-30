@@ -23,6 +23,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.contextLimitExceeded":
     "El contexto es demasiado grande. Quita un elemento o adjunta una selección más pequeña.",
   "activity.reasoning": "Razonamiento",
+  "activity.bucketThinking": "Pensamiento",
+  "activity.bucketResearch": "Investigación",
+  "activity.bucketActions": "Acciones",
+  "activity.bucketOther": "Otros",
   "activity.groupLabel": "Actividad del agente",
   "activity.agents": "Colaboración entre agentes",
   "activity.tasks": "Tareas de los agentes",
@@ -1021,9 +1025,17 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.menu.generateImage": "Generar imagen",
   "composer.menu.generateImageDescription":
     "Abrir el selector de imágenes de Assets",
+  "composer.integrations.connect": "Conectar una integración…",
+  "composer.integrations.empty":
+    "No hay integraciones disponibles para esta aplicación.",
+  "composer.integrations.loadFailed":
+    "No se pudieron cargar las integraciones.",
+  "composer.integrations.manage": "Gestionar integraciones…",
   "composer.menu.integrations": "Integraciones",
   "composer.menu.integrationsDescription":
     "Conectar herramientas y servicios al agente",
+  "composer.useIntegration": "Usar {{integration}}",
+  "composer.useIntegrationTools": "Usar las herramientas de {{integration}}",
   "composer.menu.scheduleTask": "Programar tarea",
   "composer.menu.scheduleTaskDescription": "Ejecutar algo según un horario",
   "composer.menu.uploadFile": "Cargar archivo",
@@ -1083,6 +1095,8 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.learnMore": "Más información",
   "mentions.noResults": "No se encontraron resultados",
   "mentions.noSkills": "No hay habilidades disponibles",
+  "mentions.skillsLoadFailed":
+    "No se pudieron cargar las habilidades. Cierra el menú y vuelve a abrirlo para intentarlo de nuevo.",
   "mentions.sections.agents": "Agentes",
   "mentions.sections.connectedAgents": "Agentes conectados",
   "mentions.sections.files": "Archivos",

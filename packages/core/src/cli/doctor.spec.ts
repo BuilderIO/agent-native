@@ -312,6 +312,38 @@ describe("runDoctorScan", () => {
     );
   });
 
+  it("scans moved mixed-subpath imports from the bundled migration manifest", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "app/root.tsx": [
+        'import { AgentChatHome, GuidedQuestion } from "@agent-native/core/client/agent-chat";',
+        "void AgentChatHome; void GuidedQuestion;",
+        "",
+      ].join("\n"),
+    });
+    const report = runDoctorScan({ root, only: ["migration-manifest"] });
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]).toMatchObject({
+      guard: "migration-manifest",
+      file: "app/root.tsx",
+      line: 1,
+    });
+    expect(report.findings[0]?.message).toContain(
+      "@agent-native/core/client/agent-chat",
+    );
+    expect(report.findings[0]?.message).toContain(
+      "AgentChatHome → @agent-native/toolkit/app/chat",
+    );
+    expect(report.findings[0]?.message).toContain(
+      "GuidedQuestion → @agent-native/toolkit/app/chat/agentkit-chat",
+    );
+    expect(report.findings[0]?.message).toContain(
+      "npx agent-native upgrade --codemods",
+    );
+    expect(report.findings[0]?.message).toContain("upgrading-core-ui.mdx");
+  });
+
   it("reports a missing optional peer when its feature is configured", () => {
     const root = makeTempAppRoot({
       ...CLEAN_FILES,
@@ -326,7 +358,7 @@ describe("runDoctorScan", () => {
           sinceVersion: "0.110.0",
           moves: {},
           dependencies: [
-            { name: "@better-auth/sso", version: "1.7.4", when: "sso" },
+            { name: "@better-auth/sso", version: "1.7.6", when: "sso" },
           ],
         },
       ],
@@ -336,7 +368,7 @@ describe("runDoctorScan", () => {
       expect.objectContaining({
         guard: "feature-dependencies",
         file: "package.json",
-        message: expect.stringContaining("@better-auth/sso@1.7.4"),
+        message: expect.stringContaining("@better-auth/sso@1.7.6"),
       }),
     ]);
     expect(report.findings[0]?.message).toContain(
@@ -358,7 +390,7 @@ describe("runDoctorScan", () => {
           sinceVersion: "0.110.0",
           moves: {},
           dependencies: [
-            { name: "@better-auth/sso", version: "1.7.4", when: "sso" },
+            { name: "@better-auth/sso", version: "1.7.6", when: "sso" },
           ],
         },
       ],
@@ -367,6 +399,74 @@ describe("runDoctorScan", () => {
     expect(report.findings).toEqual([]);
     expect(report.ok).toBe(true);
   });
+
+  it.each([
+    {
+      when: "pglite-database",
+      environment: "DATABASE_URL=\n",
+      name: "@electric-sql/pglite",
+    },
+    {
+      when: "server-sentry",
+      environment: "SENTRY_SERVER_DSN=https://example.test/1\n",
+      name: "@sentry/node",
+    },
+    {
+      when: "browser-sentry",
+      environment: "VITE_SENTRY_CLIENT_DSN=https://example.test/1\n",
+      name: "@sentry/browser",
+    },
+    {
+      when: "sentry-source-map-upload",
+      environment:
+        "SENTRY_AUTH_TOKEN=token\nSENTRY_ORG=org\nSENTRY_PROJECT=project\n",
+      name: "@sentry/vite-plugin",
+    },
+    { when: "sso", environment: "AUTH_SSO=true\n", name: "@better-auth/sso" },
+    {
+      when: "scim",
+      environment: "AUTH_SCIM=true\n",
+      name: "@better-auth/scim",
+    },
+    {
+      when: "amplitude",
+      environment: "VITE_AMPLITUDE_API_KEY=key\n",
+      name: "@amplitude/analytics-browser",
+    },
+    {
+      when: "microsoft-teams",
+      environment:
+        "MICROSOFT_TEAMS_APP_ID=app\nMICROSOFT_TEAMS_APP_PASSWORD=password\n",
+      name: "botframework-connector",
+    },
+  ] as const)(
+    "reports missing $name only for configured $when",
+    ({ when, environment, name }) => {
+      const root = makeTempAppRoot({
+        ...CLEAN_FILES,
+        ".env": environment,
+      });
+      const report = runDoctorScan({
+        root,
+        only: ["feature-dependencies"],
+        shellEnvironment: {},
+        migrationManifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            dependencies: [{ name, version: "1.0.0", when }],
+          },
+        ],
+      });
+
+      expect(report.findings).toEqual([
+        expect.objectContaining({
+          guard: "feature-dependencies",
+          message: expect.stringContaining(`${name}@1.0.0`),
+        }),
+      ]);
+    },
+  );
 
   it("reports planned imports as non-blocking warnings", () => {
     const root = makeTempAppRoot({

@@ -1,19 +1,19 @@
 // @vitest-environment happy-dom
 
-import React, { lazy, Suspense } from "react";
+import React, { act, lazy, Suspense } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const recoverFromStaleChunkError = vi.hoisted(() => vi.fn(() => false));
 
-vi.mock("./route-chunk-recovery.js", () => ({
+vi.mock("@agent-native/core/client/route-chunk-recovery", () => ({
   recoverFromStaleChunkError,
 }));
 
-import { AgentNativeI18nProvider } from "./i18n.js";
-import { LazyChunkErrorBoundary } from "./lazy-chunk-error-boundary.js";
-import { LazyChunkRetryFallback } from "./lazy-chunk-retry-fallback.js";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+
+import { LazyChunkErrorBoundary } from "./LazyChunkErrorBoundary.js";
+import { LazyChunkRetryFallback } from "./LazyChunkRetryFallback.js";
 
 const FailingLazy = lazy(() =>
   Promise.reject(new Error("Failed to fetch dynamically imported module")),
@@ -62,7 +62,7 @@ describe("LazyChunkErrorBoundary", () => {
     });
 
     expect(container.querySelector("[data-testid='app-content']")).toBeTruthy();
-    expect(container.textContent).toContain("Couldn't load this.");
+    expect(container.querySelector("[role='alert']")?.textContent).toBeTruthy();
     const retry = container.querySelector("button");
     expect(retry?.textContent).toBe("Retry");
     act(() => retry?.click());

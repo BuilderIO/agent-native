@@ -38,6 +38,24 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   useChatModels: vi.fn(),
   useAgentEngineConfigured: () => ({ state: "configured", missing: false }),
+  fetchAgentEngineConfiguredState: vi.fn(),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
+  PromptComposer: () => null,
+  snapshotComposerContextItems: (items: unknown) => items,
+  useAgentKitCapabilities: () => ({ data: undefined }),
+  useAgentKitIntegrationMenu: () => ({
+    id: "integrations",
+    label: "Integrations",
+    intent: "invoke-integration",
+    picker: {},
+  }),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: () => null,
+  BuilderSetupContent: () => null,
 }));
 
 vi.mock("@agent-native/toolkit/app/settings", () => ({
@@ -94,6 +112,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useFormatters: () => ({ formatDate: (value: string) => value }),
   useT: () => (key: string) => key,
 }));
 

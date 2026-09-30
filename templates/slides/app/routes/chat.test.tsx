@@ -17,6 +17,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));
 vi.mock("@/lib/tab-id", () => ({ TAB_ID: "slides-test" }));
+vi.mock("@/components/editor/SlidesComposerContextProvider", () => ({
+  SlidesComposerContextProvider: () => null,
+}));
 
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 
