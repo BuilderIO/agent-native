@@ -215,13 +215,16 @@ function buildLines(doc: Document, lines: string[]): DocumentFragment {
 export function toggleSlideList(
   element: HTMLElement,
   kind: SlideListKind,
+  selectedBulletRows?: HTMLElement[],
 ): HTMLElement | null {
   const doc = element.ownerDocument;
   const existing = listElement(element);
 
   if (!existing) {
     const rows = bulletRows(element);
-    if (rows.length > 0) return toggleBulletRows(element, rows, kind);
+    if (rows.length > 0) {
+      return toggleBulletRows(element, selectedBulletRows ?? rows, kind);
+    }
     const lines = readLines(element);
     if (lines.length === 0) return null;
     const look = headingTextLook(element);

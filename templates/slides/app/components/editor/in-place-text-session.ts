@@ -1867,7 +1867,6 @@ export function startInPlaceTextSession(
                   child instanceof HTMLElement &&
                   !isBulletRow(child) &&
                   ["DIV", "LI", "P"].includes(child.tagName) &&
-                  rows.some((row) => row.tagName === child.tagName) &&
                   (range.collapsed
                     ? child.contains(range.startContainer)
                     : range.intersectsNode(child)),
@@ -1889,15 +1888,10 @@ export function startInPlaceTextSession(
               return true;
             }
           }
-          if (
-            kind === "bullet" &&
-            selectedRows.length !== 0 &&
-            selectedRows.length < rows.length
-          ) {
-            for (const row of selectedRows) {
-              const marker = row.firstElementChild;
-              if (marker && isBulletMarker(marker)) marker.remove();
-            }
+          if (selectedRows.length !== 0 && selectedRows.length < rows.length) {
+            const next = toggleSlideList(el, kind, selectedRows);
+            if (!next) return false;
+            if (next !== el) rebind(next);
             return true;
           }
           const next = toggleSlideList(el, kind);
