@@ -228,7 +228,7 @@ Enregistrez les composants spécifiques au produit par identifiant exact du mote
 sur l'action :
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/agent-chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -370,10 +370,8 @@ Entrée `@agent-native/core/client`). Utilisez le runtime générique HTTP lorsq
 peut exposer un point de terminaison POST qui renvoie des événements d'exécution SSE ou NDJSON :
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",

@@ -1,8 +1,6 @@
-import {
-  BlockRegistryProvider,
-  NarrowContainerProvider,
-} from "@agent-native/core/blocks";
 import { useT } from "@agent-native/core/client/i18n";
+import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
+import { NarrowContainerProvider } from "@agent-native/toolkit/app/blocks/library/narrow-container";
 import type {
   EditionReaderStory,
   EditionStoryBlock,

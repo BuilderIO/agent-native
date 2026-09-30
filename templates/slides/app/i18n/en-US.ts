@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrations" } },
   templatesPage: {
     actions: "Template actions for {{title}}",
     previewAction: "Preview",
@@ -852,7 +853,7 @@ const messages = {
     },
     importDeck: "Import Deck",
     context: {
-      websiteReference: "Attach website",
+      websiteReference: "Add website",
       websiteUrlLabel: "Website URL",
       websiteUrl: "Paste a website URL",
       figmaUrlLabel: "Figma link",
@@ -866,7 +867,7 @@ const messages = {
       searchPresentations: "Search presentations…",
       menu: {
         system: "Use a design system",
-        figma: "Attach Figma",
+        figma: "Add Figma",
         design: "Reference a design",
         deck: "Reference a presentation",
         searchDesign: "Search design…",
@@ -1048,7 +1049,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "Couldn't check AI connection.",
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
   },
 };

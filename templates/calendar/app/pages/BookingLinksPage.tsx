@@ -1,11 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   BookingLinkCreateDialog,
   CustomFieldsEditor as SharedCustomFieldsEditor,
   SlugEditor,
 } from "@agent-native/scheduling/react/components";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import type {
   AvailabilityConfig,

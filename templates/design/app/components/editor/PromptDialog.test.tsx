@@ -3,7 +3,7 @@ vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
 
-import type { PromptComposerProps } from "@agent-native/core/client/composer";
+import type { PromptComposerProps } from "@agent-native/toolkit/app/chat/composer/index";
 import {
   act,
   createRef,
@@ -83,7 +83,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/composer", () => ({
   PromptComposer: (props: ComposerStubProps) => {
     mockComposer.current = props;
     const [text, setText] = useState("");
@@ -307,7 +307,7 @@ describe("PromptPopover lazy editor composer", () => {
 });
 
 describe("PromptPopover inline home", () => {
-  it("renders the composer immediately and shows preflight as submitting", async () => {
+  it("keeps the composer calm while its submit preflight runs", async () => {
     let resolvePreflight!: (result: boolean) => void;
     const preflight = new Promise<boolean>((resolve) => {
       resolvePreflight = resolve;
@@ -323,7 +323,8 @@ describe("PromptPopover inline home", () => {
       check = Promise.resolve(mockComposer.current!.onBeforeSubmit!());
       await Promise.resolve();
     });
-    expect(mockComposer.current?.submitting).toBe(true);
+    expect(mockComposer.current?.submitting).toBe(false);
+    expect(mockComposer.current?.submissionDisabled).toBe(false);
     expect(mockComposer.current?.disabled).not.toBe(true);
     expect(onSubmit).not.toHaveBeenCalled();
 

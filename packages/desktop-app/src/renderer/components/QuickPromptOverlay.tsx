@@ -15,7 +15,7 @@ import {
   readAgentPromptAttachment,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   Select,
   SelectContent,

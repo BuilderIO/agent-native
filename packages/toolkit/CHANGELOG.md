@@ -1,5 +1,52 @@
 # @agent-native/toolkit
 
+## 0.198.0
+
+### Minor Changes
+
+- afbee14: Move runtime-backed React surfaces and generated source corpus out of Core's default package path, and move AgentKit's React entrypoints to Toolkit in a breaking AgentKit release. Follow the [Core 0.198.0 upgrade guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx) when updating an existing app or consuming AgentKit directly.
+
+### Patch Changes
+
+- 20cd76f: Fix Toolkit server builds when collaboration code imports `ySyncPluginKey`, and declare the docs app's optional database and source-map upload packages.
+- bbe8cbf: Align user-message copy, edit, and timestamp controls together beneath the message at the logical end. Keep assistant footer grouping unchanged, constrain long timestamps, and expose user actions on touch devices.
+- 8853f61: Show composer context sources at the root level, open the same Add menu from + or @, and support single-select dialogs.
+- 8853f61: Let chat hosts clear an accepted composer draft immediately while preserving standalone failure recovery and newer text, references, and attachments.
+- Release all public npm packages with a patch version bump.
+- 8853f61: Keep context launchers disabled with the composer, expose the disabled textbox state to assistive technology, and hide chat suggestions until AI is ready.
+- 8853f61: Add a searchable gallery layout to the shared context picker, reusing template-library cards for visual references with keyboard-accessible selection.
+- 8853f61: Keep composer panels aligned as their host resizes, and stack context descriptions within narrow agent sidebars without horizontal overflow.
+- 8853f61: Align the shared + and @ launcher above the composer with searchable categories and optional descriptions. Reuse scoped mention discovery for registered resource and agent references, report failed searches, and reserve discovery results for each source so files cannot crowd out connected agents.
+- 8853f61: Connect AgentKit context menus to app-scoped provider credentials and currently available MCP tools.
+- b6ffae6: Keep What's new available in the legacy settings fallback.
+- 8853f61: Recheck submission gates after asynchronous preparation, dismiss context pickers when their source is disabled, and cancel stale skill requests. Preserve same-named uploads as separate attachments, keep mention panels within resized viewports, and honor RTL navigation and long labels in context menus.
+
+  Share full-mode default actions across the + and @ launchers without losing uploads, image-picker handoff, scheduled tasks, automations, opt-in extensions, integration setup, skill creation/import, or terminal controls. Host actions override matching default IDs; lighter modes do not mount full-mode resource hooks. Keep skill review/save/cancel on the existing resource adapter, with duplicate-save protection and stale-request cleanup.
+
+  Route special-mode submissions through the normal host acceptance lifecycle, passing mode instructions separately as `composerModeContext` so hosts can revalidate captured integration context before dispatch. Retain the draft, mode, and attachments when preparation or submission fails.
+
+  Keep context actions reachable when a composer sits near the viewport top: use available space below the frame when the above-frame panel is too short, and recalculate placement as the visible viewport changes for mobile keyboards or zoom.
+
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+  - @agent-native/agentkit@0.198.0
+
+## 0.23.1
+
+### Patch Changes
+
+- f2e8ffe: Center empty chat composers correctly and make send buttons circular across shared chat surfaces.
+- 023ee9b: Keep home chat visible while provider readiness is checked.
+- 47985fe: Show a busy state while the composer checks AI readiness before submitting.
+- Release all public npm packages with a patch version bump.
+- fa62fdf: Improve provider setup controls, status retry backoff, and suggestion contrast.
+
 ## 0.23.0
 
 ### Minor Changes
@@ -908,17 +955,5 @@
 ### Minor Changes
 
 - b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
-
-## 0.4.10
-
-### Patch Changes
-
-- 7effaba: Ignore malformed collaboration presence payloads and keep recoverable server chat timeout handoffs out of Sentry error issues.
-
-## 0.4.9
-
-### Patch Changes
-
-- c690750: Button press feedback now eases instead of snapping: include the native `scale` property in the Button transition list (Tailwind v4 compiles `active:scale-*` to `scale`, which the previous `transform`-only list didn't animate).
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

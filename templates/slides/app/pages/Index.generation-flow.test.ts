@@ -114,8 +114,14 @@ describe("new deck generation flow", () => {
     );
 
     expect(recovery).toContain('settlePendingDeckAttachments("commit")');
-    expect(promptSubmit.indexOf("setNewDeckPromptOpen(false")).toBeLessThan(
-      promptSubmit.indexOf("if (options?.slidesContext)"),
+    const directGenerationIndex = promptSubmit.indexOf(
+      "options?.slidesContext &&",
+    );
+    expect(directGenerationIndex).toBeGreaterThan(-1);
+    const promptCloseIndex = promptSubmit.indexOf("setNewDeckPromptOpen(false");
+    expect(promptCloseIndex).toBeLessThan(directGenerationIndex);
+    expect(promptCloseIndex).toBeLessThan(
+      promptSubmit.indexOf("const promptReferenceDeckId ="),
     );
     expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
     expect(referenceStep).toContain("text: pending.prompt");
@@ -263,6 +269,16 @@ describe("new deck generation flow", () => {
   it("preserves the composer model selection through the reference step", () => {
     expect(source).toContain("options?: SlidesPromptSubmitOptions");
     expect(source).toContain("modelSelection: options");
+    expect(source).toContain(
+      `attachments.attachments,
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,`,
+    );
     expect(flow).toContain("...modelSelection");
   });
 

@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Intégrations" } },
   templatesPage: {
     actions: "Actions du modèle {{title}}",
     previewAction: "Aperçu",
@@ -879,7 +880,7 @@ const messages = {
     },
     importDeck: "Importer une présentation",
     context: {
-      websiteReference: "Joindre un site web",
+      websiteReference: "Ajouter un site web",
       websiteUrlLabel: "URL du site web",
       websiteUrl: "Collez l’URL d’un site web",
       figmaUrlLabel: "Lien Figma",
@@ -894,7 +895,7 @@ const messages = {
       searchPresentations: "Rechercher des présentations…",
       menu: {
         system: "Utiliser un système de design",
-        figma: "Joindre Figma",
+        figma: "Ajouter Figma",
         design: "Utiliser un design comme référence",
         deck: "Utiliser une présentation comme référence",
         searchDesign: "Rechercher dans Design…",
@@ -1080,7 +1081,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+      providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
     },
   },
 };

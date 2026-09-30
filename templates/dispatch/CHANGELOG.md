@@ -3,7 +3,17 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-29
+
+### Fixed
+
+- Apps and app launchers only show apps installed in this workspace
+
 ## 2026-09-28
+
+### Improved
+
+- Dispatch admin pages now use a consistent settings layout.
 
 ### Fixed
 

@@ -2,7 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { isQaTestEmail } from "@agent-native/core/shared";
 import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
 import {
@@ -26,6 +26,7 @@ export interface CreateAccountDialogProps {
   onOpenChange: (open: boolean) => void;
   returnTo: string;
   intent?: AccountGateIntent;
+  portalContainer?: HTMLElement | null;
   onSignIn?: () => void;
   onAuthenticated: () => void;
 }
@@ -119,6 +120,7 @@ export function AccountGateDialog({
   onOpenChange,
   returnTo,
   intent = "continue",
+  portalContainer,
   onSignIn,
   onAuthenticated,
 }: AccountGateDialogProps) {
@@ -418,6 +420,7 @@ export function AccountGateDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        container={portalContainer}
         className="w-[calc(100%-2rem)] max-h-[min(90vh,44rem)] gap-0 overflow-y-auto p-0 sm:max-w-md"
         data-auth-pattern="native"
         data-account-gate-intent={intent}

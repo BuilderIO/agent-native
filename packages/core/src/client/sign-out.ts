@@ -26,7 +26,7 @@ import {
  *     current document so it can re-read the still-authoritative session.
  */
 import { agentNativePath } from "./api-path.js";
-import { buildSignInReturnHref } from "./require-session.js";
+import { buildSignInReturnHref } from "./sign-in-return.js";
 import { beginSignOut, completeSignOut } from "./use-session.js";
 
 const LOGOUT_PATH = "/_agent-native/auth/logout";

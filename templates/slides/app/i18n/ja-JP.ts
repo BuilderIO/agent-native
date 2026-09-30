@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "連携" } },
   templatesPage: {
     actions: "{{title}} のテンプレート操作",
     previewAction: "プレビュー",
@@ -858,7 +859,7 @@ const messages = {
     },
     importDeck: "デッキをインポート",
     context: {
-      websiteReference: "ウェブサイトを添付",
+      websiteReference: "ウェブサイトを追加",
       websiteUrlLabel: "ウェブサイトのURL",
       websiteUrl: "ウェブサイトのURLを貼り付け",
       figmaUrlLabel: "Figmaリンク",
@@ -873,7 +874,7 @@ const messages = {
       searchPresentations: "プレゼンテーションを検索…",
       menu: {
         system: "デザインシステムを使う",
-        figma: "Figmaを添付",
+        figma: "Figmaを追加",
         design: "デザインを参照",
         deck: "プレゼンテーションを参照",
         searchDesign: "デザインを検索…",
@@ -1054,7 +1055,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
   },
 };

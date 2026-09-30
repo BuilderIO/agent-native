@@ -50,11 +50,6 @@ export {
 } from "../use-action.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";
 export {
-  AgentNativeWebMcpActionRegistration,
-  AppProviders,
-  type AppProvidersProps,
-} from "../app-providers.js";
-export {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_MESSAGE,
   APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,

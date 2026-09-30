@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "集成" } },
   templatesPage: {
     actions: "{{title}} 的模板操作",
     previewAction: "预览",
@@ -827,7 +828,7 @@ const messages = {
     },
     importDeck: "导入演示文稿",
     context: {
-      websiteReference: "附加网站",
+      websiteReference: "添加网站",
       websiteUrlLabel: "网站 URL",
       websiteUrl: "粘贴网站 URL",
       figmaUrlLabel: "Figma 链接",
@@ -840,7 +841,7 @@ const messages = {
       searchPresentations: "搜索演示文稿…",
       menu: {
         system: "使用设计系统",
-        figma: "附加 Figma",
+        figma: "添加 Figma",
         design: "参考设计",
         deck: "参考演示文稿",
         searchDesign: "搜索设计…",
@@ -1013,7 +1014,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "无法检查 AI 连接。",
+      providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
   },
 };

@@ -19,10 +19,12 @@ examples or template patterns matter, inspect the packaged source corpus too.
    or `--mode regex` when the question needs a narrower pattern.
 4. Read a specific page with `pnpm action docs-search --slug <slug>`.
 5. Search source examples with `pnpm action source-search --query "<pattern>"`
-   or read a file with `pnpm action source-search --path <path>`.
+   or read a file with `pnpm action source-search --path <path>`. If it reports
+   that template source is unavailable, install the matching corpus package:
+   `pnpm add -D @agent-native/core-corpus@<installed-core-version>`.
 6. If the action runner is unavailable, search
    `node_modules/@agent-native/core/docs` directly with `rg`.
-   Search `node_modules/@agent-native/core/corpus` for source examples.
+   Search `node_modules/@agent-native/core-corpus/corpus` for source examples.
 7. For app-specific rules, also read the app's own `AGENTS.md` and any relevant
    `.agents/skills/<name>/SKILL.md`.
 

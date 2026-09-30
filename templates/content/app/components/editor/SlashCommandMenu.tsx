@@ -49,7 +49,7 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 const PromptComposer = React.lazy(() =>
-  import("@agent-native/core/client/composer").then((m) => ({
+  import("@agent-native/toolkit/app/chat/composer/index").then((m) => ({
     default: m.PromptComposer,
   })),
 );

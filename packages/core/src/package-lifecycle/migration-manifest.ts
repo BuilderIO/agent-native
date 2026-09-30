@@ -36,6 +36,7 @@ export interface MigrationDependency {
 export interface MigrationManifest {
   sinceVersion: string;
   moves: Record<string, MigrationMove>;
+  dependencyVersions?: Record<string, string>;
   removedExports?: Record<string, RemovedExportManifest>;
   dependencies?: MigrationDependency[];
 }
@@ -43,6 +44,7 @@ export interface MigrationManifest {
 export interface RemovedExportManifest {
   symbols: string[];
   migrationGuide: string;
+  symbolGuides?: Record<string, string>;
 }
 
 const MIGRATION_DEPENDENCY_CONDITIONS = new Set<MigrationDependencyCondition>([
@@ -109,13 +111,22 @@ function isMigrationMove(value: unknown): value is MigrationMove {
 function isRemovedExportManifest(
   value: unknown,
 ): value is RemovedExportManifest {
+  if (!isRecord(value) || !Array.isArray(value.symbols)) return false;
+  const symbols = value.symbols;
+  const symbolGuides = value.symbolGuides;
   return (
-    isRecord(value) &&
-    Array.isArray(value.symbols) &&
-    value.symbols.length > 0 &&
-    value.symbols.every((symbol) => typeof symbol === "string") &&
+    symbols.length > 0 &&
+    symbols.every((symbol) => typeof symbol === "string") &&
     typeof value.migrationGuide === "string" &&
-    /^https:\/\//.test(value.migrationGuide)
+    /^https:\/\//.test(value.migrationGuide) &&
+    (symbolGuides === undefined ||
+      (isRecord(symbolGuides) &&
+        Object.entries(symbolGuides).every(
+          ([symbol, guide]) =>
+            symbols.includes(symbol) &&
+            typeof guide === "string" &&
+            /^https:\/\//.test(guide),
+        )))
   );
 }
 
@@ -131,6 +142,16 @@ function migrationManifestProblem(value: unknown): string | null {
     )
   ) {
     return "moves must map specifiers to valid migration move records";
+  }
+  if (
+    value.dependencyVersions !== undefined &&
+    (!isRecord(value.dependencyVersions) ||
+      Object.entries(value.dependencyVersions).some(
+        ([name, version]) =>
+          !name.trim() || typeof version !== "string" || !version.trim(),
+      ))
+  ) {
+    return "dependencyVersions must map package names to non-empty version ranges";
   }
   if (
     value.removedExports !== undefined &&
@@ -247,20 +268,76 @@ function resolveOptionalManifest(
   }
 }
 
+function isToolkitInstalled(projectRoot: string): boolean {
+  const require = createRequire(path.join(projectRoot, "package.json"));
+  try {
+    require.resolve("@agent-native/toolkit/package.json");
+    return true;
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException).code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
+    ) {
+      return true;
+    }
+  }
+  try {
+    require.resolve("@agent-native/toolkit");
+    return true;
+  } catch {
+    let directory = projectRoot;
+    while (true) {
+      if (
+        fs.existsSync(
+          path.join(
+            directory,
+            "node_modules/@agent-native/toolkit/package.json",
+          ),
+        )
+      ) {
+        return true;
+      }
+      const parent = path.dirname(directory);
+      if (parent === directory) return false;
+      directory = parent;
+    }
+  }
+}
+
 export function loadMigrationManifestsForProject(
   projectRoot: string,
 ): MigrationManifest[] {
-  const paths = [
-    bundledCoreMigrationManifestPath(),
-    resolveOptionalManifest(
-      projectRoot,
-      "@agent-native/toolkit/migration-manifest.json",
-    ),
-  ];
-  return paths
-    .filter((manifestPath): manifestPath is string => Boolean(manifestPath))
-    .map(readMigrationManifest)
-    .filter((manifest): manifest is MigrationManifest => Boolean(manifest));
+  const corePath = bundledCoreMigrationManifestPath();
+  const coreManifest = readMigrationManifest(corePath);
+  if (!coreManifest) {
+    throw new Error(
+      "Required bundled Core migration manifest is missing at " +
+        corePath +
+        ".",
+    );
+  }
+
+  const toolkitPath = resolveOptionalManifest(
+    projectRoot,
+    "@agent-native/toolkit/migration-manifest.json",
+  );
+  if (!toolkitPath) {
+    if (isToolkitInstalled(projectRoot)) {
+      throw new Error(
+        "Could not resolve @agent-native/toolkit/migration-manifest.json although @agent-native/toolkit is installed.",
+      );
+    }
+    return [coreManifest];
+  }
+
+  const toolkitManifest = readMigrationManifest(toolkitPath);
+  if (!toolkitManifest) {
+    throw new Error(
+      "Required @agent-native/toolkit migration manifest is missing at " +
+        toolkitPath +
+        ".",
+    );
+  }
+  return [coreManifest, toolkitManifest];
 }
 
 export function resolveMigrationSymbolMove(

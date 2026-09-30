@@ -101,7 +101,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 最もシンプルなフルページチャット：
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -111,9 +111,8 @@ export default function ChatRoute() {
 アプリにフルページのチャットタブと `AgentSidebar` の両方がある場合は、両方のサーフェスで同じ `storageKey` を使用し、`chatViewTransition` を有効にして、レイアウトにチャットホームハンドオフヘルパーをインストールしてください。チャットページからの通常のアプリ内リンクは、アクティブなスレッドを維持しながら、フルチャットをサイドバーに変形させることができます：
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
@@ -149,7 +148,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 独自のクロームを持つ最もシンプルな埋め込みチャット：
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -255,7 +254,7 @@ A2A、ジョブ、トリガーには影響しません。既定のフレーム�
 ファーストパーティのテンプレートはこれをマウントしません。Settings が同じ範囲 (Agent › Model、Instructions、Memory、Skills、Files、Sub-agents と、アプリの Automations および MCP server ページ) をカバーし、`/agent` は Settings にリダイレクトされ、`AgentSidebar` の `agentPageHref="/settings/agent"` は Settings › Agent › Model を開きます。エージェントの画面全体を 1 ページで見せたいアプリでは、`AgentTabsPage` を専用のルートにマウントしてください。
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -518,10 +517,8 @@ VMクローンや長期間のサンドボックスチェックアウトをプラ
 エージェントが別のフレームワークまたはランタイムで既に構築されており、その周りにAgent-NativeのチャットUIを使いたい場合は、このパスを使用してください。`AgentChatRuntime` が境界です。あなたのランタイムが正規化されたイベントをストリームし、Agent-Nativeがコンポーザー、トランスクリプト、ツールコール、承認、ネイティブウィジェット、アプリレイアウトをレンダリングします。
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

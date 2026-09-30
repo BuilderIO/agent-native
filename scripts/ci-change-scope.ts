@@ -61,6 +61,7 @@ const FULL_CHECK_FILES = new Set([
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  "scripts/ci-change-scope.test.ts",
   "tsconfig.json",
   "vitest.shared.ts",
 ]);
@@ -81,14 +82,49 @@ const CHECK_NAMES = [
   "qa_static",
   "agentkit_acceptance",
   "neon_query_budget",
+  "neon_connection_budget",
   "changeset",
 ] as const;
 
 const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
   "scripts/agent-friction-report.mjs",
-  "scripts/ci-change-scope.ts",
   "scripts/ci-change-scope.test.ts",
 ]);
+
+// Every first-party template the cold-request query budget builds and
+// measures. A template change measures only that template; anything the
+// templates share measures all of them.
+export const QUERY_BUDGET_APPS = [
+  "analytics",
+  "assets",
+  "brain",
+  "calendar",
+  "chat",
+  "clips",
+  "content",
+  "crm",
+  "design",
+  "dispatch",
+  "factory",
+  "forms",
+  "mail",
+  "plan",
+  "slides",
+  "tasks",
+] as const;
+
+// These templates depend on @agent-native/creative-context at runtime.
+const CREATIVE_CONTEXT_QUERY_BUDGET_APPS = [
+  "analytics",
+  "assets",
+  "content",
+  "design",
+  "slides",
+] as const satisfies readonly (typeof QUERY_BUDGET_APPS)[number][];
+
+// Apps the SSR cold-start smoke builds and imports. Shared packages rebuild
+// every one; a template change rebuilds only that template.
+export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
 
 type CheckName = (typeof CHECK_NAMES)[number];
 
@@ -103,6 +139,8 @@ export type ChangeScope = {
   workspaceFilters: string[];
   testWorkspaceFilters: string[];
   scriptTests: string[];
+  queryBudgetApps: string[];
+  ssrBootApps: string[];
 };
 
 export function normalizeChangedPath(path: string): string {
@@ -158,9 +196,14 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
-    if (!isGuardScopedScriptPath(path)) continue;
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
+      continue;
+    }
+    if (
+      !isGuardScopedScriptPath(path) &&
+      path !== "scripts/ci-change-scope.ts"
+    ) {
       continue;
     }
     const stem = path.replace(/\.(?:ts|mts|mjs|js)$/u, "");
@@ -314,6 +357,58 @@ function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
   );
 }
 
+function measuresEveryQueryBudgetApp(paths: readonly string[]): boolean {
+  return (
+    hasPath(paths, "packages/core/") ||
+    hasPath(paths, "scripts/neon-query-budget")
+  );
+}
+
+function changedQueryBudgetApps(paths: readonly string[]): string[] {
+  return QUERY_BUDGET_APPS.filter((app) => hasPath(paths, `templates/${app}/`));
+}
+
+function queryBudgetAppsFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): string[] {
+  if (!checks.neon_query_budget) return [];
+  if (full || measuresEveryQueryBudgetApp(changedPaths)) {
+    return [...QUERY_BUDGET_APPS];
+  }
+  const selectedApps = new Set(changedQueryBudgetApps(changedPaths));
+  if (hasPath(changedPaths, "packages/creative-context/")) {
+    for (const app of CREATIVE_CONTEXT_QUERY_BUDGET_APPS) {
+      selectedApps.add(app);
+    }
+  }
+  return QUERY_BUDGET_APPS.filter((app) => selectedApps.has(app));
+}
+
+function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
+  return [
+    "packages/core/",
+    "packages/toolkit/",
+    "packages/recap-cli/",
+    "packages/creative-context/",
+  ].some((prefix) => hasPath(paths, prefix));
+}
+
+function ssrBootAppsFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): string[] {
+  if (!checks.ssr_boot) return [];
+  if (full || ssrBootSharedPackageChanged(changedPaths)) {
+    return [...SSR_BOOT_APPS];
+  }
+  return SSR_BOOT_APPS.filter((app) =>
+    hasPath(changedPaths, `templates/${app}/`),
+  );
+}
+
 function buildChecks(
   changedPaths: readonly string[],
   full: boolean,
@@ -327,6 +422,7 @@ function buildChecks(
       changedPaths.every(isKnownQueryBudgetUnrelatedPath)
     ) {
       checks.neon_query_budget = false;
+      checks.neon_connection_budget = false;
     }
     return checks;
   }
@@ -351,16 +447,10 @@ function buildChecks(
   const brainChanged = hasPath(changedPaths, "templates/brain/");
   const clipsChanged = hasPath(changedPaths, "templates/clips/");
   const assetsChanged = hasPath(changedPaths, "templates/assets/");
-  const recapCliChanged = hasPath(changedPaths, "packages/recap-cli/");
-  const creativeContextChanged = hasPath(
-    changedPaths,
-    "packages/creative-context/",
-  );
   const neonQueryBudgetChanged =
-    coreChanged ||
-    templateChanged ||
-    hasPath(changedPaths, "scripts/neon-query-budget") ||
-    hasPath(changedPaths, "scripts/neon-query-budgets");
+    measuresEveryQueryBudgetApp(changedPaths) ||
+    hasPath(changedPaths, "packages/creative-context/") ||
+    changedQueryBudgetApps(changedPaths).length > 0;
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
@@ -381,10 +471,7 @@ function buildChecks(
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
     ssr_boot:
-      coreChanged ||
-      toolkitChanged ||
-      recapCliChanged ||
-      creativeContextChanged ||
+      ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
       planChanged ||
       clipsChanged ||
@@ -398,6 +485,9 @@ function buildChecks(
       sharedAppConfigChanged ||
       chatChanged,
     neon_query_budget: neonQueryBudgetChanged,
+    // The probe imports only core's database client, so templates cannot
+    // move it.
+    neon_connection_budget: coreChanged,
     changeset: changedPaths.some(isChangesetPath),
   };
 }
@@ -413,23 +503,27 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     changedPaths.some(isFullPath) ||
     (changedPaths.some(isWorkspacePath) && workspaceFilters.length === 0);
 
+  const checks = docsOnly
+    ? (Object.fromEntries(
+        CHECK_NAMES.map((name) => [
+          name,
+          name === "lint" ||
+            (name === "changeset" && changedPaths.some(isChangesetPath)),
+        ]),
+      ) as CheckSelection)
+    : buildChecks(changedPaths, full);
+
   return {
     changedPaths,
     docsOnly,
     full,
     nonDocsPaths,
-    checks: docsOnly
-      ? (Object.fromEntries(
-          CHECK_NAMES.map((name) => [
-            name,
-            name === "lint" ||
-              (name === "changeset" && changedPaths.some(isChangesetPath)),
-          ]),
-        ) as CheckSelection)
-      : buildChecks(changedPaths, full),
+    checks,
     workspaceFilters,
     testWorkspaceFilters,
     scriptTests: scriptTestsForPaths(changedPaths),
+    queryBudgetApps: queryBudgetAppsFor(changedPaths, full, checks),
+    ssrBootApps: ssrBootAppsFor(changedPaths, full, checks),
   };
 }
 
@@ -451,6 +545,8 @@ function writeOutputs(scope: ChangeScope): void {
       `changed_count=${scope.changedPaths.length}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
+      `query_budget_apps=${JSON.stringify(scope.queryBudgetApps)}`,
+      `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
         ([name, enabled]) => `${name}=${enabled ? "true" : "false"}`,

@@ -1,5 +1,48 @@
 # @agent-native/dispatch
 
+## 0.40.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- fb3eacd: Show only apps mounted in the active workspace in Dispatch app views.
+- Updated dependencies [20cd76f]
+- Updated dependencies [bbe8cbf]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [b6ffae6]
+- Updated dependencies [8853f61]
+  - @agent-native/toolkit@0.198.0
+
+## 0.40.0
+
+### Minor Changes
+
+- 8fd97ec: Let workspaces choose which hosted first-party apps they offer with `agent-native.builtinAgents` (`mode: "all" | "none" | "selected"`, `include`) in the root or standalone `package.json`. Dispatch's app list now follows that config instead of always adding the chat-first defaults, and local workspaces outside the framework repo link built-ins to their hosted URLs.
+- 1fd5c7a: Restore the searchable Dispatch app directory and localize its action labels.
+
+### Patch Changes
+
+- b8845eb: Bound framework list reads and remove the vault-wide resync from process startup.
+- 9e87b45: Align settings content widths and controls with the shared settings layout.
+- 29d7dfa: Include CHANGELOG.md in the published package so the Settings route no longer fails to load with an Internal Server Error.
+- Release all public npm packages with a patch version bump.
+- bee46b1: Dispatch always renders the redesigned Settings, with no feature flag.
+- b8845eb: Scope ownable reads and writes to their authorized user, organization, or share.
+- Updated dependencies [f2e8ffe]
+- Updated dependencies [023ee9b]
+- Updated dependencies [47985fe]
+- Updated dependencies
+- Updated dependencies [fa62fdf]
+  - @agent-native/toolkit@0.23.1
+
 ## 0.39.0
 
 ### Minor Changes
@@ -1030,17 +1073,5 @@
 ### Patch Changes
 
 - 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
-
-## 0.24.4
-
-### Patch Changes
-
-- 47ba57a: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
-
-## 0.24.3
-
-### Patch Changes
-
-- 405e17e: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

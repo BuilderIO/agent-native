@@ -8,17 +8,17 @@
       "action": "list-analyses",
       "observed": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 11,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 4,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 16,
+          "queries": 15,
           "poolAcquisitions": 0,
           "rowsReturned": 2,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -32,19 +32,25 @@
       },
       "budget": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 11,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 16,
+          "queries": 15,
+          "poolAcquisitions": 0,
           "rowsReturned": 2,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -53,17 +59,17 @@
       "action": "list-assets",
       "observed": {
         "page": {
-          "queries": 6,
-          "rowsReturned": 18,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 6,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -77,19 +83,25 @@
       },
       "budget": {
         "page": {
-          "queries": 6,
-          "rowsReturned": 18,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -98,17 +110,17 @@
       "action": "list-captures",
       "observed": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 21,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 4,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -122,19 +134,25 @@
       },
       "budget": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 21,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -143,17 +161,17 @@
       "action": "list-booking-links",
       "observed": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 18,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 4,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -167,19 +185,25 @@
       },
       "budget": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 18,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -188,33 +212,37 @@
       "action": null,
       "observed": {
         "page": {
-          "queries": 2,
-          "rowsReturned": 11,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 2,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": null,
         "idlePoll": {
-          "queries": 12,
+          "queries": 11,
           "poolAcquisitions": 0,
           "rowsReturned": 6,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "pollRequests": 1
       },
       "budget": {
         "page": {
-          "queries": 2,
-          "rowsReturned": 11,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": null,
         "idlePoll": {
-          "queries": 12,
+          "queries": 11,
+          "poolAcquisitions": 0,
           "rowsReturned": 6,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -223,17 +251,17 @@
       "action": "list-recordings",
       "observed": {
         "page": {
-          "queries": 6,
-          "rowsReturned": 48,
-          "catalogQueries": 1,
-          "migrationTableQueries": 4,
+          "queries": 1,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -247,19 +275,25 @@
       },
       "budget": {
         "page": {
-          "queries": 6,
-          "rowsReturned": 48,
+          "queries": 1,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -268,17 +302,17 @@
       "action": "list-documents",
       "observed": {
         "page": {
-          "queries": 7,
-          "rowsReturned": 69,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 7,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 15,
+          "queries": 14,
           "poolAcquisitions": 0,
           "rowsReturned": 1,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -292,19 +326,25 @@
       },
       "budget": {
         "page": {
-          "queries": 7,
-          "rowsReturned": 69,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 15,
+          "queries": 14,
+          "poolAcquisitions": 0,
           "rowsReturned": 1,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -313,17 +353,17 @@
       "action": "list-crm-lists",
       "observed": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 21,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 4,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -337,19 +377,25 @@
       },
       "budget": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 21,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -358,17 +404,17 @@
       "action": "list-designs",
       "observed": {
         "page": {
-          "queries": 8,
-          "rowsReturned": 31,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 6,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -382,19 +428,25 @@
       },
       "budget": {
         "page": {
-          "queries": 8,
-          "rowsReturned": 31,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -403,17 +455,17 @@
       "action": "list-workspace-connections",
       "observed": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 17,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 4,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 28,
+          "queries": 27,
           "poolAcquisitions": 0,
           "rowsReturned": 1,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -427,19 +479,25 @@
       },
       "budget": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 17,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 28,
+          "queries": 27,
+          "poolAcquisitions": 0,
           "rowsReturned": 1,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -448,17 +506,17 @@
       "action": "list-factories",
       "observed": {
         "page": {
-          "queries": 6,
-          "rowsReturned": 42,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 6,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -472,19 +530,25 @@
       },
       "budget": {
         "page": {
-          "queries": 6,
-          "rowsReturned": 42,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -493,17 +557,17 @@
       "action": "list-forms",
       "observed": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 17,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 4,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -517,19 +581,25 @@
       },
       "budget": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 17,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -538,17 +608,17 @@
       "action": "list-inbox-threads",
       "observed": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 32,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 4,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 24,
+          "queries": 22,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 2,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -562,19 +632,25 @@
       },
       "budget": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 32,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 24,
+          "queries": 22,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -583,14 +659,14 @@
       "action": "list-visual-plans",
       "observed": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 15,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 4,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 11,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
           "catalogQueries": 0,
@@ -607,19 +683,25 @@
       },
       "budget": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 15,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 11,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -628,17 +710,17 @@
       "action": "list-decks",
       "observed": {
         "page": {
-          "queries": 6,
-          "rowsReturned": 24,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 6,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -652,19 +734,25 @@
       },
       "budget": {
         "page": {
-          "queries": 6,
-          "rowsReturned": 24,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }
@@ -673,17 +761,17 @@
       "action": "list-tasks",
       "observed": {
         "page": {
-          "queries": 3,
-          "rowsReturned": 12,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 3,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
           "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "catalogQueries": 1,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {
@@ -697,19 +785,25 @@
       },
       "budget": {
         "page": {
-          "queries": 3,
-          "rowsReturned": 12,
+          "queries": 0,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 14,
+          "queries": 13,
+          "poolAcquisitions": 0,
           "rowsReturned": 0,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "idlePoll": {
           "queries": 10,
+          "poolAcquisitions": 0,
           "rowsReturned": 8,
-          "poolAcquisitions": 0
+          "catalogQueries": 0,
+          "migrationTableQueries": 0
         },
         "pollRequests": 1
       }

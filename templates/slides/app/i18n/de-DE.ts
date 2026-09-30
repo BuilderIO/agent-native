@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrationen" } },
   templatesPage: {
     actions: "Vorlagenaktionen für {{title}}",
     previewAction: "Vorschau",
@@ -875,7 +876,7 @@ const messages = {
     },
     importDeck: "Präsentation importieren",
     context: {
-      websiteReference: "Website anhängen",
+      websiteReference: "Website hinzufügen",
       websiteUrlLabel: "Website-URL",
       websiteUrl: "Website-URL einfügen",
       figmaUrlLabel: "Figma-Link",
@@ -890,7 +891,7 @@ const messages = {
       searchPresentations: "Präsentationen suchen…",
       menu: {
         system: "Ein Designsystem verwenden",
-        figma: "Figma anhängen",
+        figma: "Figma hinzufügen",
         design: "Ein Design als Referenz verwenden",
         deck: "Eine Präsentation als Referenz verwenden",
         searchDesign: "Design durchsuchen…",
@@ -1074,7 +1075,8 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
   },
 };

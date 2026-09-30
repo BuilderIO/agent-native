@@ -1,5 +1,5 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";

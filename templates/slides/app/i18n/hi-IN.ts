@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "इंटीग्रेशन" } },
   templatesPage: {
     actions: "{{title}} टेम्पलेट की कार्रवाइयाँ",
     previewAction: "पूर्वावलोकन",
@@ -857,7 +858,7 @@ const messages = {
       searchPresentations: "प्रस्तुतियाँ खोजें…",
       menu: {
         system: "डिज़ाइन सिस्टम का उपयोग करें",
-        figma: "Figma संलग्न करें",
+        figma: "Figma जोड़ें",
         design: "डिज़ाइन का संदर्भ लें",
         deck: "प्रस्तुति का संदर्भ लें",
         searchDesign: "डिज़ाइन खोजें…",
@@ -1036,7 +1037,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+      providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },
   },
 };

@@ -656,6 +656,9 @@ const messages = {
       ruleBackfillMatches: "최근 메시지 {{count}}개가 일치해요",
       ruleBackfillNoMatches: "최근 메시지 중 이 규칙에 맞는 항목이 없어요.",
       ruleBackfillFailed: "이 규칙을 최근 메일에 적용하지 못했어요.",
+      ruleBackfillRunFailed:
+        "최근 메일에 규칙을 적용하는 작업을 완료하지 못했어요.",
+      backfillStatusLoadFailed: "최근 규칙 상태를 불러오지 못했어요.",
       ruleBackfillPartialFailure: "{{count}}개 메시지를 업데이트하지 못했어요.",
       ruleBackfillUndoing: "최근 메일을 복원하고 있어요…",
       ruleBackfillUndoComplete: "{{count}}개 메시지 복원됨",

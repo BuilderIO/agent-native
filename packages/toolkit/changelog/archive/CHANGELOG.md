@@ -1,3 +1,15 @@
+## 0.4.10
+
+### Patch Changes
+
+- 7effaba: Ignore malformed collaboration presence payloads and keep recoverable server chat timeout handoffs out of Sentry error issues.
+
+## 0.4.9
+
+### Patch Changes
+
+- c690750: Button press feedback now eases instead of snapping: include the native `scale` property in the Button transition list (Tailwind v4 compiles `active:scale-*` to `scale`, which the previous `transform`-only list didn't animate).
+
 ## 0.4.8
 
 ### Patch Changes

@@ -1,14 +1,11 @@
 import crypto from "node:crypto";
 
-import { createElement } from "react";
-import { renderToString } from "react-dom/server";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
-import { AuthPage } from "../client/auth/AuthPage.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import type { AuthPageProps } from "../shared/auth-page-types.js";
 import {
@@ -29,7 +26,7 @@ import {
 } from "../shared/password-policy.js";
 
 function renderAuthPage(props: AuthPageProps): string {
-  return renderToString(createElement(AuthPage, props));
+  return `<main data-auth-view="${props.initialView}" />`;
 }
 
 function withAuthPageRenderer(
@@ -9680,7 +9677,7 @@ describe("server/auth", () => {
   });
 
   describe("onboarding Google sign-in", () => {
-    it("passes OAuth configuration to the hydratable React auth page", async () => {
+    it("passes OAuth configuration to the injected auth renderer", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
@@ -9698,8 +9695,7 @@ describe("server/auth", () => {
         publicOAuthOrigin: "https://agent-workspace.builder.io",
         workspaceGatewayReturnOrigin: "",
       });
-      expect(html).toContain('id="google-btn"');
-      expect(html).toContain('id="google-debug"');
+      expect(html).toContain('<main data-auth-view="googleOnly" />');
       expect(html).toContain('src="/assets/auth-client.js"');
     });
 
@@ -9724,7 +9720,7 @@ describe("server/auth", () => {
         publicOAuthOrigin: "https://agent-workspace.builder.io",
         workspaceGatewayReturnOrigin: "",
       });
-      expect(loginHtml).toContain('id="google-debug"');
+      expect(loginHtml).toContain('<main data-auth-view="googleOnly" />');
       expect(loginHtml).toContain('src="/assets/auth-client.js"');
     });
 
@@ -9764,13 +9760,11 @@ describe("server/auth", () => {
       const html = getOnboardingHtml({ googleOnly: true });
       const data = readAuthPageData(html);
 
-      expect(html).toContain(
-        '<h1 id="heading" data-i18n="signInTitle">Sign in</h1>',
-      );
-      expect(html).toContain("Use your workspace Google account to continue");
-      expect(html).not.toContain('id="signup-form"');
-      expect(html).not.toContain('data-tab="signup"');
-      expect(data.initialView).toBe("googleOnly");
+      expect(data).toMatchObject({
+        initialView: "googleOnly",
+        googleOnly: true,
+        showGoogle: true,
+      });
     });
 
     it("keeps app branding and auth assets under APP_BASE_PATH", async () => {
@@ -9801,9 +9795,10 @@ describe("server/auth", () => {
         },
       });
 
-      expect(html).toContain('class="marketing-panel"');
-      expect(html).toContain("Manage email with an agent.");
-      expect(html).toContain("auth-marketing-visual");
+      expect(readAuthPageData(html).marketing).toMatchObject({
+        appName: "Agent-Native Mail",
+        tagline: "Manage email with an agent.",
+      });
     });
 
     it("defaults the active tab from the login or signup path", async () => {
@@ -9823,35 +9818,32 @@ describe("server/auth", () => {
   });
 
   describe("onboarding signup verification flow", () => {
-    it("renders a dedicated email verification step after signup", async () => {
+    it("passes signup state to the injected auth renderer", async () => {
       const { getOnboardingHtml: renderOnboardingHtml } =
         await import("./onboarding-html.js");
       const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml();
 
-      expect(html).toContain('id="verification-step"');
-      expect(html).toContain('id="verify-continue"');
-      expect(html).toContain('id="resend-verification"');
-      expect(html).toContain('id="back-to-signup"');
+      expect(readAuthPageData(html)).toMatchObject({
+        authMode: "password",
+        initialView: "signup",
+      });
       expect(html).toContain('src="/assets/auth-client.js"');
-      expect(html).not.toContain("showVerificationStep(email, pass)");
       expect(html).not.toContain(
         "Account created! Check your email to verify, then sign in.",
       );
     });
 
-    it("only shows verification after an explicit unverified login response", async () => {
+    it("keeps auth data in the serialized shell instead of inline response logic", async () => {
       const { getOnboardingHtml: renderOnboardingHtml } =
         await import("./onboarding-html.js");
       const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml();
 
-      expect(html).toContain('id="login-form"');
-      expect(html).toContain('id="verification-step"');
       expect(html).toContain(
         'type="application/json" id="agent-native-auth-data"',
       );
-      expect(html).not.toContain("loginData = await loginRes.json()");
+      expect(readAuthPageData(html).initialView).toBe("signup");
     });
 
     it("silently signs in after verification completes outside the app", async () => {
@@ -9861,19 +9853,18 @@ describe("server/auth", () => {
       const html = getOnboardingHtml({ requestPath: "/sign-in?verified=1" });
 
       expect(readAuthPageData(html).initialView).toBe("login");
-      expect(html).toContain('id="login-form"');
+      expect(html).toContain('<main data-auth-view="login" />');
       expect(html).toContain('src="/assets/auth-client.js"');
     });
 
-    it("keeps resend verification on a visible cooldown after sending", async () => {
+    it("keeps the auth client bundle available for verification flows", async () => {
       const { getOnboardingHtml: renderOnboardingHtml } =
         await import("./onboarding-html.js");
       const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml();
 
-      expect(html).toContain('id="resend-verification"');
-      expect(html).toContain('data-i18n="resendEmail"');
       expect(html).toContain('src="/assets/auth-client.js"');
+      expect(readAuthPageData(html).initialView).toBe("signup");
     });
   });
 
