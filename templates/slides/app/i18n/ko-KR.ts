@@ -302,6 +302,21 @@ const messages = {
     importing: "가져오는 중...",
     importFile: "파일 가져오기",
     downloadBackup: "백업 다운로드",
+    conflictStatus: "텍스트 충돌",
+    conflictStatusDescription:
+      "다른 변경 사항을 저장하기 전에 충돌한 텍스트를 확인하세요.",
+    reviewConflict: "충돌 검토",
+    conflictTitle: "슬라이드 {{number}}의 텍스트 충돌",
+    conflictDescription:
+      "텍스트를 편집하는 동안 다른 버전에서 이 슬라이드가 변경되었습니다.",
+    conflictChoicesDescription:
+      "내 텍스트를 유지하면 최신 버전에 저장됩니다. 저장된 텍스트를 사용하면 이 슬라이드의 로컬 초안만 바뀝니다.",
+    conflictBackupDescription:
+      "전체 프레젠테이션 초안은 슬라이드별로 해결할 수 없습니다. 초안을 보관하려면 백업을 다운로드하세요.",
+    conflictResolveFailed:
+      "충돌을 해결하지 못했습니다. 이 기기에 초안이 계속 남아 있습니다.",
+    conflictKeepMine: "내 텍스트 유지",
+    conflictUseLatest: "저장된 텍스트 사용",
     importBackup: "백업 가져오기",
     backupDownloaded: "백업을 다운로드했습니다",
     backupDownloadFailed: "백업을 다운로드할 수 없습니다",
@@ -399,6 +414,8 @@ const messages = {
     orderedList: "순서 있는 목록",
     quote: "인용",
     blockquote: "인용 블록",
+    divider: "구분선",
+    horizontalRule: "가로줄",
   },
   comments: {
     deleteComment: "댓글 삭제",

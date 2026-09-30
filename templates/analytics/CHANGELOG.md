@@ -13,6 +13,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- App filters now keep retention charts scoped to the selected app.
+- Chat stays ready for your next draft while a message is being sent.
 - Adding panels now saves without a layout width error.
 - Analytics accepts valid field names that contain SQL keywords and digits
 - Analytics date filters support custom date ranges across dashboards.
@@ -23,6 +25,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Flags moved to an app's Labs settings no longer appear as editable rollout controls.
 - Analytics starts faster on hosted serverless deployments.
 - The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
 - Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
