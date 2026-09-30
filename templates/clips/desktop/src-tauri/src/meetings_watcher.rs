@@ -289,7 +289,7 @@ impl MeetingsWatcherState {
     /// Returns the cached meetings whose banner is due now, with their seconds
     /// until start. Callers mark them with `mark_notified` only once they know
     /// the banner will be delivered, so a skipped one stays due.
-    fn due_alerts(&self, now: chrono::DateTime<chrono::Utc>) -> Vec<(MeetingItem, i64)> {
+    fn due_alerts(&self, now: chrono::DateTime<chrono::Utc>) -> DueAlerts {
         let now_ts = now.timestamp();
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let inner = &mut *g;
@@ -326,15 +326,23 @@ impl MeetingsWatcherState {
             }
             due.push((m.clone(), secs_until));
         }
-        due
+        DueAlerts {
+            generation: inner.fetch_generation,
+            alerts: due,
+        }
     }
 
-    /// Marks the alerts about to be delivered and returns them, dropping any
-    /// the user snoozed after `due_alerts` ran so the snooze isn't overwritten.
-    fn mark_notified(&self, due: Vec<(MeetingItem, i64)>, now_ts: i64) -> Vec<(MeetingItem, i64)> {
+    /// Marks the alerts about to be delivered and returns them. Drops all of
+    /// them if the cache was invalidated after `due_alerts` ran, so a previous
+    /// account's meeting never alerts, and drops any the user snoozed since, so
+    /// the snooze isn't overwritten.
+    fn mark_notified(&self, due: DueAlerts, now_ts: i64) -> Vec<(MeetingItem, i64)> {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let mut delivered = Vec::with_capacity(due.len());
-        for (m, secs_until) in due {
+        if g.fetch_generation != due.generation {
+            return Vec::new();
+        }
+        let mut delivered = Vec::with_capacity(due.alerts.len());
+        for (m, secs_until) in due.alerts {
             if g.snoozed_until
                 .get(&m.id)
                 .is_some_and(|until| now_ts < *until)
@@ -587,6 +595,11 @@ async fn run_watcher(app: AppHandle) {
     }
 }
 
+struct DueAlerts {
+    generation: u64,
+    alerts: Vec<(MeetingItem, i64)>,
+}
+
 enum FetchOutcome {
     /// No server URL, no credentials, or an unauthorized backoff is active.
     NotReady,
@@ -711,12 +724,8 @@ fn tray_snapshot(meetings: &[MeetingItem]) -> Vec<TrayMeetingItem> {
         .collect()
 }
 
-async fn notify_due_meetings(
-    app: &AppHandle,
-    state: &MeetingsWatcherState,
-    due: Vec<(MeetingItem, i64)>,
-) {
-    if due.is_empty() {
+async fn notify_due_meetings(app: &AppHandle, state: &MeetingsWatcherState, due: DueAlerts) {
+    if due.alerts.is_empty() {
         return;
     }
     // Read from disk only when a banner is due, not on every 1s tick.
@@ -1204,9 +1213,9 @@ mod tests {
         let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
 
         let due = state.due_alerts(now);
-        assert_eq!(due.len(), 1);
+        assert_eq!(due.alerts.len(), 1);
         assert_eq!(state.mark_notified(due, now.timestamp()).len(), 1);
-        assert!(state.due_alerts(now).is_empty());
+        assert!(state.due_alerts(now).alerts.is_empty());
 
         let moved = start + chrono::Duration::seconds(15);
         let generation = state.inner.lock().expect("state lock").fetch_generation;
@@ -1215,7 +1224,7 @@ mod tests {
             now.timestamp(),
             Ok(FetchOutcome::Fetched(vec![meeting("m", Some(moved))])),
         );
-        assert_eq!(state.due_alerts(now).len(), 1);
+        assert_eq!(state.due_alerts(now).alerts.len(), 1);
     }
 
     #[test]
@@ -1234,7 +1243,19 @@ mod tests {
 
         assert!(state.mark_notified(due, now.timestamp()).is_empty());
         let later = now + chrono::Duration::seconds(60);
-        assert_eq!(state.due_alerts(later).len(), 1);
+        assert_eq!(state.due_alerts(later).alerts.len(), 1);
+    }
+
+    #[test]
+    fn an_invalidation_after_the_due_check_drops_the_alert() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 30, 10, 0, 0).unwrap();
+        let start = now + chrono::Duration::seconds(30);
+        let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
+
+        let due = state.due_alerts(now);
+        state.invalidate_cache();
+
+        assert!(state.mark_notified(due, now.timestamp()).is_empty());
     }
 
     #[test]
@@ -1243,8 +1264,8 @@ mod tests {
         let start = now + chrono::Duration::seconds(30);
         let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
 
-        assert_eq!(state.due_alerts(now).len(), 1);
-        assert_eq!(state.due_alerts(now).len(), 1);
+        assert_eq!(state.due_alerts(now).alerts.len(), 1);
+        assert_eq!(state.due_alerts(now).alerts.len(), 1);
     }
 
     #[test]
