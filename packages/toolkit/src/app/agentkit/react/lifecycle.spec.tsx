@@ -3257,6 +3257,47 @@ describe("AgentKit subscriptions and recovery", () => {
     }
   });
 
+  it("omits the message menu when no actions are available", async () => {
+    const thread = createAgentThreadState("thread-no-request-id");
+    thread.messages = [
+      {
+        id: "assistant-no-request-id",
+        role: "assistant",
+        parts: [{ type: "text", text: "Ready." }],
+      },
+    ];
+    const store = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId="thread-no-request-id"
+        >
+          <AgentMessageActions
+            threadId="thread-no-request-id"
+            value={thread.messages[0]!}
+          />
+        </AgentKitProvider>,
+      );
+      expect(
+        tree.container.querySelector('button[aria-label="Message actions"]'),
+      ).toBeNull();
+      expect(
+        document.body.querySelector('.agentkit-message-menu[role="menu"]'),
+      ).toBeNull();
+    } finally {
+      await tree.unmount();
+    }
+  });
+
   it("uses selector equality without caching a changed selector", async () => {
     const initial: AgentKitSnapshot = {
       connection: "idle",

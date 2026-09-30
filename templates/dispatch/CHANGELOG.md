@@ -12,6 +12,7 @@ time from the command menu (Cmd+K → "What's new").
 ### Fixed
 
 - Chat stays ready for your next draft while a message is being sent.
+- Prompts sent from the home page stay in the active conversation.
 
 ## 2026-09-29
 
