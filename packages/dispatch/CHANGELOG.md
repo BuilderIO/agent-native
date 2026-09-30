@@ -1,5 +1,22 @@
 # @agent-native/dispatch
 
+## 0.40.2
+
+### Patch Changes
+
+- d09fdb0: Keep full-page chat headers and history controls aligned with the conversation surface.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0b127e9]
+- Updated dependencies [4873d09]
+- Updated dependencies [d09fdb0]
+- Updated dependencies
+- Updated dependencies [d25ddc1]
+- Updated dependencies [affa25c]
+- Updated dependencies [b1bbe7e]
+- Updated dependencies [905b078]
+- Updated dependencies [6a627af]
+  - @agent-native/toolkit@0.198.1
+
 ## 0.40.1
 
 ### Patch Changes
@@ -1067,11 +1084,5 @@
 
 - Updated dependencies [2db503b]
   - @agent-native/toolkit@0.14.2
-
-## 0.24.5
-
-### Patch Changes
-
-- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
