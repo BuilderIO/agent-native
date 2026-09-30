@@ -3080,6 +3080,12 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  const lastMessage = thread.messages.at(-1);
+  const showThinking =
+    surface.isSubmissionInFlight &&
+    !surface.isRunning &&
+    lastMessage?.role === "user" &&
+    lastMessage.metadata?.hideUserMessage !== true;
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
@@ -3257,13 +3263,15 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           threadId={threadId}
         />
       ))}
-      {surface.isThinkingVisibleInTranscript ? (
+      {showThinking ? (
         <div
+          className="agent-thinking-indicator"
           role="status"
           aria-live="polite"
-          className="px-3 py-2 text-sm text-muted-foreground"
         >
-          {t("agentChat.status.thinking")}
+          <span className="agent-thinking-indicator__text">
+            {t("agentChat.status.thinking")}
+          </span>
         </div>
       ) : null}
       {guided.questions?.length ? (
@@ -4061,11 +4069,13 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
   const metadata = value.metadata ?? {};
   const input = asRecord(value.input) ?? {};
   const output =
-    typeof value.output === "string"
-      ? value.output
-      : value.output === undefined
-        ? undefined
-        : JSON.stringify(value.output);
+    value.status === "failed" && value.error?.message
+      ? value.error.message
+      : typeof value.output === "string"
+        ? value.output
+        : value.output === undefined
+          ? undefined
+          : JSON.stringify(value.output);
   return (
     <ChatRunningContext.Provider
       value={active === true || value.status === "running"}
@@ -4079,8 +4089,8 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           args={input}
           argsText={JSON.stringify(input)}
           result={output}
+          isError={value.status === "failed"}
           isRunning={value.status === "running"}
-          outcome={value.status === "failed" ? "unknown" : undefined}
           structuredMeta={metadata}
           mcpApp={asRecord(metadata.mcpApp) as never}
           chatUI={asRecord(metadata.chatUI) as never}

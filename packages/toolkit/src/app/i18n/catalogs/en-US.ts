@@ -1249,6 +1249,7 @@ const messages = {
   "tool.askingAgent": "Asking {{agent}}...",
   "tool.elapsed": "{{duration}} elapsed",
   "tool.askingAgentFailed": "Error asking {{agent}}",
+  "tool.failedWithoutDetails": "No error details are available.",
   "tool.input": "Input",
   "tool.inputWithLabel": "Input - {{label}}",
   "tool.interrupted":

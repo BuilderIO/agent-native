@@ -1581,8 +1581,14 @@ describe("createTiptapComposerExtensions", () => {
             availableModels: [
               {
                 engine: "builder",
-                label: "Builder.io Gateway",
+                label: "OpenAI · Builder.io",
                 models,
+                configured: true,
+              },
+              {
+                engine: "claude",
+                label: "Claude · Builder.io",
+                models: ["claude-haiku-4-5"],
                 configured: true,
               },
             ],
@@ -1619,6 +1625,9 @@ describe("createTiptapComposerExtensions", () => {
     expect(picker?.textContent).toContain("GPT-6 Luna");
     expect(picker?.textContent).toContain("Claude Opus 5.5");
     expect(picker?.textContent).toContain("Gemini 3.8 Flash");
+    expect(picker?.textContent).toContain("OpenAI");
+    expect(picker?.textContent).toContain("Claude");
+    expect(picker?.textContent).not.toContain("Builder.io");
   });
 
   it("chooses the newest tier version regardless of catalog order", () => {
@@ -1983,8 +1992,11 @@ describe("TiptapComposer slash commands", () => {
       '[data-agent-composer-slot="send-button"]',
     );
     expect(sendButton?.disabled).toBe(true);
-    expect(sendButton?.getAttribute("aria-label")).toMatch(/loading/i);
+    expect(sendButton?.getAttribute("aria-label")).not.toMatch(/loading/i);
     expect(sendButton?.getAttribute("aria-label")).not.toMatch(/checking/i);
+    expect(sendButton?.getAttribute("aria-busy")).toBeNull();
+    expect(sendButton?.querySelector(".animate-spin")).toBeNull();
+    expect(sendButton?.querySelector(".tabler-icon-arrow-up")).not.toBeNull();
   });
 
   it("keeps the editor focused after a successful submission", async () => {

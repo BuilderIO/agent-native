@@ -1229,6 +1229,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
   "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
+  "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
   "tool.interrupted":

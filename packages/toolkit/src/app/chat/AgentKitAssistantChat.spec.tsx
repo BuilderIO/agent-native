@@ -794,12 +794,34 @@ describe("AgentKitAssistantChat host behavior", () => {
     ];
     await mount(baseProps());
 
+    const thinking = container.querySelector('[role="status"]');
+    expect(thinking?.textContent).toBe("agentChat.status.thinking");
+    expect(thinking?.classList.contains("agent-thinking-indicator")).toBe(true);
+    expect(
+      thinking?.querySelector(".agent-thinking-indicator__text"),
+    ).not.toBeNull();
     expect(chatMocks.composerProps.disabled).toBe(false);
     expect(chatMocks.composerProps.submissionDisabled).toBe(true);
     expect(chatMocks.composerProps.announcePendingSubmission).toBe(false);
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "agentChat.status.thinking",
     );
+  });
+
+  it("does not duplicate Thinking after the run becomes active", async () => {
+    chatMocks.history = { isSubmissionInFlight: true };
+    chatMocks.thread.activeRunIds = ["run-active"];
+    chatMocks.thread.messages = [
+      {
+        id: "user-pending",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize my inbox" }],
+        metadata: {},
+      },
+    ];
+    await mount(baseProps());
+
+    expect(container.querySelector(".agent-thinking-indicator")).toBeNull();
   });
 
   it("keeps the pending announcement when the transcript has no visible user message", async () => {

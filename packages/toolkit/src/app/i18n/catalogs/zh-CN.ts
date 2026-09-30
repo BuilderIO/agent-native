@@ -1178,6 +1178,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "正在询问 {{agent}}...",
   "tool.elapsed": "已用 {{duration}}",
   "tool.askingAgentFailed": "询问 {{agent}} 时出错",
+  "tool.failedWithoutDetails": "没有可用的错误详情。",
   "tool.input": "输入",
   "tool.inputWithLabel": "输入 - {{label}}",
   "tool.interrupted":

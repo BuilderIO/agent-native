@@ -14,9 +14,9 @@ import {
   IconPencil,
   IconPlugConnected,
   IconHelpCircle,
-  IconRefresh,
   IconAlertCircle,
   IconLoader2,
+  IconRefresh,
 } from "@tabler/icons-react";
 import Placeholder from "@tiptap/extension-placeholder";
 import { TextSelection } from "@tiptap/pm/state";
@@ -2384,7 +2384,7 @@ function ModelSelector({
                             {showProviderLabels && (
                               <div className="group flex items-center px-2 py-1">
                                 <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                  {group.label}
+                                  {group.label.replace(/ · Builder\.io$/i, "")}
                                 </span>
                                 {!group.configured && statusLabel && (
                                   <button
@@ -2607,7 +2607,6 @@ export function TiptapComposer({
   draftScope,
   contextItems: providedContextItems,
   onRemoveContextItem,
-  onInspectContextItem,
   onRetryContextItem,
   contextMenuItems,
   plusMenuMode = "full",
@@ -5151,7 +5150,7 @@ export function TiptapComposer({
           {slotReferences.map((ref) => (
             <span
               key={ref.slotKey}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground shadow-sm"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground shadow-sm"
             >
               <MentionItemMedia
                 media={ref.media}
@@ -5185,79 +5184,80 @@ export function TiptapComposer({
             </span>
           ))}
           {contextItems.map((item) => (
-            <span
-              key={item.key}
-              data-context-key={item.key}
-              data-context-status={item.status ?? "ready"}
-              title={item.statusMessage}
-              data-state={
-                selectedContextItemKey === item.key ? "selected" : undefined
-              }
-              className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium text-foreground ${
-                selectedContextItemKey === item.key
-                  ? "border-ring bg-accent ring-2 ring-ring/40"
-                  : "border-border bg-muted/50"
-              }`}
-            >
-              {item.status === "pending" ? (
-                <IconLoader2
-                  aria-label={t("agentChat.composer.contextPending", {
-                    defaultValue: "Context pending",
-                  })}
-                  className="size-3 shrink-0 animate-spin motion-reduce:animate-none text-muted-foreground"
-                />
-              ) : item.status === "error" ? (
-                <IconAlertCircle
-                  aria-label={t("agentChat.composer.contextError", {
-                    defaultValue: "Context failed",
-                  })}
-                  className="size-3 shrink-0 text-destructive"
-                />
-              ) : (
-                <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
-              )}
-              {onInspectContextItem ? (
-                <button
-                  type="button"
-                  onClick={() => onInspectContextItem(item.key)}
-                  className="min-w-0 truncate hover:underline"
-                >
-                  {item.title}
-                </button>
-              ) : (
+            <React.Fragment key={item.key}>
+              <span
+                data-context-key={item.key}
+                data-context-status={item.status ?? "ready"}
+                title={item.statusMessage}
+                data-state={
+                  selectedContextItemKey === item.key ? "selected" : undefined
+                }
+                className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium text-foreground ${
+                  selectedContextItemKey === item.key
+                    ? "border-ring bg-accent ring-2 ring-ring/40"
+                    : "border-border bg-muted/50"
+                }`}
+              >
+                {item.status === "pending" ? (
+                  <IconLoader2
+                    aria-label={t("agentChat.composer.contextPending", {
+                      defaultValue: "Context pending",
+                    })}
+                    className="size-3 shrink-0 animate-spin motion-reduce:animate-none text-muted-foreground"
+                  />
+                ) : item.status === "error" ? (
+                  <IconAlertCircle
+                    aria-label={t("agentChat.composer.contextError", {
+                      defaultValue: "Context failed",
+                    })}
+                    className="size-3 shrink-0 text-destructive"
+                  />
+                ) : (
+                  <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+                )}
                 <span className="min-w-0 truncate">{item.title}</span>
-              )}
+                {onRemoveContextItem && item.removable !== false ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      selectedContextItemKeyRef.current = null;
+                      setSelectedContextItemKey(null);
+                      onRemoveContextItem?.(item.key);
+                    }}
+                    aria-label={t("agentChat.composer.removeContext", {
+                      defaultValue: "Remove {{name}} context",
+                      name: item.title,
+                    })}
+                    className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                ) : null}
+              </span>
               {item.status === "error" && onRetryContextItem ? (
-                <button
-                  type="button"
-                  onClick={() => onRetryContextItem(item.key)}
-                  aria-label={t("agentChat.composer.retryContext", {
-                    defaultValue: "Retry {{name}} context",
-                    name: item.title,
-                  })}
-                  className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <IconRefresh className="size-3" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => onRetryContextItem(item.key)}
+                      aria-label={t("agentChat.composer.retryContext", {
+                        defaultValue: "Retry {{name}} context",
+                        name: item.title,
+                      })}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <IconRefresh aria-hidden="true" className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("agentChat.composer.retryContext", {
+                      defaultValue: "Retry {{name}} context",
+                      name: item.title,
+                    })}
+                  </TooltipContent>
+                </Tooltip>
               ) : null}
-              {onRemoveContextItem && item.removable !== false ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    selectedContextItemKeyRef.current = null;
-                    setSelectedContextItemKey(null);
-                    onRemoveContextItem?.(item.key);
-                  }}
-                  aria-label={t("agentChat.composer.removeContext", {
-                    defaultValue: "Remove {{name}} context",
-                    name: item.title,
-                  })}
-                  className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <IconX className="h-3 w-3" />
-                </button>
-              ) : null}
-            </span>
+            </React.Fragment>
           ))}
         </div>
       )}
@@ -5401,23 +5401,14 @@ export function TiptapComposer({
                     type="button"
                     onClick={() => void submitComposer("immediate")}
                     disabled={!canSend || sendButtonDisabled}
-                    aria-label={
-                      submitting ? t("common.loading") : sendButtonTooltip
-                    }
-                    aria-busy={submitting || undefined}
+                    aria-label={sendButtonTooltip}
                     data-agent-composer-slot="send-button"
                     className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    {submitting ? (
-                      <IconLoader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
-                    ) : (
-                      <IconArrowUp className="h-3.5 w-3.5" />
-                    )}
+                    <IconArrowUp className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  {submitting ? t("common.loading") : sendButtonTooltip}
-                </TooltipContent>
+                <TooltipContent>{sendButtonTooltip}</TooltipContent>
               </Tooltip>
             )}
           </>

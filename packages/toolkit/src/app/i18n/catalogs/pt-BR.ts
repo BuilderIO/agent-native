@@ -884,6 +884,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultando {{agent}}...",
   "tool.elapsed": "{{duration}} decorridos",
   "tool.askingAgentFailed": "Erro ao consultar {{agent}}",
+  "tool.failedWithoutDetails": "Nenhum detalhe do erro disponível.",
   "tool.input": "Entrada",
   "tool.inputWithLabel": "Entrada - {{label}}",
   "tool.interrupted":
