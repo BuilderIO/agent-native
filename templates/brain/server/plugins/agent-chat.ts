@@ -8,7 +8,6 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, like, or } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
-import { tryAnswerBrainA2AQuestion } from "../lib/a2a-fallback.js";
 import { brainFinalResponseGuard } from "../lib/brain-response-guard.js";
 
 const BRAIN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -63,7 +62,6 @@ Important rules:
 - Source/read actions are convenience readers, not provider capability limits. Before any provider API request, call list-connection-providers and inspect the matching provider. If configured is not true, do not attempt the request; explain that the connection needs setup or repair and include setupLink. Jira is queried on demand through the provider API rather than indexed as a Brain source. For ad hoc provider analysis that needs an endpoint, filter, payload, pagination mode, or API version not modeled by a Brain action, call provider-api-catalog/provider-api-docs, then provider-api-request against the provider's real HTTP API. Use connectionId for a specific shared grant and accountId for a specific OAuth account.
 - Analytics owns live HubSpot, Gong, CRM, call, pipeline, and provider-backed analytics questions. For those requests, use describe-workspace-apps when needed and delegate a bounded task with call-agent so Analytics chooses the provider, credentials, and query shape. Do not duplicate Analytics provider queries in Brain. If shared access is unavailable, include the absolute setupLink and mention the personal MCP option when the chat offers it; personal MCP connections are user-scoped and do not require workspace-admin privileges.
 - For broad searches, joins, classification, source-corpus counts, or absence claims across provider records, fetch every relevant page or an explicitly bounded cohort, stage/save large responses with stageAs/saveToFile/fetchAllPages, then use query-staged-dataset or run-code to reduce the corpus. Report source, filters, row counts, pagination, truncation, and gaps.`,
-  a2aMessageFallback: async ({ text }) => tryAnswerBrainA2AQuestion(text),
   mentionProviders: async () => {
     const { getDb, schema } = await import("../db/index.js");
     return {

@@ -280,7 +280,7 @@ describe("ask-brain source answer policy", () => {
     ).toEqual(["blessed"]);
   });
 
-  it("keeps raw Slack feedback out of the answer when approved knowledge exists", async () => {
+  it("cites knowledge first, then eligible Slack captures with channel and date", async () => {
     mocks.knowledgeRows = [
       knowledge({
         id: "agent-native-synthesis",
@@ -289,12 +289,16 @@ describe("ask-brain source answer policy", () => {
       }),
     ];
     mocks.captures = [
-      capture({
-        id: "raw-brent-feedback",
-        sourceId: "source-slack",
-        title: "Brent's individual feedback",
-        snippet: "Brent's individual feedback is not the product direction.",
-      }),
+      {
+        ...capture({
+          id: "raw-brent-feedback",
+          sourceId: "source-slack",
+          title: "Brent's individual feedback",
+          snippet: "Brent's individual feedback is not the product direction.",
+        }),
+        location: "#dev-fusion",
+        capturedAt: "2026-07-28T10:00:00.000Z",
+      },
     ];
     mocks.policies.set(
       "source-approved",
@@ -308,24 +312,25 @@ describe("ask-brain source answer policy", () => {
     });
 
     expect(result.answer).toContain("Approved Agent-Native synthesis");
-    expect(result.answer).not.toContain("Brent's individual feedback");
-    expect(result.answerSource).toBe("approved-knowledge");
+    expect(result.answer).toContain("#dev-fusion (2026-07-28)");
+    expect(result.answerSource).toBe("knowledge");
     expect(result.citations).toEqual([
       expect.objectContaining({ knowledgeId: "agent-native-synthesis" }),
-    ]);
-    expect(result.leadCitations).toEqual([
-      expect.objectContaining({ captureId: "raw-brent-feedback" }),
+      expect.objectContaining({
+        captureId: "raw-brent-feedback",
+        location: "#dev-fusion",
+        capturedAt: "2026-07-28T10:00:00.000Z",
+      }),
     ]);
   });
 
-  it("returns raw matches as leads without turning them into answer citations", async () => {
+  it("answers from eligible captures when no knowledge matches", async () => {
     mocks.captures = [
       capture({
         id: "raw-retailer-lead",
         sourceId: "source-slack",
         title: "Retailer demo lead",
-        snippet:
-          "A raw Slack message mentions a retailer demo, but it is not approved knowledge.",
+        snippet: "Nick is demoing to a national grocery retailer next week.",
       }),
     ];
     mocks.policies.set("source-slack", policy("source-slack"));
@@ -335,11 +340,10 @@ describe("ask-brain source answer policy", () => {
       mode: "cited",
     });
 
-    expect(result.answer).toContain("raw Brain capture leads");
-    expect(result.answer).not.toContain("A raw Slack message mentions");
-    expect(result.answerSource).toBe("unreviewed-leads");
-    expect(result.citations).toEqual([]);
-    expect(result.leadCitations).toEqual([
+    expect(result.answer).toContain("national grocery retailer");
+    expect(result.answer).not.toMatch(/need review|unreviewed|approved/i);
+    expect(result.answerSource).toBe("captures");
+    expect(result.citations).toEqual([
       expect.objectContaining({ captureId: "raw-retailer-lead" }),
     ]);
   });

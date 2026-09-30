@@ -136,9 +136,9 @@ not just documented:
 
 | `sourcePolicy` | `rawCaptureFallback` | Behavior |
 | --- | --- | --- |
-| `strict` | `never-answer` | Reviewed knowledge only. If knowledge is missing/thin, say so — never fall back to raw captures as answer support. |
-| `balanced` (default) | `thin-results` | Prefer reviewed knowledge; fall back to raw captures only when knowledge is missing or combined summary+body text is under ~260 chars, and label them as raw capture matches. |
-| `exploratory` | `allowed-leads` | Always include accessible raw captures/sources alongside knowledge, clearly labeled as unreviewed leads. |
+| `strict` | `never-answer` | Answers cite distilled knowledge only; Slack/Zoom captures stay searchable but are not answer evidence. If knowledge is missing/thin, say so. |
+| `balanced` (default) | `thin-results` | Prefer distilled knowledge; when it is missing or combined summary+body text is under ~260 chars, answer from answer-eligible Slack/Zoom captures, naming source and date. |
+| `exploratory` | `allowed-leads` | Always include answer-eligible Slack/Zoom captures alongside knowledge as citations with source and date. |
 
 `requireCitations` (default true) additionally blocks `ask-brain` from
 returning an answer with no usable citation — it returns a policy-explanation
