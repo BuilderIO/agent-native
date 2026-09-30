@@ -1832,6 +1832,13 @@ export async function listSessionRecordingsPage(
   scope: SessionReplayScope,
   filters: SessionReplayListFilters = {},
 ): Promise<SessionRecordingPage> {
+  const offset = filters.offset ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0) {
+    throw replayError(
+      "Session recording offset must be a non-negative safe integer",
+      400,
+    );
+  }
   const db = getDb() as any;
   const internalDomains = await sessionInternalDomains(scope);
   const visitorDomain = sessionVisitorDomain();
@@ -1925,23 +1932,7 @@ export async function listSessionRecordingsPage(
     filters.sort === "longest"
       ? sql`${schema.sessionRecordings.durationMs} desc nulls last`
       : desc(sortColumn);
-  const [rows, totalRows, appRows] = await Promise.all([
-    db
-      .select()
-      .from(schema.sessionRecordings)
-      .where(and(...conditions))
-      .orderBy(
-        sortOrder,
-        desc(schema.sessionRecordings.startedAt),
-        desc(schema.sessionRecordings.id),
-      )
-      .limit(
-        Math.min(
-          MAX_SESSION_RECORDINGS_LIMIT,
-          Math.max(1, filters.limit ?? DEFAULT_SESSION_RECORDINGS_LIMIT),
-        ),
-      )
-      .offset(Math.max(0, filters.offset ?? 0)),
+  const [totalRows, appRows] = await Promise.all([
     db
       .select({ count: sql<number>`count(*)` })
       .from(schema.sessionRecordings)
@@ -1959,9 +1950,37 @@ export async function listSessionRecordingsPage(
   if (totalRows.length !== 1) {
     throw new Error("Session recording total query returned no count");
   }
+  const count = totalRows[0].count;
+  const total =
+    typeof count === "number" ||
+    (typeof count === "string" && /^\d+$/.test(count))
+      ? Number(count)
+      : NaN;
+  if (!Number.isSafeInteger(total) || total < 0) {
+    throw new Error("Session recording total query returned an invalid count");
+  }
+  const rows =
+    offset < total
+      ? await db
+          .select()
+          .from(schema.sessionRecordings)
+          .where(and(...conditions))
+          .orderBy(
+            sortOrder,
+            desc(schema.sessionRecordings.startedAt),
+            desc(schema.sessionRecordings.id),
+          )
+          .limit(
+            Math.min(
+              MAX_SESSION_RECORDINGS_LIMIT,
+              Math.max(1, filters.limit ?? DEFAULT_SESSION_RECORDINGS_LIMIT),
+            ),
+          )
+          .offset(offset)
+      : [];
   return {
     recordings: rows.map((row: any) => rowToSessionRecordingSummary(row)),
-    total: Number(totalRows[0].count),
+    total,
     appCounts: appRows
       .filter((row: { app: string | null }) => row.app)
       .map((row: { app: string; count: number }) => ({

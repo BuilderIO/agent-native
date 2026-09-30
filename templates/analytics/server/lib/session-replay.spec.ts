@@ -140,6 +140,63 @@ function conditionText(value: unknown): string {
 }
 
 describe("session replay list page", () => {
+  it.each([
+    { offset: 9_007_199_254_740_800, total: 137 },
+    { offset: 137, total: 137 },
+    { offset: 0, total: 0 },
+  ])(
+    "avoids a row scan for offset $offset beyond total $total",
+    async ({ offset, total }) => {
+      const rowSelect = vi.fn(() => {
+        throw new Error("Out-of-range recording row query must not run");
+      });
+      const db = {
+        select: vi.fn((selection?: Record<string, unknown>) => {
+          if (!selection) return rowSelect();
+          const rows = selection.app
+            ? [{ app: "clips", count: "137" }]
+            : [{ count: String(total) }];
+          const query = {
+            from: () => query,
+            where: () => query,
+            groupBy: () => query,
+            orderBy: () => query,
+            then: (resolve: (value: unknown[]) => void) =>
+              Promise.resolve(rows).then(resolve),
+          };
+          return query;
+        }),
+      };
+      getDbMock.mockReturnValue(db);
+
+      await expect(
+        listSessionRecordingsPage(
+          { userEmail: "qa@example.test", orgId: null },
+          { offset },
+        ),
+      ).resolves.toEqual({
+        recordings: [],
+        total,
+        appCounts: [{ app: "clips", count: 137 }],
+      });
+      expect(rowSelect).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity])(
+    "rejects invalid direct offset %s before database access",
+    async (offset) => {
+      getDbMock.mockClear();
+      await expect(
+        listSessionRecordingsPage(
+          { userEmail: "qa@example.test", orgId: null },
+          { offset },
+        ),
+      ).rejects.toThrow(/offset/);
+      expect(getDbMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns a real filtered total and app counts before pagination", async () => {
     const conditions: unknown[] = [];
     const orders: unknown[][] = [];
@@ -203,9 +260,9 @@ describe("session replay list page", () => {
     expect(conditions).toHaveLength(3);
     expect(conditionText(conditions[0])).toContain("clips");
     expect(conditionText(conditions[0])).toContain("builder.io");
-    expect(conditionText(conditions[1])).toContain("clips");
-    expect(conditionText(conditions[2])).not.toContain("clips");
-    expect(conditionText(orders[0])).toContain("nulls last");
+    expect(conditionText(conditions[1])).not.toContain("clips");
+    expect(conditionText(conditions[2])).toContain("clips");
+    expect(conditionText(orders[1])).toContain("nulls last");
   });
 });
 
