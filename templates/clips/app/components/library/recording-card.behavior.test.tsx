@@ -204,7 +204,9 @@ describe("RecordingCard behavior", () => {
 
     expect(container.textContent).toContain("clipsFinalRaw.retry");
     expect(hasRecordingBackup).toHaveBeenCalledWith(recording.id);
-    expect(getRecordingUploadRecoveryEnabled).not.toHaveBeenCalled();
+    expect(getRecordingUploadRecoveryEnabled).toHaveBeenCalledWith(
+      recording.id,
+    );
   });
 
   it("does not offer Retry for a new Off recording with a backup", async () => {
@@ -234,6 +236,99 @@ describe("RecordingCard behavior", () => {
       recording.id,
     );
     expect(container.textContent).not.toContain("clipsFinalRaw.retry");
+  });
+
+  it("keeps a recording created Off non-retryable when Labs is later On", async () => {
+    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+    vi.mocked(getRecordingUploadRecoveryEnabled).mockResolvedValue(false);
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            status: "failed",
+            failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          }}
+          onRetry={vi.fn()}
+        />,
+      );
+    });
+
+    expect(getRecordingUploadRecoveryEnabled).toHaveBeenCalledWith(
+      recording.id,
+    );
+    expect(container.textContent).not.toContain("clipsFinalRaw.retry");
+  });
+
+  it("withholds Retry while the saved policy is loading with Labs On", async () => {
+    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+    let resolvePolicy!: (enabled: boolean) => void;
+    vi.mocked(getRecordingUploadRecoveryEnabled).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolvePolicy = resolve;
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            status: "failed",
+            failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          }}
+          onRetry={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).not.toContain("clipsFinalRaw.retry");
+
+    await act(async () => resolvePolicy(true));
+
+    expect(container.textContent).toContain("clipsFinalRaw.retry");
+  });
+
+  it("rechecks unsnapshotted uploads when inherited Off becomes an explicit choice", async () => {
+    vi.mocked(useLabState).mockReturnValue({
+      isSuccess: true,
+      source: "legacy",
+      enabled: false,
+      legacyValues: {
+        useCustomSCKPipeline: false,
+        customSCKPipelineLiveUploadEnabled: false,
+        uploadRetryResume: false,
+      },
+    } as ReturnType<typeof useLabState>);
+    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+    vi.mocked(getRecordingUploadRecoveryEnabled)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const onRetry = vi.fn();
+    const props = {
+      recording: {
+        ...recording,
+        status: "failed" as const,
+        failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+      },
+      onRetry,
+    };
+
+    await act(async () => root.render(<RecordingCard {...props} />));
+
+    expect(container.textContent).not.toContain("clipsFinalRaw.retry");
+
+    vi.mocked(useLabState).mockReturnValue({
+      isSuccess: true,
+      source: "choice",
+      enabled: false,
+    } as ReturnType<typeof useLabState>);
+
+    await act(async () => root.render(<RecordingCard {...props} />));
+
+    expect(getRecordingUploadRecoveryEnabled).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("clipsFinalRaw.retry");
   });
 
   it("offers retry when a local backup finishes after the card mounts", async () => {
@@ -323,40 +418,43 @@ describe("RecordingCard behavior", () => {
     expect(hasRecordingBackup).not.toHaveBeenCalled();
   });
 
-  it("shows a failed policy check instead of treating it as Off", async () => {
-    vi.mocked(useLabState).mockReturnValue({
-      isSuccess: true,
-      source: "choice",
-      enabled: false,
-    } as ReturnType<typeof useLabState>);
-    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
-    vi.mocked(getRecordingUploadRecoveryEnabled).mockRejectedValueOnce(
-      new Error("Stored recording recovery policy is unreadable"),
-    );
-
-    await act(async () => {
-      root.render(
-        <RecordingCard
-          recording={{
-            ...recording,
-            status: "failed",
-            failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
-          }}
-          onRetry={vi.fn()}
-        />,
+  it.each([true, false])(
+    "shows a failed policy check when Labs is %s",
+    async (enabled) => {
+      vi.mocked(useLabState).mockReturnValue({
+        isSuccess: true,
+        source: "choice",
+        enabled,
+      } as ReturnType<typeof useLabState>);
+      vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+      vi.mocked(getRecordingUploadRecoveryEnabled).mockRejectedValueOnce(
+        new Error("Stored recording recovery policy is unreadable"),
       );
-    });
 
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "clipsFinalRaw.retryCheckFailed",
-    );
-    expect(container.textContent).not.toContain(
-      "clipsFinalRaw.retryUnavailableHere",
-    );
-    expect(container.querySelector("button")?.textContent).not.toBe(
-      "clipsFinalRaw.retry",
-    );
-  });
+      await act(async () => {
+        root.render(
+          <RecordingCard
+            recording={{
+              ...recording,
+              status: "failed",
+              failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+            }}
+            onRetry={vi.fn()}
+          />,
+        );
+      });
+
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+        "clipsFinalRaw.retryCheckFailed",
+      );
+      expect(container.textContent).not.toContain(
+        "clipsFinalRaw.retryUnavailableHere",
+      );
+      expect(container.querySelector("button")?.textContent).not.toBe(
+        "clipsFinalRaw.retry",
+      );
+    },
+  );
 
   it("keeps screenshot cards free of playback duration", () => {
     act(() => {

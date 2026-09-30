@@ -138,9 +138,10 @@ export function RecordingCard({
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
-  const [savedRecoveryEnabled, setSavedRecoveryEnabled] = useState<
-    boolean | null
-  >(null);
+  const [savedRecovery, setSavedRecovery] = useState<{
+    recordingId: string;
+    enabled: boolean;
+  } | null>(null);
   const [recoveryCheckFailed, setRecoveryCheckFailed] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const pendingTrashRef = useRef(false);
@@ -183,11 +184,12 @@ export function RecordingCard({
     (recording.status === "failed" &&
       isRetryableUploadInterruption(recording.failureReason)) ||
     (recording.status === "uploading" && staleUpload);
+  const retryableUpload =
+    Boolean(onRetry) && retryableStatus && !nativeUploadPaused;
   const canRetry =
-    Boolean(onRetry) &&
-    retryableStatus &&
-    !nativeUploadPaused &&
-    (uploadRetryEnabled || savedRecoveryEnabled === true);
+    retryableUpload &&
+    savedRecovery?.recordingId === recording.id &&
+    savedRecovery.enabled;
 
   useEffect(() => {
     if (!onRetry || !retryableStatus || nativeUploadPaused) {
@@ -212,27 +214,25 @@ export function RecordingCard({
   }, [onRetry, retryableStatus, nativeUploadPaused, recording.id]);
 
   useEffect(() => {
-    if (uploadRetryEnabled || !hasBackup || !retryableStatus) {
-      setSavedRecoveryEnabled(null);
-      setRecoveryCheckFailed(false);
-      return;
-    }
+    setSavedRecovery(null);
+    setRecoveryCheckFailed(false);
+    if (!retryableUpload) return;
     let cancelled = false;
     void getRecordingUploadRecoveryEnabled(recording.id)
       .then((enabled) => {
         if (cancelled) return;
-        setSavedRecoveryEnabled(enabled);
+        setSavedRecovery({ recordingId: recording.id, enabled });
         setRecoveryCheckFailed(false);
       })
       .catch(() => {
         if (cancelled) return;
-        setSavedRecoveryEnabled(null);
+        setSavedRecovery(null);
         setRecoveryCheckFailed(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [uploadRetryEnabled, hasBackup, retryableStatus, recording.id]);
+  }, [uploadRetryEnabled, recordingLab.source, retryableUpload, recording.id]);
 
   const handleRetry = useCallback(
     async (e: React.MouseEvent) => {
