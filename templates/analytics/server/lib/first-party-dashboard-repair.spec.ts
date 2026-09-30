@@ -475,7 +475,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       "DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 5 DAY)",
     );
     expect(panels[1].sql).toContain(
-      "LEAST(DATE_ADD(DATE('{{timeRangeEnd}}'), INTERVAL 14 DAY), CURRENT_DATE())",
+      "LEAST(DATE_ADD(LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE())",
     );
     expect(panels[1].sql).toContain(
       "DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)",
@@ -624,11 +624,28 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(sql).not.toContain("__unsupported_custom_date_range__");
     expect(sql).toContain("DATE_SUB(DATE('2026-08-31'), INTERVAL 365 DAY)");
     expect(sql).toContain(
-      "LEAST(DATE_ADD(DATE('2026-09-30'), INTERVAL 14 DAY), CURRENT_DATE())",
+      "LEAST(DATE_ADD(LEAST(DATE('2026-09-30'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE())",
     );
     expect(sql).toContain("DATE('2026-08-31') ELSE DATE_SUB");
     expect(sql).toContain(
       "LEAST(DATE('2026-09-30'), CURRENT_DATE()) ELSE CURRENT_DATE()",
+    );
+
+    const maxEndSql = interpolateDashboardPanelSql(
+      panel.sql,
+      {
+        timeRange: "custom",
+        timeRangeStart: "9990-01-01",
+        timeRangeEnd: "9999-12-31",
+      },
+      panel,
+    );
+    expect(maxEndSql).not.toContain("__invalid_custom_date_range__");
+    expect(maxEndSql).toContain(
+      "LEAST(DATE_ADD(LEAST(DATE('9999-12-31'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE())",
+    );
+    expect(maxEndSql).not.toContain(
+      "DATE_ADD(DATE('9999-12-31'), INTERVAL 14 DAY)",
     );
   });
 

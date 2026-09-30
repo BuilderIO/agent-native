@@ -156,11 +156,11 @@ ORDER BY date, p.period`;
 const PRE_CUSTOM_RETENTION_BASE_RANGE =
   "  AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)";
 const CUSTOM_RETENTION_BASE_RANGE = `  AND event_date >= IF('{{timeRange}}' = 'custom', DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 365 DAY), DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY))
-  AND event_date <= IF('{{timeRange}}' = 'custom', LEAST(DATE_ADD(DATE('{{timeRangeEnd}}'), INTERVAL 14 DAY), CURRENT_DATE()), CURRENT_DATE())`;
+  AND event_date <= IF('{{timeRange}}' = 'custom', LEAST(DATE_ADD(LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE()), CURRENT_DATE())`;
 const PRE_CUSTOM_RETENTION_COVERAGE_RANGE =
   "   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()";
 const CUSTOM_RETENTION_COVERAGE_RANGE = `   AND event_date >= IF('{{timeRange}}' = 'custom', DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 5 DAY), DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY))
-   AND event_date <= IF('{{timeRange}}' = 'custom', LEAST(DATE_ADD(DATE('{{timeRangeEnd}}'), INTERVAL 14 DAY), CURRENT_DATE()), CURRENT_DATE())`;
+   AND event_date <= IF('{{timeRange}}' = 'custom', LEAST(DATE_ADD(LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE()), CURRENT_DATE())`;
 const PRE_CUSTOM_RETENTION_ANCHOR_RANGE =
   "UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(CURRENT_DATE(), INTERVAL n - 1 DAY), CURRENT_DATE())) AS date";
 const CUSTOM_RETENTION_ANCHOR_RANGE =
