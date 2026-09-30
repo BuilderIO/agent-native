@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveLocalhostSourceWriteContent } from "./design-editor/editor-state";
+import { localhostConsentRequestDisposition } from "./design-editor/localhost-consent-request";
 
 describe("resolveLocalhostSourceWriteContent", () => {
   it("uses the authenticated live snapshot for URL-backed HTML screens", () => {
@@ -48,5 +49,37 @@ describe("resolveLocalhostSourceWriteContent", () => {
         liveSnapshotHtml: undefined,
       }),
     ).toBe(":root { --accent: #7c3aed; }");
+  });
+});
+
+describe("localhostConsentRequestDisposition", () => {
+  it("shows and clears a new request", () => {
+    expect(
+      localhostConsentRequestDisposition({
+        requestKey: "design:requested-at",
+        lastHandledKey: null,
+        failedClearKey: null,
+      }),
+    ).toBe("show-and-clear");
+  });
+
+  it("retries a failed clear without showing the request again", () => {
+    expect(
+      localhostConsentRequestDisposition({
+        requestKey: "design:requested-at",
+        lastHandledKey: "design:requested-at",
+        failedClearKey: "design:requested-at",
+      }),
+    ).toBe("retry-clear");
+  });
+
+  it("ignores a request that was already cleared", () => {
+    expect(
+      localhostConsentRequestDisposition({
+        requestKey: "design:requested-at",
+        lastHandledKey: "design:requested-at",
+        failedClearKey: null,
+      }),
+    ).toBe("ignore");
   });
 });

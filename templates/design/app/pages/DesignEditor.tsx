@@ -1016,6 +1016,7 @@ import {
   type ReflowCandidate,
 } from "./design-editor/layout-operations";
 import { reconcileLiveCollaborationOverride } from "./design-editor/live-collaboration-override";
+import { localhostConsentRequestDisposition } from "./design-editor/localhost-consent-request";
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   hasMinimalInspectorSelection,
@@ -6488,17 +6489,27 @@ function DesignEditor() {
     ) {
       return;
     }
-    lastLocalhostConsentRequestRef.current = `${id}:${request.requestedAt}`;
-    setLocalhostConsentConnectionId(request.connectionId);
-    setLocalhostWriteConsentPayload({
-      rootPath: request.rootPath,
-      files: request.files,
-      onGranted: () => {
-        toast.success("File writes allowed for 8 hours." /* i18n-ignore */);
-      },
-      onCancel: () => {},
+    const requestKey = `${id}:${request.requestedAt}`;
+    const disposition = localhostConsentRequestDisposition({
+      requestKey,
+      lastHandledKey: lastLocalhostConsentRequestRef.current,
+      failedClearKey: failedLocalhostConsentClear,
     });
-    setLocalhostWriteConsentOpen(true);
+    if (disposition === "ignore") return;
+    const retryingClear = disposition === "retry-clear";
+    if (!retryingClear) {
+      lastLocalhostConsentRequestRef.current = requestKey;
+      setLocalhostConsentConnectionId(request.connectionId);
+      setLocalhostWriteConsentPayload({
+        rootPath: request.rootPath,
+        files: request.files,
+        onGranted: () => {
+          toast.success("File writes allowed for 8 hours." /* i18n-ignore */);
+        },
+        onCancel: () => {},
+      });
+      setLocalhostWriteConsentOpen(true);
+    }
     void clearLocalhostConsentRequestMutation
       .mutateAsync({ designId: id, requestedAt: request.requestedAt })
       .then(async () => {
@@ -6506,13 +6517,17 @@ function DesignEditor() {
         await localhostConsentRequestQuery.refetch();
       })
       .catch((error) => {
-        setFailedLocalhostConsentClear(`${id}:${request.requestedAt}`);
-        toast.error(actionErrorMessage(error) ?? t("common.genericError"));
+        setFailedLocalhostConsentClear(requestKey);
+        if (!retryingClear) {
+          toast.error(actionErrorMessage(error) ?? t("common.genericError"));
+        }
       });
   }, [
     canEditDesign,
     clearLocalhostConsentRequestMutation.mutateAsync,
+    failedLocalhostConsentClear,
     id,
+    localhostConsentRequestQuery.dataUpdatedAt,
     localhostConsentRequestQuery.refetch,
     localhostConsentRequestQuery.data?.request,
     t,
