@@ -282,6 +282,7 @@ function RuleBackfillStatus({
   onRetry,
   retrying,
   canRetry,
+  showFailure,
 }: {
   ruleId: string;
   status: AiFilterBackfillStatus | undefined;
@@ -293,6 +294,7 @@ function RuleBackfillStatus({
   onRetry: () => void;
   retrying: boolean;
   canRetry: boolean;
+  showFailure: boolean;
 }) {
   const t = useT();
   const working =
@@ -304,6 +306,7 @@ function RuleBackfillStatus({
     undoing;
 
   if (!starting && !loading && !status && !undoing) return null;
+  if (status?.status === "failed" && !showFailure) return null;
 
   if (working) {
     const percent =
@@ -354,7 +357,11 @@ function RuleBackfillStatus({
             </p>
           )}
           <p className="text-xs text-destructive">
-            {t("mail.aiFilter.ruleBackfillFailed")}
+            {t(
+              status.failedRuleId
+                ? "mail.aiFilter.ruleBackfillFailed"
+                : "mail.aiFilter.ruleBackfillRunFailed",
+            )}
           </p>
           {status?.error && (
             <p className="mt-1 break-words text-xs text-muted-foreground">
@@ -668,13 +675,16 @@ export function AiFilterSection() {
     });
   };
 
-  const queueRuleBackfill = async (ruleId: string) => {
+  const queueRuleBackfill = async (
+    ruleId: string,
+    ruleIds: string[] = [ruleId],
+  ) => {
     const requestSequence = ++backfillRequestSequence.current;
     setQueueingBackfillRuleId(ruleId);
     try {
       const result = await manageBackfill.mutateAsync({
         operation: "start",
-        ruleIds: [ruleId],
+        ruleIds,
       });
       if ("runId" in result)
         backfillToastRules.current.set(result.runId, ruleId);
@@ -1149,6 +1159,19 @@ export function AiFilterSection() {
                               (progress) => progress.ruleId === rule.id,
                             ),
                           );
+                      const failureRuleId =
+                        status?.failedRuleId &&
+                        instructions.some(
+                          (instruction) =>
+                            instruction.id === status.failedRuleId,
+                        )
+                          ? status.failedRuleId
+                          : status?.perRule.find((progress) =>
+                              instructions.some(
+                                (instruction) =>
+                                  instruction.id === progress.ruleId,
+                              ),
+                            )?.ruleId;
                       return (
                         <div key={rule.id} className="overflow-hidden">
                           <RuleRow
@@ -1186,16 +1209,37 @@ export function AiFilterSection() {
                               undoing={undoingBackfill}
                               reviewHref={reviewHrefForRule(rule)}
                               retrying={queueingBackfillRuleId === rule.id}
+                              showFailure={
+                                status?.status !== "failed" ||
+                                rule.id === failureRuleId
+                              }
                               canRetry={
+                                state?.enabled === true &&
                                 jevConfigured &&
                                 rule.enabled &&
                                 status?.status === "failed" &&
-                                status.appliedThreads === 0
+                                (status.appliedThreads === 0 ||
+                                  Boolean(status.undoToken)) &&
+                                status.perRule.length > 0 &&
+                                status.perRule.every((progress) =>
+                                  instructions.some(
+                                    (instruction) =>
+                                      instruction.id === progress.ruleId &&
+                                      instruction.enabled,
+                                  ),
+                                )
                               }
                               onUndo={(runId, undoToken) =>
                                 void undoRuleBackfill(runId, undoToken)
                               }
-                              onRetry={() => void queueRuleBackfill(rule.id)}
+                              onRetry={() =>
+                                void queueRuleBackfill(
+                                  rule.id,
+                                  status?.perRule.map(
+                                    (progress) => progress.ruleId,
+                                  ) ?? [rule.id],
+                                )
+                              }
                             />
                           )}
                         </div>
