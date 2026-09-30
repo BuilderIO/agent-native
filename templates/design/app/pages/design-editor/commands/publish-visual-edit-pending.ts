@@ -33,6 +33,7 @@ export interface PublishVisualEditPendingArgs {
   pending: PendingVisualEditHandoff;
   pendingVisualEditClearRequestedRef: RefObject<string | null>;
   pendingVisualEditHadPendingRef: RefObject<string | null>;
+  onDurableHandoffStatusChange: (status: "empty" | "ready") => void;
   setPendingVisualEditPublicationFailed: (failed: boolean) => void;
   showHandoffErrorToast: (error: unknown) => void;
 }
@@ -61,6 +62,7 @@ export async function runPublishVisualEditPending(
     pending,
     pendingVisualEditClearRequestedRef,
     pendingVisualEditHadPendingRef,
+    onDurableHandoffStatusChange,
     setPendingVisualEditPublicationFailed,
     showHandoffErrorToast,
   } = args;
@@ -81,6 +83,7 @@ export async function runPublishVisualEditPending(
         throw { errorCode: "visual_edit_handoff_unconfirmed" };
       }
       setPendingVisualEditPublicationFailed(false);
+      onDurableHandoffStatusChange(expectedStatus);
       if (
         clearRequested &&
         pendingVisualEditClearRequestedRef.current === designId

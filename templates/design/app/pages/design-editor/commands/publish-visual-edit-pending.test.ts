@@ -34,6 +34,7 @@ function makeArgs(
     },
     pendingVisualEditClearRequestedRef: { current: null },
     pendingVisualEditHadPendingRef: { current: null },
+    onDurableHandoffStatusChange: vi.fn(),
     setPendingVisualEditPublicationFailed: vi.fn(),
     showHandoffErrorToast: vi.fn(),
     ...overrides,
@@ -101,6 +102,7 @@ describe("runPublishVisualEditPending", () => {
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       false,
     );
+    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith("ready");
     expect(args.showHandoffErrorToast).not.toHaveBeenCalled();
     expect(args.fetchImpl).toHaveBeenCalledWith(
       "http://127.0.0.1:7331/live-edit-pending",
@@ -141,6 +143,7 @@ describe("runPublishVisualEditPending", () => {
 
     expect(args.pendingVisualEditClearRequestedRef.current).toBe("design-1");
     expect(args.pendingVisualEditHadPendingRef.current).toBe("design-1");
+    expect(args.onDurableHandoffStatusChange).not.toHaveBeenCalled();
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       true,
     );
@@ -190,5 +193,17 @@ describe("runPublishVisualEditPending", () => {
         }),
       }),
     );
+  });
+
+  it("reports when a durable handoff is confirmed empty", async () => {
+    const args = makeArgs({
+      pending: { ...makeArgs().pending, pending: null },
+      pendingVisualEditClearRequestedRef: { current: "design-1" },
+      pendingVisualEditHadPendingRef: { current: "design-1" },
+    });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.onDurableHandoffStatusChange).toHaveBeenCalledWith("empty");
   });
 });
