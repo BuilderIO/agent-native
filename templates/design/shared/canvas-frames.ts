@@ -1,4 +1,4 @@
-import { getRotatedFrameCorners } from "./canvas-math.js";
+import { getRotatedFrameAABB } from "./canvas-math.js";
 import {
   getResponsiveBreakpointHeightPx,
   getResponsiveGroupHeight,
@@ -19,6 +19,12 @@ export interface CanvasFrameGeometry {
 }
 
 export type CanvasFrameGeometryById = Record<string, CanvasFrameGeometry>;
+
+export interface CanvasResponsiveLayout {
+  screenFileIds?: readonly string[];
+  screenMetadataByFileId?: unknown;
+  breakpointWidths?: readonly number[];
+}
 
 export interface CanvasFramePlacement extends CanvasFrameGeometry {
   fileId?: string;
@@ -69,16 +75,119 @@ export function parseCanvasFrameGeometryById(
   );
 }
 
+interface CanvasFrameBounds {
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+function canvasFrameBounds(
+  id: string,
+  frame: CanvasFrameGeometry,
+  responsiveLayout?: CanvasResponsiveLayout,
+  responsiveScreenIds = new Set(responsiveLayout?.screenFileIds ?? []),
+): CanvasFrameBounds {
+  const x = frame.x ?? 0;
+  const y = frame.y ?? 0;
+  const width = frame.width ?? 0;
+  const height = frame.height ?? 0;
+  const rotation = frame.rotation ?? 0;
+  const metadataByFileId = responsiveLayout?.screenMetadataByFileId;
+  const metadataMap =
+    metadataByFileId &&
+    typeof metadataByFileId === "object" &&
+    !Array.isArray(metadataByFileId)
+      ? (metadataByFileId as Record<string, unknown>)
+      : {};
+  const rawMetadata = metadataMap[id];
+  const metadata =
+    rawMetadata &&
+    typeof rawMetadata === "object" &&
+    !Array.isArray(rawMetadata)
+      ? (rawMetadata as Record<string, unknown>)
+      : {};
+  const metadataWidth = finiteNumber(metadata.width);
+  const metadataHeight = finiteNumber(metadata.height);
+  const responsiveScreen = responsiveScreenIds.has(id);
+  const primaryWidth = Math.max(1, width || 320);
+  const sourceWidth = Math.max(1, metadataWidth ?? 1280);
+  const sourceHeight = Math.max(1, metadataHeight ?? 2560);
+  const primaryHeight = Math.max(
+    1,
+    height ||
+      Math.max(80, Math.round((primaryWidth * sourceHeight) / sourceWidth)),
+  );
+  const visibleWidths = responsiveScreen
+    ? visibleBreakpointWidths(
+        responsiveLayout?.breakpointWidths,
+        metadataWidth ?? width,
+      )
+    : [];
+  const scale = getScreenPreviewViewport(
+    { width: sourceWidth, height: sourceHeight },
+    { width: primaryWidth, height: primaryHeight },
+  ).scale;
+  const paintedWidth = responsiveScreen
+    ? getResponsiveGroupWidth({ primaryWidth, scale, visibleWidths })
+    : width;
+  const paintedHeight = responsiveScreen
+    ? getResponsiveGroupHeight({
+        primaryHeight,
+        scale,
+        sourceWidth,
+        sourceHeight,
+        visibleWidths,
+        resolveBreakpointHeightPx: (widthPx) =>
+          getResponsiveBreakpointHeightPx(metadata, widthPx),
+      })
+    : height;
+
+  if (!rotation) {
+    return {
+      top: y,
+      right: x + paintedWidth,
+      bottom: y + paintedHeight,
+    };
+  }
+  if (responsiveScreen) {
+    const bounds = getResponsiveGroupRotatedBounds({
+      x,
+      y,
+      primaryWidth,
+      primaryHeight,
+      groupWidth: paintedWidth,
+      groupHeight: paintedHeight,
+      rotation,
+    });
+    return {
+      top: bounds.y,
+      right: bounds.x + bounds.width,
+      bottom: bounds.y + bounds.height,
+    };
+  }
+  const bounds = getRotatedFrameAABB({ x, y, width, height, rotation });
+  return {
+    top: bounds.top,
+    right: bounds.right,
+    bottom: bounds.bottom,
+  };
+}
+
 export function nextCanvasFramePosition(
   framesById: CanvasFrameGeometryById,
   gap = 160,
+  options: { responsiveLayout?: CanvasResponsiveLayout } = {},
 ): { x: number; y: number } {
-  const frames = Object.values(framesById);
+  const frames = Object.entries(framesById);
   if (frames.length === 0) return { x: 0, y: 0 };
-  const maxRight = Math.max(
-    ...frames.map((frame) => (frame.x ?? 0) + (frame.width ?? 0)),
+  const responsiveScreenIds = new Set(
+    options.responsiveLayout?.screenFileIds ?? [],
   );
-  const minTop = Math.min(...frames.map((frame) => frame.y ?? 0));
+  const bounds = frames.map(([id, frame]) =>
+    canvasFrameBounds(id, frame, options.responsiveLayout, responsiveScreenIds),
+  );
+  const maxRight = Math.max(...bounds.map((frame) => frame.right));
+  const minTop = Math.min(...bounds.map((frame) => frame.top));
   return { x: maxRight + gap, y: minTop };
 }
 
@@ -226,26 +335,16 @@ export function nextFreeCanvasRowY(
   gap: number,
   options: {
     ignoreFileIds?: readonly string[];
-    responsiveLayout?: {
-      screenFileIds?: readonly string[];
-      screenMetadataByFileId?: unknown;
-      breakpointWidths?: readonly number[];
-    };
+    responsiveLayout?: CanvasResponsiveLayout;
   } = {},
 ): number {
   const ignored = new Set(options.ignoreFileIds ?? []);
   const frames = Object.entries(parseCanvasFrameGeometryById(existing)).filter(
     ([id]) => !ignored.has(id),
   );
-  const responsiveLayout = options.responsiveLayout;
-  const metadataByFileId = responsiveLayout?.screenMetadataByFileId;
-  const metadataMap =
-    metadataByFileId &&
-    typeof metadataByFileId === "object" &&
-    !Array.isArray(metadataByFileId)
-      ? (metadataByFileId as Record<string, unknown>)
-      : {};
-  const screenFileIds = new Set(responsiveLayout?.screenFileIds ?? []);
+  const responsiveScreenIds = new Set(
+    options.responsiveLayout?.screenFileIds ?? [],
+  );
   let bottom = 0;
   let sawFrame = false;
   for (const [id, frame] of frames) {
@@ -253,82 +352,15 @@ export function nextFreeCanvasRowY(
     const height = frame.height ?? 0;
     if (!Number.isFinite(y) || !Number.isFinite(height)) continue;
     sawFrame = true;
-    const x = frame.x ?? 0;
-    const width = frame.width ?? 0;
-    const rotation = frame.rotation ?? 0;
-    const rawMetadata = metadataMap[id];
-    const responsiveScreen = screenFileIds.has(id)
-      ? responsiveLayout
-      : undefined;
-    const metadata =
-      rawMetadata &&
-      typeof rawMetadata === "object" &&
-      !Array.isArray(rawMetadata)
-        ? (rawMetadata as Record<string, unknown>)
-        : {};
-    const metadataWidth = finiteNumber(metadata.width);
-    const metadataHeight = finiteNumber(metadata.height);
-    const primaryWidth = Math.max(1, width || 320);
-    const sourceWidth = Math.max(1, metadataWidth ?? 1280);
-    const sourceHeight = Math.max(1, metadataHeight ?? 2560);
-    const primaryHeight = Math.max(
-      1,
-      height ||
-        Math.max(80, Math.round((primaryWidth * sourceHeight) / sourceWidth)),
+    bottom = Math.max(
+      bottom,
+      canvasFrameBounds(
+        id,
+        frame,
+        options.responsiveLayout,
+        responsiveScreenIds,
+      ).bottom,
     );
-    const visibleWidths = responsiveScreen
-      ? visibleBreakpointWidths(
-          responsiveScreen.breakpointWidths,
-          metadataWidth ?? width,
-        )
-      : [];
-    const resolveBreakpointHeightPx = (widthPx: number) =>
-      getResponsiveBreakpointHeightPx(metadata, widthPx);
-    const scale = getScreenPreviewViewport(
-      { width: sourceWidth, height: sourceHeight },
-      { width: primaryWidth, height: primaryHeight },
-    ).scale;
-    const paintedWidth = responsiveScreen
-      ? getResponsiveGroupWidth({
-          primaryWidth,
-          scale,
-          visibleWidths,
-        })
-      : width;
-    const paintedHeight = responsiveScreen
-      ? getResponsiveGroupHeight({
-          primaryHeight,
-          scale,
-          sourceWidth,
-          sourceHeight,
-          visibleWidths,
-          resolveBreakpointHeightPx,
-        })
-      : height;
-    let frameBottom: number;
-    if (!rotation) {
-      frameBottom = y + paintedHeight;
-    } else if (responsiveScreen) {
-      const bounds = getResponsiveGroupRotatedBounds({
-        x,
-        y,
-        primaryWidth,
-        primaryHeight,
-        groupWidth: paintedWidth,
-        groupHeight: paintedHeight,
-        rotation,
-      });
-      frameBottom = bounds.y + bounds.height;
-    } else if (Number.isFinite(x) && Number.isFinite(width)) {
-      frameBottom = Math.max(
-        ...getRotatedFrameCorners({ x, y, width, height, rotation }).map(
-          (corner) => corner.y,
-        ),
-      );
-    } else {
-      frameBottom = y + paintedHeight;
-    }
-    bottom = Math.max(bottom, frameBottom);
   }
   return sawFrame ? bottom + gap : 0;
 }

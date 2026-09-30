@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   runWithRequestContext: vi.fn(),
   writeAppState: vi.fn(),
   designData: null as string | null,
+  designFiles: [] as Array<{ id: string; filename: string; fileType: string }>,
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -60,21 +61,35 @@ vi.mock("drizzle-orm", () => ({
   eq: (left: unknown, right: unknown) => ({ left, right }),
 }));
 
-vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: () => Promise.resolve([{ data: mocks.designData }]),
+vi.mock("../server/db/index.js", () => {
+  const schema = {
+    designs: { id: "designs.id", data: "designs.data" },
+    designFiles: {
+      id: "files.id",
+      designId: "files.designId",
+      filename: "files.filename",
+      fileType: "files.fileType",
+    },
+  };
+  return {
+    getDb: () => ({
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () =>
+            table === schema.designs
+              ? {
+                  limit: () => Promise.resolve([{ data: mocks.designData }]),
+                }
+              : Promise.resolve(mocks.designFiles),
         }),
       }),
+      update: () => ({
+        set: () => ({ where: () => Promise.resolve() }),
+      }),
     }),
-    update: () => ({
-      set: () => ({ where: () => Promise.resolve() }),
-    }),
-  }),
-  schema: { designs: { id: "designs.id", data: "designs.data" } },
-}));
+    schema,
+  };
+});
 
 vi.mock("./connect-localhost.js", () => ({
   default: {
@@ -170,6 +185,7 @@ describe("open-visual-edit", () => {
     );
     mocks.writeAppState.mockReset();
     mocks.designData = null;
+    mocks.designFiles = [];
 
     mocks.connectLocalhostRun.mockResolvedValue({
       id: "localhost_canonical",
@@ -354,6 +370,38 @@ describe("open-visual-edit", () => {
       { x: 1540, y: -20 },
       { x: 2980, y: -20 },
     ]);
+  });
+
+  it("starts viewport grids beyond rendered responsive breakpoint frames", async () => {
+    mocks.designData = JSON.stringify({
+      canvasFrames: {
+        existing: { x: 0, y: 0, width: 390, height: 844 },
+      },
+      screenMetadata: {
+        existing: { width: 390, height: 844 },
+      },
+      breakpointSet: {
+        breakpoints: [
+          { id: "tablet", widthPx: 768 },
+          { id: "desktop", widthPx: 1440 },
+        ],
+      },
+    });
+    mocks.designFiles = [
+      { id: "existing", filename: "screen.html", fileType: "html" },
+    ];
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/new"],
+      viewports: [{ label: "Desktop", width: 1280, height: 900 }],
+      navigate: false,
+    });
+
+    const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(routes[0]).toMatchObject({ x: 2806, y: 0 });
   });
 
   it("accepts explicit viewport sizes and leaves a single viewport's titles alone", async () => {

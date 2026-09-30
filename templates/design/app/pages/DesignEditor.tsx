@@ -23011,8 +23011,16 @@ function DesignEditor() {
     return [...paths];
   }, [overviewScreens]);
   const addLocalhostScreenPosition = useMemo(
-    () => nextLocalhostScreenPosition(canvasFrameGeometryById),
-    [canvasFrameGeometryById],
+    () =>
+      nextLocalhostScreenPosition(canvasFrameGeometryById, {
+        screenFileIds: overviewScreens.map((screen) => screen.id),
+        screenMetadataByFileId: getDesignDataRecord(
+          designDataJson,
+          "screenMetadata",
+        ),
+        breakpointWidths: overviewScreens[0]?.breakpointWidths,
+      }),
+    [canvasFrameGeometryById, designDataJson, overviewScreens],
   );
   const handleAddScreenAffordance = useCallback(() => {
     if (designSourceType === "localhost") {

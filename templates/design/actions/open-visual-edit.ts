@@ -24,6 +24,8 @@ import {
   nextCanvasFramePosition,
   parseCanvasFrameGeometryById,
 } from "../shared/canvas-frames.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import {
   DESIGN_BRIDGE_OPERATIONS,
   makeLocalhostRouteId,
@@ -665,22 +667,42 @@ export default defineAction({
         (viewportStartX === undefined || viewportStartY === undefined)
       ) {
         await assertAccess("design", designId, "editor");
-        const [design] = await getDb()
-          .select({ data: schema.designs.data })
-          .from(schema.designs)
-          .where(eq(schema.designs.id, designId))
-          .limit(1);
+        const [[design], screenFiles] = await Promise.all([
+          getDb()
+            .select({ data: schema.designs.data })
+            .from(schema.designs)
+            .where(eq(schema.designs.id, designId))
+            .limit(1),
+          getDb()
+            .select({
+              id: schema.designFiles.id,
+              filename: schema.designFiles.filename,
+              fileType: schema.designFiles.fileType,
+            })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, designId)),
+        ]);
         if (!design) throw new Error(`Design "${designId}" not found.`);
         const designData: unknown = design.data ? JSON.parse(design.data) : {};
-        const frameData =
+        const designDataRecord =
           designData &&
           typeof designData === "object" &&
           !Array.isArray(designData)
-            ? (designData as Record<string, unknown>).canvasFrames
-            : undefined;
+            ? (designData as Record<string, unknown>)
+            : {};
+        const frameData = designDataRecord.canvasFrames;
         const defaultPosition = nextCanvasFramePosition(
           parseCanvasFrameGeometryById(frameData),
           args.gap ?? 160,
+          {
+            responsiveLayout: {
+              screenFileIds: getOverviewScreenFileIds(screenFiles),
+              screenMetadataByFileId: designDataRecord.screenMetadata,
+              breakpointWidths: getResponsiveBreakpointWidths(
+                designDataRecord.breakpointSet,
+              ),
+            },
+          },
         );
         viewportStartX ??= defaultPosition.x;
         viewportStartY ??= defaultPosition.y;

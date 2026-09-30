@@ -1582,6 +1582,7 @@ export function formatVisualEditClipboardPrompt(
     return [
       `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : ""}`,
       "Use the supplied source provenance to make idiomatic code changes; do not leave editor-only DOM or inline-style mutations as the implementation. Verify the running app after HMR, then use the Agent-Native Design MCP tool get-visual-edit-pending to obtain the current revision, acknowledge only after verification, and pull again to confirm it cleared.",
+      "If Design MCP is unavailable, apply the included edits and verify the running app. This copied prompt cannot acknowledge the handoff, so it will remain pending until Design MCP is available; then pull the current revision, verify the edits are already present (apply only anything missing), acknowledge that revision, and pull again to confirm it cleared.",
       "",
       prompt,
     ].join("\n");
@@ -1589,12 +1590,12 @@ export function formatVisualEditClipboardPrompt(
   const mcpHandoff = [
     `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : ""}`,
     `Use the Agent-Native Design MCP tool get-visual-edit-pending with${design} to pull the latest revision, then verify the running app and call acknowledge-visual-edit-pending with that revision.`,
-    `If Design MCP is unavailable, apply the included edit details directly. This Visual Edit page has no "Apply design updates in Design" button.`,
+    `If Design MCP is unavailable, apply the included edit details directly and verify the running app. This copied prompt cannot acknowledge the handoff, so it will remain pending until Design MCP is available; then pull the current revision, verify the edits are already present (apply only anything missing), acknowledge that revision, and pull again to confirm it cleared. This Visual Edit page has no "Apply design updates in Design" button.`,
     "",
     prompt,
   ].join("\n");
   return host === "webmcp"
-    ? `${mcpHandoff}\n\nIf you cannot access the Design MCP server but can use this open Design tab, use its page-local get-visual-edit-prompt WebMCP tool instead.`
+    ? `${mcpHandoff}\n\nIf you cannot access the Design MCP server but can use this open Design tab, use its page-local get-visual-edit-prompt WebMCP tool to retrieve edit details; it cannot acknowledge or clear the handoff.`
     : mcpHandoff;
 }
 

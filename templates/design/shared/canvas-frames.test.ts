@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   mergeCanvasFramePlacements,
+  nextCanvasFramePosition,
   nextFreeCanvasRowY,
   numericDesignDataWriteError,
   parseCanvasFrameGeometryById,
@@ -420,5 +421,33 @@ describe("nextFreeCanvasRowY", () => {
 
   it("ignores malformed entries", () => {
     expect(nextFreeCanvasRowY({ a: "nope", b: 5 }, 96)).toBe(0);
+  });
+});
+
+describe("nextCanvasFramePosition", () => {
+  it("places beside the rotated frame bounds", () => {
+    const position = nextCanvasFramePosition({
+      tall: { x: 0, y: 0, width: 100, height: 1000, rotation: 90 },
+    });
+    expect(position.x).toBe(710);
+    expect(position.y).toBeCloseTo(450);
+  });
+
+  it("includes rendered responsive breakpoint frames in the right edge", () => {
+    expect(
+      nextCanvasFramePosition(
+        { mobile: { x: 0, y: 0, width: 390, height: 844 } },
+        160,
+        {
+          responsiveLayout: {
+            screenFileIds: ["mobile"],
+            screenMetadataByFileId: {
+              mobile: { width: 390, height: 844 },
+            },
+            breakpointWidths: [390, 768, 1440],
+          },
+        },
+      ),
+    ).toEqual({ x: 2806, y: 0 });
   });
 });

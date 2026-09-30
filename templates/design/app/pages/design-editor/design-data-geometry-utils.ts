@@ -2,6 +2,7 @@ import type { TweakDefinition } from "@shared/api";
 import {
   nextCanvasFramePosition,
   parseCanvasFrameGeometryById,
+  type CanvasResponsiveLayout,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import { parseLayoutGridById, type LayoutGridById } from "@shared/layout-grid";
@@ -117,8 +118,9 @@ export function staleGeometryFrameIds(
 
 export function nextLocalhostScreenPosition(
   framesById: CanvasFrameGeometryById,
+  responsiveLayout?: CanvasResponsiveLayout,
 ): { x: number; y: number } {
-  return nextCanvasFramePosition(framesById);
+  return nextCanvasFramePosition(framesById, undefined, { responsiveLayout });
 }
 
 export function viewportChangedFrameIds(

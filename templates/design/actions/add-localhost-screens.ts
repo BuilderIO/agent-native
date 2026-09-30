@@ -26,6 +26,8 @@ import {
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import {
   makeLocalhostRouteId,
   titleFromRoutePath,
@@ -682,6 +684,15 @@ export default defineAction({
     const defaultPosition = nextCanvasFramePosition(
       existingCanvasFrames,
       layoutGap,
+      {
+        responsiveLayout: {
+          screenFileIds: getOverviewScreenFileIds(existingFiles),
+          screenMetadataByFileId: existingMetadata,
+          breakpointWidths: getResponsiveBreakpointWidths(
+            prevData.breakpointSet,
+          ),
+        },
+      },
     );
     const layoutStartX = startX ?? defaultPosition.x;
     const layoutStartY = startY ?? defaultPosition.y;
@@ -1116,12 +1127,12 @@ export default defineAction({
         width,
         height,
       });
-      const frameX = input.x ?? existingFrame?.x ?? layoutCursorX;
+      const frameX = existingFrame?.x ?? input.x ?? layoutCursorX;
       const fallbackPlacement: CanvasFramePlacement = {
         fileId,
         filename,
         x: frameX,
-        y: input.y ?? existingFrame?.y ?? layoutStartY,
+        y: existingFrame?.y ?? input.y ?? layoutStartY,
         width,
         height,
         z: input.z ?? existingFrame?.z ?? placementIndex,
@@ -1136,8 +1147,8 @@ export default defineAction({
         fallback: fallbackPlacement,
         existedAtStart: Boolean(existingFrame),
         owns: {
-          x: input.x !== undefined,
-          y: input.y !== undefined,
+          x: input.x !== undefined && !existingFrame,
+          y: input.y !== undefined && !existingFrame,
           width: input.width !== undefined || defaultWidth !== undefined,
           height: input.height !== undefined || defaultHeight !== undefined,
           z: input.z !== undefined,

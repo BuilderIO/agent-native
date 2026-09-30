@@ -262,6 +262,47 @@ describe("add-localhost-screens refresh behavior", () => {
     ]);
   });
 
+  it("places new routes beyond responsive breakpoint frames", async () => {
+    mocks.state.files = [
+      {
+        id: "mobile",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings",
+      },
+    ];
+    mocks.state.designData = {
+      canvasFrames: {
+        mobile: { x: 0, y: 0, width: 390, height: 844 },
+      },
+      screenMetadata: {
+        mobile: {
+          width: 390,
+          height: 844,
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      },
+      breakpointSet: {
+        breakpoints: [
+          { id: "tablet", widthPx: 768 },
+          { id: "desktop", widthPx: 1440 },
+        ],
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/new"],
+    });
+
+    expect(result.placedFrames[0]?.frame).toMatchObject({ x: 2806, y: 0 });
+  });
+
   it("refreshes a URL without moving/resizing its arranged frame or dropping metadata", async () => {
     mocks.state.files = [
       {
@@ -336,6 +377,52 @@ describe("add-localhost-screens refresh behavior", () => {
     ).file_1;
     expect(metadata.previewToken).toBe("example-preview-token");
     expect(metadata).not.toHaveProperty("bridgeToken");
+  });
+
+  it("keeps existing frame positions when a repeated viewport grid supplies new coordinates", async () => {
+    mocks.state.files = [
+      {
+        id: "file_1",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings",
+      },
+    ];
+    mocks.state.designData = {
+      canvasFrames: {
+        file_1: { x: 620, y: 340, width: 1280, height: 900, z: 7 },
+      },
+      screenMetadata: {
+        file_1: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      },
+      localhostScreens: {},
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [
+        { path: "/settings", width: 1280, height: 900, x: 2800, y: -20 },
+      ],
+    });
+
+    expect(result.placedFrames[0]?.frame).toMatchObject({
+      x: 620,
+      y: 340,
+      width: 1280,
+      height: 900,
+      z: 7,
+    });
+    expect(mocks.state.updatedDesignData?.canvasFrames).toMatchObject({
+      file_1: { x: 620, y: 340, width: 1280, height: 900, z: 7 },
+    });
   });
 
   it("refreshes a legacy primary screen when its URL content identifies the route", async () => {
