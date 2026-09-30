@@ -385,9 +385,11 @@ function captureMetadata(metadataJson: string | null): Record<string, unknown> {
 
 function captureLocation(metadata: Record<string, unknown>): string | null {
   if (typeof metadata.channelName === "string") {
-    return "#" + metadata.channelName;
+    return "#" + redactSensitiveText(metadata.channelName);
   }
-  if (typeof metadata.meetingTopic === "string") return metadata.meetingTopic;
+  if (typeof metadata.meetingTopic === "string") {
+    return redactSensitiveText(metadata.meetingTopic);
+  }
   return null;
 }
 

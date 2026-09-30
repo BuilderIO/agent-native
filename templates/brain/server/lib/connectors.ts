@@ -3174,9 +3174,11 @@ async function zoomCall<T>(endpoint: string, call: () => Promise<T>) {
   }
 }
 
-function zoomUserIdsFromConfig(config: Record<string, unknown>): string[] {
+export function zoomUserIdsFromConfig(
+  config: Record<string, unknown>,
+): string[] | null {
   const raw = objectValue(config.zoom).userIds;
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) return null;
   return raw
     .filter((value): value is string => typeof value === "string")
     .map((value) => value.trim())
@@ -3247,14 +3249,15 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       fetchZoomAccessToken({ accountId, clientId, clientSecret }),
     );
     const configuredUserIds = zoomUserIdsFromConfig(config);
-    const userIds = configuredUserIds.length
-      ? configuredUserIds
-      : await zoomCall("/users", () => listZoomUserIds(token));
+    const userIds =
+      configuredUserIds ??
+      (await zoomCall("/users", () => listZoomUserIds(token)));
 
     for (const userId of userIds) {
       const meetings = await zoomCall("/users/{userId}/recordings", () =>
         listZoomRecordings(token, userId, from, to),
       );
+      await renewRunLease(run);
       stats.usersScanned = Number(stats.usersScanned) + 1;
       for (const meeting of meetings) {
         stats.meetingsSeen = Number(stats.meetingsSeen) + 1;
@@ -3265,6 +3268,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
             Boolean(file.download_url),
         );
         for (const file of transcripts) {
+          await renewRunLease(run);
           const vtt = await zoomCall("recording transcript download", () =>
             downloadZoomTranscript(token, file.download_url),
           );
@@ -3358,17 +3362,12 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
-    await finishRun(
-      run,
-      isRateLimit ? "success" : "error",
-      stats,
-      isRateLimit ? null : message,
-    );
+    await finishRun(run, "error", stats, message);
     return {
       runId,
       sourceId: source.id,
       provider: "zoom",
-      status: isRateLimit ? "success" : "error",
+      status: "error",
       capturesCreated: captures.length,
       captures,
       stats,

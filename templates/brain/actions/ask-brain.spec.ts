@@ -4,6 +4,10 @@ const mocks = vi.hoisted(() => ({
   knowledgeRows: [] as Array<Record<string, unknown>>,
   captures: [] as Array<Record<string, unknown>>,
   policies: new Map<string, Record<string, unknown>>(),
+  lanes: {
+    fts: { status: "ok" },
+    semantic: { status: "ok" },
+  } as Record<string, { status: string; error?: string }>,
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -52,7 +56,9 @@ vi.mock("../server/lib/search.js", () => ({
   buildFederatedSearchCoverage: vi.fn(async () => ({
     mode: "brain-index-plus-delegation-hints",
   })),
-  searchEverythingRows: vi.fn(async () => mocks.captures),
+  searchEverythingWithLanes: vi.fn(async () => {
+    return { rows: mocks.captures, lanes: mocks.lanes };
+  }),
 }));
 
 vi.mock("../server/lib/source-policy.js", async (importOriginal) => {
@@ -163,6 +169,10 @@ describe("ask-brain source answer policy", () => {
     mocks.knowledgeRows = [];
     mocks.captures = [];
     mocks.policies = new Map();
+    mocks.lanes = {
+      fts: { status: "ok" },
+      semantic: { status: "ok" },
+    };
   });
 
   it("prefers blessed knowledge and excludes answer-ineligible sources", async () => {
@@ -332,5 +342,24 @@ describe("ask-brain source answer policy", () => {
     expect(result.leadCitations).toEqual([
       expect.objectContaining({ captureId: "raw-retailer-lead" }),
     ]);
+  });
+
+  it("reports an incomplete search when a capture search lane fails", async () => {
+    mocks.lanes = {
+      fts: { status: "ok" },
+      semantic: { status: "failed", error: "openai-credential-unavailable" },
+    };
+
+    const result = await action.run({
+      question: "What retailer is Nick Nestle demoing to?",
+      mode: "cited",
+    });
+
+    expect(result.answerSource).toBe("none");
+    expect(result.answer).toContain("incomplete");
+    expect(result.captureSearchLanes).toEqual({
+      fts: { status: "ok" },
+      semantic: { status: "failed", error: "openai-credential-unavailable" },
+    });
   });
 });

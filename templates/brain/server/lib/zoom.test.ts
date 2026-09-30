@@ -92,6 +92,17 @@ describe("normalizeZoomRecording", () => {
       "Zoom meeting",
     );
   });
+
+  it("redacts sensitive text from the meeting topic metadata", () => {
+    const normalized = normalizeZoomRecording(
+      { ...meeting, topic: "Call with jane.doe@example.com" },
+      VTT,
+    );
+    expect(normalized?.metadata.meetingTopic).not.toContain(
+      "jane.doe@example.com",
+    );
+    expect(normalized?.metadata.meetingTopic).toContain("[redacted]");
+  });
 });
 
 describe("downloadZoomTranscript", () => {

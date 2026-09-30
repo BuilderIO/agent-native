@@ -826,6 +826,7 @@ import {
   runConnectorSync,
   runSlackPilot,
   testSlackConnection,
+  zoomUserIdsFromConfig,
 } from "./connectors.js";
 import { runBrainDemoEval, runBrainRetrievalEval } from "./demo.js";
 import { enqueueCaptureInvalidation } from "./ingest-queue.js";
@@ -3290,6 +3291,14 @@ describe("Brain connector smoke coverage", () => {
         is_group: true,
       }),
     ).toBe(false);
+  });
+
+  it("keeps an explicitly empty Zoom user list distinct from an omitted one", () => {
+    expect(zoomUserIdsFromConfig({ zoom: { userIds: [] } })).toEqual([]);
+    expect(zoomUserIdsFromConfig({})).toBeNull();
+    expect(zoomUserIdsFromConfig({ zoom: { userIds: [" u1 ", ""] } })).toEqual([
+      "u1",
+    ]);
   });
 
   it("normalizes a Granola API note into a transcript capture shape", () => {

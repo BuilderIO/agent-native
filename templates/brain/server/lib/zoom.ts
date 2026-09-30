@@ -1,3 +1,5 @@
+import { sanitizeSensitiveText } from "./sensitivity-policy.js";
+
 const ZOOM_API_BASE = "https://api.zoom.us/v2";
 const ZOOM_OAUTH_URL = "https://zoom.us/oauth/token";
 const ZOOM_REQUEST_TIMEOUT_MS = 30_000;
@@ -222,7 +224,7 @@ export function normalizeZoomRecording(meeting: ZoomMeeting, vtt: string) {
       connector: "zoom",
       zoomMeetingId: String(meeting.id),
       zoomMeetingUuid: meeting.uuid,
-      meetingTopic: title,
+      meetingTopic: sanitizeSensitiveText(title),
       sourceUrl: meeting.share_url ?? null,
     },
   };
