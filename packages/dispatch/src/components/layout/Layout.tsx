@@ -2231,6 +2231,51 @@ export function Layout({
     ],
   );
 
+  const chatFirstSurfaceTabsBar =
+    activeChatFirstSurfaceTab?.kind === "app" ? null : (
+      <ChatFirstSurfaceTabs
+        tabs={chatFirstSurfaceTabs.tabs}
+        activeTabId={chatFirstSurfaceTabs.activeTabId}
+        onActivate={activateChatFirstSurfaceTab}
+        onClose={closeChatFirstSurfaceTab}
+        onCloseOthers={(tab) => {
+          activateChatFirstSurfaceTab(tab);
+          chatFirstSurfaceTabsStore.closeOthers(tab.id);
+        }}
+        onCloseToRight={(tab) => {
+          const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
+            (candidate) => candidate.id === tab.id,
+          );
+          const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
+            (candidate) => candidate.id === chatFirstSurfaceTabs.activeTabId,
+          );
+          if (activeIndex > targetIndex) activateChatFirstSurfaceTab(tab);
+          chatFirstSurfaceTabsStore.closeToRight(tab.id);
+        }}
+        onCloseAll={closeAllChatFirstSurfaceTabs}
+        onOpenSurface={openChatFirstSurface}
+        apps={chatFirstAppItems}
+        onOpenApp={(app) => openChatFirstPane({ appId: app.id }, "side")}
+        renderAppIcon={(app) => (
+          <AppIcon
+            id={app.id}
+            name={app.name}
+            size="sm"
+            className="size-7 rounded-lg"
+          />
+        )}
+        copy={chatFirstCopy}
+      />
+    );
+  const chatFirstSurfaceContent =
+    chatFirstSurfaceTabs.tabs.length > 0 ? (
+      <ChatFirstSurfaceContent
+        tabs={chatFirstSurfaceTabs.tabs}
+        activeTabId={chatFirstSurfaceTabs.activeTabId}
+        renderTab={renderChatFirstSurfaceTab}
+      />
+    ) : null;
+
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
   }
@@ -2249,10 +2294,32 @@ export function Layout({
               <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                 <Header showAgentToggle={false} />
                 <InvitationBanner />
-                <main className="flex-1 overflow-y-auto">
-                  <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
-                    {children}
+                <main className="relative flex min-h-0 flex-1 overflow-hidden">
+                  <div className="min-w-0 flex-1 overflow-y-auto">
+                    <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
+                      {children}
+                    </div>
                   </div>
+                  {isChatRoute &&
+                  chatFirstMode &&
+                  chatFirstHasActiveChat &&
+                  chatFirstSurfacePanel.open ? (
+                    <ChatFirstSurfacePanel
+                      width={chatFirstSurfaceResize.width}
+                      onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
+                      copy={chatFirstCopy}
+                    >
+                      {chatFirstSurfaceTabsBar}
+                      {chatFirstSurfaceContent}
+                    </ChatFirstSurfacePanel>
+                  ) : null}
+                  {isChatRoute && chatFirstMode && chatFirstHasActiveChat ? (
+                    <ChatFirstSurfacePanelToggle
+                      open={chatFirstSurfacePanel.open}
+                      onToggle={chatFirstSurfacePanel.toggle}
+                      className={CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME}
+                    />
+                  ) : null}
                 </main>
               </div>
             </div>
@@ -2313,13 +2380,6 @@ export function Layout({
   const appContent = (
     <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <InvitationBanner />
-      {isChatRoute && chatFirstMode && chatFirstHasActiveChat ? (
-        <ChatFirstSurfacePanelToggle
-          open={chatFirstSurfacePanel.open}
-          onToggle={chatFirstSurfacePanel.toggle}
-          className={CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME}
-        />
-      ) : null}
       {isChatRoute && chatFirstMode && chatFirstNotice ? (
         <div
           className="dispatch-chat-first-notice"
@@ -2381,50 +2441,6 @@ export function Layout({
       </main>
     </div>
   );
-  const chatFirstSurfaceTabsBar =
-    activeChatFirstSurfaceTab?.kind === "app" ? null : (
-      <ChatFirstSurfaceTabs
-        tabs={chatFirstSurfaceTabs.tabs}
-        activeTabId={chatFirstSurfaceTabs.activeTabId}
-        onActivate={activateChatFirstSurfaceTab}
-        onClose={closeChatFirstSurfaceTab}
-        onCloseOthers={(tab) => {
-          activateChatFirstSurfaceTab(tab);
-          chatFirstSurfaceTabsStore.closeOthers(tab.id);
-        }}
-        onCloseToRight={(tab) => {
-          const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
-            (candidate) => candidate.id === tab.id,
-          );
-          const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
-            (candidate) => candidate.id === chatFirstSurfaceTabs.activeTabId,
-          );
-          if (activeIndex > targetIndex) activateChatFirstSurfaceTab(tab);
-          chatFirstSurfaceTabsStore.closeToRight(tab.id);
-        }}
-        onCloseAll={closeAllChatFirstSurfaceTabs}
-        onOpenSurface={openChatFirstSurface}
-        apps={chatFirstAppItems}
-        onOpenApp={(app) => openChatFirstPane({ appId: app.id }, "side")}
-        renderAppIcon={(app) => (
-          <AppIcon
-            id={app.id}
-            name={app.name}
-            size="sm"
-            className="size-7 rounded-lg"
-          />
-        )}
-        copy={chatFirstCopy}
-      />
-    );
-  const chatFirstSurfaceContent =
-    chatFirstSurfaceTabs.tabs.length > 0 ? (
-      <ChatFirstSurfaceContent
-        tabs={chatFirstSurfaceTabs.tabs}
-        activeTabId={chatFirstSurfaceTabs.activeTabId}
-        renderTab={renderChatFirstSurfaceTab}
-      />
-    ) : null;
   const workspaceAppChatRegistration = workspaceAppId
     ? chatFirstAppRegistrations.find(
         (app) => app.id.toLowerCase() === workspaceAppId.toLowerCase(),
