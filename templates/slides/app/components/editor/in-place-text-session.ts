@@ -2326,7 +2326,7 @@ export function startInPlaceTextSession(
 
   function listSlice(
     list: HTMLElement,
-    remainingItems: HTMLElement[],
+    sourceItems: HTMLElement[],
     items: HTMLElement[],
     firstIndex: number,
     rootList = list === el,
@@ -2361,7 +2361,7 @@ export function startInPlaceTextSession(
     if (list.tagName === "OL") {
       slice.setAttribute(
         "start",
-        String(orderedOrdinalAt(list, remainingItems, firstIndex)),
+        String(orderedOrdinalAt(list, sourceItems, firstIndex)),
       );
     }
     return slice;
@@ -2394,7 +2394,6 @@ export function startInPlaceTextSession(
 
     const before = allItems.slice(0, index);
     const after = allItems.slice(index + 1);
-    const remaining = allItems.filter((candidate) => candidate !== item);
     const rootList = source === el;
     const template = source.cloneNode(false) as HTMLElement;
     const identity = rootList
@@ -2418,7 +2417,7 @@ export function startInPlaceTextSession(
     }
     const fragments: HTMLElement[] = [];
     if (before.length) {
-      const leading = listSlice(template, remaining, before, 0, rootList);
+      const leading = listSlice(template, allItems, before, 0, rootList);
       if (leading) fragments.push(leading);
     }
 
@@ -2459,14 +2458,14 @@ export function startInPlaceTextSession(
     fragments.push(converted);
 
     if (after.length) {
-      const trailing = listSlice(template, remaining, after, index, rootList);
+      const trailing = listSlice(
+        template,
+        allItems,
+        after,
+        index + 1,
+        rootList,
+      );
       if (trailing) {
-        if (source.tagName === "OL") {
-          trailing.setAttribute(
-            "start",
-            String(orderedOrdinalAt(source, allItems, index + 1)),
-          );
-        }
         fragments.push(trailing);
       }
     }
@@ -2534,18 +2533,20 @@ export function startInPlaceTextSession(
     const after = allItems.slice(index + 1);
     const wasRoot = list === el;
     const remainingItems = allItems.filter((candidate) => candidate !== item);
-    const makeSlice = (items: HTMLElement[], firstIndex: number) =>
-      listSlice(list, remainingItems, items, firstIndex);
+    const makeSlice = (
+      items: HTMLElement[],
+      firstIndex: number,
+      sourceItems = allItems,
+    ) => listSlice(list, sourceItems, items, firstIndex);
     const leading = wasRoot ? makeSlice(before, 0) : null;
     const trailing =
       after.length && (wasRoot || before.length)
-        ? makeSlice(after, index)
+        ? empty
+          ? makeSlice(after, index, remainingItems)
+          : makeSlice(after, index + 1)
         : null;
 
     if (wasRoot) {
-      if (list.tagName === "OL" && index === 0) {
-        trailing?.removeAttribute("start");
-      }
       retagRoot("DIV");
       el.style.removeProperty("list-style-type");
       el.style.removeProperty("list-style-position");
@@ -2562,31 +2563,28 @@ export function startInPlaceTextSession(
     } else if (before.length && after.length) {
       list.replaceChildren(...before);
       if (list.tagName === "OL") {
-        list.setAttribute(
-          "start",
-          String(orderedOrdinalAt(list, remainingItems, 0)),
-        );
+        list.setAttribute("start", String(orderedOrdinalAt(list, allItems, 0)));
       }
       list.after(paragraph, ...nested, trailing!);
     } else if (before.length) {
       item.remove();
       if (list.tagName === "OL") {
-        list.setAttribute(
-          "start",
-          String(orderedOrdinalAt(list, remainingItems, 0)),
-        );
+        list.setAttribute("start", String(orderedOrdinalAt(list, allItems, 0)));
       }
       list.after(paragraph, ...nested);
     } else if (after.length) {
       item.remove();
       if (list.tagName === "OL") {
-        if (index === 0) list.removeAttribute("start");
-        else {
-          list.setAttribute(
-            "start",
-            String(orderedOrdinalAt(list, remainingItems, index)),
-          );
-        }
+        list.setAttribute(
+          "start",
+          String(
+            orderedOrdinalAt(
+              list,
+              empty ? remainingItems : allItems,
+              empty ? index : index + 1,
+            ),
+          ),
+        );
       }
       list.before(paragraph, ...nested);
     } else {

@@ -1188,7 +1188,7 @@ describe("in-place text session: deleting", () => {
     expect(session.undo()).toBe(false);
   });
 
-  it("renumbers a lifted first ordered item the same at root and nested", () => {
+  it("preserves the ordinal after lifting the first ordered item", () => {
     const liftFirst = (el: HTMLElement) => {
       session = startInPlaceTextSession(el);
       caret(textOf(el, "One"), 0);
@@ -1210,10 +1210,46 @@ describe("in-place text session: deleting", () => {
     const rootStart = liftFirst(root);
     const nestedStart = liftFirst(nested);
 
-    expect(rootStart.start).toBeNull();
-    expect(nestedStart).toEqual(rootStart);
-    expect(rootStart.effectiveStart).toBe(1);
-    expect(nestedStart.effectiveStart).toBe(1);
+    expect(rootStart).toEqual({ start: "3", effectiveStart: 3 });
+    expect(nestedStart).toEqual({ start: "2", effectiveStart: 2 });
+  });
+
+  it("preserves ordinals when lifting a middle item from a non-default ordered list", () => {
+    const el = mount(
+      '<ol id="t" start="40"><li>Forty</li><li>Forty one</li><li>Forty two</li></ol>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Forty one"), 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    const lists = Array.from(
+      session.element.querySelectorAll(":scope > ol"),
+      (list) => ({
+        start: list.getAttribute("start"),
+        items: Array.from(list.querySelectorAll(":scope > li"), (item) =>
+          item.textContent?.replaceAll(ZWSP, ""),
+        ),
+      }),
+    );
+    expect(lists).toEqual([
+      { start: "40", items: ["Forty"] },
+      { start: "42", items: ["Forty two"] },
+    ]);
+  });
+
+  it("preserves an item value override after lifting the preceding item", () => {
+    const el = mount(
+      '<ol id="t" start="40"><li value="50">Fifty</li><li>Next</li></ol>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Fifty"), 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(
+      session.element.querySelector(":scope > ol")?.getAttribute("start"),
+    ).toBe("51");
   });
 
   it("joins the block after the last list item on forward Delete", () => {
