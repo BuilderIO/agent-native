@@ -687,13 +687,14 @@ const FEEDBACK_STATUS_REACTIONS_REGEX_CASES = [
 ];
 
 const POST_MERGE_FEEDBACK_FOLLOWUP_RE =
-  /(?=.*\b(?:Slack|reporter|thread)s?\b)(?=.*\b(?:PR|fix|issue)\b[^.!?]{0,160}\b(?:merge(?:d)?|land(?:ed)?)\b)(?=.*\b(?:go back|follow[ -]?up|reply|respond|tell|notify|update)\b)(?=.*\b(?:after|once|when|anytime|every time|please|make sure|remind|forgot|missed|didn['’]?t|haven['’]?t)\b)/is;
+  /(?=.*\b(?:Slack|reporter|thread)s?\b)(?=.*\b(?:PR|fix|issue)\b[^.!?]{0,160}\b(?:merge(?:d)?|land(?:ed)?)\b)(?=.*\b(?:go back|follow[ -]?up|reply|respond|tell|notify|update)\b)(?=.*\b(?:after|once|when|anytime|every time|please|make sure|remind|forgot|missed|didn['’]?t|haven['’]?t|merge(?:d)?|land(?:ed)?)\b)/is;
 const POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES = [
   [
     true,
     "Anytime we fix something reported in Slack and the PR is merged, please go back to the threads and tell them.",
   ],
   [true, "You forgot to notify the Slack thread after the fix was merged."],
+  [true, "The PR merged, so reply in the Slack thread."],
   [false, "The PR merged and the fix should be live on beta soon."],
   [false, "Please ask the Slack reporter for more information."],
 ];

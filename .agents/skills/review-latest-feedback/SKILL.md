@@ -486,10 +486,13 @@ in the thread.
 After confirming that a PR fixing a Slack report merged, return to every
 affected source thread, including each thread in a cluster. Re-read the full
 thread and post the new outcome unless that same post-merge update is already
-there. Thank the reporter, name what was fixed, and say it should be live on
-beta in the next few hours; do not say it is live without runtime proof. If
-that window has already passed, check the publisher and report the current
-status instead of repeating the stale estimate.
+there. Thank the reporter and name what was fixed. For app fixes handled by
+the beta publisher, say the fix should be live on beta in the next few hours.
+For package-only fixes or changes the beta publisher does not cover, give the
+correct publication and upgrade timing instead of promising beta availability.
+Do not say any fix is already live without runtime proof. If the expected beta
+window has passed, check the publisher and report the current status instead
+of repeating the stale estimate.
 
 For mixed reports, summarize both the fixed items and every item left
 unaddressed, including subjective or out-of-scope items, with the reason. If
