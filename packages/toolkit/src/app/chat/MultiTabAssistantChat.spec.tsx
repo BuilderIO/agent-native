@@ -3518,6 +3518,7 @@ describe("MultiTabAssistantChat history popover", () => {
     ).find((span) => span.classList.contains("w-px"));
     expect(anchor).toBeDefined();
     expect(anchor?.className).toContain("start-2");
+    expect(anchor?.className).toContain("top-12");
     expect(anchor?.className).not.toContain("end-2");
   });
 
