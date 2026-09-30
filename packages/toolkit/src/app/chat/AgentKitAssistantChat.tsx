@@ -603,8 +603,13 @@ export const AgentKitAssistantChat = forwardRef<
       : readAgentKitThreadHandoffSnapshot(
           createAgentKitThreadHandoffKey(props, threadId),
         );
+  const [manualLoadThreadId, setManualLoadThreadId] = useState<string | null>(
+    () => (props.isNewThread ? threadId : null),
+  );
+  const hasManualLoadForCurrentThread =
+    props.isNewThread || manualLoadThreadId === threadId;
   const [threadRestore, setThreadRestore] = useState<ThreadRestoreState>(() =>
-    props.isThreadStateLoading || !props.isNewThread
+    props.isThreadStateLoading || !hasManualLoadForCurrentThread
       ? { status: "loading" }
       : { status: "ready" },
   );
@@ -621,14 +626,24 @@ export const AgentKitAssistantChat = forwardRef<
     setRestoreRetryThreadId(null);
   }, []);
   useEffect(() => {
+    setManualLoadThreadId((current) =>
+      props.isNewThread ? threadId : current === threadId ? current : null,
+    );
+  }, [props.isNewThread, threadId]);
+  useEffect(() => {
     setThreadRestore(
-      props.isThreadStateLoading || !props.isNewThread
+      props.isThreadStateLoading || !hasManualLoadForCurrentThread
         ? { status: "loading" }
         : { status: "ready" },
     );
     setRestoreRetryLoadPhase("idle");
     setRestoreRetryThreadId(null);
-  }, [props.isNewThread, props.isThreadStateLoading, threadId]);
+  }, [
+    hasManualLoadForCurrentThread,
+    props.isNewThread,
+    props.isThreadStateLoading,
+    threadId,
+  ]);
   const onThreadRestoreLoadError = useCallback(
     (error: unknown) => {
       const record = asRecord(error);
@@ -998,7 +1013,7 @@ export const AgentKitAssistantChat = forwardRef<
   ]);
   const agentKitLoad =
     props.isThreadStateLoading ||
-    props.isNewThread ||
+    hasManualLoadForCurrentThread ||
     (restoreRetryThreadId === threadId && restoreRetryLoadPhase === "release")
       ? "manual"
       : "auto";
@@ -3680,12 +3695,12 @@ function AgentKitComposerSurface({
           disabled={
             (!canChat && !providerSubmissionPending) ||
             props.composerDisabled ||
-            isRestoring ||
-            isSubmissionInFlight
+            isRestoring
           }
           submissionDisabled={
             (!canChat && !providerSubmissionPending) ||
-            props.composerSubmissionDisabled === true
+            props.composerSubmissionDisabled === true ||
+            isSubmissionInFlight
           }
           onDisabledClick={
             props.composerDisabled || !setupMissing

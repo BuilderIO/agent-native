@@ -781,7 +781,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "영업 통화, 스크립트, 거래 인사이트, 계정 요약",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong에서는 기술 관리자가 MCP 연동을 만들고 개인 또는 공유 승인 방식을 선택해야 합니다. 연결하기 전에 생성된 클라이언트 ID와 시크릿을 구성해야 합니다.",
+    "Gong 기술 관리자가 개인 또는 공유 승인을 선택해 MCP 연동을 만들어야 합니다. 수동 등록에서는 생성된 클라이언트 ID와 시크릿을 워크스페이스 시크릿 `GONG_MCP_CLIENT_ID` 및 `GONG_MCP_CLIENT_SECRET`으로 저장하세요. 자동 등록에는 클라이언트 인증 정보가 필요하지 않습니다.",
   "mcpIntegrations.catalog.semgrep.description":
     "코드에서 보안 문제를 스캔합니다.",
   "mcpIntegrations.catalog.semgrep.useCase":

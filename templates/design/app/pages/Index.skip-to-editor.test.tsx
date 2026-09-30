@@ -48,51 +48,38 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/agent-chat")
   >()),
-  BuilderSetupCard: ({
-    bouncePulse = 0,
-    onConnected,
-  }: {
-    bouncePulse?: number;
-    onConnected?: () => void;
-  }) => (
-    <div
-      data-setup-card
-      data-testid="ai-setup-card"
-      data-bounce-pulse={bouncePulse}
-    >
-      Connect AI
-      <button type="button" onClick={onConnected}>
-        Connect Builder.io
-      </button>
-      <a href="/settings/keys">Custom keys</a>
-    </div>
-  ),
   useChatModels: vi.fn(),
   useAgentEngineConfigured: () => mocks.agentEngine,
   fetchAgentEngineConfiguredState: mocks.fetchAgentEngineConfiguredState,
 }));
-vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
-  BuilderSetupCard: ({
-    bouncePulse = 0,
-    onConnected,
-  }: {
-    bouncePulse?: number;
-    onConnected?: () => void;
-  }) => (
-    <div
-      data-setup-card
-      data-testid="ai-setup-card"
-      data-bounce-pulse={bouncePulse}
-    >
-      Connect AI
-      <button type="button" onClick={onConnected}>
-        Connect Builder.io
-      </button>
-      <a href="/settings/keys">Custom keys</a>
-    </div>
-  ),
-  BuilderSetupContent: () => null,
-}));
+
+vi.mock(
+  "@agent-native/toolkit/app/chat/chat/run-recovery",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/chat/run-recovery")
+    >()),
+    BuilderSetupCard: ({
+      bouncePulse = 0,
+      onConnected,
+    }: {
+      bouncePulse?: number;
+      onConnected?: () => void;
+    }) => (
+      <div
+        data-setup-card
+        data-testid="ai-setup-card"
+        data-bounce-pulse={bouncePulse}
+      >
+        Connect AI
+        <button type="button" onClick={onConnected}>
+          Connect Builder.io
+        </button>
+        <a href="/settings/keys">Custom keys</a>
+      </div>
+    ),
+  }),
+);
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
 }));
@@ -612,7 +599,7 @@ describe("Index skip to editor", () => {
     expect(container.querySelector("[data-testid='ai-setup-card']")).toBeNull();
   });
 
-  it("keeps chat interactive while provider status is unresolved and checks before submit", async () => {
+  it("disables chat while provider status is unresolved and checks before submit", async () => {
     mocks.agentEngine = { state: "unknown", missing: false };
     await act(async () => root.render(<Index />));
     expect(container.textContent).not.toContain(
@@ -672,6 +659,12 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Connect AI");
   });
 
+  it("hides home suggestions while provider setup is pending", async () => {
+    mocks.agentEngine = { state: "missing", missing: true };
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).not.toContain("Generated dashboard");
+    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+  });
   it.each([
     { state: "missing", missing: true, ready: false },
     { state: "unknown", missing: false, ready: false },

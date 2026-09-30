@@ -775,7 +775,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "सेल्स कॉल, ट्रांसक्रिप्ट, डील इनसाइट, खाते का सारांश",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong में एक टेक एडमिन को MCP इंटीग्रेशन बनाना होगा और व्यक्तिगत या साझा ऑथराइज़ेशन चुनना होगा। कनेक्ट करने से पहले जनरेट किए गए क्लाइंट ID और सीक्रेट को कॉन्फ़िगर करना ज़रूरी है।",
+    "Gong के टेक एडमिन को व्यक्तिगत या साझा ऑथराइज़ेशन वाला MCP इंटीग्रेशन बनाना होगा। मैन्युअल रजिस्ट्रेशन के लिए जनरेट किया गया क्लाइंट ID और सीक्रेट वर्कस्पेस सीक्रेट `GONG_MCP_CLIENT_ID` और `GONG_MCP_CLIENT_SECRET` के रूप में सेव करें; ऑटोमैटिक रजिस्ट्रेशन के लिए क्लाइंट क्रेडेंशियल की ज़रूरत नहीं है।",
   "mcpIntegrations.catalog.semgrep.description":
     "सुरक्षा से जुड़ी समस्याओं के लिए कोड स्कैन करें।",
   "mcpIntegrations.catalog.semgrep.useCase":

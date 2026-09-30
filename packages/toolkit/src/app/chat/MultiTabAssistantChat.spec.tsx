@@ -210,9 +210,11 @@ const modelCatalogMocks = vi.hoisted(() => ({
   load: null as null | (() => Promise<unknown>),
 }));
 
-vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
+vi.mock("@agent-native/core/client/use-action", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@agent-native/core/client/hooks")>();
+    await importOriginal<
+      typeof import("@agent-native/core/client/use-action")
+    >();
   return { ...actual, ...actionMocks };
 });
 
@@ -433,6 +435,8 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   beforeEach(async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     resetThreadMocks();
+    actionMocks.callAction.mockReset();
+    actionMocks.callAction.mockResolvedValue(null as never);
     ensureLocalStorage();
     vi.stubGlobal(
       "fetch",
