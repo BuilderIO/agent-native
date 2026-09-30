@@ -137,7 +137,7 @@ export function RecordingCard({
   ) => formatters.formatRelativeTime(value, unit);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [hasBackup, setHasBackup] = useState(false);
+  const [hasBackup, setHasBackup] = useState<boolean | null>(null);
   const [savedRecovery, setSavedRecovery] = useState<{
     recordingId: string;
     enabled: boolean;
@@ -192,10 +192,11 @@ export function RecordingCard({
     savedRecovery.enabled;
 
   useEffect(() => {
-    if (!onRetry || !retryableStatus || nativeUploadPaused) {
+    if (!retryableUpload) {
       setHasBackup(false);
       return;
     }
+    setHasBackup(null);
     let cancelled = false;
     const checkForBackup = () => {
       void hasRecordingBackup(recording.id).then((found) => {
@@ -211,12 +212,12 @@ export function RecordingCard({
       cancelled = true;
       unsubscribe();
     };
-  }, [onRetry, retryableStatus, nativeUploadPaused, recording.id]);
+  }, [retryableUpload, recording.id]);
 
   useEffect(() => {
     setSavedRecovery(null);
     setRecoveryCheckFailed(false);
-    if (!retryableUpload) return;
+    if (!retryableUpload || hasBackup !== true) return;
     let cancelled = false;
     void getRecordingUploadRecoveryEnabled(recording.id)
       .then((enabled) => {
@@ -232,7 +233,13 @@ export function RecordingCard({
     return () => {
       cancelled = true;
     };
-  }, [uploadRetryEnabled, recordingLab.source, retryableUpload, recording.id]);
+  }, [
+    uploadRetryEnabled,
+    recordingLab.source,
+    retryableUpload,
+    hasBackup,
+    recording.id,
+  ]);
 
   const handleRetry = useCallback(
     async (e: React.MouseEvent) => {
@@ -490,7 +497,7 @@ export function RecordingCard({
                       >
                         {t("clipsFinalRaw.retryCheckFailed")}
                       </div>
-                    ) : canRetry ? (
+                    ) : retryableUpload && hasBackup === false ? (
                       <div className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
                         {t("clipsFinalRaw.retryUnavailableHere")}
                       </div>

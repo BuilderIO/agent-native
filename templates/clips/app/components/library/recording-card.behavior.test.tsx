@@ -339,6 +339,12 @@ describe("RecordingCard behavior", () => {
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
     const onRetry = vi.fn();
+    let resolvePolicy!: (enabled: boolean) => void;
+    vi.mocked(getRecordingUploadRecoveryEnabled).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolvePolicy = resolve;
+      }),
+    );
 
     await act(async () => {
       root.render(
@@ -354,6 +360,7 @@ describe("RecordingCard behavior", () => {
       await Promise.resolve();
     });
 
+    expect(getRecordingUploadRecoveryEnabled).not.toHaveBeenCalled();
     expect(container.textContent).toContain(
       "clipsFinalRaw.retryUnavailableHere",
     );
@@ -365,10 +372,51 @@ describe("RecordingCard behavior", () => {
     });
 
     expect(hasRecordingBackup).toHaveBeenCalledTimes(2);
+    expect(getRecordingUploadRecoveryEnabled).toHaveBeenCalledWith(
+      recording.id,
+    );
+    expect(container.querySelector("button")?.textContent).not.toBe(
+      "clipsFinalRaw.retry",
+    );
+
+    await act(async () => resolvePolicy(true));
+
     expect(container.textContent).toContain("clipsFinalRaw.retry");
     expect(container.textContent).not.toContain(
       "clipsFinalRaw.retryUnavailableHere",
     );
+  });
+
+  it("waits for the backup lookup before reporting a missing backup without fetching policy", async () => {
+    let resolveBackup!: (found: boolean) => void;
+    vi.mocked(hasRecordingBackup).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveBackup = resolve;
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            status: "failed",
+            failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          }}
+          onRetry={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).not.toContain("clipsFinalRaw.retry");
+    expect(getRecordingUploadRecoveryEnabled).not.toHaveBeenCalled();
+
+    await act(async () => resolveBackup(false));
+
+    expect(container.textContent).toContain(
+      "clipsFinalRaw.retryUnavailableHere",
+    );
+    expect(getRecordingUploadRecoveryEnabled).not.toHaveBeenCalled();
   });
 
   it("keeps an interrupted recording with a saved backup retryable after Labs is Off", async () => {
