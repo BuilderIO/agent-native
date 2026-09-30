@@ -2,7 +2,6 @@ import {
   getInitialCanvasFrameGeometry,
   getOverviewFrameHeight as getSharedOverviewFrameHeight,
   getResponsiveInitialCanvasFrameGeometries,
-  OVERVIEW_FRAME_GAP,
   OVERVIEW_FRAME_LABEL_HEIGHT,
   OVERVIEW_FRAME_WIDTH,
 } from "../../../../shared/canvas-frames";
@@ -20,7 +19,6 @@ import { SURFACE_PADDING } from "./overview-layout";
 import type { FrameGeometry, FrameGeometryById, Point } from "./types";
 
 const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
-const SCREEN_GAP = OVERVIEW_FRAME_GAP;
 const FRAME_LABEL_HEIGHT = OVERVIEW_FRAME_LABEL_HEIGHT;
 
 export {
