@@ -599,6 +599,41 @@ test.describe("URL-backed live auto-layout probe", () => {
       .toEqual(["v1", "v2", "v3"]);
   });
 
+  test("all-screens PDF exports URL-backed previews", async ({ page }) => {
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
+    await localNetworkCdp.detach();
+    await page.goto(
+      `${baseURL}/visual-edit/${focusDesignId}?editorView=overview&embedChrome=1`,
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 90_000 });
+    const [pdfDownload] = await Promise.all([
+      page.waitForEvent("download"),
+      (async () => {
+        await page.getByRole("button", { name: "More" }).click();
+        await page.getByRole("menuitem", { name: "Export" }).hover();
+        const exportAllScreens = page.getByRole("menuitem", {
+          name: "Download PDF (all screens)",
+        });
+        await expect(exportAllScreens).toBeVisible();
+        await exportAllScreens.click();
+      })(),
+    ]);
+    const pdfStream = await pdfDownload.createReadStream();
+    if (!pdfStream) throw new Error("All-screens PDF export returned no data");
+    const pdfChunks: Buffer[] = [];
+    for await (const chunk of pdfStream) pdfChunks.push(Buffer.from(chunk));
+    const pdf = Buffer.concat(pdfChunks).toString("latin1");
+    expect(pdf.startsWith("%PDF-")).toBe(true);
+    expect([...pdf.matchAll(/\/MediaBox\s*\[/g)]).toHaveLength(2);
+  });
+
   test("keeps a user-focused live input in Interact mode", async ({ page }) => {
     const localNetworkCdp = await page.context().newCDPSession(page);
     await localNetworkCdp.send("Browser.grantPermissions", {
@@ -2027,14 +2062,20 @@ test.describe("URL-backed live auto-layout probe", () => {
     const pendingToolbar = page.locator(
       "[data-design-pending-visual-style-toolbar]",
     );
-    const copyPrompt = pendingToolbar.getByRole("button", {
-      name: "Copy prompt to your agent",
+    const copyAgentPromptButton = pendingToolbar.getByRole("button", {
+      name: "Copy agent prompt",
       exact: true,
     });
-    await expect(copyPrompt).toBeVisible({ timeout: 10_000 });
+    await expect(copyAgentPromptButton).toBeVisible({ timeout: 10_000 });
     await pendingToolbar
       .getByRole("button", { name: "Pending visual preview", exact: true })
       .click();
+    await expect(
+      page.getByRole("menuitem", {
+        name: "Copy prompt to your agent",
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect(
       page.getByRole("menuitem", {
         name: "Copy full prompt",
@@ -2059,14 +2100,32 @@ test.describe("URL-backed live auto-layout probe", () => {
       .grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: new URL(page.url()).origin,
       });
-    await copyPrompt.click();
+    await copyAgentPromptButton.click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toContain(`{ designId: "${designId}" }`);
+      .toContain(
+        "Apply these visual edits to the connected app's source code.",
+      );
     const copiedPrompt = await page.evaluate(() =>
       navigator.clipboard.readText(),
     );
+    expect(copiedPrompt).toContain(`Design ID: ${designId}`);
     expect(copiedPrompt).toContain("get-visual-edit-pending");
+
+    await pendingToolbar
+      .getByRole("button", { name: "Pending visual preview", exact: true })
+      .click();
+    await page
+      .getByRole("menuitem", {
+        name: "Copy prompt to your agent",
+        exact: true,
+      })
+      .click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toContain(
+        "Use the Agent-Native Design MCP tool get-visual-edit-pending",
+      );
 
     const pendingHandoffResponse = await page.request.get(
       `${baseURL}/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(designId)}`,

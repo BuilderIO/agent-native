@@ -38,6 +38,7 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import {
+  getEmbedAuthToken,
   getBuilderParentOrigin,
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
@@ -526,6 +527,7 @@ import {
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
 import {
+  getDesignClipboardLayerEntries,
   readDesignClipboardPayloadFromSystem,
   readSystemClipboard,
 } from "@/lib/design-clipboard";
@@ -795,7 +797,10 @@ import {
 import { runRecordPendingLiveTextEdit } from "./design-editor/commands/record-pending-live-text-edit";
 import { runRecordPendingVisualStyleEdit } from "./design-editor/commands/record-pending-visual-style-edit";
 import { runRedo } from "./design-editor/commands/redo";
-import { runRenderPngBlob } from "./design-editor/commands/render-png-blob";
+import {
+  resolveSelectedScreensExportBounds,
+  runRenderPngBlob,
+} from "./design-editor/commands/render-png-blob";
 import {
   runFileContentSaveKeepalive,
   runQueueFileContentSave,
@@ -952,6 +957,7 @@ import { runPublishAgentSelectionContext } from "./design-editor/effects/publish
 import { runResumePendingGeneration } from "./design-editor/effects/resume-pending-generation";
 import { runSeedCollabContent } from "./design-editor/effects/seed-collab-content";
 import { syncLatestActiveContentFromRender } from "./design-editor/effects/sync-latest-active-content";
+import { isCurrentRuntimeLayerSnapshot } from "./design-editor/export-snapshot-frame";
 import { resolveFigmaPasteScene } from "./design-editor/figma-paste-scene";
 import {
   designGenerationDirectives,
@@ -3508,6 +3514,7 @@ function DesignEditor() {
   const [exportPreviewScreenId, setExportPreviewScreenId] = useState<
     string | null
   >(null);
+  const exportPreviewScreenIdRef = useRef<string | null>(null);
   const [svgExporting, setSvgExporting] = useState(false);
   const [figmaSvgExporting, setFigmaSvgExporting] = useState(false);
   const pngExportingRef = useRef(false);
@@ -4076,6 +4083,8 @@ function DesignEditor() {
     !visualEditAccessLost &&
     !canEditDesign &&
     design?.visibility === "public";
+  const canEditPublicLiveScreenUrl =
+    publicVisualEdit && Boolean(getEmbedAuthToken());
   const canApplyPendingVisualEditsWithAgent =
     canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
   const canApplyPendingVisualEditsFromToolbar =
@@ -5148,6 +5157,9 @@ function DesignEditor() {
       screenId: string;
       readiness: RuntimeLayerSnapshotReadiness;
     } | null>(null);
+  const runtimeLayerSnapshotReadinessByIdRef = useRef<
+    Record<string, RuntimeLayerSnapshotReadiness>
+  >({});
   const [screenRootComputedStylesById, setScreenRootComputedStylesById] =
     useState<Record<string, Record<string, string>>>({});
   const screenRootComputedStylesByIdRef = useRef(screenRootComputedStylesById);
@@ -8359,8 +8371,16 @@ function DesignEditor() {
       const cached = cache.get(screenId);
       if (cached) return cached;
       const callback = (readiness: RuntimeLayerSnapshotReadiness) => {
-        if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) return;
-        setRuntimeLayerSnapshotReadiness({ screenId, readiness });
+        if (
+          activeRuntimeLayerReadinessScreenIdRef.current !== screenId &&
+          exportPreviewScreenIdRef.current !== screenId
+        ) {
+          return;
+        }
+        runtimeLayerSnapshotReadinessByIdRef.current[screenId] = readiness;
+        if (activeRuntimeLayerReadinessScreenIdRef.current === screenId) {
+          setRuntimeLayerSnapshotReadiness({ screenId, readiness });
+        }
       };
       cache.set(screenId, callback);
       return callback;
@@ -13868,17 +13888,12 @@ function DesignEditor() {
   );
 
   const getCanvasClipboardEntries = useCallback(() => {
-    if (copiedLayerEntriesRef.current.length > 0) {
-      return copiedLayerEntriesRef.current;
-    }
-    return copiedLayerHtmlRef.current
-      ? [
-          {
-            html: copiedLayerHtmlRef.current,
-            sourceFileId: activeFile?.id ?? "",
-          },
-        ]
-      : [];
+    return getDesignClipboardLayerEntries({
+      copiedEntries: copiedLayerEntriesRef.current,
+      copiedScreens: copiedScreenEntriesRef.current,
+      fallbackHtml: copiedLayerHtmlRef.current,
+      sourceFileId: activeFile?.id ?? "",
+    });
   }, [activeFile?.id]);
 
   const getCanvasScreenClipboardEntries = useCallback(() => {
@@ -19365,7 +19380,7 @@ function DesignEditor() {
     t,
   ]);
   const handleCopyPendingVisualStylePrompt = useCallback(
-    async (promptOverride?: string, fullPrompt = false) => {
+    async (promptOverride?: string, fullPrompt = true) => {
       if (
         promptOverride === undefined &&
         pendingVisualStyleEdits.length === 0 &&
@@ -19374,6 +19389,7 @@ function DesignEditor() {
         return;
       }
       try {
+        await pendingVisualEditPublicationQueueRef.current;
         const host =
           externalAgentHost?.id === "chatgpt" ||
           externalAgentHost?.id === "claude"
@@ -19499,8 +19515,74 @@ function DesignEditor() {
         : [];
   }, [activeCodeLayerProjection.nodes, selectedElement, selectedLayerIdsState]);
 
+  const resolveSnapshotExportSource = useCallback(
+    async (screenId: string) => {
+      const screen = overviewScreens.find(
+        (candidate) => candidate.id === screenId,
+      );
+      if (!screen) return null;
+      const deadline = window.performance.now() + 15_000;
+      while (window.performance.now() < deadline) {
+        const snapshot = runtimeLayerSnapshotsByIdRef.current[screenId];
+        const baseUrl =
+          liveScreenSnapshotsById[screenId]?.url ??
+          previewUrlAtLiveRoute(
+            screen.url ?? screen.previewUrl,
+            liveRoutePathsByScreenIdRef.current[screenId],
+          );
+        if (
+          snapshot?.html &&
+          baseUrl &&
+          isCurrentRuntimeLayerSnapshot(
+            snapshot,
+            runtimeLayerSnapshotReadinessByIdRef.current[screenId],
+          )
+        ) {
+          return { html: snapshot.html, baseUrl };
+        }
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
+      }
+      return null;
+    },
+    [liveScreenSnapshotsById, overviewScreens],
+  );
+  const markScreenForExport = useCallback(
+    (screenId: string) => {
+      if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) {
+        runtimeLayerSnapshotReadinessByIdRef.current[screenId] = {
+          status: "loading",
+        };
+      }
+      exportPreviewScreenIdRef.current = screenId;
+      setExportPreviewScreenId(screenId);
+    },
+    [setExportPreviewScreenId],
+  );
+  const prepareSelectedScreenForExport = useCallback(
+    async (screenId: string) => {
+      const screen = overviewScreens.find(
+        (candidate) => candidate.id === screenId,
+      );
+      const sourceType =
+        normalizeDesignSourceType(screen?.sourceType) ?? activeCanvasSourceType;
+      if (sourceType === "inline") return;
+      markScreenForExport(screenId);
+      await resolveSnapshotExportSource(screenId);
+    },
+    [
+      activeCanvasSourceType,
+      markScreenForExport,
+      overviewScreens,
+      resolveSnapshotExportSource,
+    ],
+  );
+  const releaseScreenFromExport = useCallback(() => {
+    exportPreviewScreenIdRef.current = null;
+    setExportPreviewScreenId(null);
+  }, [setExportPreviewScreenId]);
+
   const resolvePngCaptureTarget = useCallback(
-    (scope: PngCaptureScope) => {
+    (scope: PngCaptureScope, requestedScreenId?: string) => {
       let iframe = canvasIframeRef.current;
       let cropSelection: ElementInfo | readonly ElementInfo[] | null =
         viewMode === "single" || scope === "element"
@@ -19511,10 +19593,11 @@ function DesignEditor() {
 
       if (scope === "screens" && viewMode === "overview") {
         const screenId =
-          selectedScreenIds.length === 1 ? selectedScreenIds[0] : null;
+          requestedScreenId ??
+          (selectedScreenIds.length === 1 ? selectedScreenIds[0] : null);
         iframe = screenId
           ? document.querySelector<HTMLIFrameElement>(
-              `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+              `iframe[data-screen-iframe-id="${CSS.escape(screenId)}"]`,
             )
           : null;
         cropSelection = null;
@@ -19530,7 +19613,7 @@ function DesignEditor() {
               )
             : ownerFileId
               ? document.querySelector<HTMLIFrameElement>(
-                  `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(ownerFileId)}"]`,
+                  `iframe[data-screen-iframe-id="${CSS.escape(ownerFileId)}"]`,
                 )
               : null;
       }
@@ -19549,6 +19632,44 @@ function DesignEditor() {
           normalizeDesignSourceType(iframe.dataset.designSourceType) ??
           activeCanvasSourceType;
         if (sourceType !== "inline") {
+          const screenId =
+            requestedScreenId ??
+            pngSelectedElements[0]?.sourceLayerIdentity?.screenId ??
+            selectedElement?.sourceLayerIdentity?.screenId ??
+            (selectedScreenIds.length === 1 ? selectedScreenIds[0] : null) ??
+            activeFile?.id;
+          const snapshot = screenId
+            ? runtimeLayerSnapshotsByIdRef.current[screenId]
+            : undefined;
+          const screen = screenId
+            ? overviewScreens.find((candidate) => candidate.id === screenId)
+            : undefined;
+          const baseUrl = screenId
+            ? (liveScreenSnapshotsById[screenId]?.url ??
+              previewUrlAtLiveRoute(
+                screen?.url ?? screen?.previewUrl,
+                liveRoutePathsByScreenIdRef.current[screenId],
+              ))
+            : undefined;
+          if (
+            snapshot?.html &&
+            baseUrl &&
+            isCurrentRuntimeLayerSnapshot(
+              snapshot,
+              screenId
+                ? runtimeLayerSnapshotReadinessByIdRef.current[screenId]
+                : undefined,
+            )
+          ) {
+            return {
+              cropSelection,
+              doc: null,
+              iframe,
+              snapshotSource: { html: snapshot.html, baseUrl },
+              snapshotWidth: screen?.width ?? iframe.clientWidth,
+              snapshotHeight: screen?.height ?? iframe.clientHeight,
+            };
+          }
           throw new PngCaptureError("external-preview");
         }
         if (!canEditDesign) {
@@ -19565,12 +19686,44 @@ function DesignEditor() {
       canvasIframeRef,
       activeFile?.id,
       boardFileId,
+      liveScreenSnapshotsById,
+      overviewScreens,
       pngSelectedElements,
       selectedElement,
       selectedScreenIds,
       viewMode,
     ],
   );
+
+  const resolveSelectedScreensBounds = useCallback(() => {
+    if (viewMode !== "overview") return null;
+    const iframeSizeById = new Map(
+      selectedScreenIds.flatMap((screenId) => {
+        const iframe = document.querySelector<HTMLIFrameElement>(
+          `iframe[data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+        );
+        return iframe
+          ? [
+              [
+                screenId,
+                { width: iframe.clientWidth, height: iframe.clientHeight },
+              ] as const,
+            ]
+          : [];
+      }),
+    );
+    return resolveSelectedScreensExportBounds({
+      selectedScreenIds,
+      overviewScreens,
+      canvasFrameGeometryById: exportCanvasFrameGeometryById,
+      iframeSizeById,
+    });
+  }, [
+    exportCanvasFrameGeometryById,
+    overviewScreens,
+    selectedScreenIds,
+    viewMode,
+  ]);
 
   const renderPngBlob = useCallback(
     async (arg0: {
@@ -19584,6 +19737,8 @@ function DesignEditor() {
           canEditDesign,
           canvasFrameGeometryById: exportCanvasFrameGeometryById,
           overviewScreens,
+          prepareScreenForExport: prepareSelectedScreenForExport,
+          releaseScreenFromExport,
           resolvePngCaptureTarget,
           selectedScreenIds,
           viewMode,
@@ -19595,6 +19750,8 @@ function DesignEditor() {
       canEditDesign,
       exportCanvasFrameGeometryById,
       overviewScreens,
+      prepareSelectedScreenForExport,
+      releaseScreenFromExport,
       resolvePngCaptureTarget,
       selectedScreenIds,
       viewMode,
@@ -19609,8 +19766,7 @@ function DesignEditor() {
           return;
         }
         const copy = {
-          externalPreview:
-            "designEditor.toasts.pngLivePreviewUnavailable" as const,
+          externalPreview: "designEditor.toasts.pngExportError" as const,
           readOnlyPreview:
             "designEditor.toasts.pngReadOnlyUnavailable" as const,
           selectionUnresolved: "designEditor.toasts.pngCreateError" as const,
@@ -19678,12 +19834,16 @@ function DesignEditor() {
   );
 
   const handleDownloadPdf = useCallback(
-    async (settings?: Partial<ExportSettingsValue>) =>
+    async (
+      settings?: Partial<ExportSettingsValue>,
+      scope: PngCaptureScope = "document",
+    ) =>
       runDownloadPdf(
         {
           fallbackExportName,
           pngExportingRef,
           renderPngBlob,
+          resolveSelectedScreensBounds,
           resolvePngCaptureTarget,
           setPngExporting,
           showRasterCaptureError,
@@ -19691,10 +19851,12 @@ function DesignEditor() {
           triggerBlobDownload,
         },
         settings,
+        scope,
       ),
     [
       fallbackExportName,
       renderPngBlob,
+      resolveSelectedScreensBounds,
       resolvePngCaptureTarget,
       t,
       triggerBlobDownload,
@@ -19709,8 +19871,9 @@ function DesignEditor() {
         canvasFrameGeometryById: exportCanvasFrameGeometryById,
         fallbackExportName,
         overviewScreens,
-        prepareScreenForExport: setExportPreviewScreenId,
-        releaseScreenFromExport: () => setExportPreviewScreenId(null),
+        prepareScreenForExport: markScreenForExport,
+        resolveSnapshotExportSource,
+        releaseScreenFromExport,
         pngExportingRef,
         setPngExporting,
         showRasterCaptureError,
@@ -19723,7 +19886,9 @@ function DesignEditor() {
       exportCanvasFrameGeometryById,
       fallbackExportName,
       overviewScreens,
-      setExportPreviewScreenId,
+      markScreenForExport,
+      resolveSnapshotExportSource,
+      releaseScreenFromExport,
       showRasterCaptureError,
       t,
       triggerBlobDownload,
@@ -19810,7 +19975,15 @@ function DesignEditor() {
     (targetFileId: string | undefined): LiveFigmaSvgSnapshot | null => {
       if (!targetFileId) return null;
       const snapshot = runtimeLayerSnapshotsById[targetFileId];
-      if (!snapshot?.html) return null;
+      if (
+        !snapshot?.html ||
+        !isCurrentRuntimeLayerSnapshot(
+          snapshot,
+          runtimeLayerSnapshotReadinessByIdRef.current[targetFileId],
+        )
+      ) {
+        return null;
+      }
       const screen = overviewScreens.find(
         (candidate) => candidate.id === targetFileId,
       );
@@ -19970,7 +20143,7 @@ function DesignEditor() {
         if (settings.format === "svg") {
           await handleDownloadSvg(settings);
         } else if (settings.format === "pdf") {
-          await handleDownloadPdf(settings);
+          await handleDownloadPdf(settings, inspectorRasterScope);
         } else if (settings.format === "jpg" || settings.format === "webp") {
           await handleDownloadPng(
             settings,
@@ -21542,7 +21715,18 @@ function DesignEditor() {
         connectionId?: string;
       },
     ) => {
-      if (!id || !canEditDesign) return;
+      const publicLiveUrlEdit =
+        !canEditDesign &&
+        next.sourceType === "url" &&
+        canEditPublicLiveScreenUrl &&
+        canEditLiveScreen(screenId) &&
+        overviewScreens.some(
+          (screen) =>
+            screen.id === screenId &&
+            resolveOverviewScreenSourceType(screen, designSourceType) ===
+              "localhost",
+        );
+      if (!id || (!canEditDesign && !publicLiveUrlEdit)) return;
       const snapshotHtml =
         next.sourceType === "static"
           ? (runtimeLayerSnapshotsById[screenId]?.html ??
@@ -21560,6 +21744,15 @@ function DesignEditor() {
         {
           onSuccess: (rawResult) => {
             const result = rawResult as UpdateScreenSourceActionResult;
+            if (next.sourceType === "url") {
+              delete liveRoutePathsByScreenIdRef.current[screenId];
+              setLiveRoutePathsByScreenId((current) => {
+                if (!(screenId in current)) return current;
+                const nextRoutes = { ...current };
+                delete nextRoutes[screenId];
+                return nextRoutes;
+              });
+            }
             if (next.sourceType === "static") {
               runInvalidateVisualEditSnapshotPublication(
                 visualEditSnapshotPublicationState,
@@ -21622,10 +21815,14 @@ function DesignEditor() {
       );
     },
     [
+      canEditLiveScreen,
       canEditDesign,
+      designSourceType,
+      canEditPublicLiveScreenUrl,
       id,
       activeFile?.id,
       liveScreenSnapshotsById,
+      overviewScreens,
       queryClient,
       runtimeLayerSnapshotsById,
       setCollabContent,
@@ -21634,6 +21831,11 @@ function DesignEditor() {
       updateScreenSourceMutation,
       viewMode,
     ],
+  );
+  const handleScreenUrlChange = useCallback(
+    (screenId: string, url: string) =>
+      handleScreenSourceChange(screenId, { sourceType: "url", url }),
+    [handleScreenSourceChange],
   );
 
   const selectedScreenLayoutGrid = selectedScreenGeometry
@@ -24221,6 +24423,7 @@ function DesignEditor() {
         (breakpointWidthPx === undefined
           ? activeBreakpointWidthState === undefined
           : activeBreakpointWidthState === breakpointWidthPx);
+      const screenIsBeingExported = screen.id === exportPreviewScreenId;
       const screenSelectedLayerGroups =
         selectedLayerSelectorGroupsByScreen[screen.id] ?? NO_SELECTOR_GROUPS;
       const screenOwnsSelection =
@@ -24451,7 +24654,8 @@ function DesignEditor() {
                   handleScreenExternalContentSnapshot(screen.id, snapshot)
           }
           onRuntimeLayerSnapshotReadinessChange={
-            screenIsActive && runtimeProjectionEligible
+            (screenIsActive || screenIsBeingExported) &&
+            runtimeProjectionEligible
               ? getRuntimeLayerSnapshotReadinessCallback(screen.id)
               : undefined
           }
@@ -24522,7 +24726,7 @@ function DesignEditor() {
           handToolActive={activeTool === "hand"}
           spacePanActive={spacePanActive}
           clearSelectionRequest={overviewClearSelectionRequest}
-          registerRuntimeBridge={screenIsActive}
+          registerRuntimeBridge={screenIsActive || screenIsBeingExported}
           selectedSelector={screenOwnsSelection ? selectedCanvasSelector : null}
           selectedSelectorCandidates={
             screenOwnsSelection
@@ -24657,6 +24861,7 @@ function DesignEditor() {
     [
       activeFile?.id,
       activeBreakpointWidthState,
+      exportPreviewScreenId,
       getScreenContent,
       handleBreakpointBarSelect,
       designSourceType,
@@ -26290,6 +26495,9 @@ function DesignEditor() {
     sourceLocationSnapshotFailed: activeRuntimeSourceLocationSnapshotFailed,
     localhostConnections: activeLocalhostConnectionResult?.connections,
     onScreenSourceChange: canEditDesign ? handleScreenSourceChange : undefined,
+    onScreenUrlChange: canEditPublicLiveScreenUrl
+      ? handleScreenUrlChange
+      : undefined,
     onAddLocalhostScreen: canEditDesign
       ? handleOpenAddLocalhostScreen
       : undefined,
@@ -27275,7 +27483,7 @@ function DesignEditor() {
                               ? "designEditor.pendingVisualStyles.applySharedEdits"
                               : canApplyPendingVisualEditsFromToolbar
                                 ? "designEditor.pendingVisualStyles.applyAria"
-                                : "designEditor.pendingVisualStyles.copyPrompt",
+                                : "designEditor.pendingVisualStyles.copyAgentPrompt",
                           )}
                           disabled={
                             applyingViaHost ||
@@ -27291,6 +27499,7 @@ function DesignEditor() {
                               : () =>
                                   handleCopyPendingVisualStylePrompt(
                                     remoteVisualEditPrompt,
+                                    true,
                                   )
                           }
                         >
@@ -27300,7 +27509,7 @@ function DesignEditor() {
                           <span className="truncate">
                             {t(
                               !canApplyPendingVisualEditsFromToolbar
-                                ? "designEditor.pendingVisualStyles.copyPrompt"
+                                ? "designEditor.pendingVisualStyles.copyAgentPrompt"
                                 : applyingViaHost
                                   ? "designEditor.pendingVisualStyles.applying"
                                   : pendingStructureVerificationBusy
@@ -27345,6 +27554,7 @@ function DesignEditor() {
                                 onClick={() =>
                                   handleCopyPendingVisualStylePrompt(
                                     remoteVisualEditPrompt,
+                                    false,
                                   )
                                 }
                               >

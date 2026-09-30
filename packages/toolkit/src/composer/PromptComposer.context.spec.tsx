@@ -407,6 +407,9 @@ describe("controlled composer context", () => {
         expect(panel.style.width).toBe(`${width}px`);
         if (!plusMenu) expect(panel.style.left).toBe("100px");
       }
+      bounds = { ...bounds, y: window.innerHeight + 500 };
+      await act(async () => observation.resize());
+      if (plusMenu) expect(panel.style.maxHeight).toBe("280px");
       bounds = { ...bounds, x: 120, y: 160 };
       await act(async () => window.dispatchEvent(new Event("scroll")));
       if (!plusMenu) {

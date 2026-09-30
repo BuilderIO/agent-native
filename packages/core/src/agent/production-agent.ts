@@ -3844,11 +3844,21 @@ export function normalizeToolErrorForBreaker(error: string): string {
   );
 }
 
-function rateLimitRecoveryHint(message: string): string {
+function rateLimitRecoveryHint(message: string, error?: unknown): string {
+  const statusCode =
+    typeof error === "object" && error !== null && "statusCode" in error
+      ? error.statusCode
+      : undefined;
+  const errorCode =
+    typeof error === "object" && error !== null && "errorCode" in error
+      ? error.errorCode
+      : undefined;
   if (
+    statusCode !== 429 &&
     !/\b(?:429|rate[-\s]?limit|rate limited|quota exceeded|too many requests|calls limit exceeded)\b/i.test(
       message,
-    )
+    ) &&
+    !(typeof errorCode === "string" && /rate[-_]?limit|quota/i.test(errorCode))
   ) {
     return "";
   }
@@ -6805,7 +6815,7 @@ export async function runAgentLoop(opts: {
               isActionContractError(err) && err.errorCode !== "action_failed"
                 ? ` (errorCode: ${err.errorCode})`
                 : "";
-            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
+            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message, err)}`;
           }
           isError = true;
         }

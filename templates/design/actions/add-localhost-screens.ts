@@ -21,10 +21,12 @@ import { withDesignSourceMutationTransaction } from "../server/source-workspace.
 import {
   mergeCanvasFramePlacements,
   nextCanvasFramePosition,
+  nextFreeCanvasRowY,
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { getRotatedFrameCorners } from "../shared/canvas-math.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
@@ -133,6 +135,48 @@ function placementAgainstLatest(
     z: choose("z"),
     rotation: latest?.rotation,
   };
+}
+
+function screenFrameBounds(
+  frame: CanvasFrameGeometry,
+  fileId: string,
+  metadataByFileId: Record<string, unknown>,
+) {
+  const rawMetadata = metadataByFileId[fileId];
+  const metadata = isRecord(rawMetadata) ? rawMetadata : {};
+  const width = frame.width ?? metadataNumber(metadata, "width") ?? 0;
+  const height = frame.height ?? metadataNumber(metadata, "height") ?? 0;
+  if (width <= 0 || height <= 0) return null;
+  const corners = getRotatedFrameCorners({
+    x: frame.x ?? 0,
+    y: frame.y ?? 0,
+    width,
+    height,
+    rotation: frame.rotation ?? 0,
+  });
+  const xs = corners.map((point) => point.x);
+  const ys = corners.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function frameBoundsOverlap(
+  left: NonNullable<ReturnType<typeof screenFrameBounds>>,
+  right: NonNullable<ReturnType<typeof screenFrameBounds>>,
+) {
+  return (
+    left.width > 0 &&
+    left.height > 0 &&
+    right.width > 0 &&
+    right.height > 0 &&
+    left.x < right.x + right.width &&
+    left.x + left.width > right.x &&
+    left.y < right.y + right.height &&
+    left.y + left.height > right.y
+  );
 }
 
 function normalizeBaseUrl(value: string): string {
@@ -1200,17 +1244,103 @@ export default defineAction({
         const latestFrames = parseCanvasFrameGeometryById(
           currentData.canvasFrames,
         );
-        const placements = placementIntents.map((intent) =>
+        const previousMetadata = isRecord(currentData.screenMetadata)
+          ? { ...currentData.screenMetadata }
+          : {};
+        const placementCandidates = placementIntents.map((intent) =>
           placementAgainstLatest(intent, latestFrames[intent.fileId]),
         );
+        const newPlacementIndexes = placementCandidates.flatMap(
+          (placement, index) => {
+            if (
+              !placement.fileId ||
+              placementIntents[index]?.existedAtStart ||
+              placementIntents[index]?.owns.y ||
+              latestFrames[placement.fileId]
+            ) {
+              return [];
+            }
+            return [index];
+          },
+        );
+        const defaultYPlacementIndexes = newPlacementIndexes.filter(
+          (index) => !placementIntents[index]?.owns.y,
+        );
+        const overlapsExistingFrame = defaultYPlacementIndexes.some((index) => {
+          const placement = placementCandidates[index];
+          if (!placement?.fileId) return false;
+          const bounds = screenFrameBounds(
+            placement,
+            placement.fileId,
+            previousMetadata,
+          );
+          if (!bounds) return false;
+          return Object.entries(latestFrames).some(([fileId, frame]) => {
+            const existingBounds = screenFrameBounds(
+              frame,
+              fileId,
+              previousMetadata,
+            );
+            return Boolean(
+              existingBounds && frameBoundsOverlap(bounds, existingBounds),
+            );
+          });
+        });
+        let placements = placementCandidates;
+        if (overlapsExistingFrame && defaultYPlacementIndexes.length > 0) {
+          const placementMetadata = {
+            ...previousMetadata,
+            ...Object.fromEntries(
+              savedScreens.map((screen) => {
+                const previousScreenMetadata = previousMetadata[screen.id];
+                return [
+                  screen.id,
+                  {
+                    ...(isRecord(previousScreenMetadata)
+                      ? previousScreenMetadata
+                      : {}),
+                    width: screen.width,
+                    height: screen.height,
+                  },
+                ];
+              }),
+            ),
+          };
+          const screenFileIds = new Set([
+            ...Object.keys(latestFrames),
+            ...getOverviewScreenFileIds(existingFiles),
+            ...savedScreens.map((screen) => screen.id),
+          ]);
+          const nextRowY = nextFreeCanvasRowY(
+            currentData.canvasFrames,
+            layoutGap,
+            {
+              responsiveLayout: {
+                screenFileIds: Array.from(screenFileIds),
+                screenMetadataByFileId: placementMetadata,
+                breakpointWidths: getResponsiveBreakpointWidths(
+                  currentData.breakpointSet,
+                ),
+              },
+            },
+          );
+          const firstNewRowY = Math.min(
+            ...defaultYPlacementIndexes.map(
+              (index) => placementCandidates[index]?.y ?? 0,
+            ),
+          );
+          const rowOffset = Math.max(0, nextRowY - firstNewRowY);
+          placements = placementCandidates.map((placement, index) =>
+            defaultYPlacementIndexes.includes(index)
+              ? { ...placement, y: (placement.y ?? 0) + rowOffset }
+              : placement,
+          );
+        }
         const mergedFrames = mergeCanvasFramePlacements({
           existing: currentData.canvasFrames,
           placements,
           resolveFileId: (placement) => placement.fileId,
         });
-        const previousMetadata = isRecord(currentData.screenMetadata)
-          ? { ...currentData.screenMetadata }
-          : {};
         const previousLocalhostScreens = isRecord(currentData.localhostScreens)
           ? { ...currentData.localhostScreens }
           : {};

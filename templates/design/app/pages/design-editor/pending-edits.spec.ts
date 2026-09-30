@@ -432,6 +432,23 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
 });
 
 describe("formatVisualEditClipboardPrompt", () => {
+  it("copies the full source instructions by default", () => {
+    const prompt = "Apply the exact source edits from this canvas.";
+    const copied = formatVisualEditClipboardPrompt(
+      prompt,
+      "claude",
+      undefined,
+      "design-1",
+    );
+
+    expect(copied).toContain("Design ID: design-1");
+    expect(copied).toContain("idiomatic code changes");
+    expect(copied).toContain(prompt);
+    expect(copied).not.toContain(
+      "Use the Agent-Native Design MCP tool get-visual-edit-pending with",
+    );
+  });
+
   it("uses the hosted MCP handoff across detected and unknown hosts", () => {
     const prompt = "Apply the exact source edits from this canvas.";
     for (const host of [
@@ -485,7 +502,7 @@ describe("formatVisualEditClipboardPrompt", () => {
   it("uses the design id from the URL when it is not passed", () => {
     const copied = formatVisualEditClipboardPrompt("Apply these edits.", null);
     expect(copied).toContain("get-visual-edit-pending");
-    expect(copied).toContain("using the design ID from this URL");
+    expect(copied).toContain("Use the design ID from this URL.");
   });
 
   it("copies full implementation instructions and the detailed handoff", () => {

@@ -34,6 +34,22 @@ export interface DesignClipboardRepresentations {
   html: string;
 }
 
+export function getDesignClipboardLayerEntries({
+  copiedEntries,
+  copiedScreens,
+  fallbackHtml,
+  sourceFileId,
+}: {
+  copiedEntries: DesignClipboardPayload["entries"];
+  copiedScreens: DesignClipboardPayload["screens"];
+  fallbackHtml: string | null;
+  sourceFileId: string;
+}): DesignClipboardPayload["entries"] {
+  if (copiedEntries.length > 0) return copiedEntries;
+  if (copiedScreens?.length) return [];
+  return fallbackHtml ? [{ html: fallbackHtml, sourceFileId }] : [];
+}
+
 export interface ReadDesignClipboardPayload {
   payload: DesignClipboardPayload;
   markerText: string;
