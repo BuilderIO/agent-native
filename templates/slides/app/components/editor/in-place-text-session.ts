@@ -1886,7 +1886,7 @@ export function startInPlaceTextSession(
               return true;
             }
           }
-          if (selectedRows.length !== 0 && selectedRows.length < rows.length) {
+          if (selectedRows.length > 0) {
             const next = toggleSlideList(el, kind, selectedRows);
             if (!next) return false;
             if (next !== el) rebind(next);

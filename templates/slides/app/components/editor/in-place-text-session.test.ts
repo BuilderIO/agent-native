@@ -1310,6 +1310,59 @@ describe("in-place text session: commands", () => {
     expect(el.children[1]?.textContent).toBe("Second");
   });
 
+  it("toggles a fully selected nested list without changing sibling content", () => {
+    const el = mount(
+      '<div id="t"><p>Intro</p><ul><li>First</li><li>Second</li></ul><p>Outro</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const first = textOf(el, "First");
+    const second = textOf(el, "Second");
+    select(first, 0, second, second.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(Array.from(el.children, (child) => child.tagName)).toEqual([
+      "P",
+      "DIV",
+      "DIV",
+      "P",
+    ]);
+    expect(Array.from(el.children, (child) => child.textContent)).toEqual([
+      "Intro",
+      "First",
+      "Second",
+      "Outro",
+    ]);
+  });
+
+  it("toggles selected rows across both sibling semantic lists", () => {
+    const el = mount(
+      '<div id="t"><ul><li>First</li><li>Second</li></ul><ul><li>Third</li><li>Fourth</li></ul></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const second = textOf(el, "Second");
+    const third = textOf(el, "Third");
+    select(second, 0, third, third.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(Array.from(el.children, (child) => child.tagName)).toEqual([
+      "UL",
+      "DIV",
+      "DIV",
+      "UL",
+    ]);
+    expect(
+      Array.from(el.querySelectorAll("ul > li"), (row) => row.textContent),
+    ).toEqual(["First", "Fourth"]);
+    expect(Array.from(el.children, (child) => child.textContent)).toEqual([
+      "First",
+      "Second",
+      "Third",
+      "Fourth",
+    ]);
+  });
+
   it("selects the element's text for Mod-A", () => {
     const el = mount('<p id="t">One <b>two</b></p><p>outside</p>');
     session = startInPlaceTextSession(el);

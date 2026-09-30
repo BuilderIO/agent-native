@@ -30,6 +30,32 @@ const LIST_STYLE: Record<SlideListKind, string> = {
     "margin:0;padding-left:1.25em;list-style-position:outside;list-style-type:decimal;",
 };
 
+const LIST_LAYOUT_PROPERTIES = [
+  "position",
+  "inset",
+  "inset-block",
+  "inset-inline",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "width",
+  "height",
+  "min-width",
+  "max-width",
+  "min-height",
+  "max-height",
+  "display",
+  "transform",
+  "transform-origin",
+  "z-index",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+] as const;
+
 const ROW_TEXT_PROPERTY =
   /^(color|font(-.+)?|letter-spacing|word-spacing|line-height|text-(transform|shadow|decoration(-.+)?))$/;
 
@@ -102,17 +128,19 @@ export function slideListRows(
   const lists = isListTag(element)
     ? [element]
     : Array.from(element.children).filter(isListTag);
-  const list = lists.find((candidate) =>
+  const intersectedLists = lists.filter((candidate) =>
     Array.from(candidate.children).some((row) =>
       range?.collapsed
         ? row.contains(range.startContainer)
         : !!range && range.intersectsNode(row),
     ),
   );
-  if (!list) return bulletRows(element);
-  return Array.from(list.children).filter(
-    (row): row is HTMLElement =>
-      row instanceof HTMLElement && row.tagName === "LI",
+  if (intersectedLists.length === 0) return bulletRows(element);
+  return intersectedLists.flatMap((list) =>
+    Array.from(list.children).filter(
+      (row): row is HTMLElement =>
+        row instanceof HTMLElement && row.tagName === "LI",
+    ),
   );
 }
 
@@ -243,36 +271,34 @@ export function toggleSlideList(
   selectedBulletRows?: HTMLElement[],
 ): HTMLElement | null {
   const doc = element.ownerDocument;
-  const selectedList = selectedBulletRows?.[0]?.parentElement;
-  if (
-    selectedBulletRows?.length &&
-    selectedList &&
-    isListTag(selectedList) &&
-    selectedBulletRows.every((row) => row.parentElement === selectedList)
-  ) {
-    const listRows = Array.from(selectedList.children).filter(
-      (row): row is HTMLElement =>
-        row instanceof HTMLElement && row.tagName === "LI",
-    );
-    if (
-      selectedBulletRows.length < listRows.length ||
-      (selectedList.tagName === LIST_TAG[kind] && selectedBulletRows.length > 0)
-    ) {
-      return toggleSelectedListRows(
-        element,
-        selectedList,
-        selectedBulletRows,
-        kind,
-      );
+  if (selectedBulletRows?.length) {
+    const groups = new Map<HTMLElement, HTMLElement[]>();
+    for (const row of selectedBulletRows) {
+      const list = row.parentElement;
+      if (!list || !isListTag(list)) continue;
+      const rows = groups.get(list) ?? [];
+      rows.push(row);
+      groups.set(list, rows);
     }
-    if (selectedList.tagName !== LIST_TAG[kind]) {
-      const next = retag(selectedList, LIST_TAG[kind]);
-      next.style.setProperty(
-        "list-style-type",
-        kind === "ordered" ? "decimal" : "disc",
+    let result = element;
+    for (const [list, rows] of groups) {
+      const listRows = Array.from(list.children).filter(
+        (row): row is HTMLElement =>
+          row instanceof HTMLElement && row.tagName === "LI",
       );
-      return selectedList === element ? next : element;
+      if (rows.length < listRows.length || list.tagName === LIST_TAG[kind]) {
+        const next = toggleSelectedListRows(element, list, rows, kind);
+        if (list === element) result = next;
+      } else if (list.tagName !== LIST_TAG[kind]) {
+        const next = retag(list, LIST_TAG[kind]);
+        next.style.setProperty(
+          "list-style-type",
+          kind === "ordered" ? "decimal" : "disc",
+        );
+        if (list === element) result = next;
+      }
     }
+    if (groups.size > 0) return result;
   }
   const existing = listElement(element);
 
@@ -332,10 +358,34 @@ function toggleSelectedListRows(
   const currentKind = list.tagName === "OL" ? "ordered" : "bullet";
   const selected = new Set(selectedRows);
   const template = list.cloneNode(false) as HTMLElement;
+  stripCopiedIdentity(template);
+  for (const property of LIST_LAYOUT_PROPERTIES) {
+    template.style.removeProperty(property);
+  }
   const fragment = list.ownerDocument.createDocumentFragment();
+  const orderedValues = new Map<HTMLElement, number>();
+  if (currentKind === "ordered") {
+    const rows = Array.from(list.children).filter(
+      (row): row is HTMLElement =>
+        row instanceof HTMLElement && row.tagName === "LI",
+    );
+    const reversed = list.hasAttribute("reversed");
+    const step = reversed ? -1 : 1;
+    const start = list.getAttribute("start");
+    let value = start?.trim() ? Number(start) : reversed ? rows.length : 1;
+    if (!Number.isInteger(value)) value = reversed ? rows.length : 1;
+    for (const row of rows) {
+      const rowValue = row.getAttribute("value");
+      if (rowValue?.trim()) {
+        const override = Number(rowValue);
+        if (Number.isInteger(override)) value = override;
+      }
+      orderedValues.set(row, value);
+      value += step;
+    }
+  }
   let activeList: HTMLElement | null = null;
   let activeKind: SlideListKind | null = null;
-  let firstList = true;
 
   for (const row of Array.from(list.children)) {
     if (!(row instanceof HTMLElement)) continue;
@@ -352,10 +402,22 @@ function toggleSelectedListRows(
     }
     if (!activeList || activeKind !== selectedKind) {
       activeList = template.cloneNode(false) as HTMLElement;
-      if (!firstList) stripCopiedIdentity(activeList);
-      firstList = false;
       if (activeList.tagName !== LIST_TAG[selectedKind]) {
         activeList = retag(activeList, LIST_TAG[selectedKind]);
+      }
+      if (selectedKind === "ordered") {
+        const start = orderedValues.get(row);
+        if (start !== undefined && currentKind === "ordered") {
+          activeList.setAttribute("start", String(start));
+        } else {
+          activeList.removeAttribute("start");
+          activeList.removeAttribute("reversed");
+          activeList.removeAttribute("type");
+        }
+      } else {
+        activeList.removeAttribute("start");
+        activeList.removeAttribute("reversed");
+        activeList.removeAttribute("type");
       }
       activeList.style.setProperty(
         "list-style-type",
@@ -369,6 +431,12 @@ function toggleSelectedListRows(
 
   if (list === element) {
     const root = retag(list, "DIV");
+    root.removeAttribute("start");
+    root.removeAttribute("reversed");
+    root.removeAttribute("type");
+    root.style.removeProperty("padding-left");
+    root.style.removeProperty("list-style-position");
+    root.style.removeProperty("list-style-type");
     root.replaceChildren(fragment);
     return root;
   }
