@@ -497,7 +497,7 @@ function HistoryPopover({
       <PopoverAnchor asChild>
         <span
           aria-hidden
-          className={`absolute top-0 h-px w-px ${popoverAlign === "start" ? "start-2" : "end-2"}`}
+          className={`absolute h-px w-px ${popoverAlign === "start" ? "top-12 start-2" : "top-0 end-2"}`}
         />
       </PopoverAnchor>
       <PopoverContent
