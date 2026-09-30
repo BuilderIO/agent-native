@@ -1598,10 +1598,14 @@ export default function Index({ active = true }: { active?: boolean }) {
 
       try {
         if (selection.kind === "pptx") {
-          const imported = (await callAction("import-pptx", {
-            filePath: file.path,
-            designSystemId: initialDesignSystemId,
-          })) as {
+          const imported = (await callAction(
+            "import-pptx",
+            {
+              filePath: file.path,
+              designSystemId: initialDesignSystemId,
+            },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
             id?: unknown;
             imported?: unknown;
             slideCount?: unknown;
@@ -1643,12 +1647,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         }
 
         try {
-          const imported = (await callAction("import-file", {
-            filePath: file.path,
-            format: "pdf",
-            deckId: deck.id,
-            importIntoDeck: true,
-          })) as {
+          const imported = (await callAction(
+            "import-file",
+            {
+              filePath: file.path,
+              format: "pdf",
+              deckId: deck.id,
+              importIntoDeck: true,
+            },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
             imported?: unknown;
             deckId?: unknown;
             pageCount?: unknown;
