@@ -2820,6 +2820,24 @@ const AgentKitAssistantChatBody = forwardRef<
           void sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
         }
       />
+      {history?.historyLoadFailed ? (
+        <div
+          role="alert"
+          className="mx-3 mb-2 flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs"
+        >
+          <span className="text-muted-foreground">
+            {t("agentChat.message.historyUnavailable")}
+          </span>
+          <button
+            type="button"
+            onClick={history.retryHistory}
+            disabled={history.isRetryingHistory}
+            className="shrink-0 font-medium text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
+      ) : null}
       <AgentKitChat
         className={props.className}
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}

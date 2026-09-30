@@ -991,6 +991,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "이 지점으로 되돌릴까요? 이후 변경 사항은 사라집니다.",
   "message.restoreRequestFailed": "복원 요청에 실패했습니다.",
+  "message.historyUnavailable": "변경 기록을 불러올 수 없습니다.",
   "message.threadNotFound":
     "이 채팅 스레드는 더 이상 사용할 수 없습니다. 새 채팅을 시작하거나 예상치 못한 문제라면 다시 시도하세요.",
   "message.restoring": "복원 중...",
