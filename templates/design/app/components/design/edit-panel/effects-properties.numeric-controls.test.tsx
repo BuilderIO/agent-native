@@ -86,4 +86,82 @@ describe("effect number controls", () => {
 
     await enterAndCommit("Blur value", "24", onChange);
   });
+
+  async function typeValue(ariaLabel: string, value: string) {
+    const input = container.querySelector<HTMLInputElement>(
+      `input[aria-label="${ariaLabel}"]`,
+    );
+    expect(input).not.toBeNull();
+    await act(async () => {
+      input!.focus();
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, value);
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    return input!;
+  }
+
+  it("commits a background blur value on Enter", async () => {
+    const onChange = vi.fn();
+    await act(async () => {
+      root.render(
+        createElement(BlurControl, {
+          label: "Background blur",
+          value: 8,
+          onChange,
+        }),
+      );
+    });
+
+    const input = await typeValue("Background blur value", "25");
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onChange).toHaveBeenLastCalledWith(25, { phase: "commit" });
+  });
+
+  it("commits a previewed blur value when closing the popover removes the field before it blurs", async () => {
+    const onChange = vi.fn();
+    await act(async () => {
+      root.render(
+        createElement(BlurControl, {
+          label: "Background blur",
+          value: 8,
+          onChange,
+        }),
+      );
+    });
+
+    await typeValue("Background blur value", "25");
+    await act(async () => root.render(null));
+
+    expect(onChange).toHaveBeenLastCalledWith(25, { phase: "commit" });
+  });
+
+  it("does not commit again on close after the value was already committed", async () => {
+    const onChange = vi.fn();
+    await act(async () => {
+      root.render(
+        createElement(ShadowNumberControl, {
+          label: "Blur",
+          ariaLabel: "Blur",
+          value: 12,
+          min: 0,
+          onChange,
+        }),
+      );
+    });
+
+    const input = await typeValue("Blur value", "24");
+    await act(async () => input.blur());
+    const callsAfterBlur = onChange.mock.calls.length;
+    await act(async () => root.render(null));
+
+    expect(onChange).toHaveBeenCalledTimes(callsAfterBlur);
+  });
 });

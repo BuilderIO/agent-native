@@ -66,6 +66,7 @@ const typeOptions = [
   "generic",
   "slack",
   "granola",
+  "zoom",
   "Docs",
   "Notion",
   "GitHub",

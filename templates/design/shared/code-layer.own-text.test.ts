@@ -49,4 +49,16 @@ describe("which elements hold text of their own", () => {
 
     expect(paintsOwnText(html, "row")).toBe(false);
   });
+
+  it("does not count script, style, or comment source between children as text", () => {
+    const html = `<body class="screen"><div class="card"></div><!-- note --><script data-an-shader-runtime>(function () { var x = 1; })();</script><style>.card{color:red}</style></body>`;
+
+    expect(paintsOwnText(html, "screen")).toBe(false);
+  });
+
+  it("still counts real text beside a script", () => {
+    const html = `<body class="screen">Hello<script>var x = 1;</script></body>`;
+
+    expect(paintsOwnText(html, "screen")).toBe(true);
+  });
 });

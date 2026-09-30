@@ -38,6 +38,13 @@ const labsActions = vi.hoisted(() => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useChangeVersions: () => 0,
+  useDemoModeStatus: () => ({
+    enabled: false,
+    forced: false,
+    isLoading: false,
+  }),
+}));
+vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: () => ({
     data: labsActions.query.data,
     isLoading: labsActions.query.data === undefined && !labsActions.isError,

@@ -26,20 +26,26 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("./mcp-integration-catalog.js", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/client/resources/mcp-integration-catalog")
-  >()),
-  navigateToMcpOAuthStart: mocks.navigateToMcpOAuthStart,
-  isCustomMcpIntegrationEnabled: () => mocks.customIntegrationEnabled(),
-}));
+vi.mock(
+  "@agent-native/core/client/resources/mcp-integration-catalog",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/resources/mcp-integration-catalog")
+    >()),
+    navigateToMcpOAuthStart: mocks.navigateToMcpOAuthStart,
+    isCustomMcpIntegrationEnabled: () => mocks.customIntegrationEnabled(),
+  }),
+);
 
-vi.mock("./use-mcp-servers.js", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/client/resources/use-mcp-servers")
-  >()),
-  useMcpServers: () => mocks.mcpServersQuery,
-}));
+vi.mock(
+  "@agent-native/core/client/resources/use-mcp-servers",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/resources/use-mcp-servers")
+    >()),
+    useMcpServers: () => mocks.mcpServersQuery,
+  }),
+);
 
 describe("McpIntegrationDialog", () => {
   let container: HTMLDivElement;

@@ -63,6 +63,60 @@ registerRequiredSecret({
 });
 
 registerRequiredSecret({
+  key: "ZOOM_ACCOUNT_ID",
+  label: "Zoom Account ID",
+  description:
+    "Optional Zoom Server-to-Server OAuth account ID for cloud-recording transcript imports. The app needs scopes user:read:list_users:admin and cloud_recording:read:list_user_recordings:admin.",
+  docsUrl: "https://developers.zoom.us/docs/internal-apps/s2s-oauth/",
+  scope: "workspace",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Zoom transcript imports",
+      effectWhenRemoved: "Zoom transcript imports stop.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "ZOOM_CLIENT_ID",
+  label: "Zoom Client ID",
+  description:
+    "Optional Zoom Server-to-Server OAuth client ID for cloud-recording transcript imports. The app needs scopes user:read:list_users:admin and cloud_recording:read:list_user_recordings:admin.",
+  docsUrl: "https://developers.zoom.us/docs/internal-apps/s2s-oauth/",
+  scope: "workspace",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Zoom transcript imports",
+      effectWhenRemoved: "Zoom transcript imports stop.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "ZOOM_CLIENT_SECRET",
+  label: "Zoom Client Secret",
+  description:
+    "Optional Zoom Server-to-Server OAuth client secret for cloud-recording transcript imports. The app needs scopes user:read:list_users:admin and cloud_recording:read:list_user_recordings:admin.",
+  docsUrl: "https://developers.zoom.us/docs/internal-apps/s2s-oauth/",
+  scope: "workspace",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Zoom transcript imports",
+      effectWhenRemoved: "Zoom transcript imports stop.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
   key: "GITHUB_TOKEN",
   label: "GitHub Token",
   description:
@@ -90,6 +144,15 @@ registerSecretUsage(GEMINI_API_KEY, [
     feature: "Embeddings",
     effectWhenRemoved:
       "Semantic search uses another provider, or falls back to keyword search.",
+  },
+]);
+
+registerSecretUsage("OPENAI_API_KEY", [
+  {
+    appId: "brain",
+    feature: "Search embeddings",
+    effectWhenRemoved:
+      "New Slack and Zoom items are not embedded and semantic search fails.",
   },
 ]);
 

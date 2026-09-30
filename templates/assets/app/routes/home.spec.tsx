@@ -7,6 +7,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const sendToAgentChatMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  markAgentChatHomeHandoff: vi.fn(),
+  sendToAgentChat: sendToAgentChatMock,
+}));
+
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentChatHome: (props: Record<string, unknown>) => (
     <div>
       {props.homeIntroSlot as React.ReactNode}
@@ -14,8 +19,6 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
       {props.afterComposerSlot as React.ReactNode}
     </div>
   ),
-  markAgentChatHomeHandoff: vi.fn(),
-  sendToAgentChat: sendToAgentChatMock,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({

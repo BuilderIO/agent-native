@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   documentQueryFilter,
+  ensurePreviewDocumentDraftRead,
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
   isDocumentUpdateSuperseded,
@@ -87,20 +88,22 @@ export function PageDraftRecovery({
     drafts.data.draft.editorSessionId === liveEditorSessionId
       ? null
       : drafts.data?.draft;
+  // No scope until the session read returns; the session cache expires, so a
+  // page opened later can mount before then. Unverified until it does.
+  const scopeVerified = scopeKey !== null && verifiedScopeKey === scopeKey;
   const editorReleased =
-    releasedScopeKey === scopeKey && verifiedScopeKey === scopeKey && !draft;
+    scopeVerified && releasedScopeKey === scopeKey && !draft;
 
   useEffect(() => {
     setVerifiedScopeKey(null);
     setReleasedScopeKey(null);
     if (!scopeKey || creationPending) return;
     let cancelled = false;
-    void callAction(
-      "get-preview-document-draft",
-      { documentId: document.id },
-      { method: "GET" },
+    void ensurePreviewDocumentDraftRead(
+      queryClient,
+      document.id,
+      document.createdAt,
     )
-      .then(() => drafts.refetch())
       .then(() => {
         if (!cancelled) setVerifiedScopeKey(scopeKey);
       })
@@ -124,7 +127,7 @@ export function PageDraftRecovery({
     if (journalState === "promoting" || editorReleased) return;
     if (
       !drafts.data ||
-      verifiedScopeKey !== scopeKey ||
+      !scopeVerified ||
       creationPending ||
       documentBodyHydrationIsPending(document)
     )
@@ -391,20 +394,19 @@ export function PageDraftRecovery({
     editorReleased,
     journalRevision,
     journalState,
-    scopeKey,
+    scopeVerified,
     session?.email,
     session?.orgId,
-    verifiedScopeKey,
   ]);
 
   useEffect(() => {
     if (
       drafts.data?.draft === null &&
-      verifiedScopeKey === scopeKey &&
+      scopeVerified &&
       journalState === "ready"
     )
       setReleasedScopeKey(scopeKey);
-  }, [drafts.data, journalState, scopeKey, verifiedScopeKey]);
+  }, [drafts.data, journalState, scopeKey, scopeVerified]);
 
   async function settleDraft(restore: boolean) {
     if (!draft || busy) return;
@@ -561,7 +563,7 @@ export function PageDraftRecovery({
       failure ||
       journalState === "checking" ||
       journalState === "promoting" ||
-      verifiedScopeKey !== scopeKey
+      !scopeVerified
     )
       return;
     const attempt = `${draft.version}:${document.updatedAt}`;
@@ -575,8 +577,7 @@ export function PageDraftRecovery({
     failure,
     hasEditIdentity,
     journalState,
-    scopeKey,
-    verifiedScopeKey,
+    scopeVerified,
   ]);
   useEffect(() => {
     if (
@@ -586,7 +587,7 @@ export function PageDraftRecovery({
       failure ||
       journalState === "checking" ||
       journalState === "promoting" ||
-      verifiedScopeKey !== scopeKey ||
+      !scopeVerified ||
       documentBodyHydrationIsPending(document)
     )
       return;
@@ -623,10 +624,9 @@ export function PageDraftRecovery({
     failure,
     hasEditIdentity,
     journalState,
-    scopeKey,
+    scopeVerified,
     session?.email,
     session?.orgId,
-    verifiedScopeKey,
   ]);
 
   // Keep the editor at one tree position so a notice never remounts it.
@@ -661,7 +661,7 @@ export function PageDraftRecovery({
     );
   if (
     !drafts.data ||
-    verifiedScopeKey !== scopeKey ||
+    !scopeVerified ||
     journalState === "checking" ||
     journalState === "promoting"
   )
