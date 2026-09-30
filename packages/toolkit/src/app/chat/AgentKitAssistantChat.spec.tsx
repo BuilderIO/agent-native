@@ -880,12 +880,11 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.useRealChat = true;
       const client = await useRealComposer(startRun);
       try {
-        await mount(
-          baseProps({
-            composerLayoutVariant,
-            showModelSelector: false,
-          }),
-        );
+        const props = baseProps({
+          composerLayoutVariant,
+          showModelSelector: false,
+        });
+        await mount(props);
         container.style.width =
           composerLayoutVariant === "compact" ? "320px" : "960px";
         const composer = chatMocks.composerProps.composerRef.current;
@@ -908,6 +907,18 @@ describe("AgentKitAssistantChat host behavior", () => {
         ).toContain("First prompt");
         expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([]);
         expect(editor.textContent).toBe("");
+
+        await act(async () =>
+          root.render(<AgentKitAssistantChat {...props} isNewThread={false} />),
+        );
+        await flush();
+
+        expect(chatMocks.rootProps.load).toBe("manual");
+        expect(
+          container
+            .querySelector<HTMLElement>("[contenteditable]")
+            ?.getAttribute("contenteditable"),
+        ).toBe("true");
 
         await act(async () => composer.setText("Next draft"));
         await act(async () => started.resolve({ runId: "run-latency" }));

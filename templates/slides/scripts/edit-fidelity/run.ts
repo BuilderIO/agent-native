@@ -737,11 +737,15 @@ async function runChatTypingRegression(page: Page, base: string) {
     }
     return problems;
   } finally {
+    releaseSubmit();
     if (submitRequestSeen) {
-      releaseSubmit();
-      await Promise.race([submitRouteFinished, sleep(5000)]);
+      const routeDrained = await Promise.race([
+        submitRouteFinished.then(() => true),
+        sleep(5000).then(() => false),
+      ]);
+      if (routeDrained) await page.unroute(submitRoute);
     }
-    await page.unroute(submitRoute);
+    // Keep interception installed if preflight timed out; the delayed send must not escape.
     await action(page, "delete-deck", { id: deckId }, "DELETE");
   }
 }
