@@ -4,9 +4,12 @@ import {
   ZoomHttpError,
   downloadZoomTranscript,
   fetchZoomAccessToken,
+  hasProcessingTranscript,
   listZoomRecordings,
+  nextZoomCursorFrom,
   normalizeZoomRecording,
   parseZoomVtt,
+  zoomExternalId,
   type ZoomMeeting,
 } from "./zoom.js";
 
@@ -235,5 +238,53 @@ describe("fetchZoomAccessToken", () => {
     );
     expect(error).toBeInstanceOf(ZoomHttpError);
     expect(error).toMatchObject({ status: 401, retryAfterSeconds: null });
+  });
+});
+describe("Zoom sync window helpers", () => {
+  it("detects meetings whose transcript is still processing", () => {
+    const pending: ZoomMeeting = {
+      ...meeting,
+      recording_files: [
+        { id: "t1", file_type: "TRANSCRIPT", status: "processing" },
+      ],
+    };
+    const done: ZoomMeeting = {
+      ...meeting,
+      recording_files: [
+        {
+          id: "t1",
+          file_type: "TRANSCRIPT",
+          status: "completed",
+          download_url: "https://zoom.us/rec/download/t1",
+        },
+      ],
+    };
+    expect(hasProcessingTranscript(pending)).toBe(true);
+    expect(hasProcessingTranscript(done)).toBe(false);
+    expect(zoomExternalId(meeting)).toBe("zoom:abc123==");
+  });
+
+  it("keeps the window open for pending transcripts beyond the overlap", () => {
+    expect(
+      nextZoomCursorFrom({
+        overlapFrom: "2026-09-29",
+        pendingMeetingStarts: ["2026-09-20T15:00:00Z"],
+        earliest: "2026-08-31",
+      }),
+    ).toBe("2026-09-20");
+    expect(
+      nextZoomCursorFrom({
+        overlapFrom: "2026-09-29",
+        pendingMeetingStarts: [],
+        earliest: "2026-08-31",
+      }),
+    ).toBe("2026-09-29");
+    expect(
+      nextZoomCursorFrom({
+        overlapFrom: "2026-09-29",
+        pendingMeetingStarts: ["2026-08-01T15:00:00Z"],
+        earliest: "2026-08-31",
+      }),
+    ).toBe("2026-08-31");
   });
 });

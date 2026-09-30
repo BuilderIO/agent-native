@@ -215,7 +215,7 @@ export function normalizeZoomRecording(meeting: ZoomMeeting, vtt: string) {
   if (lines.length === 0) return null;
   const title = meeting.topic?.trim() || "Zoom meeting";
   return {
-    externalId: `zoom:${meeting.uuid}`,
+    externalId: zoomExternalId(meeting),
     title,
     capturedAt: meeting.start_time,
     content: `${title}\nDate: ${meeting.start_time}\n\nTranscript\n${lines.join("\n")}`,
@@ -228,4 +228,28 @@ export function normalizeZoomRecording(meeting: ZoomMeeting, vtt: string) {
       sourceUrl: meeting.share_url ?? null,
     },
   };
+}
+
+export function zoomExternalId(meeting: Pick<ZoomMeeting, "uuid">): string {
+  return `zoom:${meeting.uuid}`;
+}
+
+export function hasProcessingTranscript(meeting: ZoomMeeting): boolean {
+  return (meeting.recording_files ?? []).some(
+    (file) => file.file_type === "TRANSCRIPT" && file.status === "processing",
+  );
+}
+
+// The window must stay open until every pending transcript finishes, or a
+// transcript that takes longer than the overlap is never scanned again.
+export function nextZoomCursorFrom(input: {
+  overlapFrom: string;
+  pendingMeetingStarts: string[];
+  earliest: string;
+}): string {
+  const pending = input.pendingMeetingStarts
+    .map((start) => start.slice(0, 10))
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date));
+  const from = [input.overlapFrom, ...pending].sort()[0]!;
+  return from < input.earliest ? input.earliest : from;
 }

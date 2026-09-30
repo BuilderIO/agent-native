@@ -36,8 +36,11 @@ import {
   downloadZoomTranscript,
   fetchZoomAccessToken,
   listZoomRecordings,
+  hasProcessingTranscript,
   listZoomUserIds,
+  nextZoomCursorFrom,
   normalizeZoomRecording,
+  zoomExternalId,
 } from "./zoom.js";
 
 export interface ConnectorSyncResult {
@@ -3174,6 +3177,28 @@ async function zoomCall<T>(endpoint: string, call: () => Promise<T>) {
   }
 }
 
+async function importedZoomExternalIds(
+  sourceId: string,
+  externalIds: string[],
+): Promise<Set<string>> {
+  const imported = new Set<string>();
+  if (!externalIds.length) return imported;
+  const rows = await getDb()
+    .select({ externalId: schema.brainRawCaptures.externalId })
+    .from(schema.brainRawCaptures)
+    .where(
+      and(
+        eq(schema.brainRawCaptures.sourceId, sourceId),
+        inArray(schema.brainRawCaptures.externalId, externalIds),
+        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+      ),
+    );
+  for (const row of rows) {
+    if (row.externalId) imported.add(row.externalId);
+  }
+  return imported;
+}
+
 export function zoomUserIdsFromConfig(
   config: Record<string, unknown>,
 ): string[] | null {
@@ -3221,10 +3246,13 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     meetingsSeen: 0,
     transcriptsDownloaded: 0,
     emptyTranscripts: 0,
+    alreadyImported: 0,
+    pendingTranscripts: 0,
     sensitivityBlocked: 0,
     capturesCreated: 0,
     rateLimited: false,
   };
+  const pendingMeetingStarts: string[] = [];
 
   try {
     const accountId = await requireConnectorCredential(
@@ -3259,8 +3287,20 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       );
       await renewRunLease(run);
       stats.usersScanned = Number(stats.usersScanned) + 1;
+      const imported = await importedZoomExternalIds(
+        source.id,
+        meetings.map(zoomExternalId),
+      );
       for (const meeting of meetings) {
         stats.meetingsSeen = Number(stats.meetingsSeen) + 1;
+        if (hasProcessingTranscript(meeting)) {
+          pendingMeetingStarts.push(meeting.start_time);
+          stats.pendingTranscripts = Number(stats.pendingTranscripts) + 1;
+        }
+        if (imported.has(zoomExternalId(meeting))) {
+          stats.alreadyImported = Number(stats.alreadyImported) + 1;
+          continue;
+        }
         const transcripts = (meeting.recording_files ?? []).filter(
           (file): file is typeof file & { download_url: string } =>
             file.file_type === "TRANSCRIPT" &&
@@ -3299,10 +3339,12 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       }
     }
 
-    // One day of overlap re-reads transcripts Zoom finished processing after
-    // the previous run; createCapture dedupes them by externalId.
     const nextCursor: ZoomSyncCursor = {
-      from: utcDate(runStartedAt - dayMs),
+      from: nextZoomCursorFrom({
+        overlapFrom: utcDate(runStartedAt - dayMs),
+        pendingMeetingStarts,
+        earliest,
+      }),
       retry: undefined,
       lastRunAt: nowIso(),
     };
