@@ -12,9 +12,20 @@ describe("createGetDb pooled transaction scoping", () => {
 
   it("keeps raw queries, access checks, nested scopes, and timeouts in Neon transactions", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://db.neon.tech/agent-native");
-    let statementTimeout = "5s";
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "100");
+    let statementTimeout = "0";
+    let rolledBackTransactions = 0;
+    let releasedTransactions = 0;
+    let delayCancellationResponse = false;
     const execute = vi.fn(async (query: any) => {
       const compiled = query.toQuery();
+      if (
+        compiled.sql.startsWith("SELECT set_config('statement_timeout', CASE")
+      ) {
+        statementTimeout =
+          compiled.sql.match(/THEN '(\d+ms)'/)?.[1] ?? statementTimeout;
+        return { rows: [{ set_config: statementTimeout }], rowCount: 1 };
+      }
       if (
         compiled.sql.startsWith("SELECT current_setting('statement_timeout')")
       ) {
@@ -32,6 +43,10 @@ describe("createGetDb pooled transaction scoping", () => {
         statementTimeout = String(compiled.params[0]);
         return { rows: [], rowCount: 0 };
       }
+      if (compiled.sql === "ROLLBACK") {
+        rolledBackTransactions++;
+        return { rows: [], rowCount: 0 };
+      }
       if (compiled.sql.includes('"transaction_scope_access_docs"')) {
         return {
           rows: [
@@ -41,24 +56,39 @@ describe("createGetDb pooled transaction scoping", () => {
         };
       }
       if (compiled.sql.includes("pg_sleep")) {
+        const match = statementTimeout.match(/^(\d+)(ms|s)$/);
+        const delayMs = match
+          ? Number(match[1]) * (match[2] === "s" ? 1_000 : 1)
+          : 25;
+        const responseDelayMs = delayCancellationResponse ? 75 : delayMs;
         return new Promise((_, reject) =>
           setTimeout(
             () =>
               reject(new Error("canceling statement due to statement timeout")),
-            10,
+            responseDelayMs,
           ),
         );
       }
       return { rows: [{ id: 42 }], rowCount: 1 };
     });
+    const runTransaction = async (run: (transaction: any) => unknown) => {
+      const previousTimeout = statementTimeout;
+      try {
+        return await run(makeTransaction());
+      } catch (error) {
+        await execute({ toQuery: () => ({ sql: "ROLLBACK", params: [] }) });
+        throw error;
+      } finally {
+        statementTimeout = previousTimeout;
+        releasedTransactions++;
+      }
+    };
     const makeTransaction = () => ({
       execute,
-      transaction: async (run: (transaction: any) => unknown) =>
-        run(makeTransaction()),
+      transaction: runTransaction,
     });
     const db = {
-      transaction: (run: (transaction: any) => unknown) =>
-        run(makeTransaction()),
+      transaction: runTransaction,
     };
     vi.doMock("drizzle-orm/neon-serverless", () => ({ drizzle: () => db }));
     vi.doMock("@neondatabase/serverless", () => ({
@@ -111,9 +141,9 @@ describe("createGetDb pooled transaction scoping", () => {
         args: [43],
         timeoutMs: 250,
       });
-      expect(statementTimeout).toBe("5s");
+      expect(statementTimeout).toBe("90ms");
       await getDbExec().execute("SELECT 1");
-      expect(statementTimeout).toBe("5s");
+      expect(statementTimeout).toBe("90ms");
       await expect(
         tx.transaction(async () => {
           expect(getScopedDbExec()).not.toBe(parentScope);
@@ -127,21 +157,52 @@ describe("createGetDb pooled transaction scoping", () => {
 
     expect(result.queryResult).toEqual({ rows: [{ id: 42 }], rowsAffected: 1 });
     expect(result.access.role).toBe("owner");
-    await expect(
-      database.transaction(() =>
+    expect(statementTimeout).toBe("0");
+    delayCancellationResponse = true;
+    let timedOutTransactionSettled = false;
+    const timedOutTransaction = database
+      .transaction(() =>
         getDbExec().execute({
           sql: "SELECT pg_sleep(?)",
           args: [1],
           timeoutMs: 25,
         }),
-      ),
-    ).rejects.toThrow("canceling statement due to statement timeout");
-    expect(statementTimeout).toBe("5s");
+      )
+      .finally(() => {
+        timedOutTransactionSettled = true;
+      });
+    const explicitTimeoutAssertion = expect(
+      timedOutTransaction,
+    ).rejects.toThrow("DB query timed out after 25ms (connection terminated)");
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(timedOutTransactionSettled).toBe(false);
+    await explicitTimeoutAssertion;
+    delayCancellationResponse = false;
+    expect(timedOutTransactionSettled).toBe(true);
+    expect(statementTimeout).toBe("0");
+    expect(rolledBackTransactions).toBe(2);
     expect(
       execute.mock.calls.some(([query]) =>
         query.toQuery().sql.startsWith("SET LOCAL statement_timeout = "),
       ),
     ).toBe(true);
+
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "25");
+    let defaultTimedOutTransactionSettled = false;
+    const defaultTimedOutTransaction = database
+      .transaction(() => getDbExec().execute("SELECT pg_sleep(?)"))
+      .finally(() => {
+        defaultTimedOutTransactionSettled = true;
+      });
+    const defaultTimeoutAssertion = expect(
+      defaultTimedOutTransaction,
+    ).rejects.toThrow("canceling statement due to statement timeout");
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(defaultTimedOutTransactionSettled).toBe(true);
+    await defaultTimeoutAssertion;
+    expect(rolledBackTransactions).toBe(3);
+    expect(releasedTransactions).toBeGreaterThanOrEqual(4);
+    expect(statementTimeout).toBe("0");
   });
 });
 
