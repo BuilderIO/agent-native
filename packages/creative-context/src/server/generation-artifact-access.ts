@@ -1,8 +1,9 @@
+import type { DbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 
 export interface GenerationArtifactIdentity {
   appId: string;
@@ -53,13 +54,14 @@ export async function assertGenerationArtifactAccess(
   identity: GenerationArtifactIdentity,
   target: GenerationArtifactAccessTarget,
   operation: GenerationArtifactAccessOperation,
+  transaction?: DbExec,
 ): Promise<GenerationArtifactAccessProof> {
   const minRole = generationArtifactAccessRole(target, operation);
   await assertAccess(
     target.resourceType,
     target.resourceId,
     minRole,
-    undefined,
+    transaction ? { ...currentAccess(), transaction } : undefined,
     {
       skipResourceBody: true,
     },

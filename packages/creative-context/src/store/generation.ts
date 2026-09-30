@@ -1,4 +1,5 @@
-import { assertAccess } from "@agent-native/core/sharing";
+import { execForDrizzleTransaction, type DbExec } from "@agent-native/core/db";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 
 import { getCreativeContext } from "../server/context.js";
@@ -81,6 +82,7 @@ export async function recordGenerationCreativeContext(
   },
   options: {
     db?: any;
+    transaction?: DbExec;
     artifactAccess?: GenerationArtifactAccessProof;
   } = {},
 ): Promise<CreativeContextGenerationRecord> {
@@ -100,11 +102,14 @@ export async function recordGenerationCreativeContext(
     elementProvenance,
   });
   if (input.contextPackId) {
+    const transaction =
+      options.transaction ??
+      (options.db ? execForDrizzleTransaction(options.db) : undefined);
     await assertAccess(
       "creative-context-pack",
       input.contextPackId,
       "viewer",
-      undefined,
+      transaction ? { ...currentAccess(), transaction } : undefined,
       { skipResourceBody: true },
     );
   }

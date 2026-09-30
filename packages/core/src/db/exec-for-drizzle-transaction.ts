@@ -1,11 +1,10 @@
-import { toPostgresParams, type DbExec } from "@agent-native/core/db";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 
-import type { getDb } from "../server/db/index.js";
+import { toPostgresParams, type DbExec } from "./client.js";
 
-export function transactionAccessExecutor(
-  transaction: Pick<ReturnType<typeof getDb>, "execute">,
-): DbExec {
+export function execForDrizzleTransaction(transaction: {
+  execute(query: SQL): PromiseLike<unknown>;
+}): DbExec {
   return {
     async execute(statement) {
       const query =

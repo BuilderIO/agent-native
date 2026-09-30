@@ -7,13 +7,18 @@ import {
   getDbExec,
   getDatabaseUrl,
   getRuntimeDatabaseUrl,
+  execForDrizzleTransaction,
 } from "@agent-native/core/db";
+import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
   deleteSetting,
   getSetting,
   putSetting,
 } from "@agent-native/core/settings";
+import { getShareableResource } from "@agent-native/core/sharing";
+import * as creativeSchema from "@agent-native/creative-context/schema";
+import { configureCreativeContext } from "@agent-native/creative-context/server";
 import { eq } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
@@ -21,11 +26,12 @@ import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 // Not exported from @agent-native/core/db; the source module computes the same
 // pool options from the environment as the built one the app loads.
 import { pgPoolOptions } from "../../../packages/core/src/db/client.js";
-import { transactionAccessExecutor } from "./_transaction-access-executor.js";
+import { CONTENT_CREATIVE_CONTEXT } from "../shared/labs.js";
 
 const OWNER = "pool-owner@example.test";
 const WRITER = "pool-writer@example.test";
 const VIEWER = "pool-viewer@example.test";
+const ORG = "pool-regression-org";
 const BODY = "Alpha one. Beta two.";
 const TIMEOUT = 5_000;
 
@@ -119,6 +125,22 @@ export function connectionPoolRegressionSuite(postgresUrl?: string) {
     await (
       await import("@agent-native/creative-context/server")
     ).creativeContextDbPlugin(undefined as never);
+    configureCreativeContext({
+      getDb: database.getDb,
+      labKey: CONTENT_CREATIVE_CONTEXT.key,
+    });
+    registerLabs([CONTENT_CREATIVE_CONTEXT]);
+    await getDbExec().execute(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
+        role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+        federation_removal_pending_at INTEGER
+      )
+    `);
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING",
+      args: ["pool-regression-member", ORG, WRITER, "member", 0],
+    });
     addComment = (await import("./add-comment.js")).default;
     editDocument = (await import("./edit-document.js")).default;
     revisionToken = (await import("./_document-edit-mutation.js"))
@@ -154,6 +176,18 @@ export function connectionPoolRegressionSuite(postgresUrl?: string) {
       }, config);
     });
     if (!postgresUrl) {
+      for (const type of ["document", "creative-context-pack"]) {
+        const registration = getShareableResource(type)!;
+        const getDb = registration.getDb;
+        vi.spyOn(registration, "getDb").mockImplementation(() => {
+          if (insideTransaction) {
+            throw new Error(
+              "Access check used global getDb while a transaction held the connection",
+            );
+          }
+          return getDb();
+        });
+      }
       const globalExec = getDbExec();
       const execute = globalExec.execute.bind(globalExec);
       vi.spyOn(globalExec, "execute").mockImplementation((statement) => {
@@ -235,7 +269,7 @@ export function connectionPoolRegressionSuite(postgresUrl?: string) {
       await putSetting(key, original);
       try {
         await database.getDb().transaction(async (tx) => {
-          const transaction = transactionAccessExecutor(tx);
+          const transaction = execForDrizzleTransaction(tx);
           expect(await getSetting(key, { transaction })).toEqual(original);
           const result = await transaction.execute({
             sql: "UPDATE public.settings SET value = ? WHERE key = ?",
@@ -324,6 +358,101 @@ export function connectionPoolRegressionSuite(postgresUrl?: string) {
         receipt: { idempotency: { result: "replayed" } },
       });
       expect(accessQueries).toHaveLength(count);
+    },
+    TIMEOUT,
+  );
+
+  it.each([false, true])(
+    "records Creative Context for an org member MCP edit with pack=%s on the held connection",
+    async (withPack) => {
+      const packId = withPack ? crypto.randomUUID() : undefined;
+      const db = database.getDb();
+      await db
+        .update(database.schema.documents)
+        .set({ orgId: ORG })
+        .where(eq(database.schema.documents.id, documentId));
+      await putSetting(`u:${WRITER}:labs`, {
+        [CONTENT_CREATIVE_CONTEXT.key]: true,
+      });
+      if (packId) {
+        await db.insert(creativeSchema.contextPacks).values({
+          id: packId,
+          name: "Pool regression pack",
+          ownerEmail: OWNER,
+          orgId: ORG,
+          visibility: "private",
+          createdAt: new Date().toISOString(),
+        });
+        await getDbExec().execute({
+          sql: "INSERT INTO creative_context_pack_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          args: [
+            crypto.randomUUID(),
+            packId,
+            "user",
+            WRITER,
+            "viewer",
+            OWNER,
+            Date.now(),
+          ],
+        });
+      }
+      const result = await runWithRequestContext(
+        { userEmail: WRITER, orgId: ORG },
+        () =>
+          editDocument.run(
+            {
+              id: documentId,
+              find: "Alpha one.",
+              replace: "Alpha changed.",
+              baseRevision: revisionToken(0, BODY),
+              idempotencyKey: crypto.randomUUID(),
+              reuseLabels: [],
+              ...(packId
+                ? { contextPackId: packId }
+                : { contextModeOverride: "off" as const }),
+            },
+            { caller: "mcp", userEmail: WRITER },
+          ),
+      );
+      expect(result).toMatchObject({
+        applied: 1,
+        receipt: { readback: { verified: true } },
+      });
+      expect(await storedDocument()).toMatchObject({
+        content: "Alpha changed. Beta two.",
+        bodyRevision: 1,
+      });
+      const records = await db
+        .select()
+        .from(creativeSchema.generationRecords)
+        .where(eq(creativeSchema.generationRecords.artifactId, documentId));
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        appId: "content",
+        artifactType: "document",
+        orgId: ORG,
+        contextPackId: packId ?? null,
+        contextMode: packId ? "pinned" : "off",
+      });
+      expectTransactionAccess();
+      if (packId) {
+        expect(
+          accessQueries.some((query) =>
+            /from "creative_context_packs"/i.test(query),
+          ),
+        ).toBe(true);
+        expect(
+          accessQueries.some((query) =>
+            /from "creative_context_pack_shares"/i.test(query),
+          ),
+        ).toBe(true);
+      } else {
+        expect(
+          accessQueries.some((query) =>
+            /SELECT value FROM public.settings/i.test(query),
+          ),
+        ).toBe(true);
+      }
     },
     TIMEOUT,
   );

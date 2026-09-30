@@ -1,4 +1,5 @@
 import { readAppState } from "@agent-native/core/application-state";
+import { execForDrizzleTransaction, withDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -582,7 +583,13 @@ export async function recordGenerationCreativeContext(
   input: IsolatedRecordPayload,
   options: { db?: any; artifactAccess?: GenerationArtifactAccessTarget } = {},
 ) {
-  if (!(await creativeContextLabEnabled())) return null;
+  const transaction = options.db
+    ? execForDrizzleTransaction(options.db)
+    : undefined;
+  const labEnabled = transaction
+    ? await withDbExec(transaction, creativeContextLabEnabled)
+    : await creativeContextLabEnabled();
+  if (!labEnabled) return null;
   const artifactAccessTarget = collaborativeArtifactTarget(
     input,
     options.artifactAccess,
@@ -609,11 +616,13 @@ export async function recordGenerationCreativeContext(
         input,
         artifactAccessTarget,
         "record",
+        transaction,
       )
     : undefined;
   return recordGenerationCreativeContextLocal(input, {
     db: options.db,
     artifactAccess,
+    ...(transaction ? { transaction } : {}),
   });
 }
 

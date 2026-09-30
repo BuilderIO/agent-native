@@ -3,6 +3,7 @@ import { createGetDb } from "./create-get-db.js";
 export type DrizzleDb = ReturnType<typeof createGetDb>;
 
 export { createGetDb } from "./create-get-db.js";
+export { execForDrizzleTransaction } from "./exec-for-drizzle-transaction.js";
 export {
   deferMigration,
   MIGRATION_DEFERRED,
@@ -27,6 +28,7 @@ export {
   closeDbExec,
   isUniqueViolation,
   toPostgresParams,
+  withDbExec,
   type DbExec,
   type DbExecConfig,
   type DbExecQuery,

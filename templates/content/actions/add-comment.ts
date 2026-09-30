@@ -5,6 +5,7 @@ import {
   fail,
   type ActionRunContext,
 } from "@agent-native/core/action";
+import { execForDrizzleTransaction } from "@agent-native/core/db";
 import {
   getRequestRunContext,
   getRequestUserEmail,
@@ -16,7 +17,6 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
-import { transactionAccessExecutor } from "./_transaction-access-executor.js";
 
 type Mention = { email: string; name: string };
 
@@ -231,7 +231,7 @@ export async function addCommentWithGuard(
     await assertAccess("document", documentId, "commenter", {
       userEmail: email,
       orgId: ctx?.orgId ?? undefined,
-      transaction: transactionAccessExecutor(tx),
+      transaction: execForDrizzleTransaction(tx),
     });
     if (args.threadId && args.parentId) {
       const [root] = await tx
