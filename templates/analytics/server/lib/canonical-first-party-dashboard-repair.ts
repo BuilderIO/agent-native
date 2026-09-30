@@ -211,6 +211,36 @@ const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
     )
     .replace(CUSTOM_RETENTION_ANCHOR_RANGE, PRE_CUSTOM_RETENTION_ANCHOR_RANGE);
 
+export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL =
+  LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+    "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\nperiods AS",
+    "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\ncoverage_dates AS (\n SELECT DISTINCT event_date\n FROM `builder-3b0a2.analytics.first_party_analytics_events_raw`\n WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'\n   AND event_name = 'session status'\n   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()\n),\nperiods AS",
+  )
+    .replace(
+      "periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14)\nSELECT FORMAT_DATE",
+      "periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14),\ncoverage AS (\n SELECT a.date, p.period, COUNTIF(c.event_date IS NOT NULL) AS observed_days, COUNT(*) AS expected_days\n FROM anchor_dates a\n CROSS JOIN periods p\n CROSS JOIN UNNEST(GENERATE_DATE_ARRAY(\n   CASE WHEN p.period = '1-7d return' THEN DATE_SUB(a.date, INTERVAL 5 DAY) ELSE DATE_ADD(a.date, INTERVAL 1 DAY) END,\n   CASE WHEN p.period = '1-7d return' THEN DATE_ADD(a.date, INTERVAL 7 DAY) ELSE DATE_ADD(a.date, INTERVAL 14 DAY) END\n )) AS coverage_day\n LEFT JOIN coverage_dates c ON c.event_date = coverage_day\n GROUP BY a.date, p.period\n), last_valid AS (\n SELECT MAX(a.date) AS date\n FROM anchor_dates a\n CROSS JOIN periods p\n LEFT JOIN cohort_sizes cs ON cs.date = a.date\n LEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\n WHERE a.date <= DATE_SUB(CURRENT_DATE(), INTERVAL p.maturity_days DAY)\n   AND COALESCE(cs.users, 0) >= 5\n   AND coverage.observed_days = coverage.expected_days\n)\nSELECT FORMAT_DATE",
+    )
+    .replace(
+      "           AND COALESCE(cs.users, 0) >= 5\n      THEN",
+      "           AND COALESCE(cs.users, 0) >= 5\n           AND coverage.observed_days = coverage.expected_days\n      THEN",
+    )
+    .replace(
+      "           AND COALESCE(cs.users, 0) >= 5\n      THEN",
+      "           AND COALESCE(cs.users, 0) >= 5\n           AND coverage.observed_days = coverage.expected_days\n      THEN",
+    )
+    .replace(
+      "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nORDER BY",
+      "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nLEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\nWHERE a.date <= last_valid.date\nORDER BY",
+    )
+    .replace(
+      "SELECT FORMAT_DATE('%Y-%m-%d', a.date) AS date,",
+      "SELECT FORMAT_DATE('%b %d', a.date) AS date,",
+    )
+    .replace(
+      "FROM anchor_dates a CROSS JOIN periods p\nLEFT JOIN cohort_sizes",
+      "FROM anchor_dates a CROSS JOIN periods p CROSS JOIN last_valid\nLEFT JOIN cohort_sizes",
+    );
+
 const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
   FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     "WHEN '{{timeRange}}' = '7d'",
@@ -265,6 +295,7 @@ function isLegacyFirstPartyBigQueryRetentionSql(sql: string): boolean {
   return [
     LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
     PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL,
   ].some(
     (legacySql) =>
       sql.replace(/\s+/g, " ").trim() === legacySql.replace(/\s+/g, " ").trim(),
