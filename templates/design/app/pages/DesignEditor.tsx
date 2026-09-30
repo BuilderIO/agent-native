@@ -3981,12 +3981,20 @@ function DesignEditor() {
   const canEditDesign = !visualEditAccessLost
     ? canShareDesign || designAccessRole === "editor"
     : false;
+  const [failedLocalhostConsentClear, setFailedLocalhostConsentClear] =
+    useState<string | null>(null);
   const localhostConsentRequestQuery = useActionQuery(
     "get-localhost-write-consent-request",
     { designId: id ?? "" },
     {
       enabled: Boolean(id && canEditDesign),
-      refetchInterval: (query) => (query.state.data?.request ? false : 1_000),
+      refetchInterval: (query) => {
+        const request = query.state.data?.request;
+        if (!request || query.state.status === "error") return 1_000;
+        return failedLocalhostConsentClear === `${id}:${request.requestedAt}`
+          ? 1_000
+          : false;
+      },
     },
   );
   const clearLocalhostConsentRequestMutation = useActionMutation(
@@ -6493,13 +6501,19 @@ function DesignEditor() {
     setLocalhostWriteConsentOpen(true);
     void clearLocalhostConsentRequestMutation
       .mutateAsync({ designId: id, requestedAt: request.requestedAt })
-      .catch((error) =>
-        toast.error(actionErrorMessage(error) ?? t("common.genericError")),
-      );
+      .then(async () => {
+        setFailedLocalhostConsentClear(null);
+        await localhostConsentRequestQuery.refetch();
+      })
+      .catch((error) => {
+        setFailedLocalhostConsentClear(`${id}:${request.requestedAt}`);
+        toast.error(actionErrorMessage(error) ?? t("common.genericError"));
+      });
   }, [
     canEditDesign,
     clearLocalhostConsentRequestMutation.mutateAsync,
     id,
+    localhostConsentRequestQuery.refetch,
     localhostConsentRequestQuery.data?.request,
     t,
   ]);
