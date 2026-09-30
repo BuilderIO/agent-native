@@ -2166,7 +2166,12 @@ describe("TiptapComposer slash commands", () => {
       resolveSubmit = resolve;
     });
     const onBeforeSubmit = vi.fn(() => preflight);
-    const onSubmit = vi.fn(() => submission);
+    const onSubmit = vi.fn<NonNullable<TiptapComposerProps["onSubmit"]>>(
+      async (_text, _references, _attachments, options) => {
+        await submission;
+        options?.onLocalSubmit?.();
+      },
+    );
     const focusRef = React.createRef<TiptapComposerHandle>();
 
     function Harness() {
@@ -2225,6 +2230,7 @@ describe("TiptapComposer slash commands", () => {
     );
     expect(editor.textContent).toBe("follow-up prompt");
     await act(async () => resolveSubmit());
+    expect(editor.textContent).toBe("follow-up prompt");
   });
 
   it("restores a prompt when async preflight declines it", async () => {

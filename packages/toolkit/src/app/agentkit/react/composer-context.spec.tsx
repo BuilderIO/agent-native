@@ -317,6 +317,7 @@ describe("AgentKit composer context submission", () => {
       expect(capture.props).toMatchObject({
         contextItems: source,
         contextMenuItems,
+        clearOnSubmitImmediately: true,
         onRemoveContextItem,
         onInspectContextItem,
         onRetryContextItem,

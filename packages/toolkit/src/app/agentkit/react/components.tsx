@@ -3652,6 +3652,7 @@ export function AgentKitComposer({
         extraActionButton={extraActionButton}
         onBeforeSubmit={onBeforeSubmit}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
+        clearOnSubmitImmediately
         onAttachmentError={reportAttachmentError}
         interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
         planModeDisabled={planModeDisabled}
