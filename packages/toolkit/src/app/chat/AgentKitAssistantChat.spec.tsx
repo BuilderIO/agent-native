@@ -3412,11 +3412,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.thread.activeRunIds = ["run-1"];
     await mount(baseProps());
 
-    await act(async () => {
-      await chatMocks.resumeProps.onMessageResume({
-        message: "Continue after connecting the integration.",
-      });
+    const resume = chatMocks.resumeProps.onMessageResume({
+      message: "Continue after connecting the integration.",
     });
+    expect(resume).toBeInstanceOf(Promise);
+    await act(async () => resume);
     expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "Continue after connecting the integration.",
@@ -3454,6 +3454,19 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect.objectContaining({ text: "Continue after OAuth." }),
     );
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps failed integration prompt submissions resumable", async () => {
+    chatMocks.thread.activeRunIds = ["run-1"];
+    const submissionError = new Error("Temporary send failure");
+    chatMocks.control.queueMessage.mockRejectedValueOnce(submissionError);
+    await mount(baseProps());
+
+    await expect(
+      chatMocks.resumeProps.onMessageResume({
+        message: "Continue after OAuth.",
+      }),
+    ).rejects.toBe(submissionError);
   });
 
   it("shows the missing-final-response warning from recovered run metadata", async () => {

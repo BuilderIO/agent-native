@@ -125,6 +125,7 @@ export interface SSEEvent {
   provider?: string;
   connectionReason?: "connect" | "grant" | "reauthorize" | "admin_required";
   appId?: string;
+  source?: { id: string; kind?: string; label?: string; uri?: string };
   error?: string;
   message?: string;
   seq?: number;

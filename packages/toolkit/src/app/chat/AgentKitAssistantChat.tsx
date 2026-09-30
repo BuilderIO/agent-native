@@ -2567,11 +2567,19 @@ const AgentKitAssistantChatBody = forwardRef<
     [isThreadRunning, submit],
   );
   const resumeIntegrationPrompt = useCallback(
-    (message: string) => {
-      if (props.isActiveComposer === false) return;
-      void send(message).catch((error) => {
+    async (message: string) => {
+      if (props.isActiveComposer === false) {
+        throw new Error("Cannot resume a request in an inactive chat.");
+      }
+      try {
+        const result = await send(message);
+        if (result.status === "rejected") {
+          throw new Error(`Chat resume was rejected: ${result.reason}.`);
+        }
+      } catch (error) {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
-      });
+        throw error;
+      }
     },
     [props.isActiveComposer, props.tabId, send, threadId],
   );
@@ -2790,15 +2798,19 @@ const AgentKitAssistantChatBody = forwardRef<
             { threadId: targetThreadId, runId, requestId },
             request,
           ) => {
-            if (targetThreadId !== threadId) return;
+            if (targetThreadId !== threadId) {
+              throw new Error(
+                "Cannot resume a connection request in another chat.",
+              );
+            }
             return control.resolveConnectionRequest(runId, requestId, {
               status: "connected",
               message: request.message,
             });
           }}
-          onMessageResume={(request) => {
-            resumeIntegrationPrompt(request.message);
-          }}
+          onMessageResume={(request) =>
+            resumeIntegrationPrompt(request.message)
+          }
         />
       )}
       <RunStuckBanner
@@ -4161,6 +4173,10 @@ function AgentKitConnectionRequest({
     <McpAgentKitConnectionRequestCard
       provider={value.provider}
       detail={value.detail}
+      reason={value.reason}
+      status={value.status}
+      appId={value.appId}
+      source={value.source}
       target={{ threadId, runId, requestId: value.id }}
       onConnected={() =>
         control.resolveConnectionRequest(runId, value.id, {

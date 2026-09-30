@@ -389,6 +389,10 @@ function ChatMcpConnectionRequest({
   return (
     <McpAgentKitConnectionRequestCard
       provider={request.provider}
+      reason={request.reason}
+      status={request.status}
+      appId={request.appId}
+      source={request.source}
       {...(request.detail ? { detail: request.detail } : {})}
       target={{ threadId, runId, requestId: request.id }}
       onConnected={() => resolve("connected")}
@@ -401,22 +405,11 @@ function ChatMcpConnectionRequest({
 function ChatMcpConnectionResume() {
   const { controller, threadId } = useAgentKit();
   const onResume = useCallback(
-    async (
-      target: { threadId: string; runId: string; requestId: string },
-      request: { message: string },
-    ) => {
-      try {
-        await controller.resolveConnectionRequest({
-          ...target,
-          response: { status: "connected" },
-        });
-      } catch {
-        await controller.sendMessage({
-          threadId: target.threadId,
-          text: request.message,
-        });
-      }
-    },
+    (target: { threadId: string; runId: string; requestId: string }) =>
+      controller.resolveConnectionRequest({
+        ...target,
+        response: { status: "connected" },
+      }),
     [controller],
   );
   const onMessageResume = useCallback(
