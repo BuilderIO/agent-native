@@ -898,6 +898,17 @@ function firstWorkEvents(events: AgentEvent[]): AgentEvent[] {
   });
 }
 
+function messageHasVisibleAssistantOutput(message: AgentMessage): boolean {
+  return (
+    message.role === "assistant" &&
+    message.parts.some((part) => {
+      if (part.type === "reasoning") return false;
+      if (part.type === "text") return part.text.trim().length > 0;
+      return true;
+    })
+  );
+}
+
 function messageEventHasVisibleAssistantOutput(
   event: AgentEvent,
   assistantMessageIds: ReadonlySet<string>,
@@ -910,14 +921,7 @@ function messageEventHasVisibleAssistantOutput(
   if (event.type !== "message.created" && event.type !== "message.completed") {
     return false;
   }
-  return (
-    event.message.role === "assistant" &&
-    event.message.parts.some((part) => {
-      if (part.type === "reasoning") return false;
-      if (part.type === "text") return part.text.trim().length > 0;
-      return true;
-    })
-  );
+  return messageHasVisibleAssistantOutput(event.message);
 }
 
 export function AgentActivityGroup({
@@ -4199,11 +4203,8 @@ export function AgentKitChat({
       thread.runs[runId]?.status === "running" &&
       !thread.messages.some(
         (message) =>
-          message.role === "assistant" &&
           messageRunIds.get(message.id) === runId &&
-          message.parts.some(
-            (part) => part.type === "text" && part.text.trim().length > 0,
-          ),
+          messageHasVisibleAssistantOutput(message),
       ),
   );
   const pendingRunIds = Array.from(

@@ -1142,6 +1142,29 @@ describe("AgentChat lifecycle", () => {
 
     expect(tree.container.textContent).toContain("Here is the result.");
     expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    const fileResponse = {
+      id: response.id,
+      role: "assistant" as const,
+      parts: [{ type: "file" as const, name: "result.csv" }],
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [fileResponse],
+          events: [{ ...responseEvent, message: fileResponse }],
+        },
+      },
+      revision: 2,
+    });
+    await flush();
+
+    expect(tree.container.textContent).toContain("result.csv");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
     await tree.unmount();
   });
 
