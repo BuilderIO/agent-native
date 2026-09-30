@@ -327,7 +327,7 @@ function buildConfig(form: SourceFormState) {
   };
   if (form.provider === "slack") {
     config.channelIds = splitLines(form.channelRefs);
-    config.historyLimit = numberValue(form.historyLimit, 15, 1, 15);
+    config.historyLimit = numberValue(form.historyLimit, 15, 1, 30);
     config.includePublicChannels = form.includePublicChannels;
   }
   if (form.provider === "granola") {
@@ -3106,7 +3106,7 @@ export default function SourcesRoute() {
                       id="history-limit"
                       type="number"
                       min={1}
-                      max={15}
+                      max={30}
                       value={form.historyLimit}
                       onChange={(event) =>
                         updateForm({ historyLimit: event.target.value })
