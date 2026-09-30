@@ -676,7 +676,7 @@ export default function ImageCropOverlay({
         if ((event.target as HTMLElement).closest("button")) return;
         beginGesture(event, "move-image");
       }}
-      className="text-black"
+      className="text-[hsl(var(--slides-crop-control))]"
       style={{
         position: "absolute",
         inset: 0,
@@ -697,7 +697,7 @@ export default function ImageCropOverlay({
               cropMaskRefs.current[index] = element;
             }}
             data-crop-mask={index}
-            className="pointer-events-none absolute z-[1] bg-black/50"
+            className="pointer-events-none absolute z-[1] bg-[hsl(var(--slides-crop-control)/0.5)]"
           />
         ))}
       </div>
@@ -715,17 +715,17 @@ export default function ImageCropOverlay({
           {handle.length === 1 ? (
             <span
               aria-hidden="true"
-              className="absolute inset-x-0.5 inset-y-0.5 rounded-sm bg-black"
+              className="absolute inset-x-0.5 inset-y-0.5 rounded-sm bg-[hsl(var(--slides-crop-control))]"
             />
           ) : (
             <>
               <span
                 aria-hidden="true"
-                className={`absolute h-[3px] w-[9px] bg-black ${handle.includes("w") ? "left-0" : "right-0"} ${handle.includes("n") ? "top-0" : "bottom-0"}`}
+                className={`absolute h-[3px] w-[9px] bg-[hsl(var(--slides-crop-control))] ${handle.includes("w") ? "left-0" : "right-0"} ${handle.includes("n") ? "top-0" : "bottom-0"}`}
               />
               <span
                 aria-hidden="true"
-                className={`absolute h-[9px] w-[3px] bg-black ${handle.includes("w") ? "left-0" : "right-0"} ${handle.includes("n") ? "top-0" : "bottom-0"}`}
+                className={`absolute h-[9px] w-[3px] bg-[hsl(var(--slides-crop-control))] ${handle.includes("w") ? "left-0" : "right-0"} ${handle.includes("n") ? "top-0" : "bottom-0"}`}
               />
             </>
           )}

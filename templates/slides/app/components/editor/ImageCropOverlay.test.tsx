@@ -129,7 +129,10 @@ describe("<ImageCropOverlay>", () => {
     expect(nodes.viewport.style.overflow).toBe("visible");
     expect(
       crop.querySelector("[data-crop-handle='nw'] span")?.className,
-    ).toContain("bg-black");
+    ).toContain("bg-[hsl(var(--slides-crop-control))]");
+    expect(masks[0]?.className).toContain(
+      "bg-[hsl(var(--slides-crop-control)/0.5)]",
+    );
   });
 
   it("moves the image in frame coordinates", () => {
