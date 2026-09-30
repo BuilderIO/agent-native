@@ -1,9 +1,9 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import {
   IconBook2,
   IconPencil,
