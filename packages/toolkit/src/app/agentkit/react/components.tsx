@@ -902,8 +902,8 @@ function firstWorkEvents(events: AgentEvent[]): AgentEvent[] {
 
 function messageHasVisibleAssistantOutput(
   message: AgentMessage,
-  slots: AgentKitSlots,
-  registry: AgentKitRegistry,
+  dataRenderer: AgentKitSlots["data"],
+  messagePartRenderers: AgentKitRegistry["messageParts"],
 ): boolean {
   return (
     message.role === "assistant" &&
@@ -911,10 +911,10 @@ function messageHasVisibleAssistantOutput(
       if (part.type === "reasoning") return false;
       if (part.type === "text") return part.text.trim().length > 0;
       if (part.type === "data") {
-        return Boolean(slots.data || registry.messageParts?.data);
+        return Boolean(dataRenderer || messagePartRenderers?.data);
       }
       if (part.type.startsWith("x-")) {
-        return Boolean(registry.messageParts?.[part.type]);
+        return Boolean(messagePartRenderers?.[part.type]);
       }
       return true;
     })
@@ -924,8 +924,8 @@ function messageHasVisibleAssistantOutput(
 function messageEventHasVisibleAssistantOutput(
   event: AgentEvent,
   assistantMessageIds: ReadonlySet<string>,
-  slots: AgentKitSlots,
-  registry: AgentKitRegistry,
+  dataRenderer: AgentKitSlots["data"],
+  messagePartRenderers: AgentKitRegistry["messageParts"],
 ): boolean {
   if (event.type === "message.delta") {
     return (
@@ -935,7 +935,11 @@ function messageEventHasVisibleAssistantOutput(
   if (event.type !== "message.created" && event.type !== "message.completed") {
     return false;
   }
-  return messageHasVisibleAssistantOutput(event.message, slots, registry);
+  return messageHasVisibleAssistantOutput(
+    event.message,
+    dataRenderer,
+    messagePartRenderers,
+  );
 }
 
 export function AgentActivityGroup({
@@ -4138,6 +4142,8 @@ export function AgentKitChat({
     }
     return result;
   }, [thread.events]);
+  const dataRenderer = slots.data;
+  const messagePartRenderers = registry.messageParts;
   const messageBoundarySequences = useMemo(() => {
     const firstVisibleSequence = new Map<string, number>();
     const lastTextDeltaSequence = new Map<string, number>();
@@ -4151,8 +4157,8 @@ export function AgentKitChat({
         !messageEventHasVisibleAssistantOutput(
           event,
           assistantMessageIds,
-          slots,
-          registry,
+          dataRenderer,
+          messagePartRenderers,
         )
       ) {
         continue;
@@ -4176,7 +4182,7 @@ export function AgentKitChat({
       result.set(messageId, lastTextDeltaSequence.get(messageId) ?? sequence);
     }
     return result;
-  }, [registry.messageParts, slots.data, thread.events, thread.messages]);
+  }, [dataRenderer, messagePartRenderers, thread.events, thread.messages]);
   const lastAssistantMessagesByRun = useMemo(() => {
     const result = new Map<RunId, { id: string; sequence: number }>();
     for (const message of thread.messages) {
@@ -4223,7 +4229,11 @@ export function AgentKitChat({
       !thread.messages.some(
         (message) =>
           messageRunIds.get(message.id) === runId &&
-          messageHasVisibleAssistantOutput(message, slots, registry),
+          messageHasVisibleAssistantOutput(
+            message,
+            slots.data,
+            registry.messageParts,
+          ),
       ),
   );
   const pendingRunIds = Array.from(
