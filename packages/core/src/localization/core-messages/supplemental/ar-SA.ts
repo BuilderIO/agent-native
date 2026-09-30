@@ -46,6 +46,8 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "إلغاء",
   couldNotRevoke: "تعذر إلغاء الرمز.",
   authorizeDevice: "تخويل الجهاز",
+  organization: "المؤسسة",
+  invalidOrganization: "اختر مؤسسة أنت عضو فيها.",
   fullCatalogRequested: "يطلب هذا الجهاز الوصول إلى كتالوج الإجراءات الكامل.",
   createToken: "إنشاء رمز اتصال",
   authorizingDevice: "جارٍ تخويل الجهاز...",
