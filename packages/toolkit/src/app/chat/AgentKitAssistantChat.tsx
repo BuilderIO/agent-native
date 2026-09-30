@@ -4006,6 +4006,7 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           args={input}
           argsText={JSON.stringify(input)}
           result={output}
+          isError={value.status === "failed"}
           isRunning={value.status === "running"}
           structuredMeta={metadata}
           mcpApp={asRecord(metadata.mcpApp) as never}

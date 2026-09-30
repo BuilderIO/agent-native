@@ -1525,6 +1525,13 @@ describe("controlled composer context", () => {
     expect(
       contextRow.querySelector('[aria-label="Context failed"]'),
     ).not.toBeNull();
+    const retryContext = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry Brief context"]',
+    );
+    expect(retryContext).not.toBeNull();
+    expect(contextRow.contains(retryContext)).toBe(false);
+    await act(async () => retryContext!.click());
+    expect(onRetryContextItem).toHaveBeenCalledWith("brief");
     await act(async () => {
       contextRow
         .querySelector<HTMLButtonElement>(
@@ -1533,10 +1540,19 @@ describe("controlled composer context", () => {
         .click();
     });
     expect(onInspectContextItem).not.toHaveBeenCalled();
-    expect(onRetryContextItem).not.toHaveBeenCalled();
+    expect(onRetryContextItem).toHaveBeenCalledOnce();
     expect(onRemoveContextItem).toHaveBeenCalledWith("brief");
     expect(
       container.querySelector('[data-context-key="brief"]'),
+    ).not.toBeNull();
+    item.removable = false;
+    await render();
+    const nonremovableContextRow = container.querySelector(
+      '[data-context-key="brief"]',
+    )!;
+    expect(nonremovableContextRow.querySelectorAll("button")).toHaveLength(0);
+    expect(
+      container.querySelector('button[aria-label="Retry Brief context"]'),
     ).not.toBeNull();
     item.status = "ready";
     await render();

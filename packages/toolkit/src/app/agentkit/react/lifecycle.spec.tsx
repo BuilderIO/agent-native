@@ -1128,6 +1128,92 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
+  it("keeps bounded activity history settled while its run continues", async () => {
+    const threadId = "thread-settled-segment";
+    const runId = "run-settled-segment";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events: [
+        {
+          id: "activity-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-30T00:00:00.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "read-files",
+            kind: "read",
+            label: "Read files",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "activity-completed",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-30T00:00:01.000Z",
+          type: "activity.completed" as const,
+          activity: {
+            id: "read-files",
+            kind: "read",
+            label: "Read files",
+            status: "completed" as const,
+          },
+        },
+        {
+          id: "response-started",
+          threadId,
+          runId,
+          sequence: 3,
+          occurredAt: "2026-09-30T00:00:01.000Z",
+          type: "message.completed" as const,
+          message: {
+            id: "assistant-response",
+            role: "assistant" as const,
+            status: "complete" as const,
+            parts: [{ type: "text" as const, text: "I found the files." }],
+          },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 3,
+          startedAt: "2026-09-30T00:00:00.000Z",
+        },
+      },
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup
+          runId={runId}
+          throughSequence={3}
+          isCurrentSegment={false}
+        />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    expect(work?.querySelector("summary")?.textContent).toBe("Worked for 1s");
+    expect(work?.hasAttribute("data-running")).toBe(false);
+    expect(work?.querySelector("[data-agentkit-current-activity]")).toBeNull();
+    await tree.unmount();
+  });
+
   it.each(["completed", "cancelled"] as const)(
     "keeps reasoning-only %s runs collapsed without empty message rows",
     async (status) => {
@@ -1823,6 +1909,14 @@ describe("AgentChat lifecycle", () => {
       ...createAgentThreadState(threadId),
       messages: [firstResponse, secondResponse],
       events,
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 6,
+          startedAt: "2026-08-31T00:00:00.000Z",
+        },
+      },
     };
     const observable = observableController({
       connection: "connected",
@@ -1862,6 +1956,7 @@ describe("AgentChat lifecycle", () => {
     expect(work[1]?.textContent).toContain("Edited transcript model");
     expect(work[1]?.textContent).not.toContain("Read framework files");
     expect(work[0]?.hasAttribute("data-running")).toBe(false);
+    expect(work[1]?.hasAttribute("data-running")).toBe(false);
     expect(
       work[0] && firstMessage
         ? work[0].compareDocumentPosition(firstMessage) &

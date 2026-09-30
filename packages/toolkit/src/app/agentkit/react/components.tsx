@@ -913,11 +913,13 @@ export function AgentActivityGroup({
   afterSequence,
   throughSequence,
   excludeAgentActivities = false,
+  isCurrentSegment = true,
 }: {
   runId?: RunId;
   afterSequence?: number;
   throughSequence?: number;
   excludeAgentActivities?: boolean;
+  isCurrentSegment?: boolean;
 }) {
   const { threadId, slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
@@ -1061,12 +1063,13 @@ export function AgentActivityGroup({
         event.type === "run.failed" ||
         event.type === "run.cancelled"),
   );
-  const activelyWorking = run
-    ? run.status === "running"
-    : throughSequence === undefined && running && !hasTerminalRunEvent;
+  const activelyWorking =
+    isCurrentSegment &&
+    (run ? run.status === "running" : running && !hasTerminalRunEvent);
   const completedRunSummary =
     !activelyWorking &&
-    ((items.length > 0 && !running) ||
+    (throughSequence !== undefined ||
+      (items.length > 0 && !running) ||
       hasTerminalRunEvent ||
       (afterSequence === undefined &&
         run !== undefined &&
@@ -4140,11 +4143,13 @@ export function AgentKitChat({
     anchor,
     afterSequence,
     throughSequence,
+    isCurrentSegment,
   }: {
     runId: RunId;
     anchor: string;
     afterSequence?: number;
     throughSequence?: number;
+    isCurrentSegment: boolean;
   }) => (
     <AgentKitSurfaceBoundary
       key={`run-work:${threadId}:${runId}:${anchor}`}
@@ -4166,6 +4171,7 @@ export function AgentKitChat({
         afterSequence={afterSequence}
         throughSequence={throughSequence}
         excludeAgentActivities
+        isCurrentSegment={isCurrentSegment}
       />
     </AgentKitSurfaceBoundary>
   );
@@ -4196,6 +4202,7 @@ export function AgentKitChat({
           anchor: previousAssistant?.id ?? "start",
           afterSequence: previousAssistant?.sequence,
           throughSequence: sequence,
+          isCurrentSegment: message.status === "streaming",
         }),
       );
     }
@@ -4273,6 +4280,7 @@ export function AgentKitChat({
         runId,
         anchor: boundary?.id ?? "start",
         afterSequence: boundary?.sequence,
+        isCurrentSegment: true,
       }),
     );
     if (failedRuns.has(runId)) {

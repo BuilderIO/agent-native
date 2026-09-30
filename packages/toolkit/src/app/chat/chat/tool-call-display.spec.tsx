@@ -402,6 +402,112 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Recent rows");
   });
 
+  it("shows delegated tool errors only after explicitly expanding the call", () => {
+    const errorMessage = "The analytics provider rejected the request.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          result={errorMessage}
+          isError
+          isRunning={false}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure?.textContent).toContain("Asked Analytics");
+    expect(disclosure?.textContent).not.toContain("failed");
+    expect(container.textContent).not.toContain(errorMessage);
+
+    act(() => disclosure?.click());
+
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(errorMessage);
+  });
+
+  it("shows regular tool errors only after explicitly expanding the call", () => {
+    const errorMessage =
+      "Error running update-slide: replace found no matches.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="update-slide"
+          args={{}}
+          result={errorMessage}
+          isError
+          isRunning={false}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure?.textContent).toContain("update slide");
+    expect(container.textContent).not.toContain(errorMessage);
+
+    act(() => disclosure?.click());
+
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+  });
+
+  it("shows failed delegated subtool details only after that tool is expanded", () => {
+    const errorMessage = "The warehouse query failed.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          argsText='{"task":"query the warehouse"}'
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "complete",
+              reasoning: [],
+              toolCalls: [
+                {
+                  id: "query-1",
+                  name: "query-warehouse",
+                  status: "failed",
+                  result: errorMessage,
+                },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    const delegation = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    act(() => delegation?.click());
+    const subtool = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    ).find((button) => button.textContent?.includes("query warehouse"));
+    expect(subtool?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(errorMessage);
+
+    act(() => subtool?.click());
+
+    expect(subtool?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(errorMessage);
+  });
+
   it("keeps an unresolved delegated agent visibly running when chat state dips", () => {
     act(() => {
       root.render(
