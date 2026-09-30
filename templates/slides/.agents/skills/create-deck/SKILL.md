@@ -58,8 +58,8 @@ Before authoring slide HTML, make a compact deck brief with the audience, job,
 narrative thesis, one-sentence visual direction, active design-system tokens,
 reference-deck composition pattern, image treatment, and known fit risks. The
 linked Agent-Native design system controls tokens, typography, spacing, imagery,
-and slide chrome. Impeccable-inspired advice about hierarchy, subtraction,
-contrast, rhythm, and polish is a review lens, not a competing theme. If the
+and slide chrome. Read `slide-design` for visual craft; it works inside the
+active system and reference deck, never as a competing theme. If the
 request is open-ended and no approved direction exists, ask one targeted guided
 question or present a bounded choice before writing; do not silently pick a new
 brand language.
@@ -215,7 +215,7 @@ the renderer publishes no `--ds-*` tokens beyond the slide's own background.
 Derive a contract from the deck's subject and write it as literal values:
 
 ```html
-<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6; --deck-muted: #A8B8AC; --deck-accent: #7FB069; --deck-surface: rgba(255,255,255,0.05); --deck-heading-font: 'Fraunces', Georgia, serif; --deck-body-font: 'Inter', sans-serif; --deck-radius: 4px; background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
+<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6; --deck-muted: #A8B8AC; --deck-accent: #7FB069; --deck-surface: rgba(255,255,255,0.05); --deck-heading-font: 'Playfair Display', Georgia, serif; --deck-body-font: 'Inter', sans-serif; --deck-radius: 4px; background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
   <!-- slide content here -->
 </div>
 ```
