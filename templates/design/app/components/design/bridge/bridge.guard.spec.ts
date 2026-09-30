@@ -7227,6 +7227,18 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
 
+      const paintedShapeHandleCounts = new Map([
+        ["rectangle", 4],
+        ["visible-gradient-rectangle", 4],
+        ["stroke-rectangle", 4],
+        ["stroke-polygon", 3],
+        ["visible-paint-server-polygon", 3],
+        ["visible-pattern-polygon", 3],
+        ["inherited-pattern-polygon", 3],
+        ["dynamic-pattern-polygon", 3],
+        ["stroke-pattern-polygon", 3],
+        ["visibility-override-polygon", 3],
+      ]);
       for (const id of [
         "rectangle",
         "frame",
@@ -7267,6 +7279,10 @@ it(
         "collapsed-paint-rectangle",
       ]) {
         await selectElementDirect(page, `#${id}`);
+        expect(
+          await page.locator("[data-agent-native-radius-handle]").count(),
+          id,
+        ).toBe(paintedShapeHandleCounts.get(id) ?? 0);
         const visible = await page.evaluate(() =>
           Array.from(
             document.querySelectorAll<HTMLElement>(
