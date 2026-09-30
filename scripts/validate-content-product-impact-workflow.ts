@@ -15,11 +15,19 @@ function permissionIsRead(value: unknown): boolean {
   return value === "read";
 }
 
+// The checker reads the PR body only for a content_product_impact block, so an
+// edit that changes neither the base nor such a block cannot change its result.
+// This is the only condition the check job may carry.
+const EDIT_GATE =
+  "github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'content_product_impact') || contains(github.event.changes.body.from, 'content_product_impact')))";
+const EDIT_GATE_GROUP_EXPRESSION =
+  "(github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'content_product_impact') || contains(github.event.changes.body.from, 'content_product_impact')))) && format('content-product-conformance-skip-{0}', github.run_id) || format('content-product-conformance-{0}', github.event.pull_request.number)";
 const ALLOWED_GITHUB_EXPRESSIONS = new Set([
   "github.event.pull_request.number",
   "github.event.pull_request.base.sha",
   "github.event.pull_request.head.repo.full_name",
   "github.event.pull_request.head.sha",
+  EDIT_GATE_GROUP_EXPRESSION,
 ]);
 const CHECKOUT_ACTION =
   "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5";
@@ -121,7 +129,7 @@ function hasExpectedSteps(steps: Array<Record<string, unknown>>): boolean {
 function containsCredentialContext(value: unknown): boolean {
   if (typeof value === "string") {
     for (const match of value.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
-      const expression = match[1].trim().toLowerCase();
+      const expression = match[1].replace(/\s+/g, " ").trim().toLowerCase();
       if (/\bsecrets\b/i.test(expression)) return true;
       if (
         /\bgithub\b/i.test(expression) &&
@@ -217,8 +225,17 @@ export function validateContentProductImpactWorkflow(
       "advisory check must not receive an environment, secrets, or explicit credentials",
     );
   }
-  if ("if" in check || "needs" in check) {
-    issues.push("check job must run unconditionally");
+  if ("needs" in check || ("if" in check && check.if !== EDIT_GATE)) {
+    issues.push("check job must run unconditionally apart from the edit gate");
+  }
+  if (
+    check.if === EDIT_GATE &&
+    (!isRecord(workflow.concurrency) ||
+      workflow.concurrency.group !== `\${{ ${EDIT_GATE_GROUP_EXPRESSION} }}`)
+  ) {
+    issues.push(
+      "an edit the check job skips must not share the pull request's concurrency group",
+    );
   }
   if (typeof check["timeout-minutes"] !== "number") {
     issues.push("check job must have an explicit timeout");

@@ -3,6 +3,7 @@ import {
   setClientAppState,
   useActionMutation,
   useActionQuery,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
@@ -121,6 +122,7 @@ import {
   rollbackOptimisticCreatedDocument,
   restoreDeletedDocumentSnapshots,
   seedCreatedDocumentNavigation,
+  startPageOpenDocumentReads,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
@@ -129,6 +131,12 @@ import {
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
 import { filesNavigationOrder } from "@/lib/files-navigation";
+import {
+  filesRootHintScope,
+  prefetchPagedFilesRoot,
+  readPagedFilesRootHint,
+  rememberPagedFilesRoot,
+} from "@/lib/files-root-hint";
 import {
   consumeLiveLocalFolderActivation,
   liveLocalFolderSourceId,
@@ -624,6 +632,25 @@ function WorkspaceSidebarItem({
   const { activeViewId, order: sidebarOrder } = localFileMode
     ? personalSidebarOrderForDatabase(filesDatabaseData, pagedOverrides)
     : filesNavigationOrder(pagedOverrides);
+  const queryClient = useQueryClient();
+  const { session } = useSession();
+  const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
+  const filesRootConfirmed =
+    !localFileMode && expanded && filesPersonalView.isSuccess;
+  useEffect(() => {
+    if (!filesRootScope || !filesRootConfirmed) return;
+    rememberPagedFilesRoot(filesRootScope, {
+      databaseId: space.filesDatabaseId,
+      sort: sidebarOrder.mode,
+      viewId: activeViewId,
+    });
+  }, [
+    activeViewId,
+    filesRootConfirmed,
+    filesRootScope,
+    sidebarOrder.mode,
+    space.filesDatabaseId,
+  ]);
   const reorderLabels: SidebarReorderLabels = {
     drag: (label) => t("sidebar.dragToReorder", { label }),
     moveUp: t("sidebar.moveUp"),
@@ -928,7 +955,12 @@ function WorkspaceSidebarItem({
                 (document) => document.id !== space.filesDocumentId,
               )}
               onOpenItem={(item) => {
-                if (selected) return false;
+                if (selected) {
+                  // The link opens the page; its reads start with the click
+                  // rather than after the route renders.
+                  startPageOpenDocumentReads(queryClient, item.document.id);
+                  return false;
+                }
                 onActivate(space, item.document.id);
                 return true;
               }}
@@ -982,6 +1014,13 @@ export function DocumentSidebar({
     [t],
   );
   const contentSpacesQuery = useContentSpaces();
+  const { session } = useSession();
+  const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
+  useEffect(() => {
+    if (!filesRootScope) return;
+    const root = readPagedFilesRootHint(filesRootScope);
+    if (root) prefetchPagedFilesRoot(queryClient, root);
+  }, [filesRootScope, queryClient]);
   const localFileMode = contentSpacesQuery.data?.sourceMode === "local-files";
   const documentsQuery = useDocuments({ enabled: localFileMode });
   const { data: documents = [] } = documentsQuery;

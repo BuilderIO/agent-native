@@ -37,10 +37,13 @@ describe("dispatchAuthPlugin", () => {
     await dispatchAuthPlugin(nitroApp);
 
     expect(mocks.createAuthPlugin).toHaveBeenCalledOnce();
+    // The template's own public routes must reach the auth guard, and the
+    // Dispatch workspace root must stay public alongside them.
     expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         googleOnly: true,
         publicPaths: [...publicPaths, "/_agent-native/private-icons"],
+        workspaceAppPublicPaths: ["/"],
       }),
     );
     expect(mocks.authPlugin).toHaveBeenCalledWith(nitroApp);

@@ -3843,7 +3843,7 @@ describe("local-core dev aliases and router dedupe", () => {
       const aliases =
         (
           config.resolve as {
-            alias?: Array<{ find: RegExp; replacement: string }>;
+            alias?: Array<{ find: string | RegExp; replacement: string }>;
           }
         )?.alias ?? [];
 
@@ -3851,8 +3851,12 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(
         aliases.some(
           (alias) =>
-            alias.find.test("@agent-native/core/client/i18n") &&
-            alias.replacement.endsWith("src/client/i18n.tsx"),
+            (alias.find instanceof RegExp
+              ? alias.find.test("@agent-native/core/client/i18n")
+              : alias.find === "@agent-native/core/client/i18n") &&
+            alias.replacement
+              .replace(/\\/g, "/")
+              .endsWith("src/client/i18n.tsx"),
         ),
       ).toBe(true);
     } finally {
