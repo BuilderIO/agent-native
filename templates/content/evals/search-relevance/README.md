@@ -7,8 +7,10 @@ engine's internals, so every future change behind that action — a
 maintained full-text index, typo correction, semantic search — is judged
 against the same fixed baseline.
 
-It records where the current substring-matching engine stands today. It does not change search
-behavior.
+The baseline was recorded on the substring scan that Content used before
+the core search index. The eval runs on the index path, because Content's
+tests process every pending index change before a search, and the index
+has to match or beat that baseline.
 
 ## Files
 
@@ -58,10 +60,9 @@ ids appear in the results.
   or MRR drops below the recorded baseline by more than a small float
   epsilon (`0.005`).
 - `typo` and `question` are report-only (`gating: false` in
-  `baseline.json`) because the current substring-matching engine cannot
-  correct typos or satisfy an AND-of-every-word match against a natural
-  question. Later phases flip these to gating once the new engine
-  targets them.
+  `baseline.json`) because neither the scan nor the index corrects typos
+  or satisfies an AND-of-every-word match against a natural question yet.
+  Later phases flip these to gating once search targets them.
 
 ## Running
 
