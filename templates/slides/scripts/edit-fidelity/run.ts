@@ -537,6 +537,20 @@ async function exitEdit(
 
 async function runChatTypingRegression(page: Page, base: string) {
   const problems: string[] = [];
+  const submitRoute = /\/_agent-native\/agent-chat(?:\?.*)?$/;
+  let submitRequestSeen = false;
+  let resolveSubmitRequested!: () => void;
+  let releaseSubmit!: () => void;
+  let resolveSubmitRouteFinished!: () => void;
+  const submitRequested = new Promise<void>((resolve) => {
+    resolveSubmitRequested = resolve;
+  });
+  const submitGate = new Promise<void>((resolve) => {
+    releaseSubmit = resolve;
+  });
+  const submitRouteFinished = new Promise<void>((resolve) => {
+    resolveSubmitRouteFinished = resolve;
+  });
   await page.route("**/_agent-native/agent-engine/status", (route: any) =>
     route.fulfill({
       status: 200,
@@ -544,6 +558,17 @@ async function runChatTypingRegression(page: Page, base: string) {
       body: JSON.stringify({ configured: true, chatEligible: true }),
     }),
   );
+  await page.route(submitRoute, async (route: any) => {
+    if (route.request().method() !== "POST") return route.continue();
+    submitRequestSeen = true;
+    resolveSubmitRequested();
+    try {
+      await submitGate;
+      await route.abort();
+    } finally {
+      resolveSubmitRouteFinished();
+    }
+  });
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
   const initialSelection = await page.evaluate(async () => {
@@ -659,8 +684,64 @@ async function runChatTypingRegression(page: Page, base: string) {
     if (!editAfterTyping.editing) {
       problems.push("slide text edit session ended while typing in chat");
     }
+
+    await composer.press(
+      process.platform === "darwin" ? "Meta+A" : "Control+A",
+    );
+    await composer.press("Backspace");
+    await composer.pressSequentially(
+      "Reply only with: local chat input lock check complete. Do not edit the deck.",
+    );
+    const sendButton = page.locator('[data-agent-composer-slot="send-button"]');
+    if (!(await sendButton.isEnabled())) {
+      problems.push("chat send button was disabled before submission");
+    } else {
+      await sendButton.click();
+      const requestStarted = await Promise.race([
+        submitRequested.then(() => true),
+        sleep(10_000).then(() => false),
+      ]);
+      if (!requestStarted) {
+        problems.push("chat submission did not reach the chat request");
+      } else {
+        if ((await composer.getAttribute("contenteditable")) !== "true") {
+          problems.push(
+            "chat editor was disabled while submission was pending",
+          );
+        }
+        const pendingDraft = "Draft typed while the first send is pending.";
+        try {
+          await composer.pressSequentially(pendingDraft, { delay: 100 });
+        } catch {
+          problems.push(
+            "keyboard input was rejected while submission was pending",
+          );
+        }
+        await sleep(250);
+        if ((await composer.getAttribute("contenteditable")) !== "true") {
+          problems.push("chat editor became disabled while typing was pending");
+        }
+        const pendingText = await composer.innerText();
+        if (pendingText !== pendingDraft) {
+          problems.push(
+            `pending draft mismatch: ${JSON.stringify(pendingText)}`,
+          );
+        }
+        if (await sendButton.isEnabled()) {
+          problems.push("chat send button stayed enabled during submission");
+        }
+        await page.screenshot({
+          path: path.join(outRoot, "chat-input-lock-pending.png"),
+        });
+      }
+    }
     return problems;
   } finally {
+    if (submitRequestSeen) {
+      releaseSubmit();
+      await Promise.race([submitRouteFinished, sleep(5000)]);
+    }
+    await page.unroute(submitRoute);
     await action(page, "delete-deck", { id: deckId }, "DELETE");
   }
 }
