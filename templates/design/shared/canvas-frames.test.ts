@@ -450,4 +450,22 @@ describe("nextCanvasFramePosition", () => {
       ),
     ).toEqual({ x: 2806, y: 0 });
   });
+
+  it("uses renderer fallback dimensions when persisted frame geometry is partial", () => {
+    expect(
+      nextCanvasFramePosition({ screen: { x: 100, y: 200 } }, 160, {
+        responsiveLayout: { screenFileIds: ["screen"] },
+      }),
+    ).toEqual({ x: 1540, y: 200 });
+    expect(
+      nextCanvasFramePosition({ screen: { x: 100, y: 200 } }, 160, {
+        responsiveLayout: {
+          screenFileIds: ["screen"],
+          screenMetadataByFileId: {
+            screen: { width: 640, height: 480 },
+          },
+        },
+      }),
+    ).toEqual({ x: 900, y: 200 });
+  });
 });

@@ -350,6 +350,38 @@ describe("open-visual-edit", () => {
     ).toBeUndefined();
   });
 
+  it("spaces responsive viewport grids by each rendered group's bounds", async () => {
+    mocks.designData = JSON.stringify({
+      breakpointSet: {
+        breakpoints: [
+          { id: "mobile", widthPx: 390 },
+          { id: "tablet", widthPx: 768 },
+          { id: "desktop", widthPx: 1440 },
+        ],
+      },
+    });
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/tasks", "/inbox"],
+      viewports: ["desktop", "mobile"],
+      navigate: false,
+    });
+
+    const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(
+      routes.map(({ x, y }: { x: number; y: number }) => ({ x, y })),
+    ).toEqual([
+      { x: 0, y: 0 },
+      { x: 4110, y: 0 },
+      { x: 0, y: expect.any(Number) },
+      { x: 4110, y: expect.any(Number) },
+    ]);
+    expect(routes[2]?.y).toBeGreaterThan(1060);
+  });
+
   it("starts a viewport grid beside existing frames when no origin is passed", async () => {
     mocks.designData = JSON.stringify({
       canvasFrames: {

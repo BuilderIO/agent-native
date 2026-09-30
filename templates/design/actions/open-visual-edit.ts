@@ -22,6 +22,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   nextCanvasFramePosition,
+  nextFreeCanvasRowY,
   parseCanvasFrameGeometryById,
 } from "../shared/canvas-frames.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
@@ -123,13 +124,32 @@ function expandRoutesAcrossViewports(args: {
   startX: number;
   startY: number;
   gap: number;
+  breakpointWidths: readonly number[];
 }): Array<z.infer<typeof screenRouteSchema>> {
   const labelViewports = args.viewports.length > 1;
   const expanded: Array<z.infer<typeof screenRouteSchema>> = [];
   let rowY = args.startY;
-  for (const route of args.routes) {
+  for (const [routeIndex, route] of args.routes.entries()) {
     let columnX = args.startX;
-    for (const viewport of args.viewports) {
+    const rowFrames: Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    > = {};
+    const rowMetadataByFileId: Record<string, Record<string, unknown>> = {};
+    const rowScreenFileIds: string[] = [];
+    for (const [viewportIndex, viewport] of args.viewports.entries()) {
+      const frameId = `${routeIndex}-${viewportIndex}`;
+      const metadata = {
+        ...route.metadata,
+        width: viewport.width,
+        height: viewport.height,
+      };
+      const frame = {
+        x: columnX,
+        y: rowY,
+        width: viewport.width,
+        height: viewport.height,
+      };
       expanded.push({
         ...route,
         title: labelViewports
@@ -140,10 +160,24 @@ function expandRoutesAcrossViewports(args: {
         x: columnX,
         y: rowY,
       });
-      columnX += viewport.width + args.gap;
+      rowFrames[frameId] = frame;
+      rowMetadataByFileId[frameId] = metadata;
+      rowScreenFileIds.push(frameId);
+      columnX = nextCanvasFramePosition({ [frameId]: frame }, args.gap, {
+        responsiveLayout: {
+          screenFileIds: [frameId],
+          screenMetadataByFileId: { [frameId]: metadata },
+          breakpointWidths: args.breakpointWidths,
+        },
+      }).x;
     }
-    rowY +=
-      Math.max(...args.viewports.map((viewport) => viewport.height)) + args.gap;
+    rowY = nextFreeCanvasRowY(rowFrames, args.gap, {
+      responsiveLayout: {
+        screenFileIds: rowScreenFileIds,
+        screenMetadataByFileId: rowMetadataByFileId,
+        breakpointWidths: args.breakpointWidths,
+      },
+    });
   }
   return expanded;
 }
@@ -662,10 +696,8 @@ export default defineAction({
 
       let viewportStartX = args.startX;
       let viewportStartY = args.startY;
-      if (
-        viewports &&
-        (viewportStartX === undefined || viewportStartY === undefined)
-      ) {
+      let viewportBreakpointWidths: number[] = [];
+      if (viewports) {
         await assertAccess("design", designId, "editor");
         const [[design], screenFiles] = await Promise.all([
           getDb()
@@ -691,21 +723,24 @@ export default defineAction({
             ? (designData as Record<string, unknown>)
             : {};
         const frameData = designDataRecord.canvasFrames;
-        const defaultPosition = nextCanvasFramePosition(
-          parseCanvasFrameGeometryById(frameData),
-          args.gap ?? 160,
-          {
-            responsiveLayout: {
-              screenFileIds: getOverviewScreenFileIds(screenFiles),
-              screenMetadataByFileId: designDataRecord.screenMetadata,
-              breakpointWidths: getResponsiveBreakpointWidths(
-                designDataRecord.breakpointSet,
-              ),
-            },
-          },
+        viewportBreakpointWidths = getResponsiveBreakpointWidths(
+          designDataRecord.breakpointSet,
         );
-        viewportStartX ??= defaultPosition.x;
-        viewportStartY ??= defaultPosition.y;
+        if (viewportStartX === undefined || viewportStartY === undefined) {
+          const defaultPosition = nextCanvasFramePosition(
+            parseCanvasFrameGeometryById(frameData),
+            args.gap ?? 160,
+            {
+              responsiveLayout: {
+                screenFileIds: getOverviewScreenFileIds(screenFiles),
+                screenMetadataByFileId: designDataRecord.screenMetadata,
+                breakpointWidths: viewportBreakpointWidths,
+              },
+            },
+          );
+          viewportStartX ??= defaultPosition.x;
+          viewportStartY ??= defaultPosition.y;
+        }
       }
 
       const screens = await addLocalhostScreensAction.run(
@@ -720,6 +755,7 @@ export default defineAction({
                   startX: viewportStartX ?? 0,
                   startY: viewportStartY ?? 0,
                   gap: args.gap ?? 160,
+                  breakpointWidths: viewportBreakpointWidths,
                 })
               : args.routes,
           paths: viewports ? undefined : args.paths,

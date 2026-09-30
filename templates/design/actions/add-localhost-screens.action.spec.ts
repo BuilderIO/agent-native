@@ -426,6 +426,30 @@ describe("add-localhost-screens refresh behavior", () => {
     });
   });
 
+  it("places each new route after the previous screen's responsive group", async () => {
+    mocks.state.files = [];
+    mocks.state.designData = {
+      breakpointSet: {
+        breakpoints: [
+          { id: "mobile", widthPx: 390 },
+          { id: "tablet", widthPx: 768 },
+          { id: "desktop", widthPx: 1440 },
+        ],
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/one", "/two"],
+      defaultWidth: 1280,
+      defaultHeight: 900,
+      gap: 160,
+    });
+
+    expect(result.placedFrames.map(({ frame }) => frame.x)).toEqual([0, 4110]);
+  });
+
   it("refreshes a legacy primary screen when its URL content identifies the route", async () => {
     mocks.state.files = [
       {

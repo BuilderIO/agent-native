@@ -688,6 +688,9 @@ export default defineAction({
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const now = new Date().toISOString();
     const layoutGap = gap ?? 160;
+    const responsiveBreakpointWidths = getResponsiveBreakpointWidths(
+      prevData.breakpointSet,
+    );
     const defaultPosition = nextCanvasFramePosition(
       existingCanvasFrames,
       layoutGap,
@@ -695,9 +698,7 @@ export default defineAction({
         responsiveLayout: {
           screenFileIds: getOverviewScreenFileIds(existingFiles),
           screenMetadataByFileId: existingMetadata,
-          breakpointWidths: getResponsiveBreakpointWidths(
-            prevData.breakpointSet,
-          ),
+          breakpointWidths: responsiveBreakpointWidths,
         },
       },
     );
@@ -1148,9 +1149,28 @@ export default defineAction({
         height,
         z: input.z ?? existingFrame?.z ?? placementIndex,
       };
-      if (!existingFrame) {
-        layoutCursorX = Math.max(layoutCursorX, frameX + width + layoutGap);
-      }
+      const nextFramePosition = nextCanvasFramePosition(
+        {
+          [fileId]: {
+            x: fallbackPlacement.x,
+            y: fallbackPlacement.y,
+            width,
+            height,
+            rotation: existingFrame?.rotation,
+          },
+        },
+        layoutGap,
+        {
+          responsiveLayout: {
+            screenFileIds: [fileId],
+            screenMetadataByFileId: {
+              [fileId]: { ...routeMetadata, width, height },
+            },
+            breakpointWidths: responsiveBreakpointWidths,
+          },
+        },
+      );
+      layoutCursorX = Math.max(layoutCursorX, nextFramePosition.x);
       placementIndex += 1;
       placementIntents.push({
         fileId,

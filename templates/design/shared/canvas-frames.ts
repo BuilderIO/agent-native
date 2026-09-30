@@ -89,8 +89,6 @@ function canvasFrameBounds(
 ): CanvasFrameBounds {
   const x = frame.x ?? 0;
   const y = frame.y ?? 0;
-  const width = frame.width ?? 0;
-  const height = frame.height ?? 0;
   const rotation = frame.rotation ?? 0;
   const metadataByFileId = responsiveLayout?.screenMetadataByFileId;
   const metadataMap =
@@ -108,15 +106,18 @@ function canvasFrameBounds(
       : {};
   const metadataWidth = finiteNumber(metadata.width);
   const metadataHeight = finiteNumber(metadata.height);
+  const isOverviewScreen =
+    responsiveScreenIds.has(id) ||
+    metadataWidth !== undefined ||
+    metadataHeight !== undefined;
+  const width = frame.width ?? (isOverviewScreen ? (metadataWidth ?? 1280) : 0);
+  const height =
+    frame.height ?? (isOverviewScreen ? (metadataHeight ?? 2560) : 0);
   const responsiveScreen = responsiveScreenIds.has(id);
-  const primaryWidth = Math.max(1, width || 320);
+  const primaryWidth = Math.max(1, width || (isOverviewScreen ? 1280 : 320));
   const sourceWidth = Math.max(1, metadataWidth ?? 1280);
   const sourceHeight = Math.max(1, metadataHeight ?? 2560);
-  const primaryHeight = Math.max(
-    1,
-    height ||
-      Math.max(80, Math.round((primaryWidth * sourceHeight) / sourceWidth)),
-  );
+  const primaryHeight = Math.max(1, height);
   const visibleWidths = responsiveScreen
     ? visibleBreakpointWidths(
         responsiveLayout?.breakpointWidths,
