@@ -1572,7 +1572,7 @@ export function formatPendingVisualStylePrompt(args: {
 export function formatVisualEditClipboardPrompt(
   prompt: string,
   host: "chatgpt" | "claude" | "codex" | "webmcp" | null | undefined,
-  fullPrompt = false,
+  fullPrompt = true,
   designId?: string | null,
 ): string {
   const design = designId
@@ -1580,7 +1580,7 @@ export function formatVisualEditClipboardPrompt(
     : " using the design ID from this URL";
   if (fullPrompt) {
     return [
-      `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : ""}`,
+      `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : " Use the design ID from this URL."}`,
       "Use the supplied source provenance to make idiomatic code changes; do not leave editor-only DOM or inline-style mutations as the implementation. Verify the running app after HMR, then use the Agent-Native Design MCP tool get-visual-edit-pending to obtain the current revision, acknowledge only after verification, and pull again to confirm it cleared.",
       "",
       prompt,

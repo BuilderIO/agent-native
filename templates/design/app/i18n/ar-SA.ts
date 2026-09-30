@@ -1241,6 +1241,7 @@ export default {
       verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
       retryWithAgent: "إعادة التحقق من المصدر",
       copyPrompt: "نسخ الموجه إلى وكيلك",
+      copyAgentPrompt: "نسخ موجه الوكيل",
       copyFullPrompt: "نسخ الموجه الكامل",
       abortPreview: "إلغاء المعاينة والتفاعل",
       agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",

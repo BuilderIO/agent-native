@@ -2495,18 +2495,27 @@ describe("AgentKitClient", () => {
       yield protocolEvent(2, {
         type: "message.created",
         message: {
+          id: "confirmed-user-1",
+          role: "user",
+          status: "complete",
+          parts: [{ type: "text", text: "Continue with the release" }],
+        },
+      });
+      yield protocolEvent(3, {
+        type: "message.created",
+        message: {
           id: "assistant-1",
           role: "assistant",
           status: "streaming",
           parts: [],
         },
       });
-      yield protocolEvent(3, {
+      yield protocolEvent(4, {
         type: "message.delta",
         messageId: "assistant-1",
         text: "Release continued.",
       });
-      yield protocolEvent(4, { type: "run.completed" });
+      yield protocolEvent(5, { type: "run.completed" });
     };
     const client = new AgentKitClient({ transport });
     await client.loadThread("thread-1");
@@ -2517,7 +2526,7 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1")).toMatchObject({
       queuedMessages: [],
       messages: [
-        { id: "queued-1", role: "user" },
+        { id: "confirmed-user-1", role: "user" },
         { id: "assistant-1", role: "assistant" },
       ],
     });
@@ -3200,6 +3209,35 @@ describe("AgentKitClient", () => {
       (client as unknown as { submittedUserMessages: Map<string, string> })
         .submittedUserMessages.size,
     ).toBe(0);
+  });
+
+  it("releases submitted-message reconciliation after a non-retryable run failure", async () => {
+    const failStream = Promise.withResolvers<void>();
+    let subscriptions = 0;
+    const transport = createTransport([]);
+    transport.subscribeToRun = async function* () {
+      subscriptions += 1;
+      await failStream.promise;
+      throw new AgentProtocolValidationError("stream", "invalid event");
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Keep this message",
+    });
+    const submittedUserMessages = Reflect.get(
+      client,
+      "submittedUserMessages",
+    ) as Map<string, string>;
+
+    expect(submittedUserMessages.size).toBe(1);
+    failStream.resolve();
+    await expect(run.completed).rejects.toThrow("invalid event");
+
+    expect(client.getThread("thread-1").runs[run.runId]?.status).toBe("failed");
+    expect(submittedUserMessages.size).toBe(0);
+    expect(subscriptions).toBe(1);
+    await client.shutdown();
   });
 
   it("does not roll an accepted stream cursor back during a stale refresh", async () => {

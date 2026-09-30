@@ -1265,6 +1265,7 @@ export default {
       verifying: "ソースとランタイムを検証中…",
       retryWithAgent: "ソース検証を再試行",
       copyPrompt: "エージェントにプロンプトをコピー",
+      copyAgentPrompt: "エージェントプロンプトをコピー",
       copyFullPrompt: "完全なプロンプトをコピー",
       abortPreview: "プレビューを中止して操作",
       agentMessage:

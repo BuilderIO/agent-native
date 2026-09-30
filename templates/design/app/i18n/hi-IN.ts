@@ -1247,6 +1247,7 @@ export default {
       verifying: "Source और runtime सत्यापित हो रहे हैं…",
       retryWithAgent: "Source verification फिर करें",
       copyPrompt: "Prompt अपने agent को कॉपी करें",
+      copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
       copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",

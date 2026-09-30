@@ -683,12 +683,6 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   const threadId = getRouterParam(event, "threadId") as string;
   const { accountEmail } = getQuery(event) as { accountEmail?: string };
 
-  const cacheKey = threadCacheKey(email, threadId);
-  const cached = threadMessagesCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.messages;
-  }
-
   if (await isConnected(email)) {
     try {
       let resolvedAccount: string | undefined;
@@ -704,6 +698,14 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
               ? { accountErrors: error.data.accountErrors }
               : {}),
           };
+        }
+      }
+      if (resolvedAccount) {
+        const cached = threadMessagesCache.get(
+          threadCacheKey(email, threadId, resolvedAccount),
+        );
+        if (cached && cached.expiresAt > Date.now()) {
+          return cached.messages;
         }
       }
       const { tokens: accountTokens, errors } = await getAccountTokens(
@@ -734,7 +736,7 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
             (a: any, b: any) =>
               new Date(a.date).getTime() - new Date(b.date).getTime(),
           );
-          threadMessagesCache.set(cacheKey, {
+          threadMessagesCache.set(threadCacheKey(email, threadId, acctEmail), {
             messages,
             expiresAt: Date.now() + THREAD_CACHE_TTL,
           });
@@ -867,7 +869,7 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
         ["SPAM"],
         ["INBOX"],
       )) as { historyId?: string } | undefined;
-      invalidateThreadCache(email, threadId!);
+      invalidateThreadCache(email, threadId!, acct);
       await syncInboxLabelDelta(email, acct, [threadId!], {
         add: ["SPAM"],
         remove: ["INBOX"],
@@ -952,7 +954,7 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
         ["SPAM"],
         ["INBOX"],
       )) as { historyId?: string } | undefined;
-      invalidateThreadCache(email, msg.threadId);
+      invalidateThreadCache(email, msg.threadId, acct);
       await syncInboxLabelDelta(email, acct, [msg.threadId], {
         add: ["SPAM"],
         remove: ["INBOX"],
@@ -1058,7 +1060,7 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
         undefined,
         ["INBOX"],
       )) as { historyId?: string } | undefined;
-      invalidateThreadCache(email, threadId);
+      invalidateThreadCache(email, threadId, acct);
       await syncInboxLabelDelta(email, acct, [threadId], {
         remove: ["INBOX"],
         providerHistoryId: updated?.historyId,
@@ -1275,7 +1277,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       }
 
       if (sent.threadId) {
-        invalidateThreadCache(email, sent.threadId);
+        invalidateThreadCache(email, sent.threadId, selectedEmail);
       }
       invalidateListCacheForOwner(email);
 

@@ -82,6 +82,7 @@ export function ConnectBuilderCard({
     ? flow.builderEnabled
     : initialBuilderEnabled;
   const orgName = flow.statusResolved ? flow.orgName : (initialOrgName ?? null);
+  const connectedToName = orgName === "Fusion" ? "Builder.io" : orgName;
   const connecting = flow.connecting;
 
   const [waitlistJoined, setWaitlistJoined] = useState(false);
@@ -303,10 +304,10 @@ export function ConnectBuilderCard({
         Managed by this deployment — every user of this app uses the same
         Builder identity. {connectedCapabilityText} {connectedCapabilityAction}
       </>
-    ) : orgName ? (
+    ) : connectedToName ? (
       <>
         Connected to{" "}
-        <span className="font-medium text-foreground">{orgName}</span>.{" "}
+        <span className="font-medium text-foreground">{connectedToName}</span>.{" "}
         {connectedCapabilityText} {connectedCapabilityAction}
       </>
     ) : (

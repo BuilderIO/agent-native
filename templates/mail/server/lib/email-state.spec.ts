@@ -357,7 +357,11 @@ describe("archiveEmail", () => {
 
       await archiveEmail({ id: MSG_ID, ownerEmail: OWNER });
 
-      expect(invalidateThreadCache).toHaveBeenCalledWith(OWNER, THREAD_ID);
+      expect(invalidateThreadCache).toHaveBeenCalledWith(
+        OWNER,
+        THREAD_ID,
+        ACCT,
+      );
     });
 
     it("skips gmailGetMessage round-trip when threadId hint is provided and removeLabel absent", async () => {
@@ -489,7 +493,11 @@ describe("unarchiveEmail", () => {
       expect(gmailModifyThread).toHaveBeenCalledWith(ACCESS_TOKEN, THREAD_ID, [
         "INBOX",
       ]);
-      expect(invalidateThreadCache).toHaveBeenCalledWith(OWNER, THREAD_ID);
+      expect(invalidateThreadCache).toHaveBeenCalledWith(
+        OWNER,
+        THREAD_ID,
+        ACCT,
+      );
     });
   });
 });
@@ -565,7 +573,11 @@ describe("toggleStar", () => {
 
       await toggleStar({ id: MSG_ID, ownerEmail: OWNER, isStarred: true });
 
-      expect(invalidateThreadCache).toHaveBeenCalledWith(OWNER, THREAD_ID);
+      expect(invalidateThreadCache).toHaveBeenCalledWith(
+        OWNER,
+        THREAD_ID,
+        ACCT,
+      );
     });
 
     it("uses hint threadId for cache invalidation without extra fetch", async () => {
@@ -580,7 +592,11 @@ describe("toggleStar", () => {
         threadId: "hint-thread",
       });
 
-      expect(invalidateThreadCache).toHaveBeenCalledWith(OWNER, "hint-thread");
+      expect(invalidateThreadCache).toHaveBeenCalledWith(
+        OWNER,
+        "hint-thread",
+        ACCT,
+      );
     });
 
     it("mirrors the store with message scope, not thread scope (only this message starred)", async () => {
@@ -653,7 +669,11 @@ describe("trashEmail", () => {
         isTrashed: true,
       });
       expect(gmailTrashThread).toHaveBeenCalledWith(ACCESS_TOKEN, THREAD_ID);
-      expect(invalidateThreadCache).toHaveBeenCalledWith(OWNER, THREAD_ID);
+      expect(invalidateThreadCache).toHaveBeenCalledWith(
+        OWNER,
+        THREAD_ID,
+        ACCT,
+      );
     });
   });
 });
@@ -721,7 +741,11 @@ describe("untrashEmail", () => {
           providerHistoryId: "history-1",
         },
       );
-      expect(invalidateThreadCache).toHaveBeenCalledWith(OWNER, THREAD_ID);
+      expect(invalidateThreadCache).toHaveBeenCalledWith(
+        OWNER,
+        THREAD_ID,
+        ACCT,
+      );
     });
   });
 });
@@ -1052,7 +1076,11 @@ describe("markThreadRead", () => {
         undefined,
         ["UNREAD"],
       );
-      expect(invalidateThreadCache).toHaveBeenCalledWith(OWNER, THREAD_ID);
+      expect(invalidateThreadCache).toHaveBeenCalledWith(
+        OWNER,
+        THREAD_ID,
+        ACCT,
+      );
     });
 
     it("adds UNREAD label when marking thread unread", async () => {

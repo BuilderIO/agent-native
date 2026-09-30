@@ -30,8 +30,13 @@ vi.mock("../export-font-mirror", async (importOriginal) => {
 });
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
+import { getExportCompositeBounds } from "../export-capture";
+import type { PngCaptureScope } from "../png-export-render";
 import { runDownloadPdf } from "./download-pdf";
-import { runRenderPngBlob } from "./render-png-blob";
+import {
+  resolveSelectedScreenExportFrames,
+  runRenderPngBlob,
+} from "./render-png-blob";
 
 const originalDimensions = [
   [document.documentElement, "scrollWidth"],
@@ -163,6 +168,7 @@ describe("board document exports", () => {
         fallbackExportName: () => "Test - Export.pdf",
         pngExportingRef: { current: false },
         renderPngBlob: (arg) => runRenderPngBlob(args, arg),
+        resolveSelectedScreensBounds: () => null,
         resolvePngCaptureTarget: args.resolvePngCaptureTarget,
         setPngExporting: vi.fn(),
         showRasterCaptureError: vi.fn(),
@@ -222,6 +228,7 @@ describe("board document exports", () => {
           fallbackExportName: () => "Test - Export.pdf",
           pngExportingRef: { current: false },
           renderPngBlob: (arg) => runRenderPngBlob(args, arg),
+          resolveSelectedScreensBounds: () => null,
           resolvePngCaptureTarget,
           setPngExporting: vi.fn(),
           showRasterCaptureError: vi.fn(),
@@ -243,36 +250,119 @@ describe("board document exports", () => {
     }
   });
 
-  it("uses composite bounds for multiple selected screens without resolving one iframe", async () => {
-    const resolvePngCaptureTarget = vi.fn(() => {
-      throw new Error("A composite has no single capture iframe");
+  it("renders multiple selected screens before resolving a single-frame PDF target", async () => {
+    const screens = [
+      { id: "screen-a", width: 320, height: 200 },
+      { id: "screen-b", width: 400, height: 240 },
+    ] as never[];
+    const geometries = {
+      "screen-a": { x: 0, y: 0, width: 320, height: 200, z: 0 },
+      "screen-b": { x: 400, y: 0, width: 400, height: 240, z: 1 },
+    } as never;
+    const selectedScreenIds = ["screen-a", "screen-b"];
+    const iframes = selectedScreenIds.map((id) => {
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("data-screen-iframe-id", id);
+      Object.defineProperties(iframe, {
+        clientHeight: {
+          configurable: true,
+          value: id === "screen-a" ? 200 : 240,
+        },
+        clientWidth: {
+          configurable: true,
+          value: id === "screen-a" ? 320 : 400,
+        },
+      });
+      document.body.append(iframe);
+      iframe.contentDocument!.body.innerHTML = `<main>${id}</main>`;
+      return iframe;
     });
-    const resolveCompositePageSize = vi.fn(() => ({
-      width: 680,
-      height: 250,
-    }));
-
-    await runDownloadPdf(
-      {
-        fallbackExportName: () => "Test - Export.pdf",
-        pngExportingRef: { current: false },
-        renderPngBlob: async () => new Blob(["image"], { type: "image/png" }),
-        resolveCompositePageSize,
-        resolvePngCaptureTarget,
-        setPngExporting: vi.fn(),
-        showRasterCaptureError: vi.fn(),
-        t: () => "PDF downloaded",
-        triggerBlobDownload: vi.fn(),
+    const context = {
+      drawImage: vi.fn(),
+      restore: vi.fn(),
+      rotate: vi.fn(),
+      save: vi.fn(),
+      translate: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(context);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation((callback, type) =>
+        callback(new Blob(["image"], { type })),
+      );
+    const iframeById = new Map(
+      iframes.map((iframe, index) => [selectedScreenIds[index]!, iframe]),
+    );
+    const resolvePngCaptureTarget = vi.fn(
+      (_scope: PngCaptureScope, screenId?: string) => {
+        const iframe = screenId ? iframeById.get(screenId) : undefined;
+        const doc = iframe?.contentDocument;
+        if (!iframe || !doc)
+          throw new Error("A selected screen preview is unavailable");
+        return { cropSelection: null, doc, iframe };
       },
-      { scale: 1 },
-      "screens",
     );
+    const captureArgs = {
+      activeCanvasSourceType: "inline" as const,
+      canEditDesign: true,
+      canvasFrameGeometryById: geometries,
+      overviewScreens: screens,
+      resolvePngCaptureTarget,
+      selectedScreenIds,
+      viewMode: "overview" as const,
+    };
+    const resolveSelectedScreensBounds = () => {
+      const selectedFrames = resolveSelectedScreenExportFrames({
+        selectedScreenIds,
+        overviewScreens: screens,
+        canvasFrameGeometryById: geometries,
+        iframeSizeById: new Map(
+          iframes.map((iframe, index) => [
+            selectedScreenIds[index]!,
+            { width: iframe.clientWidth, height: iframe.clientHeight },
+          ]),
+        ),
+      });
+      return getExportCompositeBounds(selectedFrames.map(({ frame }) => frame));
+    };
 
-    expect(resolveCompositePageSize).toHaveBeenCalledOnce();
-    expect(resolvePngCaptureTarget).not.toHaveBeenCalled();
-    expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
-      expect.objectContaining({ width: 680, height: 250 }),
-    );
+    try {
+      await runDownloadPdf(
+        {
+          fallbackExportName: () => "Test - Export.pdf",
+          pngExportingRef: { current: false },
+          renderPngBlob: (arg) => runRenderPngBlob(captureArgs, arg),
+          resolveSelectedScreensBounds,
+          resolvePngCaptureTarget,
+          setPngExporting: vi.fn(),
+          showRasterCaptureError: vi.fn(),
+          t: () => "PDF downloaded",
+          triggerBlobDownload: vi.fn(),
+        },
+        { scale: 1 },
+        "screens",
+      );
+
+      expect(resolvePngCaptureTarget).toHaveBeenNthCalledWith(
+        1,
+        "screens",
+        "screen-a",
+      );
+      expect(resolvePngCaptureTarget).toHaveBeenNthCalledWith(
+        2,
+        "screens",
+        "screen-b",
+      );
+      expect(mocks.html2canvas).toHaveBeenCalledTimes(2);
+      expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ width: 800, height: 240 }),
+      );
+    } finally {
+      getContext.mockRestore();
+      toBlob.mockRestore();
+    }
   });
 
   it("leaves ordinary screen document exports uncropped", async () => {

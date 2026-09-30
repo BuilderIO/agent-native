@@ -292,7 +292,7 @@ export async function archiveEmail(
         undefined,
         removeLabels,
       )) as { historyId?: string } | undefined;
-      invalidateThreadCache(ownerEmail, resolvedThreadId);
+      invalidateThreadCache(ownerEmail, resolvedThreadId, account.accountId);
       await syncInboxLabelDelta(
         ownerEmail,
         account.accountId,
@@ -362,7 +362,7 @@ export async function unarchiveEmail(
   const updated = (await gmailModifyThread(token, msg.threadId, ["INBOX"])) as
     | { historyId?: string }
     | undefined;
-  invalidateThreadCache(ownerEmail, msg.threadId);
+  invalidateThreadCache(ownerEmail, msg.threadId, resolvedAccount);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
     add: ["INBOX"],
     providerHistoryId: updated?.historyId,
@@ -429,7 +429,7 @@ export async function toggleStar(
       )) as { historyId?: string; threadId?: string } | undefined;
       const resolvedThreadId = hintThreadId || updated?.threadId;
       if (resolvedThreadId) {
-        invalidateThreadCache(ownerEmail, resolvedThreadId);
+        invalidateThreadCache(ownerEmail, resolvedThreadId, account.accountId);
         await syncInboxLabelDelta(
           ownerEmail,
           account.accountId,
@@ -506,7 +506,7 @@ export async function trashEmail(
       const updated = (await gmailTrashThread(token, msg.threadId)) as
         | { historyId?: string }
         | undefined;
-      invalidateThreadCache(ownerEmail, msg.threadId);
+      invalidateThreadCache(ownerEmail, msg.threadId, account.accountId);
       await syncInboxLabelDelta(ownerEmail, account.accountId, [msg.threadId], {
         add: ["TRASH"],
         remove: ["INBOX"],
@@ -576,7 +576,7 @@ export async function untrashEmail(
     ["INBOX"],
     ["TRASH"],
   )) as { historyId?: string } | undefined;
-  invalidateThreadCache(ownerEmail, msg.threadId);
+  invalidateThreadCache(ownerEmail, msg.threadId, resolvedAccount);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
     add: ["INBOX"],
     remove: ["TRASH"],
@@ -785,7 +785,7 @@ export async function markThreadRead(
     isRead ? undefined : ["UNREAD"],
     isRead ? ["UNREAD"] : undefined,
   )) as { historyId?: string } | undefined;
-  invalidateThreadCache(ownerEmail, threadId);
+  invalidateThreadCache(ownerEmail, threadId, resolvedAccount);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [threadId], {
     add: isRead ? undefined : ["UNREAD"],
     remove: isRead ? ["UNREAD"] : undefined,

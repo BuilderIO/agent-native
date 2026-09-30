@@ -1202,7 +1202,10 @@ export default defineAction({
             return [index];
           },
         );
-        const overlapsExistingFrame = newPlacementIndexes.some((index) => {
+        const defaultYPlacementIndexes = newPlacementIndexes.filter(
+          (index) => !placementIntents[index]?.owns.y,
+        );
+        const overlapsExistingFrame = defaultYPlacementIndexes.some((index) => {
           const placement = placementCandidates[index];
           if (!placement?.fileId) return false;
           const bounds = screenFrameBounds(
@@ -1223,7 +1226,7 @@ export default defineAction({
           });
         });
         let placements = placementCandidates;
-        if (overlapsExistingFrame && newPlacementIndexes.length > 0) {
+        if (overlapsExistingFrame && defaultYPlacementIndexes.length > 0) {
           const placementMetadata = {
             ...previousMetadata,
             ...Object.fromEntries(
@@ -1261,13 +1264,13 @@ export default defineAction({
             },
           );
           const firstNewRowY = Math.min(
-            ...newPlacementIndexes.map(
+            ...defaultYPlacementIndexes.map(
               (index) => placementCandidates[index]?.y ?? 0,
             ),
           );
           const rowOffset = Math.max(0, nextRowY - firstNewRowY);
           placements = placementCandidates.map((placement, index) =>
-            newPlacementIndexes.includes(index)
+            defaultYPlacementIndexes.includes(index)
               ? { ...placement, y: (placement.y ?? 0) + rowOffset }
               : placement,
           );

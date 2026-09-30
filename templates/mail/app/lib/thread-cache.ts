@@ -29,6 +29,7 @@ type Globals = {
   __mailThreadInflight?: Map<string, Promise<ThreadFetchResult>>;
   __mailThreadSubscribers?: Map<string, Set<() => void>>;
   __mailThreadVersions?: Map<string, number>;
+  __mailThreadCacheGeneration?: number;
 };
 const g = globalThis as Globals;
 const cache = (g.__mailThreadCache ??= new Map());
@@ -39,12 +40,15 @@ const inflight: Map<
 const subscribers = (g.__mailThreadSubscribers ??= new Map());
 const versions = (g.__mailThreadVersions ??= new Map());
 let backgroundCooldownUntil = 0;
+let sessionScope: string | undefined;
+let accountScope: string | undefined;
 
 if (g.__mailThreadCacheFormat !== 2) {
   cache.clear();
   inflight.clear();
   subscribers.clear();
   versions.clear();
+  g.__mailThreadCacheGeneration = (g.__mailThreadCacheGeneration ?? 0) + 1;
   g.__mailThreadCacheFormat = 2;
   g.__mailThreadOwner = null;
 }
@@ -88,15 +92,42 @@ export function getThreadCacheOwner(): string | null {
 export function setThreadCacheOwner(owner: string | null): void {
   const nextOwner = owner?.trim() || null;
   if (getThreadCacheOwner() === nextOwner) return;
-  cache.clear();
-  inflight.clear();
-  subscribers.clear();
-  versions.clear();
   g.__mailThreadOwner = nextOwner;
+  clearThreadCache();
 }
 
 function getVersion(key: string): number {
   return versions.get(key) ?? 0;
+}
+
+function getFetchVersion(key: string): string {
+  return `${g.__mailThreadCacheGeneration ?? 0}:${getVersion(key)}`;
+}
+
+export function clearThreadCache(): void {
+  const keys = new Set([
+    ...cache.keys(),
+    ...inflight.keys(),
+    ...subscribers.keys(),
+  ]);
+  g.__mailThreadCacheGeneration = (g.__mailThreadCacheGeneration ?? 0) + 1;
+  cache.clear();
+  inflight.clear();
+  versions.clear();
+  backgroundCooldownUntil = 0;
+  queueMicrotask(() => keys.forEach(notify));
+}
+
+export function setThreadCacheSessionScope(scope: string): void {
+  if (sessionScope === scope) return;
+  sessionScope = scope;
+  clearThreadCache();
+}
+
+export function setThreadCacheAccountScope(scope: string): void {
+  if (accountScope === scope) return;
+  accountScope = scope;
+  clearThreadCache();
 }
 
 function clearOwnedInflight(key: string, request: Promise<ThreadFetchResult>) {
@@ -283,10 +314,10 @@ export function ensureThread(
   }
   const existing = inflight.get(key);
   if (existing) return existing.then(({ messages }) => messages);
-  const startedVersion = getVersion(key);
+  const startedVersion = getFetchVersion(key);
   const p = fetchThread(threadId, accountEmail)
     .then((result) => {
-      if (getVersion(key) !== startedVersion) {
+      if (getFetchVersion(key) !== startedVersion) {
         clearOwnedInflight(key, p);
         return result;
       }
@@ -317,10 +348,10 @@ function backgroundRefresh(
       providerSnapshotId: 0,
     });
   const key = cacheKey(threadId, accountEmail);
-  const startedVersion = getVersion(key);
+  const startedVersion = getFetchVersion(key);
   const p = fetchThread(threadId, accountEmail)
     .then((result) => {
-      if (getVersion(key) !== startedVersion) {
+      if (getFetchVersion(key) !== startedVersion) {
         clearOwnedInflight(key, p);
         return result;
       }

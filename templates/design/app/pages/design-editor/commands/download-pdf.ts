@@ -7,6 +7,9 @@ import {
   PDF_MIN_PRINT_RASTER_SCALE,
   createSinglePageRasterPdf,
 } from "@/pages/design-editor/export-capture";
+import type { ExportCropRect } from "@/pages/design-editor/export-capture";
+import { prepareExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
+import type { ExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
 import type { PngCaptureScope } from "@/pages/design-editor/png-export-render";
 import {
   resolveBoardExportCropRect,
@@ -21,11 +24,9 @@ export interface DownloadPdfArgs {
     settings?: Partial<ExportSettingsValue>;
     format?: "png" | "jpg" | "webp";
   }) => Promise<Blob>;
-  resolveCompositePageSize?: () => { width: number; height: number } | null;
-  resolvePngCaptureTarget: (scope: PngCaptureScope) => {
+  resolveSelectedScreensBounds: () => ExportCropRect | null;
+  resolvePngCaptureTarget: (scope: PngCaptureScope) => ExportCaptureTarget & {
     cropSelection: ElementInfo | readonly ElementInfo[] | null;
-    doc: Document;
-    iframe: HTMLIFrameElement;
   };
   setPngExporting: Dispatch<SetStateAction<boolean>>;
   showRasterCaptureError: (error: unknown, format?: "png" | "pdf") => void;
@@ -38,7 +39,7 @@ export async function runDownloadPdf(
     fallbackExportName,
     pngExportingRef,
     renderPngBlob,
-    resolveCompositePageSize,
+    resolveSelectedScreensBounds,
     resolvePngCaptureTarget,
     setPngExporting,
     showRasterCaptureError,
@@ -52,35 +53,41 @@ export async function runDownloadPdf(
   pngExportingRef.current = true;
   setPngExporting(true);
   try {
-    const compositePageSize =
-      scope === "screens" ? resolveCompositePageSize?.() : null;
+    const selectedScreensBounds =
+      scope === "screens" ? resolveSelectedScreensBounds() : null;
     let pageWidth: number;
     let pageHeight: number;
-    if (compositePageSize) {
-      pageWidth = compositePageSize.width;
-      pageHeight = compositePageSize.height;
+    if (selectedScreensBounds) {
+      pageWidth = Math.max(1, selectedScreensBounds.width);
+      pageHeight = Math.max(1, selectedScreensBounds.height);
     } else {
-      const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
-      const crop = resolveExportCropRect(doc, cropSelection);
-      const pageCrop = crop ?? resolveBoardExportCropRect(doc, iframe);
-      pageWidth = Math.max(
-        1,
-        pageCrop?.width ??
-          Math.max(
-            doc.documentElement.scrollWidth,
-            doc.body?.scrollWidth ?? 0,
-            iframe.clientWidth,
-          ),
-      );
-      pageHeight = Math.max(
-        1,
-        pageCrop?.height ??
-          Math.max(
-            doc.documentElement.scrollHeight,
-            doc.body?.scrollHeight ?? 0,
-            iframe.clientHeight,
-          ),
-      );
+      const target = resolvePngCaptureTarget(scope);
+      const prepared = await prepareExportCaptureTarget(target);
+      try {
+        const crop = resolveExportCropRect(prepared.doc, target.cropSelection);
+        const pageCrop =
+          crop ?? resolveBoardExportCropRect(prepared.doc, prepared.iframe);
+        pageWidth = Math.max(
+          1,
+          pageCrop?.width ??
+            Math.max(
+              prepared.doc.documentElement.scrollWidth,
+              prepared.doc.body?.scrollWidth ?? 0,
+              prepared.iframe.clientWidth,
+            ),
+        );
+        pageHeight = Math.max(
+          1,
+          pageCrop?.height ??
+            Math.max(
+              prepared.doc.documentElement.scrollHeight,
+              prepared.doc.body?.scrollHeight ?? 0,
+              prepared.iframe.clientHeight,
+            ),
+        );
+      } finally {
+        prepared.dispose();
+      }
     }
     const pdfScale = Math.max(
       PDF_MIN_PRINT_RASTER_SCALE,

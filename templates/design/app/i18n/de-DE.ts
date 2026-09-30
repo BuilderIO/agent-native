@@ -1273,6 +1273,7 @@ export default {
       verifying: "Quelle und Laufzeit werden überprüft…",
       retryWithAgent: "Quellprüfung wiederholen",
       copyPrompt: "Prompt an deinen Agent kopieren",
+      copyAgentPrompt: "Agentenprompt kopieren",
       copyFullPrompt: "Vollständigen Prompt kopieren",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:

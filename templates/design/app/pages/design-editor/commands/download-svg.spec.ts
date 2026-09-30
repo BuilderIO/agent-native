@@ -30,13 +30,13 @@ describe("resolveSvgExportIframe", () => {
     expect(resolveSvgExportIframe(previews, "screen-b")).toBeNull();
   });
 
-  it("does not fall back when the requested frame is missing", () => {
-    const preview = previewIframe();
+  it("does not replace a missing requested frame with the only other preview", () => {
+    const preview = previewIframe("other-screen");
 
-    expect(resolveSvgExportIframe([preview], "board")).toBeNull();
+    expect(resolveSvgExportIframe([preview], "stale-screen")).toBeNull();
   });
 
-  it("uses the only preview when no frame is requested", () => {
+  it("uses the only preview when no frame was requested", () => {
     const preview = previewIframe();
 
     expect(resolveSvgExportIframe([preview])).toBe(preview);

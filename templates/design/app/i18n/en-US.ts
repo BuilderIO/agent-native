@@ -1260,6 +1260,7 @@ export default {
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
+      copyAgentPrompt: "Copy agent prompt",
       copyFullPrompt: "Copy full prompt",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",

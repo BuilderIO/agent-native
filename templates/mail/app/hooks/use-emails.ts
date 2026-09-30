@@ -894,26 +894,44 @@ function applyReadMutationStates(
 function applyStarMutationStates(
   states: Map<string, boolean | undefined | null>,
   threadIdsByEmailId?: Readonly<Record<string, string>> | string,
-  accountEmail?: string,
+  accountEmailByEmailId?: Readonly<Record<string, string | undefined>> | string,
 ) {
   const resolved = applyEmailBooleanMutationStates(states, "isStarred");
   if (resolved.size === 0 || !threadIdsByEmailId) return;
-  const threadIds =
-    typeof threadIdsByEmailId === "string"
-      ? new Map([...resolved.keys()].map((id) => [id, threadIdsByEmailId]))
-      : new Map(
-          [...resolved.keys()]
-            .map((id) => [id, threadIdsByEmailId[id]] as const)
-            .filter((entry): entry is [string, string] => Boolean(entry[1])),
-        );
-  for (const threadId of new Set(threadIds.values())) {
+  const threads = new Map<
+    string,
+    { accountEmail?: string; threadId: string; states: Map<string, boolean> }
+  >();
+  for (const [emailId, isStarred] of resolved) {
+    const threadId =
+      typeof threadIdsByEmailId === "string"
+        ? threadIdsByEmailId
+        : threadIdsByEmailId[emailId];
+    if (!threadId) continue;
+    const accountEmail =
+      typeof accountEmailByEmailId === "string"
+        ? accountEmailByEmailId
+        : accountEmailByEmailId?.[emailId];
+    const key = JSON.stringify([threadId, accountEmail?.toLowerCase() ?? null]);
+    let thread = threads.get(key);
+    if (!thread) {
+      thread = { accountEmail, threadId, states: new Map() };
+      threads.set(key, thread);
+    }
+    thread.states.set(emailId, isStarred);
+  }
+  for (const {
+    accountEmail,
+    states: threadStates,
+    threadId,
+  } of threads.values()) {
     const thread = getCachedThread(threadId, accountEmail);
     if (!thread) continue;
     setCachedThread(
       threadId,
       thread.map((message) =>
-        resolved.has(message.id)
-          ? { ...message, isStarred: resolved.get(message.id)! }
+        threadStates.has(message.id)
+          ? { ...message, isStarred: threadStates.get(message.id)! }
           : message,
       ),
       accountEmail,
@@ -2425,6 +2443,13 @@ export function useBulkToggleStar() {
         flattenInfiniteEmails(data),
       );
       const threadIdsByEmailId = resolveBulkThreadIds(qc, targets);
+      const accountEmailsByEmailId = Object.fromEntries(
+        targets.map((target) => [
+          target.id,
+          target.accountEmail ??
+            allEmails.find((email) => email.id === target.id)?.accountEmail,
+        ]),
+      );
       const mutationVersions: Record<string, number> = {};
       for (const id of ids) {
         mutationVersions[id] = beginStarMutation(
@@ -2443,7 +2468,12 @@ export function useBulkToggleStar() {
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      return { mutationVersions, threadIdsByEmailId, inboxMutationId };
+      return {
+        accountEmailsByEmailId,
+        mutationVersions,
+        threadIdsByEmailId,
+        inboxMutationId,
+      };
     },
     onSuccess: (_data, vars, context) => {
       if (!context) return;
@@ -2451,7 +2481,11 @@ export function useBulkToggleStar() {
       for (const [id, version] of Object.entries(context.mutationVersions)) {
         states.set(id, confirmStarMutation(id, version, vars.isStarred));
       }
-      applyStarMutationStates(states, context.threadIdsByEmailId);
+      applyStarMutationStates(
+        states,
+        context.threadIdsByEmailId,
+        context.accountEmailsByEmailId,
+      );
     },
     onError: (err, vars, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
@@ -2475,7 +2509,11 @@ export function useBulkToggleStar() {
             ),
           );
         }
-        applyStarMutationStates(states, context.threadIdsByEmailId);
+        applyStarMutationStates(
+          states,
+          context.threadIdsByEmailId,
+          context.accountEmailsByEmailId,
+        );
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
@@ -2485,7 +2523,11 @@ export function useBulkToggleStar() {
         for (const [id, version] of Object.entries(context.mutationVersions)) {
           states.set(id, rollbackStarMutation(id, version));
         }
-        applyStarMutationStates(states, context.threadIdsByEmailId);
+        applyStarMutationStates(
+          states,
+          context.threadIdsByEmailId,
+          context.accountEmailsByEmailId,
+        );
       }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);

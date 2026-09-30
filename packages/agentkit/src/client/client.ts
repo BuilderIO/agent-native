@@ -1633,6 +1633,10 @@ export class AgentKitClient implements AgentKitController {
           });
         }
         this.markRunStarted(threadId, result.runId);
+        this.submittedUserMessages.set(
+          this.runKey(threadId, result.runId),
+          message.id,
+        );
         const completed = this.consume(threadId, result.runId);
         this.trackConsumer(threadId, result.runId, completed);
         return {
@@ -3045,6 +3049,7 @@ export class AgentKitClient implements AgentKitController {
   }
 
   private retireInterruptedRun(threadId: ThreadId, runId: RunId): void {
+    this.submittedUserMessages.delete(this.runKey(threadId, runId));
     const thread = this.getThread(threadId);
     const run = thread.runs[runId];
     this.setThread(threadId, {

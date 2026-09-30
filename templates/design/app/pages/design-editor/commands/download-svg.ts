@@ -29,7 +29,7 @@ export function resolveSvgExportIframe<
   T extends { getAttribute(name: string): string | null },
 >(iframes: Iterable<T>, activePreviewFrameId?: string | null): T | null {
   const candidates = Array.from(iframes);
-  if (activePreviewFrameId) {
+  if (activePreviewFrameId != null) {
     return (
       candidates.find(
         (iframe) =>

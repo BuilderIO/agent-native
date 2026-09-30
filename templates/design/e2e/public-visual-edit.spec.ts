@@ -528,78 +528,6 @@ test.describe.serial("public visual edit", () => {
       undefined,
       SIGNED_OUT_BASE_URL,
     );
-    const unauthorizedResponses: string[] = [];
-    const bridgeResponses: string[] = [];
-    const routeResponses: string[] = [];
-    const pageErrors: string[] = [];
-    signedOut.page.on("response", (response) => {
-      const responseUrl = new URL(response.url());
-      if (
-        response.request().resourceType() === "document" ||
-        responseUrl.pathname.endsWith(".data") ||
-        response.status() >= 400
-      ) {
-        routeResponses.push(
-          `${response.status()} ${response.request().resourceType()} ${responseUrl.pathname}`,
-        );
-      }
-      if (response.url().includes("live-edit-bridge")) {
-        bridgeResponses.push(
-          `${response.status()} ${new URL(response.url()).pathname}`,
-        );
-      }
-      if (response.status() === 401 || response.status() === 403) {
-        const requestHeaders = response.request().headers();
-        const embedTarget =
-          requestHeaders["x-agent-native-embed-target"] ?? "<missing>";
-        const requestUrl = new URL(response.url());
-        const targetQuery =
-          requestUrl.searchParams.get("__an_embed_target") ?? "<missing>";
-        const urlHasEmbedToken =
-          requestUrl.searchParams.has("__an_embed_token");
-        void response
-          .json()
-          .then((body: unknown) => {
-            const details =
-              body && typeof body === "object"
-                ? ((body as { error?: unknown; hint?: unknown }).error ??
-                  (body as { hint?: unknown }).hint)
-                : undefined;
-            unauthorizedResponses.push(
-              `${response.status()} ${response.request().resourceType()} ${requestUrl.pathname} auth=${Boolean(requestHeaders.authorization)} tokenQuery=${urlHasEmbedToken} target=${embedTarget} targetQuery=${targetQuery}${details ? ` (${String(details).slice(0, 160)})` : ""}`,
-            );
-          })
-          .catch(() => {
-            unauthorizedResponses.push(
-              `${response.status()} ${response.request().resourceType()} ${requestUrl.pathname} auth=${Boolean(requestHeaders.authorization)} tokenQuery=${urlHasEmbedToken} target=${embedTarget} targetQuery=${targetQuery}`,
-            );
-          });
-      }
-    });
-    signedOut.page.on("pageerror", (error) => {
-      pageErrors.push(`${error.name}: ${error.message}`);
-    });
-    signedOut.page.on("console", (message) => {
-      if (message.type() === "error" && /ErrorBoundary/.test(message.text())) {
-        const args = message.args();
-        void args[1]
-          ?.jsonValue()
-          .then((value: unknown) => {
-            const error =
-              value && typeof value === "object"
-                ? (value as {
-                    status?: unknown;
-                    statusText?: unknown;
-                    data?: unknown;
-                  })
-                : {};
-            pageErrors.push(
-              `${String(error.status ?? "")} ${String(error.statusText ?? "")} ${String(error.data ?? "").slice(0, 200)}`,
-            );
-          })
-          .catch(() => pageErrors.push(message.text().slice(0, 300)));
-      }
-    });
     try {
       if (!visualEditBridge)
         throw new Error("visual-edit bridge is not running");
@@ -805,70 +733,36 @@ test.describe.serial("public visual edit", () => {
         }
       });
       await installBridge(signedOut.page);
-      let selected;
-      try {
-        selected = await selectByText(signedOut.page, "Local visual edit");
-      } catch (error) {
-        const iframeDiagnostics = await signedOut.page
-          .locator("iframe[data-design-preview-iframe]")
-          .evaluateAll((frames) =>
-            frames.map((element) => {
-              const frame = element as HTMLIFrameElement;
-              const url = new URL(frame.src, location.href);
-              return {
-                screenId: frame.dataset.screenIframeId,
-                sourceType: frame.dataset.designSourceType,
-                src: `${url.origin}${url.pathname}`,
-              };
-            }),
-          )
-          .catch(() => []);
-        const childFrameDiagnostics = await Promise.all(
-          signedOut.page
-            .frames()
-            .filter((frame) => frame !== signedOut.page.mainFrame())
-            .map(async (frame) => ({
-              url: (() => {
-                try {
-                  const url = new URL(frame.url());
-                  return `${url.origin}${url.pathname}`;
-                } catch {
-                  return "unavailable";
-                }
-              })(),
-              body: await frame
-                .locator("body")
-                .innerText()
-                .then((text) => text.slice(0, 160))
-                .catch(() => "unavailable"),
-              chromeHosts: await frame
-                .locator("[data-agent-native-editor-chrome-host]")
-                .count()
-                .catch(() => 0),
-            })),
-        );
-        throw new Error(
-          `${String(error)}\nEditor URL flags: ${JSON.stringify(
-            await signedOut.page.evaluate(() => {
-              const url = new URL(window.location.href);
-              return {
-                pathname: url.pathname,
-                embedded: url.searchParams.get("embedded"),
-                embedChrome: url.searchParams.get("embedChrome"),
-                agentSidebar: url.searchParams.get("agentSidebar"),
-                embedTokenQuery: url.searchParams.has("__an_embed_token"),
-                storedEmbedToken: Boolean(
-                  sessionStorage.getItem("agent-native:embed-auth-token"),
-                ),
-              };
-            }),
-          )}\nRoute responses: ${routeResponses.join(", ")}\nBridge responses: ${bridgeResponses.join(", ")}\nUnauthorized responses: ${unauthorizedResponses.join(", ")}\nPage errors: ${pageErrors.join(" | ")}\nIframes: ${JSON.stringify(iframeDiagnostics)}\nChild frames: ${JSON.stringify(childFrameDiagnostics)}\nPage: ${await signedOut.page
-            .locator("body")
-            .innerText()
-            .catch(() => "unavailable")}`,
-        );
-      }
+      const selected = await selectByText(signedOut.page, "Local visual edit");
       expect(selected.textContent).toContain("Local visual edit");
+      const exportSection = signedOut.page
+        .locator("[data-design-inspector-section]")
+        .filter({
+          has: signedOut.page.getByRole("heading", {
+            name: "Export",
+            exact: true,
+          }),
+        });
+      const formatSelect = exportSection.getByRole("combobox").nth(1);
+      await expect(formatSelect).toBeVisible();
+      await formatSelect.click();
+      await signedOut.page.getByRole("option", { name: "PDF" }).click();
+      const [selectedPdfDownload] = await Promise.all([
+        signedOut.page.waitForEvent("download"),
+        exportSection
+          .getByRole("button", { name: "Export", exact: true })
+          .click(),
+      ]);
+      const selectedPdfStream = await selectedPdfDownload.createReadStream();
+      if (!selectedPdfStream)
+        throw new Error("Selected-layer PDF export returned no data");
+      const selectedPdfChunks: Buffer[] = [];
+      for await (const chunk of selectedPdfStream)
+        selectedPdfChunks.push(Buffer.from(chunk));
+      const selectedPdf = Buffer.concat(selectedPdfChunks);
+      expect(selectedPdf.subarray(0, 5).toString()).toBe("%PDF-");
+      expect(selectedPdf.byteLength).toBeGreaterThan(1_000);
+
       const liveFrame = signedOut.page
         .locator("iframe[data-design-preview-iframe]")
         .last()
@@ -942,6 +836,53 @@ test.describe.serial("public visual edit", () => {
         pendingEditCount: 0,
       });
 
+      await signedOut.page
+        .locator("[data-screen-shell]")
+        .first()
+        .locator("[data-frame-title]")
+        .click();
+      const capabilityScreenUrl = signedOut.page.getByRole("textbox", {
+        name: "Screen URL",
+      });
+      await expect(capabilityScreenUrl).toBeEnabled();
+      await capabilityScreenUrl.fill(
+        `${visualEditTargetUrl}/?e2eRoute=account`,
+      );
+      const updateSourceResponse = signedOut.page.waitForResponse(
+        (response) =>
+          response.url().includes("/actions/update-screen-source") &&
+          response.request().method() === "POST",
+      );
+      await signedOut.page.getByRole("button", { name: "Update" }).click();
+      const updateSourceResult = await updateSourceResponse;
+      const updateSourceBody = await updateSourceResult.json();
+      expect(
+        updateSourceResult.status(),
+        JSON.stringify(updateSourceBody),
+      ).toBe(200);
+      expect(JSON.stringify(updateSourceBody)).toContain("e2eRoute=account");
+      const updatedPreview = signedOut.page
+        .locator("iframe[data-screen-iframe-id]")
+        .first();
+      await expect
+        .poll(async () => {
+          const src = await updatedPreview.getAttribute("src");
+          return src ? new URL(src).searchParams.get("url") : null;
+        })
+        .toContain("e2eRoute=account");
+      await expect
+        .poll(
+          () =>
+            signedOut.page
+              .frames()
+              .some((frame) => frame.url().includes("e2eRoute=account")),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await signedOut.page.screenshot({
+        path: test.info().outputPath("visual-edit-url-updated.png"),
+      });
+
       const direct = await openSignedOutPage(
         browser,
         `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview`,
@@ -978,17 +919,29 @@ test.describe.serial("public visual edit", () => {
             .locator("iframe[data-design-preview-iframe]")
             .last()
             .contentFrame()
-            .getByRole("heading", { name: "Local visual edit" }),
+            .getByRole("heading", { name: "Owner updated canvas" }),
         ).toBeVisible({ timeout: 30_000 });
         await installBridge(direct.page);
-        const selected = await selectByText(direct.page, "Local visual edit");
-        expect(selected.textContent).toBe("Local visual edit");
+        const selected = await selectByText(
+          direct.page,
+          "Owner updated canvas",
+        );
+        expect(selected.textContent).toBe("Owner updated canvas");
+        await direct.page
+          .locator("[data-screen-shell]")
+          .first()
+          .locator("[data-frame-title]")
+          .click();
+        await expect(
+          direct.page.getByRole("textbox", { name: "Screen URL" }),
+        ).toBeDisabled();
+        await selectByText(direct.page, "Owner updated canvas");
         const frame = direct.page
           .locator("iframe[data-design-preview-iframe]")
           .last()
           .contentFrame();
         const heading = frame.getByRole("heading", {
-          name: "Local visual edit",
+          name: "Owner updated canvas",
         });
         const before = await heading.boundingBox();
         expect(before).toBeTruthy();
@@ -1062,6 +1015,7 @@ test.describe.serial("public visual edit", () => {
         await expect
           .poll(async () => (await heading.boundingBox())?.height ?? 0)
           .toBeGreaterThan((before?.height ?? 0) + 1);
+
         expect(direct.mutationRequests).toEqual([]);
         await assertNoRuntimeErrors(direct);
       } finally {

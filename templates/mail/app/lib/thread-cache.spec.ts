@@ -11,6 +11,7 @@ const THREAD_CACHE_GLOBALS = [
   "__mailThreadInflight",
   "__mailThreadSubscribers",
   "__mailThreadVersions",
+  "__mailThreadCacheGeneration",
 ] as const;
 
 function createStorage(): Storage {
@@ -49,6 +50,7 @@ describe("thread cache privacy", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     for (const key of THREAD_CACHE_GLOBALS) {
       delete (globalThis as unknown as Record<string, unknown>)[key];
     }
@@ -115,5 +117,44 @@ describe("thread cache privacy", () => {
     expect(
       threadCache.getCachedThread("shared-thread", "second@example.test"),
     ).toBeUndefined();
+  });
+
+  it("clears private bodies and fences fetches when the session or account changes", async () => {
+    const threadCache = await import("./thread-cache");
+    let resolveFetch!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    threadCache.setThreadCacheSessionScope("session-a");
+    threadCache.setThreadCacheAccountScope("account-a");
+    threadCache.setCachedThread("private-thread", [
+      { id: "private-message", body: "private body" } as never,
+    ]);
+    const oldAccountFetch = threadCache.ensureThread(
+      "shared-thread",
+      "account-a@example.test",
+    );
+
+    threadCache.setThreadCacheSessionScope("session-b");
+    expect(threadCache.getCachedThread("private-thread")).toBeUndefined();
+    expect(threadCache.getCachedThread("shared-thread")).toBeUndefined();
+
+    resolveFetch({
+      ok: true,
+      json: async () => [{ id: "old-message", body: "old account body" }],
+    } as Response);
+    await oldAccountFetch;
+    expect(threadCache.getCachedThread("shared-thread")).toBeUndefined();
+
+    threadCache.setCachedThread("shared-thread", [
+      { id: "new-message", body: "new account body" } as never,
+    ]);
+    threadCache.setThreadCacheAccountScope("account-b");
+    expect(threadCache.getCachedThread("shared-thread")).toBeUndefined();
   });
 });

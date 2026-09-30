@@ -39,6 +39,17 @@ describe("Mail Inbox Zero chat contrast", () => {
 });
 
 describe("AppLayout inbox tab bar", () => {
+  it("clears in-memory thread bodies when the session or mailbox scope changes", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("setThreadCacheSessionScope(");
+    expect(source).toContain("session?.authUserId");
+    expect(source).toContain("setThreadCacheAccountScope(");
+    expect(source).toContain("connected:");
+    expect(source).toContain("selected:");
+    expect(source).toContain("useEffect(() => () => clearThreadCache(), []);");
+  });
+
   it("uses SQL inbox rows instead of the Gmail list API for connected accounts", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 

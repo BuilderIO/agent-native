@@ -938,6 +938,13 @@ describe("inbox-thread cache rollback on mutation error", () => {
       const hook = source.slice(source.indexOf(start), source.indexOf(end));
       for (const marker of markers) expect(hook).toContain(marker);
     }
+    const starHook = source.slice(
+      source.indexOf("export function useBulkToggleStar()"),
+      source.indexOf("export function useBulkMarkRead()"),
+    );
+    expect(starHook).toContain("accountEmailsByEmailId");
+    expect(starHook).toContain("context.accountEmailsByEmailId");
+    expect(source).toContain("getCachedThread(threadId, accountEmail)");
     expect(source).toContain('enqueueBulkGmailMutation("trash"');
     expect(source).toContain('cancelOrWait("trash", id)');
   });

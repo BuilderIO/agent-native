@@ -1274,6 +1274,7 @@ export default {
       verifying: "Vérification de la source et du runtime…",
       retryWithAgent: "Réessayer la vérification de la source",
       copyPrompt: "Copier le prompt vers votre agent",
+      copyAgentPrompt: "Copier le prompt de l’agent",
       copyFullPrompt: "Copier le prompt complet",
       abortPreview: "Annuler l’aperçu et interagir",
       agentMessage:

@@ -359,6 +359,44 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(result.placedFrames.map(({ frame }) => frame.x)).toEqual([0, 1440]);
   });
 
+  it("preserves explicit y while relocating default-coordinate placements", async () => {
+    mocks.state.files = [
+      {
+        id: "home_file",
+        designId: "design_1",
+        filename: "localhost-home.html",
+        fileType: "html",
+        content: "http://localhost:5173/",
+      },
+    ];
+    mocks.state.designData = {
+      canvasFrames: {
+        home_file: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+      },
+      screenMetadata: {
+        home_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-home",
+          path: "/",
+          width: 1280,
+          height: 900,
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [
+        { path: "/manual-position", x: 0, y: 40, width: 390, height: 844 },
+        { path: "/default-position", x: 0, width: 390, height: 844 },
+      ],
+    });
+
+    expect(result.placedFrames.map(({ frame }) => frame.y)).toEqual([40, 1060]);
+  });
+
   it("preserves an explicitly requested y position when it overlaps an existing screen", async () => {
     mocks.state.files = [
       {
