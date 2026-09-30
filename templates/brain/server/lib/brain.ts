@@ -737,6 +737,8 @@ export async function createCapture(values: {
     memberEmails?: string[];
     upstreamRefHash?: string | null;
   };
+  // Only for repo-authored fixture text (demo/eval seeds); ingested content must use the workspace classifier.
+  privacyClassifier?: "deterministic";
 }) {
   const sourceAccess = await getAccessibleSource(values.sourceId, "editor");
   const source =
@@ -781,7 +783,9 @@ export async function createCapture(values: {
       orgId: source.orgId,
     },
     sourceConfig: parseJson<Record<string, unknown>>(source.configJson, {}),
-    settings,
+    settings: values.privacyClassifier
+      ? { ...settings, privacyClassifier: values.privacyClassifier }
+      : settings,
   });
   if (!sanitized.decision || sanitized.decision.disposition !== "allowed") {
     const receipt = await recordBlockedCapture({

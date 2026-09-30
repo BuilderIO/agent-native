@@ -643,6 +643,7 @@ async function ensureDemoCapture(sourceId: string, spec: DemoCaptureSpec) {
     capturedAt: spec.capturedAt,
     metadata: spec.metadata,
     status: spec.status,
+    privacyClassifier: "deterministic",
   });
 }
 
