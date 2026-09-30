@@ -2277,6 +2277,71 @@ describe("TiptapComposer slash commands", () => {
     ).toBe("keep this prompt");
   });
 
+  it("preserves a follow-up when async preflight declines the submitted prompt", async () => {
+    let resolvePreflight!: (ready: boolean) => void;
+    const preflight = new Promise<boolean>((resolve) => {
+      resolvePreflight = resolve;
+    });
+    const onBeforeSubmit = vi.fn(() => preflight);
+    const onSubmit = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onBeforeSubmit,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("submitted prompt"));
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await Promise.resolve();
+    });
+    expect(editor.textContent).toBe("");
+    act(() => focusRef.current?.setText("follow-up prompt"));
+
+    await act(async () => {
+      resolvePreflight(false);
+      await preflight;
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(
+      [...editor.querySelectorAll("p")].map(
+        (paragraph) => paragraph.textContent,
+      ),
+    ).toEqual(["submitted prompt", "follow-up prompt"]);
+    expect(localStorage.getItem(getComposerDraftKey())).toContain(
+      "submitted prompt",
+    );
+    expect(localStorage.getItem(getComposerDraftKey())).toContain(
+      "follow-up prompt",
+    );
+  });
+
   it("clears immediately while submitting and restores the draft on failure", async () => {
     let rejectSubmit!: (error: Error) => void;
     const onSubmit = vi.fn(

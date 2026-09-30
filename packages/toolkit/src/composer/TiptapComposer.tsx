@@ -4260,7 +4260,7 @@ export function TiptapComposer({
       const clearImmediately = clearOnSubmitImmediately && clearOnSubmit;
       const clearedBeforePreflight =
         clearImmediately && Boolean(onBeforeSubmit);
-      const restoreSubmittedDraft = () => {
+      const restoreSubmittedDraft = (preserveFollowUp = false) => {
         const forkScope = getSubmitFailureDraftScope?.();
         if (!clearImmediately && !forkScope) return;
         const recoveryKey = forkScope
@@ -4276,24 +4276,68 @@ export function TiptapComposer({
         } catch {
           // coercion-ok: Browser storage is optional and can be unavailable or full.
         }
+        const editorIsCurrentScope =
+          isComposerEditorUsable(ed) && draftKeyRef.current === recoveryKey;
+        const hasFollowUp =
+          editorIsCurrentScope &&
+          (composerDocumentHasContent(ed.state.doc) ||
+            slotReferencesRef.current.length > 0);
+        const canPreserveFollowUp =
+          preserveFollowUp &&
+          clearedBeforePreflight &&
+          !isForkRecovery &&
+          hasFollowUp &&
+          (currentDraft === null ||
+            currentDraft === submittingDraftSnapshot ||
+            (() => {
+              try {
+                const savedDraft = readComposerDraft(currentDraft);
+                return (
+                  savedDraft.html === ed.getHTML() &&
+                  JSON.stringify(savedDraft.slotReferences) ===
+                    JSON.stringify(slotReferencesRef.current)
+                );
+              } catch {
+                // coercion-ok: Never overwrite an unreadable stored draft.
+                return false;
+              }
+            })());
         if (
           currentDraft !== null &&
-          (isForkRecovery || currentDraft !== submittingDraftSnapshot)
+          (isForkRecovery || currentDraft !== submittingDraftSnapshot) &&
+          !canPreserveFollowUp
         ) {
           return;
         }
 
-        const editorIsCurrentScope =
-          isComposerEditorUsable(ed) && draftKeyRef.current === recoveryKey;
         if (editorIsCurrentScope) {
-          if (
-            composerDocumentHasContent(ed.state.doc) ||
-            slotReferencesRef.current.length > 0
-          ) {
+          if (hasFollowUp && !canPreserveFollowUp) {
             return;
           }
-          ed.commands.setContent(submittedEditorDocument.toJSON());
-          updateSlotReferences(submittedSlotReferences);
+          if (canPreserveFollowUp) {
+            ed.commands.setContent({
+              type: "doc",
+              content: [
+                ...(composerDocumentHasContent(submittedEditorDocument)
+                  ? submittedEditorDocument.content.content.map((node) =>
+                      node.toJSON(),
+                    )
+                  : []),
+                ...(composerDocumentHasContent(ed.state.doc)
+                  ? ed.state.doc.content.content.map((node) => node.toJSON())
+                  : []),
+              ],
+            });
+            updateSlotReferences(
+              applySlotReferenceChanges(
+                submittedSlotReferences,
+                slotReferencesRef.current,
+              ),
+            );
+          } else {
+            ed.commands.setContent(submittedEditorDocument.toJSON());
+            updateSlotReferences(submittedSlotReferences);
+          }
           const restored = syncComposerState();
           setEditorHasText(
             restored.text.trim().length > 0 || restored.references.length > 0,
@@ -4330,11 +4374,11 @@ export function TiptapComposer({
         try {
           const shouldSubmit = await onBeforeSubmit();
           if (!shouldSubmit) {
-            restoreSubmittedDraft();
+            restoreSubmittedDraft(true);
             return false;
           }
         } catch (error) {
-          restoreSubmittedDraft();
+          restoreSubmittedDraft(true);
           if (mountedRef.current && isCurrentDraftScope()) {
             setContextSubmissionError(
               formatAttachmentError(
@@ -4356,7 +4400,7 @@ export function TiptapComposer({
         submissionDisabledRef.current ||
         !areComposerContextItemsReady(contextItemsRef.current)
       ) {
-        restoreSubmittedDraft();
+        restoreSubmittedDraft(true);
         return false;
       }
 
@@ -4408,11 +4452,11 @@ export function TiptapComposer({
         );
       } catch (error) {
         if (!(error instanceof ComposerContextError)) {
-          restoreSubmittedDraft();
+          restoreSubmittedDraft(true);
           throw error;
         }
         if (error.code === "not-ready") {
-          restoreSubmittedDraft();
+          restoreSubmittedDraft(true);
           return false;
         }
         setContextSubmissionError(
@@ -4421,7 +4465,7 @@ export function TiptapComposer({
               "Context is too large. Remove an item or attach a smaller selection.",
           }),
         );
-        restoreSubmittedDraft();
+        restoreSubmittedDraft(true);
         return false;
       }
 
@@ -4575,7 +4619,7 @@ export function TiptapComposer({
             restoreSubmittedDraft();
             return true;
           }
-          restoreSubmittedDraft();
+          restoreSubmittedDraft(true);
           if (mountedRef.current && isCurrentDraftScope()) {
             setContextSubmissionError(
               formatAttachmentError(
