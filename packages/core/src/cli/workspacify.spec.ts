@@ -200,6 +200,23 @@ describe("workspacifyApp core pinning", () => {
     expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
   });
 
+  it("preserves long file URLs while adding node-pty package extensions", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspacify-"));
+    tmpRoots.push(root);
+    const workspacePath = path.join(root, "pnpm-workspace.yaml");
+    const url = `file:///tmp/${"nested/".repeat(12)}agent-native-toolkit-0.198.2.tgz`;
+    fs.writeFileSync(
+      workspacePath,
+      `overrides:\n  "@agent-native/toolkit": ${JSON.stringify(url)}\n`,
+    );
+
+    ensureNodePtyBuildDependency(root);
+
+    const updated = parseDocument(fs.readFileSync(workspacePath, "utf8"));
+    expect(updated.errors).toHaveLength(0);
+    expect(updated.getIn(["overrides", "@agent-native/toolkit"])).toBe(url);
+  });
+
   it("detects optional node-pty dependencies", () => {
     const { root, appDir } = makeWorkspace(undefined);
     fs.writeFileSync(
