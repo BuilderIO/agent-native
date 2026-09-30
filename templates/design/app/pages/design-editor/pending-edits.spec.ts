@@ -508,16 +508,16 @@ describe("formatVisualEditClipboardPrompt", () => {
 });
 
 describe("isVisualEditHandoffAcknowledged", () => {
-  it("clears only the exact locally pending revision", () => {
+  it("clears only the exact acknowledged server revision", () => {
     const base = {
-      currentRevision: 8,
+      serverRevision: 81,
       pendingEditCount: 3,
       status: "empty",
-      revision: 8,
+      revision: 81,
     } as const;
 
     expect(isVisualEditHandoffAcknowledged(base)).toBe(true);
-    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 7 })).toBe(
+    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 80 })).toBe(
       false,
     );
     expect(isVisualEditHandoffAcknowledged({ ...base, status: "ready" })).toBe(
@@ -525,6 +525,9 @@ describe("isVisualEditHandoffAcknowledged", () => {
     );
     expect(
       isVisualEditHandoffAcknowledged({ ...base, pendingEditCount: 0 }),
+    ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, serverRevision: null }),
     ).toBe(false);
   });
 });

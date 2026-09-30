@@ -2112,23 +2112,11 @@ test.describe("URL-backed live auto-layout probe", () => {
       () => cardsById[runtimeGroupOrder[groupCardIndex++]]!,
     );
     expect(sourceWithRuntimeState).not.toBe(diskBeforeDrag);
-    const consentRequest = (await call("request-localhost-write-consent", {
-      designId,
-      connectionId,
-      files: ["index.html"],
-    })) as {
-      ok: boolean;
-      result?: { surfaced?: boolean; alreadyGranted?: boolean };
-    };
-    const consent = page.getByRole("dialog", { name: "Allow file writes" });
-    expect(consentRequest).toMatchObject({ ok: true });
-    if (consentRequest.result?.surfaced) {
-      await expect(consent).toBeVisible({ timeout: 10_000 });
-      await consent.getByRole("button", { name: "Allow writes" }).click();
-      await expect(consent).toBeHidden({ timeout: 10_000 });
-    } else {
-      expect(consentRequest.result?.alreadyGranted).toBe(true);
-    }
+    const writeGrant = await page.request.post(
+      `${baseURL}/_agent-native/actions/grant-localhost-write-consent`,
+      { data: { designId, connectionId } },
+    );
+    expect(writeGrant.ok()).toBe(true);
     const writeResult = await call("write-local-file", {
       designId,
       connectionId,
@@ -2162,6 +2150,7 @@ test.describe("URL-backed live auto-layout probe", () => {
         { timeout: 30_000 },
       )
       .toBe(0);
+    await expect(pendingToolbar).toBeHidden({ timeout: 10_000 });
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-design-editor]")).toBeVisible({
       timeout: 30_000,

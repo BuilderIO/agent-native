@@ -19227,12 +19227,16 @@ function DesignEditor() {
     const localPendingCount =
       pendingVisualStyleEditsRef.current.length +
       pendingLiveNonStyleEditsRef.current.length;
-    const currentRevision = pendingVisualEditPublicationRevisionRef.current;
+    const handoffPublication = pendingVisualEditHandoffPublicationRef.current;
+    const serverRevision =
+      handoffPublication?.designId === id
+        ? handoffPublication.serverRevision
+        : null;
     const handoff = pendingVisualEditHandoffQuery.data;
     if (
       !handoff ||
       !isVisualEditHandoffAcknowledged({
-        currentRevision,
+        serverRevision,
         pendingEditCount: localPendingCount,
         revision: handoff.revision,
         status: handoff.status,
