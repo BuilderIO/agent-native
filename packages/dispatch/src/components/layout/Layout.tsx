@@ -42,29 +42,17 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
-  AgentChatSurface,
   AgentToggleButton,
   AgentSidebar,
   focusAgentChat,
 } from "@agent-native/toolkit/app/chat";
-import { ChatFirstSurfacePanelToggle } from "@agent-native/toolkit/app/chat/chat-first";
-import {
-  ChatFirstAgentsPane,
-  ChatFirstAppPane,
-  ChatFirstAppsRail,
-  ChatFirstBrowserPane,
-  ChatFirstChatHistory,
-  ChatFirstPrimaryNavigation,
-  ChatFirstSessionWatchPane,
-  ChatFirstSurfacePanel,
-  ChatFirstSurfaceContent,
-  ChatFirstSurfaceTabs,
-  defaultChatFirstCopy,
-  type ChatFirstAgentActivity,
-  type ChatFirstAppItem,
-  type ChatFirstCopy,
-  type ChatFirstEmbedTarget,
-  type ChatFirstPrimaryTab,
+import { defaultChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first";
+import type {
+  ChatFirstAgentActivity,
+  ChatFirstAppItem,
+  ChatFirstCopy,
+  ChatFirstEmbedTarget,
+  ChatFirstPrimaryTab,
 } from "@agent-native/toolkit/app/chat/chat-first";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/toolkit/app/org";
@@ -141,6 +129,20 @@ import {
   WorkspaceAppFrame,
   WorkspaceAppKeepAlive,
 } from "../workspace-app-host";
+import {
+  AgentChatSurface,
+  ChatFirstAgentsPane,
+  ChatFirstAppPane,
+  ChatFirstAppsRail,
+  ChatFirstBrowserPane,
+  ChatFirstChatHistory,
+  ChatFirstPrimaryNavigation,
+  ChatFirstSessionWatchPane,
+  ChatFirstSurfaceContent,
+  ChatFirstSurfacePanel,
+  ChatFirstSurfacePanelToggle,
+  ChatFirstSurfaceTabs,
+} from "./deferred-chat-first-components.js";
 import { Header } from "./Header";
 import {
   HeaderActionsProvider,
