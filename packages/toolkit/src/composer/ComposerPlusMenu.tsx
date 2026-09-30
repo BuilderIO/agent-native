@@ -1,14 +1,6 @@
 import { useComposerRuntime } from "@assistant-ui/react";
-import { IconArrowLeft, IconLoader2, IconX } from "@tabler/icons-react";
-import React, {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { createPortal } from "react-dom";
+import { IconArrowLeft, IconLoader2 } from "@tabler/icons-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "../ui/button.js";
 import { DropdownMenuGroup, DropdownMenuItem } from "../ui/dropdown-menu.js";
@@ -16,11 +8,6 @@ import { Input } from "../ui/input.js";
 import { Label } from "../ui/label.js";
 import { Textarea } from "../ui/textarea.js";
 import { cn } from "../utils.js";
-import {
-  createAssetPickerHandoffId,
-  isExternalAssetPickerUrl,
-  standaloneAssetPickerUrl,
-} from "./asset-picker-url.js";
 import { formatAttachmentError } from "./attachment-accept.js";
 import {
   ComposerContextMenu,
@@ -51,135 +38,10 @@ interface ComposerPlusMenuProps extends Omit<
 
 type View = "menu" | "skill-upload";
 
-const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
-const EMBED_PROTOCOL = "agent-native.embed";
-const EMBED_VERSION = 1;
-
 export function isExtensionComposerMenuEnabled(
   extensionTools?: boolean,
 ): boolean {
   return extensionTools === true;
-}
-
-interface EmbedEnvelope<TPayload = unknown> {
-  protocol?: string;
-  version?: number;
-  type?: string;
-  name?: string;
-  payload?: TPayload;
-}
-
-interface AssetPickerPayload {
-  assetId?: unknown;
-  handoffId?: unknown;
-  url?: unknown;
-  previewUrl?: unknown;
-  downloadUrl?: unknown;
-  embedUrl?: unknown;
-  altText?: unknown;
-  title?: unknown;
-  prompt?: unknown;
-  mediaType?: unknown;
-  libraryId?: unknown;
-}
-
-function assetPickerUrl() {
-  const env =
-    (import.meta as ImportMeta & { env?: Record<string, string | undefined> })
-      .env ?? {};
-  return env.VITE_AGENT_NATIVE_ASSETS_PICKER_URL || DEFAULT_ASSETS_PICKER_URL;
-}
-
-function withEmbeddedParams(url: string): string {
-  try {
-    const parsed = new URL(url, window.location.href);
-    parsed.searchParams.set("embedded", "1");
-    parsed.searchParams.set("mediaType", "image");
-    return parsed.toString();
-  } catch {
-    const separator = url.includes("?") ? "&" : "?";
-    return `${url}${separator}embedded=1&mediaType=image`;
-  }
-}
-
-function assetPickerOrigin(url: string): string | null {
-  try {
-    return new URL(url, window.location.href).origin;
-  } catch {
-    return null;
-  }
-}
-
-function embedEnvelope(
-  type: "message" | "ready",
-  options: { name?: string; payload?: unknown } = {},
-): EmbedEnvelope {
-  return {
-    protocol: EMBED_PROTOCOL,
-    version: EMBED_VERSION,
-    type,
-    ...options,
-  };
-}
-
-function isEmbedEnvelope(value: unknown): value is EmbedEnvelope {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const candidate = value as EmbedEnvelope;
-  return (
-    candidate.protocol === EMBED_PROTOCOL &&
-    candidate.version === EMBED_VERSION &&
-    typeof candidate.type === "string"
-  );
-}
-
-function assetString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function assetImageSource(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const asset = payload as AssetPickerPayload;
-  return (
-    assetString(asset.url) ??
-    assetString(asset.previewUrl) ??
-    assetString(asset.downloadUrl) ??
-    assetString(asset.embedUrl)
-  );
-}
-
-function assetTitle(
-  payload: unknown,
-  url: string,
-  generatedImageLabel: string,
-): string {
-  if (payload && typeof payload === "object") {
-    const title = assetString((payload as AssetPickerPayload).title);
-    if (title) return title;
-    const prompt = assetString((payload as AssetPickerPayload).prompt);
-    if (prompt) return prompt.slice(0, 80);
-  }
-  try {
-    const name = new URL(url).pathname.split("/").filter(Boolean).pop();
-    return name ? decodeURIComponent(name) : generatedImageLabel;
-  } catch {
-    return generatedImageLabel;
-  }
-}
-
-function assetContext(payload: unknown, url: string): string {
-  const lines = [`Image URL: ${url}`];
-  if (payload && typeof payload === "object") {
-    const asset = payload as AssetPickerPayload;
-    const assetId = assetString(asset.assetId);
-    const libraryId = assetString(asset.libraryId);
-    const prompt = assetString(asset.prompt);
-    const altText = assetString(asset.altText);
-    if (assetId) lines.push(`Asset ID: ${assetId}`);
-    if (libraryId) lines.push(`Library ID: ${libraryId}`);
-    if (prompt) lines.push(`Prompt: ${prompt}`);
-    if (altText) lines.push(`Alt text: ${altText}`);
-  }
-  return lines.join("\n");
 }
 
 function slugifyName(value: string): string {
@@ -218,7 +80,6 @@ export function useComposerDefaultActions({
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
   const resources = adapters.resources!;
-  const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const overlayOpen = useRef(false);
   const showMcpIntegrations = resources.isMcpIntegrationAvailable!();
@@ -253,7 +114,6 @@ export function useComposerDefaultActions({
   useEffect(() => {
     if (!disabled) return;
     cancelSkillWork();
-    setAssetsPickerOpen(false);
     setMcpDialogOpen(false);
     overlayOpen.current = false;
   }, [disabled, cancelSkillWork]);
@@ -365,21 +225,6 @@ export function useComposerDefaultActions({
   };
 
   const items: ComposerContextMenuItem[] = [
-    {
-      id: "generate-image",
-      label: t("agentChat.composer.menu.generateImage", {
-        defaultValue: "Generate Image",
-      }),
-      keywords: [
-        t("agentChat.composer.menu.generateImageDescription", {
-          defaultValue: "Open the Assets image picker",
-        }),
-      ],
-      onSelect: () => {
-        overlayOpen.current = true;
-        setAssetsPickerOpen(true);
-      },
-    },
     {
       id: "schedule-task",
       label: t("agentChat.composer.menu.scheduleTask", {
@@ -626,14 +471,6 @@ export function useComposerDefaultActions({
             onCreateMcpServer={(args: unknown) => createMcp.mutateAsync(args)}
           />
         ) : null}
-        <AssetsPickerModal
-          open={assetsPickerOpen}
-          onOpenChange={(open) => {
-            overlayOpen.current = open;
-            setAssetsPickerOpen(open);
-            if (!open) onRestoreFocus?.();
-          }}
-        />
       </>
     ),
   };
@@ -723,281 +560,5 @@ export function ComposerPlusMenu({
         mode === "upload-only" ? props.onAttachmentRequest : undefined
       }
     />
-  );
-}
-
-function AssetsPickerModal({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const adapters = useComposerRuntimeAdapters();
-  const t = adapters.translate!;
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const standaloneWindowRef = useRef<Window | null>(null);
-  const [pickerReady, setPickerReady] = useState(false);
-  const [standaloneHandoffId, setStandaloneHandoffId] = useState<string | null>(
-    null,
-  );
-  const sourceUrl = useMemo(() => assetPickerUrl(), []);
-  const externalPicker = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      isExternalAssetPickerUrl(sourceUrl, window.location.origin),
-    [sourceUrl],
-  );
-  const standaloneUrl = useMemo(
-    () =>
-      standaloneAssetPickerUrl(
-        sourceUrl,
-        typeof window !== "undefined" ? window.location.href : undefined,
-        {
-          handoffId: standaloneHandoffId ?? undefined,
-          returnOrigin:
-            typeof window !== "undefined" ? window.location.origin : undefined,
-        },
-      ),
-    [sourceUrl, standaloneHandoffId],
-  );
-  const iframeUrl = useMemo(() => withEmbeddedParams(sourceUrl), [sourceUrl]);
-  const targetOrigin = useMemo(() => assetPickerOrigin(iframeUrl), [iframeUrl]);
-  const configurePicker = useCallback(() => {
-    if (!targetOrigin) return;
-    iframeRef.current?.contentWindow?.postMessage(
-      embedEnvelope("message", {
-        name: "configure",
-        payload: { mediaType: "image", count: 3 },
-      }),
-      targetOrigin,
-    );
-  }, [targetOrigin]);
-
-  useEffect(() => {
-    if (open) {
-      setPickerReady(false);
-      if (externalPicker) {
-        standaloneWindowRef.current = null;
-        setStandaloneHandoffId(createAssetPickerHandoffId());
-      } else {
-        setStandaloneHandoffId(null);
-      }
-      return;
-    }
-    if (!standaloneWindowRef.current) setStandaloneHandoffId(null);
-  }, [externalPicker, iframeUrl, open]);
-
-  useEffect(() => {
-    if (
-      !targetOrigin ||
-      (!open && !standaloneWindowRef.current) ||
-      (externalPicker && !standaloneHandoffId)
-    )
-      return;
-
-    const handleMessage = (event: MessageEvent) => {
-      const expectedSource = externalPicker
-        ? standaloneWindowRef.current
-        : iframeRef.current?.contentWindow;
-      if (!expectedSource || event.source !== expectedSource) return;
-      if (event.origin !== targetOrigin) return;
-      if (!isEmbedEnvelope(event.data)) return;
-
-      if (event.data.type === "ready") {
-        setPickerReady(true);
-        configurePicker();
-        return;
-      }
-
-      if (event.data.type !== "message") return;
-      if (externalPicker) {
-        const payload = event.data.payload;
-        const handoffId =
-          payload && typeof payload === "object"
-            ? assetString((payload as AssetPickerPayload).handoffId)
-            : null;
-        if (handoffId !== standaloneHandoffId) return;
-      }
-      if (event.data.name === "close") {
-        onOpenChange(false);
-        return;
-      }
-      if (
-        event.data.name !== "chooseImage" &&
-        event.data.name !== "chooseAsset"
-      )
-        return;
-
-      const url = assetImageSource(event.data.payload);
-      if (!url) return;
-      const title = assetTitle(
-        event.data.payload,
-        url,
-        t("agentChat.composer.assets.generatedImage", {
-          defaultValue: "Generated image",
-        }),
-      );
-      const assetId =
-        event.data.payload && typeof event.data.payload === "object"
-          ? assetString((event.data.payload as AssetPickerPayload).assetId)
-          : null;
-      adapters.agentChat!.setContextItem!({
-        key: `asset-image:${assetId ?? url}`,
-        title: t("agentChat.composer.assets.contextTitle", {
-          title,
-          defaultValue: `Image: ${title}`,
-        }),
-        context: assetContext(event.data.payload, url),
-      });
-      standaloneWindowRef.current = null;
-      setStandaloneHandoffId(null);
-      onOpenChange(false);
-    };
-
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onOpenChange(false);
-    };
-
-    window.addEventListener("message", handleMessage);
-    window.addEventListener("keydown", handleKey);
-    return () => {
-      window.removeEventListener("message", handleMessage);
-      window.removeEventListener("keydown", handleKey);
-    };
-  }, [
-    configurePicker,
-    adapters,
-    externalPicker,
-    onOpenChange,
-    open,
-    standaloneHandoffId,
-    t,
-    targetOrigin,
-  ]);
-
-  const openStandalonePicker = useCallback(
-    (event: React.MouseEvent<HTMLAnchorElement>) => {
-      if (!standaloneHandoffId) return;
-      event.preventDefault();
-      const pickerWindow = window.open(standaloneUrl, "_blank");
-      if (!pickerWindow) return;
-      standaloneWindowRef.current = pickerWindow;
-      onOpenChange(false);
-    },
-    [onOpenChange, standaloneHandoffId, standaloneUrl],
-  );
-
-  if (!open || typeof document === "undefined") return null;
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[280] flex items-center justify-center bg-black/50 p-3"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="composer-assets-picker-title"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onOpenChange(false);
-      }}
-    >
-      <div className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-          <div
-            id="composer-assets-picker-title"
-            className="text-sm font-medium text-foreground"
-          >
-            {t("agentChat.composer.assets.generateImage", {
-              defaultValue: "Generate image",
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label={t("agentChat.composer.assets.closePicker", {
-              defaultValue: "Close image picker",
-            })}
-          >
-            <IconX className="h-4 w-4" />
-          </button>
-        </div>
-        {externalPicker ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-            <div className="max-w-md text-sm text-muted-foreground">
-              {t("agentChat.composer.assets.openSecurely", {
-                defaultValue:
-                  "Open Assets in a new tab to sign in and choose an image securely.",
-              })}
-            </div>
-            <a
-              href={standaloneUrl}
-              target="_blank"
-              onClick={openStandalonePicker}
-              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              {t("agentChat.composer.assets.openPicker", {
-                defaultValue: "Open Assets image picker",
-              })}
-            </a>
-          </div>
-        ) : targetOrigin ? (
-          <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-            {!pickerReady && <AssetsPickerLoadingSkeleton />}
-            <iframe
-              ref={iframeRef}
-              src={iframeUrl}
-              title={t("agentChat.composer.assets.pickerTitle", {
-                defaultValue: "Assets image picker",
-              })}
-              className={cn(
-                "absolute inset-0 h-full w-full border-0 bg-background transition-opacity duration-150",
-                pickerReady ? "opacity-100" : "pointer-events-none opacity-0",
-              )}
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
-              allow="clipboard-read; clipboard-write; microphone; fullscreen"
-              referrerPolicy="strict-origin-when-cross-origin"
-              onLoad={() => {
-                configurePicker();
-                setPickerReady(true);
-              }}
-            />
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
-            {t("agentChat.composer.assets.invalidUrl", {
-              defaultValue: "The configured image picker URL is not valid.",
-            })}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-function AssetsPickerLoadingSkeleton() {
-  const t = useComposerRuntimeAdapters().translate!;
-  return (
-    <div
-      className="absolute inset-0 flex flex-col gap-5 p-5"
-      role="status"
-      aria-label={t("agentChat.composer.assets.loadingPicker", {
-        defaultValue: "Loading Assets picker",
-      })}
-    >
-      <div className="flex items-center gap-3">
-        <div className="h-9 flex-1 animate-pulse rounded-md bg-muted" />
-        <div className="h-9 w-24 animate-pulse rounded-md bg-muted" />
-      </div>
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <div key={index} className="flex min-w-0 flex-col gap-2">
-            <div className="aspect-square w-full animate-pulse rounded-lg bg-muted" />
-            <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
-            <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }

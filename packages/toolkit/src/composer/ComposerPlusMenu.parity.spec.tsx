@@ -6,7 +6,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../ui/tooltip.js";
-import { ASSET_PICKER_HANDOFF_PARAM } from "./asset-picker-url.js";
 import { mergeComposerMenuItems } from "./ComposerPlusMenu.js";
 import { PromptComposer, type PromptComposerProps } from "./PromptComposer.js";
 import type { PromptComposerSubmitOptions } from "./PromptComposer.js";
@@ -114,6 +113,11 @@ async function open(trigger: "+" | "@") {
     );
     await settle();
   });
+  if (
+    document.querySelector('[role="menuitem"]') &&
+    labels().includes("Add context")
+  )
+    await choose("Add context");
 }
 function item(label: string) {
   const row = Array.from(
@@ -215,14 +219,14 @@ describe("shared default action preservation", () => {
             mode === "full"
               ? [
                   "Upload File",
-                  "Generate Image",
+                  "Add context",
                   "Schedule Task",
                   "Create Automation",
                   "Integrations",
                   "Create Skill",
                 ]
               : mode === "terminal"
-                ? ["New terminal", "CLI terminal mode"]
+                ? ["Add context", "New terminal", "CLI terminal mode"]
                 : ["Upload File"];
           expect(labels()).toEqual(expected);
         }
@@ -326,11 +330,10 @@ describe("shared default action preservation", () => {
         ],
       });
       await open(trigger);
-      expect(
-        document
-          .querySelector('[role="menu"]')
-          ?.textContent?.match(/Integrations/g),
-      ).toHaveLength(1);
+      expect(labels().filter((label) => label === "Integrations")).toHaveLength(
+        1,
+      );
+      await choose("Integrations");
       await choose("Connect / Manage");
       expect(configure).toHaveBeenCalledOnce();
       expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -446,7 +449,7 @@ describe("shared default action preservation", () => {
       contextMenuItems: [{ id: "host", label: "Host source", onSelect }],
     });
     await open("@");
-    expect(labels()).toEqual(["Upload File", "Host source"]);
+    expect(labels()).toEqual(["Upload File", "Add context", "Host source"]);
     await choose("Host source");
     expect(onSelect).toHaveBeenCalledOnce();
     expect(useOrg).not.toHaveBeenCalled();
@@ -671,58 +674,13 @@ describe("shared default action preservation", () => {
     );
   });
 
-  it("preserves the Assets window handoff and rejects mismatched messages", async () => {
-    const pickerWindow = {} as Window;
-    const windowOpen = vi.spyOn(window, "open").mockReturnValue(pickerWindow);
+  it("keeps creator actions in the regular menu and omits Generate Image", async () => {
     await mount();
-    await open("@");
-    await choose("Generate Image");
-    const link =
-      document.querySelector<HTMLAnchorElement>('[role="dialog"] a')!;
-    expect(link).not.toBeNull();
-    const url = new URL(link.href);
-    const handoffId = url.searchParams.get(ASSET_PICKER_HANDOFF_PARAM);
-    expect(handoffId).toBeTruthy();
-    await act(async () => {
-      link.click();
-      await settle();
-    });
-    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(
-      url.toString(),
-      "_blank",
-    );
-    const message = (id: string | null) =>
-      new MessageEvent("message", {
-        origin: url.origin,
-        source: pickerWindow,
-        data: {
-          protocol: "agent-native.embed",
-          version: 1,
-          type: "message",
-          name: "chooseAsset",
-          payload: {
-            handoffId: id,
-            assetId: "test-image",
-            url: "https://assets.example.test/image.png",
-            title: "Test image",
-          },
-        },
-      });
-    await act(async () => {
-      window.dispatchEvent(message("wrong-handoff"));
-      await settle();
-    });
-    expect(setContextItem).not.toHaveBeenCalled();
-    await act(async () => {
-      window.dispatchEvent(message(handoffId));
-      await settle();
-    });
-    expect(setContextItem).toHaveBeenCalledExactlyOnceWith({
-      key: "asset-image:test-image",
-      title: "Image: Test image",
-      context:
-        "Image URL: https://assets.example.test/image.png\nAsset ID: test-image",
-    });
+    await open("+");
+    expect(labels()).toContain("Schedule Task");
+    expect(labels()).toContain("Create Automation");
+    expect(labels()).toContain("Create Skill");
+    expect(labels()).not.toContain("Generate Image");
   });
 
   it("cancels a skill save when its submenu closes and retains retry after errors", async () => {

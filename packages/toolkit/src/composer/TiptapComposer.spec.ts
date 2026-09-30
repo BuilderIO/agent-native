@@ -358,6 +358,17 @@ describe("createTiptapComposerExtensions", () => {
     });
     act(() => {
       Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+        .find((button) => button.textContent?.trim() === "Add context")
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowRight",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+    });
+    act(() => {
+      Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
         .find((button) => button.textContent?.trim() === "Schedule Task")
         ?.click();
     });
@@ -502,6 +513,10 @@ describe("createTiptapComposerExtensions", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    const addContextItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Add context");
+    await act(async () => addContextItem?.click());
     const clickMenuItem = async (label: string) => {
       const item = Array.from(
         document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),

@@ -1490,86 +1490,46 @@ export default function Index({ active = true }: { active?: boolean }) {
         retryComposerContext?.references.some(
           (reference) => reference.source === "slides",
         ) ?? false;
-      if (
-        retryComposerContext &&
-        ((!promptReferenceDeckId &&
-          (retryComposerContext.designSystemId ||
-            retryComposerContext.references.length > 0)) ||
-          hasExplicitComposerDeckReference)
-      ) {
-        void runPendingDeckGeneration(
-          prompt,
-          files,
-          {
-            designSystemId: retryComposerContext.designSystemId,
-            referenceDeckId: carriedDeckMissing
-              ? null
-              : (carriedImportedReference?.deckId ?? null),
-            referenceFilePaths: retryReferenceFilePaths,
-            ...(!carriedDeckMissing && carriedImportedReference
-              ? {
-                  importedReferenceFilePath: carriedImportedReference.filePath,
-                }
-              : {}),
-            composerContext: retryComposerContext,
-            contextItems: retryContextItems,
-          },
-          retryContext,
-          attachments.attachments,
-          options
-            ? {
-                model: options.model,
-                engine: options.engine,
-                effort: options.effort,
-              }
-            : undefined,
-        );
-        return "retain" as const;
-      }
-      setPendingDeck({
+      const referenceDeckId = carriedDeckMissing
+        ? null
+        : (carriedImportedReference?.deckId ??
+          (hasExplicitComposerDeckReference
+            ? null
+            : (promptReferenceDeckId ??
+              (retryComposerContext ? null : undefined))));
+      void runPendingDeckGeneration(
         prompt,
         files,
-        referenceFilePaths: retryReferenceFilePaths,
-        importedReference:
-          retryReferenceFilePaths.length > 0
-            ? carriedImportedReference
-            : undefined,
-        context: retryContext,
-        ...(promptReferenceDeckId
-          ? { referenceDeckId: promptReferenceDeckId }
-          : {}),
-        attachments: [
-          ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
-          ...attachments.attachments,
-        ],
-        modelSelection: options
+        {
+          ...(referenceDeckId !== undefined ? { referenceDeckId } : {}),
+          ...(retryComposerContext
+            ? {
+                designSystemId: retryComposerContext.designSystemId,
+                composerContext: retryComposerContext,
+                contextItems: retryContextItems,
+              }
+            : {}),
+          ...(!carriedDeckMissing && carriedImportedReference
+            ? { importedReferenceFilePath: carriedImportedReference.filePath }
+            : {}),
+          ...(retryReferenceFilePaths.length > 0
+            ? { referenceFilePaths: retryReferenceFilePaths }
+            : {}),
+        },
+        retryContext,
+        attachments.attachments,
+        options
           ? {
               model: options.model,
               engine: options.engine,
               effort: options.effort,
             }
           : newDeckRetryModelSelection,
-        ...(retryComposerContext
-          ? {
-              composerContext: retryComposerContext,
-              contextItems: retryContextItems,
-            }
-          : {}),
-      });
-      setNewDeckRetryPrompt(undefined);
-      setNewDeckRetryReferenceFilePaths([]);
-      setNewDeckRetryImportedReference(undefined);
-      setNewDeckRetryContext(undefined);
-      setNewDeckRetryAttachments([]);
-      setNewDeckRetryComposerContext(undefined);
-      setNewDeckRetryContextItems(undefined);
-      setNewDeckRetryModelSelection(undefined);
-      setShowNewDeckReferenceStep(true);
+      );
       return "retain" as const;
     },
     [
       newDeckRetryFiles,
-      newDeckRetryAttachments,
       newDeckRetryReferenceFilePaths,
       newDeckRetryImportedReference,
       newDeckRetryContext,

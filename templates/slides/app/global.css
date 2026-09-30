@@ -23,7 +23,7 @@
 .slides-home-toolbar {
   display: grid;
   height: 3.5rem;
-  grid-template-columns: auto minmax(150px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 1fr) minmax(0, 1fr);
   grid-template-rows: 3.5rem;
   column-gap: 0.75rem;
   padding: 0 1rem;
@@ -38,7 +38,7 @@
   max-width: 30rem;
   align-items: center;
   align-self: center;
-  justify-self: start;
+  justify-self: center;
 }
 
 @media (min-width: 64rem) {
@@ -58,7 +58,7 @@
   .slides-home-search {
     grid-column: 1 / -1;
     grid-row: 2;
-    justify-self: start;
+    justify-self: center;
   }
 }
 
@@ -68,19 +68,28 @@
 }
 
 .slides-home-mobile-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, min(30rem, 60vw)) minmax(
+      0,
+      1fr
+    );
   min-width: 0;
-  flex-wrap: wrap;
+  align-items: center;
 }
 
 .slides-home-mobile-toolbar > :first-child {
-  min-width: 150px;
+  grid-column: 2;
+  width: 100%;
+  min-width: 0;
   max-width: 30rem;
-  flex: 1 1 150px;
+  justify-self: center;
 }
 
 .slides-home-mobile-toolbar > :last-child {
+  grid-column: 3;
+  justify-self: end;
   flex-shrink: 0;
-  margin-inline-start: auto;
+  margin-inline-start: 0;
 }
 
 .deck-template-preview-frame {
