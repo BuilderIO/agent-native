@@ -88,6 +88,56 @@ describe("Agent-Native migration Vite diagnostic", () => {
     );
   });
 
+  it.each([
+    "@agent-native/core/client",
+    "@agent-native/core/client/chat",
+    "@agent-native/core/client/agent-chat",
+  ])(
+    "fails dev and build for useSendToAgentChat from %s",
+    async (specifier) => {
+      const source = [
+        `import { useSendToAgentChat } from "${specifier}";`,
+        "void useSendToAgentChat;",
+        "",
+      ].join("\n");
+      const { root } = createProject(source);
+      const devError = await createServer({
+        configFile: false,
+        root,
+        plugins: [migrationDiagnosticPlugin()],
+        optimizeDeps: { noDiscovery: true, include: [] },
+        server: { middlewareMode: true, ws: false },
+      }).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      const buildError = await build({
+        configFile: false,
+        root,
+        plugins: [migrationDiagnosticPlugin()],
+      }).then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+      for (const error of [devError, buildError]) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain(
+          `Old import: ${specifier} (useSendToAgentChat)`,
+        );
+        expect((error as Error).message).toContain(
+          "New home: useSendToAgentChat → @agent-native/toolkit/app/chat",
+        );
+        expect((error as Error).message).toContain(
+          AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+        );
+        expect((error as Error).message).toContain(
+          AGENT_NATIVE_MIGRATION_GUIDE_URL,
+        );
+      }
+    },
+  );
+
   it("fails Vite startup and builds for moved Core and AgentKit stylesheets", async () => {
     const { root } = createProject("export const value = 1;\n");
     fs.writeFileSync(

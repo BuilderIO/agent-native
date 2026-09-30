@@ -169,6 +169,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "आपके नवीनतम बदलाव केवल इसी डिवाइस पर हैं। जाने से पहले बैकअप डाउनलोड करें।",
+    slideConflictReview: "समीक्षा करें",
+    slideConflictTitle: "यह स्लाइड कहीं और बदली गई है",
+    slideConflictDescription:
+      "किसी अन्य संपादक ने नया संस्करण सहेजा है। अपना ड्राफ़्ट रखने से सहेजी गई स्लाइड की सामग्री बदल जाएगी, या नवीनतम संस्करण का उपयोग करें।",
+    slideConflictUseLatest: "नवीनतम संस्करण उपयोग करें",
+    slideConflictKeepDraft: "मेरा ड्राफ़्ट रखें",
+    slideConflictKeepEditing: "संपादन जारी रखें",
+    slideConflictResolutionFailed:
+      "संघर्ष हल नहीं हो सका। आपका ड्राफ़्ट अभी भी यहाँ है।",
     offline: "ऑफ़लाइन",
     selected: "चयनित",
     chooseDesignSystem: "Escolha um sistema de design",

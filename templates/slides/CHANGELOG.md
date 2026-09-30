@@ -13,6 +13,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Conflicting edits to one slide no longer block unrelated slide changes.
+- The home composer stays put as the app opens.
+- Slide conflict resolution keeps drafts available until saves succeed and retries independent edits against the current deck version.
+- Turning bullets on or off keeps neighboring text rows unchanged.
 - Dragging an object out of a layout preserves its original space.
 - Fixed deck edits failing to save during simultaneous collaboration
 - Pasted text no longer blocks deck creation

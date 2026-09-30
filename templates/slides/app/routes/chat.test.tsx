@@ -5,14 +5,41 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { chatSurfaceMock } = vi.hoisted(() => ({ chatSurfaceMock: vi.fn() }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  fetchAgentEngineConfiguredState: async () => "unavailable",
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: false,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
+  markAgentChatHomeHandoff: vi.fn(),
+}));
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
   AgentChatSurface: (props: Record<string, unknown>) => {
     chatSurfaceMock(props);
     return null;
   },
-  markAgentChatHomeHandoff: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, values?: Record<string, unknown>) =>
     key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));

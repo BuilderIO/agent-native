@@ -15,6 +15,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The home composer stays put as the app opens.
 - Design warnings wait for the current preview to finish loading
 - Live editing now offers a retry when the local bridge does not respond.
 - Mixed padding and margin values across selected layers now open separate side controls

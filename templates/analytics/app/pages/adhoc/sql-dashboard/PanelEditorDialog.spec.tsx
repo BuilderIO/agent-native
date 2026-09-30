@@ -19,7 +19,7 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   useSendToAgentChat: () => ({ send: vi.fn(), isGenerating: false }),
 }));
 

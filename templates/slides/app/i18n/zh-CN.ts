@@ -167,6 +167,14 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "你最近的编辑内容仅保存在此设备上。离开前请下载备份。",
+    slideConflictReview: "查看",
+    slideConflictTitle: "此幻灯片已在其他位置更改",
+    slideConflictDescription:
+      "其他编辑者保存了较新的版本。保留草稿会替换已保存的幻灯片内容，也可以使用最新版本。",
+    slideConflictUseLatest: "使用最新版本",
+    slideConflictKeepDraft: "保留我的草稿",
+    slideConflictKeepEditing: "继续编辑",
+    slideConflictResolutionFailed: "无法解决冲突。你的草稿仍保留在此。",
     offline: "离线",
     selected: "已选择",
     chooseDesignSystem: "デザインシステムを選択",

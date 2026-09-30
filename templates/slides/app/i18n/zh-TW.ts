@@ -165,6 +165,14 @@ const messages = {
     saveReconnect: "重新連線時會儲存變更",
     saveFailedDescription:
       "你最近的編輯內容僅儲存在此裝置上。離開前請下載備份。",
+    slideConflictReview: "檢視",
+    slideConflictTitle: "此投影片已在其他位置變更",
+    slideConflictDescription:
+      "其他編輯者已儲存較新的版本。保留草稿會取代已儲存的投影片內容，也可以使用最新版本。",
+    slideConflictUseLatest: "使用最新版本",
+    slideConflictKeepDraft: "保留我的草稿",
+    slideConflictKeepEditing: "繼續編輯",
+    slideConflictResolutionFailed: "無法解決衝突。你的草稿仍保留在此。",
     offline: "離線",
     selected: "已選取",
     chooseDesignSystem: "選取設計系統",
