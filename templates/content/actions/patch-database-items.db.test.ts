@@ -755,6 +755,75 @@ describe("patch-database-items", () => {
     expect(applied.receipt.counts.updated).toBe(1);
   });
 
+  it("rechecks collection and row access after waiting for the collection lock", async () => {
+    const { databaseItemsPositionScope, withPositionLock } =
+      await import("./_position-utils.js");
+    const ids = await fixture("Revoked rows");
+    const rows = await seedRows(ids, 2);
+    const shareIds = [
+      ids.databaseDocumentId,
+      ...rows.map((row) => row.documentId),
+    ].map((resourceId) => ({ id: `share-${crypto.randomUUID()}`, resourceId }));
+    await getDb()
+      .insert(schema.documentShares)
+      .values(
+        shareIds.map(({ id, resourceId }) => ({
+          id,
+          resourceId,
+          principalType: "user",
+          principalId: COLLABORATOR,
+          role: "editor",
+          createdBy: OWNER,
+          createdAt: new Date().toISOString(),
+        })),
+      );
+    const discovered = await contract(ids.databaseId);
+    const revokeWhileWaiting = async (
+      shareId: string,
+      key: string,
+      patched: typeof rows,
+    ) => {
+      let release!: () => void;
+      const held = withPositionLock(
+        databaseItemsPositionScope(ids.databaseId),
+        () => new Promise<void>((resolve) => (release = resolve)),
+      );
+      const batch = asCollaborator(() =>
+        patchRows.run({
+          ...envelope(discovered, key),
+          rows: patched.map((row, index) => rankPatch(ids, row, 90 + index)),
+        }),
+      );
+      batch.catch(() => {});
+      // Let the batch pass its pre-lock access check and queue behind the lock.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, shareId));
+      release();
+      await held;
+      return batch;
+    };
+
+    await expect(
+      revokeWhileWaiting(shareIds[2].id, "revoked-row", rows),
+    ).rejects.toMatchObject({
+      errorCode: "ROW_ACCESS_DENIED",
+      details: {
+        rows: [expect.objectContaining({ index: 1, itemId: rows[1].itemId })],
+      },
+    });
+    await expect(
+      revokeWhileWaiting(shareIds[0].id, "revoked-collection", [rows[0]]),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(
+      await storedValues(
+        rows.map((row) => row.documentId),
+        ids.properties.rank,
+      ),
+    ).toEqual([1, 2]);
+  });
+
   it("rolls back the whole batch when two rows claim the same natural key", async () => {
     const ids = await fixture("Keyed rows");
     const key = await addProperty(ids, "Task ID", "text", undefined, true);

@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 
 import { ActionContractError, isActionContractError } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  assertAccess,
+  ForbiddenError,
+} from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -1865,18 +1869,15 @@ function rowPatchPayloadDigest(
   });
 }
 
-async function assertRowEditorAccess(rows: CanonicalRowPatch[]) {
-  const accessible = new Set(
+async function editableDocumentIds(db: Db, documentIds: string[]) {
+  return new Set(
     (
-      await getDb()
+      await db
         .select({ id: schema.documents.id })
         .from(schema.documents)
         .where(
           and(
-            inArray(
-              schema.documents.id,
-              rows.map((row) => row.documentId),
-            ),
+            inArray(schema.documents.id, documentIds),
             accessFilter(
               schema.documents,
               schema.documentShares,
@@ -1886,6 +1887,16 @@ async function assertRowEditorAccess(rows: CanonicalRowPatch[]) {
           ),
         )
     ).map((document) => document.id),
+  );
+}
+
+async function assertRowEditorAccess(
+  rows: CanonicalRowPatch[],
+  db: Db = getDb(),
+) {
+  const accessible = await editableDocumentIds(
+    db,
+    rows.map((row) => row.documentId),
   );
   rowPatchIssues(
     "ROW_ACCESS_DENIED",
@@ -2189,8 +2200,6 @@ export async function patchDatabaseRows(
   assertSchema(initial, input.expectedSchemaRevision);
   const patches = await normalizeRowPatches(initial, rows);
   return withMutationLocks(initial.database, async () => {
-    await assertAccess("document", initial.database.documentId, "editor");
-    await assertRowEditorAccess(rows);
     try {
       return await patchRowsTransaction(
         input,
@@ -2225,6 +2234,16 @@ function patchRowsTransaction(
   return getDb().transaction(async (tx) => {
     const db = tx as unknown as Db;
     await lockContentDatabaseMutation(db, initial.database.id);
+    // Access can be revoked while this call waits for the collection lock,
+    // so recheck editor access on the collection page and every row here.
+    const databaseDocumentId = initial.database.documentId;
+    const editable = await editableDocumentIds(db, [databaseDocumentId]);
+    if (!editable.has(databaseDocumentId)) {
+      throw new ForbiddenError(
+        `Requires editor role on document ${databaseDocumentId}`,
+      );
+    }
+    await assertRowEditorAccess(rows, db);
     // The collection lock serializes every row, block, and batch writer, so
     // a receipt committed by any of them is visible here.
     const lockedReplay = await replayRowPatchReceipt(
