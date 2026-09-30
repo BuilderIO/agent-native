@@ -2781,6 +2781,61 @@ describe("AgentKit subscriptions and recovery", () => {
     }
   });
 
+  it("omits request ID actions when the message has no request ID", async () => {
+    const thread = createAgentThreadState("thread-no-request-id");
+    thread.messages = [
+      {
+        id: "assistant-no-request-id",
+        role: "assistant",
+        parts: [{ type: "text", text: "Ready." }],
+      },
+    ];
+    const store = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId="thread-no-request-id"
+        >
+          <AgentMessageActions
+            threadId="thread-no-request-id"
+            value={thread.messages[0]!}
+          />
+        </AgentKitProvider>,
+      );
+      const trigger = tree.container.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+
+      const actionMenu = document.body.querySelector(
+        '.agentkit-message-menu[role="menu"]',
+      );
+      expect(actionMenu).toBeTruthy();
+      expect(actionMenu?.textContent).not.toContain("Request ID unavailable");
+      expect(actionMenu?.textContent).not.toContain("Copy request ID");
+    } finally {
+      await tree.unmount();
+    }
+  });
+
   it("uses selector equality without caching a changed selector", async () => {
     const initial: AgentKitSnapshot = {
       connection: "idle",

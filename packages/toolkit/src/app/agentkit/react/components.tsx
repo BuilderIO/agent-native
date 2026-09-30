@@ -2771,20 +2771,22 @@ export function AgentMessageActions({
                 />
               }
               items={[
-                {
-                  id: "copy-request-id",
-                  label: requestIdCopied
-                    ? labels.copied
-                    : requestId
-                      ? labels.copyRequestId
-                      : labels.requestIdUnavailable,
-                  icon: requestIdCopied ? (
-                    <IconCircleCheck size={14} aria-hidden="true" />
-                  ) : (
-                    <IconId size={14} aria-hidden="true" />
-                  ),
-                  disabled: !requestId || requestIdAction.pending,
-                },
+                ...(requestId
+                  ? [
+                      {
+                        id: "copy-request-id",
+                        label: requestIdCopied
+                          ? labels.copied
+                          : labels.copyRequestId,
+                        icon: requestIdCopied ? (
+                          <IconCircleCheck size={14} aria-hidden="true" />
+                        ) : (
+                          <IconId size={14} aria-hidden="true" />
+                        ),
+                        disabled: requestIdAction.pending,
+                      },
+                    ]
+                  : []),
                 ...(forkingCapability.visible && onThreadForked
                   ? [
                       {

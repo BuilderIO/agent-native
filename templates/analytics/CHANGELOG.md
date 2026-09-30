@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-30
+
+### Fixed
+
+- Chat message actions no longer show unavailable request IDs.
+
 ## 2026-09-29
 
 ### Improved
@@ -13,6 +19,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
 - App filters now keep retention charts scoped to the selected app.
 - Chat stays ready for your next draft while a message is being sent.
 - Adding panels now saves without a layout width error.

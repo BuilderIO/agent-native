@@ -183,6 +183,7 @@ export default function ChatRoute() {
         setPendingOverviewPrompt(prompt ?? null);
         submitOverviewPrompt(message, prompt?.selectedModel, {
           openSidebar: false,
+          reuseEmptyTab: true,
           selectedEngine: prompt?.selectedEngine,
           selectedEffort: prompt?.selectedEffort,
         });
