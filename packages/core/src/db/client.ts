@@ -729,13 +729,13 @@ const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
 const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
 
-function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
+export function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
   if (typeof statement === "string") return false;
   const timeoutMs = Number(statement.timeoutMs);
   return Number.isFinite(timeoutMs) && timeoutMs > 0;
 }
 
-function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
+export function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
   const safeTimeoutMs = Math.max(
     1,
     Math.min(POSTGRES_MAX_INT, Math.floor(clientTimeoutMs)),
@@ -1404,7 +1404,7 @@ async function executePglite(
   };
 }
 
-function runPgliteTransaction<T>(
+async function runPgliteTransaction<T>(
   url: string,
   client: any,
   fn: (tx: any, transactionExec: DbExec) => Promise<T>,
@@ -1951,7 +1951,11 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
 const scopedDbExec = new AsyncLocalStorage<DbExec>();
 
 export function withDbExec<T>(exec: DbExec, run: () => T): T {
-  return scopedDbExec.run(exec, run);
+  return scopedDbExec.run(guardSchemaMutations(exec), run);
+}
+
+export function getScopedDbExec(): DbExec | undefined {
+  return scopedDbExec.getStore();
 }
 
 export function getDbExec(): DbExec {
