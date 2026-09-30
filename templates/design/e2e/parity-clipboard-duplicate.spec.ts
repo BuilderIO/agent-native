@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, cdpScreenshot, designFrame, gotoEditor } from "./helpers";
+import { appPath, designFrame, gotoEditor } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 

@@ -57,23 +57,20 @@ function makeCanvas(dataUrl: string) {
 }
 
 function makeArgs(snapshotSource: { html: string; baseUrl: string } | null) {
-  const previewIframes = ["screen-remote", "screen-remote-2"].map(
-    (screenId) => {
-      const iframe = document.createElement("iframe");
-      iframe.setAttribute("data-screen-iframe-id", screenId);
-      iframe.dataset.designSourceType = "localhost";
-      Object.defineProperty(iframe, "contentDocument", {
-        configurable: true,
-        value: null,
-      });
-      Object.defineProperties(iframe, {
-        clientWidth: { configurable: true, value: 320 },
-        clientHeight: { configurable: true, value: 200 },
-      });
-      document.body.append(iframe);
-      return iframe;
-    },
-  );
+  ["screen-remote", "screen-remote-2"].forEach((screenId) => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-screen-iframe-id", screenId);
+    iframe.dataset.designSourceType = "localhost";
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      value: null,
+    });
+    Object.defineProperties(iframe, {
+      clientWidth: { configurable: true, value: 320 },
+      clientHeight: { configurable: true, value: 200 },
+    });
+    document.body.append(iframe);
+  });
 
   const snapshotDoc = document.implementation.createHTMLDocument("snapshot");
   snapshotDoc.body.innerHTML = "<main>Current localhost preview</main>";

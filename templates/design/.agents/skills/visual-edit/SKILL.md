@@ -97,11 +97,15 @@ const tools = await an.tools("visual-edit");
 if (!tools.some((tool) => tool.name === "open-visual-edit")) {
   throw new Error("open-visual-edit is not registered yet");
 }
-const result = await an.call("open-visual-edit", {
-  devServerUrl: "http://localhost:5173",
-  paths: ["/"],
-  navigate: true,
-}, { waitMs: 2_000 });
+const result = await an.call(
+  "open-visual-edit",
+  {
+    devServerUrl: "http://localhost:5173",
+    paths: ["/"],
+    navigate: true,
+  },
+  { waitMs: 2_000 },
+);
 if (result.state === "pending") {
   // On the next evaluation, read the still-running call without replaying it.
   an.result(result.id);
@@ -113,9 +117,12 @@ is canonical; `navigator.modelContext` is deprecated:
 
 ```js
 const ctx = document.modelContext;
-const tool = (await ctx.getTools()).find((candidate) => candidate.name === NAME);
+const tool = (await ctx.getTools()).find(
+  (candidate) => candidate.name === NAME,
+);
 if (!tool) throw new Error(`WebMCP tool not found: ${NAME}`);
-const codex = typeof ctx.codexExecuteTool === "function" ||
+const codex =
+  typeof ctx.codexExecuteTool === "function" ||
   typeof ctx.codexGetTools === "function";
 const result = await ctx.executeTool(tool, codex ? ARGS : JSON.stringify(ARGS));
 ```
