@@ -649,7 +649,14 @@ export function RecordingPill() {
         else if (!window.open(value, "_blank"))
           throw new Error("Browser blocked opening clip");
       },
-      dismiss: async () => {
+      dismiss: async (dismissedAction) => {
+        if (dismissedAction === "copy") {
+          setCopied(true);
+          setAnnouncement("Link copied");
+          await new Promise<void>((resolve) =>
+            window.setTimeout(resolve, 1_000),
+          );
+        }
         if (hasTauri) {
           await dismissCompletionCardWindow({
             releaseHold: () => invoke("set_toolbar_finishing", { hold: false }),
@@ -671,14 +678,6 @@ export function RecordingPill() {
     setCompletionActionBusy(true);
     const result = await completionActionsRef.current(action, url);
     if (result.status === "busy") return;
-    if (
-      action === "copy" &&
-      (result.status === "dismissed" ||
-        (result.status === "failed" && result.stage === "dismiss"))
-    ) {
-      setCopied(true);
-      setAnnouncement("Link copied");
-    }
     if (result.status === "failed") {
       const message =
         result.stage === "copy"

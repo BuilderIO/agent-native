@@ -183,7 +183,7 @@ describe("completion card actions", () => {
   );
 
   it.each(["Copy", "url", "icon"])(
-    "dismisses after successful copying through %s",
+    "shows copied feedback before dismissing after copying through %s",
     async (target) => {
       await showCard();
       const control =
@@ -196,6 +196,11 @@ describe("completion card actions", () => {
               )[1];
       await act(async () => control.click());
       expect(copy).toHaveBeenCalledExactlyOnceWith(url);
+      expect(button("Copied").disabled).toBe(true);
+      expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+      await act(async () => vi.advanceTimersByTimeAsync(999));
+      expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+      await act(async () => vi.advanceTimersByTimeAsync(1));
       expect(host.querySelector('[aria-label="Dismiss"]')).toBeNull();
     },
   );
@@ -234,6 +239,9 @@ describe("completion card actions", () => {
     expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
     expect(button("Copy").disabled).toBe(true);
     await act(async () => finish());
+    expect(button("Copied").disabled).toBe(true);
+    expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
     expect(host.querySelector('[aria-label="Dismiss"]')).toBeNull();
   });
 
