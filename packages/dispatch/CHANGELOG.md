@@ -1,5 +1,18 @@
 # @agent-native/dispatch
 
+## 0.40.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 4dfe557: Keep homepage submissions in the active full-page chat and hide unavailable request ID actions.
+- Updated dependencies [0670eb1]
+- Updated dependencies [77540af]
+- Updated dependencies [df12726]
+- Updated dependencies
+- Updated dependencies [4dfe557]
+  - @agent-native/toolkit@0.198.6
+
 ## 0.40.6
 
 ### Patch Changes
@@ -1072,20 +1085,5 @@
 - fb18771: Keep selected chat-first apps visible and open granted external apps from Dispatch.
 - Updated dependencies [fb18771]
   - @agent-native/toolkit@0.16.1
-
-## 0.27.0
-
-### Minor Changes
-
-- 9e21e1b: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
-
-### Patch Changes
-
-- 9e21e1b: Refresh workspace app lists after starting a Builder app creation.
-- 9e21e1b: Keep embedded workspace apps synchronized with their parent light or dark theme.
-- Updated dependencies [9e21e1b]
-- Updated dependencies [9e21e1b]
-- Updated dependencies [9e21e1b]
-  - @agent-native/toolkit@0.16.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

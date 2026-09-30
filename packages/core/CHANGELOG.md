@@ -51,6 +51,15 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.6
+  - @agent-native/recap-cli@0.5.56
+
 ## 0.198.5
 
 ### Patch Changes
@@ -3657,11 +3666,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
 - 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
-
-## 0.164.21
-
-### Patch Changes
-
-- 68f299c: Clarify deployment targets and document Agent-Native app configuration.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
