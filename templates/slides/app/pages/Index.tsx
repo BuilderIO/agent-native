@@ -230,6 +230,8 @@ interface DeckGenerationRetryState {
   retryImportedReference?: ImportedReferenceSource;
   retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
+  retryComposerContext?: SlidesComposerContext;
+  retryContextItems?: SlidesPromptSubmitOptions["contextItems"];
   modelSelection?: DeckModelSelection;
 }
 
@@ -414,6 +416,8 @@ async function loadReferenceDeckGenerationContext(
 export default function Index({ active = true }: { active?: boolean }) {
   const t = useT();
   const location = useLocation();
+  const generationRetryState =
+    location.state as DeckGenerationRetryState | null;
   const routeIsHome = useMatch("/home") !== null;
   const isHome = active && routeIsHome;
   const {
@@ -535,6 +539,10 @@ export default function Index({ active = true }: { active?: boolean }) {
   const [newDeckRetryAttachments, setNewDeckRetryAttachments] = useState<
     ReadonlyArray<PromptChatAttachment>
   >([]);
+  const [newDeckRetryComposerContext, setNewDeckRetryComposerContext] =
+    useState<SlidesComposerContext>();
+  const [newDeckRetryContextItems, setNewDeckRetryContextItems] =
+    useState<SlidesPromptSubmitOptions["contextItems"]>();
   const [newDeckRetryModelSelection, setNewDeckRetryModelSelection] = useState<
     DeckModelSelection | undefined
   >();
@@ -622,6 +630,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const initialReferenceDeckId = lastUsedReferenceDeckId;
   const composerContext = useSlidesComposerContext({
     active,
+    initialSelection: generationRetryState?.retryComposerContext,
     defaultDesignSystemId: initialDesignSystemId,
     defaultReferenceDeck: decks.find(
       (deck) => deck.id === initialReferenceDeckId,
@@ -787,6 +796,8 @@ export default function Index({ active = true }: { active?: boolean }) {
           setNewDeckRetryContext(undefined);
           setNewDeckRetryPrompt(undefined);
           setNewDeckRetryAttachments([]);
+          setNewDeckRetryComposerContext(undefined);
+          setNewDeckRetryContextItems(undefined);
           setNewDeckRetryModelSelection(undefined);
         }
       }
@@ -819,6 +830,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckRetryReferenceFilePaths([]);
       setNewDeckRetryImportedReference(undefined);
       setNewDeckRetryAttachments(options.attachments ?? []);
+      setNewDeckRetryComposerContext(undefined);
+      setNewDeckRetryContextItems(undefined);
       setNewDeckRetryModelSelection(options.modelSelection);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
@@ -897,6 +910,8 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
+    setNewDeckRetryComposerContext(state.retryComposerContext);
+    setNewDeckRetryContextItems(state.retryContextItems);
     setNewDeckRetryModelSelection(state.modelSelection);
     setShowNewDeckPrompt(true);
     void navigate(".", { replace: true, state: null });
@@ -1059,7 +1074,10 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckRetryReferenceFilePaths([...referenceFilePaths]);
       setNewDeckRetryImportedReference(importedReferenceSource);
       setNewDeckRetryAttachments(attachmentsForGeneration);
+      setNewDeckRetryComposerContext(referenceSelection.composerContext);
+      setNewDeckRetryContextItems(referenceSelection.contextItems);
       setNewDeckRetryModelSelection(modelSelection);
+      setIsStartingNewDeck(false);
       clearStartedGenerationAttempt(generationAttemptId, deckId);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
@@ -1076,6 +1094,8 @@ export default function Index({ active = true }: { active?: boolean }) {
             retryImportedReference: importedReferenceSource,
             retryContext: additionalContext || undefined,
             retryAttachments: attachmentsForGeneration,
+            retryComposerContext: referenceSelection.composerContext,
+            retryContextItems: referenceSelection.contextItems,
             modelSelection,
           } satisfies DeckGenerationRetryState,
           flushSync: true,
@@ -1140,6 +1160,8 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryContext(undefined);
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryAttachments([]);
+    setNewDeckRetryComposerContext(undefined);
+    setNewDeckRetryContextItems(undefined);
     setNewDeckRetryModelSelection(undefined);
     const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
@@ -1408,6 +1430,14 @@ export default function Index({ active = true }: { active?: boolean }) {
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
+      const retryComposerContext =
+        options?.slidesContext ??
+        (prompt === newDeckRetryPrompt
+          ? newDeckRetryComposerContext
+          : undefined);
+      const retryContextItems =
+        options?.contextItems ??
+        (prompt === newDeckRetryPrompt ? newDeckRetryContextItems : undefined);
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const promptReferenceDeckId = findPromptReferenceDeckId(
         prompt,
@@ -1415,24 +1445,24 @@ export default function Index({ active = true }: { active?: boolean }) {
         decks,
       );
       const hasExplicitComposerDeckReference =
-        options?.slidesContext?.references.some(
+        retryComposerContext?.references.some(
           (reference) => reference.source === "slides",
         ) ?? false;
       if (
-        options?.slidesContext &&
+        retryComposerContext &&
         ((!promptReferenceDeckId &&
-          (options.slidesContext.designSystemId ||
-            options.slidesContext.references.length > 0)) ||
+          (retryComposerContext.designSystemId ||
+            retryComposerContext.references.length > 0)) ||
           hasExplicitComposerDeckReference)
       ) {
         void runPendingDeckGeneration(
           prompt,
           files,
           {
-            designSystemId: options.slidesContext.designSystemId,
+            designSystemId: retryComposerContext.designSystemId,
             referenceDeckId: null,
-            composerContext: options.slidesContext,
-            contextItems: options.contextItems,
+            composerContext: retryComposerContext,
+            contextItems: retryContextItems,
           },
           retryContext,
           attachments.attachments,
@@ -1471,10 +1501,10 @@ export default function Index({ active = true }: { active?: boolean }) {
               effort: options.effort,
             }
           : newDeckRetryModelSelection,
-        ...(options?.slidesContext
+        ...(retryComposerContext
           ? {
-              composerContext: options.slidesContext,
-              contextItems: options.contextItems,
+              composerContext: retryComposerContext,
+              contextItems: retryContextItems,
             }
           : {}),
       });
@@ -1483,6 +1513,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckRetryImportedReference(undefined);
       setNewDeckRetryContext(undefined);
       setNewDeckRetryAttachments([]);
+      setNewDeckRetryComposerContext(undefined);
+      setNewDeckRetryContextItems(undefined);
       setNewDeckRetryModelSelection(undefined);
       setShowNewDeckReferenceStep(true);
       return "retain" as const;
@@ -1493,6 +1525,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       newDeckRetryReferenceFilePaths,
       newDeckRetryImportedReference,
       newDeckRetryContext,
+      newDeckRetryComposerContext,
+      newDeckRetryContextItems,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
       decks,
@@ -1510,6 +1544,8 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryImportedReference(undefined);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryAttachments([]);
+    setNewDeckRetryComposerContext(undefined);
+    setNewDeckRetryContextItems(undefined);
     setNewDeckRetryModelSelection(undefined);
     setPendingDeck({
       prompt: "",
@@ -2435,6 +2471,8 @@ export default function Index({ active = true }: { active?: boolean }) {
               setNewDeckRetryImportedReference(pending.importedReference);
               setNewDeckRetryContext(pending.context);
               setNewDeckRetryAttachments(pending.attachments);
+              setNewDeckRetryComposerContext(pending.composerContext);
+              setNewDeckRetryContextItems(pending.contextItems);
               setNewDeckRetryModelSelection(pending.modelSelection);
               setNewDeckInitialPrompt({
                 text: pending.prompt,

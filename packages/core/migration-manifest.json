@@ -1023,7 +1023,9 @@
         "useSemanticNavigationState": {
           "to": "@agent-native/core/client/navigation"
         },
-        "useSendToAgentChat": "useSendToAgentChat",
+        "useSendToAgentChat": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
         "useSession": {
           "to": "@agent-native/core/client/hooks"
         },
@@ -2785,7 +2787,7 @@
           "to": "@agent-native/core/client"
         },
         "useSendToAgentChat": {
-          "to": "@agent-native/core/client"
+          "to": "@agent-native/toolkit/app/chat"
         },
         "DESKTOP_LOCAL_CODE_CHANGE_EVENT": {
           "to": "@agent-native/core/client"
@@ -4784,6 +4786,9 @@
           "to": "@agent-native/toolkit/app/chat/agentkit-chat"
         },
         "useExternalAgentHost": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "useSendToAgentChat": {
           "to": "@agent-native/toolkit/app/chat"
         },
         "BuilderSetupCard": {

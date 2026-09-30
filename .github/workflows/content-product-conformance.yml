@@ -22,7 +22,7 @@ jobs:
       - name: Check out immutable conformance controller
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: 03caa13fd5bf6176ee01ab223452db9932b7ca8c
+          ref: 72715043afb74b9e4ab82bdb763f812ce180becd
           path: controller
           fetch-depth: 1
           persist-credentials: false

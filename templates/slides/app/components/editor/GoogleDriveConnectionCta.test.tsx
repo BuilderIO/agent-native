@@ -24,7 +24,7 @@ vi.mock("@agent-native/core/client/host", () => ({
   oauthRedirectUri: (path: string) => `https://slides.example${path}`,
 }));
 
-vi.mock("@agent-native/toolkit/app/integrations", () => ({
+vi.mock("@agent-native/core/client/integrations", () => ({
   startWorkspaceProviderOAuth: vi.fn(),
 }));
 

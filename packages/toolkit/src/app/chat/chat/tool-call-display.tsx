@@ -10,7 +10,6 @@ import type {
 } from "@agent-native/core/client/agent-chat";
 import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
-import { findMcpIntegrationForToolName } from "@agent-native/core/client/resources/mcp-integration-catalog";
 import {
   isCallAgentToolCallShadowed,
   isToolCallActive,
@@ -49,7 +48,6 @@ import React, {
   useRef,
 } from "react";
 
-import { McpIntegrationLogo } from "../../resources/index.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";

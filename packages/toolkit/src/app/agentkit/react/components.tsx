@@ -3610,7 +3610,7 @@ export function AgentKitComposer({
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
         disabled={disabled}
-        submissionDisabled={submissionDisabled}
+        submissionDisabled={submissionDisabled || command.pending}
         onDisabledClick={onDisabledClick}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
