@@ -6346,6 +6346,39 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("validates raw MCP schemas using their declared 2020-12 dialect", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
   it("rejects null raw JSON Schema parameters instead of validating as an empty object", async () => {
     const run = vi.fn(async () => "should not run");
     const engine: AgentEngine = {
