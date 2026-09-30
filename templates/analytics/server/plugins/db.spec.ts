@@ -402,12 +402,12 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
-  it("returns before runAnalyticsMigrations in unscheduled production serverless runtime", () => {
+  it("skips production serverless migrations except for the scheduled rollup worker", () => {
     const pluginSource = dbTsSource.slice(
       dbTsSource.lastIndexOf("export default async"),
     );
     const serverlessGuardIdx = pluginSource.indexOf(
-      "if (isNetlifyServerlessRuntime && !isScheduledRollupRuntime) {",
+      "if (isProductionServerless && !isScheduledRollupRuntime) {",
     );
     const migrationsCallIdx = pluginSource.indexOf(
       "await runAnalyticsMigrations(",
@@ -416,6 +416,9 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(migrationsCallIdx).toBeGreaterThan(serverlessGuardIdx);
     expect(pluginSource.slice(serverlessGuardIdx, migrationsCallIdx)).toMatch(
       /return;/,
+    );
+    expect(pluginSource).toContain(
+      "withMigrationExecutionRuntime(runSchemaWork)",
     );
     expect(pluginSource).toContain(
       "Skipping Analytics migrations in production serverless runtime",

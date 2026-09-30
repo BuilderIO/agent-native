@@ -102,7 +102,11 @@ export function ImportDeckButton({
                 )}
               >
                 <IconUpload />
-                {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
+                <span className="slides-home-import-label">
+                  {t(
+                    busy ? "editorToolbar.importing" : "home.importMenu.import",
+                  )}
+                </span>
                 <IconChevronDown />
               </Button>
             </DropdownMenuTrigger>

@@ -21,6 +21,7 @@ export const SETTINGS_PAGE_IDS = {
   apiKeys: "api-keys",
   model: "model",
   instructions: "instructions",
+  personalization: "personalization",
   memory: "memory",
   skills: "skills",
   files: "files",
@@ -137,6 +138,7 @@ const TAB_REDIRECTS: Readonly<Record<string, SettingsRedirect>> = {
   agent: { page: "model" },
   "agent:overview": { page: "model" },
   providers: { page: "model" },
+  "agent:personalization": { page: "personalization" },
   "agent:resources": { page: "files" },
   "agent:resources:files": { page: "files" },
   "agent:resources:instructions": { page: "instructions" },
@@ -287,6 +289,8 @@ export function legacySettingsTabIdsForPage(
       return ["keys", "secrets"];
     case "model":
       return ["agent"];
+    case "personalization":
+      return ["agent:personalization"];
     case "instructions":
     case "memory":
     case "skills":

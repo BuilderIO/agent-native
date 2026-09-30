@@ -58,6 +58,20 @@ const RESOURCE_CLEANUP_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const UNAUTHORIZED_PR_PUSH_RE =
+  /\b(?:never|stop|don['’]?t|do not|must not|should not|shouldn['’]?t)\b(?!\s+(?:\w+\s+){0,3}forget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b))[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b|\b(?:never|stop|don['’]?t|do not|must not|should not|shouldn['’]?t)\b(?!\s+(?:\w+\s+){0,3}forget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b))[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,60}\b(?:(?:I|we)(?:['’]ve| have)?\s+(?:(?:don['’]?t|do not|must not)\s+)?(?:own|opened|created|authored)|you\s+(?:don['’]?t|do not|must not)\s+own|(?:(?:is|are)(?:n['’]?t|\s+not)|not)\s+yours?|unless\s+you\s+(?:(?:don['’]?t|do not|must not)\s+)?own|(?:that\s+)?(?:don['’]?t|do not|doesn['’]?t|does not)\s+belong\s+to\s+you)\b|\bpush(?:ed|ing)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b|\bpush(?:ed|ing)\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|(?:(?:I|we)(?:['’]ve| have)?\s+(?:(?:don['’]?t|do not|must not)\s+)?(?:own|opened|created|authored)|you\s+(?:don['’]?t|do not|must not)\s+own|(?:(?:is|are)(?:n['’]?t|\s+not)|not)\s+yours?|unless\s+you\s+(?:(?:don['’]?t|do not|must not)\s+)?own|(?:that\s+)?(?:don['’]?t|do not|doesn['’]?t|does not)\s+belong\s+to\s+you))\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b/i;
+
+const AFFIRMATIVE_PR_PUSH_REMINDER_RE =
+  /\b(?:never|must not|don['’]?t|do not)\b[^.!?\n]{0,100}\bforget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b)[^.!?\n]{0,100}\bpush(?:ed|ing)?\b/i;
+const matchesUnauthorizedPrPush = (text) =>
+  String(text)
+    .split(/[.!?\n]+/)
+    .some(
+      (sentence) =>
+        UNAUTHORIZED_PR_PUSH_RE.test(sentence) &&
+        !AFFIRMATIVE_PR_PUSH_REMINDER_RE.test(sentence),
+    );
+
 const BETA_PUBLISHER_OPERATION = String.raw`cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?`;
 const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
   [
@@ -232,6 +246,81 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
     "No permission is needed to create a branch in a shared checkout worktree.",
   ],
   [false, "The worktree has a branch checked out."],
+];
+const BRANCH_SETUP_PROMPT_RE = new RegExp(
+  [
+    String.raw`\b(?:stop|don['’]?t|do not|no need to|never|why (?:did|do|are|were|was))\b[^.!?\n]{0,120}\b(?:ask\w*|prompt\w*|request\w*|confirmation|approval|permission)\b[^.!?\n]{0,100}\b(?:branch(?:es)?|worktrees?)\b`,
+    String.raw`\bwhy (?:did|do|are|were|was)\b[^.!?\n]{0,100}\b(?:branch(?:es)?|worktrees?)\b[^.!?\n]{0,100}\b(?:require\w*|need\w*)\s+(?:(?:my|your)\s+)?(?:confirmation|approval|permission)\b`,
+  ].join("|"),
+  "i",
+);
+const BRANCH_WORKTREE_ASK_RE = {
+  test(text) {
+    return text
+      .split(/[.!?;\n]/)
+      .some(
+        (sentence) =>
+          BRANCH_SETUP_PROMPT_RE.test(sentence) &&
+          !WORKTREE_BRANCH_PERMISSION_RE.test(sentence),
+      );
+  },
+};
+const BRANCH_WORKTREE_ASK_REGEX_CASES = [
+  [true, "Never ask me to create a new branch inside the worktree."],
+  [
+    true,
+    "I've had multiple threads ask for this to stop: never ask Codex to create a new branch anymore, especially in a worktree.",
+  ],
+  [
+    true,
+    "Why did you ask for a task worktree before shipping from my checkout again?",
+  ],
+  [true, "Stop asking whether you can create a new branch."],
+  [true, "Stop prompting me before creating a task worktree."],
+  [true, "Don't request confirmation before creating the shipping branch."],
+  [true, "Why did creating a task worktree require my confirmation?"],
+  [
+    true,
+    "Why did you ask for permission to create a branch in the shared checkout?",
+  ],
+  [false, "Stop asking permission to create a branch in a task worktree."],
+  [false, "Again, ask me before moving to a task branch."],
+  [false, "Ask before changing branches in the shared checkout."],
+  [false, "Never create a new branch in the shared checkout."],
+  [false, "Please create a task branch for this feature."],
+];
+const BRANCH_MOVEMENT_CANDIDATE_RE =
+  /\b(?:why did you (?:make|create|switch|check(?:\s+out)?|checkout|change|move)\b[^.!?\n]{0,100}\bbranch(?:es)?|you (?:made|created|switched|checked\s+out|checked-out|checkedout|changed|moved)\b[^.!?\n]{0,100}\bbranch(?:es)?)\b/i;
+// A prompt correction does not prove that a branch moved.
+const BRANCH_MOVES_RE = {
+  test(text) {
+    return text
+      .split(/[.!?;\n]/)
+      .some(
+        (sentence) =>
+          !BRANCH_SETUP_PROMPT_RE.test(sentence) &&
+          BRANCH_MOVEMENT_CANDIDATE_RE.test(sentence),
+      );
+  },
+};
+const BRANCH_CLASSIFICATION_REGEX_CASES = [
+  [false, true, "Never ask me to create a new branch inside the worktree."],
+  [false, false, "Again, ask me before moving to a task branch."],
+  [
+    false,
+    false,
+    "Stop asking permission to create a branch in a task worktree.",
+  ],
+  [true, false, "Why did you create a new branch without asking?"],
+  [false, true, "Why did creating a task worktree require my confirmation?"],
+  [true, false, "You created a new branch in the shared checkout."],
+  [true, false, "Why did you switch to a new branch?"],
+  [true, false, "You switched to a different branch."],
+  [true, false, "Why did you check out a task branch?"],
+  [true, false, "You checked out a new branch after I asked you not to."],
+  [false, false, "Did you switch to a new branch?"],
+  [false, false, "Don't create a new branch in the shared checkout."],
+  [false, false, "Never create a new branch in the shared checkout."],
 ];
 // ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
@@ -599,11 +688,172 @@ const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
   String.raw`(?:forgot|failed)\s+to\s+(?:say|state|report|mention|include|note|ask(?:\s+for)?|request|draft|write|prepare|provide)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
   String.raw`(?:left out|left off|omitted|(?:was|is|were|are)\s+missing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
 ].join("|");
+const PR_REVIEW_MERGE_GATE_RE =
+  /\b(?:approvals?|approve(?:s|d)?|decision|sign[-\s]+off|checks?|ci|green|deployments?|deploy|(?:test\s+suites?|tests?|builds?)|reviews?|reviewers?|review\s+threads?|comments?|conversations?|conversation[-\s]+resolution|requested\s+changes?|feedback|branch[-\s]+protections?(?:\s+requirements?)?|rulesets?(?:\s+conditions?)?|merge[-\s]+queues?|security(?:[-\s]team(?:['’]s)?)?|product[-\s]+owners?|ux(?:[-\s]+owners?)?|steve(?:['’]s)?|(?:it|they)\s+(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
+const PR_REVIEW_MERGE_OBJECT = String.raw`(?:\s+(?:(?:(?:the|a|an|this|that|these|those|my|our)\s+)?(?:PR|pull\s+request|fix|code|change|changes|commit|branch|update)|it|this|that))?`;
+const PR_REVIEW_WITH_MERGE_PREFIX = String.raw`(?:merge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?|only(?:\s+merge${PR_REVIEW_MERGE_OBJECT})?)`;
+const PR_REVIEW_GATE_MERGE_PREFIX_RE = new RegExp(
+  String.raw`\bmerge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?(?:\s+without\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer))?\s+(?:after|upon|once|when|until|unless|if|requires?|needs?|as\s+long\s+as|subject\s+to|contingent\s+(?:upon|on)|provided(?:\s+that)?(?=\s+\S)|conditional\s+on|dependent\s+on)\b[^.!?;]{0,60}$`,
+  "i",
+);
+const PR_REVIEW_GATE_WAIT_FOR_RE =
+  /\bwait(?:ing)?\s+for\b(?:\s+[\w’'-]+){0,5}\s*$/i;
+const PR_REVIEW_GATE_REQUIRED_FOR_MERGE_RE = new RegExp(
+  String.raw`\b(?:(?:required|mandatory)\s+)?(?:security\s+)?approval\s+(?:(?:(?:is|are)\s+)?(?:required|mandatory|needed|necessary)|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:be\s+)?(?:granted|obtained|received|provided|given))\b[^.!?]{0,40}\b(?:before|prior\s+to|to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b`,
+  "i",
+);
+const PR_REVIEW_GATE_THEN_MERGE_RE =
+  /\b(?:then\s+)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b/i;
+const PR_REVIEW_GATE_WITH_APPROVAL_RE = new RegExp(
+  String.raw`\b${PR_REVIEW_WITH_MERGE_PREFIX}\s+with\b(?:\s+[\w’'-]+){0,5}\s*$`,
+  "i",
+);
+const PR_REVIEW_GATE_APPROVAL_HEAD_RE =
+  /^\s*(?:(?:from|by|of|is(?:n['’]t)?|are(?:n['’]t)?|was|were|not\s+(?:required|needed|necessary)|required|needed|necessary|before|prior\s+to|and|or)\b|$|[.,;:!?])/i;
+const PR_REVIEW_GATE_NEGATION_BEFORE_RE =
+  /\b(?:no|without)\b(?:\s+[\w’'-]+){0,3}\s*$/i;
+const PR_REVIEW_GATE_WAIVER_RE =
+  /\b(?:(?:(?:don't|do\s+not|never|stop)(?:\s+need\s+to)?|instead\s+of|rather\s+than|without|no\s+need\s+to|not\s+(?:required|needed|necessary)\s+to)\s+wait(?:ing)?\s+for)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
+const PR_REVIEW_GATE_COMPLETION = String.raw`(?:(?:has|have)\s+)?(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|resolv(?:e|es|ed|ing)|sign(?:s|ed)?[-\s]+off)`;
+const PR_REVIEW_GATE_CONDITION_AFTER_RE = new RegExp(
+  String.raw`^\s*(?:${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\bthen\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,40}\b(?:before|prior\s+to|then)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,20}\bfirst\b|[^.!?]{0,80}\b(?:is|are|has\s+been|have\s+been)\s+(?:still\s+)?(?:required|mandatory|needed|necessary)\b[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|before\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b)`,
+  "i",
+);
+const PR_REVIEW_GATE_COMMA_MERGE_RE = new RegExp(
+  String.raw`^\s*${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}[,;]\s*(?:then\s+)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b`,
+  "i",
+);
+const PR_REVIEW_GATE_NEGATION_AFTER_RE =
+  /^\s*(?:(?:(?:is|are)\s+)?not\s+(?:required|needed|necessary|a\s+prerequisite)|(?:isn't|aren't|isn['’]t|aren['’]t)\s+(?:required|needed|necessary)|(?:will\s+not|won['’]t)\s+be\s+(?:required|needed|necessary)|(?:is|are)\s+(?:optional|waived))\b/i;
+const PR_REVIEW_GATE_PRECONDITION_RE = new RegExp(
+  String.raw`\b(?:after|once|when|if|unless|provided(?:\s+that)?)\b[^.!?]{0,80}${PR_REVIEW_MERGE_GATE_RE.source}[^.!?]{0,40}\b(?:green|pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|resolv(?:e|es|ed|ing)|sign(?:s|ed)?[-\s]+off|approve(?:s|d)?|admit(?:s|ted)?|satisf(?:y|ies|ied)|required|mandatory|needed|necessary)\b`,
+  "i",
+);
+const PR_REVIEW_GATE_NOUN_PRECONDITION_RE =
+  /\b(?:after|once|when|unless|provided(?:\s+that)?)\b(?:(?!\bmerge\b)[^.!?;]){0,80}\b(?:approvals?|reviews?|sign[-\s]+offs?)\b/i;
+const PR_REVIEW_GATE_BASE_FRESHNESS_RE =
+  /\b(?:after|once|when|unless|provided(?:\s+that)?|if)\b(?:(?!\bmerge\b)[^.!?]){0,80}\b(?:up[-\s]+to[-\s]+date|current|fresh|updated)\b[^.!?]{0,40}\b(?:with|against)\s+(?:the\s+)?(?:main|base|target)(?:\s+branch)?\b/i;
+const PR_REVIEW_GATE_NEGATIVE_STATE = String.raw`\b(?:no\s+(?:unresolved|outstanding|open)\s+review\s+threads?|no\s+(?:(?:failed|failing|pending)\s+(?:required\s+)?checks?|(?:required\s+)?checks?\s+(?:are\s+)?(?:failed|failing|pending))|no\s+(?:merge\s+)?conflicts?)\b`;
+const PR_REVIEW_GATE_NEGATIVE_STATE_RE = new RegExp(
+  String.raw`(?:\bmerge(?:\s+(?:it|the\s+PR))?(?:\s+only)?\s+(?:after|once|when|unless|if|provided(?:\s+that)?)\b[^.!?;]{0,80}${PR_REVIEW_GATE_NEGATIVE_STATE}|\bprovided(?:\s+that)?\b[^.!?;]{0,80}${PR_REVIEW_GATE_NEGATIVE_STATE}[^.!?;]{0,80}\bmerge\b)`,
+  "i",
+);
+const PR_REVIEW_GATE_OTHER_SCOPE_RE =
+  /\b(?:(?:Steve(?:['’]s)?|product[-\s]+owners?(?:['’]s)?|ux[-\s]+owners?(?:['’]s)?)\b[^.!?]{0,40})?(?:security(?:[-\s]+team(?:['’]s)?)?\s+)?(?:decision|approval|sign[-\s]+off)\b[^.!?]{0,40}\b(?:any\s+(?:major\s+)?product\s+changes?|(?:other|another|unrelated)\s+(?:(?:major\s+)?product\s+)?changes?|(?:other|another|unrelated)\s+(?:PRs?|pull\s+requests?))\b/i;
+const PR_REVIEW_READY_MERGE_RE =
+  /\b(?:(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\bmerge\b|if\s+we(?:\s+are|['’]re)\s+happy\b[^.!?]{0,40}\bwe\s+merge\b)[^.!?]*/gi;
+const PR_REVIEW_MERGE_PROHIBITION_RE =
+  /\b(?:don['’]t|do\s+not|never|must\s+not|mustn['’]t|should\s+not|shouldn['’]t|can\s+not|can['’]t|cannot)\s+merge\b/gi;
+const PR_REVIEW_OTHER_PR_TARGET_RE =
+  /^\s+(?:(?:any|all|the|those|these)\s+)?(?:other|unrelated|different|another|separate|remaining|additional)\s+(?:PRs?|pull\s+requests?)\b/i;
+const PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE = new RegExp(
+  String.raw`\b${PR_REVIEW_WITH_MERGE_PREFIX}\s+with\s+(?:the\s+)?(?:CI\s+green|green\s+CI)(?:\s+checks?)?\b(?!\s+(?:badge|banner|label|indicator|update|workflow|notes?|dashboard)\b)`,
+  "i",
+);
+const PR_REVIEW_GATE_WITH_PASSING_CHECKS_RE = new RegExp(
+  String.raw`\b${PR_REVIEW_WITH_MERGE_PREFIX}\s+with\b(?:\s+[\w’'-]+){0,4}\s+(?:checks?|tests?|builds?)\s+(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|green)\b`,
+  "i",
+);
+
+function hasActivePrReviewMergeGate(sentence) {
+  if (
+    [
+      PR_REVIEW_GATE_BASE_FRESHNESS_RE,
+      PR_REVIEW_GATE_NEGATIVE_STATE_RE,
+      PR_REVIEW_GATE_REQUIRED_FOR_MERGE_RE,
+    ].some((pattern) => hasUnscopedPrReviewGateMatch(sentence, pattern))
+  ) {
+    return true;
+  }
+
+  const greenChecks =
+    PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE.exec(sentence) ??
+    PR_REVIEW_GATE_WITH_PASSING_CHECKS_RE.exec(sentence);
+  if (greenChecks) {
+    const before = sentence.slice(
+      Math.max(0, greenChecks.index - 70),
+      greenChecks.index,
+    );
+    const after = sentence.slice(greenChecks.index + greenChecks[0].length);
+    if (
+      !PR_REVIEW_GATE_WAIVER_RE.test(before) &&
+      !PR_REVIEW_GATE_NEGATION_BEFORE_RE.test(before) &&
+      !PR_REVIEW_GATE_NEGATION_AFTER_RE.test(after) &&
+      !isOtherProductMergeGate(sentence, greenChecks)
+    ) {
+      return true;
+    }
+  }
+
+  for (const match of sentence.matchAll(PR_REVIEW_MERGE_GATE_RE)) {
+    if (isOtherProductMergeGate(sentence, match)) continue;
+    const before = sentence.slice(Math.max(0, match.index - 70), match.index);
+    const after = sentence.slice(
+      match.index + match[0].length,
+      match.index + match[0].length + 120,
+    );
+    if (PR_REVIEW_GATE_WAIVER_RE.test(before)) continue;
+    if (
+      match[0].toLowerCase().startsWith("approval") &&
+      !PR_REVIEW_GATE_APPROVAL_HEAD_RE.test(after)
+    ) {
+      continue;
+    }
+    const mergePrefixIsConditional =
+      PR_REVIEW_GATE_MERGE_PREFIX_RE.test(before);
+    if (
+      PR_REVIEW_GATE_NEGATION_AFTER_RE.test(after) &&
+      !mergePrefixIsConditional
+    ) {
+      continue;
+    }
+    if (PR_REVIEW_GATE_NEGATION_BEFORE_RE.test(before)) continue;
+    if (
+      mergePrefixIsConditional ||
+      PR_REVIEW_GATE_WAIT_FOR_RE.test(before) ||
+      (match[0].toLowerCase().startsWith("approval") &&
+        PR_REVIEW_GATE_APPROVAL_HEAD_RE.test(after) &&
+        PR_REVIEW_GATE_WITH_APPROVAL_RE.test(before)) ||
+      (match[0].toLowerCase().startsWith("sign") &&
+        PR_REVIEW_GATE_WITH_APPROVAL_RE.test(before) &&
+        !/\b(?:notes?|summary|report|documentation|badge|banner|update)\b/i.test(
+          after,
+        )) ||
+      (PR_REVIEW_GATE_CONDITION_AFTER_RE.test(after) &&
+        !isOtherProductMergeGate(sentence, match)) ||
+      PR_REVIEW_GATE_COMMA_MERGE_RE.test(after)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasUnscopedPrReviewGateMatch(sentence, pattern) {
+  const matcher = new RegExp(
+    pattern.source,
+    `${pattern.flags.replace("g", "")}g`,
+  );
+  return Array.from(sentence.matchAll(matcher)).some(
+    (match) => !isOtherProductMergeGate(sentence, match),
+  );
+}
+
+function isOtherProductMergeGate(sentence, gate) {
+  const otherScope = PR_REVIEW_GATE_OTHER_SCOPE_RE.exec(sentence);
+  return (
+    otherScope &&
+    gate.index < otherScope.index + otherScope[0].length &&
+    gate.index + gate[0].length > otherScope.index
+  );
+}
+
 const PR_REVIEW_HANDOFF_RE = new RegExp(
   [
     String.raw`\b(?:you|we|${PR_REVIEW_HANDOFF_SUBJECTS})\b[^.!?]{0,80}\b(?:${PR_REVIEW_HANDOFF_MISS_ACTIONS})\b`,
     String.raw`\b(?:you|we)\s+missed\s*:\s*(?:\r?\n\s*[-*]\s*)+(?:${PR_REVIEW_HANDOFF_DETAILS})\b`,
     String.raw`\b(?:you|we)\s+(?:marked|called|classified)\s+(?:it|the\s+PR|the\s+pull\s+request)\s+(?:as\s+)?ready\b[^.!?]{0,80}\b(?:despite|although|without|ignoring)\b[^.!?]{0,40}\b(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)\b`,
+    String.raw`\b(?:stop\s+saying|no\s+saying|don't\s+say|do\s+not\s+say|never\s+say)\s+["'“‘]?(?:someone else|another maintainer|another reviewer)\b[^.!?]{0,40}\b(?:needs?\s+to\s+approve|needs?\s+approval|must\s+approve|approval\s+is\s+required)\b`,
     String.raw`\b(?:you|we)\s+(?:sent|posted|drafted|added|left)\s+another\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?]{0,120}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
     String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,120}(?:unanswered|unaddressed|still\s+outstanding)[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)`,
     String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding)`,
@@ -615,7 +865,471 @@ const PR_REVIEW_HANDOFF_RE = new RegExp(
   "i",
 );
 
+const PR_REVIEW_DIRECT_READY_MERGE_RE =
+  /\b(?:the|this)\s+(?:PR|pull\s+request)\s+is\s+ready(?:\s+to\s+merge)?\b[\s\S]{0,80}(?:\bmerge(?:\s+(?:it|the\s+PR))?\b[^.!?\n]{0,50}\bwithout\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer)\b|\b(?:don't|do\s+not|never)\s+wait\s+for\s+(?:another\s+)?(?:approval|reviewer)\b[^.!?\n]{0,50}\bmerge(?:\s+(?:it|the\s+PR))?\b|\bmerge\s+(?:it|the\s+PR)\b)[^.!?]*/gi;
+
+function followingPrReviewMergeRequirement(text, match) {
+  const following = text.slice(match.index + match[0].length);
+  const nextSentence = following.match(/^\s*[.!?]\s*[^.!?]{0,160}/)?.[0] ?? "";
+  if (PR_REVIEW_GATE_REQUIRED_FOR_MERGE_RE.test(nextSentence)) {
+    return nextSentence;
+  }
+  if (/\bwait(?:ing)?\s+for\b/i.test(nextSentence)) {
+    const laterMerge =
+      following
+        .slice(nextSentence.length)
+        .match(/^\s*[.!?]\s*[^.!?]{0,160}/)?.[0] ?? "";
+    return `${nextSentence}${
+      PR_REVIEW_GATE_THEN_MERGE_RE.test(laterMerge) ? laterMerge : ""
+    }`;
+  }
+  return /\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b/i.test(
+    nextSentence,
+  )
+    ? nextSentence
+    : "";
+}
+
+function isUnblockedPrReviewReadyCorrection(text, match) {
+  const preceding = text.slice(0, match.index);
+  const sentenceBoundary = Math.max(
+    preceding.lastIndexOf("."),
+    preceding.lastIndexOf("!"),
+    preceding.lastIndexOf("?"),
+    preceding.lastIndexOf("\n"),
+  );
+  const sentenceStart = sentenceBoundary + 1;
+  const sentencePrefix = preceding.slice(sentenceStart);
+  const previousBoundary = Math.max(
+    preceding.lastIndexOf(".", sentenceStart - 2),
+    preceding.lastIndexOf("!", sentenceStart - 2),
+    preceding.lastIndexOf("?", sentenceStart - 2),
+    preceding.lastIndexOf("\n", sentenceStart - 2),
+  );
+  const previousSentence = preceding.slice(previousBoundary + 1, sentenceStart);
+  const candidateMergeText = `${sentencePrefix}${match[0]}${followingPrReviewMergeRequirement(text, match)}`;
+  const reviewText = `${previousSentence}${candidateMergeText}`;
+  const mergeIndex = match[0].search(/\bmerge\b/i);
+  const mergePreconditions = `${sentencePrefix}${match[0].slice(0, mergeIndex)}`;
+  return (
+    ![...candidateMergeText.matchAll(PR_REVIEW_MERGE_PROHIBITION_RE)].some(
+      (prohibition) =>
+        !PR_REVIEW_OTHER_PR_TARGET_RE.test(
+          candidateMergeText.slice(prohibition.index + prohibition[0].length),
+        ),
+    ) &&
+    !hasUnscopedPrReviewGateMatch(
+      previousSentence,
+      PR_REVIEW_GATE_PRECONDITION_RE,
+    ) &&
+    !hasUnscopedPrReviewGateMatch(
+      sentencePrefix,
+      PR_REVIEW_GATE_PRECONDITION_RE,
+    ) &&
+    !hasUnscopedPrReviewGateMatch(
+      previousSentence,
+      PR_REVIEW_GATE_NOUN_PRECONDITION_RE,
+    ) &&
+    !hasUnscopedPrReviewGateMatch(
+      mergePreconditions,
+      PR_REVIEW_GATE_NOUN_PRECONDITION_RE,
+    ) &&
+    !hasActivePrReviewMergeGate(reviewText)
+  );
+}
+
+const PR_REVIEW_HANDOFF_MATCHER = {
+  test(text) {
+    return (
+      PR_REVIEW_HANDOFF_RE.test(text) ||
+      [...text.matchAll(PR_REVIEW_DIRECT_READY_MERGE_RE)].some((match) =>
+        isUnblockedPrReviewReadyCorrection(text, match),
+      ) ||
+      [...text.matchAll(PR_REVIEW_READY_MERGE_RE)].some((match) => {
+        return isUnblockedPrReviewReadyCorrection(text, match);
+      })
+    );
+  },
+};
+
 const PR_REVIEW_HANDOFF_REGEX_CASES = [
+  [
+    true,
+    "If there are no changes needed, merge it instead of waiting for another reviewer to approve.",
+  ],
+  [true, "If no changes are needed, merge this PR; don't merge unrelated PRs."],
+  [true, "Don't merge unrelated PRs. If no changes are needed, merge this PR."],
+  [
+    true,
+    "Wait for security approval before merging other PRs. If no changes are needed, merge this PR.",
+  ],
+  [
+    false,
+    "Wait for security approval before merging this PR. If no changes are needed, merge this PR.",
+  ],
+  [true, "If we are happy, we merge."],
+  [true, "If we're happy with the PR, we merge."],
+  [true, "If we’re happy with the PR, we merge."],
+  [true, "If we are happy with the product change, we merge."],
+  [
+    true,
+    "If no changes are needed, stop waiting for another review and merge.",
+  ],
+  [
+    true,
+    "If no changes are needed for the product, merge instead of waiting for another reviewer.",
+  ],
+  [
+    true,
+    "If no changes are needed, even if the product owner disagrees, merge it.",
+  ],
+  [true, "If no changes are needed, don't wait for another reviewer; merge."],
+  [
+    true,
+    "If no changes are needed, don't wait for the required approval; merge.",
+  ],
+  [
+    true,
+    "If no changes are needed, no need to wait for security approval; merge.",
+  ],
+  [true, "If no changes are needed, do not wait for CI to finish; merge."],
+  [true, "If no changes are needed, merge the CI fix."],
+  [true, "If no changes are needed, merge the security fix."],
+  [true, "If no changes are needed, merge with the security team's notes."],
+  [
+    true,
+    "If no changes are needed, merge with the security team's approval notes.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge only with the security team's approval notes.",
+  ],
+  [true, "If no changes are needed, merge with no approval required."],
+  [true, "If no changes are needed, merge the required approval update."],
+  [
+    true,
+    "If no changes are needed, merge the fix for the required approval banner.",
+  ],
+  [true, "If no changes are needed, merge with the approval workflow update."],
+  [
+    true,
+    "If no changes are needed, merge only with the approval workflow update.",
+  ],
+  [true, "If no changes are needed, merge with CI green is not required."],
+  [
+    true,
+    "If no changes are needed, merge with the CI green check is optional.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge it; security approval is required before deployment.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge it and deploy after security approval.",
+  ],
+  [true, "If no changes are needed, merge it; deploy after CI checks pass."],
+  [
+    true,
+    "If no changes are needed, merge without waiting for Steve's approval.",
+  ],
+  [false, "If no changes are needed, merge if the approval isn't required."],
+  [false, "If no changes are needed, once all CI checks pass, merge."],
+  [
+    false,
+    "If no changes are needed, merge it. Wait for security approval first.",
+  ],
+  [false, "If no changes are needed, merge it. Wait for security approval."],
+  [
+    false,
+    "If no changes are needed, merge it. Wait for security approval. You can then merge it.",
+  ],
+  [false, "This PR is ready to merge. Merge it. Wait for security approval."],
+  [
+    false,
+    "This PR is ready to merge. Wait for security approval. You can then merge it.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge contingent on all required checks passing.",
+  ],
+  [false, "If no changes are needed, merge provided all required checks pass."],
+  [
+    false,
+    "If no changes are needed, merge provided there are no merge conflicts.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge provided that there are no merge conflicts.",
+  ],
+  [
+    false,
+    "Provided that there are no merge conflicts, if no changes are needed, merge it.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge provided the security team approves.",
+  ],
+  [false, "If no changes are needed, merge only after product-owner sign-off."],
+  [
+    false,
+    "If no changes are needed, merge only after the product owner signs off.",
+  ],
+  [false, "If no changes are needed, merge only after UX-owner approval."],
+  [false, "If no changes are needed, merge after Steve's decision."],
+  [
+    false,
+    "If we are happy with the product change, we merge after Steve decides.",
+  ],
+  [false, "If no changes are needed, merge with product-owner sign-off."],
+  [false, "If no changes are needed, merge with the security team's sign-off."],
+  [false, "If no changes are needed, merge with review sign-off."],
+  [
+    false,
+    "If no changes are needed, this PR is ready to merge. Security approval is still required before we merge.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge it. Required security approval must be granted before we merge.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge it. Security approval is needed to merge.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge it. Security approval is not needed to merge.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge this PR. Required security approval must be granted before merging other PRs.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge it. Security approval is needed before deployment.",
+  ],
+  [
+    false,
+    "If no changes are needed, this PR is ready to merge. The security team must sign off before we can merge.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge with the security team's sign-off notes.",
+  ],
+  [true, "This PR is ready to merge. Merge it without another approval."],
+  [true, "This PR is ready to merge. Merge it."],
+  [false, "This PR is ready to merge. Merge it once CI passes."],
+  [
+    true,
+    "This PR is ready to merge. Don't wait for another approval; merge it.",
+  ],
+  [
+    false,
+    "This PR is ready to merge. Don't wait for another approval; merge it once CI passes.",
+  ],
+  [
+    false,
+    "This PR is ready to merge. Merge it. Wait for security approval; then merge.",
+  ],
+  [false, "This PR is ready to merge. Wait for security approval. Then merge."],
+  [
+    false,
+    "This PR is ready to merge. Merge it without another approval once all required checks pass.",
+  ],
+  [false, "This PR is ready to merge. Do not merge without another approval."],
+  [
+    true,
+    "This PR is ready to merge. Merge it without waiting for another reviewer.",
+  ],
+  [false, "This PR is ready to merge once all required checks pass."],
+  [false, "If no changes are needed, merge only after deployment succeeds."],
+  [false, "If no changes are needed, merge with all checks passing."],
+  [false, "If no changes are needed, merge requires security approval."],
+  [false, "If no changes are needed, merge needs security approval."],
+  [
+    false,
+    "An approval is mandatory before merging; if no changes are needed, merge.",
+  ],
+  [
+    false,
+    "An approval is mandatory before merging. If no changes are needed, merge.",
+  ],
+  [false, "Once CI is green. If no changes are needed, merge."],
+  [true, "If no changes are needed, merge if approval will not be required."],
+  [true, "If no changes are needed, merge if the approval won't be required."],
+  [false, "If no changes are needed, merge as long as all CI checks pass."],
+  [
+    false,
+    "If no changes are needed, merge only after all review threads are resolved.",
+  ],
+  [false, "If no changes are needed, you must not merge."],
+  [false, "If no changes are needed, merge this PR; don't merge it."],
+  [false, "If no changes are needed, we shouldn't merge."],
+  [false, "If no changes are needed, I can't merge."],
+  [
+    true,
+    "If no changes are needed, merge this PR; require Steve's decision before merging any major product changes.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge this PR; Steve's decision whether this is a major product change is required before merging.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge this PR; all CI checks must pass first.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge this PR; all CI checks must pass first, and require Steve's decision before any major product changes.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge this PR; require security approval before merging this PR.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge if the approval banner is not required.",
+  ],
+  [true, "If no changes are needed, don't wait for Steve's approval; merge."],
+  [true, "Stop saying someone else needs to approve when the PR is ready."],
+  [
+    true,
+    "NO SAYING 'SOMEONE ELSE NEEDS TO APPROVE' when we are happy with the PR.",
+  ],
+  [
+    false,
+    "If no changes are needed, do not merge until the product owner approves.",
+  ],
+  [
+    false,
+    "If no changes are needed, wait for the required security approval before merging.",
+  ],
+  [false, "If no changes are needed, wait for Steve's decision; then merge."],
+  [false, "If no changes are needed, approval is required before merging."],
+  [false, "If no changes are needed, approval required before merging."],
+  [false, "If no changes are needed, merge only after Steve approves."],
+  [false, "If no changes are needed, merge only with product-owner approval."],
+  [
+    false,
+    "Once the branch protection requirements are satisfied, if no changes are needed, merge.",
+  ],
+  [false, "After the merge queue admits it, merge if no changes are needed."],
+  [
+    false,
+    "If no changes are needed, merge once branch protection requirements are satisfied.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge once all required ruleset conditions are satisfied.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge once all required conversations are resolved.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge only after the branch is up to date with main.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge if there are no unresolved review threads.",
+  ],
+  [false, "If no changes are needed, merge if there are no failing checks."],
+  [false, "If no changes are needed, merge only when there are no conflicts."],
+  [false, "If no changes are needed, after security approval, merge it."],
+  [false, "If no changes are needed, after security review, merge it."],
+  [false, "If no changes are needed, after review sign-off, merge it."],
+  [
+    false,
+    "Once required conversation resolution is complete, if no changes are needed, merge.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge only after the merge queue admits it.",
+  ],
+  [true, "If no changes are needed, merge the merge-queue fix."],
+  [true, "If no changes are needed, merge the conversation-resolution fix."],
+  [true, "If no changes are needed, merge the up-to-date fix."],
+  [true, "If no changes are needed, merge the no-conflicts fix."],
+  [true, "If no changes are needed, merge the security-review fix."],
+  [true, "If no changes are needed, merge the approval-workflow fix."],
+  [
+    true,
+    "The merge queue is required for deployment. If no changes are needed, merge the deployment fix.",
+  ],
+  [false, "Once CI is green, if no changes are needed, merge."],
+  [true, "CI is green. If no changes are needed, merge the CI fix."],
+  [
+    false,
+    "If no changes are needed, merge it only with the security reviewer's approval.",
+  ],
+  [false, "If no changes are needed, merge only after security approval."],
+  [false, "If no changes are needed, merge only after all required approvals."],
+  [false, "If no changes are needed, merge with CI green."],
+  [false, "If no changes are needed, merge the PR with CI green."],
+  [false, "If no changes are needed, merge only with the CI green check."],
+  [false, "If no changes are needed, merge with approval required."],
+  [false, "If no changes are needed, merge with approval from Steve."],
+  [false, "If no changes are needed, merge only after security sign-off."],
+  [false, "If no changes are needed, merge only after the test suite passes."],
+  [
+    false,
+    "If no changes are needed, merge only after the security team signs off.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge only after the security team's sign-off.",
+  ],
+  [false, "If no changes are needed, the test suite completes; then merge."],
+  [false, "If no changes are needed, the build completes; then merge."],
+  [
+    false,
+    "If no changes are needed, don't wait for the required approval; merge after the security team signs off.",
+  ],
+  [false, "If no changes are needed, merge when the build succeeds."],
+  [
+    false,
+    "If no changes are needed, merge only when all reviewers have signed off.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge subject to the required security approval.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge provided that all required checks pass.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge conditional on all required checks passing.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge dependent on all required checks passing.",
+  ],
+  [
+    false,
+    "If no changes are needed, all required checks have passed; then merge.",
+  ],
+  [false, "If no changes are needed, the build has succeeded; then merge."],
+  [
+    false,
+    "If no changes are needed, don't wait for the required security check to finish; merge after it passes.",
+  ],
+  [
+    false,
+    "For a major product change, get another reviewer to approve before merging.",
+  ],
+  [
+    false,
+    "If we are happy with the product change, wait for Steve's decision, then we merge.",
+  ],
+  [false, "If we're happy with the PR, we merge after security approval."],
+  [
+    false,
+    "Wait for Steve's decision on unresolved UX implications before merging.",
+  ],
+  [false, "Don't merge a PR until its requested changes are addressed."],
   [
     true,
     "You didn't say which PRs were ready to merge or draft replies for the updates.",
@@ -762,6 +1476,76 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [false, "Do not merge main. The branch contains a routine chore commit."],
   [true, "Do not push routine commits."],
   [true, "Do not push commits routinely."],
+];
+
+const UNAUTHORIZED_PR_PUSH_REGEX_CASES = [
+  [true, "Never push to someone else's PR unless explicitly told to."],
+  [true, "Don't push to another person's pull request without authorization."],
+  [false, "Don't forget to push to the external PR."],
+  [false, "Do not forget to push to the third-party pull request."],
+  [false, "Don't ever forget to push to the external PR."],
+  [false, "Do not ever forget to push to the third-party pull request."],
+  [
+    false,
+    "Don't forget to push to the external PR without explicit authorization.",
+  ],
+  [
+    false,
+    "Do not ever forget to push to the third-party pull request without permission.",
+  ],
+  [true, "Don't forget not to push to someone else's PR."],
+  [true, "Do not ever forget not to push to a third-party pull request."],
+  [
+    false,
+    "Do not forget, please, to push to the third-party PR without permission.",
+  ],
+  [
+    false,
+    "Never forget about pushing to an external PR without authorization.",
+  ],
+  [true, "Don't forget, please, not to push to the external PR."],
+  [true, "Do not ever forget to not push to a third-party PR."],
+  [true, "Don't forget that you must not push to the external PR."],
+  [true, "Don't forget to avoid pushing to the external PR."],
+  [true, "Don't forget to never push to the external PR."],
+  [true, "Do not forget, please, not to push to the third-party PR."],
+  [true, "Don't ever push to an external PR without explicit authorization."],
+  [true, "Pushed to a PR from someone else without explicit permission."],
+  [true, "Never push to an external PR unless explicitly authorized."],
+  [true, "Do not push to a third-party pull request without permission."],
+  [true, "Pushed to an external PR without explicit authorization."],
+  [true, "Don't push to my PR without explicit authorization."],
+  [true, "Pushed to my PR without asking."],
+  [true, "Don't push to a PR I own."],
+  [true, "Pushed to a PR I own without asking."],
+  [true, "Don't push to our PRs without permission."],
+  [true, "Pushed a PR I authored without permission."],
+  [true, "Pushed a PR we authored without authorization."],
+  [true, "Don't push a PR you don't own."],
+  [true, "Don't push PRs that aren't yours."],
+  [true, "Do not push a PR that is not yours."],
+  [true, "Don't push to a PR unless you own it."],
+  [true, "Stop pushing to PRs that don't belong to you."],
+  [true, "Do not push to a PR I do not own."],
+  [true, "Stop pushing to a PR you don't own."],
+  [true, "Stop pushing PRs that aren't yours."],
+  [true, "You shouldn't push to PRs you don't own."],
+  [true, "Stop pushing a PR I don't own."],
+  [false, "You should push to PRs you don't own."],
+  [false, "Please push fixes to a PR you don't own."],
+  [true, "Don't push to a PR I’ve opened without permission."],
+  [true, "Pushed a PR we've authored without permission."],
+  [false, "Please push these fixes to the PR I opened."],
+  [false, "Please push these fixes to my PR."],
+  [false, "Please push these fixes to our PRs."],
+  [false, "Please push these fixes to a PR I authored."],
+  [false, "Please push these fixes to a PR I’ve authored."],
+  [false, "I explicitly authorized pushing to Alice's PR."],
+  [false, "I explicitly authorized pushing to my PR."],
+  [false, "I explicitly authorized pushing to an external PR."],
+  [false, "Please push these fixes to the third-party PR."],
+  [false, "Please push to a PR unless you own it."],
+  [false, "Please push to a PR that you don't own."],
 ];
 
 const BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES = [
@@ -1183,6 +1967,11 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...UNAUTHORIZED_PR_PUSH_REGEX_CASES.filter(
+      ([expected, message]) => matchesUnauthorizedPrPush(message) !== expected,
+    ),
+  );
+  failures.push(
     ...BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.filter(
       ([expected, message]) =>
         BETA_PUBLISHER_RUN_INTERFERENCE_RE.test(message) !== expected,
@@ -1230,7 +2019,8 @@ if (process.argv.includes("--self-test")) {
   );
   failures.push(
     ...PR_REVIEW_HANDOFF_REGEX_CASES.filter(
-      ([expected, message]) => PR_REVIEW_HANDOFF_RE.test(message) !== expected,
+      ([expected, message]) =>
+        PR_REVIEW_HANDOFF_MATCHER.test(message) !== expected,
     ),
   );
   failures.push(
@@ -1239,12 +2029,25 @@ if (process.argv.includes("--self-test")) {
         WORKTREE_BRANCH_PERMISSION_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...BRANCH_WORKTREE_ASK_REGEX_CASES.filter(
+      ([expected, message]) =>
+        BRANCH_WORKTREE_ASK_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...BRANCH_CLASSIFICATION_REGEX_CASES.filter(
+      ([expectedMoves, expectedPrompt, message]) =>
+        BRANCH_MOVES_RE.test(message) !== expectedMoves ||
+        BRANCH_WORKTREE_ASK_RE.test(message) !== expectedPrompt,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -1265,6 +2068,13 @@ const PATTERNS = [
     re: SHIPPING_CHURN_RE,
   },
   {
+    key: "unauthorized-pr-push",
+    label: "Had to prohibit pushes to someone else's PR",
+    fixedBy:
+      "AGENTS.md + ship + babysit-pr + review-latest-feedback (exact-PR authorization, 2026-09-28)",
+    re: { test: matchesUnauthorizedPrPush },
+  },
+  {
     key: "babysit-lease-blocks-work",
     label: "Had to ask for requested work to continue after a lease failure",
     fixedBy: ".agents/skills/babysit-pr foreground fallback (2026-09-25)",
@@ -1281,7 +2091,7 @@ const PATTERNS = [
     key: "branch-moves",
     label: "Unrequested branch creation / movement",
     fixedBy: ".agents/skills/new-branch (activation guard, 2026-07-28)",
-    re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
+    re: BRANCH_MOVES_RE,
   },
   {
     // Added 2026-09-25 because `branch-moves` measures unwanted branch moves,
@@ -1292,6 +2102,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/new-branch + ship + concurrent-agents (worktree ownership, 2026-09-25)",
     re: WORKTREE_BRANCH_PERMISSION_RE,
+  },
+  {
+    key: "branch-worktree-ask",
+    label: "Had to correct branch or worktree setup prompts",
+    fixedBy:
+      "global AGENTS.md + AGENTS.md + new-branch + ship (shared-checkout isolation, 2026-09-28)",
+    re: BRANCH_WORKTREE_ASK_RE,
   },
   {
     key: "design-feedback-scope",
@@ -1319,6 +2136,13 @@ const PATTERNS = [
     fixedBy:
       "guard:no-blob-column-predicate + performance skill heavy-column rule (2026-08-22)",
     re: /\b(?:list|lists|query|queries|search|sidebar|dashboard|page|endpoint|request|chats?|threads?|results?|rows?|load(?:ing)?)\b[^.!?]{0,80}\b(?:takes? forever|so slow|insanely slow|really slow|super slow|\d+\s*(?:s|sec|seconds)\s*to\s*(?:load|populate|render))\b/i,
+  },
+  {
+    key: "unnecessary-realtime-sync",
+    label: "Had to stop broad or unnecessary background sync",
+    fixedBy:
+      "guard:realtime-opt-in + .agents/skills/real-time-sync (2026-09-28)",
+    re: /\b(?:too many|too much|every page|all pages|all tabs|unnecessary|unneeded|don't need|do not need|shouldn't|should not|default on|by default)\b[^.!?]{0,100}\b(?:real[- ]?time|realtime|poll(?:ing|s)?|SSE|background sync|sync transport)\b|\b(?:real[- ]?time|realtime|poll(?:ing|s)?|SSE|background sync|sync transport)\b[^.!?]{0,100}\b(?:too many|too much|every page|all pages|all tabs|unnecessary|unneeded|don't need|do not need|shouldn't|should not|default on|by default)\b/i,
   },
   {
     key: "stopped-early",
@@ -1430,11 +2254,10 @@ const PATTERNS = [
   },
   {
     key: "pr-review-handoff",
-    label:
-      "Had to ask for PR handoff detail or stop repeated external follow-ups",
+    label: "Had to correct PR merge handoffs or repeated external follow-ups",
     fixedBy:
-      ".agents/skills/review-prs (external replies and follow-up wait gate, 2026-09-24)",
-    re: PR_REVIEW_HANDOFF_RE,
+      ".agents/skills/review-prs (ready-PR merge action and external reply gate)",
+    re: PR_REVIEW_HANDOFF_MATCHER,
   },
   {
     key: "feedback-eyes-missed",
@@ -1484,6 +2307,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/configuration + packages/core/src/app-config (2026-08-13)",
     re: /\b((another|a new|more|adding|stop adding|why (another|a new|an?))[^.!?]{0,40}\benv(ironment)? ?(vars?|variables?|keys?)|env(ironment)? ?(vars?|variables?) (should (only|just|not)|are (only|just)|only for)|shouldn'?t need (an? )?env|without (needing |requiring )?(an? )?env(ironment)? ?(var|variable|key)|no more env|too many env|why (is|does) this (an? )?env|hardcod\w+ (the )?(env|config)|second (way|namespace) to (set|configure))/i,
+  },
+  {
+    key: "ci-overspend",
+    label: "Told CI runs work a change cannot affect",
+    fixedBy:
+      ".agents/skills/adding-tests-and-ci + scripts/ci-change-scope.ts per-app outputs (2026-09-29)",
+    re: /\b(?:runs?|running|triggers?|fires?) on every (?:ci|pr|push|merge|commit|template|change)\b|\brunning so (?:often|frequently)\b|\bunnecessarily (?:running|runs?|triggered)\b|\b(?:ci|tests?|jobs?|lanes?|workflows?)\b[^.!?]{0,40}\b(?:absur\w*ly|way too|so|super) expensive\b|\bshould(?:n'?t| not) it (?:only )?(?:listen|run|trigger) (?:to|on|for)\b|\beats? up (?:our|the) (?:entire )?(?:quota|capacity|runners?)\b|\bwaiting for (?:a )?(?:runner|resources)\b/i,
   },
   {
     key: "admin-grant-hack",

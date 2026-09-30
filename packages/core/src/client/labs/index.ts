@@ -1,10 +1,4 @@
 export {
-  LabsSettings,
-  LabsSettingsGroup,
-  type LabsSettingsGroupProps,
-  type LabsSettingsProps,
-} from "./LabsSettings.js";
-export {
   useLab,
   useLabState,
   useLabs,

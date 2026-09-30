@@ -89,6 +89,27 @@ describe("rememberContentLandingDocument", () => {
     ).rejects.toThrow("state unavailable");
   });
 
+  it("records each page open where /home returns as well as in its space", async () => {
+    writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
+
+    await rememberContentLandingDocument(
+      { documentId: "doc-1", title: "Plan" },
+      "space-1",
+    );
+
+    expect(writeClientAppState).toHaveBeenCalledTimes(2);
+    for (const key of [
+      "content-last-location-v1",
+      "content-last-location-v2:space-1",
+    ]) {
+      expect(writeClientAppState).toHaveBeenCalledWith(
+        key,
+        { documentId: "doc-1", title: "Plan" },
+        { requestSource: "content-landing" },
+      );
+    }
+  });
+
   it("stores exact destinations separately for each Content space", async () => {
     writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
 

@@ -35,6 +35,11 @@ vi.mock("../server/lib/public-agent-context.js", () => ({
   getServerAppBasePath: () => "/clips",
 }));
 
+vi.mock("../server/lib/share-password.js", () => ({
+  getRecordingAccessTokenResourceId: (id: string, password: string | null) =>
+    password ? `${id}:password-scoped` : `${id}:update-scoped`,
+}));
+
 vi.mock("../shared/agent-context.js", () => ({
   buildAgentApiUrls: () => ({ contextUrl: "/clips/api/context" }),
   CLIP_AGENT_ACCESS_TOKEN_PREFIX: "clips",
@@ -51,6 +56,7 @@ const recording = (password: string | null) => ({
   archivedAt: null,
   trashedAt: null,
   password,
+  sharePasswordVersion: "initial",
 });
 
 beforeEach(() => {
@@ -93,7 +99,9 @@ describe("create-recording-agent-link", () => {
       await expect(
         action.run({ recordingId: "recording-1" }),
       ).resolves.toMatchObject({ contextUrl: "/clips/api/context" });
-      expect(mocks.createScopedAgentAccessGrant).toHaveBeenCalledOnce();
+      expect(mocks.createScopedAgentAccessGrant).toHaveBeenCalledWith(
+        expect.objectContaining({ resourceId: "recording-1:password-scoped" }),
+      );
     },
   );
 
@@ -106,6 +114,8 @@ describe("create-recording-agent-link", () => {
     await expect(
       action.run({ recordingId: "recording-1" }),
     ).resolves.toMatchObject({ contextUrl: "/clips/api/context" });
-    expect(mocks.createScopedAgentAccessGrant).toHaveBeenCalledOnce();
+    expect(mocks.createScopedAgentAccessGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "recording-1:update-scoped" }),
+    );
   });
 });

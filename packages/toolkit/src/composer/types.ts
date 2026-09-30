@@ -7,7 +7,7 @@ export interface FileResult {
 
 export interface SkillResult {
   name: string;
-  description: string;
+  description?: string;
   path: string;
   source: "codebase" | "resource";
 }

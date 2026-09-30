@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => ({
   insert: vi.fn(),
@@ -47,8 +47,13 @@ vi.mock("../server/lib/streaming-upload-mode.js", () => ({
 import createRecording from "./create-recording";
 
 describe("create-recording policy", () => {
-  it("saves the new recording's policy before initializing its upload", async () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
     calls.insert.mockResolvedValue(undefined);
+    calls.snapshot.mockResolvedValue(false);
+  });
+
+  it("saves the new recording's policy before initializing its upload", async () => {
     const action = createRecording as unknown as {
       run: (
         args: Record<string, unknown>,
@@ -67,7 +72,57 @@ describe("create-recording policy", () => {
       "rec-1",
     );
     expect(calls.snapshot.mock.invocationCallOrder[0]).toBeLessThan(
+      calls.insert.mock.invocationCallOrder[0]!,
+    );
+    expect(calls.snapshot.mock.invocationCallOrder[0]).toBeLessThan(
       calls.uploadProvider.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it.each(["policy read failed", "policy snapshot write failed"])(
+    "does not create an orphan recording when %s",
+    async (message) => {
+      const error = new Error(message);
+      calls.snapshot.mockRejectedValueOnce(error);
+      const action = createRecording as unknown as {
+        run: (
+          args: Record<string, unknown>,
+          context: { userEmail: string },
+        ) => Promise<unknown>;
+      };
+
+      await expect(
+        action.run(
+          { id: "rec-1", recordingPlatform: "web" },
+          { userEmail: "owner@example.com" },
+        ),
+      ).rejects.toBe(error);
+
+      expect(calls.insert).not.toHaveBeenCalled();
+      expect(calls.uploadProvider).not.toHaveBeenCalled();
+      expect(calls.writeState).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves an insert failure without publishing upload state", async () => {
+    const error = new Error("recording insert failed");
+    calls.insert.mockRejectedValueOnce(error);
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toBe(error);
+
+    expect(calls.snapshot).toHaveBeenCalledOnce();
+    expect(calls.uploadProvider).not.toHaveBeenCalled();
+    expect(calls.writeState).not.toHaveBeenCalled();
   });
 });

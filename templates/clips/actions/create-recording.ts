@@ -27,9 +27,9 @@ import {
   allowsSqlRecordingChunkScratch,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
-import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
 
 export function classifyInitialUploadFailure(error: unknown): {
   failureCode: RecordingFailureCode;
@@ -118,6 +118,8 @@ export default defineAction({
       folderId: args.folderId,
     });
 
+    await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
+
     await db.insert(schema.recordings).values({
       id,
       organizationId,
@@ -141,8 +143,6 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     });
-
-    await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     await writeAppState(`recording-upload-${id}`, {

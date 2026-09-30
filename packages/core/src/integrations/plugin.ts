@@ -834,14 +834,16 @@ export function createIntegrationsPlugin(
     const localActions = options?.actions ?? {};
     let callAgentEntry: Record<string, unknown> = {};
     try {
-      const mod = await import("../scripts/call-agent.js");
-      callAgentEntry = {
-        "call-agent": {
-          tool: mod.tool,
-          run: (args: Record<string, string>, context: unknown) =>
-            mod.run(args, context as any, options?.appId),
-        },
-      };
+      if (options?.callAgent !== false) {
+        const mod = await import("../scripts/call-agent.js");
+        callAgentEntry = {
+          "call-agent": {
+            tool: mod.tool,
+            run: (args: Record<string, string>, context: unknown) =>
+              mod.run(args, context as any, options?.appId),
+          },
+        };
+      }
     } catch {
       // call-agent script not available — skip
     }
@@ -850,7 +852,9 @@ export function createIntegrationsPlugin(
       ...localActions,
       ...callAgentEntry,
     } as typeof localActions;
-    const initialToolNames = Object.keys(localActions);
+    const initialToolNames = options?.initialToolNames
+      ? [...options.initialToolNames]
+      : Object.keys(localActions);
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;

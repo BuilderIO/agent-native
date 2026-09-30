@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   eventRulesStatusMock,
   eventRulesStatusOptionsMock,
-  flagState,
   googleStatusState,
   requestMeetingStartNotificationPermissionMock,
   settingsMock,
@@ -37,7 +36,6 @@ const {
   eventRulesStatusOptionsMock: {
     options: undefined as Record<string, unknown> | undefined,
   },
-  flagState: { enabled: false },
   googleStatusState: {
     data: { connected: false, accounts: [] as Array<{ email: string }> },
   } as Record<string, unknown>,
@@ -95,13 +93,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: () => null,
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlagState: () => ({
-    status: "ready",
-    enabled: flagState.enabled,
-  }),
-}));
-
 vi.mock("@agent-native/core/client/integrations", () => ({
   startWorkspaceProviderOAuth: vi.fn(),
 }));
@@ -111,7 +102,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => null,
   BuilderConnectPopover: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
@@ -137,7 +128,6 @@ vi.mock("@agent-native/core/client/settings", () => ({
     </div>
   ),
   SettingsTabsPage: (props: {
-    general?: React.ReactNode;
     generalGroups?: React.ReactNode;
     extraTabs?: Array<{
       id: string;
@@ -149,27 +139,8 @@ vi.mock("@agent-native/core/client/settings", () => ({
     notifications?: React.ReactNode;
   }) => {
     settingsTabsPageProps.current = props;
-    const [activeTab, setActiveTab] = React.useState("general");
-    // Mirrors the real page: today's tabs show `general` and the extra tabs,
-    // the redesigned shell shows the groups, each area, and the Notifications
+    // Mirrors the real shell: the groups, each area, and the Notifications
     // page.
-    if (!flagState.enabled) {
-      const extraTabs = props.extraTabs ?? [];
-      const active = extraTabs.find((tab) => tab.id === activeTab);
-      return (
-        <>
-          <nav>
-            <button onClick={() => setActiveTab("general")}>General</button>
-            {extraTabs.map((tab) => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}>
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-          <main>{active ? active.content : props.general}</main>
-        </>
-      );
-    }
     return (
       <main>
         <section data-page="app">{props.generalGroups}</section>
@@ -438,7 +409,6 @@ describe("Calendar Settings", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
-    flagState.enabled = false;
     for (const key of Object.keys(googleStatusState)) {
       delete googleStatusState[key];
     }
@@ -458,25 +428,7 @@ describe("Calendar Settings", () => {
     });
   }
 
-  it("keeps today's tabs unchanged with the redesign flag off", async () => {
-    await renderSettings();
-
-    const props = settingsTabsPageProps.current;
-    expect(props?.appAreas).toBeUndefined();
-    expect(props?.notifications).toBeUndefined();
-    expect(props).not.toHaveProperty("team");
-    expect(
-      (props?.extraTabs as Array<{ id: string; icon?: unknown }>).find(
-        (tab) => tab.id === "event-rules",
-      )?.icon,
-    ).toBeDefined();
-    expect(container.textContent).toContain("language-picker");
-    expect(container.querySelector("#google-calendar")).toBeNull();
-    expect(container.querySelector("#zoom")).not.toBeNull();
-  });
-
-  it("splits Settings into General, Calendars, Booking, Rules, and Notifications with the flag on", async () => {
-    flagState.enabled = true;
+  it("splits Settings into General, Calendars, Booking, Rules, and Notifications", async () => {
     await renderSettings();
 
     const props = settingsTabsPageProps.current;
@@ -524,7 +476,6 @@ describe("Calendar Settings", () => {
   });
 
   it("saves the week start as soon as it changes", async () => {
-    flagState.enabled = true;
     await renderSettings();
 
     const select =
@@ -542,7 +493,6 @@ describe("Calendar Settings", () => {
   });
 
   it("asks before disconnecting Zoom", async () => {
-    flagState.enabled = true;
     zoomStatusState.data = {
       accounts: [{ id: "zoom-1", email: "person@example.com" }],
       configured: true,
@@ -572,7 +522,6 @@ describe("Calendar Settings", () => {
   });
 
   it("shows a retry row when the Google status can't load", async () => {
-    flagState.enabled = true;
     const refetch = vi.fn();
     googleStatusState.data = undefined;
     googleStatusState.isError = true;
@@ -589,17 +538,15 @@ describe("Calendar Settings", () => {
     expect(refetch).toHaveBeenCalledOnce();
   });
 
-  it("links to availability from General settings", async () => {
+  it("links to availability from the Booking area", async () => {
     await renderSettings();
 
     const availabilityLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/booking-links?tab=availability"]',
+      '[data-area="booking"] a[href="/booking-links?tab=availability"]',
     );
 
     expect(availabilityLink).not.toBeNull();
-    expect(availabilityLink?.textContent).toContain(
-      "bookingLinks.availability",
-    );
+    expect(availabilityLink?.textContent).toContain("calendarSettings.manage");
   });
 
   it("renders the week-start setting in General settings", async () => {
@@ -610,15 +557,8 @@ describe("Calendar Settings", () => {
     expect(container.textContent).toContain("settings.weekStartMonday");
   });
 
-  async function openEventRulesTab() {
-    await act(async () => {
-      buttonNamed(container, "settings.eventRules")?.click();
-    });
-  }
-
   it("shows localized prompt help when the invitation rules help button is focused", async () => {
     await renderSettings();
-    await openEventRulesTab();
 
     const helpButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="settings.eventRulesHelpLabel"]',
@@ -635,7 +575,6 @@ describe("Calendar Settings", () => {
 
   it("separates invitation rules and recent activity into tabs", async () => {
     await renderSettings();
-    await openEventRulesTab();
 
     expect(container.textContent).toContain("settings.eventRulesTabRules");
     expect(container.textContent).toContain(
@@ -675,14 +614,7 @@ describe("Calendar Settings", () => {
   });
 
   it("links invitation rules to Automations for other actions", async () => {
-    await act(async () => {
-      root.render(<Settings />);
-    });
-    await act(async () => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent === "settings.eventRules")
-        ?.click();
-    });
+    await renderSettings();
 
     const automationLink = container.querySelector<HTMLAnchorElement>(
       'a[href="/settings/agent/automations"]',
@@ -699,7 +631,6 @@ describe("Calendar Settings", () => {
     };
 
     await renderSettings();
-    await openEventRulesTab();
 
     expect(container.textContent).toContain("settings.eventRulesConnectJev");
     expect(container.textContent).toContain(
@@ -737,7 +668,6 @@ describe("Calendar Settings", () => {
     };
 
     await renderSettings();
-    await openEventRulesTab();
 
     const clearButton = buttonNamed(container, "settings.eventRulesClearSaved");
     expect(clearButton).toBeDefined();
@@ -751,7 +681,6 @@ describe("Calendar Settings", () => {
 
   it("refreshes Jev status when the settings tab regains focus", async () => {
     await renderSettings();
-    await openEventRulesTab();
 
     expect(eventRulesStatusOptionsMock.options).toMatchObject({
       refetchOnWindowFocus: true,
@@ -763,7 +692,6 @@ describe("Calendar Settings", () => {
     eventRulesStatusMock.isError = true;
 
     await renderSettings();
-    await openEventRulesTab();
 
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "common.loadFailed",

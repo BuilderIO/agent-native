@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
-  isConnected: vi.fn(),
-  getConnectedAccountsWithErrors: vi.fn(),
-  ensureInboxFresh: vi.fn(),
+  listOAuthAccountsByOwner: vi.fn(),
+  listWorkspaceConnectionsForApp: vi.fn(),
+  resolveWorkspaceConnectionForApp: vi.fn(),
   readSettings: vi.fn(),
   readInboxThreads: vi.fn(),
   readCachedLabels: vi.fn(),
+  readSyncAccounts: vi.fn(),
+  readInboxPushGeneration: vi.fn(),
   getUserSetting: vi.fn(),
   readLocalEmails: vi.fn(),
 }));
@@ -21,17 +23,25 @@ vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: mocks.getUserSetting,
 }));
 
+vi.mock("@agent-native/core/oauth-tokens", () => ({
+  listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
+}));
+
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  listWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionForApp: mocks.resolveWorkspaceConnectionForApp,
+}));
+
+vi.mock("../server/lib/google-auth.js", () => {
+  throw new Error("list-inbox-threads must not load Gmail auth helpers");
+});
+
+vi.mock("../server/lib/inbox-sync.js", () => {
+  throw new Error("list-inbox-threads must not load inbox sync helpers");
+});
+
 vi.mock("../server/lib/local-email-store.js", () => ({
   readLocalEmails: mocks.readLocalEmails,
-}));
-
-vi.mock("../server/lib/google-auth.js", () => ({
-  isConnected: mocks.isConnected,
-  getConnectedAccountsWithErrors: mocks.getConnectedAccountsWithErrors,
-}));
-
-vi.mock("../server/lib/inbox-sync.js", () => ({
-  ensureInboxFresh: mocks.ensureInboxFresh,
 }));
 
 vi.mock("../server/lib/mail-settings.js", () => ({
@@ -41,6 +51,8 @@ vi.mock("../server/lib/mail-settings.js", () => ({
 vi.mock("../server/lib/inbox-store.js", () => ({
   readInboxThreads: mocks.readInboxThreads,
   readCachedLabels: mocks.readCachedLabels,
+  readSyncAccounts: mocks.readSyncAccounts,
+  readInboxPushGeneration: mocks.readInboxPushGeneration,
   inboxRowToItem: (row: any) => ({
     id: row.latestMessageId,
     threadId: row.threadId,
@@ -93,14 +105,30 @@ function row(overrides: Partial<any>): any {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
-  mocks.isConnected.mockResolvedValue(true);
-  mocks.getConnectedAccountsWithErrors.mockResolvedValue({
-    accounts: [OWNER],
-    errors: [],
-  });
-  mocks.ensureInboxFresh.mockResolvedValue([
-    { accountEmail: OWNER, state: "ready", lastSyncedAt: Date.now() },
+  mocks.listOAuthAccountsByOwner.mockResolvedValue([
+    {
+      accountId: OWNER,
+      tokens: { scope: "https://www.googleapis.com/auth/gmail.modify" },
+    },
   ]);
+  mocks.listWorkspaceConnectionsForApp.mockResolvedValue([]);
+  mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
+    available: false,
+    connection: null,
+  });
+  mocks.readSyncAccounts.mockResolvedValue([
+    {
+      accountEmail: OWNER,
+      status: "idle",
+      historyId: "100",
+      fullSyncPageToken: null,
+      lastPushGeneration: 0,
+      lastSyncedAt: Date.now(),
+      lastError: null,
+      labels: null,
+    },
+  ]);
+  mocks.readInboxPushGeneration.mockResolvedValue(0);
   mocks.readSettings.mockResolvedValue({
     combineInbox: false,
     pinnedLabels: undefined,
@@ -111,6 +139,7 @@ beforeEach(() => {
     labels: [],
     labelMapByAccount: new Map(),
   });
+  mocks.readInboxThreads.mockResolvedValue([]);
   mocks.readLocalEmails.mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue(undefined);
 });
@@ -226,10 +255,19 @@ describe("list-inbox-threads action", () => {
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(1);
   });
 
-  it("reports syncing when any selected account is still in its initial sync", async () => {
+  it("reports initial progress from SQL without making Gmail or token-refresh calls", async () => {
     mocks.readInboxThreads.mockResolvedValue([]);
-    mocks.ensureInboxFresh.mockResolvedValue([
-      { accountEmail: OWNER, state: "initial", lastSyncedAt: null },
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "idle",
+        historyId: null,
+        fullSyncPageToken: "next-page",
+        lastPushGeneration: 0,
+        lastSyncedAt: null,
+        lastError: null,
+        labels: null,
+      },
     ]);
 
     const result = await action.run(
@@ -238,6 +276,171 @@ describe("list-inbox-threads action", () => {
     );
 
     expect(result.syncing).toBe(true);
+    expect(result.accounts[0]).toMatchObject({
+      accountEmail: OWNER,
+      state: "initial",
+      backfillPending: true,
+    });
+    expect(mocks.readInboxThreads).toHaveBeenCalledWith(OWNER, {
+      accountEmails: [OWNER],
+    });
+    expect(mocks.readInboxPushGeneration).toHaveBeenCalledWith(OWNER, OWNER);
+  });
+
+  it("does not report foreground syncing solely for ready backfill while marking cached totals as lower bounds", async () => {
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: null,
+        fullSyncPhase: "reconcile",
+        lastPushGeneration: 4,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        labels: null,
+      },
+    ]);
+    mocks.readInboxThreads.mockResolvedValue([row({})]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.syncing).toBe(false);
+    expect(result.accounts[0]).toMatchObject({
+      state: "ready",
+      backfillPending: true,
+    });
+    expect(result.tabs.find((tab) => tab.id === "__inbox_all__")).toMatchObject(
+      { total: 1, totalIsLowerBound: true },
+    );
+  });
+
+  it("exposes a pending SQL push generation so the client can request incremental sync", async () => {
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: null,
+        lastPushGeneration: 1,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        labels: null,
+      },
+    ]);
+    mocks.readInboxPushGeneration.mockResolvedValue(2);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.syncing).toBe(true);
+    expect(result.accounts[0]).toMatchObject({
+      state: "ready",
+      pushPending: true,
+    });
+  });
+
+  it("uses provider inbox totals and local lower-bound counts for label tabs during backfill", async () => {
+    mocks.readSettings.mockResolvedValue({
+      combineInbox: false,
+      pinnedLabels: ["projects"],
+      savedFilters: [],
+      labelAliases: {},
+    });
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: "older-page",
+        lastPushGeneration: 0,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        labels: [
+          {
+            id: "INBOX",
+            name: "INBOX",
+            threadsTotal: 12,
+            threadsUnread: 3,
+          },
+          {
+            id: "Label_123",
+            name: "Projects",
+            threadsTotal: 7,
+            threadsUnread: 2,
+          },
+          {
+            id: "Label_456",
+            name: "Inbox",
+            threadsTotal: 90,
+            threadsUnread: 9,
+          },
+        ],
+      },
+    ]);
+    mocks.readCachedLabels.mockResolvedValue({
+      labels: [{ id: "projects", name: "Projects", type: "user" }],
+      labelMapByAccount: new Map([
+        [OWNER, new Map([["Label_123", "Projects"]])],
+      ]),
+    });
+    mocks.readInboxThreads.mockResolvedValue([
+      row({ threadId: "project-thread", labelIds: ["projects"] }),
+    ]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.tabs.find((tab) => tab.id === "__inbox_all__")).toMatchObject(
+      { total: 12, unread: 3, totalIsLowerBound: true },
+    );
+    expect(result.tabs.find((tab) => tab.id === "projects")).toMatchObject({
+      total: 1,
+      unread: 1,
+      totalIsLowerBound: true,
+    });
+  });
+
+  it("uses local inbox counts after backfill when cached labels remain stale after archive", async () => {
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: null,
+        lastPushGeneration: 0,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        labels: [
+          {
+            id: "INBOX",
+            name: "INBOX",
+            threadsTotal: 1,
+            threadsUnread: 1,
+          },
+        ],
+      },
+    ]);
+    mocks.readInboxThreads.mockResolvedValue([]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.tabs.find((tab) => tab.id === "__inbox_all__")).toMatchObject(
+      { total: 0, unread: 0 },
+    );
+    expect(
+      result.tabs.find((tab) => tab.id === "__inbox_all__")?.totalIsLowerBound,
+    ).toBeUndefined();
   });
 });
 
@@ -263,10 +466,8 @@ describe("list-inbox-threads action — local mode (no connected Google account)
   }
 
   beforeEach(() => {
-    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
-      accounts: [],
-      errors: [],
-    });
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    mocks.readSyncAccounts.mockResolvedValue([]);
   });
 
   it("never calls the synced-store path when no Google account is connected", async () => {
@@ -274,20 +475,33 @@ describe("list-inbox-threads action — local mode (no connected Google account)
 
     await action.run({ limit: 50, offset: 0 } as any, undefined as any);
 
-    expect(mocks.ensureInboxFresh).not.toHaveBeenCalled();
     expect(mocks.readInboxThreads).not.toHaveBeenCalled();
   });
 
-  it("does not switch to local mail when managed account lookup fails", async () => {
-    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
-      accounts: [],
-      errors: [{ email: "workspace", error: "workspace lookup unavailable" }],
-    });
+  it("ignores a stale sync row when no current OAuth or managed grant exists", async () => {
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: "disconnected@example.com",
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: null,
+        lastPushGeneration: 0,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        labels: null,
+      },
+    ]);
+    mocks.readLocalEmails.mockResolvedValue([localEmail()]);
 
-    await expect(
-      action.run({ limit: 50, offset: 0 } as any, undefined as any),
-    ).rejects.toThrow("workspace lookup unavailable");
-    expect(mocks.readLocalEmails).not.toHaveBeenCalled();
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(mocks.readInboxThreads).not.toHaveBeenCalled();
+    expect(mocks.readLocalEmails).toHaveBeenCalledWith(OWNER);
+    expect(result.accounts).toEqual([]);
+    expect(result.items).toHaveLength(1);
   });
 
   it("groups local messages into one thread item with unified counts and reports no accounts/syncing", async () => {
@@ -406,27 +620,64 @@ describe("list-inbox-threads action — local mode (no connected Google account)
 });
 
 describe("list-inbox-threads action — managed workspace grant (no per-user OAuth row)", () => {
-  it("uses the synced-store path, not local fallback, when connected accounts reports a managed grant", async () => {
-    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
-      accounts: ["managed@example.com"],
-      errors: [],
+  it("discovers a managed grant before its first sync row exists", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        accountId: "managed@example.com",
+        status: "connected",
+      },
     });
-    mocks.readInboxThreads.mockResolvedValue([
-      row({
-        threadId: "t1",
-        latestMessageId: "m1",
-        accountEmail: "managed@example.com",
-      }),
-    ]);
+    mocks.readSyncAccounts.mockResolvedValue([]);
 
     const result = await action.run(
       { limit: 50, offset: 0 } as any,
       undefined as any,
     );
 
-    expect(mocks.ensureInboxFresh).toHaveBeenCalled();
-    expect(mocks.readInboxThreads).toHaveBeenCalled();
+    expect(mocks.resolveWorkspaceConnectionForApp).toHaveBeenCalledWith({
+      appId: "mail",
+      provider: "gmail",
+      requireConnected: true,
+    });
+    expect(mocks.listWorkspaceConnectionsForApp).not.toHaveBeenCalled();
+    expect(mocks.readInboxThreads).toHaveBeenCalledWith(OWNER, {
+      accountEmails: ["managed@example.com"],
+    });
     expect(mocks.readLocalEmails).not.toHaveBeenCalled();
-    expect(result.items).toHaveLength(1);
+    expect(result.accounts).toMatchObject([
+      { accountEmail: "managed@example.com", state: "initial" },
+    ]);
+    expect(result.syncing).toBe(true);
+  });
+
+  it("exposes only the managed account selected by the sync resolver", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValue([
+      { accountId: "managed@example.com", status: "connected" },
+      { accountId: "other-managed@example.com", status: "connected" },
+    ]);
+    mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        accountId: "managed@example.com",
+        status: "connected",
+      },
+    });
+    mocks.readSyncAccounts.mockResolvedValue([]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(mocks.listWorkspaceConnectionsForApp).not.toHaveBeenCalled();
+    expect(mocks.readInboxThreads).toHaveBeenCalledWith(OWNER, {
+      accountEmails: ["managed@example.com"],
+    });
+    expect(result.accounts.map((account) => account.accountEmail)).toEqual([
+      "managed@example.com",
+    ]);
   });
 });

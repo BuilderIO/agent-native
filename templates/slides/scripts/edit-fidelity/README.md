@@ -15,6 +15,29 @@ Run the script from `templates/slides`:
 pnpm exec tsx scripts/edit-fidelity/run.ts [case-filter] [options]
 ```
 
+Run the focused selection-direction and chat caret regressions in Chromium,
+including typing while a synthetic slide text edit session is open:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+```
+
+The Slides chat E2E job in `ci.yml` runs this check for pull requests that
+change Slides, Core, or Toolkit files.
+
+Run the Chromium IME Escape regression in an in-place slide text session:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+```
+
+Run the synthetic Slides text-surface typing, composition, clipboard, undo/redo,
+and slide-switching round in Chromium:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+```
+
 By default the harness starts its own scratch dev server with this command,
 run from the repo root:
 
@@ -30,23 +53,26 @@ To reuse a server that is already running, set
 `SLIDES_BASE_URL=http://localhost:<port>`. The harness refuses any other host,
 because it creates and rewrites decks.
 
-| Option                         | Meaning                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `case-filter`                  | Substring of the corpus file name                                                          |
-| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                     |
-| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                         |
-| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept    |
-| `--accept-failing`             | With `--update`, also record `fail`/`no-edit` results as accepted ceilings (never `error`) |
-| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                       |
-| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                      |
-| `--slides 1,3`                 | 1-based slide numbers                                                                      |
-| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                               |
-| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                            |
-| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                     |
-| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                       |
-| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                            |
-| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                   |
-| `--headed`                     | Show the browser                                                                           |
+| Option                         | Meaning                                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `case-filter`                  | Substring of the corpus file name                                                                   |
+| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                              |
+| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                                  |
+| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept             |
+| `--accept-failing`             | With `--update`, also record `fail`/`no-edit` results as accepted ceilings (never `error`)          |
+| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                                |
+| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                               |
+| `--slides 1,3`                 | 1-based slide numbers                                                                               |
+| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                                        |
+| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                                     |
+| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                              |
+| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                                |
+| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                                     |
+| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                            |
+| `--headed`                     | Show the browser                                                                                    |
+| `--typing-chat`                | Check selection direction on edit entry and Agent chat typing with slide editing left open          |
+| `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                           |
+| `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic Chromium decks |
 
 Exit codes:
 
@@ -136,8 +162,9 @@ them per slide. For each target and scenario:
    stylesheet per slide font, so `fonts.ready` alone can resolve before the
    slide's font is requested. Scenarios never contaminate each other: a
    `pagehide` keepalive write from the previous page that carries other
-   content for this slide could land after the restore, so it errors the
-   scenario.
+   content for this slide could land after the restore. The harness retains
+   those request bodies, waits for the restored content to settle when one
+   could overwrite it, and errors if the fixture did not survive.
 2. **View.** Capture `view.png` and a style snapshot of the slide.
 3. **Enter edit.** Try click, then a second click, then double-click. The
    gesture that worked is recorded. A click must leave a caret within one

@@ -3,7 +3,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
-} from "../chat-first.js";
+} from "../chat-first-state.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
@@ -398,6 +398,32 @@ describe("createAgentNativeChatRuntime", () => {
           prompt: "Review the result in detail.",
         },
       ],
+    });
+  });
+
+  it("forwards pending-selection suppression to the agent request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([{ type: "text", text: "Done" }, { type: "done" }]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-selection",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({
+      prompt: "Use this selection once",
+      metadata: { agentNativeSkipPendingSelectionContext: true },
+    });
+    await drain(turn.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Use this selection once",
+      skipPendingSelectionContext: true,
     });
   });
 

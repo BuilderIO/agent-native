@@ -259,6 +259,168 @@ describe("document body intent merge", () => {
     });
   });
 
+  describe("a body that already holds the other body's changes", () => {
+    const merge = (args: {
+      base: string;
+      candidate: string;
+      current: string;
+    }) =>
+      mergeDocumentBodyIntents({
+        authoredBaseContent: args.base,
+        authoredCandidateContent: args.candidate,
+        currentContent: args.current,
+        currentRevision: 21,
+        incoming: {
+          writerId: "browser:a",
+          operationId: "a:40",
+          generation: 40,
+          authoredBaseRevision: 20,
+        },
+        priorIntents: [],
+      });
+
+    it.each([
+      [
+        "a peer's edit to a line",
+        "Seed one\nSeed two\nLine one",
+        "Seed one\nSeed two peer\nLine one",
+        "Seed one\nSeed two peer\nLine one\nLine two\nLine three",
+      ],
+      [
+        "a peer's new line",
+        "Seed one\nSeed two\nLine one",
+        "Seed one\nPeer line\nSeed two\nLine one",
+        "Seed one\nPeer line\nSeed two\nLine one\nLine two",
+      ],
+      [
+        "a partly typed line the other tab saved first",
+        "Seed one\n<empty-block/>",
+        "Seed one\nTab one li",
+        "Seed one\nTab one line seven.\n<empty-block/>",
+      ],
+      [
+        "an empty line the other tab saved before this tab typed into it",
+        "Seed one\nLine one.",
+        "Seed one\nLine one.\n<empty-block/>",
+        "Seed one\nLine one.\nLine two",
+      ],
+      [
+        "text it typed into the middle of",
+        "Seed one\nLine one",
+        "Seed one peer line\nLine one",
+        "Seed one peer new line\nLine one\nLine two",
+      ],
+      [
+        "a line ending in the same character as its new line",
+        "Seed one\nLine seven.\n<empty-block/>",
+        "Seed one\nLine seven.\nLine eight.",
+        "Seed one\nLine seven.\nLine eight.\nLine nine.",
+      ],
+    ])(
+      "writes a candidate that holds %s",
+      (_case, base, current, candidate) => {
+        expect(merge({ base, current, candidate })).toMatchObject({
+          status: "resolved",
+          content: candidate,
+          displaced: false,
+        });
+      },
+    );
+
+    it("writes a same-shape candidate that types on after the current body", () => {
+      expect(
+        merge({
+          base: "Seed one\nAlpha",
+          current: "Seed one\nAlpha be",
+          candidate: "Seed one\nAlpha beta",
+        }),
+      ).toEqual({
+        status: "resolved",
+        content: "Seed one\nAlpha beta",
+        changedBlockIndexes: [1],
+        displaced: false,
+      });
+    });
+
+    it("keeps the current body when it holds an older queued candidate", () => {
+      const current = "Seed one\nTab one line seven.\n<empty-block/>";
+      expect(
+        merge({
+          base: "Seed one\n<empty-block/>",
+          current,
+          candidate: "Seed one\nTab one li",
+        }),
+      ).toEqual({
+        status: "resolved",
+        content: current,
+        changedBlockIndexes: [],
+        displaced: false,
+      });
+    });
+
+    it.each([
+      [
+        "lacks a change that never reached the editor",
+        "Seed one\nSeed two\nLine one",
+        "Seed one agent\nSeed two\nLine one",
+        "Seed one\nSeed two\nLine one\nLine two",
+      ],
+      [
+        "keeps a line the current body removed",
+        "Seed one\nSeed two\nLine one",
+        "Seed one\nSeed two",
+        "Seed one\nSeed two\nLine one\nLine two",
+      ],
+      [
+        "reverses a move",
+        "Seed one\nSeed two\nLine one",
+        "Seed two\nSeed one\nLine one",
+        "Seed one\nSeed two\nLine one\nLine two",
+      ],
+      [
+        "rewrites text the current body added",
+        "Seed one\nSeed two\nLine one",
+        "Seed one peer\nSeed two\nLine one",
+        "Seed one pear\nSeed two\nLine one\nLine two",
+      ],
+      [
+        "has its own copy of a line elsewhere",
+        "Seed one\nLine one",
+        "Seed one\nPeer line\nLine one",
+        "Seed one\nLine one\nPeer line\nLine two",
+      ],
+      [
+        "drops a repeat the current body added",
+        "Seed one\nLine one",
+        "Seed one\nSeed one\nLine one",
+        "Seed one\nLine one\nLine two",
+      ],
+      [
+        "lacks literal empty-block text the current body added to code",
+        "```\nconst a = '';\n```\nLine one",
+        "```\nconst a = '<empty-block/>';\n```\nLine one",
+        "```\nconst a = '';\n```\nLine one\nLine two",
+      ],
+    ])("preserves a candidate that %s", (_case, base, current, candidate) => {
+      expect(merge({ base, current, candidate })).toEqual({
+        status: "preservation-required",
+        reason: "structure",
+      });
+    });
+
+    it("does not guess which repeated word each body changed", () => {
+      // The current body inserted "foo " and the candidate replaced "bar"
+      // with "foo". Either body alone reads as holding the other's change.
+      expect(
+        merge({
+          base: "foo bar",
+          current: "foo foo bar",
+          candidate: "foo foo",
+        }),
+      ).toMatchObject({ status: "preservation-required" });
+    });
+  });
+
   it("preserves uncertain duplicate block identity", () => {
     expect(
       mergeDocumentBodyIntents({

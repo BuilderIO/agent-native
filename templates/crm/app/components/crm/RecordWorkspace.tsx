@@ -1,10 +1,10 @@
 import { setClientAppState } from "@agent-native/core/client/application-state";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";

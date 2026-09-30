@@ -1,5 +1,40 @@
 # @agent-native/creative-context
 
+## 0.8.21
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.20
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.19
+
+### Patch Changes
+
+- d798d36: Stop running the creative-context due-job sweep and daily maintenance enqueue at serverless cold start. Production serverless runtimes now process queued imports and background jobs from the platform-scheduled recurring sweep, scan for daily maintenance hourly, and warn when no platform scheduler drives the sweep; local and long-running Node servers keep the in-process timers. The `@agent-native/core` peer range now requires `>=0.190.0`, the first release exporting every core API this package imports.
+- Release all public npm packages with a patch version bump.
+- 2f6f67d: Make Creative Context schema migrations safe to retry after partial application.
+
+## 0.8.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- d2ba564: Keep agents from repeating completed mutations, stale reads, disabled features, or oversized discovery searches, and let them summarize cleanly when a loop is stopped.
+- b8845eb: Scope ownable reads and writes to their authorized user, organization, or share.
+
+## 0.8.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- a20f0b4: `CreativeContextPanel` and `createCreativeContextAgentTab` accept `variant: "settings"`, which drops the panel's own title, description, and page padding when the redesigned Settings page already shows them.
+
 ## 0.8.16
 
 ### Patch Changes

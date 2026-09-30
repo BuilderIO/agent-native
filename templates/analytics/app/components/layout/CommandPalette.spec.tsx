@@ -10,7 +10,6 @@ import { isMacPlatform } from "@/lib/utils";
 
 const mocks = vi.hoisted(() => ({
   openSettingsPage: vi.fn(),
-  redesign: false,
 }));
 
 vi.mock("@agent-native/core/client/navigation", async (importOriginal) => ({
@@ -22,10 +21,8 @@ vi.mock("@agent-native/core/client/navigation", async (importOriginal) => ({
 vi.mock("@agent-native/core/client/changelog", () => ({
   ChangelogDialog: () => null,
 }));
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlagState: () => ({ enabled: mocks.redesign }),
-}));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: vi.fn(async () => []),
   useChangeVersions: () => 0,
 }));
@@ -33,7 +30,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     key === "settingsShortcut.command" ? "Settings" : key,
 }));
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
+  useOrg: () => ({ data: undefined, isLoading: false }),
   useOrgRole: () => ({
     canManageOrg: false,
     isOwner: false,
@@ -43,9 +42,6 @@ vi.mock("@agent-native/core/client/org", () => ({
 }));
 vi.mock("@/components/auth/AuthProvider", () => ({
   useAuth: () => ({ auth: null }),
-}));
-vi.mock("@/hooks/use-replay-storage-status", () => ({
-  useReplayStorageStatus: () => ({ data: undefined }),
 }));
 vi.mock("@/pages/adhoc/registry", () => ({ dashboards: [] }));
 vi.mock("next-themes", () => ({
@@ -95,23 +91,20 @@ describe("CommandPalette Settings command", () => {
     });
   }
 
-  for (const redesign of [false, true]) {
-    it(`lists Settings with its shortcut before any search (redesign ${redesign ? "on" : "off"})`, async () => {
-      mocks.redesign = redesign;
-      await openPalette();
+  it("lists Settings with its shortcut before any search", async () => {
+    await openPalette();
 
-      const settings = commandItems().find((item) =>
-        /^\s*Settings/.test(item.textContent ?? ""),
-      );
-      expect(settings).toBeDefined();
-      expect(settings?.textContent).toContain(
-        getSettingsShortcutHint(isMacPlatform()),
-      );
+    const settings = commandItems().find((item) =>
+      /^\s*Settings/.test(item.textContent ?? ""),
+    );
+    expect(settings).toBeDefined();
+    expect(settings?.textContent).toContain(
+      getSettingsShortcutHint(isMacPlatform()),
+    );
 
-      await act(async () => {
-        settings?.click();
-      });
-      expect(mocks.openSettingsPage).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      settings?.click();
     });
-  }
+    expect(mocks.openSettingsPage).toHaveBeenCalledTimes(1);
+  });
 });

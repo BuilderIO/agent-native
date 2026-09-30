@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrationen" } },
   templatesPage: {
     actions: "Vorlagenaktionen für {{title}}",
     previewAction: "Vorschau",
@@ -20,6 +21,9 @@ const messages = {
     slidePosition: "Folie {{current}} von {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["de-DE"],
+  common: {
+    loading: "Wird geladen...",
+  },
   root: {
     commandPresentations: "Präsentationen",
     searchDecks: "Decks suchen",
@@ -45,14 +49,10 @@ const messages = {
   settings: {
     agentObservability: "Agentenbeobachtbarkeit",
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
     labs: "Labs",
     labsIntro: "Teste experimentelle Funktionen vor ihrer Veröffentlichung.",
     labLayoutOverflowWarningDescription:
       "Die Layout-Überlaufwarnung im Editor anzeigen.",
-    emailNotifications: "E-Mail-Benachrichtigungen",
-    emailNotificationsDescription:
-      "Erhalte eine E-Mail, wenn jemand dein Deck kommentiert oder in einem Thread antwortet.",
     saveFailed: "Speichern fehlgeschlagen",
     notificationsEmail: "E-Mail",
     commentsAndReplies: "Kommentare und Antworten",
@@ -61,10 +61,6 @@ const messages = {
     retry: "Erneut versuchen",
     mcpAbout:
       "Verbinde Slides mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
@@ -179,6 +175,15 @@ const messages = {
     saveReconnect: "Änderungen werden nach Wiederverbindung gespeichert",
     saveFailedDescription:
       "Deine neuesten Änderungen sind nur auf diesem Gerät gespeichert. Lade vor dem Verlassen ein Backup herunter.",
+    slideConflictReview: "Prüfen",
+    slideConflictTitle: "Diese Folie wurde an anderer Stelle geändert",
+    slideConflictDescription:
+      "Eine andere Person hat eine neuere Version gespeichert. Wenn du deinen Entwurf behältst, wird der gespeicherte Folieninhalt ersetzt. Oder verwende die neueste Version.",
+    slideConflictUseLatest: "Neueste Version verwenden",
+    slideConflictKeepDraft: "Meinen Entwurf behalten",
+    slideConflictKeepEditing: "Weiter bearbeiten",
+    slideConflictResolutionFailed:
+      "Der Konflikt konnte nicht aufgelöst werden. Dein Entwurf ist weiterhin hier.",
     offline: "Offline",
     selected: "ausgewählt",
     chooseDesignSystem: "Designsystem auswählen",
@@ -252,6 +257,9 @@ const messages = {
     media: "Medien",
     generateImage: "Bild generieren",
     assetLibrary: "Asset-Bibliothek",
+    imageOptions: "Bildoptionen",
+    cropImage: "Bild zuschneiden",
+    cropHandle: "Bild {{position}} zuschneiden",
     diagrams: "Diagramme",
     insertMermaidDiagram: "Mermaid-Diagramm einfügen",
     insertMermaidFailed: "Diagramm konnte nicht eingefügt werden",
@@ -873,12 +881,14 @@ const messages = {
       networkFailed:
         "Der Import ist abgelaufen oder die Netzwerkverbindung wurde unterbrochen. Überprüfe deine Verbindung und versuche es erneut.",
       notStarted: "Melde dich bei Bedarf an und versuche den Import erneut.",
+      unsupportedFileType:
+        "Dieser Dateityp wird nicht unterstützt. Wähle eine unterstützte Datei aus.",
       uploadLimitExceeded:
         "Der Upload überschreitet ein zulässiges Limit. Verringere die Dateigröße oder wähle weniger Dateien aus und versuche es erneut.",
     },
     importDeck: "Präsentation importieren",
     context: {
-      websiteReference: "Website anhängen",
+      websiteReference: "Website hinzufügen",
       websiteUrlLabel: "Website-URL",
       websiteUrl: "Website-URL einfügen",
       figmaUrlLabel: "Figma-Link",
@@ -893,7 +903,7 @@ const messages = {
       searchPresentations: "Präsentationen suchen…",
       menu: {
         system: "Ein Designsystem verwenden",
-        figma: "Figma anhängen",
+        figma: "Figma hinzufügen",
         design: "Ein Design als Referenz verwenden",
         deck: "Eine Präsentation als Referenz verwenden",
         searchDesign: "Design durchsuchen…",
@@ -914,6 +924,8 @@ const messages = {
       notReady:
         "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
       emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
+      websiteReadFailed:
+        "Diese Website konnte nicht automatisch gelesen werden. Kopieren Sie stattdessen den relevanten Text und fügen Sie ihn ein.",
       figmaReadFailed:
         "Design konnte diese Figma-Referenz nicht lesen. Prüfe das gespeicherte Figma-Zugriffstoken in Design und ob das zugehörige Konto die Datei öffnen kann, und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
@@ -1072,6 +1084,12 @@ const messages = {
     createFirstDeck: "Erstelle dein erstes Deck",
     emptyDescription:
       "Erstelle schöne Präsentationen mit KI-gestützter Generierung.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
+    },
   },
 };
 

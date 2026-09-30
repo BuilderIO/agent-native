@@ -1,15 +1,14 @@
 import {
-  CORE_SETTINGS_PAGES,
-  createSettingsBridge,
-  getAgentSettingsSearchTabs,
-  isSettingsPageVisible,
-  type SettingsPageContext,
-  type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
-import {
   buildSettingsEntryRoute,
   buildSettingsRoute,
 } from "@agent-native/core/navigation";
+import {
+  CORE_SETTINGS_PAGES,
+  createSettingsBridge,
+  isSettingsPageVisible,
+  type SettingsPageContext,
+  type SettingsSearchEntry,
+} from "@agent-native/toolkit/app/settings";
 
 interface SettingsCommandItem {
   id: string;
@@ -20,7 +19,7 @@ interface SettingsCommandItem {
 
 type Translate = (key: string) => string;
 
-/** Analytics' own areas on its General page in the redesigned Settings. */
+/** Analytics' own areas on its General page in Settings. */
 export const ANALYTICS_SETTINGS_AREAS = {
   alerts: "alerts",
   dataSources: "data-sources",
@@ -28,49 +27,6 @@ export const ANALYTICS_SETTINGS_AREAS = {
 
 export const ALERTS_KEYWORDS =
   "alerts rules notifications thresholds triggers monitoring";
-
-export function buildAnalyticsGeneralSettingsSearchEntries(
-  t: Translate,
-  replayStorageConfigured: boolean,
-): SettingsSearchEntry[] {
-  return [
-    {
-      id: "analytics-account",
-      label: t("settings.account"),
-      keywords: "profile photo avatar email signed in identity",
-      tabId: "account",
-      hash: "account",
-    },
-    {
-      id: "analytics-credentials",
-      label: t("settings.credentials"),
-      keywords: "data sources api keys manage credentials",
-      hash: "credentials",
-    },
-    ...(replayStorageConfigured
-      ? [
-          {
-            id: "analytics-replay-storage",
-            label: t("sessions.storageSetupTitle"),
-            keywords: "session replay recording storage s3 bucket builder",
-            hash: "replay-storage",
-          },
-        ]
-      : []),
-    {
-      id: "analytics-language",
-      label: t("settings.languageTitle"),
-      keywords: "language locale translation i18n",
-      hash: "language",
-    },
-    {
-      id: "analytics-error-email-notifications",
-      label: t("settings.errorEmailNotifications"),
-      keywords: "email notifications errors alerts javascript monitoring",
-      hash: "error-email-notifications",
-    },
-  ];
-}
 
 /** Rows on the Data sources area (`/settings/app/data-sources`). */
 export function buildAnalyticsDataSourcesSearchEntries(
@@ -86,7 +42,7 @@ export function buildAnalyticsDataSourcesSearchEntries(
   ];
 }
 
-/** Rows on the redesigned Notifications page. */
+/** Rows on the Notifications page. */
 export function buildAnalyticsNotificationsSearchEntries(
   t: Translate,
 ): SettingsSearchEntry[] {
@@ -119,13 +75,6 @@ interface CommandTab {
   entryHref?: (entry: SettingsSearchEntry) => string;
 }
 
-export interface AnalyticsSettingsCommandOptions {
-  /** The `settings-redesign` flag: link to the redesigned pages. */
-  redesign?: boolean;
-  /** Who is viewing, for which redesigned pages they see. */
-  pageContext?: SettingsPageContext;
-}
-
 /** A viewer with no organization role: organization admin pages stay hidden. */
 const MEMBER_PAGE_CONTEXT: SettingsPageContext = {
   role: null,
@@ -139,21 +88,19 @@ const MEMBER_PAGE_CONTEXT: SettingsPageContext = {
 };
 
 /**
- * What `pages/Settings.tsx` hands the redesigned shell, as far as page
+ * What `pages/Settings.tsx` hands the Settings shell, as far as page
  * visibility reads it. What's new stays out: the palette opens it itself.
  */
 function analyticsSettingsBridge() {
   return createSettingsBridge({ notifications: true });
 }
 
+/** `pageContext` is who is viewing, for which Settings pages they see. */
 export function buildAnalyticsSettingsCommandItems(
   t: Translate,
-  generalEntries: SettingsSearchEntry[],
-  options: AnalyticsSettingsCommandOptions = {},
+  pageContext: SettingsPageContext = MEMBER_PAGE_CONTEXT,
 ): SettingsCommandItem[] {
-  const rows = options.redesign
-    ? redesignedCommandRows(t, options.pageContext ?? MEMBER_PAGE_CONTEXT)
-    : legacyCommandTabs(t, generalEntries).flatMap(tabCommandRows);
+  const rows = settingsCommandRows(t, pageContext);
   const commandIndexByDestination = new Map<string, number>();
   const commands: SettingsCommandItem[] = [];
 
@@ -198,28 +145,6 @@ function tabCommandRows(tab: CommandTab): SettingsCommandItem[] {
   ];
 }
 
-function legacyCommandTabs(
-  t: Translate,
-  generalEntries: SettingsSearchEntry[],
-): CommandTab[] {
-  return [
-    {
-      id: "general",
-      label: "General",
-      keywords: "settings preferences configuration",
-      searchEntries: generalEntries.filter(
-        (entry) => entry.id !== "analytics-language",
-      ),
-    },
-    {
-      id: "alerts",
-      label: t("settings.alertsTitle"),
-      keywords: ALERTS_KEYWORDS,
-    },
-    ...getAgentSettingsSearchTabs(),
-  ];
-}
-
 /** Analytics' own rows, right after the core page they live on. */
 function analyticsPageRows(
   t: Translate,
@@ -261,10 +186,10 @@ function analyticsPageRows(
 }
 
 /**
- * The redesigned Settings' own pages and search rows, under the labels its
- * nav shows, so the palette never names a page Settings no longer has.
+ * Settings' own pages and search rows, under the labels its nav shows, so the
+ * palette never names a page Settings no longer has.
  */
-function redesignedCommandRows(
+function settingsCommandRows(
   t: Translate,
   context: SettingsPageContext,
 ): SettingsCommandItem[] {

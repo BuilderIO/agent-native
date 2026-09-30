@@ -760,6 +760,50 @@ describe("A2AClient", () => {
     },
   );
 
+  it("reads a structured agent error code from failed task message metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-coded-failure",
+              status: {
+                state: "failed",
+                message: {
+                  role: "agent",
+                  parts: [
+                    {
+                      type: "text",
+                      text: "The provider connection is missing.",
+                    },
+                  ],
+                  metadata: { agentNativeErrorCode: "missing_credentials" },
+                },
+              },
+              history: [],
+              artifacts: [],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "read the provider data"),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTerminalError",
+      taskId: "task-coded-failure",
+      state: "failed",
+      errorCode: "missing_credentials",
+      responseText: "The provider connection is missing.",
+    });
+  });
+
   it("rejects completed tasks with neither text nor a verified artifact", async () => {
     vi.stubGlobal(
       "fetch",
@@ -1481,6 +1525,9 @@ describe("A2AClient", () => {
     await expect(
       callAgent("https://slides.agent.test", "make a deck", {
         timeoutMs: 3,
+        // A 3 ms budget shared with submission can expire before the task
+        // exists, which fails with a request deadline instead of the timeout.
+        submissionTimeoutMs: 1_000,
         pollIntervalMs: 1,
         returnRecoverableArtifactsOnTimeout: false,
       }),

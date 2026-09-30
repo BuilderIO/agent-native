@@ -299,3 +299,72 @@ describe("toggleSlideList review round 3", () => {
     expect(body.fontSize).toBe("20px");
   });
 });
+
+describe("toggleSlideList preserves split list ownership and numbering", () => {
+  it("keeps object geometry on the root wrapper when splitting a list", () => {
+    const root = document.createElement("ul");
+    root.id = "list-object";
+    root.setAttribute("data-slide-object-id", "object-a");
+    root.setAttribute(
+      "style",
+      "position:absolute;left:10px;top:20px;width:300px;height:120px;padding-left:24px;list-style-type:disc;",
+    );
+    root.innerHTML = "<li>First</li><li>Second</li><li>Third</li>";
+    document.body.replaceChildren(root);
+
+    const second = root.children[1] as HTMLElement;
+    const result = toggleSlideList(root, "bullet", [second])!;
+    const lists = Array.from(result.querySelectorAll<HTMLElement>("ul"));
+
+    expect(result.tagName).toBe("DIV");
+    expect(result.id).toBe("list-object");
+    expect(result.getAttribute("data-slide-object-id")).toBe("object-a");
+    expect([
+      result.style.position,
+      result.style.left,
+      result.style.width,
+    ]).toEqual(["absolute", "10px", "300px"]);
+    expect(
+      document.body.querySelectorAll('[data-slide-object-id="object-a"]'),
+    ).toHaveLength(1);
+    expect(lists).toHaveLength(2);
+    expect(
+      lists.every(
+        (list) =>
+          !list.id &&
+          !list.hasAttribute("data-slide-object-id") &&
+          !list.style.position &&
+          !list.style.left &&
+          !list.style.top &&
+          !list.style.width &&
+          !list.style.height,
+      ),
+    ).toBe(true);
+    expect(result.children[1]?.textContent).toBe("Second");
+    expect(result.hasAttribute("start")).toBe(false);
+  });
+
+  it("keeps each ordered fragment at its original ordinal", () => {
+    const root = document.createElement("ol");
+    root.setAttribute("start", "5");
+    root.innerHTML =
+      "<li>First</li><li value=12>Override</li><li>Selected</li><li>Last</li>";
+    document.body.replaceChildren(root);
+
+    const selected = root.children[2] as HTMLElement;
+    const result = toggleSlideList(root, "bullet", [selected])!;
+    const lists = Array.from(result.querySelectorAll<HTMLOListElement>("ol"));
+
+    expect(lists.map((list) => list.getAttribute("start"))).toEqual([
+      "5",
+      "14",
+    ]);
+    expect(lists.map((list) => list.textContent)).toEqual([
+      "FirstOverride",
+      "Last",
+    ]);
+    expect(lists[0].querySelector("li[value='12']")?.textContent).toBe(
+      "Override",
+    );
+  });
+});

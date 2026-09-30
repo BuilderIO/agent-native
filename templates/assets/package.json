@@ -17,6 +17,7 @@
     "@agent-native/core": "workspace:*",
     "@agent-native/creative-context": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@electric-sql/pglite": "^0.5.8",
     "@fontsource-variable/inter": "^5.2.8",
     "@google/genai": "^1.52.0",
     "@tabler/icons-react": "catalog:",

@@ -62,6 +62,17 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
+  it("checks that a recording exists before verifying a scoped share token", () => {
+    const route = readRoute("share.$shareId.tsx");
+    const missingRecordGuard = route.indexOf(
+      "if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);",
+    );
+    const tokenVerification = route.indexOf("const tokenGrantsAgentAccess =");
+
+    expect(missingRecordGuard).toBeGreaterThanOrEqual(0);
+    expect(tokenVerification).toBeGreaterThan(missingRecordGuard);
+  });
+
   it("renders signed-in share viewers in the app shell with breadcrumbs", () => {
     const route = readRoute("share.$shareId.tsx");
     const root = readFileSync(resolve(process.cwd(), "app/root.tsx"), "utf8");
@@ -215,8 +226,8 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain(
       "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
     );
-    expect(route).toContain(
-      "recording.enableComments &&\n                    viewerCanUseFullscreenInteractions",
+    expect(route).toMatch(
+      /recording\.enableComments &&\s+viewerCanUseFullscreenInteractions/,
     );
     expect(route).toContain("recording.enableReactions &&");
     expect(route).toContain("viewerCanUseFullscreenInteractions");
@@ -235,6 +246,9 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("pendingAccountActionRef");
     expect(route).toContain("disabled={Boolean(session) && !viewerCanComment}");
     expect(route).toContain("onReact={reactToRecording}");
+    expect(route).toMatch(
+      /portalContainer={\s*isPlayerFullscreen \? playerRef\.current\?\.container : undefined\s*}/,
+    );
   });
 
   it("keeps public comments in flow and consolidates recording insights", () => {
@@ -327,12 +341,18 @@ describe("authenticated recording route loading", () => {
       "if (recording && !recording.enableComments) {",
     );
     expect(effectStart).toBeGreaterThan(-1);
-    const effect = shareRoute.slice(effectStart, effectStart + 700);
+    // Window widened when the screenshot fallback was added to this branch.
+    const effect = shareRoute.slice(effectStart, effectStart + 900);
     expect(effect).toContain('if (panelParam === "comments") {');
     expect(effect).toContain("selectCommentsPanel();");
 
     expect(effect).toContain(
-      'setPanel((current) => (current === "comments" ? "transcript" : current));',
+      'setPanel((current) => (current === "comments" ? fallback : current));',
+    );
+    // ...and a screenshot has no transcript tab either, so its fallback is
+    // the agent rather than a tab that is never rendered for it.
+    expect(effect).toContain(
+      'const fallback = isImageRecording(recording) ? "agent" : "transcript";',
     );
   });
 

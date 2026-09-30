@@ -1,9 +1,9 @@
-import { openAgentSettings } from "@agent-native/core/client/command-navigation";
 import {
   actionErrorMessage,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { openAgentSettings } from "@agent-native/toolkit/app/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import { IconChevronDown, IconUpload } from "@tabler/icons-react";
 import { useId, useRef, useState } from "react";
@@ -108,7 +108,9 @@ export function HomeImportButton() {
                   aria-label={t("home.import")}
                 >
                   <IconUpload />
-                  {t("home.import")}
+                  <span className="design-home-import-label">
+                    {t("home.import")}
+                  </span>
                   <IconChevronDown />
                 </Button>
               </DropdownMenuTrigger>

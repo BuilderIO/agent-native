@@ -1,10 +1,10 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
   useEagerFileUploads,
-} from "@agent-native/core/client/composer";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   IconArrowLeft,
   IconBrandGoogle,
@@ -35,6 +35,7 @@ import {
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
+  isPromptUploadUnsupportedFileTypeError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -165,6 +166,7 @@ interface PromptPopoverProps {
     attachments: PromptAttachmentActions,
     options?: SlidesPromptSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
   loading?: boolean;
   disabled?: boolean;
   submissionDisabled?: boolean;
@@ -204,6 +206,7 @@ export default function PromptPopover({
   title,
   placeholder = "Describe what you want...",
   onSubmit,
+  onBeforeSubmit,
   loading = false,
   disabled = false,
   submissionDisabled = false,
@@ -410,11 +413,13 @@ export default function PromptPopover({
                   ? t("home.importMenu.notStarted")
                   : isPromptUploadLimitError(error)
                     ? t("home.importMenu.uploadLimitExceeded")
-                    : isPromptUploadStorageStatusError(error)
-                      ? t("editorToolbar.importFailedDescription")
-                      : error instanceof Error
-                        ? error.message
-                        : t("raw.uploadAttachedFailed"),
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
           ),
         });
       });
@@ -541,11 +546,13 @@ export default function PromptPopover({
                   ? t("home.importMenu.notStarted")
                   : isPromptUploadLimitError(error)
                     ? t("home.importMenu.uploadLimitExceeded")
-                    : isPromptUploadStorageStatusError(error)
-                      ? t("editorToolbar.importFailedDescription")
-                      : error instanceof Error
-                        ? error.message
-                        : t("raw.uploadAttachedFailed"),
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
           ),
         });
         throw error;
@@ -780,8 +787,10 @@ export default function PromptPopover({
                   submitting ||
                   Boolean(importMode)
                 }
+                submitting={submitting}
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
+                onBeforeSubmit={onBeforeSubmit}
                 onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}

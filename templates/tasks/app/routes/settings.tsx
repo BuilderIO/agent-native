@@ -1,13 +1,9 @@
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import {
-  SettingsGroup,
-  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
-import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+} from "@agent-native/toolkit/app/settings";
 
 import { APP_TITLE } from "@/lib/app-config";
 
@@ -20,37 +16,14 @@ export function meta() {
 export default function SettingsRoute() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs({ extensionTools: true });
-  // The redesigned Settings has no app rows here: core Preferences owns the
-  // interface language.
-  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key).enabled;
   useSetPageTitle(t("header.pageSettings"));
 
+  // Settings has no app rows here: core Preferences owns the interface
+  // language.
   return (
     <SettingsTabsPage
       extraTabs={agentSettingsTabs}
       whatsNewMarkdown={changelog}
-      general={
-        redesign ? undefined : (
-          <div className="mx-auto w-full max-w-2xl space-y-6">
-            <p className="text-sm leading-6 text-muted-foreground">
-              {t("header.pageSettings")}
-            </p>
-
-            <SettingsGroup>
-              <SettingsRow
-                id="language"
-                label={t("settings.languageTitle")}
-                description={t("settings.languageDescription")}
-                control={
-                  <div className="w-56">
-                    <LanguagePicker label={t("settings.languageLabel")} />
-                  </div>
-                }
-              />
-            </SettingsGroup>
-          </div>
-        )
-      }
     />
   );
 }

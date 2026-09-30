@@ -70,6 +70,7 @@ export const getPublicAvailability = defineEventHandler(
     const slug = typeof query.slug === "string" ? query.slug : "";
     const username = typeof query.username === "string" ? query.username : "";
     if (slug) {
+      // guard:allow-unscoped — the booking slug is the public capability URL used to resolve availability owner settings.
       const link = await getDb()
         .select({ ownerEmail: schema.bookingLinks.ownerEmail })
         .from(schema.bookingLinks)

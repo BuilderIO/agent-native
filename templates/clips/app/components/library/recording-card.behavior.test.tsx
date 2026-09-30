@@ -80,10 +80,6 @@ vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
 }));
 
-vi.mock("@/hooks/use-auto-title", () => ({
-  isDefaultTitle: () => false,
-}));
-
 vi.mock("@/lib/capture-install-options", () => ({
   attemptOpenDesktopApp: vi.fn(),
 }));
@@ -115,6 +111,7 @@ const recording: RecordingSummary = {
   id: "recording-1",
   title: "Test recording",
   description: "",
+  kind: "video",
   thumbnailUrl: null,
   animatedThumbnailUrl: null,
   durationMs: 1_000,
@@ -326,6 +323,65 @@ describe("RecordingCard behavior", () => {
     expect(hasRecordingBackup).not.toHaveBeenCalled();
   });
 
+  it("shows a failed policy check instead of treating it as Off", async () => {
+    vi.mocked(useLabState).mockReturnValue({
+      isSuccess: true,
+      source: "choice",
+      enabled: false,
+    } as ReturnType<typeof useLabState>);
+    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+    vi.mocked(getRecordingUploadRecoveryEnabled).mockRejectedValueOnce(
+      new Error("Stored recording recovery policy is unreadable"),
+    );
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            status: "failed",
+            failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          }}
+          onRetry={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "clipsFinalRaw.retryCheckFailed",
+    );
+    expect(container.textContent).not.toContain(
+      "clipsFinalRaw.retryUnavailableHere",
+    );
+    expect(container.querySelector("button")?.textContent).not.toBe(
+      "clipsFinalRaw.retry",
+    );
+  });
+
+  it("keeps screenshot cards free of playback duration", () => {
+    act(() => {
+      root.render(
+        <RecordingCard recording={{ ...recording, kind: "image" }} />,
+      );
+    });
+
+    expect(container.textContent).not.toContain("0:01");
+  });
+
+  it("localizes the shared default recording title", () => {
+    act(() => {
+      root.render(
+        <RecordingCard
+          recording={{ ...recording, title: "Untitled recording" }}
+        />,
+      );
+    });
+
+    expect(container.querySelector("a")?.getAttribute("aria-label")).toBe(
+      "editableTitle.untitled",
+    );
+  });
+
   it("keeps checkboxes visible while recordings are being selected", () => {
     act(() => {
       root.render(
@@ -343,6 +399,32 @@ describe("RecordingCard behavior", () => {
 
     expect(checkbox?.className).toContain("sm:opacity-100");
     expect(checkbox?.className).not.toContain("sm:opacity-0");
+  });
+
+  it("keeps the static thumbnail when the pointer enters a card", () => {
+    const thumbnailUrl = "/api/thumbnail/recording-1";
+
+    act(() => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            thumbnailUrl,
+            animatedThumbnailUrl: "/api/thumbnail/recording-1?animated=1",
+          }}
+        />,
+      );
+    });
+
+    const card = container.querySelector<HTMLElement>('[role="article"]');
+    const thumbnail = card?.querySelector<HTMLImageElement>("img");
+    expect(thumbnail?.getAttribute("src")).toBe(thumbnailUrl);
+
+    act(() => {
+      card?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+
+    expect(thumbnail?.getAttribute("src")).toBe(thumbnailUrl);
   });
 
   it("defers trash until the dropdown menu has closed", async () => {

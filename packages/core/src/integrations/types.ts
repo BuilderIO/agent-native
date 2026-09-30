@@ -238,6 +238,19 @@ export function assertPlatformCapability(
 
 export interface IntegrationsPluginOptions {
   appId?: string;
+  /**
+   * Register `call-agent` for messaging turns. Default `true`. Set `false`
+   * when the deployment has no A2A peer: `call-agent` is in
+   * `DEFAULT_INITIAL_TOOL_NAMES`, so it is on every first request whatever
+   * `initialToolNames` says, and each call would answer 401.
+   */
+  callAgent?: boolean;
+  /**
+   * Tools whose schemas go on a messaging turn's first request. Default: every
+   * action in `actions`. Everything else stays registered and reachable through
+   * `tool-search`, as with agent-chat's `initialToolNames`.
+   */
+  initialToolNames?: readonly string[];
   adapters?: PlatformAdapter[];
   adapterOverrides?: PlatformAdapter[];
   systemPrompt?: string;

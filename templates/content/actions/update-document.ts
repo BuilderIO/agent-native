@@ -69,6 +69,7 @@ import {
   favoritesSystemIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import {
   documentContentHash,
@@ -841,6 +842,12 @@ export default defineAction({
 
     const titleChanged =
       args.title !== undefined && args.title !== existing.title;
+    const titleOrganizationIds =
+      titleChanged && requestUserEmail
+        ? (await listContentOrganizationMemberships(requestUserEmail)).map(
+            (membership) => membership.orgId,
+          )
+        : [];
     const contentChanged =
       content !== undefined && content !== existing.content;
     const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
@@ -1065,8 +1072,11 @@ export default defineAction({
             operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
           });
           if (prior) {
+            // The base alone can differ on a resend: the editor rebases an
+            // unsent save onto its own confirmed saves, while the page's
+            // draft journal replays it from the base it first recorded. The
+            // same authored body is the same delivery.
             if (
-              prior.authoredBaseRevision !== authoredBase.revision ||
               prior.candidateHash !==
                 documentContentHash(authoredCandidateContent) ||
               prior.metadataHash !== authoredMetadataHash
@@ -1133,7 +1143,7 @@ export default defineAction({
           content = resolved.content;
         }
         const lockedTitleChanged =
-          args.title !== undefined && args.title !== historyBefore.title;
+          titleChanged && args.title !== historyBefore.title;
         const lockedContentChanged =
           content !== undefined && content !== historyBefore.content;
         const lockedDescriptionChanged =
@@ -1269,6 +1279,7 @@ export default defineAction({
             documentId: id,
             title: args.title,
             updatedAt,
+            organizationIds: titleOrganizationIds,
           });
         }
         if (lockedTitleChanged || lockedContentChanged) {

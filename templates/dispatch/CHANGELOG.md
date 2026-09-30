@@ -3,6 +3,39 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-29
+
+### Improved
+
+- Clean up Dispatch chat chrome and keep homepage prompts in chat
+
+### Fixed
+
+- New workspaces can open Dispatch pages without a server rendering error.
+- Apps and app launchers only show apps installed in this workspace
+
+## 2026-09-28
+
+### Improved
+
+- Dispatch admin pages now use a consistent settings layout.
+
+### Fixed
+
+- Desktop sign-in now carries over to Mail and other eligible apps.
+
+## 2026-09-27
+
+### Improved
+
+- Workspace connection changes now show clear confirmations in chat.
+
+## 2026-09-25
+
+### Improved
+
+- Dispatch settings now live on Dispatch › General (Chat-first workspace, Resources, and Connect apps), and Members keeps the Dispatch access column.
+
 ## 2026-09-23
 
 ### Fixed

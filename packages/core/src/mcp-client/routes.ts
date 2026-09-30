@@ -34,21 +34,19 @@ import {
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { shouldDisableInProcessSweeps } from "../server/sweep-runtime.js";
-import { getAllSettings, getSettingsEmitter } from "../settings/store.js";
+import { getOrgSetting } from "../settings/org-settings.js";
+import { getUserSetting } from "../settings/user-settings.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
   getBuiltinMcpCapability,
   isBuiltinMcpCapabilityAvailable,
   listSupportedBuiltinMcpCapabilities,
-  normalizeBuiltinMcpCapabilityIds,
   toBuiltinMcpServerConfig,
   type BuiltinMcpCapability,
   type BuiltinMcpCapabilityId,
 } from "./builtin-capabilities.js";
 import {
-  builtinMcpCapabilitiesSettingsKey,
   listEnabledBuiltinMcpCapabilities,
   setBuiltinMcpCapabilityEnabled,
   setEnabledBuiltinMcpCapabilities,
@@ -64,6 +62,12 @@ import {
   type McpTool,
 } from "./manager.js";
 import { mountMcpOAuthRoutes } from "./oauth-routes.js";
+import {
+  normalizeMcpPrincipal,
+  resolveMcpPrincipalForEvent,
+  type McpRequestPrincipal,
+  type McpPrincipal,
+} from "./principal.js";
 import {
   addRemoteServer,
   listRemoteServers,
@@ -213,71 +217,74 @@ export function builtinMergedConfigKey(
 }
 
 /**
- * Build the merged MCP config the manager should run with: file/env config
- * plus **every** user-scope and org-scope remote server persisted in the
- * settings store. Scanning all scopes means a mutation from one user's
- * session never drops another user's servers from the running manager.
- *
- * Each persisted server's merged key includes its owner discriminator
- * (`user_<emailhash>_<name>` or `org_<orgId>_<name>`) so two users' servers
- * with the same name coexist; the request-time gate in
- * `isMcpToolAllowedForRequest` then scopes tool visibility back down to the
- * calling user.
+ * Build only the configuration visible to this authenticated principal.
  */
-export async function buildMergedConfig(): Promise<McpConfig | null> {
+export async function buildMergedConfig(
+  rawPrincipal: McpPrincipal,
+): Promise<McpConfig | null> {
+  const principal = normalizeMcpPrincipal(rawPrincipal);
+  if (!principal) throw new Error("Authenticated MCP principal required");
   const base = loadMcpConfig() ?? autoDetectMcpConfig();
   const servers: Record<string, McpServerConfig> = { ...(base?.servers ?? {}) };
-
-  const all = await getAllSettings().catch((err: unknown) => {
-    console.warn(
-      `[mcp-client] settings read failed: ${(err as any)?.message ?? err}`,
-    );
+  const includeBuiltins = areBuiltinMcpCapabilitiesSupported();
+  let userSetting: Record<string, unknown> | null;
+  let orgSetting: Record<string, unknown> | null = null;
+  let userBuiltinIds: BuiltinMcpCapabilityId[] = [];
+  let orgBuiltinIds: BuiltinMcpCapabilityId[] = [];
+  try {
+    [userSetting, orgSetting, userBuiltinIds, orgBuiltinIds] =
+      await Promise.all([
+        getUserSetting(principal.userEmail, "mcp-servers-remote"),
+        principal.orgId
+          ? getOrgSetting(principal.orgId, "mcp-servers-remote")
+          : Promise.resolve(null),
+        includeBuiltins
+          ? listEnabledBuiltinMcpCapabilities("user", principal.userEmail)
+          : Promise.resolve([]),
+        includeBuiltins && principal.orgId
+          ? listEnabledBuiltinMcpCapabilities("org", principal.orgId)
+          : Promise.resolve([]),
+      ]);
+  } catch (err) {
     throw new McpConfigUnreadableError(err);
-  });
-  for (const [fullKey, value] of Object.entries(all)) {
-    const userMatch = /^u:([^:]+):mcp-servers-remote$/.exec(fullKey);
-    const orgMatch = /^o:([^:]+):mcp-servers-remote$/.exec(fullKey);
-    let scope: RemoteMcpScope | null = null;
-    let ownerId: string | null = null;
-    if (userMatch) {
-      scope = "user";
-      ownerId = userMatch[1];
-    } else if (orgMatch) {
-      scope = "org";
-      ownerId = orgMatch[1];
-    }
-    if (!scope || !ownerId) continue;
-    const list = (value as { servers?: StoredRemoteMcpServer[] }).servers;
+  }
+  const scopedSettings: Array<{
+    scope: RemoteMcpScope;
+    ownerId: string;
+    value: Record<string, unknown> | null;
+  }> = [
+    { scope: "user", ownerId: principal.userEmail, value: userSetting },
+    ...(principal.orgId
+      ? [{ scope: "org" as const, ownerId: principal.orgId, value: orgSetting }]
+      : []),
+  ];
+  for (const { scope, ownerId, value } of scopedSettings) {
+    const list = (value as { servers?: StoredRemoteMcpServer[] } | null)
+      ?.servers;
     if (!Array.isArray(list)) continue;
     for (const stored of list) {
       if (!stored || typeof stored.url !== "string" || !stored.name) continue;
-      // Async resolve: decrypts `headerSecretKey` from app_secrets so the
-      // running MCP client gets the cleartext bearer at request time.
-      // Stored row contains only the secret-key reference, never the value.
       servers[mergedConfigKey(scope, stored, ownerId)] =
         await toHttpServerConfigAsync(scope, ownerId, stored);
     }
   }
-  if (areBuiltinMcpCapabilitiesSupported()) {
-    for (const [fullKey, value] of Object.entries(all)) {
-      const settingsKey = builtinMcpCapabilitiesSettingsKey();
-      const userMatch = new RegExp(`^u:([^:]+):${settingsKey}$`).exec(fullKey);
-      const orgMatch = new RegExp(`^o:([^:]+):${settingsKey}$`).exec(fullKey);
-      let scope: RemoteMcpScope | null = null;
-      let ownerId: string | null = null;
-      if (userMatch) {
-        scope = "user";
-        ownerId = userMatch[1];
-      } else if (orgMatch) {
-        scope = "org";
-        ownerId = orgMatch[1];
-      }
-      if (!scope || !ownerId) continue;
-      const enabledIds = normalizeBuiltinMcpCapabilityIds(
-        Array.isArray((value as any).enabledIds)
-          ? (value as any).enabledIds.map(String)
-          : [],
-      );
+  if (includeBuiltins) {
+    for (const { scope, ownerId, enabledIds } of [
+      {
+        scope: "user" as const,
+        ownerId: principal.userEmail,
+        enabledIds: userBuiltinIds,
+      },
+      ...(principal.orgId
+        ? [
+            {
+              scope: "org" as const,
+              ownerId: principal.orgId,
+              enabledIds: orgBuiltinIds,
+            },
+          ]
+        : []),
+    ]) {
       for (const id of enabledIds) {
         const capability = getBuiltinMcpCapability(id);
         if (!capability || !isBuiltinMcpCapabilityAvailable(capability)) {
@@ -289,15 +296,12 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
     }
   }
 
-  try {
-    const workspaceServers = await loadWorkspaceMcpServers();
-    for (const [mergedKey, cfg] of Object.entries(workspaceServers)) {
-      servers[mergedKey] = cfg;
-    }
-  } catch (err: any) {
-    console.warn(
-      `[mcp-client] workspace MCP resource merge failed: ${err?.message ?? err}. Continuing with local config.`,
-    );
+  const workspaceServers = await loadWorkspaceMcpServers({
+    userEmail: principal.userEmail,
+    orgId: principal.orgId,
+  });
+  for (const [mergedKey, cfg] of Object.entries(workspaceServers)) {
+    servers[mergedKey] = cfg;
   }
 
   // Hub-consume: if this app is configured to consume from a remote hub
@@ -305,7 +309,9 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
   // org-scope servers and merge. Hub entries use `hub_<orgId>_<name>` so
   // they never collide with local `org_<orgId>_<name>` rows.
   try {
-    const hubServers = await fetchHubServers();
+    const hubServers = principal.orgId
+      ? await fetchHubServers(principal.orgId)
+      : {};
     for (const [mergedKey, cfg] of Object.entries(hubServers)) {
       servers[mergedKey] = cfg;
     }
@@ -319,79 +325,20 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
   return { servers, source: base?.source ?? "merged" };
 }
 
-function sortedConfigSignature(config: McpConfig | null): string {
-  const entries = Object.entries(config?.servers ?? {}).sort(([a], [b]) =>
-    a.localeCompare(b),
-  );
-  return JSON.stringify(entries);
-}
-
-const MCP_CONFIG_REFRESH_BACKSTOP_MS = 5 * 60 * 1000;
-
-function mcpConfigRefreshIntervalMs(): number {
-  const raw = process.env.AGENT_NATIVE_MCP_CONFIG_REFRESH_MS;
-  if (raw?.trim() === "0") return 0;
-  const parsed = raw ? Number(raw) : NaN;
-  if (Number.isFinite(parsed) && parsed >= 5_000) return parsed;
-  return 60_000;
-}
-
-export function startMcpConfigRefresh(
-  manager: McpClientManager,
-): (() => void) | null {
-  const intervalMs = mcpConfigRefreshIntervalMs();
-  if (intervalMs <= 0 || typeof setInterval !== "function") return null;
-  if (shouldDisableInProcessSweeps()) return null;
-
-  let currentSignature = sortedConfigSignature(manager.getConfig());
-  let refreshing = false;
-  let settingsDirty = true;
-  let lastFullRefresh = 0;
-  const markDirty = () => {
-    settingsDirty = true;
-  };
-  getSettingsEmitter().on("settings", markDirty);
-  const refresh = async () => {
-    if (refreshing) return;
-    if (
-      !settingsDirty &&
-      Date.now() - lastFullRefresh < MCP_CONFIG_REFRESH_BACKSTOP_MS
-    ) {
-      return;
-    }
-    refreshing = true;
-    try {
-      const next = await buildMergedConfig();
-      const nextSignature = sortedConfigSignature(next);
-      if (nextSignature !== currentSignature) {
-        await manager.reconfigure(next);
-        currentSignature = nextSignature;
-      }
-      settingsDirty = false;
-      lastFullRefresh = Date.now();
-    } catch (err: any) {
-      settingsDirty = true;
-      console.warn(
-        `[mcp-client] config refresh failed: ${err?.message ?? err}`,
-      );
-    } finally {
-      refreshing = false;
-    }
-  };
-
-  const timer = setInterval(refresh, intervalMs);
-  (timer as { unref?: () => void }).unref?.();
-  return () => {
-    clearInterval(timer);
-    getSettingsEmitter().off("settings", markDirty);
-  };
-}
-
 async function resolveContextForRequest(event: H3Event): Promise<{
   email: string | null;
   orgId: string | null;
   role: string | null;
 }> {
+  const cached = (event.context as { __mcpPrincipal?: McpRequestPrincipal })
+    .__mcpPrincipal;
+  if (cached) {
+    return {
+      email: cached.userEmail,
+      orgId: cached.orgId,
+      role: cached.role,
+    };
+  }
   let email: string | null = null;
   try {
     const { getSession } = await import("../server/auth.js");
@@ -416,16 +363,25 @@ async function resolveContextForRequest(event: H3Event): Promise<{
   return { email, orgId, role };
 }
 
-async function reconfigureManager(manager: McpClientManager): Promise<void> {
-  const merged = await buildMergedConfig();
+async function reconfigureManager(
+  manager: McpClientManager,
+  principal: McpPrincipal,
+): Promise<void> {
+  const merged = await buildMergedConfig(principal);
   await manager.reconfigure(merged);
 }
 
 export function mountMcpServersRoutes(
   nitroApp: any,
-  manager: McpClientManager,
+  manager: McpClientManager | null,
   options: {
     waitUntilReady?: () => Promise<void>;
+    resolveManager?: (principal: McpPrincipal) => Promise<McpClientManager>;
+    invalidateScope?: (
+      scope: RemoteMcpScope,
+      scopeId: string,
+      keep: McpClientManager,
+    ) => Promise<void>;
   } = {},
 ): void {
   const mountedApps: WeakSet<object> = ((
@@ -435,18 +391,43 @@ export function mountMcpServersRoutes(
   mountedApps.add(nitroApp);
 
   mountMcpOAuthRoutes(nitroApp, {
-    reconfigure: async ({ scope, scopeId, server }) => {
+    reconfigure: async ({ scope, scopeId, server, principal }) => {
+      const scopedManager = options.resolveManager
+        ? await options.resolveManager(principal)
+        : manager;
+      if (!scopedManager) return false;
       await options.waitUntilReady?.();
-      await reconfigureManager(manager);
-      return manager.hasServer(mergedConfigKey(scope, server, scopeId));
+      await options.invalidateScope?.(scope, scopeId, scopedManager);
+      await reconfigureManager(scopedManager, principal);
+      return scopedManager.hasServer(mergedConfigKey(scope, server, scopeId));
     },
   });
+
+  const authenticate = async (
+    event: H3Event,
+  ): Promise<McpRequestPrincipal | null> => {
+    setResponseHeader(event, "Cache-Control", "private, no-store");
+    const principal = await resolveMcpPrincipalForEvent(event);
+    if (!principal) {
+      setResponseStatus(event, 401);
+      return null;
+    }
+    (event.context as { __mcpPrincipal?: McpRequestPrincipal }).__mcpPrincipal =
+      principal;
+    return principal;
+  };
+  const resolveManager = async (
+    principal: McpRequestPrincipal,
+  ): Promise<McpClientManager | null> => {
+    await options.waitUntilReady?.();
+    if (options.resolveManager) return options.resolveManager(principal);
+    return manager;
+  };
 
   try {
     getH3App(nitroApp).use(
       "/_agent-native/mcp/servers",
       defineEventHandler(async (event: H3Event) => {
-        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -463,13 +444,28 @@ export function mountMcpServersRoutes(
           return handleRuntimeConfig(event);
         }
 
+        const principal = await authenticate(event);
+        if (!principal) return { error: "Authentication required" };
+
         if (method === "POST" && parts.length === 1 && parts[0] === "test") {
           return handleTestUrl(event);
         }
 
+        const scopedManager = await resolveManager(principal);
+        if (!scopedManager) {
+          setResponseStatus(event, 503);
+          return { error: "MCP client is not configured" };
+        }
+
         if (parts.length === 0) {
-          if (method === "GET") return handleList(event, manager);
-          if (method === "POST") return handleAdd(event, manager);
+          if (method === "GET") return handleList(event, scopedManager);
+          if (method === "POST")
+            return handleAdd(
+              event,
+              scopedManager,
+              principal,
+              options.invalidateScope,
+            );
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
@@ -477,17 +473,23 @@ export function mountMcpServersRoutes(
         if (parts.length === 1 || parts.length === 2) {
           const id = parts[0];
           if (parts.length === 2 && parts[1] === "test" && method === "POST") {
-            return handleTestExisting(event, manager, id);
+            return handleTestExisting(event, scopedManager, id);
           }
           if (
             parts.length === 2 &&
             parts[1] === "reconnect" &&
             method === "POST"
           ) {
-            return handleReconnectExisting(event, manager, id);
+            return handleReconnectExisting(event, scopedManager, id, principal);
           }
           if (parts.length === 1 && method === "DELETE") {
-            return handleDelete(event, manager, id);
+            return handleDelete(
+              event,
+              scopedManager,
+              id,
+              principal,
+              options.invalidateScope,
+            );
           }
         }
 
@@ -498,7 +500,6 @@ export function mountMcpServersRoutes(
     getH3App(nitroApp).use(
       "/_agent-native/mcp/builtin",
       defineEventHandler(async (event: H3Event) => {
-        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -506,9 +507,22 @@ export function mountMcpServersRoutes(
         const parts = pathname ? pathname.split("/") : [];
 
         setResponseHeader(event, "Content-Type", "application/json");
+        const principal = await authenticate(event);
+        if (!principal) return { error: "Authentication required" };
+        const scopedManager = await resolveManager(principal);
+        if (!scopedManager) {
+          setResponseStatus(event, 503);
+          return { error: "MCP client is not configured" };
+        }
         if (parts.length === 0) {
-          if (method === "GET") return handleBuiltinList(event, manager);
-          if (method === "POST") return handleBuiltinUpdate(event, manager);
+          if (method === "GET") return handleBuiltinList(event, scopedManager);
+          if (method === "POST")
+            return handleBuiltinUpdate(
+              event,
+              scopedManager,
+              principal,
+              options.invalidateScope,
+            );
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
@@ -520,7 +534,6 @@ export function mountMcpServersRoutes(
     getH3App(nitroApp).use(
       "/_agent-native/mcp/apps",
       defineEventHandler(async (event: H3Event) => {
-        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -533,14 +546,22 @@ export function mountMcpServersRoutes(
           return { error: "Method not allowed" };
         }
 
+        const principal = await authenticate(event);
+        if (!principal) return { error: "Authentication required" };
+        const scopedManager = await resolveManager(principal);
+        if (!scopedManager) {
+          setResponseStatus(event, 503);
+          return { error: "MCP client is not configured" };
+        }
+
         if (parts.length === 1 && parts[0] === "call-tool") {
-          return handleMcpAppCallTool(event, manager);
+          return handleMcpAppCallTool(event, scopedManager);
         }
         if (parts.length === 1 && parts[0] === "list-tools") {
-          return handleMcpAppListTools(event, manager);
+          return handleMcpAppListTools(event, scopedManager);
         }
         if (parts.length === 1 && parts[0] === "read-resource") {
-          return handleMcpAppReadResource(event, manager);
+          return handleMcpAppReadResource(event, scopedManager);
         }
 
         setResponseStatus(event, 404);
@@ -803,7 +824,16 @@ async function handleBuiltinList(
   };
 }
 
-async function handleBuiltinUpdate(event: H3Event, manager: McpClientManager) {
+async function handleBuiltinUpdate(
+  event: H3Event,
+  manager: McpClientManager,
+  principal: McpPrincipal,
+  invalidateScope?: (
+    scope: RemoteMcpScope,
+    scopeId: string,
+    keep: McpClientManager,
+  ) => Promise<void>,
+) {
   if (!areBuiltinMcpCapabilitiesSupported()) {
     setResponseStatus(event, 400);
     return {
@@ -889,7 +919,8 @@ async function handleBuiltinUpdate(event: H3Event, manager: McpClientManager) {
     return { error: "Provide enabledIds or id + enabled" };
   }
 
-  await reconfigureManager(manager);
+  await invalidateScope?.(scope, scopeId, manager);
+  await reconfigureManager(manager, principal);
   return handleBuiltinList(event, manager);
 }
 
@@ -947,7 +978,16 @@ function handleRuntimeConfig(event: H3Event): { error: string } {
   };
 }
 
-async function handleAdd(event: H3Event, manager: McpClientManager) {
+async function handleAdd(
+  event: H3Event,
+  manager: McpClientManager,
+  principal: McpPrincipal,
+  invalidateScope?: (
+    scope: RemoteMcpScope,
+    scopeId: string,
+    keep: McpClientManager,
+  ) => Promise<void>,
+) {
   const body = (await readBody(event).catch(() => ({}))) as {
     scope?: unknown;
     name?: unknown;
@@ -1005,7 +1045,8 @@ async function handleAdd(event: H3Event, manager: McpClientManager) {
     return { error: result.error };
   }
 
-  await reconfigureManager(manager);
+  await invalidateScope?.(scope, scopeId, manager);
+  await reconfigureManager(manager, principal);
   const mergedId = mergedConfigKey(scope, result.server, scopeId);
   return {
     ok: true,
@@ -1022,6 +1063,12 @@ async function handleDelete(
   event: H3Event,
   manager: McpClientManager,
   id: string,
+  principal: McpPrincipal,
+  invalidateScope?: (
+    scope: RemoteMcpScope,
+    scopeId: string,
+    keep: McpClientManager,
+  ) => Promise<void>,
 ) {
   const scope = getQuery(event).scope;
   const parsedScope =
@@ -1058,7 +1105,8 @@ async function handleDelete(
     setResponseStatus(event, 404);
     return { error: "Server not found" };
   }
-  await reconfigureManager(manager);
+  await invalidateScope?.(parsedScope, scopeId, manager);
+  await reconfigureManager(manager, principal);
   return { ok: true };
 }
 
@@ -1125,6 +1173,7 @@ async function handleReconnectExisting(
   event: H3Event,
   manager: McpClientManager,
   id: string,
+  principal: McpPrincipal,
 ) {
   const scope = getQuery(event).scope;
   const parsedScope =
@@ -1153,7 +1202,7 @@ async function handleReconnectExisting(
     return { error: "Server not found" };
   }
 
-  await reconfigureManager(manager);
+  await reconfigureManager(manager, principal);
   const mergedId = mergedConfigKey(parsedScope, server, scopeId);
   const status = reconnectStatusForClient(manager, mergedId);
   const projected = projectForClient(server, parsedScope, scopeId, status);

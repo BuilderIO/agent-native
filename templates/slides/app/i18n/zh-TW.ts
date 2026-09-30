@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "整合" } },
   templatesPage: {
     actions: "{{title}} 的範本操作",
     previewAction: "預覽",
@@ -19,6 +20,9 @@ const messages = {
     slidePosition: "第 {{current}} 頁，共 {{total}} 頁",
   },
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
+  common: {
+    loading: "載入中...",
+  },
   root: {
     commandPresentations: "簡報",
     searchDecks: "搜尋幻燈片",
@@ -44,13 +48,9 @@ const messages = {
   settings: {
     agentObservability: "代理可觀測性",
     title: "設定",
-    description: "此應用的語言和工作區偏好設定。",
     labs: "實驗室",
     labsIntro: "在正式發布前預覽實驗性功能。",
     labLayoutOverflowWarningDescription: "在編輯器中顯示版面溢位警告。",
-    emailNotifications: "郵件通知",
-    emailNotificationsDescription:
-      "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
     saveFailed: "儲存失敗",
     notificationsEmail: "電子郵件",
     commentsAndReplies: "留言和回覆",
@@ -58,9 +58,6 @@ const messages = {
     retry: "重試",
     mcpAbout:
       "將 Slides 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Slides 中工作：建立簡報、新增投影片並匯出為 PowerPoint。它只能看到你有權看到的內容。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     workspaceTitle: "工作區",
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
@@ -168,6 +165,14 @@ const messages = {
     saveReconnect: "重新連線時會儲存變更",
     saveFailedDescription:
       "你最近的編輯內容僅儲存在此裝置上。離開前請下載備份。",
+    slideConflictReview: "檢視",
+    slideConflictTitle: "此投影片已在其他位置變更",
+    slideConflictDescription:
+      "其他編輯者已儲存較新的版本。保留草稿會取代已儲存的投影片內容，也可以使用最新版本。",
+    slideConflictUseLatest: "使用最新版本",
+    slideConflictKeepDraft: "保留我的草稿",
+    slideConflictKeepEditing: "繼續編輯",
+    slideConflictResolutionFailed: "無法解決衝突。你的草稿仍保留在此。",
     offline: "離線",
     selected: "已選取",
     chooseDesignSystem: "選取設計系統",
@@ -237,6 +242,9 @@ const messages = {
     media: "媒體",
     generateImage: "產生圖片",
     assetLibrary: "素材庫",
+    imageOptions: "圖片選項",
+    cropImage: "裁切圖片",
+    cropHandle: "裁切圖片{{position}}",
     diagrams: "圖表",
     insertMermaidDiagram: "插入 Mermaid 圖表",
     insertMermaidFailed: "插入圖表失敗",
@@ -822,12 +830,13 @@ const messages = {
       invalidFile: "請選擇 PDF 或 PPTX 檔案。",
       networkFailed: "匯入要求逾時或網路連線中斷。請檢查網路連線後再試一次。",
       notStarted: "完成必要的登入後，請重試匯入。",
+      unsupportedFileType: "不支援此檔案類型。請選擇支援的檔案。",
       uploadLimitExceeded:
         "上傳內容超出允許的限制。請縮小檔案或減少檔案數量後重試。",
     },
     importDeck: "匯入簡報",
     context: {
-      websiteReference: "附加網站",
+      websiteReference: "新增網站",
       websiteUrlLabel: "網站 URL",
       websiteUrl: "貼上網站 URL",
       figmaUrlLabel: "Figma 連結",
@@ -840,7 +849,7 @@ const messages = {
       searchPresentations: "搜尋簡報…",
       menu: {
         system: "使用設計系統",
-        figma: "附加 Figma",
+        figma: "新增 Figma",
         design: "參考設計",
         deck: "參考簡報",
         searchDesign: "搜尋設計…",
@@ -860,6 +869,7 @@ const messages = {
       figma: "Figma 畫框",
       notReady: "參考內容仍在載入或無法使用。請重試或移除後再傳送。",
       emptySource: "此來源未傳回可用的參考內容。",
+      websiteReadFailed: "無法自動讀取此網站。請改為複製並貼上相關文字。",
       figmaReadFailed:
         "Design 無法讀取此 Figma 參考內容。請檢查 Design 中儲存的 Figma 存取權杖，以及連結帳戶是否能開啟該檔案，然後再試一次。",
       tooMany: "最多選取 20 項參考資料。",
@@ -1009,6 +1019,11 @@ const messages = {
     emptyTitle: "還沒有簡報",
     createFirstDeck: "建立你的第一份簡報",
     emptyDescription: "使用 AI 產生精美簡報。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "無法確認 AI 是否已就緒。",
+    },
   },
 };
 

@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
+import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { SLIDES_LAYOUT_OVERFLOW_WARNING } from "@shared/labs";
@@ -125,6 +126,9 @@ import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
+import ImageCropOverlay, {
+  writeImageCropPercentGeometry,
+} from "./ImageCropOverlay";
 import ImageOverlay from "./ImageOverlay";
 import {
   startInPlaceTextSession,
@@ -680,6 +684,9 @@ function stripBuilderIds(html: string): string {
  * zero-width spaces would also delete an author's own.
  */
 function prepareSerializationRoot(root: ParentNode): void {
+  root.querySelectorAll("[data-slide-crop-overlay]").forEach((overlay) => {
+    overlay.remove();
+  });
   for (const child of Array.from(root.children)) {
     stripTransientSlideLayoutSpacers(child);
   }
@@ -1340,15 +1347,20 @@ function ElementSelectionOutline({
           <>
             <span
               aria-hidden="true"
-              className="absolute left-1/2 h-4 w-px -translate-x-1/2 bg-primary"
+              className="absolute left-1/2 h-4 w-px -translate-x-1/2 bg-[var(--design-editor-accent-color)]"
               style={{ top: -18, pointerEvents: "none", zIndex: 2 }}
             />
             <span
               data-slide-rotate-handle="true"
               onPointerDown={onRotateStart}
-              className="absolute left-1/2 top-[-26px] size-4 -translate-x-1/2 touch-none rounded-full border-2 border-primary bg-background"
+              className="absolute left-1/2 top-[-26px] size-4 -translate-x-1/2 touch-none rounded-full"
               style={{ pointerEvents: "auto", cursor: "grab", zIndex: 3 }}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0.5 rounded-full border-2 border-foreground bg-[var(--design-editor-accent-color)]"
+              />
+            </span>
           </>
         )}
         <span
@@ -1588,6 +1600,20 @@ function syncOverflowToAppState(
   }
 }
 
+type ActiveImageCrop = {
+  slideId: string;
+  content: string;
+  frame: HTMLElement;
+  viewport: HTMLElement;
+  image: HTMLImageElement;
+  frozen: { restoreMarkdownTree?: () => void };
+  publishSelection: (element: HTMLElement) => void;
+  restorePreviewStyles: () => void;
+  restoreChrome: () => void;
+  hasChanges: () => boolean;
+  cancel: () => HTMLElement | null;
+};
+
 export default function SlideEditor({
   slide,
   onUpdateSlide,
@@ -1648,6 +1674,23 @@ export default function SlideEditor({
     objectPosition: ImageObjectPosition;
     imageOccurrence: number;
   } | null>(null);
+  const [imageCrop, setImageCrop] = useState<ActiveImageCrop | null>(null);
+  const imageCropRef = useRef<ActiveImageCrop | null>(null);
+  const lastImageClickRef = useRef<{
+    image: HTMLImageElement;
+    timestamp: number;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
+  const pendingImageDoubleClickRef = useRef<{
+    image: HTMLImageElement;
+    pointerId: number;
+    timestamp: number;
+    clientX: number;
+    clientY: number;
+    isDoubleClick: boolean;
+  } | null>(null);
+  const selectedImageForCropRef = useRef<HTMLImageElement | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionViewportRect, setSelectionViewportRect] =
@@ -2118,7 +2161,10 @@ export default function SlideEditor({
   }, [onUpdateSlide]);
   const textSessionRef = useRef<TextEditSession | null>(null);
   const exitInlineEditRef = useRef<
-    (newer?: SlideContentReplaceDetail) => string | undefined
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit?: boolean,
+    ) => string | undefined
   >(() => undefined);
   /**
    * Every other content write commits an open text edit first. The write
@@ -2189,6 +2235,7 @@ export default function SlideEditor({
       // into; the only writes that reach here are explicit conversions of the
       // slide to HTML (a text box, a freeform move), which store the DOM.
       if (slideContent.hasAttribute("data-slide-autofit-root")) {
+        prepareSerializationRoot(clone);
         return stripBuilderIds(clone.innerHTML);
       }
       console.error(
@@ -2214,6 +2261,108 @@ export default function SlideEditor({
   useEffect(() => {
     readCurrentSlideContentHtmlRef.current = readCurrentSlideContentHtml;
   }, [readCurrentSlideContentHtml]);
+
+  const finishImageCrop = useCallback((commit: boolean, changed?: boolean) => {
+    const crop = imageCropRef.current;
+    if (!crop) return;
+    const cropChanged = changed ?? crop.hasChanges();
+    crop.restorePreviewStyles();
+    imageCropRef.current = null;
+    setImageCrop(null);
+    if (commit && cropChanged) {
+      crop.restoreChrome();
+      writeImageCropPercentGeometry(crop.image, crop.viewport);
+      preserveSlideObjectLayoutSpacer(crop.frame);
+      const html = readCurrentSlideContentHtmlRef.current();
+      if (html !== null) {
+        if (crop.frozen.restoreMarkdownTree) {
+          const objectId = crop.frame.getAttribute("data-slide-object-id");
+          if (objectId) {
+            const owner = crop.frame.parentElement ?? crop.frame.ownerDocument;
+            owner
+              .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+              .forEach((spacer) => {
+                if (
+                  spacer.getAttribute("data-slide-layout-spacer-for") ===
+                  objectId
+                ) {
+                  spacer.remove();
+                }
+              });
+          }
+          crop.frozen.restoreMarkdownTree();
+        }
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          persistence: "immediate",
+        });
+      } else {
+        crop.cancel();
+      }
+      return;
+    }
+    const restored = crop.cancel();
+    if (commit && restored) {
+      const image =
+        restored.tagName === "IMG"
+          ? (restored as HTMLImageElement)
+          : restored.querySelector<HTMLImageElement>("img");
+      if (image) setSelectedImg(image);
+      if (image) crop.publishSelection(restored);
+      setImageOverlay(null);
+      return;
+    }
+    setSelectedImg(null);
+    setImageOverlay(null);
+    syncSelectionToAppState(null);
+  }, []);
+
+  useEffect(() => {
+    const onCropKeyDown = (event: KeyboardEvent) => {
+      const crop = imageCropRef.current;
+      if (!crop || event.key === "Escape") return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-crop-handle]") &&
+        ["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp"].includes(event.key)
+      ) {
+        return;
+      }
+      if (event.key === "Tab") {
+        const handles = Array.from(
+          crop.frame.querySelectorAll<HTMLButtonElement>("[data-crop-handle]"),
+        );
+        if (handles.length === 0) return;
+        const currentIndex = handles.indexOf(
+          document.activeElement as HTMLButtonElement,
+        );
+        const nextIndex =
+          currentIndex < 0
+            ? event.shiftKey
+              ? handles.length - 1
+              : 0
+            : (currentIndex + (event.shiftKey ? -1 : 1) + handles.length) %
+              handles.length;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        handles[nextIndex]?.focus();
+        return;
+      }
+      if (
+        event.key === "Enter" ||
+        event.key === " " ||
+        event.key === "Spacebar"
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        finishImageCrop(true);
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    window.addEventListener("keydown", onCropKeyDown, true);
+    return () => window.removeEventListener("keydown", onCropKeyDown, true);
+  }, [finishImageCrop]);
 
   const persistInlineEditDraft = useCallback(
     (slideId: string, content: string) => {
@@ -2717,7 +2866,10 @@ export default function SlideEditor({
 
   /** Exit edit mode, saving changed content without changing its layout. */
   const exitInlineEdit = useCallback(
-    (newer?: SlideContentReplaceDetail): string | undefined => {
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit = false,
+    ): string | undefined => {
       const el = editingElRef.current;
       if (!el) return;
 
@@ -2760,11 +2912,15 @@ export default function SlideEditor({
         selectedObjectIds: resolveSelectedElement() ? ["selected"] : [],
       });
       setEditingEl(null);
-      if (escape.action === "select-object" && selectionTarget && selector) {
-        selectElementForStyling(selectionTarget, selector);
-      } else if (escape.action === "clear-selection") {
+      if (clearSelectionAfterExit || escape.action === "clear-selection") {
         clearSelectedElement();
         syncSelectionToAppState(null);
+      } else if (
+        escape.action === "select-object" &&
+        selectionTarget &&
+        selector
+      ) {
+        selectElementForStyling(selectionTarget, selector);
       } else {
         syncSelectionToAppState(null);
       }
@@ -3250,7 +3406,17 @@ export default function SlideEditor({
     if (!selectedImg) return;
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest(".image-overlay-menu")) return;
+      if (
+        target.closest(".image-overlay-menu") ||
+        target.closest("[data-slide-selection-chrome]")
+      ) {
+        return;
+      }
+      if (imageCropRef.current) {
+        if (imageCropRef.current.frame.contains(target)) return;
+        finishImageCrop(true);
+        return;
+      }
       if (target.tagName === "IMG" && containerRef.current?.contains(target))
         return;
       setSelectedImg(null);
@@ -3259,14 +3425,27 @@ export default function SlideEditor({
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [selectedImg]);
+  }, [finishImageCrop, selectedImg]);
 
   // Clear selection when slide changes
   useEffect(() => {
+    if (imageCropRef.current) finishImageCrop(false);
     setSelectedImg(null);
     setImageOverlay(null);
     syncSelectionToAppState(buildSelectionState("canvas", []));
-  }, [buildSelectionState, slide.id]);
+  }, [buildSelectionState, finishImageCrop, slide.id]);
+
+  useEffect(() => {
+    const crop = imageCropRef.current;
+    if (
+      crop &&
+      (crop.slideId !== slide.id ||
+        crop.content !== slide.content ||
+        !crop.frame.isConnected)
+    ) {
+      finishImageCrop(false);
+    }
+  }, [finishImageCrop, slide.content, slide.id]);
 
   // Content reconciliation can replace the DOM node behind an open overlay.
   useEffect(() => {
@@ -3641,7 +3820,14 @@ export default function SlideEditor({
   // state. Gesture cancellation is deliberately ahead of selection clearing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key !== "Escape") return;
+      if (imageCropRef.current) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        finishImageCrop(true);
+        return;
+      }
       const target = e.target instanceof Element ? e.target : null;
       const editing = editingElRef.current;
       const overlayOwnsEscape = Boolean(
@@ -3673,7 +3859,7 @@ export default function SlideEditor({
       e.preventDefault();
       e.stopImmediatePropagation();
       if (action === "edit") {
-        exitInlineEdit();
+        exitInlineEdit(undefined, true);
       } else if (action === "gesture") {
         activeGestureCancelRef.current?.();
       } else if (action === "mode") {
@@ -3695,6 +3881,7 @@ export default function SlideEditor({
     clearSelectedElement,
     drawMode,
     exitInlineEdit,
+    finishImageCrop,
     multiSelection.size,
     onExitDrawMode,
     onExitPinMode,
@@ -4499,6 +4686,58 @@ export default function SlideEditor({
     },
     [getRichTextEditorSurface, selectedElementSelector],
   );
+
+  const enableSelectedObjectPositioning = useCallback(() => {
+    const slideContent = getSlideContent();
+    const element =
+      resolveSelectedElement() ??
+      (selectedImg && slideContent
+        ? (findPersistedImageObject(selectedImg, slideContent) ?? selectedImg)
+        : selectedImg);
+    if (!element || isPersistedFreeformObject(element)) return;
+
+    const frozen = freezeElementForFreeformSelection(element);
+    if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+      frozen?.restoreDescendants?.();
+      frozen?.restoreMarkdownTree?.();
+      return;
+    }
+
+    preserveSlideObjectLayoutSpacer(element);
+    const positioningLayer = resolveSlidePositioningLayer(element);
+    if (!frozen.restoreMarkdownTree && positioningLayer) {
+      releaseSlideObjectFromLeftBoxes(element, positioningLayer);
+    }
+    const html = readCurrentSlideContentHtml();
+
+    if (frozen.restoreMarkdownTree) {
+      const objectId = element.getAttribute("data-slide-object-id");
+      if (objectId) {
+        const owner = element.parentElement ?? element.ownerDocument;
+        owner
+          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+          .forEach((spacer) => {
+            if (
+              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+            ) {
+              spacer.remove();
+            }
+          });
+      }
+      frozen.restoreMarkdownTree();
+    }
+    if (html !== null) onUpdateSlideRef.current({ content: html });
+
+    const selector = getBuilderSelector(element);
+    if (selector) selectElementForStyling(element, selector);
+  }, [
+    freezeElementForFreeformSelection,
+    getSlideContent,
+    readCurrentSlideContentHtml,
+    resolveSelectedElement,
+    selectedImg,
+    selectElementForStyling,
+  ]);
 
   const applyStylePatchToElement = useCallback(
     (
@@ -6736,13 +6975,89 @@ export default function SlideEditor({
     (e: React.PointerEvent, outlineRect: DOMRect) => {
       if (readOnly || e.button !== 0) return;
       if (editingElRef.current) exitInlineEdit();
-      const selection = getObjectOperationSelection();
-      if (!selection) return;
-      const movable = collectMovableSlideObjects(
-        selection.elements,
-        getObjectGeometry,
-      );
-      if (movable.length !== selection.elements.length) return;
+      let promotion: {
+        element: HTMLElement;
+        snapshot: {
+          className: string;
+          style: string | null;
+          objectId: string | null;
+          contentEditable: string | null;
+          editingBlock: string | null;
+        };
+        restoreMarkdownTree?: () => void;
+        restoreDescendants?: () => void;
+        wasFlow: boolean;
+      } | null = null;
+      const removeFreeformLayoutSpacer = (element: HTMLElement) => {
+        const objectId = element.getAttribute("data-slide-object-id");
+        if (!objectId) return;
+        const owner = element.parentElement ?? element.ownerDocument;
+        owner
+          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+          .forEach((spacer) => {
+            if (
+              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+            ) {
+              spacer.remove();
+            }
+          });
+      };
+      const restorePromotion = () => {
+        if (!promotion) return;
+        removeFreeformLayoutSpacer(promotion.element);
+        promotion.restoreDescendants?.();
+        if (promotion.restoreMarkdownTree) {
+          promotion.restoreMarkdownTree();
+        } else {
+          restoreSlideObjectDomSnapshot(promotion.element, promotion.snapshot);
+        }
+        if (promotion.snapshot.objectId) {
+          promotion.element.setAttribute(
+            "data-slide-object-id",
+            promotion.snapshot.objectId,
+          );
+        } else {
+          promotion.element.removeAttribute("data-slide-object-id");
+        }
+        promotion = null;
+      };
+      let elements = getObjectOperationSelection()?.elements;
+      if (!elements) {
+        if (multiSelection.size > 0) return;
+        const slideContent = getSlideContent();
+        const element =
+          resolveSelectedElement() ??
+          (selectedImg && slideContent
+            ? (findPersistedImageObject(selectedImg, slideContent) ??
+              selectedImg)
+            : null);
+        if (!element) return;
+
+        promotion = {
+          element,
+          snapshot: {
+            className: element.className,
+            style: element.getAttribute("style"),
+            objectId: element.getAttribute("data-slide-object-id"),
+            contentEditable: element.getAttribute("contenteditable"),
+            editingBlock: element.getAttribute("data-editing-block"),
+          },
+          wasFlow: getComputedStyle(element).position !== "absolute",
+        };
+        const frozen = freezeElementForFreeformSelection(element);
+        promotion.restoreMarkdownTree = frozen?.restoreMarkdownTree;
+        promotion.restoreDescendants = frozen?.restoreDescendants;
+        if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+          restorePromotion();
+          return;
+        }
+        elements = [frozen.element];
+      }
+      const movable = collectMovableSlideObjects(elements, getObjectGeometry);
+      if (movable.length !== elements.length) {
+        restorePromotion();
+        return;
+      }
 
       e.preventDefault();
       e.stopPropagation();
@@ -6792,12 +7107,16 @@ export default function SlideEditor({
       };
 
       const restore = () => {
-        for (const member of members) {
-          const originalStyle = originalStyles.get(member.objectId);
-          if (originalStyle === null || originalStyle === undefined) {
-            member.element.removeAttribute("style");
-          } else {
-            member.element.setAttribute("style", originalStyle);
+        if (promotion) {
+          restorePromotion();
+        } else {
+          for (const member of members) {
+            const originalStyle = originalStyles.get(member.objectId);
+            if (originalStyle === null || originalStyle === undefined) {
+              member.element.removeAttribute("style");
+            } else {
+              member.element.setAttribute("style", originalStyle);
+            }
           }
         }
         if (multiSelection.size > 0) {
@@ -6843,22 +7162,44 @@ export default function SlideEditor({
           restore();
           return;
         }
+        if (multiSelection.size === 0) {
+          const element = members[0]?.element;
+          const selector = element && getBuilderSelector(element);
+          if (element && selector) selectElementForStyling(element, selector);
+        }
+        if (promotion?.wasFlow) {
+          preserveSlideObjectLayoutSpacer(promotion.element);
+          if (!promotion.restoreMarkdownTree) {
+            const positioningLayer = resolveSlidePositioningLayer(
+              promotion.element,
+            );
+            if (positioningLayer) {
+              releaseSlideObjectFromLeftBoxes(
+                promotion.element,
+                positioningLayer,
+              );
+            }
+          }
+        }
+        const html = readCurrentSlideContentHtml();
+        if (html === null) {
+          restore();
+          return;
+        }
+        if (promotion?.restoreMarkdownTree) {
+          removeFreeformLayoutSpacer(promotion.element);
+          promotion.restoreMarkdownTree();
+        }
         if (multiSelection.size > 0) {
           pendingMultiSelectionResyncRef.current = {
             objectIds: members.map((member) => member.objectId),
             paths: [],
           };
-        } else {
-          const element = members[0]?.element;
-          const selector = element && getBuilderSelector(element);
-          if (element && selector) selectElementForStyling(element, selector);
         }
-        const html = readCurrentSlideContentHtml();
-        if (html !== null) {
-          onUpdateSlideRef.current({ content: html }, undefined, {
-            persistence: "immediate",
-          });
-        }
+        promotion = null;
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          persistence: "immediate",
+        });
       };
 
       const onCancel = () => {
@@ -6874,13 +7215,19 @@ export default function SlideEditor({
     [
       applyObjectGeometry,
       exitInlineEdit,
+      findPersistedImageObject,
+      freezeElementForFreeformSelection,
       getObjectGeometry,
+      getSlideContent,
       getObjectOperationSelection,
       multiSelection,
       onUpdateSlideRef,
       readCurrentSlideContentHtml,
       readOnly,
+      releaseSlideObjectFromLeftBoxes,
       refreshMultiSelectionRects,
+      resolveSelectedElement,
+      selectedImg,
       scheduleMultiSelectionRects,
       selectElementForStyling,
       selectionOverlayMeasurementKey,
@@ -7369,6 +7716,10 @@ export default function SlideEditor({
   const handleSlidePointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return; // left click only
+      if (imageCropRef.current) {
+        e.preventDefault();
+        return;
+      }
       clearCanvasHover();
       const slideContent = getSlideContent();
       if (!slideContent) return;
@@ -7751,6 +8102,283 @@ export default function SlideEditor({
     [getPlaceholderTarget, publishImageSelection],
   );
 
+  const startImageCrop = useCallback(
+    (target: HTMLImageElement) => {
+      const slideContent = getSlideContent();
+      // Keep Markdown crop gated until React-tree saves are browser-verified.
+      if (
+        readOnly ||
+        !isHtmlSlide ||
+        !slideContent ||
+        !slideContent.contains(target)
+      ) {
+        return;
+      }
+
+      const existingFrame = findPersistedImageObject(target, slideContent);
+      const frameIsPersistedImage = Boolean(
+        existingFrame &&
+        (existingFrame.classList.contains("fmd-pptx-image") ||
+          existingFrame.getAttribute("data-pptx-element-kind") === "image"),
+      );
+      const originalFrame = frameIsPersistedImage
+        ? (existingFrame!.cloneNode(true) as HTMLElement)
+        : null;
+      const originalImage = frameIsPersistedImage
+        ? null
+        : (target.cloneNode(true) as HTMLImageElement);
+      const originalImageAttributes = originalImage
+        ? Array.from(
+            originalImage.attributes,
+            ({ name, value }) => [name, value] as const,
+          )
+        : null;
+
+      let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
+      const frozen = freezeElementForFreeformSelection(frame);
+      if (!frozen) return;
+
+      let image: HTMLImageElement;
+      let viewport = frame.querySelector<HTMLElement>(
+        ".fmd-image-crop-viewport",
+      );
+      if (frameIsPersistedImage) {
+        image =
+          viewport?.querySelector<HTMLImageElement>("img") ??
+          frame.querySelector<HTMLImageElement>("img") ??
+          target;
+        if (!viewport) {
+          const computed = window.getComputedStyle(frame);
+          const clipPath = computed.clipPath;
+          const borderRadius = computed.borderRadius;
+          viewport = frame.ownerDocument.createElement("div");
+          viewport.className = "fmd-image-crop-viewport";
+          Object.assign(viewport.style, {
+            position: "absolute",
+            inset: "0",
+            width: "100%",
+            height: "100%",
+            overflow: "hidden",
+            clipPath: clipPath === "none" ? "" : clipPath,
+            borderRadius,
+          });
+          for (const child of Array.from(frame.childNodes)) {
+            viewport.appendChild(child);
+          }
+          frame.appendChild(viewport);
+          frame.style.clipPath = "none";
+          frame.style.borderRadius = "0";
+        }
+        const imageLeft = image.offsetLeft;
+        const imageTop = image.offsetTop;
+        const imageWidth = image.offsetWidth;
+        const imageHeight = image.offsetHeight;
+        Object.assign(image.style, {
+          position: "absolute",
+          left: `${imageLeft}px`,
+          top: `${imageTop}px`,
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          maxWidth: "none",
+          maxHeight: "none",
+          margin: "0",
+        });
+      } else {
+        image = target;
+        const parent = image.parentElement;
+        if (!parent) return;
+        const imageWidth = image.offsetWidth;
+        const imageHeight = image.offsetHeight;
+        const imageLeft = image.offsetLeft;
+        const imageTop = image.offsetTop;
+        const imageStyle = image.style;
+        const inlineParent = Boolean(parent.closest("p"));
+        const cropFrame = frame.ownerDocument.createElement(
+          inlineParent ? "span" : "div",
+        );
+        cropFrame.className = "fmd-pptx-image";
+        cropFrame.setAttribute("data-pptx-element-kind", "image");
+        for (const property of [
+          "position",
+          "left",
+          "top",
+          "right",
+          "bottom",
+          "width",
+          "height",
+          "transform",
+          "transform-origin",
+          "z-index",
+        ]) {
+          const value = imageStyle.getPropertyValue(property);
+          if (value) cropFrame.style.setProperty(property, value);
+        }
+        cropFrame.style.position ||= "absolute";
+        cropFrame.style.display = "block";
+        cropFrame.style.left ||= `${imageLeft}px`;
+        cropFrame.style.top ||= `${imageTop}px`;
+        cropFrame.style.width ||= `${imageWidth}px`;
+        cropFrame.style.height ||= `${imageHeight}px`;
+        const objectId =
+          image.getAttribute("data-slide-object-id") ??
+          ensureSlideObjectId(image);
+        cropFrame.setAttribute("data-slide-object-id", objectId);
+        image.removeAttribute("data-slide-object-id");
+        cropFrame.setAttribute("data-builder-id", ensureBuilderId(cropFrame));
+
+        viewport = frame.ownerDocument.createElement(
+          inlineParent ? "span" : "div",
+        );
+        viewport.className = "fmd-image-crop-viewport";
+        Object.assign(viewport.style, {
+          position: "absolute",
+          inset: "0",
+          width: "100%",
+          height: "100%",
+          overflow: "hidden",
+          display: "block",
+        });
+        parent.insertBefore(cropFrame, image);
+        cropFrame.appendChild(viewport);
+        viewport.appendChild(image);
+        frame = cropFrame;
+        Object.assign(image.style, {
+          position: "absolute",
+          left: "0px",
+          top: "0px",
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          transform: "none",
+          transformOrigin: "0 0",
+          maxWidth: "none",
+          maxHeight: "none",
+          margin: "0",
+        });
+      }
+
+      frame.classList.add("fmd-pptx-image");
+      frame.setAttribute("data-pptx-element-kind", "image");
+      frame.style.overflow = "visible";
+      const originalZIndex = frame.style.zIndex;
+      frame.style.zIndex = "2147483000";
+      ensureSlideObjectId(frame);
+      const cropStartGeometry = {
+        frame: {
+          x: frame.offsetLeft,
+          y: frame.offsetTop,
+          width: frame.offsetWidth,
+          height: frame.offsetHeight,
+        },
+        image: {
+          x: image.offsetLeft,
+          y: image.offsetTop,
+          width: image.offsetWidth,
+          height: image.offsetHeight,
+        },
+      };
+      const previewStyles = (
+        [
+          [frame, "box-sizing"],
+          [frame, "clip-path"],
+          [frame, "border-radius"],
+          [viewport!, "overflow"],
+          [viewport!, "clip-path"],
+          [viewport!, "border-radius"],
+        ] as const
+      ).map(
+        ([element, property]) =>
+          [
+            element,
+            property,
+            element.style.getPropertyValue(property),
+            element.style.getPropertyPriority(property),
+          ] as const,
+      );
+      frame.style.clipPath = "none";
+      frame.style.borderRadius = "0";
+      const activeCrop: ActiveImageCrop = {
+        slideId: slide.id,
+        content: slide.content,
+        frame,
+        viewport: viewport!,
+        image,
+        frozen: { restoreMarkdownTree: frozen.restoreMarkdownTree },
+        publishSelection: publishImageSelection,
+        restorePreviewStyles: () => {
+          for (const [element, property, value, priority] of previewStyles) {
+            if (value) element.style.setProperty(property, value, priority);
+            else element.style.removeProperty(property);
+          }
+        },
+        restoreChrome: () => {
+          frame.style.overflow = "hidden";
+          if (originalZIndex) frame.style.zIndex = originalZIndex;
+          else frame.style.removeProperty("z-index");
+        },
+        hasChanges: () =>
+          [
+            [frame.offsetLeft, cropStartGeometry.frame.x],
+            [frame.offsetTop, cropStartGeometry.frame.y],
+            [frame.offsetWidth, cropStartGeometry.frame.width],
+            [frame.offsetHeight, cropStartGeometry.frame.height],
+            [image.offsetLeft, cropStartGeometry.image.x],
+            [image.offsetTop, cropStartGeometry.image.y],
+            [image.offsetWidth, cropStartGeometry.image.width],
+            [image.offsetHeight, cropStartGeometry.image.height],
+          ].some(([current, initial]) => Math.abs(current! - initial!) >= 0.5),
+        cancel: () => {
+          const objectId = frame.getAttribute("data-slide-object-id");
+          if (objectId) {
+            slideContent
+              .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+              .forEach((spacer) => {
+                if (
+                  spacer.getAttribute("data-slide-layout-spacer-for") ===
+                  objectId
+                ) {
+                  spacer.remove();
+                }
+              });
+          }
+          if (frozen.restoreMarkdownTree) {
+            if (frameIsPersistedImage) frame.replaceWith(originalFrame!);
+            else frame.replaceWith(image);
+            if (!frameIsPersistedImage && originalImageAttributes) {
+              for (const attribute of Array.from(image.attributes)) {
+                image.removeAttribute(attribute.name);
+              }
+              for (const [name, value] of originalImageAttributes) {
+                image.setAttribute(name, value);
+              }
+            }
+            frozen.restoreMarkdownTree();
+            return frameIsPersistedImage ? originalFrame : image;
+          }
+          if (frameIsPersistedImage) {
+            frame.replaceWith(originalFrame!);
+            return originalFrame;
+          }
+          frame.replaceWith(originalImage!);
+          return originalImage;
+        },
+      };
+      imageCropRef.current = activeCrop;
+      setImageCrop(activeCrop);
+      setImageOverlay(null);
+      setSelectedImg(image);
+      publishImageSelection(frame);
+    },
+    [
+      freezeElementForFreeformSelection,
+      getSlideContent,
+      isHtmlSlide,
+      publishImageSelection,
+      readOnly,
+      slide.content,
+      slide.id,
+    ],
+  );
+
   // Browsers put the dragged element's outerHTML on the "text/html" data
   // type. Sniffing specifically for an <img> tag there (rather than trusting
   // any URL on text/uri-list or text/plain) matters because those same types
@@ -7913,7 +8541,6 @@ export default function SlideEditor({
             e.clientY,
           )
         : (e.target as HTMLElement);
-
       const shapePress = shapePressRef.current;
       shapePressRef.current = null;
       const shapeOwner = slideContent
@@ -8595,7 +9222,7 @@ export default function SlideEditor({
     (e: ReactMouseEvent) => {
       // Viewers see the slide but can't enter edit mode — matches Google
       // Slides' viewer experience.
-      if (readOnly) return;
+      if (readOnly || imageCropRef.current) return;
 
       const target = e.target as HTMLElement;
       const slideContent = containerRef.current?.querySelector(
@@ -8613,19 +9240,26 @@ export default function SlideEditor({
         slideContent && resolvedTarget !== slideContent
           ? findPersistedImageObject(resolvedTarget, slideContent)
           : null;
-      const imageTarget =
-        resolvedTarget.tagName === "IMG"
+      const imageTarget = target.closest("[data-slide-group-move-handle]")
+        ? selectedImageForCropRef.current
+        : resolvedTarget.tagName === "IMG"
           ? resolvedTarget
           : imageOwner?.querySelector<HTMLElement>("img");
       const imagePlaceholder = resolvedTarget.closest<HTMLElement>(
         ".fmd-img-placeholder",
       );
 
-      // For images / placeholders, show overlay
-      if (imageTarget || imagePlaceholder) {
+      if (imageTarget && isHtmlSlide) {
         e.preventDefault();
         e.stopPropagation();
-        showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);
+        startImageCrop(imageTarget as HTMLImageElement);
+        return;
+      }
+
+      if (imagePlaceholder) {
+        e.preventDefault();
+        e.stopPropagation();
+        showImageOverlay(imagePlaceholder);
         return;
       }
 
@@ -8644,7 +9278,7 @@ export default function SlideEditor({
       e.stopPropagation();
       enterInlineEdit(block, { x: e.clientX, y: e.clientY }, true);
     },
-    [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
+    [startImageCrop, showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
   );
 
   const slideElementSelected =
@@ -8657,6 +9291,129 @@ export default function SlideEditor({
   // Flow objects are promoted for the resize gesture and restored when a
   // press does not become a resize.
   const selectedForDrag = selectedElementRect ? resolveSelectedElement() : null;
+  const selectedImageForCrop = selectedForDrag?.matches("img")
+    ? (selectedForDrag as HTMLImageElement)
+    : selectedForDrag &&
+        (selectedForDrag.classList.contains("fmd-pptx-image") ||
+          selectedForDrag.getAttribute("data-pptx-element-kind") === "image")
+      ? selectedForDrag.querySelector<HTMLImageElement>("img")
+      : null;
+  const slideContentForImageCrop = getSlideContent();
+  selectedImageForCropRef.current =
+    selectedImageForCrop ??
+    (selectedImg instanceof HTMLImageElement &&
+    slideContentForImageCrop?.contains(selectedImg)
+      ? selectedImg
+      : null);
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (readOnly || !isHtmlSlide) {
+        lastImageClickRef.current = null;
+        pendingImageDoubleClickRef.current = null;
+        return;
+      }
+      if (event.button !== 0) {
+        lastImageClickRef.current = null;
+        pendingImageDoubleClickRef.current = null;
+        return;
+      }
+      const slideContent = getSlideContent();
+      const image =
+        target.tagName === "IMG" && slideContent?.contains(target)
+          ? (target as HTMLImageElement)
+          : target.closest("[data-slide-group-move-handle]")
+            ? selectedImageForCropRef.current
+            : null;
+      if (!image) {
+        lastImageClickRef.current = null;
+        pendingImageDoubleClickRef.current = null;
+        return;
+      }
+      const lastImageClick = lastImageClickRef.current;
+      const timestamp = Date.now();
+      const isDoubleClick = Boolean(
+        lastImageClick?.image === image &&
+        timestamp - lastImageClick.timestamp <= 500 &&
+        Math.hypot(
+          event.clientX - lastImageClick.clientX,
+          event.clientY - lastImageClick.clientY,
+        ) <= 5,
+      );
+      pendingImageDoubleClickRef.current = {
+        image,
+        pointerId: event.pointerId,
+        timestamp,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        isDoubleClick,
+      };
+      lastImageClickRef.current = null;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const pending = pendingImageDoubleClickRef.current;
+      if (
+        !pending ||
+        pending.pointerId !== event.pointerId ||
+        !hasCrossedCanvasDragThreshold(
+          { x: pending.clientX, y: pending.clientY },
+          { x: event.clientX, y: event.clientY },
+        )
+      ) {
+        return;
+      }
+      pendingImageDoubleClickRef.current = null;
+      lastImageClickRef.current = null;
+    };
+
+    const onPointerCancel = (event: PointerEvent) => {
+      if (pendingImageDoubleClickRef.current?.pointerId === event.pointerId) {
+        pendingImageDoubleClickRef.current = null;
+        lastImageClickRef.current = null;
+      }
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      const pending = pendingImageDoubleClickRef.current;
+      if (!pending || pending.pointerId !== event.pointerId) return;
+      pendingImageDoubleClickRef.current = null;
+      if (
+        Math.hypot(
+          event.clientX - pending.clientX,
+          event.clientY - pending.clientY,
+        ) > 5
+      ) {
+        lastImageClickRef.current = null;
+        return;
+      }
+      if (pending.isDoubleClick) {
+        lastImageClickRef.current = null;
+        requestAnimationFrame(() => {
+          if (!imageCropRef.current) startImageCrop(pending.image);
+        });
+        return;
+      }
+      lastImageClickRef.current = {
+        image: pending.image,
+        timestamp: pending.timestamp,
+        clientX: pending.clientX,
+        clientY: pending.clientY,
+      };
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("pointercancel", onPointerCancel, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointermove", onPointerMove, true);
+      document.removeEventListener("pointercancel", onPointerCancel, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+    };
+  }, [getSlideContent, isHtmlSlide, readOnly, startImageCrop]);
   const isSelectedElementDraggable = selectedForDrag
     ? !isSlideCanvasShell(selectedForDrag)
     : false;
@@ -8704,8 +9461,25 @@ export default function SlideEditor({
         canZoomIn,
       };
 
+  const contextImageTarget = (() => {
+    const target = contextMenuTargetRef.current;
+    return target?.matches("img")
+      ? (target as HTMLImageElement)
+      : (target?.querySelector<HTMLImageElement>("img") ?? null);
+  })();
+
   const slideElementContextMenuContent = (
     <>
+      {contextImageTarget && (
+        <>
+          <ContextMenuItem
+            onSelect={() => showImageOverlay(contextImageTarget)}
+          >
+            {t("editorToolbar.imageOptions")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      )}
       <ContextMenuItem
         disabled={!hasClipboardSelection}
         onSelect={cutSelectedObjects}
@@ -8836,6 +9610,7 @@ export default function SlideEditor({
             : undefined
         }
         onChange={applySelectedStylePatch}
+        onEnablePositioning={enableSelectedObjectPositioning}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
         onGroup={handleGroupSelected}
@@ -8876,6 +9651,7 @@ export default function SlideEditor({
             : undefined
         }
         onChange={applySelectedStylePatch}
+        onEnablePositioning={enableSelectedObjectPositioning}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
         onGroup={handleGroupSelected}
@@ -9162,7 +9938,7 @@ export default function SlideEditor({
         readOnly={readOnly}
       />
 
-      {selectionRect && !selectedElementSelector && (
+      {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline
           rect={selectionRect}
           viewportRect={selectionViewportRect}
@@ -9185,15 +9961,18 @@ export default function SlideEditor({
           />
         )
       )}
-      {selectedElementRect && selectedContainer && !multiSelectionBounds && (
-        <ElementHoverOutline
-          container
-          rect={selectedContainer.rect}
-          frame={selectedContainer.frame}
-          viewportRect={selectionViewportRect}
-        />
-      )}
-      {selectedElementRect && !multiSelectionBounds && (
+      {!imageCrop &&
+        selectedElementRect &&
+        selectedContainer &&
+        !multiSelectionBounds && (
+          <ElementHoverOutline
+            container
+            rect={selectedContainer.rect}
+            frame={selectedContainer.frame}
+            viewportRect={selectionViewportRect}
+          />
+        )}
+      {!imageCrop && selectedElementRect && !multiSelectionBounds && (
         <ElementSelectionOutline
           rect={selectedElementRect}
           frame={selectedElementFrame}
@@ -9232,7 +10011,7 @@ export default function SlideEditor({
             !readOnly ? (e) => startGroupDrag(e, multiSelection) : undefined
           }
           onRotateStart={
-            !readOnly
+            !readOnly && objectOperationSelection
               ? (e) => startRotateSelection(e, multiSelectionBounds)
               : undefined
           }
@@ -9312,11 +10091,24 @@ export default function SlideEditor({
           src={imageOverlay.src}
           objectFit={imageOverlay.objectFit}
           objectPosition={imageOverlay.objectPosition}
-          onGenerate={onGenerateImage}
-          onLibrary={() => onOpenAssetLibrary(imageOverlay.src)}
-          onUpload={() => onUploadImage(imageOverlay.src)}
-          onDownload={() => void downloadImage(imageOverlay.src)}
+          onGenerate={() => {
+            finishImageCrop(true);
+            onGenerateImage();
+          }}
+          onLibrary={() => {
+            finishImageCrop(true);
+            onOpenAssetLibrary(imageOverlay.src);
+          }}
+          onUpload={() => {
+            finishImageCrop(true);
+            onUploadImage(imageOverlay.src);
+          }}
+          onDownload={() => {
+            finishImageCrop(true);
+            void downloadImage(imageOverlay.src);
+          }}
           onToggleObjectFit={() => {
+            finishImageCrop(true);
             const newFit =
               imageOverlay.objectFit === "cover" ? "contain" : "cover";
             onToggleObjectFit(
@@ -9333,6 +10125,7 @@ export default function SlideEditor({
             }
           }}
           onChangeObjectPosition={(objectPosition) => {
+            finishImageCrop(true);
             onChangeObjectPosition(
               imageOverlay.src,
               objectPosition,
@@ -9347,6 +10140,16 @@ export default function SlideEditor({
             }
           }}
           onClose={() => setImageOverlay(null)}
+        />
+      )}
+
+      {imageCrop && (
+        <ImageCropOverlay
+          frame={imageCrop.frame}
+          viewport={imageCrop.viewport}
+          image={imageCrop.image}
+          canvas={imageCrop.frame.closest<HTMLElement>(".slide-content")!}
+          onFinish={finishImageCrop}
         />
       )}
 

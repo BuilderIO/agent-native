@@ -1,3 +1,34 @@
+## 0.24.6
+
+### Patch Changes
+
+- Updated dependencies [2db503b]
+  - @agent-native/toolkit@0.14.2
+
+## 0.24.5
+
+### Patch Changes
+
+- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
+
+## 0.24.4
+
+### Patch Changes
+
+- 47ba57a: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
+
+## 0.24.3
+
+### Patch Changes
+
+- 405e17e: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
+
+## 0.24.2
+
+### Patch Changes
+
+- 3eb5bdb: Surface app-creation settings authorization failures as HTTP 403 with the real message instead of a generic internal server error.
+
 ## 0.24.1
 
 ### Patch Changes

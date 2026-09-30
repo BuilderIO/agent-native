@@ -1,8 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { setGlobalMcpManager } from "../server/agent-chat/mcp-glue.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { callMcpTool, listVisibleMcpTools, McpAppApiError } from "./app-api.js";
+
+const mockedManager = vi.hoisted(() => ({
+  resolve: vi.fn(),
+}));
+
+vi.mock("../server/agent-chat/mcp-glue.js", () => ({
+  getMcpManagerForPrincipal: mockedManager.resolve,
+}));
 
 const callTool = vi.fn(async () => ({
   content: [{ type: "text", text: "ok" }],
@@ -42,11 +49,7 @@ const manager = {
 
 beforeEach(() => {
   callTool.mockClear();
-  setGlobalMcpManager(manager as any);
-});
-
-afterEach(() => {
-  setGlobalMcpManager(null as any);
+  mockedManager.resolve.mockReset().mockResolvedValue(manager);
 });
 
 describe("MCP app API", () => {
@@ -54,6 +57,17 @@ describe("MCP app API", () => {
     await expect(listVisibleMcpTools()).rejects.toMatchObject<McpAppApiError>({
       statusCode: 401,
     });
+    expect(mockedManager.resolve).not.toHaveBeenCalled();
+  });
+
+  it("rejects an anonymous identity before resolving any MCP manager", async () => {
+    await expect(
+      runWithRequestContext(
+        { userEmail: "anon-session@agent-native.com", agentRunAnonymous: true },
+        () => listVisibleMcpTools(),
+      ),
+    ).rejects.toMatchObject<McpAppApiError>({ statusCode: 401 });
+    expect(mockedManager.resolve).not.toHaveBeenCalled();
   });
 
   it("lists only request-visible app tools without raw manager data", async () => {
@@ -73,7 +87,7 @@ describe("MCP app API", () => {
     expect(result[0]).not.toHaveProperty("config");
   });
 
-  it("waits for lazy MCP initialization before reading app tools", async () => {
+  it("resolves the authenticated caller's manager before reading app tools", async () => {
     let initialized = false;
     const lazyManager = {
       getTools: () => (initialized ? tools : []),
@@ -83,8 +97,9 @@ describe("MCP app API", () => {
           : [],
       callTool,
     };
-    setGlobalMcpManager(lazyManager as any, async () => {
+    mockedManager.resolve.mockImplementation(async () => {
       initialized = true;
+      return lazyManager;
     });
 
     await runWithRequestContext(
@@ -94,6 +109,10 @@ describe("MCP app API", () => {
         expect(initialized).toBe(true);
       },
     );
+    expect(mockedManager.resolve).toHaveBeenCalledWith({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
   });
 
   it("fails closed when an org-scoped request has no active org", async () => {

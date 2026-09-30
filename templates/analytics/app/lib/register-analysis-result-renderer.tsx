@@ -1,10 +1,10 @@
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   registerActionChatRenderer,
   resolveToolRenderer,
   type ToolRendererProps,
-} from "@agent-native/core/client/chat";
-import { useFormatters, useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat";
 import {
   ANALYTICS_ANALYSIS_RESULT_RENDERER,
   getSingleNumericAnalysisResult,

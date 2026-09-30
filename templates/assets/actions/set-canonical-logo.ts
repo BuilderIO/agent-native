@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -21,6 +22,12 @@ export default defineAction({
       throw new Error("Asset does not belong to this library.");
     }
     const db = getDb();
+    const libraryEditorAccess = accessFilter(
+      schema.assetLibraries,
+      schema.assetLibraryShares,
+      undefined,
+      "editor",
+    );
     const now = nowIso();
     await db
       .update(schema.assets)
@@ -29,11 +36,11 @@ export default defineAction({
     await db
       .update(schema.assetLibraries)
       .set({ canonicalLogoAssetId: assetId, updatedAt: now })
-      .where(eq(schema.assetLibraries.id, libraryId));
+      .where(and(eq(schema.assetLibraries.id, libraryId), libraryEditorAccess));
     const [library] = await db
       .select()
       .from(schema.assetLibraries)
-      .where(eq(schema.assetLibraries.id, libraryId))
+      .where(and(eq(schema.assetLibraries.id, libraryId), libraryEditorAccess))
       .limit(1);
     return {
       libraryId,

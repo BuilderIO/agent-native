@@ -107,7 +107,7 @@ function newDesktopOAuthVerifier(): string | null {
 }
 
 interface GoogleConnectBannerProps {
-  variant?: "banner" | "hero";
+  variant?: "banner" | "button" | "hero";
 }
 
 interface DesktopAuthIssue {
@@ -708,6 +708,48 @@ export function GoogleConnectBanner({
     );
   }
 
+  if (variant === "button") {
+    return (
+      <div className="space-y-2">
+        {googleStatus.isError ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 rounded-lg px-4 text-xs"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("mail.error.tryAgain")}
+          </Button>
+        ) : googleConfigured || canOfferOAuthSetup ? (
+          <Button
+            type="button"
+            className="h-9 rounded-lg px-4 text-xs"
+            onClick={() => {
+              setAuthError(null);
+              handleConnect();
+            }}
+            disabled={authUrl.isLoading || authUrl.isFetching}
+          >
+            {authUrl.isFetching
+              ? t("mail.accounts.connecting")
+              : t("mail.accounts.connectGoogle")}
+          </Button>
+        ) : null}
+        {authError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {authError}
+          </p>
+        ) : null}
+        <GoogleAuthIssuePanel
+          issue={desktopAuthIssue}
+          onSignOut={handleSignOutForGoogle}
+          onDismiss={() => setDesktopAuthIssue(null)}
+        />
+      </div>
+    );
+  }
+
   if (hasAccounts) {
     return (
       <div className="border-b border-border/30 bg-card">
@@ -718,7 +760,9 @@ export function GoogleConnectBanner({
                 key={account.email}
                 className="group flex items-center gap-1.5 text-xs text-foreground/60"
               >
-                <span className="truncate">{account.email}</span>
+                <span data-an-mask className="truncate">
+                  {account.email}
+                </span>
                 {!account.shared && (
                   <button
                     onClick={() => disconnectGoogle.mutate(account.email)}
@@ -1055,7 +1099,10 @@ function GoogleAuthIssuePanel({
               ? t("mail.googleConnect.ownerMismatch")
               : t("mail.googleConnect.connectionFailed")}
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          <p
+            data-an-mask
+            className="mt-1 text-xs leading-relaxed text-muted-foreground"
+          >
             {detail}
           </p>
           {shouldOfferSignOut && (

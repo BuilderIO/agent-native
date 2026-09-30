@@ -23,6 +23,10 @@ import {
 } from "../../../shared/agent-context.js";
 import { displayCommentMentions } from "../../../shared/comment-mentions.js";
 import {
+  isImageRecording,
+  resolveRecordingKind,
+} from "../../../shared/recording-kind.js";
+import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../../shared/transcript-segments.js";
@@ -48,8 +52,12 @@ import {
   parseSpaceIds,
   type RecordingVisibility,
 } from "../../lib/recordings.js";
+import { viewerScreenshotEditsJson } from "../../lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
-import { verifySharePassword } from "../../lib/share-password.js";
+import {
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} from "../../lib/share-password.js";
 import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
 
 function appPath(path: string): string {
@@ -95,9 +103,15 @@ function isHttpsRequest(event: H3Event): boolean {
 function setProtectedMediaAccessCookie(
   event: H3Event,
   recordingId: string,
+  password: string | null | undefined,
+  sharePasswordVersion: string | null | undefined,
 ): string {
   const token = signShortLivedToken({
-    resourceId: recordingId,
+    resourceId: getRecordingAccessTokenResourceId(
+      recordingId,
+      password,
+      sharePasswordVersion,
+    ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
   const secure = isHttpsRequest(event);
@@ -213,7 +227,11 @@ export default defineEventHandler(async (event) => {
   const tokenAllowsAgentAccess = suppliedAgentAccessToken
     ? verifyScopedAgentAccessToken(suppliedAgentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: rec.id,
+        resourceId: getRecordingAccessTokenResourceId(
+          rec.id,
+          rec.password,
+          rec.sharePasswordVersion,
+        ),
       }).ok
     : false;
 
@@ -294,9 +312,19 @@ export default defineEventHandler(async (event) => {
         return { error: "Password required", passwordRequired: true };
       }
     }
-    protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
+    protectedMediaToken = setProtectedMediaAccessCookie(
+      event,
+      recordingId,
+      rec.password,
+      rec.sharePasswordVersion,
+    );
   } else if (tokenAllowsAgentAccess && !viewerIsOwner) {
-    protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
+    protectedMediaToken = setProtectedMediaAccessCookie(
+      event,
+      recordingId,
+      rec.password,
+      rec.sharePasswordVersion,
+    );
   }
 
   const [transcript] = await db
@@ -405,7 +433,11 @@ export default defineEventHandler(async (event) => {
       : canExposeAgentContext && rec.password
         ? signScopedAgentAccessToken({
             resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-            resourceId: recordingId,
+            resourceId: getRecordingAccessTokenResourceId(
+              recordingId,
+              rec.password,
+              rec.sharePasswordVersion,
+            ),
           })
         : undefined;
   const agentContextUrl = canExposeAgentContext
@@ -461,11 +493,18 @@ export default defineEventHandler(async (event) => {
       id: rec.id,
       title: rec.title,
       description: rec.description,
+      kind: resolveRecordingKind(rec.kind),
+      // A screenshot's picture is served by the thumbnail route, which is the
+      // full stored image and carries the same short-lived token as the video
+      // URL — so the share password gates the image bytes too.
+      imageUrl: isImageRecording(rec) ? playbackThumbnailUrl : null,
       thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
-      editsJson: rec.editsJson,
+      editsJson: isImageRecording(rec)
+        ? viewerScreenshotEditsJson(rec.editsJson)
+        : rec.editsJson,
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,

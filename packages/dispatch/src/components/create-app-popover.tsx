@@ -4,16 +4,16 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
-import { BuilderConnectPopover } from "@agent-native/core/client/settings";
-import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
 import {
   buildChatFirstAppCreationPrompt,
   docsUrl,
   getWorkspaceAppIdValidationError,
   titleFromChatFirstAppPrompt,
 } from "@agent-native/core/shared";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { BuilderConnectPopover } from "@agent-native/toolkit/app/settings";
+import { useBuilderConnectFlow } from "@agent-native/toolkit/app/settings/useBuilderStatus";
 import {
   IconAlertTriangle,
   IconArrowLeft,

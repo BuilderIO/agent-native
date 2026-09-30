@@ -8,6 +8,7 @@ import {
   encryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { createTtlCache } from "../shared/ttl-cache.js";
 
 export interface IdentityRekeyDb {
   unsafe(
@@ -103,6 +104,11 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     mode: "email-user-id",
   },
   { table: "agent_evals", column: "user_id", mode: "email-user-id" },
+  {
+    table: "agent_eval_datasets",
+    column: "user_id",
+    mode: "email-user-id",
+  },
   {
     table: "agent_experiment_assignments",
     column: "user_id",
@@ -500,6 +506,30 @@ export interface IdentityRekeyResult {
   oauthRevokedCount: number;
 }
 
+/**
+ * Emails whose last ledger probe found nothing pending. Every authenticated
+ * request probes for a rekey to resume, and the answer is almost always "none".
+ * Only `beginIdentityRekey` and `failIdentityRekey` leave a row pending, and
+ * both clear this; a pending row written by another process (the CLI, another
+ * instance) is picked up at most one TTL late, which only delays the automatic
+ * retry of a rekey that already failed once.
+ */
+const IDLE_REKEY_PROBE_TTL_MS = 15_000;
+const idleRekeyEmails = createTtlCache<true>({
+  ttlMs: IDLE_REKEY_PROBE_TTL_MS,
+  maxEntries: 4_096,
+});
+let rekeyLedgerGeneration = 0;
+
+function markRekeyLedgerPending(): void {
+  rekeyLedgerGeneration += 1;
+  idleRekeyEmails.clear();
+}
+
+export function __resetIdleIdentityRekeyProbeCacheForTests(): void {
+  idleRekeyEmails.clear();
+}
+
 export type IdentityRekeyLedgerStatus = "pending" | "done";
 
 export interface IdentityRekeyLedgerRow {
@@ -574,13 +604,17 @@ export async function beginIdentityRekey(
   const current = existing[0];
   if (current) {
     const id = String(current.id);
-    await db.unsafe(
-      `UPDATE identity_rekeys
-       SET status = 'pending', error = NULL, actor_email = $1,
-           updated_at = $2, completed_at = NULL
-       WHERE id = $3`,
-      [actorEmail?.trim().toLowerCase() ?? null, Date.now(), id],
-    );
+    try {
+      await db.unsafe(
+        `UPDATE identity_rekeys
+         SET status = 'pending', error = NULL, actor_email = $1,
+             updated_at = $2, completed_at = NULL
+         WHERE id = $3`,
+        [actorEmail?.trim().toLowerCase() ?? null, Date.now(), id],
+      );
+    } finally {
+      markRekeyLedgerPending();
+    }
     return {
       id,
       oldEmail: normalizedOld,
@@ -590,18 +624,22 @@ export async function beginIdentityRekey(
     };
   }
   const id = randomUUID();
-  await db.unsafe(
-    `INSERT INTO identity_rekeys
-       (id, old_email, new_email, status, actor_email, created_at, updated_at)
-     VALUES ($1, $2, $3, 'pending', $4, $5, $5)`,
-    [
-      id,
-      normalizedOld,
-      normalizedNew,
-      actorEmail?.trim().toLowerCase() ?? null,
-      Date.now(),
-    ],
-  );
+  try {
+    await db.unsafe(
+      `INSERT INTO identity_rekeys
+         (id, old_email, new_email, status, actor_email, created_at, updated_at)
+       VALUES ($1, $2, $3, 'pending', $4, $5, $5)`,
+      [
+        id,
+        normalizedOld,
+        normalizedNew,
+        actorEmail?.trim().toLowerCase() ?? null,
+        Date.now(),
+      ],
+    );
+  } finally {
+    markRekeyLedgerPending();
+  }
   return {
     id,
     oldEmail: normalizedOld,
@@ -630,16 +668,20 @@ export async function failIdentityRekey(
   ledgerId: string,
   error: unknown,
 ): Promise<void> {
-  await db.unsafe(
-    `UPDATE identity_rekeys
-     SET status = 'pending', error = $1, updated_at = $2
-     WHERE id = $3`,
-    [
-      error instanceof Error ? error.message : String(error),
-      Date.now(),
-      ledgerId,
-    ],
-  );
+  try {
+    await db.unsafe(
+      `UPDATE identity_rekeys
+       SET status = 'pending', error = $1, updated_at = $2
+       WHERE id = $3`,
+      [
+        error instanceof Error ? error.message : String(error),
+        Date.now(),
+        ledgerId,
+      ],
+    );
+  } finally {
+    markRekeyLedgerPending();
+  }
 }
 
 export async function executeIdentityRekey(
@@ -668,8 +710,16 @@ export async function executeIdentityRekey(
 export async function resumePendingIdentityRekeys(
   db: IdentityRekeyDb,
   email: string,
-  options: { ensureLedger?: boolean } = {},
+  options: { ensureLedger?: boolean; cacheIdle?: boolean } = {},
 ): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (options.cacheIdle && idleRekeyEmails.get(normalizedEmail)) return;
+  const generation = rekeyLedgerGeneration;
+  const rememberIdle = () => {
+    if (options.cacheIdle && generation === rekeyLedgerGeneration) {
+      idleRekeyEmails.set(normalizedEmail, true);
+    }
+  };
   if (options.ensureLedger !== false) await ensureIdentityRekeyLedger(db);
   let rows: Array<Record<string, unknown>> & { count?: number };
   try {
@@ -679,7 +729,7 @@ export async function resumePendingIdentityRekeys(
        WHERE status = 'pending'
          AND (LOWER(old_email) = LOWER($1) OR LOWER(new_email) = LOWER($1))
        ORDER BY created_at ASC`,
-      [email.trim().toLowerCase()],
+      [normalizedEmail],
     );
   } catch (error) {
     const code = (error as { code?: unknown }).code;
@@ -689,9 +739,15 @@ export async function resumePendingIdentityRekeys(
         /relation ["'`]?identity_rekeys["'`]? does not exist|no such table: ["'`]?identity_rekeys/i.test(
           String((error as { message?: unknown }).message ?? error),
         ))
-    )
+    ) {
+      rememberIdle();
       return;
+    }
     throw error;
+  }
+  if (rows.length === 0) {
+    rememberIdle();
+    return;
   }
   for (const row of rows) {
     const id = String(row.id);
@@ -764,6 +820,91 @@ export async function rekeyIdentityAfterEmailVerification(
     actorEmail: args.actorEmail ?? args.verifiedEmail,
     caller: "email-verification",
   });
+}
+
+/**
+ * Promotion keys embed the owner email (`from-trace:<encoded-email>:<run>`).
+ * Rewriting only `user_id` would hide the row from the new email and insert
+ * a duplicate on the next promote.
+ */
+function rekeyedPromotedDatasetIdempotencyKey(
+  current: string | null,
+  newEmail: string,
+): string | null {
+  if (current == null) return null;
+  const prefix = "from-trace:";
+  if (!current.startsWith(prefix)) return current;
+  const rest = current.slice(prefix.length);
+  const separator = rest.indexOf(":");
+  if (separator < 0) return current;
+  return `${prefix}${encodeURIComponent(newEmail)}:${rest.slice(separator + 1)}`;
+}
+
+async function rekeyPromotedEvalDatasetKeys(
+  db: IdentityRekeyDb,
+  oldEmail: string,
+  newEmail: string,
+  dryRun: boolean | undefined,
+): Promise<void> {
+  const datasetRows = await db.unsafe(
+    `SELECT id, idempotency_key FROM agent_eval_datasets WHERE LOWER(user_id) = LOWER($1) FOR UPDATE`,
+    [oldEmail],
+  );
+  const updates = datasetRows.map((row) => {
+    const currentKey =
+      typeof row.idempotency_key === "string" ? row.idempotency_key : null;
+    return {
+      id: row.id,
+      previousKey: currentKey,
+      nextKey: rekeyedPromotedDatasetIdempotencyKey(currentKey, newEmail),
+    };
+  });
+  const seen = new Set<string>();
+  for (const update of updates) {
+    if (update.nextKey == null) continue;
+    if (seen.has(update.nextKey)) {
+      throw new Error(
+        "Promoted eval dataset collision detected; no identity data was changed.",
+      );
+    }
+    seen.add(update.nextKey);
+  }
+  const nextKeys = [...seen];
+  if (nextKeys.length > 0 && updates.length > 0) {
+    const keyPlaceholders = nextKeys
+      .map((_, index) => `$${index + 1}`)
+      .join(", ");
+    const idPlaceholders = updates
+      .map((_, index) => `$${nextKeys.length + 1 + index}`)
+      .join(", ");
+    const collisionRows = await db.unsafe(
+      `SELECT 1 FROM agent_eval_datasets
+       WHERE idempotency_key IN (${keyPlaceholders})
+         AND id NOT IN (${idPlaceholders})
+       LIMIT 1`,
+      [...nextKeys, ...updates.map((update) => update.id)],
+    );
+    if (collisionRows.length) {
+      throw new Error(
+        "Promoted eval dataset collision detected; no identity data was changed.",
+      );
+    }
+  }
+  if (dryRun) return;
+  for (const update of updates) {
+    if (update.previousKey != null && update.previousKey !== update.nextKey) {
+      await db.unsafe(
+        `UPDATE agent_eval_datasets SET idempotency_key = NULL WHERE id = $1 AND idempotency_key = $2`,
+        [update.id, update.previousKey],
+      );
+    }
+  }
+  for (const update of updates) {
+    await db.unsafe(
+      `UPDATE agent_eval_datasets SET user_id = $1, idempotency_key = $2 WHERE id = $3`,
+      [newEmail, update.nextKey, update.id],
+    );
+  }
 }
 
 /** Run inside the caller's PostgreSQL transaction. It deliberately refuses credential and derived-key stores it cannot safely rewrite. */
@@ -984,7 +1125,14 @@ export async function rekeyIdentity(
       if (!available.has("id"))
         throw new Error("workspace_user_groups is missing its id column.");
       const groupRows = await db.unsafe(
-        `SELECT id, member_emails_json FROM workspace_user_groups`,
+        `SELECT id, member_emails_json
+           FROM workspace_user_groups
+          WHERE EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements_text(member_emails_json::jsonb) AS members(member_email)
+             WHERE LOWER(members.member_email) = LOWER($1)
+          )`,
+        [oldEmail],
       );
       const updates: Array<{ id: unknown; members: string[] }> = [];
       for (const row of groupRows) {
@@ -1087,6 +1235,18 @@ export async function rekeyIdentity(
           throw new Error(
             "Experiment assignment collision detected; no identity data was changed.",
           );
+      }
+      if (
+        entry.table === "agent_eval_datasets" &&
+        available.has("idempotency_key")
+      ) {
+        await rekeyPromotedEvalDatasetKeys(
+          db,
+          oldEmail,
+          newEmail,
+          options.dryRun,
+        );
+        continue;
       }
       if (!options.dryRun)
         await db.unsafe(

@@ -38,7 +38,7 @@ function isActionTimeout(error: unknown): boolean {
 }
 
 function isRetryableActionStatus(status: number): boolean {
-  return status === 429 || status === 502 || status === 503 || status === 504;
+  return status === 429 || status === 502 || status === 503;
 }
 
 function actionErrorStatus(error: unknown): number | undefined {
@@ -951,6 +951,9 @@ export function useActionMutation<
         timeoutMs,
       }),
     onSuccess: (...args: [any, any, any]) => {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("agentNative:syncActivity"));
+      }
       if (!skipActionQueryInvalidation) {
         void queryClient.invalidateQueries({ queryKey: ["action"] });
       }

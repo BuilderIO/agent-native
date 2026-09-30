@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   remove: vi.fn(),
   resolve: vi.fn(),
   refetch: vi.fn(),
+  verify: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: vi.fn().mockResolvedValue({ draft: null }),
@@ -35,6 +36,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
+  ensurePreviewDocumentDraftRead: (...args: unknown[]) => state.verify(...args),
   isDocumentUpdateConflict: (result: { conflict?: boolean }) =>
     result.conflict === true,
   isDocumentUpdatePreservationRequired: (result: {
@@ -53,9 +55,8 @@ vi.mock("@/hooks/use-documents", () => ({
 vi.mock("./page-draft-journal", () => ({
   readPageDraftJournal: () => null,
   listPageDraftJournal: () => [],
-  hasRetainedPageDraftNotice: () => false,
+  sweepLegacyRetainedPageDraftMarkers: () => undefined,
   clearPageDraftJournal: () => true,
-  markPageDraftJournalRetained: () => true,
 }));
 vi.mock("./document-save-rebase", () => ({
   saveDocumentWithRebase: vi.fn(),
@@ -109,6 +110,7 @@ describe("Page draft recovery", () => {
     vi.clearAllMocks();
     state.draft = null;
     state.refetch.mockResolvedValue(undefined);
+    state.verify.mockResolvedValue(undefined);
     state.update.mockResolvedValue({
       ...page,
       title: "Draft",
@@ -275,7 +277,7 @@ describe("Page draft recovery", () => {
       expectedDocumentUpdatedAt: "v2",
     });
     expect(container.querySelector("textarea")).not.toBeNull();
-    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("keeps a failed legacy draft pending", async () => {

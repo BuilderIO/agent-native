@@ -3,14 +3,81 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-29
+
+### Improved
+
+- Pasting a link to an accessible deck preselects it as the visual reference for a new presentation.
+- Undo and redo are available in the editor menu
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Large PDF and PowerPoint imports have more time to finish
+- The Position control stays available while a selected object's style details initialize.
+- Conflicting edits to one slide no longer block unrelated slide changes.
+- The home composer stays put as the app opens.
+- Slide conflict resolution keeps drafts available until saves succeed and retries independent edits against the current deck version.
+- Turning bullets on or off keeps neighboring text rows unchanged.
+- Dragging an object out of a layout preserves its original space.
+- Fixed deck edits failing to save during simultaneous collaboration
+- Pasted text no longer blocks deck creation
+- Position controls are available before you manually move an object
+- Pressing Escape after editing text closes the selection outline.
+- Slides opens reference selection after sign-in when no design or reference context is selected.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- Slide undo preserves concurrent edits from other people
+- Editing a bullet no longer changes neighboring lines, and Markdown bullets work after a line break.
+- Slides no longer overwrites a newer edit to the same slide, and Undo and Redo stay with the deck you are editing.
+- Undo keeps newer collaborator edits, and independent slide changes keep saving after a conflict
+
+## 2026-09-28
+
+### Improved
+
+- Connected tools appear in the AgentKit Add menu only when they’re ready to use.
+- Slides context sources are available from the same Add menu using either + or @.
+- The + and @ context launcher is searchable, grouped, and aligned above the prompt, with shared file and agent discovery.
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Center the home search field and keep prompt submission responsive while AI readiness is checked.
+- Rotation controls are smaller and easier to see.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- Slides now batch short deck creation and explain when layout measurements are not available.
+- Starter prompts now sit below the chat composer
+- The deck list search and import controls stay legible on narrow screens.
+
+### Fixed
+
+- Switching between sidebar and full-page chat keeps the active conversation and drafts for follow-ups without changing initial home suggestions.
+- Find existing presentations in a searchable thumbnail gallery and add them as prompt references from the + and @ menus.
+- Chat suggestions stay hidden and prompt controls remain disabled until AI is connected and ready to use.
+- Sidebar and full-page chats share reference and integration choices, preserving each conversation's selections when switching views.
+- The context menu lists available integrations in a submenu with a clear connection setup link
+- Canceling reference selection restores the prompt and its attachments.
+- Deck editor waits for sign-in before loading its workspace shell.
+- Existing decks open to Recent, and the home prompt stays interactive while AI readiness is checked.
+- Preserve home prompt state across imports and clarify upload, website, and template search results.
+- Slides preserves backward text selections when editing starts
+- Slides text editing keeps the caret steady through focus changes and input-method composition
+- The home import control no longer clips its label
+- Typing in Slides agent chat keeps every character in order
+- The model picker shows available models when AI is configured.
+- Reference attachments stay available when a new deck prompt starts a chat.
+- Template menus stay available when you hover over a card.
+
 ## 2026-09-27
 
 ### Improved
 
+- Created decks appear in chat as compact cards with a direct link to Slides.
+- Deck results no longer show a nested card frame.
+- Generated decks show slide previews in chat
 - The Connect AI setup card now has even spacing above and below the composer.
 
 ### Fixed
 
+- Deck creation returns to the prompt when chat delivery fails and offers a retry when generation does not start.
+- Personalized presentation suggestions work when responses include extra text
 - Fixed deck edits that could be overwritten during unload
 - Pagehide saves include queued edits and stay within the keepalive budget
 - Text edits are preserved when leaving or reloading a deck, and link drops no longer navigate away.
@@ -21,6 +88,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Requesters now get an email when a deck owner approves their access request.
 - Twelve new hand-designed deck templates — from a Swiss-grid pitch and data-dense quarterly review to a launch keynote, research report, lesson, roadmap, and portfolio — with the original starters still available below them.
 
 ### Improved
@@ -69,6 +137,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Ask the agent to turn comment and reply emails on or off
 - Open an editable presentation from a template in one click, or inspect every slide in a large modal preview without AI generation.
 - Slides home quick actions now adapt to your onboarding role and appear only when an AI provider is ready.
 - Org admins can review agent runs from Settings
@@ -76,6 +145,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Image generation without Assets tries the provider your organization picks for it first
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
 - Attach Figma frames and websites from focused dialogs while keeping prompt drafts and uploaded design.md files intact.
 - Recent decks now use the same consistent library card layout as templates.
 - Import PDF and PowerPoint files directly from the toolbar, paste Google Slides links in a compact popover, and find design and presentation references together under Design.
@@ -90,6 +161,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Choosing references now keeps Continue disabled until a Figma or website link is a valid URL, or a Google Slides link is a valid URL or picker file ID
+- Opening a deck you can't access now shows an access denied page where you can request access with a note for the owner or switch accounts, instead of an endless loading screen.
 - Pressing Enter in a flex-anchored text box no longer adds extra blank lines when you leave editing, and Arabic text stays joined while you type
 - Slides generation recovers from long pauses and lets you continue from the saved deck
 - Slides guides users to connect AI before continuing deck questions.
@@ -111,6 +184,10 @@ time from the command menu (Cmd+K → "What's new").
 - Word document imports now complete successfully.
 
 ## 2026-09-24
+
+### Added
+
+- The Slides agent can check every slide's text color contrast against accessibility guidelines and fix what fails.
 
 ### Improved
 

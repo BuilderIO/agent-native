@@ -37,7 +37,8 @@ vi.mock("../../db/client.js", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("../../settings/store.js", () => ({
+vi.mock("../../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../settings/store.js")>()),
   getSetting: async (key: string) => mocks.settings.get(key) ?? null,
   putSetting: async (key: string, value: Record<string, unknown>) => {
     mocks.settings.set(key, value);

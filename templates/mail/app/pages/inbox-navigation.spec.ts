@@ -57,6 +57,21 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("marks every unread message in a sidebar thread read when opening it", () => {
+    const source = inboxSource();
+    const sidebar = source.slice(
+      source.indexOf("function ThreadListSidebar("),
+      source.indexOf("const EMPTY_ACCOUNTS"),
+    );
+
+    expect(sidebar).toContain("const markThreadRead = useMarkThreadRead();");
+    expect(sidebar).toContain("if (thread.hasUnread)");
+    expect(sidebar).toContain(
+      "markThreadRead.mutate({\n                    threadId: threadKey,\n                    accountEmail: email.accountEmail,\n                  });",
+    );
+    expect(sidebar).not.toContain("useMarkRead");
+  });
+
   it("routes a plain inbox to the All tab by default", () => {
     const source = inboxSource();
 
@@ -70,21 +85,19 @@ describe("Inbox navigation commands", () => {
       "const combineInbox = settings?.combineInbox === true;",
     );
     expect(source).toContain("combineInbox\n    )");
-    expect(source).toContain("!combineInbox && isPinnedTab");
+    expect(source).toContain("resolveInboxEmailQueryScope({");
     expect(source).toContain("!combineInbox &&\n    activeInboxTab");
   });
 
   it("loads legacy custom-label inbox links from the whole mailbox", () => {
     const source = inboxSource();
 
-    expect(source).toContain("const mailboxWideLabelTab =");
-    expect(source).toContain('activeLabelRecord?.type !== "user"');
     expect(source).toContain(
-      "const clientSliceTab =\n    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;",
+      "const activeLabelIsInboxScoped = isInboxScopedLabel(",
     );
-    expect(source).toContain(
-      'const emailView = activeSavedFilter\n    ? "inbox"',
-    );
+    expect(source).toContain("resolveInboxEmailQueryScope({");
+    expect(source).toContain("clientSliceTab,");
+    expect(source).toContain("emailView,");
     expect(source).toContain(
       "useEmails(emailView, searchQuery, effectiveLabel, {\n    enabled: !isInboxView,\n  })",
     );
@@ -107,6 +120,21 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("does not append placeholder rows while visible mail syncs", () => {
+    expect(emailListSource()).not.toContain("isSyncing");
+  });
+
+  it("does not search Gmail for a focused contact on the SQL-backed inbox", () => {
+    const source = inboxSource();
+
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "!isInboxView || (googleStatus.isSuccess && !isGoogleConnected)",
+    );
+    expect(source).toContain(
+      "enabled: Boolean(normalizedDisplayEmail) && allowEmailSearch",
+    );
+  });
+
   it("lets Priority render a scored inbox page before later pages finish", () => {
     const page = inboxSource();
     const loadingStart = page.indexOf("const emailListLoading =");
@@ -125,7 +153,7 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
 
     expect(source).toContain(
-      'import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";',
+      'import { inboxTabHref } from "@shared/inbox-threads";',
     );
     expect(source).toContain(
       "} else if (navCommand.tab) {\n      void navigate(inboxTabHref(navCommand.tab));\n    } else if (targetFilter) {",
@@ -178,13 +206,11 @@ describe("Inbox navigation commands", () => {
   it("normalizes hidden combined-inbox triage routes", () => {
     const source = inboxSource();
 
-    expect(source).toContain("const shouldNormalizeCombinedInboxRoute =");
-    expect(source).toContain("activeLabelIsInboxScoped ||");
+    expect(source).toContain("resolveInboxEmailQueryScope({");
+    expect(source).toContain("shouldNormalizeCombinedInboxRoute,");
     expect(source).toContain('nextParams.delete("label")');
     expect(source).toContain('nextParams.delete("tab")');
-    expect(source).toContain(
-      "const effectiveLabel = shouldNormalizeCombinedInboxRoute",
-    );
+    expect(source).toContain("effectiveLabel,");
     expect(source).toContain(
       "if (shouldNormalizeCombinedInboxRoute) return filtered;",
     );
@@ -309,7 +335,7 @@ describe("Inbox navigation commands", () => {
   it("disambiguates custom labels that share a system label name", () => {
     const source = inboxSource();
 
-    expect(source).toContain('activeLabelRecord?.type !== "user"');
+    expect(source).toContain("isInboxScopedLabel(activeLabel, labels)");
     expect(source).toContain("const labels = labelsData ?? EMPTY_LABELS;");
     expect(source).toContain("const activeLabelIsInboxScoped =");
   });
@@ -355,9 +381,9 @@ describe("Inbox pagination", () => {
   it("pages the inbox view for real instead of a flat capped fetch", () => {
     const source = inboxSource();
 
-    expect(source).toContain(
-      "const inboxHasNextPage =\n    isInboxView && inboxThreads.data !== undefined\n      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total)\n      : false;",
-    );
+    expect(source).toContain("totalIsLowerBound:");
+    expect(source).toContain("lastPageLength:");
+    expect(source).toContain("pageSize: INBOX_PAGE_SIZE");
     expect(source).toContain(
       "const hasNextPage = isInboxView ? inboxHasNextPage : emailsHasNextPage;",
     );

@@ -54,6 +54,10 @@
   gap: 1rem;
 }
 
+.agent-context-reference-gallery .agent-template-library-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+}
+
 .agent-template-library-preview {
   position: relative;
   aspect-ratio: 16 / 9;
@@ -83,6 +87,7 @@
   grid-column: 2;
   grid-row: 2;
   align-self: start;
+  z-index: 1;
   opacity: 1;
 }
 

@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integrationen" } },
   creativeContext: {
     title: "Bibliothek",
     description:
@@ -166,12 +167,6 @@ export default {
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
     openAgentSettings: "Agent verwalten",
-    languageTitle: "Sprache",
-    languageDescription: "Wähle die Oberflächensprache für Design.",
-    languageLabel: "Oberflächensprache",
-    labs: "Labs",
-    labsIntro:
-      "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
     labTweaks: "Design-Anpassungen",
     labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
     labFullAppBuilding: "Vollständige Apps erstellen",
@@ -198,8 +193,8 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "KI-Verbindung wird geprüft…",
-      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
     common: { retry: "Erneut versuchen" },
   },
@@ -232,6 +227,7 @@ export default {
     },
   },
   common: {
+    loading: "Wird geladen...",
     genericError: "Etwas ist schief gelaufen",
   },
   editPanel: {
@@ -329,6 +325,8 @@ export default {
       bottomLeft: "UL",
       bottomRight: "UR",
       blend: "Mischung",
+      blendMode: "Mischmodus",
+      removeBlendMode: "Mischmodus entfernen",
       border: "Rahmen",
       outline: "Kontur",
       inside: "Innen",
@@ -1451,6 +1449,8 @@ export default {
         "Diese Ebene lässt sich im Quellcode nicht finden. Versuche es erneut, sobald die App vollständig geladen ist, oder lass die Änderung vom Agenten vornehmen.",
       reactSourceAnchorsUnavailable:
         "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
+      sourceLocationSnapshotFailed:
+        "Quellcode-Positionen für diese Vorschau konnten nicht geprüft werden.",
       screenSourceUpdated: "Screen-Quelle aktualisiert",
       screenSourceUpdateFailed:
         "Screen-Quelle konnte nicht aktualisiert werden",
@@ -1514,12 +1514,7 @@ export default {
         "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
       permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
       permissionPromptSettingsInstructions:
-        "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und erlaube den Zugriff auf Apps auf deinem Gerät.",
-      permissionCloseTitle: "Einrichtung schließen?",
-      permissionCloseDescription:
-        "Live-Bearbeitung funktioniert erst, wenn du den Zugriff in Chrome erlaubst.",
-      permissionCloseStay: "Einrichtung geöffnet lassen",
-      permissionCloseAnyway: "Trotzdem schließen",
+        "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und setze Lokales Netzwerk auf Zulassen.",
       permissionPromptRetry: "Verbindung wiederholen",
     },
   },
@@ -1715,7 +1710,7 @@ export default {
       "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
   },
   homeContext: {
-    websiteReference: "Website anhängen",
+    websiteReference: "Website hinzufügen",
     websiteUrlLabel: "Website-URL",
     websiteUrl: "Website-URL einfügen",
     figmaUrlLabel: "Figma-Link",
@@ -1744,7 +1739,7 @@ export default {
     design: "Design",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
-    figmaReference: "Figma anhängen",
+    figmaReference: "Figma hinzufügen",
     referenceDeck: "Eine Präsentation als Referenz verwenden",
     quickSaas: "SaaS-Landingpage erstellen",
     quickDashboard: "Dashboard erstellen",

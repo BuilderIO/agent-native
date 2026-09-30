@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "連携" } },
   creativeContext: {
     title: "ライブラリ",
     description:
@@ -169,12 +170,6 @@ export default {
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
     openAgentSettings: "エージェントを管理",
-    languageTitle: "言語",
-    languageDescription: "Design のインターフェース言語を選択します。",
-    languageLabel: "インターフェース言語",
-    labs: "Labs",
-    labsIntro:
-      "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labTweaks: "デザインの調整",
     labTweaksDescription: "AI によるデザイン調整をお試しください。",
     labFullAppBuilding: "アプリ全体の構築",
@@ -201,8 +196,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "AI 接続を確認しています…",
-      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
     common: { retry: "再試行" },
   },
@@ -235,6 +229,7 @@ export default {
     },
   },
   common: {
+    loading: "読み込み中...",
     genericError: "何か問題が発生しました",
   },
   editPanel: {
@@ -332,6 +327,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "ブレンド",
+      blendMode: "描画モード",
+      removeBlendMode: "描画モードを削除",
       border: "境界線",
       outline: "アウトライン",
       inside: "内側",
@@ -1438,6 +1435,8 @@ export default {
         "このレイヤーのソースが見つかりません。アプリの読み込みが完了してから再度お試しいただくか、エージェントに変更を依頼してください。",
       reactSourceAnchorsUnavailable:
         "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
+      sourceLocationSnapshotFailed:
+        "このプレビューのソース位置を確認できませんでした。",
       screenSourceUpdated: "画面ソースを更新しました",
       screenSourceUpdateFailed: "画面ソースを更新できませんでした",
       vectorEditUnsupported:
@@ -1500,12 +1499,7 @@ export default {
         "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
       permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
       permissionPromptSettingsInstructions:
-        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
-      permissionCloseTitle: "設定を閉じますか？",
-      permissionCloseDescription:
-        "Chrome でアクセスを許可するまで、ライブ編集は使えません。",
-      permissionCloseStay: "設定を開いたままにする",
-      permissionCloseAnyway: "閉じる",
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、ローカル ネットワークを「許可」に設定します。",
       permissionPromptRetry: "接続を再試行",
     },
   },
@@ -1693,7 +1687,7 @@ export default {
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
   homeContext: {
-    websiteReference: "ウェブサイトを添付",
+    websiteReference: "ウェブサイトを追加",
     websiteUrlLabel: "ウェブサイトのURL",
     websiteUrl: "ウェブサイトのURLを貼り付け",
     figmaUrlLabel: "Figmaリンク",
@@ -1722,7 +1716,7 @@ export default {
     design: "デザイン",
     slides: "スライド",
     referenceDesign: "デザインを参照",
-    figmaReference: "Figmaを添付",
+    figmaReference: "Figmaを追加",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",

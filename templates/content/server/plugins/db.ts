@@ -1378,6 +1378,23 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS document_comment_reactions_document_idx
           ON document_comment_reactions (owner_email, document_id)`,
     },
+    {
+      version: 115,
+      name: "content-access-and-page-link-indexes",
+      // Built CONCURRENTLY so writes to these large shared tables continue
+      // during the build. The runner executes each statement on its own over
+      // the unpooled migration connection, which CONCURRENTLY requires. A
+      // failed build leaves an invalid index and no migration record, so the
+      // rerun drops it first rather than letting IF NOT EXISTS keep it.
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS documents_owner_email_lower_idx;
+        CREATE INDEX CONCURRENTLY documents_owner_email_lower_idx ON documents (lower(owner_email));
+        DROP INDEX CONCURRENTLY IF EXISTS document_shares_principal_lower_idx;
+        CREATE INDEX CONCURRENTLY document_shares_principal_lower_idx ON document_shares (principal_type, lower(principal_id), resource_id);
+        DROP INDEX CONCURRENTLY IF EXISTS document_sync_links_remote_page_idx;
+        CREATE INDEX CONCURRENTLY document_sync_links_remote_page_idx ON document_sync_links (remote_page_id)`,
+      },
+    },
   ],
   { table: "content_migrations" },
 );

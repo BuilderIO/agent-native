@@ -1,7 +1,7 @@
-import { type AgentPageScope } from "@agent-native/core/client/agent-chat";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { useOrg } from "@agent-native/core/client/org";
 import { useUploadResource } from "@agent-native/core/client/uploads";
+import type { AgentPageScope } from "@agent-native/toolkit/app/agent-page";
+import { useOrg } from "@agent-native/toolkit/app/org";
 import {
   AlertDialog,
   AlertDialogAction,

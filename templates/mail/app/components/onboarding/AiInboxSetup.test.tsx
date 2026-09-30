@@ -24,10 +24,14 @@ const mocks = vi.hoisted(() => ({
   firstRunOnboardingGateOwnsSurface: false,
   onboardingPreview: false,
   startBackfill: vi.fn(),
+  backfillRunIds: [] as Array<string | null>,
   updateSettings: vi.fn(),
+  toastError: vi.fn(),
   settingsPending: false,
   canOfferGoogleOAuthSetup: false,
   sendToAgentChat: vi.fn(),
+  navigate: vi.fn(),
+  locationPath: "/inbox",
   backfillStatus: {
     data: undefined as
       | {
@@ -68,24 +72,70 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn(),
   },
+  automationSettings: {
+    data: undefined as { engine?: string; model?: string } | undefined,
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  },
   googleStatus: {
     data: {
       accounts: [{ email: "mail-test@example.test" }],
       configured: true,
     } as { accounts: { email: string }[]; configured?: boolean } | undefined,
+    isSuccess: true,
     isLoading: false,
     isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
   },
 }));
 
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError },
+}));
+
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: () => mocks.jevAvailability,
+  useActionQuery: (actionName: string) =>
+    actionName === "get-automation-settings"
+      ? mocks.automationSettings
+      : mocks.jevAvailability,
 }));
 
 vi.mock("@agent-native/core/client/onboarding", () => ({
+  useOnboardingPreviewMode: () => mocks.onboardingPreview,
+}));
+
+vi.mock("@agent-native/toolkit/app/onboarding", () => ({
+  ONBOARDING_PRIMARY_BUTTON_CLASS: "onboarding-primary-button",
+  OnboardingStepLayout: ({
+    title,
+    description,
+    header,
+    children,
+    footer,
+  }: {
+    title?: React.ReactNode;
+    description?: React.ReactNode;
+    header?: React.ReactNode;
+    children: React.ReactNode;
+    footer?: React.ReactNode;
+  }) => (
+    <section>
+      {header ??
+        (title !== undefined ? (
+          <>
+            <h1>{title}</h1>
+            {description !== undefined ? <p>{description}</p> : null}
+          </>
+        ) : null)}
+      <div>{children}</div>
+      {footer ? <footer>{footer}</footer> : null}
+    </section>
+  ),
   useFirstRunOnboardingGateOwnsSurface: () =>
     mocks.firstRunOnboardingGateOwnsSurface,
-  useOnboardingPreviewMode: () => mocks.onboardingPreview,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -96,11 +146,20 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { count?: number }) =>
     key === "mail.sort.aiSetupRuleCount"
       ? `Matched ${options?.count ?? ""}`
-      : key,
+      : key === "mail.sort.aiSetupImportantBoss"
+        ? "Messages from my boss, "
+        : key === "mail.sort.aiSetupImportantBossChip"
+          ? "Messages from my boss"
+          : key,
+}));
+
+vi.mock("react-router", () => ({
+  useNavigate: () => mocks.navigate,
+  useLocation: () => ({ pathname: mocks.locationPath }),
 }));
 
 vi.mock("@/components/settings/JevConnectionPrompt", () => ({
-  JevConnectionPrompt: () => null,
+  JevConnectionPrompt: () => <div data-testid="jev-connect" />,
   JevAvailabilityError: ({ onRetry }: { onRetry: () => void }) => (
     <div role="alert">
       <p>mail.aiFilter.jevAvailabilityFailed</p>
@@ -112,7 +171,9 @@ vi.mock("@/components/settings/JevConnectionPrompt", () => ({
 }));
 
 vi.mock("@/components/GoogleConnectBanner", () => ({
-  GoogleConnectBanner: () => <div data-testid="gmail-connect" />,
+  GoogleConnectBanner: ({ variant }: { variant?: string }) => (
+    <div data-testid="gmail-connect" data-variant={variant} />
+  ),
 }));
 
 vi.mock("@/lib/google-oauth-setup", () => ({
@@ -121,7 +182,7 @@ vi.mock("@/lib/google-oauth-setup", () => ({
 
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-    open ? <div>{children}</div> : null,
+    open ? <div data-testid="dialog">{children}</div> : null,
   DialogContent: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
@@ -130,6 +191,9 @@ vi.mock("@/components/ui/dialog", () => ({
   ),
   DialogTitle: ({ children }: { children: React.ReactNode }) => (
     <h2>{children}</h2>
+  ),
+  DialogDescription: ({ children }: { children: React.ReactNode }) => (
+    <p>{children}</p>
   ),
 }));
 
@@ -147,7 +211,10 @@ vi.mock("@/hooks/use-ai-filter", () => ({
     mutateAsync: mocks.startBackfill,
     isPending: false,
   }),
-  useAiFilterBackfillStatus: () => mocks.backfillStatus,
+  useAiFilterBackfillStatus: (runId: string | null) => {
+    mocks.backfillRunIds.push(runId);
+    return mocks.backfillStatus;
+  },
 }));
 
 vi.mock("@/hooks/use-emails", () => ({
@@ -162,657 +229,306 @@ vi.mock("@/hooks/use-google-auth", () => ({
   useGoogleAuthStatus: () => mocks.googleStatus,
 }));
 
-import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
-
-import { labelTabHref } from "@/lib/inbox-tabs";
 
 import { AiInboxSetup } from "./AiInboxSetup";
 
 describe("AiInboxSetup", () => {
   beforeEach(() => {
     let id = 0;
+    window.sessionStorage.clear();
     mocks.automations = [];
     mocks.rulesLoading = false;
     mocks.firstRunOnboardingGateOwnsSurface = false;
     mocks.onboardingPreview = false;
-    mocks.updateRule.mockReset();
+    mocks.createRule.mockReset();
     mocks.createRule.mockImplementation(async (input) => ({
       id: `rule-${++id}`,
       ...input,
     }));
-    mocks.startBackfill.mockResolvedValue({ runId: "run-1", status: "queued" });
+    mocks.updateRule.mockReset();
+    mocks.startBackfill.mockReset();
+    mocks.backfillRunIds = [];
+    mocks.startBackfill.mockImplementation(async (input) =>
+      input.operation === "undo"
+        ? { runId: "run-1", restoredThreads: 1, status: "undone" }
+        : { runId: "run-1", status: "queued" },
+    );
+    mocks.updateSettings.mockReset();
     mocks.updateSettings.mockResolvedValue(undefined);
     mocks.settingsPending = false;
     mocks.canOfferGoogleOAuthSetup = false;
+    mocks.sendToAgentChat.mockReset();
+    mocks.navigate.mockReset();
+    mocks.locationPath = "/inbox";
     mocks.backfillStatus.data = undefined;
     mocks.backfillStatus.isLoading = false;
     mocks.backfillStatus.isFetching = false;
     mocks.backfillStatus.isError = false;
+    mocks.backfillStatus.refetch.mockReset().mockResolvedValue({
+      isError: false,
+    });
+    mocks.toastError.mockReset();
     mocks.jevAvailability.data = { configured: true };
     mocks.jevAvailability.isLoading = false;
     mocks.jevAvailability.isError = false;
+    mocks.jevAvailability.isFetching = false;
+    mocks.automationSettings.data = undefined;
+    mocks.automationSettings.isLoading = false;
+    mocks.automationSettings.isError = false;
+    mocks.automationSettings.isFetching = false;
+    mocks.automationSettings.refetch.mockReset();
     mocks.googleStatus.data = {
       accounts: [{ email: "mail-test@example.test" }],
       configured: true,
     };
     mocks.googleStatus.isLoading = false;
     mocks.googleStatus.isError = false;
+    mocks.googleStatus.isSuccess = true;
+    mocks.googleStatus.isFetching = false;
+    mocks.googleStatus.refetch.mockReset();
   });
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
-  it("defers inbox setup while first-run onboarding owns the surface", () => {
-    mocks.firstRunOnboardingGateOwnsSurface = true;
-
-    const { container, rerender } = render(<AiInboxSetup forceOpen />);
-
-    expect(
-      screen.queryByRole("heading", {
-        name: "mail.sort.aiSetupTagsHeadline",
-      }),
-    ).toBeNull();
-
-    mocks.googleStatus.isLoading = true;
-    rerender(<AiInboxSetup forceOpen />);
-
-    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
-  });
-
-  it("keeps first-run preview inline without a duplicate setup modal", () => {
-    mocks.onboardingPreview = true;
-
-    const { container } = render(
-      <>
-        <AiInboxSetup forceOpen />
-        <AiInboxSetup forceOpen embedded />
-      </>,
-    );
-
-    expect(
-      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
-    ).not.toBeNull();
-    expect(
-      screen.getAllByRole("button", { name: "mail.sort.aiSetupTagReceipts" }),
-    ).toHaveLength(1);
-    expect(container.querySelectorAll("[role='dialog']")).toHaveLength(0);
-  });
-
-  it("renders the embedded setup while startup onboarding owns the surface", () => {
-    mocks.firstRunOnboardingGateOwnsSurface = true;
-
-    render(<AiInboxSetup forceOpen embedded />);
-
-    expect(
-      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
-    ).not.toBeNull();
-  });
-
-  it("requires text or an explicit skip on the importance step", () => {
-    render(<AiInboxSetup forceOpen />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "mail.sort.aiSetupContinue",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-
-    expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
-  });
-
-  it("starts with a real inbox decision and a one-line importance example", async () => {
-    render(<AiInboxSetup forceOpen />);
-
-    expect(
-      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
-    ).not.toBeNull();
-    expect(
-      screen
-        .getByRole("button", { name: "mail.sort.aiSetupTagReceipts" })
-        .getAttribute("aria-pressed"),
-    ).toBe("true");
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    const important = await screen.findByRole("textbox", {
-      name: "mail.sort.aiSetupImportantHeadline",
-    });
-    expect((important as HTMLInputElement).tagName).toBe("INPUT");
-    expect((important as HTMLInputElement).placeholder).toBe(
-      "mail.sort.aiSetupImportantExample",
-    );
-  });
-
-  it("runs inline in first-run onboarding and skips without changing mail", async () => {
+  it("lets users save tab, importance, and archive rules before Builder setup", async () => {
     const onComplete = vi.fn();
-    const onSkipSetup = vi.fn();
+    const onStepChange = vi.fn();
+    mocks.googleStatus.data = { accounts: [], configured: false };
+    mocks.jevAvailability.data = { configured: false };
+
     render(
       <AiInboxSetup
-        forceOpen
         embedded
+        forceOpen
+        firstRunStage="preferences"
+        onStepChange={onStepChange}
         onComplete={onComplete}
-        onSkipSetup={onSkipSetup}
       />,
     );
 
     expect(
       screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
     ).not.toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
-    );
-
-    await waitFor(() =>
-      expect(mocks.updateSettings).toHaveBeenCalledWith({
-        aiSetupCompleted: true,
-      }),
-    );
-    expect(onSkipSetup).toHaveBeenCalledOnce();
-    expect(onComplete).not.toHaveBeenCalled();
-    expect(mocks.createRule).not.toHaveBeenCalled();
-    expect(mocks.startBackfill).not.toHaveBeenCalled();
-  });
-
-  it("offers the shared Gmail setup when first-run has no connected account", async () => {
-    const onSkipSetup = vi.fn();
-    mocks.googleStatus.data = { accounts: [], configured: true };
-
-    render(
-      <AiInboxSetup
-        forceOpen
-        embedded
-        onComplete={vi.fn()}
-        onSkipSetup={onSkipSetup}
-      />,
-    );
-
-    expect(screen.getByTestId("gmail-connect")).not.toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
-    );
-
-    await waitFor(() =>
-      expect(mocks.updateSettings).toHaveBeenCalledWith({
-        aiSetupCompleted: true,
-      }),
-    );
-    expect(onSkipSetup).toHaveBeenCalledOnce();
-  });
-
-  it("explains when Gmail setup is unavailable and persists Skip", async () => {
-    const onSkipSetup = vi.fn();
-    mocks.googleStatus.data = { accounts: [], configured: false };
-
-    render(
-      <AiInboxSetup
-        forceOpen
-        embedded
-        onComplete={vi.fn()}
-        onSkipSetup={onSkipSetup}
-      />,
-    );
-
-    expect(
-      screen.getByText("mail.googleConnect.connectionNotConfigured"),
-    ).not.toBeNull();
-    expect(screen.queryByTestId("gmail-connect")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
-    );
-
-    await waitFor(() =>
-      expect(mocks.updateSettings).toHaveBeenCalledWith({
-        aiSetupCompleted: true,
-      }),
-    );
-    expect(onSkipSetup).toHaveBeenCalledOnce();
-  });
-
-  it("disables first-run Skip while rules are saving", async () => {
-    const onSkipSetup = vi.fn();
-    let finishBackfill: ((result: { runId: string }) => void) | undefined;
-    mocks.startBackfill.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          finishBackfill = resolve;
-        }),
-    );
-    render(<AiInboxSetup forceOpen embedded onSkipSetup={onSkipSetup} />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.change(
-      await screen.findByRole("textbox", {
-        name: "mail.sort.aiSetupImportantHeadline",
-      }),
-      { target: { value: "Keep project decisions visible" } },
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "mail.sort.aiSetupSortInbox",
-      }),
-    );
-
-    const skipButton = screen.getByRole("button", {
-      name: "mail.sort.aiSetupSkipSetup",
-    }) as HTMLButtonElement;
-    await waitFor(() => expect(skipButton.disabled).toBe(true));
-    fireEvent.click(skipButton);
-    expect(onSkipSetup).not.toHaveBeenCalled();
-
-    finishBackfill?.({ runId: "run-1" });
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
-      ).toBeNull(),
-    );
-  });
-
-  it("uses the shared Skip inbox label on the cleanup step", () => {
-    render(<AiInboxSetup forceOpen />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-
-    expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
-    expect(screen.queryByText("mail.aiFilter.autoArchiveMode")).toBeNull();
-  });
-
-  it("does not save the cleanup examples as archive or spam rules", async () => {
-    render(<AiInboxSetup forceOpen />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-
-    const archiveInput = screen.getByRole("textbox", {
-      name: "mail.aiFilter.skipInboxMode",
-    }) as HTMLInputElement;
-    const spamInput = screen.getByRole("textbox", {
-      name: "mail.aiFilter.filteredMode",
-    }) as HTMLInputElement;
-    expect(archiveInput.value).toBe("");
-    expect(archiveInput.placeholder).toBe("mail.sort.aiSetupArchiveExample");
-    expect(spamInput.value).toBe("");
-    expect(spamInput.placeholder).toBe("mail.sort.aiSetupFilteredExample");
+    expect(screen.getByText("mail.sort.aiSetupTagsDescription")).not.toBeNull();
     expect(
       screen
         .getAllByRole("switch")
-        .map((toggle) => toggle.getAttribute("aria-checked")),
-    ).toEqual(["false", "false"]);
+        .map((item) => item.getAttribute("aria-checked")),
+    ).toEqual(["true", "false", "true", "false", "false", "false"]);
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
+    ).toBeNull();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupAddTab" }),
     );
-
-    await screen.findByRole("heading", {
-      name: "mail.sort.aiSetupSortingHeadline",
+    const customInputs = screen.getAllByRole("textbox");
+    fireEvent.change(customInputs[0]!, { target: { value: "Personal" } });
+    fireEvent.change(customInputs[1]!, {
+      target: { value: "Mail from people I know" },
     });
-    await waitFor(() =>
-      expect(mocks.updateSettings).toHaveBeenCalledWith({
-        aiSetupCompleted: true,
-      }),
-    );
-    await waitFor(() => expect(mocks.startBackfill).toHaveBeenCalledOnce());
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
-    expect(mocks.createRule).not.toHaveBeenCalledWith(
+
+    const important = await screen.findByRole("textbox", {
+      name: "mail.sort.aiSetupImportantHeadline",
+    });
+    expect((important as HTMLTextAreaElement).tagName).toBe("TEXTAREA");
+    expect((important as HTMLTextAreaElement).placeholder).toBe(
+      "mail.sort.aiSetupImportantExample",
+    );
+    const bossSuggestion = screen.getByRole("button", {
+      name: "Messages from my boss",
+    });
+    fireEvent.click(bossSuggestion);
+    expect((important as HTMLTextAreaElement).value).toBe(
+      "Messages from my boss, ",
+    );
+    await waitFor(() => expect(document.activeElement).toBe(important));
+    expect((important as HTMLTextAreaElement).selectionStart).toBe(
+      "Messages from my boss, ".length,
+    );
+    fireEvent.click(bossSuggestion);
+    expect((important as HTMLTextAreaElement).value).toBe("");
+    fireEvent.change(important, {
+      target: { value: "Messages from my manager" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    const archive = await screen.findByRole("textbox", {
+      name: "mail.sort.aiSetupSkipInboxHeadline",
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkipBots" }),
+    );
+    expect((archive as HTMLTextAreaElement).value).toBe(
+      "mail.sort.aiSetupSkipBots",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(onStepChange).toHaveBeenCalledWith(1);
+    expect(onStepChange).toHaveBeenCalledWith(2);
+    expect(mocks.createRule).toHaveBeenCalledTimes(5);
+    expect(mocks.createRule).toHaveBeenCalledWith(
       expect.objectContaining({
-        actions: expect.arrayContaining([{ type: "archive" }]),
-      }),
-    );
-    expect(mocks.createRule).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        actions: expect.arrayContaining([
-          { type: "label", labelName: AI_FILTER_LABEL },
-        ]),
-      }),
-    );
-  });
-
-  it("keeps cleanup rules off when their prompt is cleared and rewritten", async () => {
-    render(<AiInboxSetup forceOpen />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-
-    const [archiveSwitch, spamSwitch] = screen.getAllByRole("switch");
-    const archiveInput = screen.getByRole("textbox", {
-      name: "mail.aiFilter.skipInboxMode",
-    });
-    const spamInput = screen.getByRole("textbox", {
-      name: "mail.aiFilter.filteredMode",
-    });
-
-    fireEvent.change(archiveInput, {
-      target: { value: "Archive newsletters" },
-    });
-    fireEvent.change(spamInput, {
-      target: { value: "Skip bot notifications" },
-    });
-    expect(archiveSwitch?.getAttribute("aria-checked")).toBe("true");
-    expect(spamSwitch?.getAttribute("aria-checked")).toBe("true");
-
-    fireEvent.click(archiveSwitch!);
-    fireEvent.click(spamSwitch!);
-    fireEvent.change(archiveInput, { target: { value: "" } });
-    fireEvent.change(spamInput, { target: { value: "" } });
-    fireEvent.change(archiveInput, {
-      target: { value: "Archive vendor newsletters" },
-    });
-    fireEvent.change(spamInput, {
-      target: { value: "Skip automated bot notifications" },
-    });
-
-    expect(archiveSwitch?.getAttribute("aria-checked")).toBe("false");
-    expect(spamSwitch?.getAttribute("aria-checked")).toBe("false");
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
-    );
-    await screen.findByRole("heading", {
-      name: "mail.sort.aiSetupSortingHeadline",
-    });
-    await waitFor(() =>
-      expect(mocks.updateSettings).toHaveBeenCalledWith({
-        aiSetupCompleted: true,
-      }),
-    );
-
-    expect(mocks.createRule).not.toHaveBeenCalled();
-    expect(mocks.startBackfill).not.toHaveBeenCalled();
-  });
-
-  it("resets cleanup opt-outs when setup is reopened", async () => {
-    mocks.automations = [
-      {
-        id: "existing-rule",
-        domain: "mail",
-        kind: "ai-filter",
-        condition: "Existing important rule",
+        condition: "Messages from my manager",
         actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
-        enabled: true,
-      },
-    ];
-    const { rerender } = render(<AiInboxSetup forceOpen />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+      }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    expect(mocks.createRule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        condition: "mail.sort.aiSetupSkipBots",
+        actions: [{ type: "archive" }],
+      }),
     );
-    const archiveInput = screen.getByRole("textbox", {
-      name: "mail.aiFilter.skipInboxMode",
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      aiSetupCompleted: true,
     });
-    const spamInput = screen.getByRole("textbox", {
-      name: "mail.aiFilter.filteredMode",
-    });
-    const [archiveSwitch, spamSwitch] = screen.getAllByRole("switch");
+    expect(
+      window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
+    ).toBe(JSON.stringify(["rule-1", "rule-2", "rule-3", "rule-4", "rule-5"]));
+  });
 
-    fireEvent.change(archiveInput, {
-      target: { value: "Archive older newsletters" },
+  it("continues with the in-memory rule handoff when session storage writes fail", async () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("Storage access is blocked");
     });
-    fireEvent.change(spamInput, {
-      target: { value: "Skip older bot alerts" },
-    });
-    fireEvent.click(archiveSwitch!);
-    fireEvent.click(spamSwitch!);
-
-    rerender(<AiInboxSetup forceOpen={false} />);
-    rerender(<AiInboxSetup forceOpen />);
+    const onComplete = vi.fn();
+    const preferences = render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="preferences"
+        onComplete={onComplete}
+      />,
+    );
 
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
-    const reopenedArchiveInput = screen.getByRole("textbox", {
-      name: "mail.aiFilter.skipInboxMode",
-    });
-    const reopenedSpamInput = screen.getByRole("textbox", {
-      name: "mail.aiFilter.filteredMode",
-    });
-    const [reopenedArchiveSwitch, reopenedSpamSwitch] =
-      screen.getAllByRole("switch");
-    fireEvent.change(reopenedArchiveInput, {
-      target: { value: "Archive new newsletters" },
-    });
-    fireEvent.change(reopenedSpamInput, {
-      target: { value: "Skip new bot alerts" },
-    });
-
-    expect(reopenedArchiveSwitch?.getAttribute("aria-checked")).toBe("true");
-    expect(reopenedSpamSwitch?.getAttribute("aria-checked")).toBe("true");
-
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
-    await screen.findByRole("heading", {
-      name: "mail.sort.aiSetupSortingHeadline",
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(mocks.createRule).toHaveBeenCalledTimes(2);
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      aiSetupCompleted: true,
     });
+    preferences.unmount();
+
+    mocks.automations = mocks.createRule.mock.calls.map(([input], index) => ({
+      id: `rule-${index + 1}`,
+      ...input,
+      domain: "mail" as const,
+      kind: "ai-filter" as const,
+      enabled: true,
+    }));
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
     await waitFor(() =>
       expect(mocks.startBackfill).toHaveBeenCalledWith({
         operation: "start",
         ruleIds: ["rule-1", "rule-2"],
       }),
     );
-    expect(mocks.createRule).toHaveBeenCalledWith(
-      expect.objectContaining({
-        condition: "Archive new newsletters",
-        actions: [{ type: "archive" }],
-      }),
+  });
+
+  it("keeps sorting open and does not navigate when onboarding completion fails", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
     );
-    expect(mocks.createRule).toHaveBeenCalledWith(
-      expect.objectContaining({
-        condition: "Skip new bot alerts",
-        actions: [
-          { type: "label", labelName: AI_FILTER_LABEL },
-          { type: "archive" },
-        ],
-      }),
+    window.sessionStorage.setItem("mail.ai-setup.backfill-run-id", "run-1");
+    const onComplete = vi.fn().mockResolvedValue(false);
+
+    render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="sorting"
+        onComplete={onComplete}
+      />,
     );
-  });
-
-  it("keeps account and Jev loading gates when setup is force-opened", () => {
-    const { rerender } = render(<AiInboxSetup forceOpen />);
-    mocks.googleStatus.isLoading = true;
-    rerender(<AiInboxSetup forceOpen />);
-    expect(
-      screen.queryByRole("heading", {
-        name: "mail.sort.aiSetupTagsHeadline",
-      }),
-    ).toBeNull();
-
-    mocks.googleStatus.isLoading = false;
-    mocks.jevAvailability.isLoading = true;
-    rerender(<AiInboxSetup forceOpen />);
-    expect(
-      screen.queryByRole("heading", {
-        name: "mail.sort.aiSetupTagsHeadline",
-      }),
-    ).toBeNull();
-
-    mocks.jevAvailability.isLoading = false;
-    mocks.googleStatus.data = { accounts: [] };
-    rerender(<AiInboxSetup forceOpen />);
-    expect(
-      screen.queryByRole("heading", {
-        name: "mail.sort.aiSetupTagsHeadline",
-      }),
-    ).toBeNull();
-
-    mocks.googleStatus.data = {
-      accounts: [{ email: "mail-test@example.test" }],
-    };
-    rerender(<AiInboxSetup forceOpen />);
-    expect(
-      screen.getByRole("heading", {
-        name: "mail.sort.aiSetupTagsHeadline",
-      }),
-    ).not.toBeNull();
-  });
-
-  it("shows a skeleton in first-run while Jev availability loads", () => {
-    mocks.jevAvailability.isLoading = true;
-    const { container } = render(<AiInboxSetup forceOpen embedded />);
-
-    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-    expect(
-      screen.queryByRole("heading", {
-        name: "mail.sort.aiSetupTagsHeadline",
-      }),
-    ).toBeNull();
-  });
-
-  it("shows the Settings setup skeleton while Google status loads", () => {
-    mocks.googleStatus.isLoading = true;
-    const { container } = render(<AiInboxSetup forceOpen />);
-
-    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-  });
-
-  it("keeps Settings setup visible while Jev availability loads", () => {
-    mocks.jevAvailability.isLoading = true;
-    const { container } = render(<AiInboxSetup forceOpen />);
-
-    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-    expect(
-      screen.queryByRole("heading", {
-        name: "mail.sort.aiSetupTagsHeadline",
-      }),
-    ).toBeNull();
-  });
-
-  it("advances through setup before completing from the final step", async () => {
-    const onOpenChange = vi.fn();
-    mocks.jevAvailability.data = undefined;
-    mocks.jevAvailability.isError = true;
-
-    render(<AiInboxSetup forceOpen onOpenChange={onOpenChange} />);
-
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupAdjustRules" }),
     );
-    expect(screen.getByRole("progressbar", { name: "2/4" })).not.toBeNull();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-    expect(screen.getByRole("progressbar", { name: "3/4" })).not.toBeNull();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-    expect(screen.getByRole("progressbar", { name: "4/4" })).not.toBeNull();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(mocks.navigate).not.toHaveBeenCalled();
     expect(
       screen.getByRole("heading", {
         name: "mail.sort.aiSetupSortingHeadline",
       }),
     ).not.toBeNull();
     expect(
-      screen.queryByRole("button", { name: "mail.thread.back" }),
-    ).toBeNull();
-    expect(mocks.updateSettings).not.toHaveBeenCalled();
-    expect(onOpenChange).not.toHaveBeenCalled();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+      window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
+    ).toBe(JSON.stringify(["rule-receipts"]));
+    expect(window.sessionStorage.getItem("mail.ai-setup.backfill-run-id")).toBe(
+      "run-1",
     );
-
-    await waitFor(() =>
-      expect(mocks.updateSettings).toHaveBeenCalledWith({
-        aiSetupCompleted: true,
-      }),
-    );
-    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("waits for the initial rules load before applying setup rules", async () => {
-    mocks.rulesLoading = true;
-    const { rerender } = render(<AiInboxSetup forceOpen />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+  it("starts a real-mail backfill for saved rule IDs after setup and shows review and undo", async () => {
+    const onComplete = vi.fn();
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-important"]),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-    const sortInbox = screen.getByRole("button", {
-      name: "mail.sort.aiSetupSortInbox",
-    });
-    expect((sortInbox as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(sortInbox);
-    expect(mocks.startBackfill).not.toHaveBeenCalled();
-    expect(mocks.createRule).not.toHaveBeenCalled();
-
-    mocks.rulesLoading = false;
-    rerender(<AiInboxSetup forceOpen />);
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "mail.sort.aiSetupSortInbox",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(false);
-  });
-
-  it("keeps live result counts, review, and undo visible during a rules refresh", async () => {
-    mocks.startBackfill.mockImplementation(async () => {
-      mocks.rulesLoading = true;
-      return { runId: "run-1", status: "queued" };
-    });
+    mocks.automations = [
+      {
+        id: "rule-important",
+        domain: "mail",
+        kind: "ai-filter",
+        condition: "Messages from my boss",
+        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
+        enabled: true,
+      },
+      {
+        id: "rule-unselected",
+        domain: "mail",
+        kind: "ai-filter",
+        condition: "Messages from an unrelated sender",
+        actions: [{ type: "archive" }],
+        enabled: true,
+      },
+    ];
     mocks.backfillStatus.data = {
       runId: "run-1",
       status: "completed",
-      totalThreads: 1,
-      processedThreads: 1,
+      totalThreads: 12,
+      processedThreads: 12,
       matchedThreads: 1,
       appliedThreads: 1,
       failedThreads: 0,
       perRule: [
         {
-          ruleId: "rule-1",
-          name: "Receipts",
+          ruleId: "rule-important",
+          name: "Important",
           matchedCount: 1,
           appliedCount: 1,
           suggestedCount: 0,
           previews: [
             {
-              id: "thread-1",
-              from: "sender@example.test",
-              subject: "An exact-pair message",
-              labels: ["Receipts"],
+              id: "message-1",
+              from: "Priya <priya@example.test>",
+              subject: "Budget review",
+              labels: [AI_IMPORTANT_LABEL],
               archived: false,
             },
           ],
@@ -821,92 +537,71 @@ describe("AiInboxSetup", () => {
       undoToken: "undo-1",
     };
 
-    render(<AiInboxSetup forceOpen />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="sorting"
+        onComplete={onComplete}
+      />,
     );
 
     await waitFor(() =>
-      expect(
-        screen.getByRole("heading", {
-          name: "mail.sort.aiSetupSortingHeadline",
-        }),
-      ).not.toBeNull(),
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["rule-important"],
+      }),
     );
+    expect(
+      screen.getByRole("heading", {
+        name: "mail.sort.aiSetupSortingHeadline",
+      }),
+    ).not.toBeNull();
+    expect(screen.getByText("Budget review")).not.toBeNull();
     expect(screen.getByText("Matched 1")).not.toBeNull();
-    expect(screen.getByText("An exact-pair message")).not.toBeNull();
     expect(
-      screen.getByRole("link", { name: "mail.sort.aiSetupTagReceipts" }),
+      screen.getByRole("link", { name: /Important.*Matched 1/ }),
     ).not.toBeNull();
-    expect(
-      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
-    ).not.toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "mail.thread.back" }),
-    ).toBeNull();
     expect(
       screen.getByRole("button", { name: "mail.actions.undo" }),
     ).not.toBeNull();
-  });
-
-  it("does not backfill default tags after skipping the tag step", async () => {
-    render(<AiInboxSetup forceOpen />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "mail.thread.back" }));
     expect(
-      screen
-        .getByRole("button", { name: "mail.sort.aiSetupTagReceipts" })
-        .getAttribute("aria-pressed"),
-    ).toBe("false");
-    expect(
-      screen
-        .getByRole("button", { name: "mail.sort.aiSetupTagGitHub" })
-        .getAttribute("aria-pressed"),
-    ).toBe("false");
+      screen.getByRole("button", { name: "mail.sort.aiSetupAdjustRules" }),
+    ).not.toBeNull();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
-    );
-
-    await screen.findByRole("heading", {
-      name: "mail.sort.aiSetupSortingHeadline",
-    });
+    fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
     await waitFor(() =>
-      expect(mocks.updateSettings).toHaveBeenCalledWith({
-        aiSetupCompleted: true,
+      expect(mocks.startBackfill).toHaveBeenLastCalledWith({
+        operation: "undo",
+        runId: "run-1",
+        undoToken: "undo-1",
       }),
     );
-    expect(mocks.startBackfill).not.toHaveBeenCalled();
-    expect(mocks.createRule).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
   });
 
-  it("does not save or backfill a draft Important rule after skipping that step", async () => {
-    render(<AiInboxSetup forceOpen />);
+  it("does not save skipped tag or Important drafts", async () => {
+    const onComplete = vi.fn();
+    render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="preferences"
+        onComplete={onComplete}
+      />,
+    );
 
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.change(
       await screen.findByRole("textbox", {
         name: "mail.sort.aiSetupImportantHeadline",
       }),
-      { target: { value: "Anything from my manager" } },
+      { target: { value: "Messages from my manager" } },
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
@@ -915,77 +610,217 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
-    await waitFor(() =>
-      expect(mocks.startBackfill).toHaveBeenCalledWith({
-        operation: "start",
-        ruleIds: ["rule-1", "rule-2"],
-      }),
-    );
-    expect(mocks.createRule).toHaveBeenCalledTimes(2);
-    expect(mocks.createRule).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        condition: "Anything from my manager",
-        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
-      }),
-    );
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      aiSetupCompleted: true,
+    });
+    expect(
+      window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
+    ).toBe("[]");
   });
 
-  it("saves tags and Important when skipping optional cleanup", async () => {
-    render(<AiInboxSetup forceOpen />);
+  it("keeps setup out of the preview modal and shows it inline when embedded", () => {
+    mocks.firstRunOnboardingGateOwnsSurface = true;
+    mocks.onboardingPreview = true;
+    const view = render(<AiInboxSetup forceOpen />);
+
+    expect(
+      screen.queryByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).toBeNull();
+
+    view.rerender(
+      <AiInboxSetup embedded forceOpen firstRunStage="preferences" />,
+    );
+    expect(
+      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("dialog")).toBeNull();
+  });
+
+  it("does not write rules or settings from onboarding preview", async () => {
+    mocks.onboardingPreview = true;
+    const onComplete = vi.fn();
+    render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="preferences"
+        onComplete={onComplete}
+      />,
+    );
 
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
-    fireEvent.change(
-      screen.getByRole("textbox", {
-        name: "mail.sort.aiSetupImportantHeadline",
-      }),
-      { target: { value: "Anything from my manager" } },
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.updateRule).not.toHaveBeenCalled();
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+    expect(
+      window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
+    ).toBeNull();
+  });
+
+  it("waits for initial rules before reusing a matching rule", async () => {
+    const onComplete = vi.fn();
+    mocks.rulesLoading = true;
+    const existingRule = {
+      id: "existing-receipts",
+      domain: "mail" as const,
+      kind: "ai-filter" as const,
+      condition: "mail.sort.aiSetupPromptReceipts",
+      actions: [
+        { type: "label" as const, labelName: "mail.sort.aiSetupTagReceipts" },
+      ],
+      enabled: true,
+    };
+    const view = render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="preferences"
+        onComplete={onComplete}
+      />,
+    );
+    fireEvent.click(screen.getAllByRole("switch")[2]!);
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
 
-    await waitFor(() =>
-      expect(mocks.startBackfill).toHaveBeenCalledWith({
-        operation: "start",
-        ruleIds: ["rule-1", "rule-2", "rule-3"],
-      }),
+    mocks.automations = [existingRule];
+    mocks.rulesLoading = false;
+    view.rerender(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="preferences"
+        onComplete={onComplete}
+      />,
     );
-    expect(mocks.createRule).toHaveBeenCalledWith(
-      expect.objectContaining({
-        condition: "mail.sort.aiSetupPromptReceipts",
-      }),
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
-    expect(mocks.createRule).toHaveBeenCalledWith(
-      expect.objectContaining({
-        condition: "mail.sort.aiSetupPromptGitHub",
-      }),
-    );
-    expect(mocks.createRule).toHaveBeenCalledWith(
-      expect.objectContaining({
-        condition: "Anything from my manager",
-        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
-      }),
-    );
-    expect(mocks.createRule).toHaveBeenCalledTimes(3);
-    expect(screen.getByRole("progressbar", { name: "4/4" })).not.toBeNull();
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      aiSetupCompleted: true,
+    });
   });
 
-  it("enables a matching disabled rule before including it in the backfill", async () => {
+  it("does not backfill or write settings from preview sorting", async () => {
+    const onComplete = vi.fn();
+    mocks.onboardingPreview = true;
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-important"]),
+    );
+    mocks.automations = [
+      {
+        id: "rule-important",
+        domain: "mail",
+        kind: "ai-filter",
+        condition: "Messages from my boss",
+        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
+        enabled: true,
+      },
+    ];
+    render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="sorting"
+        onComplete={onComplete}
+      />,
+    );
+
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("does not expose provider connection actions in preview sorting", () => {
+    mocks.onboardingPreview = true;
+    mocks.googleStatus.data = { accounts: [], configured: true };
+    mocks.jevAvailability.data = { configured: false };
+    const view = render(
+      <AiInboxSetup embedded forceOpen firstRunStage="sorting" />,
+    );
+
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+    expect(screen.queryByTestId("jev-connect")).toBeNull();
+
+    mocks.googleStatus.data = {
+      accounts: [{ email: "mail-test@example.test" }],
+      configured: true,
+    };
+    view.rerender(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+    expect(screen.queryByTestId("jev-connect")).toBeNull();
+  });
+
+  it("clears pending rules without backfilling after custom setup opens Settings", async () => {
+    mocks.locationPath = "/settings/model";
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-custom"]),
+    );
+    mocks.automations = [
+      {
+        id: "rule-custom",
+        domain: "mail",
+        kind: "ai-filter",
+        condition: "Important mail from my manager",
+        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
+        enabled: true,
+      },
+    ];
+    mocks.jevAvailability.data = { configured: false };
+    mocks.automationSettings.data = {
+      engine: "test-engine",
+      model: "test-model",
+    };
+    render(<AiInboxSetup />);
+
+    await waitFor(() =>
+      expect(
+        window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
+      ).toBeNull(),
+    );
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+  });
+
+  it("re-enables a matching disabled rule before backfilling it", async () => {
     const disabledRule = {
       id: "disabled-receipts",
       domain: "mail" as const,
       kind: "ai-filter" as const,
       condition: "mail.sort.aiSetupPromptReceipts",
       actions: [
-        {
-          type: "label" as const,
-          labelName: "mail.sort.aiSetupTagReceipts",
-        },
+        { type: "label" as const, labelName: "mail.sort.aiSetupTagReceipts" },
       ],
       enabled: false,
     };
@@ -1000,7 +835,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     await waitFor(() => {
@@ -1015,169 +850,21 @@ describe("AiInboxSetup", () => {
     });
   });
 
-  it("applies the chosen rules to recent mail and shows real results with Review and Undo", async () => {
-    mocks.backfillStatus.data = {
-      runId: "run-1",
-      status: "completed",
-      totalThreads: 12,
-      processedThreads: 12,
-      matchedThreads: 4,
-      appliedThreads: 4,
-      failedThreads: 0,
-      perRule: [
-        {
-          ruleId: "rule-1",
-          name: "Receipts",
-          matchedCount: 2,
-          appliedCount: 2,
-          suggestedCount: 0,
-          previews: [
-            {
-              id: "thread-1",
-              from: "Shop <orders@shop.example.test>",
-              subject: "Your receipt",
-              labels: ["Receipts"],
-              archived: false,
-            },
-          ],
-        },
-        {
-          ruleId: "rule-3",
-          name: "Important",
-          matchedCount: 1,
-          appliedCount: 1,
-          suggestedCount: 0,
-          previews: [
-            {
-              id: "thread-2",
-              from: "Manager <manager@example.test>",
-              subject: "Needs a reply",
-              labels: [AI_IMPORTANT_LABEL],
-              archived: false,
-            },
-          ],
-        },
-        {
-          ruleId: "rule-4",
-          name: "Archive newsletters",
-          matchedCount: 1,
-          appliedCount: 1,
-          suggestedCount: 0,
-          previews: [
-            {
-              id: "thread-3",
-              from: "News <newsletter@example.test>",
-              subject: "Weekly news",
-              labels: [],
-              archived: true,
-            },
-          ],
-        },
-        {
-          ruleId: "rule-5",
-          name: "Skip bot notifications",
-          matchedCount: 1,
-          appliedCount: 1,
-          suggestedCount: 0,
-          previews: [
-            {
-              id: "thread-4",
-              from: "GitHub <notifications@github.example.test>",
-              subject: "Build complete",
-              labels: [AI_FILTER_LABEL],
-              archived: true,
-            },
-          ],
-        },
-      ],
-      undoToken: "undo-1",
-    };
-
-    render(<AiInboxSetup forceOpen />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+  it("shows a real no-match result without fabricating previews", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
     );
-    fireEvent.change(
-      await screen.findByRole("textbox", {
-        name: "mail.sort.aiSetupImportantHeadline",
-      }),
-      { target: { value: "Anything from my manager, Priya" } },
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.change(
-      screen.getByRole("textbox", {
-        name: "mail.aiFilter.skipInboxMode",
-      }),
-      { target: { value: "Archive newsletters" } },
-    );
-    fireEvent.change(
-      screen.getByRole("textbox", {
-        name: "mail.aiFilter.filteredMode",
-      }),
-      { target: { value: "Skip bot notifications" } },
-    );
-    expect(
-      screen
-        .getAllByRole("switch")
-        .map((toggle) => toggle.getAttribute("aria-checked")),
-    ).toEqual(["true", "true"]);
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "mail.sort.aiSetupSortInbox",
-      }),
-    );
-
-    await waitFor(() => expect(mocks.startBackfill).toHaveBeenCalledOnce());
-    expect(mocks.startBackfill).toHaveBeenCalledWith({
-      operation: "start",
-      ruleIds: ["rule-1", "rule-2", "rule-3", "rule-4", "rule-5"],
-    });
-    expect(mocks.createRule).toHaveBeenCalledWith(
-      expect.objectContaining({
-        condition: "Anything from my manager, Priya",
-        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
-      }),
-    );
-    expect(await screen.findByText("Your receipt")).not.toBeNull();
-    expect(screen.getByText("Build complete")).not.toBeNull();
-    expect(screen.getAllByText("Receipts").length).toBeGreaterThan(1);
-    expect(
-      screen
-        .getByRole("link", { name: "mail.sort.aiSetupTagReceipts" })
-        .getAttribute("href"),
-    ).toBe(labelTabHref("mail.sort.aiSetupTagReceipts"));
-    expect(
-      screen
-        .getByRole("link", { name: "mail.aiFilter.importantMode" })
-        .getAttribute("href"),
-    ).toBe(labelTabHref(AI_IMPORTANT_LABEL));
-    expect(
-      screen
-        .getByRole("link", { name: "mail.aiFilter.skipInboxMode" })
-        .getAttribute("href"),
-    ).toBe("/archive");
-    expect(
-      screen
-        .getByRole("link", { name: "mail.aiFilter.filteredMode" })
-        .getAttribute("href"),
-    ).toBe(labelTabHref(AI_FILTER_LABEL));
-    expect(
-      screen.getByRole("button", { name: "mail.actions.undo" }),
-    ).not.toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
-    await waitFor(() =>
-      expect(mocks.startBackfill).toHaveBeenLastCalledWith({
-        operation: "undo",
-        runId: "run-1",
-        undoToken: "undo-1",
-      }),
-    );
-  });
-
-  it("shows no fabricated previews for zero matches and lets the user teach Jev in chat", async () => {
+    mocks.automations = [
+      {
+        id: "rule-receipts",
+        domain: "mail",
+        kind: "ai-filter",
+        condition: "Receipts",
+        actions: [{ type: "label", labelName: "Receipts" }],
+        enabled: true,
+      },
+    ];
     mocks.backfillStatus.data = {
       runId: "run-1",
       status: "completed",
@@ -1188,7 +875,7 @@ describe("AiInboxSetup", () => {
       failedThreads: 0,
       perRule: [
         {
-          ruleId: "rule-1",
+          ruleId: "rule-receipts",
           name: "Receipts",
           matchedCount: 0,
           appliedCount: 0,
@@ -1198,36 +885,23 @@ describe("AiInboxSetup", () => {
       ],
     };
 
-    render(<AiInboxSetup forceOpen />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "mail.sort.aiSetupSkip",
-      }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "mail.sort.aiSetupSortInbox",
-      }),
-    );
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
 
     expect(
       await screen.findByText("mail.sort.aiSetupNoMatches"),
     ).not.toBeNull();
-    expect(screen.queryByText("Your receipt")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupChatPrompt" }),
-    );
-    expect(mocks.sendToAgentChat).toHaveBeenCalledWith({
-      message: "mail.sort.aiSetupChatPrompt",
-      submit: false,
-      openSidebar: true,
+    expect(screen.queryByText("Fabricated preview")).toBeNull();
+    expect(mocks.startBackfill).toHaveBeenCalledWith({
+      operation: "start",
+      ruleIds: ["rule-receipts"],
     });
   });
 
-  it("does not report no matches when a backfill failed before evaluation", async () => {
+  it("does not call a failed backfill a no-match result", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
     mocks.backfillStatus.data = {
       runId: "run-1",
       status: "failed",
@@ -1238,7 +912,7 @@ describe("AiInboxSetup", () => {
       failedThreads: 12,
       perRule: [
         {
-          ruleId: "rule-1",
+          ruleId: "rule-receipts",
           name: "Receipts",
           matchedCount: 0,
           appliedCount: 0,
@@ -1248,26 +922,19 @@ describe("AiInboxSetup", () => {
       ],
     };
 
-    render(<AiInboxSetup forceOpen />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "mail.sort.aiSetupSkip",
-      }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "mail.sort.aiSetupSortInbox",
-      }),
-    );
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
 
-    expect(await screen.findByText("mail.sort.aiSetupSortingFailed"));
+    expect(
+      await screen.findByText("mail.sort.aiSetupSortingFailed"),
+    ).not.toBeNull();
     expect(screen.queryByText("mail.sort.aiSetupNoMatches")).toBeNull();
   });
 
-  it("shows the status refresh error once while preserving cached progress", async () => {
+  it("shows one refresh error while keeping cached backfill progress", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
     mocks.backfillStatus.data = {
       runId: "run-1",
       status: "running",
@@ -1278,7 +945,7 @@ describe("AiInboxSetup", () => {
       failedThreads: 0,
       perRule: [
         {
-          ruleId: "rule-1",
+          ruleId: "rule-receipts",
           name: "Receipts",
           matchedCount: 2,
           appliedCount: 2,
@@ -1289,16 +956,7 @@ describe("AiInboxSetup", () => {
     };
     mocks.backfillStatus.isError = true;
 
-    render(<AiInboxSetup forceOpen />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
-    );
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
 
     await waitFor(() =>
       expect(
@@ -1309,23 +967,640 @@ describe("AiInboxSetup", () => {
     expect(screen.getByText("Matched 2")).not.toBeNull();
   });
 
-  it("shows an indeterminate finding state until the backfill total is known", async () => {
-    mocks.backfillStatus.isLoading = true;
+  it("retries backfill status without starting an overlapping run", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "running",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 2,
+      failedThreads: 0,
+      perRule: [],
+    };
+    mocks.backfillStatus.isError = true;
 
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+    await screen.findByText("mail.sort.aiSetupSortingFailed");
+    const callsBeforeRetry = mocks.startBackfill.mock.calls.length;
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+
+    expect(mocks.backfillStatus.refetch).toHaveBeenCalledOnce();
+    expect(mocks.startBackfill).toHaveBeenCalledTimes(callsBeforeRetry);
+  });
+
+  it("restores a first-run backfill after remount until results are acknowledged", async () => {
+    const rule = {
+      id: "rule-receipts",
+      domain: "mail" as const,
+      kind: "ai-filter" as const,
+      condition: "Receipts",
+      actions: [{ type: "label" as const, labelName: "Receipts" }],
+      enabled: true,
+    };
+    const onComplete = vi.fn();
+    const props = {
+      embedded: true,
+      forceOpen: true,
+      firstRunStage: "sorting" as const,
+      onComplete,
+    };
+    mocks.automations = [rule];
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify([rule.id]),
+    );
+
+    const firstRender = render(<AiInboxSetup {...props} />);
+    await waitFor(() =>
+      expect(
+        window.sessionStorage.getItem("mail.ai-setup.backfill-run-id"),
+      ).toBe("run-1"),
+    );
+    firstRender.unmount();
+
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "running",
+      totalThreads: 4,
+      processedThreads: 2,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 0,
+      undoToken: "undo-run-1",
+      perRule: [
+        {
+          ruleId: rule.id,
+          name: "Receipts",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+    };
+
+    const secondRender = render(<AiInboxSetup {...props} />);
+    await waitFor(() => expect(mocks.backfillRunIds).toContain("run-1"));
+    expect(
+      screen.getByRole("link", { name: /Receipts/ }).getAttribute("href"),
+    ).toContain("Receipts");
+    expect(
+      screen.getByRole("button", { name: "mail.actions.undo" }),
+    ).not.toBeNull();
+    expect(mocks.startBackfill).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(
+      window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
+    ).toBeNull();
+    expect(
+      window.sessionStorage.getItem("mail.ai-setup.backfill-run-id"),
+    ).toBeNull();
+    secondRender.unmount();
+  });
+
+  it("keeps Sorting usable when session storage reads are blocked", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("Storage access is blocked");
+    });
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(
+      screen.getByRole("heading", {
+        name: "mail.sort.aiSetupSortingHeadline",
+      }),
+    ).not.toBeNull();
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+  });
+
+  it("keeps an active backfill and Done usable when session storage writes fail", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("Storage access is blocked");
+    });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("Storage access is blocked");
+    });
+    mocks.backfillStatus.isLoading = true;
+    const onComplete = vi.fn();
+
+    render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="sorting"
+        onComplete={onComplete}
+      />,
+    );
+    await waitFor(() => expect(mocks.backfillRunIds).toContain("run-1"));
+
+    expect(screen.queryByText("mail.sort.aiSetupSortingFailed")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+  });
+
+  it("starts a new backfill after the active run reaches a failed state", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "failed",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 1,
+      failedThreads: 1,
+      perRule: [],
+    };
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+    await screen.findByText("mail.sort.aiSetupSortingFailed");
+    const callsBeforeRetry = mocks.startBackfill.mock.calls.length;
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledTimes(callsBeforeRetry + 1),
+    );
+  });
+
+  it("requires undoing partial changes before retrying a failed run", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    window.sessionStorage.setItem("mail.ai-setup.backfill-run-id", "run-1");
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "failed",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 1,
+      failedThreads: 1,
+      undoToken: "undo-run-1",
+      perRule: [],
+    };
+
+    const view = render(
+      <AiInboxSetup embedded forceOpen firstRunStage="sorting" />,
+    );
+    expect(
+      await screen.findByText("mail.sort.aiSetupUndoBeforeRetry"),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "undo",
+        runId: "run-1",
+        undoToken: "undo-run-1",
+      }),
+    );
+
+    mocks.backfillStatus.data = {
+      ...mocks.backfillStatus.data!,
+      status: "undone",
+      restoredThreads: 1,
+      undoToken: undefined,
+    };
+    view.rerender(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+    await waitFor(() =>
+      expect(
+        mocks.startBackfill.mock.calls.filter(
+          ([input]) => input.operation === "start",
+        ),
+      ).toHaveLength(1),
+    );
+  });
+
+  it("keeps setup hidden behind the Google and Jev loading gates", () => {
+    mocks.googleStatus.isLoading = true;
+    const firstRender = render(<AiInboxSetup forceOpen />);
+    expect(
+      screen.queryByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).toBeNull();
+    firstRender.unmount();
+
+    mocks.googleStatus.isLoading = false;
+    mocks.jevAvailability.isLoading = true;
+    render(<AiInboxSetup forceOpen />);
+    expect(
+      screen.queryByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).toBeNull();
+  });
+
+  it("runs the Settings dialog from rules through backfill results", async () => {
+    const onOpenChange = vi.fn();
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "completed",
+      totalThreads: 4,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "rule-1",
+          name: "Receipts",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [
+            {
+              id: "mail-1",
+              from: "Store <orders@example.test>",
+              subject: "A real receipt",
+              labels: ["Receipts"],
+              archived: false,
+            },
+          ],
+        },
+      ],
+    };
+
+    render(<AiInboxSetup forceOpen onOpenChange={onOpenChange} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupSkipInboxHeadline",
+      }),
+      { target: { value: "Archive weekly newsletters" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["rule-1", "rule-2", "rule-3"],
+      }),
+    );
+    expect(await screen.findByText("A real receipt")).not.toBeNull();
+    expect(screen.getByText("mail.sort.aiSetupPartialFailure")).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("retries a failed Settings backfill start with the saved rule ids", async () => {
+    mocks.startBackfill.mockRejectedValueOnce(new Error("temporary failure"));
     render(<AiInboxSetup forceOpen />);
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupSkipInboxHeadline",
+      }),
+      { target: { value: "Archive weekly newsletters" } },
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
     );
 
     expect(
-      await screen.findByText("mail.sort.aiSetupFindingRecentMail"),
+      await screen.findByText("mail.sort.aiSetupSortingFailed"),
     ).not.toBeNull();
-    expect(screen.queryByText("Sorting recent mail: 0 of 0")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+    await waitFor(() => expect(mocks.startBackfill).toHaveBeenCalledTimes(2));
+    expect(mocks.startBackfill).toHaveBeenNthCalledWith(1, {
+      operation: "start",
+      ruleIds: ["rule-1", "rule-2", "rule-3"],
+    });
+    expect(mocks.startBackfill).toHaveBeenNthCalledWith(2, {
+      operation: "start",
+      ruleIds: ["rule-1", "rule-2", "rule-3"],
+    });
+  });
+
+  it.each([
+    ["undo mutation", "mail.sort.aiSetupUndoFailed"],
+    ["undo status refresh", "mail.sort.aiSetupUndoStatusFailed"],
+  ])("shows an error when %s fails", async (failure, expectedMessage) => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    window.sessionStorage.setItem("mail.ai-setup.backfill-run-id", "run-1");
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "failed",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 1,
+      failedThreads: 1,
+      undoToken: "undo-run-1",
+      perRule: [],
+    };
+    if (failure === "undo mutation") {
+      mocks.startBackfill.mockRejectedValueOnce(new Error("temporary failure"));
+    } else {
+      mocks.backfillStatus.refetch.mockResolvedValueOnce({ isError: true });
+    }
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+    fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(expectedMessage),
+    );
+  });
+
+  it("lets the Settings dialog save and finish without Jev", async () => {
+    mocks.jevAvailability.data = { configured: false };
+    const onOpenChange = vi.fn();
+    render(<AiInboxSetup forceOpen onOpenChange={onOpenChange} />);
+
+    expect(
+      screen.getAllByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toHaveLength(1);
+    expect(screen.getByText("mail.sort.aiSetupTagsDescription")).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      aiSetupCompleted: true,
+    });
+    expect(mocks.createRule).toHaveBeenCalledTimes(2);
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+  });
+
+  it("shows the Google connect handoff on the post-setup sorting screen", () => {
+    mocks.googleStatus.data = { accounts: [], configured: true };
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(screen.getByTestId("gmail-connect")).not.toBeNull();
+    expect(
+      screen.getByTestId("gmail-connect").getAttribute("data-variant"),
+    ).toBe("button");
+    expect(
+      screen.getByRole("heading", {
+        name: "mail.sort.aiSetupConnectGmailHeadline",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupSortingHeadline",
+      }),
+    ).toBeNull();
+    expect(screen.queryByText("mail.sort.aiSetupNoRules")).toBeNull();
+  });
+
+  it("waits for Gmail status before deciding whether to connect", () => {
+    mocks.googleStatus.data = undefined;
+    mocks.googleStatus.isLoading = true;
+    mocks.googleStatus.isSuccess = false;
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupConnectGmailHeadline",
+      }),
+    ).toBeNull();
+  });
+
+  it("shows a retry instead of a Gmail connect prompt when status fails", () => {
+    mocks.googleStatus.data = undefined;
+    mocks.googleStatus.isError = true;
+    mocks.googleStatus.isSuccess = false;
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(
+      screen.getByText("mail.sort.aiSetupGmailStatusFailed"),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+    expect(mocks.googleStatus.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("retries unknown model settings without prompting for Jev or claiming results", () => {
+    mocks.jevAvailability.data = { configured: false };
+    mocks.automationSettings.isError = true;
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(
+      screen.getByText("mail.sort.aiSetupAutomationSettingsFailed"),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupConnectJevHeadline",
+      }),
+    ).toBeNull();
+    expect(screen.queryByTestId("jev-connect")).toBeNull();
+    expect(screen.queryByText("mail.sort.aiSetupNoMatches")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+    expect(mocks.automationSettings.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the settings dialog open when model settings could not be checked", async () => {
+    mocks.jevAvailability.data = { configured: false };
+    mocks.automationSettings.isError = true;
+
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    expect(
+      screen.getByText("mail.sort.aiSetupAutomationSettingsFailed"),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("jev-connect")).toBeNull();
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    ).toHaveProperty("disabled", true);
+  });
+
+  it("keeps a cached Gmail connection after a status refetch fails", () => {
+    const view = render(
+      <AiInboxSetup embedded forceOpen firstRunStage="sorting" />,
+    );
+    mocks.googleStatus.isError = true;
+    mocks.googleStatus.isSuccess = false;
+    view.rerender(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(screen.queryByText("mail.sort.aiSetupGmailStatusFailed")).toBeNull();
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+  });
+
+  it("keeps an open setup dialog and its edits after a Gmail refetch fails", () => {
+    const view = render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupAddTab" }),
+    );
+    const tabName = screen.getByRole("textbox", {
+      name: "mail.sort.aiSetupCustomTabName",
+    });
+    fireEvent.change(tabName, { target: { value: "Personal" } });
+
+    mocks.googleStatus.isError = true;
+    mocks.googleStatus.isSuccess = false;
+    view.rerender(<AiInboxSetup forceOpen />);
+
+    expect(screen.getByTestId("dialog")).not.toBeNull();
+    expect(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupCustomTabName",
+      }),
+    ).toHaveProperty("value", "Personal");
+    expect(screen.queryByText("mail.sort.aiSetupGmailStatusFailed")).toBeNull();
+  });
+
+  it("offers Skip for now while Gmail or Jev setup is still needed", () => {
+    mocks.googleStatus.data = { accounts: [], configured: true };
+    const onSkip = vi.fn();
+    const view = render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="sorting"
+        onSkip={onSkip}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    expect(onSkip).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupDone" }),
+    ).toBeNull();
+
+    mocks.googleStatus.data = {
+      accounts: [{ email: "mail-test@example.test" }],
+      configured: true,
+    };
+    mocks.jevAvailability.data = { configured: false };
+    view.rerender(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="sorting"
+        onSkip={onSkip}
+      />,
+    );
+    expect(
+      screen.getByRole("heading", {
+        name: "mail.sort.aiSetupConnectJevHeadline",
+      }),
+    ).not.toBeNull();
+    expect(screen.getByTestId("jev-connect")).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupAdjustRules" }),
+    ).toBeNull();
+  });
+
+  it("keeps cached results, review, and undo visible during a rules refresh", async () => {
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "completed",
+      totalThreads: 4,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "rule-1",
+          name: "Receipts",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      undoToken: "undo-1",
+    };
+    const view = render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+    await screen.findByText("Matched 1");
+
+    mocks.rulesLoading = true;
+    view.rerender(<AiInboxSetup forceOpen />);
+
+    expect(screen.getByText("Matched 1")).not.toBeNull();
+    expect(
+      screen.getByRole("link", { name: "mail.sort.aiSetupTagReceipts" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "mail.actions.undo" }),
+    ).not.toBeNull();
   });
 });

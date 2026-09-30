@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
-
-import { CommandMenu } from "@agent-native/core/client/navigation";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   act,
   cleanup,

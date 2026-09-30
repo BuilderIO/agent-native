@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,11 +13,6 @@ import {
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, vars?: Record<string, string>) =>
     vars?.intent ? `${key}:${vars.intent}` : key,
-}));
-
-vi.mock("@agent-native/core/client/ui", () => ({
-  buildSignInReturnHref: ({ returnTo }: { returnTo?: string } = {}) =>
-    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo ?? "/")}`,
 }));
 
 describe("SignInPromptDialog", () => {
@@ -37,9 +33,15 @@ describe("SignInPromptDialog", () => {
   });
 
   it("opens account creation first and preserves the shared clip return path", () => {
-    expect(buildSignUpReturnHref("/share/clip-1?at=90")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip-1%3Fat%3D90&tab=signup",
+    const signUpHref = new URL(
+      buildSignUpReturnHref("/share/clip-1?at=90"),
+      "http://localhost",
     );
+    expect(signUpHref.pathname).toBe("/sign-in");
+    expect(decodeContinuation(signUpHref.searchParams.get("c"))).toBe(
+      "/share/clip-1?at=90",
+    );
+    expect(signUpHref.searchParams.get("tab")).toBe("signup");
 
     act(() => {
       root.render(
@@ -54,11 +56,20 @@ describe("SignInPromptDialog", () => {
 
     const links = Array.from(document.body.querySelectorAll("a"));
     expect(links[0]?.textContent).toContain("signInPrompt.signIn");
-    expect(links[0]?.getAttribute("href")).toContain(
-      "return=%2Fshare%2Fclip-1%3Fat%3D90",
+    const signInHref = new URL(
+      links[0]?.getAttribute("href") ?? "",
+      "http://localhost",
+    );
+    expect(signInHref.pathname).toBe("/sign-in");
+    expect(decodeContinuation(signInHref.searchParams.get("c"))).toBe(
+      "/share/clip-1?at=90",
     );
     expect(links[1]?.textContent).toContain("signInPrompt.createAccount");
-    expect(links[1]?.getAttribute("href")).toContain("tab=signup");
+    const signUpLink = new URL(
+      links[1]?.getAttribute("href") ?? "",
+      "http://localhost",
+    );
+    expect(signUpLink.searchParams.get("tab")).toBe("signup");
     expect(document.body.querySelector('[role="dialog"] h2')?.textContent).toBe(
       "signInPrompt.title:signInPrompt.commentIntent",
     );

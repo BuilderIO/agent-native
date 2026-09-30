@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "연동" } },
   creativeContext: {
     title: "라이브러리",
     description:
@@ -164,12 +165,6 @@ export default {
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
     openAgentSettings: "에이전트 관리",
-    languageTitle: "언어",
-    languageDescription: "Design의 인터페이스 언어를 선택하세요.",
-    languageLabel: "인터페이스 언어",
-    labs: "Labs",
-    labsIntro:
-      "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
     labTweaks: "디자인 트윅",
     labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
     labFullAppBuilding: "전체 앱 만들기",
@@ -196,8 +191,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "AI 연결을 확인하는 중…",
-      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
   },
@@ -230,6 +224,7 @@ export default {
     },
   },
   common: {
+    loading: "불러오는 중...",
     genericError: "문제가 발생했습니다.",
   },
   editPanel: {
@@ -327,6 +322,8 @@ export default {
       bottomLeft: "왼쪽 아래",
       bottomRight: "오른쪽 아래",
       blend: "혼합",
+      blendMode: "혼합 모드",
+      removeBlendMode: "혼합 모드 제거",
       border: "테두리",
       outline: "윤곽선",
       inside: "안쪽",
@@ -1418,6 +1415,8 @@ export default {
         "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
       reactSourceAnchorsUnavailable:
         "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
+      sourceLocationSnapshotFailed:
+        "이 미리보기의 소스 위치를 확인할 수 없습니다.",
       screenSourceUpdated: "화면 소스가 업데이트됨",
       screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
       vectorEditUnsupported:
@@ -1480,12 +1479,7 @@ export default {
         "실시간 편집을 사용하려면 Chrome 프롬프트에서 ‘허용’을 선택하세요.",
       permissionPromptNoPrompt: "Chrome 프롬프트가 표시되지 않나요?",
       permissionPromptSettingsInstructions:
-        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 기기의 앱에 대한 액세스를 허용하세요.",
-      permissionCloseTitle: "설정을 닫을까요?",
-      permissionCloseDescription:
-        "Chrome에서 액세스를 허용해야 실시간 편집을 사용할 수 있습니다.",
-      permissionCloseStay: "설정을 계속 열어 두기",
-      permissionCloseAnyway: "그래도 닫기",
+        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크를 허용으로 설정하세요.",
       permissionPromptRetry: "연결 재시도",
     },
   },
@@ -1672,7 +1666,7 @@ export default {
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
   homeContext: {
-    websiteReference: "웹사이트 첨부",
+    websiteReference: "웹사이트 추가",
     websiteUrlLabel: "웹사이트 URL",
     websiteUrl: "웹사이트 URL 붙여넣기",
     figmaUrlLabel: "Figma 링크",
@@ -1700,7 +1694,7 @@ export default {
     design: "디자인",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
-    figmaReference: "Figma 첨부",
+    figmaReference: "Figma 추가",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",

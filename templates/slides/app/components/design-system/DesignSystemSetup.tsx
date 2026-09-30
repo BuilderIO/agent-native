@@ -10,8 +10,8 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
+import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 import {
   IconWorld,
   IconComponents,

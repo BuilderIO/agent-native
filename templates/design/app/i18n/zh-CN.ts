@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "集成" } },
   creativeContext: {
     title: "资料库",
     description: "可复用的创意上下文，帮助智能体在不同工作中保持一致。",
@@ -157,11 +158,6 @@ export default {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
     openAgentSettings: "管理代理",
-    languageTitle: "语言",
-    languageDescription: "选择 Design 的界面语言。",
-    languageLabel: "界面语言",
-    labs: "Labs",
-    labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
     labTweaks: "设计微调",
     labTweaksDescription: "试用 AI 设计微调功能。",
     labFullAppBuilding: "构建完整应用",
@@ -187,8 +183,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "正在检查 AI 连接…",
-      providerStatusUnavailable: "无法检查 AI 连接。",
+      providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
     common: { retry: "重试" },
   },
@@ -221,6 +216,7 @@ export default {
     },
   },
   common: {
+    loading: "正在加载...",
     genericError: "出了点问题",
   },
   editPanel: {
@@ -318,6 +314,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "混合",
+      blendMode: "混合模式",
+      removeBlendMode: "移除混合模式",
       border: "边框",
       outline: "轮廓",
       inside: "内侧",
@@ -1375,6 +1373,7 @@ export default {
         "无法在源码中定位该图层。请等应用加载完成后重试，或请代理帮你完成此更改。",
       reactSourceAnchorsUnavailable:
         "该应用未向编辑器提供源码位置，因此无法把该图层追溯到具体代码行。请让代理完成此更改。",
+      sourceLocationSnapshotFailed: "无法检查此预览的源代码位置。",
       screenSourceUpdated: "屏幕来源已更新",
       screenSourceUpdateFailed: "无法更新屏幕来源",
       vectorEditUnsupported: "此形状或变换目前无法进行向量编辑。",
@@ -1434,12 +1433,7 @@ export default {
         "在 Chrome 的提示中选择“允许”，以启用实时编辑。",
       permissionPromptNoPrompt: "没有看到 Chrome 提示？",
       permissionPromptSettingsInstructions:
-        "点击地址栏左侧的站点控制图标，打开网站设置，然后允许访问设备上的应用。",
-      permissionCloseTitle: "要关闭设置吗？",
-      permissionCloseDescription:
-        "在 Chrome 中允许访问之前，实时编辑将无法使用。",
-      permissionCloseStay: "保持设置打开",
-      permissionCloseAnyway: "仍要关闭",
+        "点击地址栏左侧的站点控制图标，打开网站设置，然后将本地网络设为“允许”。",
       permissionPromptRetry: "重试连接",
     },
   },
@@ -1621,7 +1615,7 @@ export default {
     staleAnchorDetail: "在画布上已找不到原始元素。",
   },
   homeContext: {
-    websiteReference: "附加网站",
+    websiteReference: "添加网站",
     websiteUrlLabel: "网站 URL",
     websiteUrl: "粘贴网站 URL",
     figmaUrlLabel: "Figma 链接",
@@ -1647,7 +1641,7 @@ export default {
     design: "设计",
     slides: "幻灯片",
     referenceDesign: "参考设计",
-    figmaReference: "附加 Figma",
+    figmaReference: "添加 Figma",
     referenceDeck: "参考演示文稿",
     quickSaas: "创建 SaaS 落地页",
     quickDashboard: "创建仪表盘",

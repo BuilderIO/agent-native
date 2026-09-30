@@ -24,6 +24,10 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
+import {
+  BUILTIN_AGENTS_ENV_KEY,
+  workspaceBuiltinAgentsJson,
+} from "../server/builtin-agents.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -64,6 +68,13 @@ function workspaceFrameworkRoutePrefixEnv(): string {
   return (
     process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || ""
   );
+}
+
+function workspaceFrameworkRoutePrefixEnvSnippet(): string {
+  const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
+  return frameworkRoutePrefix
+    ? `  processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = ${JSON.stringify(frameworkRoutePrefix)};\n`
+    : "  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;\n";
 }
 
 function workspaceFrameworkRoutePrefix(): string {
@@ -118,14 +129,22 @@ interface WorkspaceAppManifestEntry {
   protectedPaths: string[];
 }
 
+function builtinAgentsEnvSnippet(): string {
+  const json = getAppConfig().workspace.builtinAgentsJson;
+  if (!json) return "";
+  return `
+  processRef.env[${JSON.stringify(BUILTIN_AGENTS_ENV_KEY)}] ??= ${JSON.stringify(json)};
+`;
+}
+
 function workspaceDirectoryEnvSnippet(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): string {
   const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
   if (!orgDirectoryUrl && !workspaceApps.some((app) => app.isDispatch)) {
-    return "";
+    return builtinAgentsEnvSnippet();
   }
-  return `
+  return `${builtinAgentsEnvSnippet()}
   const directoryOrigin =
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
     ${JSON.stringify(orgDirectoryUrl ?? null)} ||
@@ -198,6 +217,11 @@ export async function runWorkspaceDeploy(
     );
   }
   assertValidWorkspaceAppIds(apps);
+  // Child builds inherit process.env, and the function shims embed it so
+  // deployed apps see the builder config without the workspace package.json.
+  const builtinAgentsJson = workspaceBuiltinAgentsJson(workspaceRoot);
+  if (builtinAgentsJson)
+    process.env[BUILTIN_AGENTS_ENV_KEY] = builtinAgentsJson;
   const workspaceApps = await readWorkspaceAppManifest(
     workspaceRoot,
     apps,
@@ -316,6 +340,7 @@ function buildOneApp(
       ? workspaceGatewayUrl
       : null);
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
+  const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NITRO_PRESET: preset,
@@ -334,8 +359,6 @@ function buildOneApp(
       : {}),
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX:
-      workspaceFrameworkRoutePrefixEnv(),
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
       workspaceAppRouteAccess.publicPaths,
@@ -366,6 +389,13 @@ function buildOneApp(
       : {}),
     [WORKSPACE_APPS_ENV_KEY]: JSON.stringify(workspaceApps),
   };
+
+  if (frameworkRoutePrefix) {
+    env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      frameworkRoutePrefix;
+  } else {
+    delete env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+  }
 
   if (preset === "netlify" && appUsesNetlifyUnpooledDatabaseUrl(appDir)) {
     env.DATABASE_URL =
@@ -977,13 +1007,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 setBasePathEnv();
@@ -1085,13 +1115,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 function enabled() {
@@ -1234,13 +1264,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 setBasePathEnv();
@@ -1311,13 +1341,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 function normalizeBasePathArgs(args) {

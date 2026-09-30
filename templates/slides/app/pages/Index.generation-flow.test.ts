@@ -19,6 +19,10 @@ const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
   source.indexOf("const handlePromptSubmit"),
 );
+const runner = source.slice(
+  source.indexOf("const runPendingDeckGeneration"),
+  source.indexOf("const handlePromptSubmit"),
+);
 
 describe("new deck generation flow", () => {
   it("renders the inline home composer immediately with chunk recovery", () => {
@@ -94,6 +98,44 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("if (!submission.delivered)");
     expect(flow).toContain('"agent_submit_failed"');
     expect(flow).toContain("submission.reason ??");
+  });
+
+  it("closes before references and restores prompt state when returning", () => {
+    const recovery = flow.slice(
+      flow.indexOf("const recoverFromGenerationSetupFailure"),
+      flow.indexOf("const persisted = await ensureDeckPersisted"),
+    );
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const referenceStep = source.slice(
+      source.indexOf("<NewDeckReferenceStep"),
+      source.indexOf(
+        "onDesignSystemsChanged",
+        source.indexOf("<NewDeckReferenceStep"),
+      ),
+    );
+
+    expect(recovery).toContain('settlePendingDeckAttachments("commit")');
+    const composerContextIndex = promptSubmit.indexOf(
+      "const retryComposerContext =",
+    );
+    expect(composerContextIndex).toBeGreaterThan(-1);
+    const promptCloseIndex = promptSubmit.indexOf("setNewDeckPromptOpen(false");
+    expect(promptCloseIndex).toBeGreaterThan(composerContextIndex);
+    expect(promptCloseIndex).toBeLessThan(
+      promptSubmit.indexOf("const promptReferenceDeckId ="),
+    );
+    expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
+    expect(referenceStep).toContain("text: pending.prompt");
+    expect(referenceStep).toContain("pending.files");
+    expect(referenceStep).toContain("pending.referenceFilePaths");
+    expect(referenceStep).toContain("pending.importedReference");
+    expect(referenceStep).toContain("pending.context");
+    expect(referenceStep).toContain("pending.attachments");
+    expect(referenceStep).toContain("pending.modelSelection");
+    expect(referenceStep).toContain("setShowNewDeckPrompt(true)");
   });
 
   it("carries hidden prompt context through generation retries", () => {
@@ -217,9 +259,30 @@ describe("new deck generation flow", () => {
   });
 
   it("keeps prior attachment chips when a generation retry adds files", () => {
-    expect(flow).toContain("const attachmentsForGeneration = [");
-    expect(flow).toContain("...newDeckRetryAttachments");
-    expect(flow).toContain("...attachments");
+    expect(runner).toContain("const attachmentsForGeneration = [");
+    expect(runner).toContain("...newDeckRetryAttachments");
+    expect(runner).toContain("...attachments");
+    expect(runner).toContain(
+      "mergeUploadedFilesForRetry(\n        newDeckRetryFiles,\n        files,\n      )",
+    );
+    expect(runner).toContain("modelSelection ?? newDeckRetryModelSelection");
+  });
+
+  it("shares saved retry inputs with composer-context generation", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const fastPath = promptSubmit.slice(
+      promptSubmit.indexOf("if (\n        retryComposerContext &&"),
+      promptSubmit.indexOf("setPendingDeck({"),
+    );
+
+    expect(fastPath).toContain("runPendingDeckGeneration(");
+    expect(fastPath).toContain("files,");
+    expect(fastPath).toContain("attachments.attachments");
+    expect(runner).toContain("mergeUploadedFilesForRetry(");
+    expect(runner).toContain("...newDeckRetryAttachments");
   });
   it("passes uploaded image references through the home agent submission", () => {
     expect(flow).toContain(
@@ -231,6 +294,16 @@ describe("new deck generation flow", () => {
   it("preserves the composer model selection through the reference step", () => {
     expect(source).toContain("options?: SlidesPromptSubmitOptions");
     expect(source).toContain("modelSelection: options");
+    expect(source).toContain(
+      `attachments.attachments,
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,`,
+    );
     expect(flow).toContain("...modelSelection");
   });
 
@@ -245,6 +318,15 @@ describe("new deck generation flow", () => {
     expect(source).toContain("setShowNewDeckReferenceStep(true)");
   });
 
+  it("clears uploaded files when a retry prompt is skipped", () => {
+    const skip = source.slice(
+      source.indexOf("const handlePromptSkip"),
+      source.indexOf("const handleDirectImport"),
+    );
+
+    expect(skip).toContain("setNewDeckRetryFiles([]);");
+  });
+
   it("imports directly from the new-deck prompt and opens the imported deck", () => {
     const directImportFlow = source.slice(
       source.indexOf("const handleDirectImport"),
@@ -254,8 +336,8 @@ describe("new deck generation flow", () => {
     expect(directImportFlow).toContain(
       'callAction("import-google-slides-reference"',
     );
-    expect(directImportFlow).toContain('callAction("import-pptx"');
-    expect(directImportFlow).toContain('callAction("import-file"');
+    expect(directImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(directImportFlow).toMatch(/callAction\(\s*"import-file"/);
     expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
     expect(source).toContain(
       "usePromptImport({ onImport: handleDirectImport })",

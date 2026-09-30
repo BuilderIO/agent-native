@@ -11,7 +11,6 @@
 @import "@fontsource/jetbrains-mono/700.css";
 
 @import "tailwindcss";
-@import "@agent-native/core/styles/agent-native.css";
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
@@ -79,7 +78,7 @@
   flex: 1 1 150px;
 }
 
-.slides-home-mobile-toolbar > :nth-child(2) {
+.slides-home-mobile-toolbar > :last-child {
   flex-shrink: 0;
   margin-inline-start: auto;
 }
@@ -181,6 +180,8 @@ button[title="Open agent sidebar"] {
   --sidebar-ring: 0 0% 50%;
 
   --accent-cyan: 187 100% 50%;
+  --slides-crop-control: 0 0% 0%;
+  --slides-crop-control-contrast: 0 0% 100%;
   --slides-thumbnail-shadow: 0 0% 0%;
 }
 
@@ -1570,6 +1571,11 @@ button[title="Open agent sidebar"] {
 }
 .slide-anim-zoom-exit {
   animation: slide-zoom-out 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19) both;
+}
+
+.slide-reference-preview-frame {
+  aspect-ratio: var(--reference-ratio);
+  width: var(--reference-width);
 }
 
 @keyframes elem-appear {

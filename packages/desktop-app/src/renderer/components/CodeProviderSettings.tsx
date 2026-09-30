@@ -1,4 +1,4 @@
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
 import {
   IconChevronDown,
   IconChevronRight,

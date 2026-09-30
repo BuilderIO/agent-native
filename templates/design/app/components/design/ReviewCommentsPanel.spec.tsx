@@ -1,7 +1,6 @@
-// @vitest-environment happy-dom
-
-import type { ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+// @vitest-environment happy-dom
+import type { ReviewThread } from "@agent-native/toolkit/app/review";
 import { act } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -25,10 +24,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/review", () => ({
-  ReviewThreadPanel: (props: Record<string, unknown>) => {
-    mocks.latestPanelProps = props;
-    return <div data-review-thread-panel />;
-  },
   useSetReviewThreadUnread: () => ({
     mutate: mocks.unreadMutate,
     isPending: false,
@@ -42,6 +37,13 @@ vi.mock("@agent-native/core/client/review", () => ({
     mutate: mocks.resolveMutate,
     isPending: false,
   }),
+}));
+
+vi.mock("@agent-native/toolkit/app/review", () => ({
+  ReviewThreadPanel: (props: Record<string, unknown>) => {
+    mocks.latestPanelProps = props;
+    return <div data-review-thread-panel />;
+  },
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({

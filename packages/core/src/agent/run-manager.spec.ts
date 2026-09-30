@@ -1213,6 +1213,70 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("persists and replays follow-up suggestions with the canonical run id", async () => {
+    const runId = "run-follow-up-replay";
+    const suggestions: Extract<AgentChatEvent, { type: "suggestions" }> = {
+      type: "suggestions",
+      suggestions: [
+        {
+          id: `${runId}:follow-up:1`,
+          label: "Refine the layout",
+          prompt: "Refine the spacing of the design we just created.",
+          runId,
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    };
+    const run = startRun(
+      runId,
+      "thread-follow-up-replay",
+      async (send) => {
+        send({ type: "suggestions", suggestions: [] });
+        send({ type: "text", text: "Created your design." });
+        send(suggestions);
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0, turnId: "turn-follow-up-replay" },
+    );
+    await run.finalized;
+
+    const persisted = vi
+      .mocked(insertRunEvent)
+      .mock.calls.filter(([id]) => id === runId)
+      .map(([id, seq, json]) => ({
+        runId: id,
+        seq,
+        event: JSON.parse(json) as AgentChatEvent,
+      }));
+    expect(persisted.map(({ event }) => event)).toEqual([
+      { type: "suggestions", suggestions: [] },
+      { type: "text", text: "Created your design." },
+      suggestions,
+      { type: "done" },
+    ]);
+    vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValueOnce(
+      persisted,
+    );
+    const stream = await replayCompletedTurn(
+      "thread-follow-up-replay",
+      "turn-follow-up-replay",
+    );
+    const output = await new Response(stream).text();
+    const replayed = output
+      .trim()
+      .split("\n\n")
+      .map((entry) => JSON.parse(entry.slice("data: ".length)));
+    expect(replayed).toEqual(
+      persisted.map(({ event, runId: id, seq }, replaySeq) => ({
+        ...event,
+        seq: replaySeq,
+        eventId: `${id}:${seq}`,
+      })),
+    );
+    expect(replayed[2].suggestions[0].runId).toBe(runId);
+  });
+
   it("keeps an in-memory abort successful when durable cleanup fails", async () => {
     const persistenceError = new Error("abort persistence unavailable");
     vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
@@ -3783,6 +3847,82 @@ describe("run manager soft timeout", () => {
       terminalReason: "done",
     });
     abortRun(run.runId, "test");
+  });
+
+  it("prefers a terminal in-memory run while its SQL status write is pending", async () => {
+    const run = startRun(
+      "run-sql-status-pending",
+      "thread-sql-status-pending",
+      async () => {},
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread).mockResolvedValueOnce({
+      id: "run-sql-status-pending",
+      threadId: "thread-sql-status-pending",
+      status: "running",
+      startedAt: run.startedAt,
+      heartbeatAt: run.startedAt,
+      completedAt: null,
+      lastProgressAt: null,
+      dispatchMode: null,
+      terminalReason: null,
+      diagStage: null,
+    });
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-sql-status-pending",
+    );
+
+    expect(result).toMatchObject({
+      runId: "run-sql-status-pending",
+      status: "completed",
+    });
+  });
+
+  it("finds a newer continuation when the previous run still looks running in SQL", async () => {
+    const run = startRun(
+      "run-stale-sql-with-successor",
+      "thread-stale-sql-with-successor",
+      async () => {},
+      undefined,
+      { turnId: "turn-stale-sql-with-successor" },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: "run-stale-sql-with-successor",
+        threadId: "thread-stale-sql-with-successor",
+        turnId: "turn-stale-sql-with-successor",
+        status: "running",
+        startedAt: run.startedAt,
+        heartbeatAt: run.startedAt,
+        completedAt: null,
+        lastProgressAt: null,
+      })
+      .mockResolvedValueOnce({
+        id: "run-continuation-successor",
+        threadId: "thread-stale-sql-with-successor",
+        turnId: "turn-stale-sql-with-successor",
+        status: "running",
+        startedAt: run.startedAt + 1,
+        heartbeatAt: run.startedAt + 1,
+        completedAt: null,
+        lastProgressAt: run.startedAt + 1,
+      });
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-stale-sql-with-successor",
+    );
+
+    expect(result).toMatchObject({
+      runId: "run-continuation-successor",
+      status: "running",
+      turnId: "turn-stale-sql-with-successor",
+    });
   });
 
   it("FIX 1: prefers a newer running successor over a stale in-memory chunk-terminal run for the same turn", async () => {

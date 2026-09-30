@@ -38,8 +38,8 @@ describe("DesignCanvas iframe pan bridge wiring", () => {
       "includeLiveEditEditorChrome\n        ? MOTION_PREVIEW_BRIDGE_SCRIPT",
     );
     expect(canvasSource).toContain(": embeddedGestureBridgeForCurrentState");
-    expect(canvasSource).toContain(
-      "usesLiveEditInjectedBridge && !liveEditBridgeRegistered",
+    expect(canvasSource).toMatch(
+      /registerRuntimeBridge\s*&&\s*usesLiveEditInjectedBridge\s*&&\s*!liveEditBridgeRegistered/,
     );
   });
 

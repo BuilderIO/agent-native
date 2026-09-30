@@ -4,8 +4,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DefaultSpinner } from "../../../toolkit/src/app/shared/DefaultSpinner.js";
 import { LOADING_LABELS } from "../shared/loading-labels.js";
-import { DefaultSpinner } from "./DefaultSpinner.js";
 
 describe("DefaultSpinner", () => {
   let container: HTMLDivElement;

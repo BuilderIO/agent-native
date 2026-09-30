@@ -77,7 +77,8 @@ vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: mocks.dryRunQuery,
 }));
 
-const { default: updateDashboard } = await import("./update-dashboard");
+const { default: updateDashboard, validatePanelSql } =
+  await import("./update-dashboard");
 
 function panel(id: string) {
   return {
@@ -107,6 +108,35 @@ describe("update-dashboard proof-of-done summary", () => {
 
   it("is exposed to the dashboard editor's browser action client", () => {
     expect(updateDashboard.http).toEqual({ method: "POST" });
+  });
+
+  it("uses custom date interpolation for BigQuery dry-run validation", async () => {
+    const error = await validatePanelSql({
+      filters: [
+        {
+          id: "timeRange",
+          type: "select",
+          default: "custom",
+          options: [{ value: "30d", label: "Last 30 days" }],
+        },
+      ],
+      panels: [
+        {
+          id: "signups",
+          title: "Signups",
+          source: "bigquery",
+          chartType: "line",
+          width: 1,
+          sql: "SELECT * FROM events WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '365d' AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)))",
+        },
+      ],
+    });
+
+    expect(error).toBeNull();
+    expect(mocks.dryRunQuery).toHaveBeenCalledWith(
+      expect.stringContaining("'custom' = 'custom' AND event_date >= DATE('"),
+      expect.any(Object),
+    );
   });
 
   it("does not mark frontend saves as AI edits", async () => {

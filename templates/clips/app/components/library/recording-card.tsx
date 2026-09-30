@@ -1,13 +1,16 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
 import { CLIPS_RESILIENT_RECORDING } from "@shared/labs";
+import { isImageRecording } from "@shared/recording-kind";
 import { recordingPolicyFromLab } from "@shared/recording-policy";
+import { isDefaultTitle } from "@shared/title-source";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDotsVertical,
   IconLock,
   IconWorld,
   IconUsersGroup,
+  IconPhoto,
   IconPlayerPlay,
   IconShare,
   IconFolder,
@@ -48,7 +51,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 import {
@@ -133,7 +135,6 @@ export function RecordingCard({
     value: number,
     unit: Parameters<typeof formatters.formatRelativeTime>[1],
   ) => formatters.formatRelativeTime(value, unit);
-  const [hovered, setHovered] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
@@ -165,7 +166,10 @@ export function RecordingCard({
   const staleUpload = isStaleRecordingUpload(recording);
   const atRiskUpload = isAtRiskRecordingUpload(recording);
   const displayFailed = recording.status === "failed" || staleUpload;
-  const showPlaybackChrome = !displayFailed && !waitingForStorage;
+  // A screenshot has nothing to play and no length to show, so the card drops
+  // the play overlay and the duration badge rather than claiming "0:00".
+  const isImage = isImageRecording(recording);
+  const showPlaybackChrome = !displayFailed && !waitingForStorage && !isImage;
   const failureReason = staleUpload
     ? (recording.failureReason ??
       t("recordingPage.processingStuck", { status: recording.status }))
@@ -253,15 +257,11 @@ export function RecordingCard({
   const displayOwnerName = recording.ownerName?.trim() || recording.ownerEmail;
   const visibilityLabel = t(`shareUi.visibility.${recording.visibility}.label`);
 
-  const displayThumbnail = useMemo(() => {
-    if (hovered && recording.animatedThumbnailUrl)
-      return recording.animatedThumbnailUrl;
-    return recording.thumbnailUrl;
-  }, [hovered, recording.animatedThumbnailUrl, recording.thumbnailUrl]);
+  const displayThumbnail = recording.thumbnailUrl;
 
   useEffect(() => {
     setThumbnailFailed(false);
-  }, [displayThumbnail]);
+  }, [recording.thumbnailUrl]);
 
   const ownerInitials = useMemo(() => {
     const words = displayOwnerName.split(/\s+/).filter(Boolean);
@@ -323,8 +323,6 @@ export function RecordingCard({
       <ContextMenuTrigger asChild>
         <div
           role="article"
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
           className={cn(
             "group relative flex flex-col rounded-lg border bg-card overflow-hidden cursor-pointer",
             "border-border/80 hover:border-primary/40",
@@ -352,9 +350,11 @@ export function RecordingCard({
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
-                {showPlaybackChrome && (
+                {isImage ? (
+                  <IconPhoto className="h-10 w-10 text-primary/40" />
+                ) : showPlaybackChrome ? (
                   <IconPlayerPlay className="h-10 w-10 text-primary/40" />
-                )}
+                ) : null}
               </div>
             )}
 

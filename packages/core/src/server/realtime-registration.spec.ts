@@ -12,7 +12,8 @@ vi.mock("../db/client.js", () => ({
   getDatabaseUrl: mockGetDatabaseUrl,
   isPgliteUrl: (url: string) => url.startsWith("pglite:"),
 }));
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: mockGetSetting,
   putSetting: mockPutSetting,
 }));

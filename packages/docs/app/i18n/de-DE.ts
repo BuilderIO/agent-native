@@ -3,8 +3,8 @@ import enUS from "./en-US";
 const deDE = {
   agentChat: {
     setup: {
-      checkingProvider: "KI-Verbindung wird geprüft…",
-      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
     common: { retry: "Erneut versuchen" },
   },
