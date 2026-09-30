@@ -51,22 +51,16 @@ its owning boundary; do not reject it because the suggestion is unsuitable.
 
 For a parent with multiple symptoms, record a disposition for each symptom
 before claiming it. A subjective or out-of-scope suggestion does not close a
-separate defect. Reactions summarize the outcomes on each claimed thread:
-`✅` for verified fixes and `🎫` for anything left unfixed.
+separate defect.
 
 ### Reaction gate
 
-Keep `👀` permanently on every claimed thread. Add `✅` only when a report has
-at least one verified **Fixed** item after Phase 2's four bars; add it to every
-claimed thread the shared fix resolves. Add `🎫` when any investigated item in
-the thread remains unfixed, including deferred or subjective items; this means
-it needs a ticket or follow-up, not that a ticket already exists. A mixed
-thread gets both reactions. **Shipped** and **Live verified** alone do not
-qualify for `✅`.
-
-Never remove reactions. Add status reactions as evidence changes; newer thread
-updates and the item-by-item ledger determine the current disposition when
-older reactions remain.
+Add `✅` to every claimed thread resolved by a verified **Fixed** item (all
+Phase 2 bars). Add `🎫` when any investigated item remains unfixed, including
+subjective or deferred work; it marks follow-up needed, not an existing ticket.
+Mixed threads get both. **Shipped** or **Live verified** alone do not earn
+`✅`. The item ledger and newer thread evidence determine current disposition
+when older reactions remain. Never remove reactions.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -77,20 +71,15 @@ means you found neither a fix nor a useful question; state why in the thread.
 
 ### Authoritative disposition vocabulary
 
-Use one disposition per ledger row; keep its wording in the recap and thread or
-linked work:
-
-Record terminal disposition in the thread or linked work; if neither states
-it, reply once. Current status comes from text or work, never the eye. For
-clusters, use one owner status listing each source permalink and **Clustered**
-state; reply in a non-owner only for a distinct question or update.
+Use one disposition per row; record it in the recap and, if unstated, in the
+thread or linked work. Current status comes from text or work, never the eye.
+For clusters, post one owner status with each source permalink and
+**Clustered**; reply in a non-owner only for a distinct question or update.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
-  **Clustered**, or **Abandoned - no answer in 4 days**. Record an unstated
-  terminal disposition in the thread or linked work. Apply `✅` and `🎫` from
-  the per-item reaction gate above; a thread with both fixed and unfixed items
-  keeps both.
+  **Clustered**, or **Abandoned - no answer in 4 days**. Apply the reaction
+  gate above.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
   **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
@@ -99,11 +88,10 @@ state; reply in a non-owner only for a distinct question or update.
 - **Foreign ownership:** **Owned elsewhere** only when the latest thread update
   or linked work confirms another active owner; an eye alone is claim history.
 
-After source merge, **Fixed** is terminal; track publication, beta, and live
-work separately. Link follow-ups with the original issue, target package/
-release/runtime, owner, and verification command or URL. Do not rediscover or
-reopen closed fixes through open-issue scans. **Clustered** closes one row but
-retains it.
+After merge, **Fixed** closes the source issue; track publication, beta, and
+live follow-up separately. Link each to the source, package/release/runtime,
+owner, and verification command or URL. Open-issue scans must not reopen closed
+fixes. **Clustered** closes one row but retains it.
 
 Enumerate `slack_read_channel` newest backward through `next_cursor` until a
 parent is older than 5 days. Record the oldest in-range parent as the scan
@@ -463,12 +451,9 @@ instruction or prompt exception.
 
 ### The bar for saying "Fixed"
 
-Say **Fixed** only when all four hold: named symptom; exact pre/post
-reproduction; clean or triaged sibling sweep; and verified change in the merged
-shipping snapshot with source or built layer named. **Shipped** adds
-build/deploy provenance; **Live verified** adds target-runtime proof. Otherwise
-use a narrower disposition without implying beta or production health. Upvoted
-improvements state requested versus actual behavior and use **Shipped**.
+Phase 2 defines the proof bars for **Fixed**, **Shipped**, and
+**Live verified**. Upvoted improvements state requested versus actual behavior
+and use **Shipped**.
 
 ## Phase 3: reply
 
@@ -483,44 +468,32 @@ in the thread.
 
 ### After a PR merges
 
-After confirming that a PR fixing a Slack report merged, return to every
-affected source thread, including each thread in a cluster. Re-read the full
-thread and post the new outcome unless that same post-merge update is already
-there. Thank the reporter and name what was fixed. For app fixes handled by
-the beta publisher, say the fix should be live on beta in the next few hours.
-For package-only fixes or changes the beta publisher does not cover, give the
-correct publication and upgrade timing instead of promising beta availability.
-Do not say any fix is already live without runtime proof. If the expected beta
-window has passed, check the publisher and report the current status instead
-of repeating the stale estimate.
+When a Slack-fix PR merges, reply in every affected source thread, including
+clusters, unless that update is already there. Name fixed items; for app fixes
+covered by the beta publisher, say they should be live on beta in the next few
+hours. Otherwise give package publication/upgrade timing. Never claim live
+without runtime proof; if the beta window passes, check the publisher and
+report its status.
 
-For mixed reports, summarize both the fixed items and every item left
-unaddressed, including subjective or out-of-scope items, with the reason. If
-more information is needed, ask one targeted question. If the remaining work
-is clear but deferred, say it will be ticketed; do not claim a ticket exists
-unless it has been created or linked. Keep both
-`✅` and `🎫` on mixed threads. Use the Slack identity, exact-thread, and
-read-back rules below. If merge happens after this run, carry every source
-permalink and the outstanding reply into the PR/feedback ledger, then complete
-the reply after merge.
+For mixed reports, list each unaddressed item and why, including subjective or
+out-of-scope items. Ask one targeted question if needed. Say clear deferred
+work will be ticketed, but claim a ticket only if created or linked. Keep both
+`✅` and `🎫`. If merge comes later, carry source permalinks and the reply
+obligation into the ledger and finish after merge.
 
-- **Fixed** / **Shipped** / **Live verified** - meet the applicable bars above.
-  A live-verified row may otherwise be silent if its observation is recorded,
-  but merged Slack fixes still get the post-merge reply above. For packages,
-  name the published version when available; otherwise name the merged fix and
-  list publication plus the upgrade/re-scaffold follow-up without claiming the
-  published package is fixed. Name beta URL/runtime only when exercised; never
-  substitute a future beta promise for release or live proof.
+- **Fixed** / **Shipped** / **Live verified** - meet Phase 2's proof bars. A
+  recorded live observation may be silent, except merged Slack fixes still get
+  the reply above. Follow the package publication rules above; name beta/runtime
+  only when exercised.
   Use **Shipped** for upvoted improvements.
 - **In progress** — name the active work when it will continue beyond this run;
   acknowledge existing concrete ownership. Ask nothing.
 - **A question** — subject to the budget below.
 
-Unclaimed scope and noise get only an internal recap row. An unverified defect
-earns a targeted question when one answer would unblock it; otherwise record
-**Open - no question** once in the thread. Keep our eye and do not add `✅` for
-this terminal disposition. Cluster duplicate causes.
-Re-read the full thread before replying and stay out of active human work.
+Unclaimed scope/noise gets an internal recap row. Ask about an unverified defect
+only when one answer would unblock it; otherwise record **Open - no question**
+once. Cluster duplicates. Re-read threads before replying and stay out of
+active human work.
 
 ### The question budget
 
