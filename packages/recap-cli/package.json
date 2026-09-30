@@ -32,7 +32,7 @@
   "scripts": {
     "build": "tsc && node dist/copy-recap-workflow.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run --passWithNoTests",
+    "test": "pnpm build && vitest --run --passWithNoTests",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
