@@ -21,7 +21,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   },
 }));
 
-import ImageCropOverlay from "./ImageCropOverlay";
+import ImageCropOverlay, {
+  writeImageCropPercentGeometry,
+} from "./ImageCropOverlay";
 
 function createCropCanvas() {
   const canvas = document.createElement("div");
@@ -60,6 +62,8 @@ function createCropCanvas() {
   Object.defineProperties(viewport, {
     offsetLeft: { configurable: true, get: () => 0 },
     offsetTop: { configurable: true, get: () => 0 },
+    offsetWidth: { configurable: true, get: () => frame.offsetWidth },
+    offsetHeight: { configurable: true, get: () => frame.offsetHeight },
   });
 
   const image = document.createElement("img");
@@ -93,45 +97,45 @@ function createCropCanvas() {
 }
 
 describe("<ImageCropOverlay>", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    document.body.innerHTML = "";
+  });
 
-  it("renders eight crop handles and keeps image options available", () => {
+  it("dims the full image outside black crop handles", () => {
     const nodes = createCropCanvas();
-    const onImageOptions = vi.fn();
 
-    render(
-      <ImageCropOverlay
-        {...nodes}
-        onFinish={vi.fn()}
-        onImageOptions={onImageOptions}
-      />,
-    );
+    render(<ImageCropOverlay {...nodes} onFinish={vi.fn()} />);
 
-    expect(screen.getByRole("group", { name: "Crop image" })).toBeTruthy();
+    const crop = screen.getByRole("group", { name: "Crop image" });
+    expect(crop).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /^Crop / })).toHaveLength(8);
     expect(screen.getByRole("button", { name: "Crop Top Left" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Crop Left" }).style.left).toBe(
-      "0px",
+      "-8px",
     );
-    expect(screen.getByRole("button", { name: "Crop Right" }).style.right).toBe(
-      "0px",
+    const masks = Array.from(
+      crop.querySelectorAll<HTMLElement>("[data-crop-mask]"),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Image options" }));
-    expect(onImageOptions).toHaveBeenCalledTimes(1);
+    expect(masks).toHaveLength(4);
+    expect(masks.map((mask) => [mask.style.width, mask.style.height])).toEqual([
+      ["200px", "10px"],
+      ["200px", "50px"],
+      ["20px", "100px"],
+      ["40px", "100px"],
+    ]);
+    expect(nodes.image.style.opacity).toBe("");
+    expect(nodes.viewport.style.overflow).toBe("visible");
+    expect(
+      crop.querySelector("[data-crop-handle='nw'] span")?.className,
+    ).toContain("bg-black");
   });
 
   it("moves the image in frame coordinates and commits on Enter", () => {
     const nodes = createCropCanvas();
     const onFinish = vi.fn();
 
-    render(
-      <ImageCropOverlay
-        {...nodes}
-        onFinish={onFinish}
-        onImageOptions={vi.fn()}
-      />,
-    );
+    render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
 
     const crop = screen.getByRole("group", { name: "Crop image" });
     fireEvent.pointerDown(crop, {
@@ -147,23 +151,17 @@ describe("<ImageCropOverlay>", () => {
     });
 
     expect(nodes.image.style.left).toBe("0px");
-    expect(nodes.image.style.top).toBe("30px");
+    expect(nodes.image.style.top).toBe("0px");
     fireEvent.pointerUp(window, { pointerId: 1 });
     fireEvent.keyDown(window, { key: "Enter" });
-    expect(onFinish).toHaveBeenCalledWith(true);
+    expect(onFinish).toHaveBeenCalledWith(true, true);
   });
 
   it("converts image movement through the frame rotation", () => {
     const nodes = createCropCanvas();
     nodes.frame.style.transform = "rotate(90deg)";
 
-    render(
-      <ImageCropOverlay
-        {...nodes}
-        onFinish={vi.fn()}
-        onImageOptions={vi.fn()}
-      />,
-    );
+    render(<ImageCropOverlay {...nodes} onFinish={vi.fn()} />);
 
     fireEvent.pointerDown(screen.getByRole("group", { name: "Crop image" }), {
       button: 0,
@@ -186,13 +184,7 @@ describe("<ImageCropOverlay>", () => {
     const nodes = createCropCanvas();
     nodes.frame.style.transform = "perspective(300px) rotateY(20deg)";
 
-    render(
-      <ImageCropOverlay
-        {...nodes}
-        onFinish={vi.fn()}
-        onImageOptions={vi.fn()}
-      />,
-    );
+    render(<ImageCropOverlay {...nodes} onFinish={vi.fn()} />);
 
     fireEvent.pointerDown(screen.getByRole("group", { name: "Crop image" }), {
       button: 0,
@@ -216,13 +208,7 @@ describe("<ImageCropOverlay>", () => {
     const originalImageStyle = nodes.image.getAttribute("style");
     const onFinish = vi.fn();
 
-    render(
-      <ImageCropOverlay
-        {...nodes}
-        onFinish={onFinish}
-        onImageOptions={vi.fn()}
-      />,
-    );
+    render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
 
     fireEvent.pointerDown(screen.getByRole("button", { name: "Crop Left" }), {
       button: 0,
@@ -241,7 +227,7 @@ describe("<ImageCropOverlay>", () => {
     expect(nodes.image.style.left).toBe("-40px");
 
     fireEvent.pointerCancel(window, { pointerId: 2 });
-    expect(onFinish).toHaveBeenCalledWith(false);
+    expect(onFinish).toHaveBeenCalledWith(false, true);
     expect(nodes.frame.getAttribute("style")).toBe(originalFrameStyle);
     expect(nodes.image.getAttribute("style")).toBe(originalImageStyle);
   });
@@ -250,15 +236,56 @@ describe("<ImageCropOverlay>", () => {
     const nodes = createCropCanvas();
     const onFinish = vi.fn();
 
-    render(
-      <ImageCropOverlay
-        {...nodes}
-        onFinish={onFinish}
-        onImageOptions={vi.fn()}
-      />,
-    );
+    render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
 
     fireEvent.pointerDown(document.body, { button: 0, pointerId: 3 });
-    expect(onFinish).toHaveBeenCalledWith(true);
+    expect(onFinish).toHaveBeenCalledWith(true, false);
+  });
+
+  it("clamps crop resize to the full image and commits a no-op without changes", () => {
+    const nodes = createCropCanvas();
+    const onFinish = vi.fn();
+    render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Crop Right" }), {
+      button: 0,
+      pointerId: 6,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 6,
+      clientX: 300,
+      clientY: 100,
+    });
+    expect(nodes.frame.style.width).toBe("240px");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onFinish).toHaveBeenCalledWith(true, true);
+  });
+
+  it("stores crop image geometry relative to the frame so a 2x resize scales it", () => {
+    const nodes = createCropCanvas();
+    const originalImageWidth = nodes.image.offsetWidth;
+    expect(writeImageCropPercentGeometry(nodes.image, nodes.viewport)).toBe(
+      true,
+    );
+    expect(nodes.image.style.left).toBe("-10%");
+    expect(nodes.image.style.width).toBe("130%");
+    expect(nodes.image.style.top).toBe("-10%");
+    expect(nodes.image.style.height).toBe("160%");
+    expect(
+      nodes.frame.offsetWidth *
+        2 *
+        (Number.parseFloat(nodes.image.style.width) / 100),
+    ).toBe(originalImageWidth * 2);
+  });
+
+  it("commits an unchanged crop as a no-op", () => {
+    const nodes = createCropCanvas();
+    const onFinish = vi.fn();
+    render(<ImageCropOverlay {...nodes} onFinish={onFinish} />);
+
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(onFinish).toHaveBeenCalledWith(true, false);
   });
 });

@@ -125,7 +125,9 @@ import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
-import ImageCropOverlay from "./ImageCropOverlay";
+import ImageCropOverlay, {
+  writeImageCropPercentGeometry,
+} from "./ImageCropOverlay";
 import ImageOverlay from "./ImageOverlay";
 import {
   startInPlaceTextSession,
@@ -1598,11 +1600,15 @@ function syncOverflowToAppState(
 }
 
 type ActiveImageCrop = {
+  slideId: string;
+  content: string;
   frame: HTMLElement;
   viewport: HTMLElement;
   image: HTMLImageElement;
+  frozen: { restoreMarkdownTree?: () => void };
   restoreChrome: () => void;
-  cancel: () => void;
+  hasChanges: () => boolean;
+  cancel: () => HTMLElement | null;
 };
 
 export default function SlideEditor({
@@ -2241,27 +2247,79 @@ export default function SlideEditor({
     readCurrentSlideContentHtmlRef.current = readCurrentSlideContentHtml;
   }, [readCurrentSlideContentHtml]);
 
-  const finishImageCrop = useCallback((commit: boolean) => {
+  const finishImageCrop = useCallback((commit: boolean, changed?: boolean) => {
     const crop = imageCropRef.current;
     if (!crop) return;
     imageCropRef.current = null;
     setImageCrop(null);
-    if (commit) {
+    const cropChanged = changed ?? crop.hasChanges();
+    if (commit && cropChanged) {
       crop.restoreChrome();
+      writeImageCropPercentGeometry(crop.image, crop.viewport);
       preserveSlideObjectLayoutSpacer(crop.frame);
       const html = readCurrentSlideContentHtmlRef.current();
       if (html !== null) {
+        if (crop.frozen.restoreMarkdownTree) {
+          const objectId = crop.frame.getAttribute("data-slide-object-id");
+          if (objectId) {
+            const owner = crop.frame.parentElement ?? crop.frame.ownerDocument;
+            owner
+              .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+              .forEach((spacer) => {
+                if (
+                  spacer.getAttribute("data-slide-layout-spacer-for") ===
+                  objectId
+                ) {
+                  spacer.remove();
+                }
+              });
+          }
+          crop.frozen.restoreMarkdownTree();
+        }
         onUpdateSlideRef.current({ content: html }, undefined, {
           persistence: "immediate",
         });
+      } else {
+        crop.cancel();
       }
       return;
     }
-    crop.cancel();
+    const restored = crop.cancel();
+    if (commit && restored) {
+      const image =
+        restored.tagName === "IMG"
+          ? (restored as HTMLImageElement)
+          : restored.querySelector<HTMLImageElement>("img");
+      if (image) setSelectedImg(image);
+      setImageOverlay(null);
+      return;
+    }
     setSelectedImg(null);
     setImageOverlay(null);
     syncSelectionToAppState(null);
   }, []);
+
+  useEffect(() => {
+    const onCropKeyDown = (event: KeyboardEvent) => {
+      if (
+        !imageCropRef.current ||
+        event.key === "Escape" ||
+        event.key === "Tab"
+      ) {
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        finishImageCrop(true);
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    window.addEventListener("keydown", onCropKeyDown, true);
+    return () => window.removeEventListener("keydown", onCropKeyDown, true);
+  }, [finishImageCrop]);
 
   const persistInlineEditDraft = useCallback(
     (slideId: string, content: string) => {
@@ -3314,6 +3372,7 @@ export default function SlideEditor({
       if (imageCropRef.current) {
         if (imageCropRef.current.frame.contains(target)) return;
         finishImageCrop(true);
+        return;
       }
       if (target.tagName === "IMG" && containerRef.current?.contains(target))
         return;
@@ -3327,10 +3386,23 @@ export default function SlideEditor({
 
   // Clear selection when slide changes
   useEffect(() => {
+    if (imageCropRef.current) finishImageCrop(false);
     setSelectedImg(null);
     setImageOverlay(null);
     syncSelectionToAppState(buildSelectionState("canvas", []));
-  }, [buildSelectionState, slide.id]);
+  }, [buildSelectionState, finishImageCrop, slide.id]);
+
+  useEffect(() => {
+    const crop = imageCropRef.current;
+    if (
+      crop &&
+      (crop.slideId !== slide.id ||
+        crop.content !== slide.content ||
+        !crop.frame.isConnected)
+    ) {
+      finishImageCrop(false);
+    }
+  }, [finishImageCrop, slide.content, slide.id]);
 
   // Content reconciliation can replace the DOM node behind an open overlay.
   useEffect(() => {
@@ -3707,6 +3779,12 @@ export default function SlideEditor({
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
       if (e.key !== "Escape") return;
+      if (imageCropRef.current) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        finishImageCrop(true);
+        return;
+      }
       const target = e.target instanceof Element ? e.target : null;
       const editing = editingElRef.current;
       const overlayOwnsEscape = Boolean(
@@ -3760,6 +3838,7 @@ export default function SlideEditor({
     clearSelectedElement,
     drawMode,
     exitInlineEdit,
+    finishImageCrop,
     multiSelection.size,
     onExitDrawMode,
     onExitPinMode,
@@ -7993,7 +8072,12 @@ export default function SlideEditor({
       const originalImage = frameIsPersistedImage
         ? null
         : (target.cloneNode(true) as HTMLImageElement);
-      const originalImageObjectId = target.getAttribute("data-slide-object-id");
+      const originalImageAttributes = originalImage
+        ? Array.from(
+            originalImage.attributes,
+            ({ name, value }) => [name, value] as const,
+          )
+        : null;
 
       let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
       const frozen = freezeElementForFreeformSelection(frame);
@@ -8116,15 +8200,43 @@ export default function SlideEditor({
       const originalZIndex = frame.style.zIndex;
       frame.style.zIndex = "2147483000";
       ensureSlideObjectId(frame);
+      const cropStartGeometry = {
+        frame: {
+          x: frame.offsetLeft,
+          y: frame.offsetTop,
+          width: frame.offsetWidth,
+          height: frame.offsetHeight,
+        },
+        image: {
+          x: image.offsetLeft,
+          y: image.offsetTop,
+          width: image.offsetWidth,
+          height: image.offsetHeight,
+        },
+      };
       const activeCrop: ActiveImageCrop = {
+        slideId: slide.id,
+        content: slide.content,
         frame,
         viewport: viewport!,
         image,
+        frozen: { restoreMarkdownTree: frozen.restoreMarkdownTree },
         restoreChrome: () => {
           frame.style.overflow = "hidden";
           if (originalZIndex) frame.style.zIndex = originalZIndex;
           else frame.style.removeProperty("z-index");
         },
+        hasChanges: () =>
+          [
+            [frame.offsetLeft, cropStartGeometry.frame.x],
+            [frame.offsetTop, cropStartGeometry.frame.y],
+            [frame.offsetWidth, cropStartGeometry.frame.width],
+            [frame.offsetHeight, cropStartGeometry.frame.height],
+            [image.offsetLeft, cropStartGeometry.image.x],
+            [image.offsetTop, cropStartGeometry.image.y],
+            [image.offsetWidth, cropStartGeometry.image.width],
+            [image.offsetHeight, cropStartGeometry.image.height],
+          ].some(([current, initial]) => Math.abs(current! - initial!) >= 0.5),
         cancel: () => {
           const objectId = frame.getAttribute("data-slide-object-id");
           if (objectId) {
@@ -8139,22 +8251,26 @@ export default function SlideEditor({
                 }
               });
           }
+          if (frozen.restoreMarkdownTree) {
+            if (frameIsPersistedImage) frame.replaceWith(originalFrame!);
+            else frame.replaceWith(image);
+            if (!frameIsPersistedImage && originalImageAttributes) {
+              for (const attribute of Array.from(image.attributes)) {
+                image.removeAttribute(attribute.name);
+              }
+              for (const [name, value] of originalImageAttributes) {
+                image.setAttribute(name, value);
+              }
+            }
+            frozen.restoreMarkdownTree();
+            return frameIsPersistedImage ? originalFrame : image;
+          }
           if (frameIsPersistedImage) {
             frame.replaceWith(originalFrame!);
-            frozen.restoreMarkdownTree?.();
-            return;
-          }
-          if (frozen.restoreMarkdownTree) {
-            frame.remove();
-            frozen.restoreMarkdownTree();
-            if (originalImageObjectId === null) {
-              image.removeAttribute("data-slide-object-id");
-            } else {
-              image.setAttribute("data-slide-object-id", originalImageObjectId);
-            }
-            return;
+            return originalFrame;
           }
           frame.replaceWith(originalImage!);
+          return originalImage;
         },
       };
       imageCropRef.current = activeCrop;
@@ -8168,6 +8284,8 @@ export default function SlideEditor({
       getSlideContent,
       publishImageSelection,
       readOnly,
+      slide.content,
+      slide.id,
     ],
   );
 
@@ -9628,7 +9746,7 @@ export default function SlideEditor({
         readOnly={readOnly}
       />
 
-      {selectionRect && !selectedElementSelector && (
+      {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline
           rect={selectionRect}
           viewportRect={selectionViewportRect}
@@ -9840,7 +9958,6 @@ export default function SlideEditor({
           image={imageCrop.image}
           canvas={imageCrop.frame.closest<HTMLElement>(".slide-content")!}
           onFinish={finishImageCrop}
-          onImageOptions={() => showImageOverlay(imageCrop.image)}
         />
       )}
 

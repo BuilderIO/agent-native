@@ -212,7 +212,7 @@ describe("EditorSidebar thumbnail scroll cue", () => {
 describe("slide thumbnail selection", () => {
   const slideIds = ["slide-1", "slide-2", "slide-3", "slide-4"];
 
-  it("marks the active thumbnail blue without changing its border width", () => {
+  it("outlines the active thumbnail blue without changing its layout", () => {
     const slide: Slide = {
       id: "slide-1",
       content: "<div />",
@@ -237,6 +237,7 @@ describe("slide thumbnail selection", () => {
 
     expect(frame?.classList.contains("border")).toBe(true);
     expect(frame?.style.borderColor.toLowerCase()).toBe("#609ff8");
+    expect(frame?.style.boxShadow.toLowerCase()).toContain("2px");
     expect(
       container
         .querySelector('[data-slide-thumbnail-id="slide-1"]')

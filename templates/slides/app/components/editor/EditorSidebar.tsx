@@ -469,6 +469,11 @@ function SortableSlideThumb({
                         ? humanPresenceUsers[0].color + "66"
                         : // guard:allow-raw-color — thumbnail border sits on an arbitrary-colored slide render, not app chrome
                           "rgba(255,255,255,0.06)",
+                  boxShadow:
+                    isSelected || isActive
+                      ? // guard:allow-raw-color — keep the selected thumbnail outline visible without changing layout.
+                        "0 0 0 2px #609FF8"
+                      : undefined,
                   aspectRatio: `${thumbDims.width} / ${thumbDims.height}`,
                   contentVisibility: "auto",
                 }}
