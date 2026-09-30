@@ -66,23 +66,51 @@ function ThreadProbe(props: SurfaceProps) {
   );
 }
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: (props: SurfaceProps) => <ThreadProbe {...props} />,
-  AgentChatSurface: (props: SurfaceProps) => <ThreadProbe {...props} />,
-  focusAgentChat: vi.fn(),
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  fetchAgentEngineConfiguredState: async () => "unavailable",
   isAgentChatHomeHandoffActive: () => false,
   markAgentChatHomeHandoff: vi.fn(),
   useAgentChatHomeHandoff: () => false,
   useAgentChatHomeHandoffLinks: vi.fn(),
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: false,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
   ) => navigate(path),
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
+  AgentSidebar: (props: SurfaceProps) => <ThreadProbe {...props} />,
+  AgentChatSurface: (props: SurfaceProps) => <ThreadProbe {...props} />,
+  focusAgentChat: vi.fn(),
+}));
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
 }));
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/org")>()),
   InvitationBanner: () => null,
 }));
 vi.mock("@agent-native/creative-context/client", () => ({

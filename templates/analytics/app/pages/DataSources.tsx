@@ -1,4 +1,3 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   appApiPath,
   agentNativePath,
@@ -13,6 +12,7 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { getDefaultMcpIntegrations } from "@agent-native/core/client/resources";
 import { docsUrl } from "@agent-native/core/shared";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { McpIntegrationLogo } from "@agent-native/toolkit/app/resources";
 import {

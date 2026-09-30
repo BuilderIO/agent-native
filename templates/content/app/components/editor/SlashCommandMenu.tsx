@@ -1,6 +1,6 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabs } from "@agent-native/core/client/labs";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import {
   CONTENT_SLASH_ADVANCED_CODE,

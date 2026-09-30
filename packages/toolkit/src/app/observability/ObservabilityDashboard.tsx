@@ -32,6 +32,12 @@ import {
 } from "@agent-native/toolkit/ui/popover";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@agent-native/toolkit/ui/tabs";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -60,7 +66,12 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, Navigate, useInRouterContext, useLocation } from "react-router";
+import {
+  Navigate,
+  useInRouterContext,
+  useLocation,
+  useNavigate,
+} from "react-router";
 
 import {
   ObservabilityReviewSummaryButton,
@@ -390,7 +401,7 @@ function MetricCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-background p-4">
+    <div className="rounded-xl border border-border/70 bg-card p-4 text-card-foreground">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs text-muted-foreground">{label}</span>
         <span className="text-muted-foreground">{icon}</span>
@@ -506,7 +517,7 @@ function ConversationsTab({ days }: { days: number }) {
     return <EmptyState message={t("observability.noConversations")} />;
 
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
       <table className="w-full table-fixed text-left text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/30">
@@ -676,7 +687,7 @@ function TraceDetailView({
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
               <div className="text-[10px] text-muted-foreground mb-1">
                 {t("observability.model")}
               </div>
@@ -684,7 +695,7 @@ function TraceDetailView({
                 {data.summary.model || "unknown"}
               </div>
             </div>
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
               <div className="text-[10px] text-muted-foreground mb-1">
                 {t("observability.duration")}
               </div>
@@ -692,7 +703,7 @@ function TraceDetailView({
                 {formatDuration(data.summary.totalDurationMs)}
               </div>
             </div>
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
               <div className="text-[10px] text-muted-foreground mb-1">
                 {t("observability.cost")}
               </div>
@@ -700,7 +711,7 @@ function TraceDetailView({
                 {formatCost(data.summary.totalCostCentsX100)}
               </div>
             </div>
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
               <div className="text-[10px] text-muted-foreground mb-1">
                 {t("observability.spans")}
               </div>
@@ -710,7 +721,7 @@ function TraceDetailView({
             </div>
           </div>
 
-          <div className="rounded-lg border border-border overflow-hidden">
+          <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
             <table className="w-full table-fixed text-left text-xs">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
@@ -944,7 +955,7 @@ function ExperimentsTab() {
     return <EmptyState message={t("observability.noExperiments")} />;
 
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
       <table className="w-full table-fixed text-left text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/30">
@@ -1026,7 +1037,7 @@ function ExperimentDetailView({
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
               <div className="text-[10px] text-muted-foreground mb-1">
                 {t("observability.variants")}
               </div>
@@ -1034,7 +1045,7 @@ function ExperimentDetailView({
                 {exp.variants.length}
               </div>
             </div>
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
               <div className="text-[10px] text-muted-foreground mb-1">
                 {t("observability.metrics")}
               </div>
@@ -1042,7 +1053,7 @@ function ExperimentDetailView({
                 {exp.metrics.length}
               </div>
             </div>
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
               <div className="text-[10px] text-muted-foreground mb-1">
                 {t("observability.level")}
               </div>
@@ -1080,7 +1091,7 @@ function ExperimentDetailView({
               <h4 className="text-xs font-medium text-foreground mb-2">
                 {t("observability.results")}
               </h4>
-              <div className="rounded-lg border border-border overflow-hidden">
+              <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
                 <table className="w-full table-fixed text-left text-xs">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
@@ -1919,7 +1930,7 @@ function ReviewTab({
         )}
       </div>
       <div
-        className="divide-y divide-border border-y border-border"
+        className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card"
         data-review-list
       >
         {visibleReviews.length === 0 ? (
@@ -3037,7 +3048,7 @@ function FeedbackTab({ days }: { days: number }) {
       </div>
 
       {thumbsTotal > 0 && (
-        <div className="rounded-lg border border-border p-3">
+        <div className="rounded-xl border border-border/70 bg-card p-4 text-card-foreground">
           <div className="text-xs text-muted-foreground mb-2">
             {t("observability.thumbsUpRate")}
           </div>
@@ -3081,11 +3092,11 @@ function FeedbackTab({ days }: { days: number }) {
           <h3 className="text-xs font-medium text-foreground mb-2">
             Recent feedback
           </h3>
-          <div className="space-y-1 max-h-64 overflow-y-auto overflow-x-hidden rounded-lg border border-border">
+          <div className="max-h-64 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-card">
             {entries.map((entry) => (
               <div
                 key={entry.id}
-                className="flex items-center gap-2 px-3 py-2 text-xs border-b border-border last:border-b-0 min-w-0"
+                className="flex min-w-0 items-center gap-2 border-b border-border/60 px-3 py-2 text-xs last:border-b-0"
               >
                 <span className="shrink-0">
                   {entry.feedbackType === "thumbs_up" && (
@@ -3172,14 +3183,17 @@ export interface ObservabilityDashboardProps {
 }
 
 type ObservabilityDashboardContentProps = ObservabilityDashboardProps & {
+  navigate?: (to: string) => void;
   routePathname?: string;
 };
 
 function RoutedObservabilityDashboard(props: ObservabilityDashboardProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   return (
     <ObservabilityDashboardContent
       {...props}
+      navigate={navigate}
       routePathname={location.pathname}
     />
   );
@@ -3196,6 +3210,7 @@ export function ObservabilityDashboard(props: ObservabilityDashboardProps) {
 
 function ObservabilityDashboardContent({
   className,
+  navigate,
   routeBasePath,
   routePathname,
   showHumanReview = false,
@@ -3239,50 +3254,38 @@ function ObservabilityDashboardContent({
   }
 
   return (
-    <div className={cn("space-y-4", className)}>
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <nav
+    <Tabs
+      value={activeTab}
+      onValueChange={(value) => {
+        const selectedTab = visibleTabs.find((tab) => tab.id === value);
+        if (!selectedTab) return;
+        if (routeBasePath && selectedTab.routeSegment) {
+          navigate?.(`${routeBasePath}/${selectedTab.routeSegment}`);
+          return;
+        }
+        setLocalTab(selectedTab.id);
+      }}
+      className={cn("space-y-4", className)}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <TabsList
           aria-label={t("routeTitles.agentObservability")}
-          className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-muted/30 p-1"
+          className="max-w-full justify-start self-start overflow-x-auto"
         >
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
-            const tabClassName = cn(
-              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium",
-              activeTab === tab.id
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            );
-            const tabContent = (
-              <>
-                <Icon size={14} />
-                {t(tab.labelKey)}
-              </>
-            );
-            if (routeBasePath && tab.routeSegment) {
-              return (
-                <Link
-                  key={tab.id}
-                  to={`${routeBasePath}/${tab.routeSegment}`}
-                  aria-current={activeTab === tab.id ? "page" : undefined}
-                  className={tabClassName}
-                >
-                  {tabContent}
-                </Link>
-              );
-            }
             return (
-              <button
+              <TabsTrigger
                 key={tab.id}
-                aria-pressed={activeTab === tab.id}
-                onClick={() => setLocalTab(tab.id)}
-                className={tabClassName}
+                value={tab.id}
+                className="shrink-0 gap-1.5"
               >
-                {tabContent}
-              </button>
+                <Icon className="size-4 shrink-0" />
+                {t(tab.labelKey)}
+              </TabsTrigger>
             );
           })}
-        </nav>
+        </TabsList>
         <div className="flex items-center gap-3">
           <a
             href={docsUrl("observability", { hash: docsHash[activeTab] })}
@@ -3299,14 +3302,29 @@ function ObservabilityDashboardContent({
         </div>
       </div>
 
-      {activeTab === "overview" && <OverviewTab days={days} />}
-      {activeTab === "conversations" && <ConversationsTab days={days} />}
-      {activeTab === "evals" && <EvalsTab days={days} />}
-      {activeTab === "experiments" && <ExperimentsTab />}
-      {activeTab === "feedback" && <FeedbackTab days={days} />}
-      {activeTab === "review" && (
-        <ReviewTab days={days} renderArtifactPreview={renderArtifactPreview} />
+      <TabsContent value="overview" className="mt-0">
+        <OverviewTab days={days} />
+      </TabsContent>
+      {showHumanReview && (
+        <TabsContent value="review" className="mt-0">
+          <ReviewTab
+            days={days}
+            renderArtifactPreview={renderArtifactPreview}
+          />
+        </TabsContent>
       )}
-    </div>
+      <TabsContent value="conversations" className="mt-0">
+        <ConversationsTab days={days} />
+      </TabsContent>
+      <TabsContent value="evals" className="mt-0">
+        <EvalsTab days={days} />
+      </TabsContent>
+      <TabsContent value="experiments" className="mt-0">
+        <ExperimentsTab />
+      </TabsContent>
+      <TabsContent value="feedback" className="mt-0">
+        <FeedbackTab days={days} />
+      </TabsContent>
+    </Tabs>
   );
 }

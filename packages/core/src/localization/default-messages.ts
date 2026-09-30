@@ -760,7 +760,6 @@ const messages = {
     useProvider: "Use {{provider}}",
     saveAndUseProvider: "Save and use {{provider}}",
     getApiKey: "Get an API key",
-    checkingAiConnection: "Checking AI connection...",
     delegatedAgent: {
       asking: "Asking {{name}}...",
       asked: "Asked {{name}}",

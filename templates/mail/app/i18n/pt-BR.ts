@@ -673,6 +673,8 @@ const messages = {
         "Nenhuma mensagem recente corresponde a esta regra.",
       ruleBackfillFailed:
         "Não foi possível aplicar esta regra aos e-mails recentes.",
+      ruleBackfillRunFailed:
+        "Não foi possível concluir a aplicação das regras aos e-mails recentes.",
       backfillStatusLoadFailed:
         "Não foi possível carregar o status recente das regras.",
       ruleBackfillPartialFailure:

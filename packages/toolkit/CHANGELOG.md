@@ -1,5 +1,22 @@
 # @agent-native/toolkit
 
+## 0.198.1
+
+### Patch Changes
+
+- 0b127e9: Clear chat input immediately on submit and show the pending response status in the transcript.
+- 4873d09: Preserve host composer submission guards while a message is pending.
+- d09fdb0: Keep full-page chat headers and history controls aligned with the conversation surface.
+- Release all public npm packages with a patch version bump.
+- d25ddc1: Preserve host and local submission gating in chat composers.
+- affa25c: Keep provider readiness checks quiet around chat composers.
+- b1bbe7e: Remove unused MCP chat display imports flagged by full-tree lint.
+- 905b078: Preserve both host and command submission gates in the AgentKit composer.
+- 6a627af: Declare copied radio-group dependencies and the protected integration setup import in Toolkit eject manifests.
+- Updated dependencies [0b127e9]
+- Updated dependencies
+  - @agent-native/agentkit@0.198.1
+
 ## 0.198.0
 
 ### Minor Changes
@@ -949,11 +966,5 @@
 ### Patch Changes
 
 - 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
-
-## 0.5.0
-
-### Minor Changes
-
-- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

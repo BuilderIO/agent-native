@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,7 +37,9 @@ const mocks = vi.hoisted(() => ({
   focusComposer: vi.fn(),
   submitWithText: vi.fn(),
   agentEngine: { state: "configured", missing: false },
-  fetchAgentEngineConfiguredState: vi.fn(async () => "missing" as const),
+  fetchAgentEngineConfiguredState: vi.fn(
+    async () => "missing" as AgentEngineConfiguredState,
+  ),
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
 }));
 
@@ -44,6 +47,25 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/agent-chat")
   >()),
+  BuilderSetupCard: ({
+    bouncePulse = 0,
+    onConnected,
+  }: {
+    bouncePulse?: number;
+    onConnected?: () => void;
+  }) => (
+    <div
+      data-setup-card
+      data-testid="ai-setup-card"
+      data-bounce-pulse={bouncePulse}
+    >
+      Connect AI
+      <button type="button" onClick={onConnected}>
+        Connect Builder.io
+      </button>
+      <a href="/settings/keys">Custom keys</a>
+    </div>
+  ),
   useChatModels: vi.fn(),
   useAgentEngineConfigured: () => mocks.agentEngine,
   fetchAgentEngineConfiguredState: mocks.fetchAgentEngineConfiguredState,
@@ -278,19 +300,32 @@ vi.mock("@/components/editor/PromptDialog", () => ({
   },
 }));
 
-vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
-  PromptComposer: () => null,
-  snapshotComposerContextItems: (items: unknown) => items,
-  useAgentKitCapabilities: () => ({
-    data: { sources: { figma: { available: true } }, integrations: [] },
+vi.mock(
+  "@agent-native/toolkit/app/chat/composer/index",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/composer/index")
+    >()),
+    PromptComposer: () => null,
+    snapshotComposerContextItems: (items: unknown) => items,
+    useAgentKitIntegrationMenu: () => ({
+      id: "integrations",
+      label: "Integrations",
+      intent: "invoke-integration",
+      picker: {
+        scopeKey: "test",
+        searchPlaceholder: "Search integrations",
+        items: [],
+        loading: false,
+        emptyMessage: "No integrations",
+        onSelect: () => {},
+      },
+    }),
+    useAgentKitCapabilities: () => ({
+      data: { sources: { figma: { available: true } }, integrations: [] },
+    }),
   }),
-  useAgentKitIntegrationMenu: () => ({
-    id: "integrations",
-    label: "Integrations",
-    intent: "invoke-integration",
-    picker: {},
-  }),
-}));
+);
 
 vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (
@@ -560,7 +595,7 @@ describe("Index skip to editor", () => {
     );
     expect(
       container
-        .querySelector("[data-setup-card]")
+        .querySelector("[data-setup-card][data-bounce-pulse]")
         ?.getAttribute("data-bounce-pulse"),
     ).toBe("1");
 
@@ -583,7 +618,7 @@ describe("Index skip to editor", () => {
     );
     expect(
       container.querySelector('[role="status"][aria-label="common.loading"]'),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps).toMatchObject({
       onBeforeSubmit: expect.any(Function),
@@ -635,14 +670,6 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Connect AI");
   });
 
-  it("waits to show home suggestions until provider setup is complete", async () => {
-    mocks.agentEngine = { state: "missing", missing: true };
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).not.toContain("Generated dashboard");
-    expect(
-      container.querySelector('[aria-label="home.suggestedPrompts"]'),
-    ).toBeNull();
-  });
   it.each([
     { state: "missing", missing: true, ready: false },
     { state: "unknown", missing: false, ready: false },
@@ -661,12 +688,17 @@ describe("Index skip to editor", () => {
             : "missing",
       );
       await act(async () => root.render(<Index />));
+      expect(mocks.promptProps?.disabled).not.toBe(true);
       expect(mocks.promptProps).toMatchObject({
         showModelSelector: ready,
         modelStatusChecksEnabled: ready,
       });
       expect(mocks.promptProps?.onBeforeSubmit).toEqual(expect.any(Function));
       await expect(mocks.promptProps?.onBeforeSubmit()).resolves.toBe(ready);
+      expect(container.textContent).not.toContain(
+        "agentChat.setup.checkingProvider",
+      );
+      expect(container.textContent).not.toContain("Checking AI connection");
       expect(
         Boolean(
           container.querySelector('[aria-label="home.suggestedPrompts"]'),

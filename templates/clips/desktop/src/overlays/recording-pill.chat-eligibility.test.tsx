@@ -201,6 +201,10 @@ describe("meeting pill chat eligibility", () => {
       activeComposerProps[activeComposerProps.length - 1]?.composerDisabled,
     ).toBe(true);
     expect(
+      activeComposerProps[activeComposerProps.length - 1]
+        ?.composerSubmissionDisabled,
+    ).toBe(true);
+    expect(
       host.querySelectorAll(".pill-ask-provider-actions button"),
     ).toHaveLength(2);
 

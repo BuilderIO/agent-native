@@ -7604,6 +7604,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cursor = node;
       while (cursor) {
         var style = window.getComputedStyle(cursor);
+        var filterOpacities = style.filter.matchAll(
+          /(?:^|\\s)opacity\\(\\s*([^\\s)]+)/g
+        );
+        for (var filterOpacity of filterOpacities) {
+          if (parseFloat(filterOpacity[1]) === 0) return false;
+        }
         if (style.display === "none" || Number(style.opacity) === 0) return false;
         if (cursor === stopAt) return true;
         cursor = cursor.parentElement;
@@ -7634,6 +7640,27 @@ export const editorChromeBridgeScript: string = `"use strict";
     function cornerRadiusSvgPatternHasVisibleContent(pattern, visited) {
       if (visited.indexOf(pattern) >= 0) return false;
       var seen = visited.concat([pattern]);
+      var svgPattern = pattern;
+      function patternDimensionIsPositive(name) {
+        var current = svgPattern;
+        var visitedDimensions = [];
+        while (current && visitedDimensions.indexOf(current) < 0) {
+          visitedDimensions.push(current);
+          if (current.hasAttribute(name)) {
+            var dimension = name === "width" ? current.width : current.height;
+            return Boolean(dimension && dimension.baseVal.value > 0);
+          }
+          var reference2 = current.getAttribute("href") || current.getAttributeNS("http://www.w3.org/1999/xlink", "href") || "";
+          if (reference2.charAt(0) !== "#") return false;
+          var inherited2 = current.ownerDocument.getElementById(
+            reference2.slice(1)
+          );
+          current = inherited2 && /^pattern$/i.test(inherited2.localName || "") ? inherited2 : null;
+        }
+        return false;
+      }
+      if (!patternDimensionIsPositive("width") || !patternDimensionIsPositive("height"))
+        return false;
       if (!cornerRadiusNodeAndAncestorsAllowPaint(pattern, null)) return false;
       var graphics = pattern.querySelectorAll(
         "circle, ellipse, image, line, path, polygon, polyline, rect, text, use"
@@ -7643,11 +7670,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!cornerRadiusNodeAndAncestorsAllowPaint(graphic, pattern) || !cornerRadiusVisibilityIsVisible(graphic)) {
           continue;
         }
+        var bounds;
+        try {
+          bounds = graphic.getBBox();
+        } catch (_error) {
+          continue;
+        }
         var style = window.getComputedStyle(graphic);
-        if (style.fill !== "none" && Number(style.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(style.fill, graphic, seen)) {
+        if (bounds.width > 0 && bounds.height > 0 && style.fill !== "none" && Number(style.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(style.fill, graphic, seen)) {
           return true;
         }
-        if (style.stroke !== "none" && parseFloat(style.strokeWidth) > 0 && Number(style.strokeOpacity) > 0 && cornerRadiusSvgPaintIsVisible(style.stroke, graphic, seen)) {
+        if ((bounds.width > 0 || bounds.height > 0 || cornerRadiusSvgZeroLengthStrokeHasVisibleCap(graphic, style)) && style.stroke !== "none" && parseFloat(style.strokeWidth) > 0 && Number(style.strokeOpacity) > 0 && cornerRadiusSvgPaintIsVisible(style.stroke, graphic, seen)) {
           return true;
         }
       }
@@ -7679,6 +7712,56 @@ export const editorChromeBridgeScript: string = `"use strict";
         return cornerRadiusSvgPatternHasVisibleContent(paintServer, seen);
       }
       return false;
+    }
+    function cornerRadiusReferencedPaintElements(el) {
+      if (!el || el.tagName.toLowerCase() !== "svg") return [];
+      var paintTarget = vectorPaintTarget(el);
+      if (!paintTarget) return [];
+      var pending = [paintTarget];
+      var visited = [];
+      var referenced = [];
+      function enqueueReference(owner, value) {
+        var match = /url\\(\\s*(['"]?)#([^)'"\\s]+)\\1\\s*\\)/gi;
+        var reference;
+        while (reference = match.exec(String(value || ""))) {
+          var target = owner.ownerDocument.getElementById(reference[2]);
+          if (target && visited.indexOf(target) < 0) pending.push(target);
+        }
+        if (!/^(?:pattern|lineargradient|radialgradient|use)$/i.test(
+          owner.localName || ""
+        )) {
+          return;
+        }
+        var href = owner.getAttribute("href") || owner.getAttributeNS("http://www.w3.org/1999/xlink", "href") || "";
+        var id = /^#(.+)$/.exec(href.trim());
+        var target = id && owner.ownerDocument.getElementById(id[1]);
+        if (target && visited.indexOf(target) < 0) pending.push(target);
+      }
+      while (pending.length) {
+        var current = pending.pop();
+        if (!current || visited.indexOf(current) >= 0) continue;
+        visited.push(current);
+        referenced.push(current);
+        var nodes = [current].concat(Array.from(current.querySelectorAll("*")));
+        nodes.forEach(function(node) {
+          var style = window.getComputedStyle(node);
+          enqueueReference(node, style.fill);
+          enqueueReference(node, style.stroke);
+          enqueueReference(
+            node,
+            node.getAttribute("href") || node.getAttributeNS("http://www.w3.org/1999/xlink", "href")
+          );
+        });
+      }
+      return referenced;
+    }
+    function cornerRadiusSvgZeroLengthStrokeHasVisibleCap(graphic, style) {
+      if (!/^(?:line|path|polyline)$/i.test(graphic.localName || "")) {
+        return false;
+      }
+      var geometry = graphic;
+      if (typeof geometry.getTotalLength !== "function") return false;
+      return geometry.getTotalLength() === 0 && (style.strokeLinecap === "round" || style.strokeLinecap === "square");
     }
     function cornerRadiusHasVisiblePaint(el) {
       if (!cornerRadiusNodeAndAncestorsAllowPaint(el, null)) return false;
@@ -8283,6 +8366,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             "*"
           );
         }
+        syncOverlayObservers();
       } else {
         applyElementOverlayChrome(overlay, el);
       }
@@ -8965,6 +9049,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     var overlayMutationObserver = null;
     var observedResizeEls = [];
     var observedMutationRoot = null;
+    var observedMutationTarget = null;
+    var observedMutationPaintServers = [];
+    var observedMutationPaintParents = [];
     function ensureOverlayObservers() {
       if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
         overlayResizeObserver = new ResizeObserver(function() {
@@ -9002,7 +9089,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
-        if (nextRoot !== observedMutationRoot) {
+        var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
+        var nextPaintServers = nextTarget ? cornerRadiusReferencedPaintElements(nextTarget) : [];
+        var nextPaintParents = [];
+        nextPaintServers.forEach(function(server) {
+          var parent = server.parentElement;
+          if (parent && parent !== nextRoot && parent !== nextTarget && nextPaintParents.indexOf(parent) < 0) {
+            nextPaintParents.push(parent);
+          }
+        });
+        var paintServersChanged = nextPaintServers.length !== observedMutationPaintServers.length || nextPaintServers.some(function(server, index) {
+          return observedMutationPaintServers[index] !== server;
+        });
+        var paintParentsChanged = nextPaintParents.length !== observedMutationPaintParents.length || nextPaintParents.some(function(parent, index) {
+          return observedMutationPaintParents[index] !== parent;
+        });
+        if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || paintServersChanged || paintParentsChanged) {
           overlayMutationObserver.disconnect();
           if (nextRoot) {
             overlayMutationObserver.observe(nextRoot, {
@@ -9014,11 +9116,30 @@ export const editorChromeBridgeScript: string = `"use strict";
               overlayMutationObserver.observe(selectedEl, {
                 attributes: true,
                 childList: true,
-                subtree: false
+                subtree: selectedEl.tagName.toLowerCase() === "svg"
               });
             }
           }
+          nextPaintServers.forEach(function(server) {
+            if (server !== nextRoot && server !== nextTarget) {
+              overlayMutationObserver.observe(server, {
+                attributes: true,
+                childList: true,
+                subtree: true
+              });
+            }
+          });
+          nextPaintParents.forEach(function(parent) {
+            overlayMutationObserver.observe(parent, {
+              attributes: true,
+              childList: true,
+              subtree: false
+            });
+          });
           observedMutationRoot = nextRoot;
+          observedMutationTarget = nextTarget;
+          observedMutationPaintServers = nextPaintServers;
+          observedMutationPaintParents = nextPaintParents;
         }
       }
     }

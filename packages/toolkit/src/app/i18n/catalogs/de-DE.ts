@@ -858,9 +858,8 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "KI verbinden, um den Chat zu starten...",
   "setup.connectToChat": "KI für den Chat verbinden",
   "setup.connectToStart": "KI verbinden, um den Chat zu starten",
-  "setup.checkingProvider": "KI-Verbindung wird geprüft…",
   "setup.providerStatusUnavailable":
-    "KI-Verbindung konnte nicht geprüft werden.",
+    "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
   "agentNativeClips.meetingAsk.placeholder": "Frag einfach etwas",
   "agentNativeClips.meetingAsk.ariaLabel":
     "Stelle eine Frage zu diesem Meeting",

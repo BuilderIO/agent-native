@@ -14,7 +14,9 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Failed Mail rule runs now show their status once and keep Undo available after an interrupted update.
 - The open chat panel is separated from your inbox by a visible divider.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 - Existing compose drafts keep their attachments when revised
 - Scheduled email changes refresh the inbox and schedule list
 

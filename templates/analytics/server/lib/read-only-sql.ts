@@ -1,5 +1,5 @@
 const MUTATING_WORD_RE =
-  /(^|[^A-Za-z_])(insert|update|delete|replace|create|alter|drop|truncate|merge)(?=[^A-Za-z_]|$)/i;
+  /(^|[^\p{ID_Continue}$])(insert|update|delete|replace|create|alter|drop|truncate|merge)(?=[^\p{ID_Continue}$]|$)/iu;
 
 function hasBigQueryRawStringPrefix(sql: string, quoteIndex: number): boolean {
   const prefix = sql.slice(0, quoteIndex).match(/([bBrR]{1,2})$/)?.[1];

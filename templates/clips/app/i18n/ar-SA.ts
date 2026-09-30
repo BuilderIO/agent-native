@@ -4,8 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
-      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
     common: { retry: "إعادة المحاولة" },
   },

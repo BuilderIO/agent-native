@@ -147,7 +147,11 @@ describe("ObservabilityDashboard promote control", () => {
       (button) => button.textContent?.includes("Conversations"),
     );
     expect(conversations).toBeTruthy();
-    act(() => conversations!.click());
+    act(() =>
+      conversations!.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+      ),
+    );
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain("run-prom");

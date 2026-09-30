@@ -171,6 +171,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "Suas alterações mais recentes estão apenas neste dispositivo. Baixe um backup antes de sair.",
+    slideConflictReview: "Revisar",
+    slideConflictTitle: "Este slide foi alterado em outro lugar",
+    slideConflictDescription:
+      "Outra pessoa salvou uma versão mais recente. Manter seu rascunho substituirá o conteúdo salvo deste slide, ou use a versão mais recente.",
+    slideConflictUseLatest: "Usar a versão mais recente",
+    slideConflictKeepDraft: "Manter meu rascunho",
+    slideConflictKeepEditing: "Continuar editando",
+    slideConflictResolutionFailed:
+      "Não foi possível resolver o conflito. Seu rascunho continua aqui.",
     offline: "Offline",
     selected: "selecionado",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -1068,7 +1077,7 @@ const messages = {
   agentChat: {
     setup: {
       providerStatusUnavailable:
-        "Não foi possível verificar a conexão com a IA.",
+        "Não foi possível confirmar se a IA está pronta.",
     },
   },
 };

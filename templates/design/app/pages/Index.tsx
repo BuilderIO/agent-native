@@ -1130,14 +1130,7 @@ export default function Index() {
                 {t("agentChat.common.retry")}
               </button>
             </div>
-          ) : (
-            <div className="mb-2 flex justify-center">
-              <Spinner
-                aria-label={t("common.loading")}
-                className="size-4 text-muted-foreground"
-              />
-            </div>
-          )
+          ) : null
         }
         composer={
           <div

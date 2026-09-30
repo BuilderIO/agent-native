@@ -7066,6 +7066,113 @@ it.each(["rectangle", "polygon"] as const)(
 );
 
 it(
+  "refreshes radius handles when a referenced sibling-SVG pattern changes",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <svg style="position:absolute;left:-1000px;top:-1000px;width:100px;height:100px"><defs><pattern id="shared-radius-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="transparent"></rect></pattern></defs></svg>
+  <svg id="shape" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:40px;top:40px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#shared-radius-pattern)"></path></svg>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#shape");
+      const handle = page.locator(
+        '[data-agent-native-radius-handle="vertex-0"]',
+      );
+      expect(await handle.count()).toBe(0);
+
+      await page.evaluate(() => {
+        document
+          .querySelector("#shared-radius-pattern rect")!
+          .setAttribute("fill", "#222");
+      });
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="vertex-0"]',
+          );
+          return handle && getComputedStyle(handle).display === "block";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const handlePoint = await handle.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      });
+      await page.mouse.move(handlePoint.x, handlePoint.y);
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-radius-handle="vertex-0"]',
+            )!,
+          ).visibility === "visible",
+      );
+
+      await page.evaluate(() => {
+        document
+          .querySelector("#shared-radius-pattern rect")!
+          .setAttribute("fill", "transparent");
+      });
+      await page.waitForFunction(
+        () =>
+          !document.querySelector(
+            '[data-agent-native-radius-handle="vertex-0"]',
+          ),
+        undefined,
+        { timeout: 2_000 },
+      );
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "shows radius handles for visible zero-length round and square pattern strokes",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <svg id="round-cap" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:40px;top:40px;width:100px;height:100px"><defs><pattern id="round-cap-pattern" patternUnits="userSpaceOnUse" width="20" height="20"><line x1="10" y1="10" x2="10" y2="10" stroke="#222" stroke-width="6" stroke-linecap="round"></line></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#round-cap-pattern)"></path></svg>
+  <svg id="square-cap" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:200px;top:40px;width:100px;height:100px"><defs><pattern id="square-cap-pattern" patternUnits="userSpaceOnUse" width="20" height="20"><line x1="10" y1="10" x2="10" y2="10" stroke="#222" stroke-width="6" stroke-linecap="square"></line></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#square-cap-pattern)"></path></svg>
+  <svg id="butt-cap" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:40px;width:100px;height:100px"><defs><pattern id="butt-cap-pattern" patternUnits="userSpaceOnUse" width="20" height="20"><line x1="10" y1="10" x2="10" y2="10" stroke="#222" stroke-width="6" stroke-linecap="butt"></line></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#butt-cap-pattern)"></path></svg>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      for (const [id, shouldShow] of [
+        ["round-cap", true],
+        ["square-cap", true],
+        ["butt-cap", false],
+      ] as const) {
+        await selectElementDirect(page, `#${id}`);
+        const handles = await page
+          .locator("[data-agent-native-radius-handle]")
+          .count();
+        expect(handles > 0, id).toBe(shouldShow);
+      }
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "shows radius handles on supported shapes only when they have visible paint",
   { timeout: 30_000 },
   async () => {
@@ -7086,6 +7193,8 @@ it(
   <div id="visible-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:300px;width:120px;height:80px;background-image:linear-gradient(transparent, rgba(20,40,60,0)), linear-gradient(#f00, #00f)"></div>
   <div id="stroke-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:240px;width:120px;height:80px;background:transparent;border:2px solid #222;box-sizing:border-box"></div>
   <div id="zero-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:340px;width:120px;height:80px;background:#ddd;opacity:0"></div>
+  <div id="filter-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:580px;width:80px;height:80px;background:#ddd;filter:opacity(0)"></div>
+  <div style="position:absolute;left:780px;top:580px;filter:blur(0) opacity(0)"><div id="filter-opacity-ancestor-rectangle" data-agent-native-primitive="rectangle" style="width:80px;height:80px;background:#ddd"></div></div>
   <svg id="stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
   <svg id="opacity-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:40px;width:80px;height:80px"><g opacity="0"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
   <svg id="visibility-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:140px;width:80px;height:80px"><g visibility="hidden"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
@@ -7095,6 +7204,13 @@ it(
   <svg id="visible-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:400px;width:80px;height:80px"><defs><pattern id="radius-visible-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-visible-pattern)"></path></svg>
   <svg id="inherited-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:400px;width:80px;height:80px"><defs><pattern id="radius-base-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern><pattern id="radius-inherited-pattern" href="#radius-base-pattern"></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-inherited-pattern)"></path></svg>
   <svg id="transparent-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:400px;width:80px;height:80px"><defs><pattern id="radius-transparent-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="transparent"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-transparent-pattern)"></path></svg>
+  <svg id="zero-width-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:500px;width:80px;height:80px"><defs><pattern id="radius-zero-width-pattern" patternUnits="userSpaceOnUse" width="0" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-zero-width-pattern)"></path></svg>
+  <svg id="zero-height-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:500px;width:80px;height:80px"><defs><pattern id="radius-zero-height-pattern" patternUnits="userSpaceOnUse" width="10" height="0"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-zero-height-pattern)"></path></svg>
+  <svg id="missing-size-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:500px;width:80px;height:80px"><defs><pattern id="radius-missing-size-pattern" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-missing-size-pattern)"></path></svg>
+  <svg id="css-sized-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:500px;width:80px;height:80px"><defs><pattern id="radius-css-sized-pattern" patternUnits="userSpaceOnUse" style="width:10px;height:10px"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-css-sized-pattern)"></path></svg>
+  <svg id="zero-geometry-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:500px;width:80px;height:80px"><defs><pattern id="radius-zero-geometry-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="0" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-zero-geometry-pattern)"></path></svg>
+  <svg id="dynamic-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:600px;width:80px;height:80px"><defs><pattern id="radius-dynamic-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-dynamic-pattern)"></path></svg>
+  <svg id="stroke-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:600px;width:80px;height:80px"><defs><pattern id="radius-stroke-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><line x1="5" y1="0" x2="5" y2="10" stroke="#222" stroke-width="1"></line></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-stroke-pattern)"></path></svg>
   <div style="position:absolute;left:640px;top:560px;width:80px;height:80px;visibility:hidden"><svg id="visibility-override-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="width:80px;height:80px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222" visibility="visible"></path></svg></div>
   <div id="collapsed-paint-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:500px;width:120px;height:80px;background:#ddd;visibility:collapse"></div>
   <div id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:40px;width:100px;height:60px;background:transparent"></div>
@@ -7111,6 +7227,18 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
 
+      const paintedShapeHandleCounts = new Map([
+        ["rectangle", 4],
+        ["visible-gradient-rectangle", 4],
+        ["stroke-rectangle", 4],
+        ["stroke-polygon", 3],
+        ["visible-paint-server-polygon", 3],
+        ["visible-pattern-polygon", 3],
+        ["inherited-pattern-polygon", 3],
+        ["dynamic-pattern-polygon", 3],
+        ["stroke-pattern-polygon", 3],
+        ["visibility-override-polygon", 3],
+      ]);
       for (const id of [
         "rectangle",
         "frame",
@@ -7129,6 +7257,8 @@ it(
         "visible-gradient-rectangle",
         "stroke-rectangle",
         "zero-opacity-rectangle",
+        "filter-opacity-rectangle",
+        "filter-opacity-ancestor-rectangle",
         "stroke-polygon",
         "opacity-group-polygon",
         "visibility-group-polygon",
@@ -7138,10 +7268,21 @@ it(
         "visible-pattern-polygon",
         "inherited-pattern-polygon",
         "transparent-pattern-polygon",
+        "zero-width-pattern-polygon",
+        "zero-height-pattern-polygon",
+        "missing-size-pattern-polygon",
+        "css-sized-pattern-polygon",
+        "zero-geometry-pattern-polygon",
+        "dynamic-pattern-polygon",
+        "stroke-pattern-polygon",
         "visibility-override-polygon",
         "collapsed-paint-rectangle",
       ]) {
         await selectElementDirect(page, `#${id}`);
+        expect(
+          await page.locator("[data-agent-native-radius-handle]").count(),
+          id,
+        ).toBe(paintedShapeHandleCounts.get(id) ?? 0);
         const visible = await page.evaluate(() =>
           Array.from(
             document.querySelectorAll<HTMLElement>(
@@ -7156,6 +7297,44 @@ it(
             ),
         );
         expect(visible, id).toEqual([]);
+        if (id === "css-sized-pattern-polygon") {
+          const patternGeometry = await page
+            .locator("#radius-css-sized-pattern")
+            .evaluate((element) => {
+              const pattern = element as SVGPatternElement;
+              return {
+                widthAttribute: pattern.hasAttribute("width"),
+                width: pattern.width.baseVal.value,
+                computedWidth: getComputedStyle(pattern).width,
+                heightAttribute: pattern.hasAttribute("height"),
+                height: pattern.height.baseVal.value,
+                computedHeight: getComputedStyle(pattern).height,
+              };
+            });
+          expect(patternGeometry).toEqual({
+            widthAttribute: false,
+            width: 0,
+            computedWidth: "10px",
+            heightAttribute: false,
+            height: 0,
+            computedHeight: "10px",
+          });
+          const renderedPixel = await page
+            .locator("#css-sized-pattern-polygon")
+            .evaluate(async (element) => {
+              const image = new Image();
+              const svg = new XMLSerializer().serializeToString(element);
+              image.src = `data:image/svg+xml;base64,${btoa(svg)}`;
+              await image.decode();
+              const canvas = document.createElement("canvas");
+              canvas.width = canvas.height = 80;
+              const context = canvas.getContext("2d");
+              if (!context) throw new Error("2d canvas context is unavailable");
+              context.drawImage(image, 0, 0);
+              return Array.from(context.getImageData(40, 40, 1, 1).data);
+            });
+          expect(renderedPixel).toEqual([0, 0, 0, 0]);
+        }
         if (id === "rectangle") {
           const hasAuthoredFill = await page
             .locator("#rectangle")
@@ -7297,7 +7476,8 @@ it(
         if (
           id === "visible-pattern-polygon" ||
           id === "inherited-pattern-polygon" ||
-          id === "visibility-override-polygon"
+          id === "visibility-override-polygon" ||
+          id === "stroke-pattern-polygon"
         ) {
           const box = await page.locator(`#${id}`).boundingBox();
           if (!box) throw new Error(`${id} is not visible`);
@@ -7316,6 +7496,66 @@ it(
               ),
           );
           expect(visibleAtVertex, id).toEqual(["vertex-0"]);
+        }
+        if (
+          id === "zero-width-pattern-polygon" ||
+          id === "zero-height-pattern-polygon" ||
+          id === "missing-size-pattern-polygon" ||
+          id === "zero-geometry-pattern-polygon"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAtVertex = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtVertex, id).toEqual([]);
+        }
+        if (
+          id === "dynamic-pattern-polygon" ||
+          id === "stroke-pattern-polygon"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const waitForRadiusHandleVisibility = (expected: boolean) =>
+            page.waitForFunction(
+              (shouldBeVisible) => {
+                const handle = document.querySelector<HTMLElement>(
+                  '[data-agent-native-radius-handle="vertex-0"]',
+                );
+                const isVisible =
+                  !!handle && getComputedStyle(handle).visibility === "visible";
+                return isVisible === shouldBeVisible;
+              },
+              expected,
+              { timeout: 2_000 },
+            );
+          await waitForRadiusHandleVisibility(true);
+          if (id === "dynamic-pattern-polygon") {
+            await page
+              .locator("#radius-dynamic-pattern rect")
+              .evaluate((node) => {
+                node.setAttribute("fill", "transparent");
+              });
+            await waitForRadiusHandleVisibility(false);
+            await page
+              .locator("#radius-dynamic-pattern rect")
+              .evaluate((node) => {
+                node.setAttribute("fill", "#222");
+              });
+            await waitForRadiusHandleVisibility(true);
+          }
         }
         if (id === "stroke-rectangle") {
           await page.mouse.move(644, 244);
@@ -7360,8 +7600,14 @@ it(
           id === "transparent-oklch-gradient-rectangle" ||
           id === "transparent-hwb-gradient-rectangle" ||
           id === "transparent-radial-gradient-rectangle" ||
+          id === "filter-opacity-rectangle" ||
+          id === "filter-opacity-ancestor-rectangle" ||
           id === "transparent-paint-server-polygon" ||
           id === "transparent-pattern-polygon" ||
+          id === "zero-width-pattern-polygon" ||
+          id === "zero-height-pattern-polygon" ||
+          id === "missing-size-pattern-polygon" ||
+          id === "zero-geometry-pattern-polygon" ||
           id === "zero-opacity-rectangle" ||
           id === "collapsed-paint-rectangle"
         ) {

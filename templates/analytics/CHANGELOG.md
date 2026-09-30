@@ -7,8 +7,16 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Expand the Analytics chat header across the conversation view
 - Analytics date filters support custom date ranges
 - Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Analytics accepts valid field names that contain SQL keywords and digits
+- Analytics date filters support custom date ranges across dashboards.
+- The Analytics sidebar shows a single divider above Send feedback.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 
 ## 2026-09-28
 
