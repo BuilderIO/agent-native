@@ -76,6 +76,7 @@ const {
   agentSubmit,
   callAction,
   contextOptions,
+  contextSelection,
   refetchSystems,
   headerActions,
   pageTitle,
@@ -92,6 +93,17 @@ const {
   agentSubmit: vi.fn(),
   callAction: vi.fn().mockResolvedValue(undefined),
   contextOptions: vi.fn(),
+  contextSelection: {
+    value: { designSystemId: null, references: [] } as {
+      designSystemId: string | null;
+      references: Array<{
+        source: "slides" | "website";
+        id: string;
+        title: string;
+        url?: string;
+      }>;
+    },
+  },
   refetchSystems: vi.fn(),
   headerActions: { current: null as ReactNode | null },
   pageTitle: { current: null as ReactNode | null },
@@ -292,6 +304,7 @@ vi.mock("@/components/editor/SlidesComposerContext", () => ({
   useSlidesComposerContext: (options: unknown) => {
     contextOptions(options);
     return {
+      selection: contextSelection.value,
       props: { contextItems: [], contextMenuItems: [] },
       beforeSend: vi.fn(),
       dialogs: null,
@@ -437,6 +450,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(deckIdFromPathname).mockReset();
   agentSubmit.mockReset().mockResolvedValue({ delivered: true });
+  contextSelection.value = { designSystemId: null, references: [] };
   systemFlag.enabled = true;
   suggestionQuery.enabled = undefined;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
@@ -1788,10 +1802,9 @@ describe("Slides prompt-led home", () => {
     );
   });
 
-  it("reopens after sign-in cancellation and preserves the auth draft and model", async () => {
+  it("restores composer references through the sign-in draft", async () => {
     signedIn.value = false;
-    renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    createDeck.mockReturnValue({ id: "new-deck" });
     const modelSelection = {
       model: "test-model",
       engine: "builder",
@@ -1822,11 +1835,18 @@ describe("Slides prompt-led home", () => {
         status: "ready" as const,
       },
     ];
+    contextSelection.value = composerContext;
+    const home = renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    const prompt = await screen.findByRole("textbox", {
+      name: "Presentation prompt",
+    });
     const referenceSelection = {
       designSystemId: composerContext.designSystemId,
-      referenceDeckId: null,
       composerContext,
-      contextItems,
     };
     act(() => {
       const props = promptProps.mock.lastCall![0] as ComponentProps<
@@ -1838,11 +1858,7 @@ describe("Slides prompt-led home", () => {
           [],
           "Reference context",
           [],
-          {
-            ...modelSelection,
-            slidesContext: composerContext,
-            contextItems,
-          },
+          modelSelection,
         ),
       ).toBe(false);
     });
@@ -1870,6 +1886,42 @@ describe("Slides prompt-led home", () => {
       "My saved outline",
     );
     expect(createDeck).not.toHaveBeenCalled();
+
+    signedIn.value = true;
+    home.rerenderHome();
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("textbox", {
+            name: "Presentation prompt",
+          }) as HTMLTextAreaElement
+        ).value,
+      ).toBe("My saved outline"),
+    );
+    const promptWithDeckReference = `Use this style reference: ${window.location.origin}/deck/own?slide=7`;
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        promptWithDeckReference,
+        [],
+        {
+          commit: vi.fn(),
+          discard: vi.fn(),
+          attachments: [],
+          context: "Reference context",
+        },
+        {
+          ...modelSelection,
+          slidesContext: composerContext,
+          contextItems,
+        },
+      );
+    });
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    expect(callAction).toHaveBeenCalledWith(
+      "get-deck-reference-context",
+      { id: "own" },
+      expect.anything(),
+    );
   });
 
   it("restores the generation-failure draft and model on the inline home", async () => {

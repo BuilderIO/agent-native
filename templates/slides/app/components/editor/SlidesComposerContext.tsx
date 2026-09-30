@@ -706,6 +706,7 @@ export function useSlidesComposerContext({
     });
   };
   return {
+    selection,
     props: {
       contextItems,
       contextMenuItems: active ? contextMenuItems : [],

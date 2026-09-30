@@ -2380,6 +2380,8 @@ export default function Index({ active = true }: { active?: boolean }) {
                 options,
               ) => {
                 if (session) return true;
+                const slidesContext =
+                  options?.slidesContext ?? composerContext.selection;
                 preservePromptForSignIn(prompt, {
                   context,
                   attachments,
@@ -2392,17 +2394,16 @@ export default function Index({ active = true }: { active?: boolean }) {
                       }
                     : undefined,
                   referenceSelection: {
-                    ...(options?.slidesContext !== undefined
+                    designSystemId: slidesContext.designSystemId,
+                    ...(selectedReferenceDeckId !== null
                       ? {
-                          designSystemId: options.slidesContext.designSystemId,
+                          referenceDeckId:
+                            selectedReferenceDeckId === "none"
+                              ? null
+                              : selectedReferenceDeckId,
                         }
-                      : selectedDesignSystemId !== null
-                        ? { designSystemId: selectedDesignSystemId }
-                        : {}),
-                    referenceDeckId: selectedReferenceDeckId,
-                    ...(options?.slidesContext
-                      ? { composerContext: options.slidesContext }
                       : {}),
+                    composerContext: slidesContext,
                     ...(options?.contextItems !== undefined
                       ? { contextItems: options.contextItems }
                       : {}),
