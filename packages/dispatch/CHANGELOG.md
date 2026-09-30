@@ -1,5 +1,25 @@
 # @agent-native/dispatch
 
+## 0.40.5
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- cefc33b: Align full-page chat headers to the pane edges and remove the extra gap below them.
+- Release all public npm packages with a patch version bump.
+- df67544: Store uploaded icons in private blobs with scoped metadata and verified image reads.
+- Updated dependencies [85a87e6]
+- Updated dependencies [cefc33b]
+- Updated dependencies [7a25922]
+- Updated dependencies [df67544]
+- Updated dependencies [2fdd284]
+- Updated dependencies [c82ae28]
+- Updated dependencies
+- Updated dependencies [c650ba5]
+- Updated dependencies [9fa81ab]
+- Updated dependencies [20d3bb8]
+  - @agent-native/toolkit@0.198.4
+
 ## 0.40.4
 
 ### Patch Changes
@@ -1072,12 +1092,5 @@
 - Updated dependencies [73c4a97]
 - Updated dependencies [73c4a97]
   - @agent-native/toolkit@0.15.1
-
-## 0.25.1
-
-### Patch Changes
-
-- Updated dependencies [f07ec04]
-  - @agent-native/toolkit@0.15.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
