@@ -1070,7 +1070,7 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("does not show Thinking after completed output before its run finishes", async () => {
+  it("does not show Thinking after visible output before its run finishes", async () => {
     const threadId = "thread-completed-output-before-run";
     const runId = "run-completed-output-before-run";
     const response = {
@@ -1079,20 +1079,19 @@ describe("AgentChat lifecycle", () => {
       status: "complete" as const,
       parts: [{ type: "text" as const, text: "Here is the result." }],
     };
+    const responseEvent = {
+      id: "event-response-completed",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-09-30T00:00:01.000Z",
+      type: "message.completed" as const,
+      message: response,
+    };
     const thread = {
       ...createAgentThreadState(threadId),
       messages: [response],
-      events: [
-        {
-          id: "event-response-completed",
-          threadId,
-          runId,
-          sequence: 1,
-          occurredAt: "2026-09-30T00:00:01.000Z",
-          type: "message.completed" as const,
-          message: response,
-        },
-      ],
+      events: [responseEvent],
       runs: {
         [runId]: {
           id: runId,
@@ -1117,6 +1116,29 @@ describe("AgentChat lifecycle", () => {
         <AgentKitChat composer={false} />
       </AgentKitProvider>,
     );
+
+    expect(tree.container.textContent).toContain("Here is the result.");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    const statuslessResponse = {
+      id: response.id,
+      role: "assistant" as const,
+      parts: response.parts,
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [statuslessResponse],
+          events: [{ ...responseEvent, message: statuslessResponse }],
+        },
+      },
+      revision: 1,
+    });
+    await flush();
 
     expect(tree.container.textContent).toContain("Here is the result.");
     expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
