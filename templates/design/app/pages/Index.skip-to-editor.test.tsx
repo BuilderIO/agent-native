@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,7 +37,9 @@ const mocks = vi.hoisted(() => ({
   focusComposer: vi.fn(),
   submitWithText: vi.fn(),
   agentEngine: { state: "configured", missing: false },
-  fetchAgentEngineConfiguredState: vi.fn(),
+  fetchAgentEngineConfiguredState: vi.fn(
+    async () => "missing" as AgentEngineConfiguredState,
+  ),
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
 }));
 
@@ -63,6 +66,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
       <a href="/settings/keys">Custom keys</a>
     </div>
   ),
+  useChatModels: vi.fn(),
   useAgentEngineConfigured: () => mocks.agentEngine,
   fetchAgentEngineConfiguredState: mocks.fetchAgentEngineConfiguredState,
 }));
@@ -302,6 +306,8 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@agent-native/toolkit/app/chat/composer/index")
     >()),
+    PromptComposer: () => null,
+    snapshotComposerContextItems: (items: unknown) => items,
     useAgentKitIntegrationMenu: () => ({
       id: "integrations",
       label: "Integrations",
@@ -671,15 +677,24 @@ describe("Index skip to editor", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "gates home composer and suggestions for $state (missing=$missing)",
+    "gates home composer submission and suggestions for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       mocks.agentEngine = { state, missing };
+      mocks.fetchAgentEngineConfiguredState.mockResolvedValue(
+        ready
+          ? "configured"
+          : state === "unavailable"
+            ? "unavailable"
+            : "missing",
+      );
       await act(async () => root.render(<Index />));
       expect(mocks.promptProps?.disabled).not.toBe(true);
       expect(mocks.promptProps).toMatchObject({
         showModelSelector: ready,
         modelStatusChecksEnabled: ready,
       });
+      expect(mocks.promptProps?.onBeforeSubmit).toEqual(expect.any(Function));
+      await expect(mocks.promptProps?.onBeforeSubmit()).resolves.toBe(ready);
       expect(container.textContent).not.toContain(
         "agentChat.setup.checkingProvider",
       );
