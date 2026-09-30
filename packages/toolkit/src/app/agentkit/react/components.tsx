@@ -3179,7 +3179,6 @@ export function AgentKitComposer({
   );
   const submissionBlocked = Boolean(submissionDisabled) || command.pending;
   const [submissionPending, setSubmissionPending] = useState(false);
-  const [preflightPending, setPreflightPending] = useState(false);
   const handleSubmissionPendingChange = useCallback(
     (pending: boolean) => {
       setSubmissionPending(pending);
@@ -3674,9 +3673,8 @@ export function AgentKitComposer({
         initialTextKey={composerInitialTextKey}
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
-        sendButtonDisabled={preflightPending}
+        sendButtonDisabled={submissionPending}
         onBeforeSubmit={onBeforeSubmit}
-        onPreflightPendingChange={setPreflightPending}
         onSubmissionPendingChange={handleSubmissionPendingChange}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         clearOnSubmitImmediately

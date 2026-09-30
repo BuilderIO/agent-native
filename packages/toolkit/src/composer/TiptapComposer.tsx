@@ -888,7 +888,7 @@ export interface TiptapComposerProps {
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
   submissionDisabled?: boolean;
-  /** Disable only the send control while async submission preflight runs. */
+  /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
   /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
@@ -918,7 +918,6 @@ export interface TiptapComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
-  onPreflightPendingChange?: (pending: boolean) => void;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
@@ -2563,7 +2562,6 @@ export function TiptapComposer({
   initialTextKey,
   onSubmit,
   onBeforeSubmit,
-  onPreflightPendingChange,
   onSubmissionPendingChange,
   getSubmitFailureDraftScope,
   clearOnSubmit = true,
@@ -4336,7 +4334,6 @@ export function TiptapComposer({
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
-        onPreflightPendingChange?.(true);
         onSubmissionPendingChange?.(true);
         try {
           const shouldSubmit = await onBeforeSubmit();
@@ -4359,7 +4356,6 @@ export function TiptapComposer({
           return false;
         } finally {
           submitInFlightRef.current = false;
-          onPreflightPendingChange?.(false);
           onSubmissionPendingChange?.(false);
         }
       }

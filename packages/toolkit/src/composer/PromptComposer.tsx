@@ -106,7 +106,6 @@ export interface PromptComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
-  onPreflightPendingChange?: (pending: boolean) => void;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
@@ -120,7 +119,7 @@ export interface PromptComposerProps {
   disabled?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
   submissionDisabled?: boolean;
-  /** Disable only the send control while async submission preflight runs. */
+  /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
   /** Prevent submission while preserving editor focus and draft entry. */
   submitting?: boolean;
@@ -685,7 +684,6 @@ function PromptComposerInner({
   imageModelMenu,
   composerRef,
   onBeforeSubmit,
-  onPreflightPendingChange,
   onSubmissionPendingChange,
   getSubmitFailureDraftScope,
   onAttachmentError,
@@ -907,7 +905,6 @@ function PromptComposerInner({
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
           onBeforeSubmit={onBeforeSubmit}
-          onPreflightPendingChange={onPreflightPendingChange}
           onSubmissionPendingChange={onSubmissionPendingChange}
           getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           onAttachmentError={onAttachmentError}
