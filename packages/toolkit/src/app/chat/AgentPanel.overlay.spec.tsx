@@ -160,6 +160,7 @@ describe("AgentPanel sibling overlay handoff", () => {
     container.remove();
     document.body.innerHTML = "";
     window.requestAnimationFrame = requestAnimationFrame;
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -216,6 +217,7 @@ describe("AgentPanel sibling overlay handoff", () => {
 
   it("keeps All chats open after the menu restores focus", async () => {
     const focusRestorePrevented = vi.fn();
+    vi.useFakeTimers();
 
     await act(async () => {
       root.render(
@@ -253,8 +255,15 @@ describe("AgentPanel sibling overlay handoff", () => {
       document.body.querySelector('[data-testid="history-content"]'),
     ).toBeNull();
 
-    await act(async () => {
-      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    act(() => {
+      vi.advanceTimersByTime(99);
+    });
+    expect(
+      document.body.querySelector('[data-testid="history-content"]'),
+    ).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
     });
 
     expect(focusRestorePrevented).toHaveBeenCalledWith(true);
@@ -265,6 +274,7 @@ describe("AgentPanel sibling overlay handoff", () => {
 
   it("opens the share popover after clicking Share in the overflow menu", async () => {
     const focusRestorePrevented = vi.fn();
+    vi.useFakeTimers();
 
     await act(async () => {
       root.render(
@@ -304,8 +314,15 @@ describe("AgentPanel sibling overlay handoff", () => {
       document.body.querySelector('[data-testid="share-content"]'),
     ).toBeNull();
 
-    await act(async () => {
-      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    act(() => {
+      vi.advanceTimersByTime(99);
+    });
+    expect(
+      document.body.querySelector('[data-testid="share-content"]'),
+    ).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
     });
 
     expect(focusRestorePrevented).toHaveBeenCalledWith(true);
