@@ -4128,6 +4128,9 @@ function AgentKitConnectionRequest({
     <McpAgentKitConnectionRequestCard
       provider={value.provider}
       detail={value.detail}
+      reason={value.reason}
+      appId={value.appId}
+      source={value.source}
       target={{ threadId, runId, requestId: value.id }}
       onConnected={() =>
         control.resolveConnectionRequest(runId, value.id, {

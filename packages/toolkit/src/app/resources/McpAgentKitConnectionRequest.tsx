@@ -1,3 +1,5 @@
+import type { AgentConnectionRequest } from "@agent-native/agentkit/protocol";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   consumeMcpConnectionResume,
   saveMcpConnectionResume,
@@ -9,6 +11,7 @@ import {
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 
+import { AgentConnectionRequestCard } from "../agentkit/react/components.js";
 import { McpConnectionSuggestion } from "./McpConnectionSuggestion.js";
 
 export interface McpAgentKitConnectionTarget {
@@ -20,6 +23,9 @@ export interface McpAgentKitConnectionTarget {
 export interface McpAgentKitConnectionRequestCardProps {
   provider: string;
   detail?: string;
+  reason?: AgentConnectionRequest["reason"];
+  appId?: string;
+  source?: AgentConnectionRequest["source"];
   target: McpAgentKitConnectionTarget;
   onConnected: () => void | Promise<void>;
   onDeclined: () => void | Promise<void>;
@@ -29,6 +35,9 @@ export interface McpAgentKitConnectionRequestCardProps {
 export function McpAgentKitConnectionRequestCard({
   provider,
   detail,
+  reason,
+  appId,
+  source,
   target,
   onConnected,
   onDeclined,
@@ -51,6 +60,47 @@ export function McpAgentKitConnectionRequestCard({
       throw error;
     }
   };
+  if (
+    source?.kind === "workspace_connection" &&
+    source.id === provider &&
+    appId
+  ) {
+    const request: AgentConnectionRequest = {
+      id: target.requestId,
+      provider,
+      reason: reason ?? "connect",
+      status: "requested",
+      appId,
+      detail,
+      source,
+    };
+    return (
+      <AgentConnectionRequestCard
+        request={request}
+        runId={target.runId}
+        providerLabel={source.label}
+        onConnect={() => {
+          if (
+            !saveMcpConnectionResume(
+              detail ??
+                `Continue after connecting ${source.label ?? provider}.`,
+              target,
+            )
+          ) {
+            return false;
+          }
+          startWorkspaceProviderOAuth(source.id, {
+            appId,
+            scope: "user",
+            returnPath:
+              window.location.pathname +
+              window.location.search +
+              window.location.hash,
+          });
+        }}
+      />
+    );
+  }
   if (!integration) return fallback;
   return (
     <McpConnectionSuggestion

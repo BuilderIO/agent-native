@@ -1726,15 +1726,27 @@ export function AgentApprovalPrompt({
 export function AgentConnectionRequestCard({
   request,
   runId,
+  providerLabel,
+  onConnect,
 }: {
   request: AgentConnectionRequest;
   runId: string;
+  providerLabel?: string;
+  onConnect?: (
+    request: AgentConnectionRequest,
+  ) => boolean | void | Promise<boolean | void>;
 }) {
   const { labels, onConnectionRequest, requestComposerFocus, threadId } =
     useAgentKit();
   const control = useAgentKitControl();
   const resolution = useAgentKitMutation(
     async (decision: "connect" | "decline") => {
+      if (decision === "connect" && onConnect) {
+        if ((await onConnect(request)) === false) {
+          throw new Error(labels.connectionFailed);
+        }
+        return;
+      }
       const response =
         decision === "decline"
           ? { status: "declined" as const }
@@ -1762,7 +1774,7 @@ export function AgentConnectionRequestCard({
         ? labels.connectionFailed
         : request.reason === "admin_required"
           ? labels.connectionAdminRequired
-          : `${labels.connectionConnect} ${request.provider}`;
+          : `${labels.connectionConnect} ${providerLabel ?? request.provider}`;
   return (
     <Surface
       as="section"
@@ -1793,7 +1805,9 @@ export function AgentConnectionRequestCard({
             className="agentkit-primary-button"
             intent="primary"
             size="compact"
-            disabled={resolution.pending || !onConnectionRequest}
+            disabled={
+              resolution.pending || (!onConnectionRequest && !onConnect)
+            }
             pending={resolution.pending}
             onPress={() => resolve("connect")}
           >
@@ -1802,7 +1816,7 @@ export function AgentConnectionRequestCard({
               : labels.connectionConnect}
           </ActionButton>
         </div>
-      ) : request.status === "failed" && onConnectionRequest ? (
+      ) : request.status === "failed" && (onConnectionRequest || onConnect) ? (
         <div className="agentkit-connection-request-actions">
           <ActionButton
             emphasis="outline"

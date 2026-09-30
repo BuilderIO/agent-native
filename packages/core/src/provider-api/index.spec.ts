@@ -790,6 +790,30 @@ describe("provider API runtime", () => {
     });
   });
 
+  it("marks missing Google Drive connections as workspace connections", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "dispatch",
+      providerIds: ["google_drive"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({ provider: "google_drive", path: "/files" })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_drive",
+      reason: "connect",
+      appId: "dispatch",
+      source: {
+        id: "google_drive",
+        kind: "workspace_connection",
+        label: "Google Drive",
+      },
+    });
+  });
+
   it("turns a missing Slack bearer connection into a contextual request", async () => {
     const runtime = createProviderApiRuntime({
       appId: "dispatch",

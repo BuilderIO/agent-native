@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 
 import { AgentConnectionRequiredError } from "../action.js";
-import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
+import {
+  getWorkspaceConnectionProvider,
+  type WorkspaceConnectionTemplateUse,
+} from "../connections/catalog.js";
 import {
   assertCredentialCanReachEndpoint,
   describeCredentialScopeGap,
@@ -2119,6 +2122,7 @@ export async function resolveProviderApiOAuthAccessToken(
       })
     : await resolveOAuthBearerToken({
         auth: oauthAuth,
+        runtime,
         ctx,
         accountId: args.accountId,
       });
@@ -3762,8 +3766,10 @@ async function resolveAuth(
           })
         : await resolveOAuthBearerToken({
             auth: { ...auth, oauthProvider },
+            runtime,
             ctx,
             accountId: args.accountId,
+            connectionId: args.connectionId,
           });
     return {
       headers: { Authorization: `Bearer ${credential.value}` },
@@ -4259,10 +4265,12 @@ async function getGoogleServiceAccountToken(
 
 async function resolveOAuthBearerToken(options: {
   auth: Extract<ProviderApiAuthKind, { type: "oauth-bearer" }>;
+  runtime: ProviderApiRuntimeOptions;
   ctx: CredentialContext;
   accountId?: string | null;
   ownerEmail?: string | null;
   salesforceLoginUrl?: string | null;
+  connectionId?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
   const ownerEmail = options.ownerEmail?.trim() || options.ctx.userEmail;
   const accounts = await listOAuthAccountsByOwner(
@@ -4270,6 +4278,14 @@ async function resolveOAuthBearerToken(options: {
     ownerEmail,
   );
   if (accounts.length === 0) {
+    if (options.auth.workspaceProvider) {
+      return throwWorkspaceConnectionRequired({
+        runtime: options.runtime,
+        provider: options.auth.workspaceProvider,
+        connectionId: options.connectionId,
+        message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+      });
+    }
     throw new Error(
       `${options.auth.tokenLabel} is not connected for ${ownerEmail}.`,
     );
@@ -4342,10 +4358,20 @@ async function throwWorkspaceConnectionRequired(options: {
   ) {
     reason = "reauthorize";
   }
+  const connectionProvider = getWorkspaceConnectionProvider(options.provider);
   throw new AgentConnectionRequiredError(options.message, {
     provider: options.provider,
     reason,
     appId: options.runtime.appId,
+    ...(connectionProvider
+      ? {
+          source: {
+            id: options.provider,
+            kind: "workspace_connection",
+            label: connectionProvider.label,
+          },
+        }
+      : {}),
   });
 }
 
@@ -4402,9 +4428,11 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   }
   const credential = await resolveOAuthBearerToken({
     auth: options.auth,
+    runtime: options.runtime,
     ctx: options.ctx,
     accountId: connectionAccountId,
     ownerEmail: resolved.connection.ownerEmail,
+    connectionId: requestedConnectionId,
     salesforceLoginUrl:
       options.auth.oauthProvider === "salesforce" &&
       typeof resolved.connection.config?.salesforceLoginUrl === "string"
