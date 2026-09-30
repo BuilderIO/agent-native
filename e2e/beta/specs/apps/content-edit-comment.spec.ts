@@ -121,19 +121,57 @@ test("Content beta saves a page edit and comment", async ({ browser }) => {
       );
       if (document.ok()) {
         await runAction(page, origin, "delete-document", { id });
-        const plan = await runAction(page, origin, "plan-content-trash-purge", {
-          mode: "selection",
-          documentIds: [id],
-        });
-        await runAction(page, origin, "permanently-delete-document", {
-          id,
-          planId: plan.planId,
-          scopeToken: plan.scopeToken,
-        });
       } else if (document.status() !== 404) {
         throw new Error(
           `Could not verify test document cleanup (${document.status()})`,
         );
+      }
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const trash = await readAction(page, origin, "list-content-trash", {
+          query: marker,
+        });
+        const items = trash.items as Array<{ documentId?: string }>;
+        if (!items.some((item) => item.documentId === id)) break;
+
+        try {
+          const plan = await runAction(
+            page,
+            origin,
+            "plan-content-trash-purge",
+            {
+              mode: "selection",
+              documentIds: [id],
+            },
+          );
+          await runAction(page, origin, "permanently-delete-document", {
+            id,
+            planId: plan.planId,
+            scopeToken: plan.scopeToken,
+          });
+        } catch (error) {
+          if (attempt === 1) throw error;
+        }
+      }
+
+      const [remainingDocument, remainingTrash] = await Promise.all([
+        page.request.get(`${origin}/_agent-native/actions/get-document`, {
+          params: { id },
+          headers: ACTION_HEADERS,
+        }),
+        readAction(page, origin, "list-content-trash", { query: marker }),
+      ]);
+      if (remainingDocument.ok() || remainingDocument.status() !== 404) {
+        throw new Error(
+          `Test document remains after cleanup (${remainingDocument.status()})`,
+        );
+      }
+      if (
+        (remainingTrash.items as Array<{ documentId?: string }>).some(
+          (item) => item.documentId === id,
+        )
+      ) {
+        throw new Error("Test document remains in Content Trash after cleanup");
       }
     } finally {
       await context.close();
