@@ -79,7 +79,7 @@ export interface AgentKitHistoryConfig<
     args?:
       | Record<string, unknown>
       | ((threadId: ThreadId) => Record<string, unknown>);
-    getVersions: (result: TListResult) => readonly TVersion[];
+    getVersions: (result: TListResult) => readonly TVersion[] | null;
   };
   restore: {
     action: string;
