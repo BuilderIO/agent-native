@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  indexedSearchSql,
+  prepareSearchIndex,
+} from "@agent-native/core/search";
+import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
@@ -20,7 +24,7 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { documentSearchIndex, getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import {
   parseSearchQuery,
@@ -67,7 +71,7 @@ function makeSnippet(content: string, query: string, radius = 120) {
 
 export default defineAction({
   description:
-    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
+    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
   deferLoading: false,
   mcpTool: true,
   schema: z
@@ -200,7 +204,21 @@ export default defineAction({
           ).map((document) => document.id)
         : [args.excludeSubtreeOf];
     }
-    const where = documentDiscoveryWhere({
+    // The core index answers when it is complete and current; otherwise this
+    // request scans documents directly, as search did before the index.
+    const indexStatus =
+      parsedQuery && !parsedQuery.empty
+        ? await prepareSearchIndex(documentSearchIndex)
+        : null;
+    const indexedSearch =
+      parsedQuery && indexStatus?.ready
+        ? indexedSearchSql({
+            registration: documentSearchIndex,
+            query: parsedQuery,
+            fields: args.searchFields === "title" ? "title" : "all",
+          })
+        : null;
+    const baseWhere = documentDiscoveryWhere({
       userEmail,
       authorizedOrgIds,
       exactTitle: args.exactTitle,
@@ -214,7 +232,6 @@ export default defineAction({
               isNull(schema.documents.hideFromSearch),
             )
           : undefined,
-        ...matchPredicates,
         excludedIds.length > 0
           ? notInArray(schema.documents.id, excludedIds)
           : undefined,
@@ -232,6 +249,9 @@ export default defineAction({
           : undefined,
       ),
     });
+    const where = indexedSearch
+      ? and(baseWhere, indexedSearch.match)
+      : and(baseWhere, ...matchPredicates);
     const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
     const bodyNeedleArray = bodyNeedles.length
       ? sql`array[${sql.join(
@@ -308,20 +328,21 @@ export default defineAction({
     const matchWindow = selectedBodyPosition
       ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - 120), least(5000, 240 + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
       : sql<string>`substr(${normalizedContent}, 1, 5000)`;
-    const ranking = parsedQuery?.groups.length
-      ? documentSearchRanking(
-          parsedQuery,
-          {
-            title: schema.documents.title,
-            description: schema.documents.description,
-            content: normalizedContent,
-          },
-          {
-            includeNonTitleFields: args.searchFields !== "title",
-          },
-        )
-      : null;
-    const docs = await db
+    const ranking =
+      !indexedSearch && parsedQuery?.groups.length
+        ? documentSearchRanking(
+            parsedQuery,
+            {
+              title: schema.documents.title,
+              description: schema.documents.description,
+              content: normalizedContent,
+            },
+            {
+              includeNonTitleFields: args.searchFields !== "title",
+            },
+          )
+        : null;
+    const docsQuery = db
       .select({
         id: schema.documents.id,
         parentId: schema.documents.parentId,
@@ -347,17 +368,24 @@ export default defineAction({
       })
       .from(schema.documents)
       .where(where)
+      .$dynamic();
+    if (indexedSearch) {
+      docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+    }
+    const docs = await docsQuery
       .orderBy(
-        ...(ranking
-          ? [
-              desc(ranking.matchTier),
-              desc(ranking.titleCoverage),
-              desc(ranking.descriptionCoverage),
-              desc(
-                sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
-              ),
-            ]
-          : []),
+        ...(indexedSearch
+          ? indexedSearch.orderBy
+          : ranking
+            ? [
+                desc(ranking.matchTier),
+                desc(ranking.titleCoverage),
+                desc(ranking.descriptionCoverage),
+                desc(
+                  sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
+                ),
+              ]
+            : []),
         desc(schema.documents.updatedAt),
         asc(schema.documents.id),
       )
@@ -376,7 +404,7 @@ export default defineAction({
           .from(schema.documents)
           .where(
             and(
-              where,
+              baseWhere,
               inArray(
                 schema.documents.id,
                 docs.map((doc) => doc.id),
@@ -387,16 +415,17 @@ export default defineAction({
     const previewById = new Map(
       previews.map((preview) => [preview.id, preview]),
     );
+    const countQuery = db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.documents)
+      .where(where)
+      .$dynamic();
+    if (indexedSearch) {
+      countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+    }
     const totalItems = docs.length
       ? Number(docs[0]!.totalItems)
-      : Number(
-          (
-            await db
-              .select({ count: sql<number>`count(*)` })
-              .from(schema.documents)
-              .where(where)
-          )[0]?.count ?? 0,
-        );
+      : Number((await countQuery)[0]?.count ?? 0);
 
     const parentIds = [
       ...new Set(docs.flatMap((doc) => (doc.parentId ? [doc.parentId] : []))),

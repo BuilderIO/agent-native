@@ -25,6 +25,9 @@ export default mergeConfig(
         "**/.react-router/**",
         "**/e2e/**",
       ],
+      // Search drains its whole index backlog before answering, so tests take
+      // the indexed path unless they force the fallback scan.
+      env: { AGENT_NATIVE_SEARCH_DRAIN_BUDGET_MS: "0" },
       hookTimeout: 60_000,
       testTimeout: 60_000,
       maxWorkers: resolveMaxWorkers(process.env, "50%"),
