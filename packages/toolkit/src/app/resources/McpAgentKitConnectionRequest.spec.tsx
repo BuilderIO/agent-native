@@ -218,7 +218,16 @@ describe("McpAgentKitConnectionRequestCard", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     vi.mocked(openOAuthPopup).mockClear();
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const locationAssign = vi.fn();
+    const popup = {
+      opener: window,
+      location: { assign: locationAssign },
+      close: vi.fn(),
+    } as unknown as Window;
+    const open = vi
+      .spyOn(window, "open")
+      .mockReturnValueOnce(null)
+      .mockReturnValue(popup);
     const onConnected = vi.fn();
 
     act(() => {
@@ -246,13 +255,16 @@ describe("McpAgentKitConnectionRequestCard", () => {
     expect(container.textContent).toContain("Connect google_drive");
     expect(openOAuthPopup).not.toHaveBeenCalled();
     await act(async () => container.querySelector("button")?.click());
-    expect(open).toHaveBeenCalledWith(
-      dispatchIntegrationsHref([]),
-      "_blank",
-      "noopener,noreferrer",
-    );
+    expect(open).toHaveBeenCalledWith("", "_blank");
     expect(onConnected).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Connect google_drive");
+
+    await act(async () => container.querySelector("button")?.click());
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(popup.opener).toBeNull();
+    expect(locationAssign).toHaveBeenCalledWith(dispatchIntegrationsHref([]));
     expect(container.textContent).toContain("Try again google_drive");
+    expect(onConnected).not.toHaveBeenCalled();
     await act(async () => container.querySelector("button")?.click());
     expect(onConnected).toHaveBeenCalledOnce();
 
@@ -306,7 +318,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
       "failed",
     );
     await act(async () => container.querySelector("button")?.click());
-    expect(open).toHaveBeenCalledTimes(2);
+    expect(open).toHaveBeenCalledTimes(3);
     expect(onConnected).toHaveBeenCalledOnce();
     await act(async () => container.querySelector("button")?.click());
     expect(onConnected).toHaveBeenCalledTimes(2);
@@ -318,7 +330,13 @@ describe("McpAgentKitConnectionRequestCard", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     vi.mocked(openOAuthPopup).mockClear();
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const locationAssign = vi.fn();
+    const popup = {
+      opener: window,
+      location: { assign: locationAssign },
+      close: vi.fn(),
+    } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(popup);
     const onConnected = vi.fn();
 
     act(() => {
@@ -346,11 +364,9 @@ describe("McpAgentKitConnectionRequestCard", () => {
     expect(container.textContent).toContain("Connect slack");
     expect(openOAuthPopup).not.toHaveBeenCalled();
     await act(async () => container.querySelector("button")?.click());
-    expect(open).toHaveBeenCalledWith(
-      dispatchIntegrationsHref([]),
-      "_blank",
-      "noopener,noreferrer",
-    );
+    expect(open).toHaveBeenCalledWith("", "_blank");
+    expect(popup.opener).toBeNull();
+    expect(locationAssign).toHaveBeenCalledWith(dispatchIntegrationsHref([]));
     expect(onConnected).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Try again slack");
     await act(async () => container.querySelector("button")?.click());

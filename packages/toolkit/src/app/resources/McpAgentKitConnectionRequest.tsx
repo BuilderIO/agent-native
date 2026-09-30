@@ -111,11 +111,17 @@ export function McpAgentKitConnectionRequestCard({
           retry={workspaceSetupOpened}
           onConnect={() => {
             if (workspaceSetupOpened) return onConnected();
-            window.open(
-              dispatchIntegrationsHref(workspaceApps),
-              "_blank",
-              "noopener,noreferrer",
-            );
+            const setupWindow = window.open("", "_blank");
+            if (!setupWindow) return false;
+            try {
+              setupWindow.opener = null;
+              setupWindow.location.assign(
+                dispatchIntegrationsHref(workspaceApps),
+              );
+            } catch {
+              setupWindow.close();
+              return false;
+            }
             setWorkspaceSetupOpened(true);
           }}
         />

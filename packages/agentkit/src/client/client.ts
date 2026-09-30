@@ -943,6 +943,7 @@ export class AgentKitClient implements AgentKitController {
       if (threadMissing) this.missingThreadStates.add(thread);
       this.setThread(threadId, thread);
       this.setConnection("connected");
+      this.scheduleQueuePromotionIfIdle(threadId);
       for (const runId of thread.activeRunIds) {
         void this.resubscribeRun(threadId, runId).catch(() => {
           // The consumer records the typed stream error in the client snapshot.
@@ -2022,7 +2023,6 @@ export class AgentKitClient implements AgentKitController {
         terminalEvent.status === "completed");
     const terminalThread = this.getThread(threadId);
     const queuedWorkKnown =
-      completed &&
       terminalThread.queuedMessages.length > 0 &&
       !hasActiveAgentRuns(terminalThread);
     if (queuedWorkKnown) this.scheduleQueuePromotion(threadId, true);
@@ -3005,6 +3005,7 @@ export class AgentKitClient implements AgentKitController {
         run.activeMessageId,
       ),
     );
+    this.scheduleQueuePromotionIfIdle(threadId);
   }
 
   private markRunFailed(
@@ -3037,6 +3038,7 @@ export class AgentKitClient implements AgentKitController {
         run.activeMessageId,
       ),
     );
+    this.scheduleQueuePromotionIfIdle(threadId);
   }
 
   private markRunStarted(threadId: ThreadId, runId: RunId): void {
@@ -3159,6 +3161,13 @@ export class AgentKitClient implements AgentKitController {
         // `steerQueuedMessage` already restores state and reports the failure.
       })
       .finally(() => this.queuePromotions.delete(threadId));
+  }
+
+  private scheduleQueuePromotionIfIdle(threadId: ThreadId): void {
+    const thread = this.getThread(threadId);
+    if (thread.queuedMessages.length > 0 && !hasActiveAgentRuns(thread)) {
+      this.scheduleQueuePromotion(threadId);
+    }
   }
 
   private assertActive(): void {
