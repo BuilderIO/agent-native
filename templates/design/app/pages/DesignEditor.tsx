@@ -1016,7 +1016,10 @@ import {
   type ReflowCandidate,
 } from "./design-editor/layout-operations";
 import { reconcileLiveCollaborationOverride } from "./design-editor/live-collaboration-override";
-import { localhostConsentRequestDisposition } from "./design-editor/localhost-consent-request";
+import {
+  localhostConsentRequestDisposition,
+  localhostConsentRequestRefetchInterval,
+} from "./design-editor/localhost-consent-request";
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   hasMinimalInspectorSelection,
@@ -1827,6 +1830,14 @@ function DesignEditor() {
   const pendingVisualEditHadPendingRef = useRef<string | null>(null);
   const pendingVisualEditHandoffPublicationRef =
     useRef<VisualEditHandoffPublicationState | null>(null);
+  const [
+    pendingVisualEditHandoffServerRevision,
+    setPendingVisualEditHandoffServerRevision,
+  ] = useState<{
+    designId: string;
+    publicationRevision: number;
+    serverRevision: number;
+  } | null>(null);
   const pendingVisualEditReloadedHandoffRef =
     useRef<VisualEditHandoffPublicationState | null>(null);
   useEffect(() => {
@@ -1835,6 +1846,7 @@ function DesignEditor() {
     pendingVisualEditClearRequestedRef.current = null;
     pendingVisualEditHadPendingRef.current = null;
     pendingVisualEditHandoffPublicationRef.current = null;
+    setPendingVisualEditHandoffServerRevision(null);
     pendingVisualEditReloadedHandoffRef.current = null;
     setPendingVisualEditPublicationFailed(false);
     setPendingVisualEditRecoveryVisible(false);
@@ -3991,10 +4003,11 @@ function DesignEditor() {
       enabled: Boolean(id && canEditDesign),
       refetchInterval: (query) => {
         const request = query.state.data?.request;
-        if (!request || query.state.status === "error") return 1_000;
-        return failedLocalhostConsentClear === `${id}:${request.requestedAt}`
-          ? 1_000
-          : false;
+        return localhostConsentRequestRefetchInterval({
+          requestKey: request ? `${id}:${request.requestedAt}` : null,
+          failedClearKey: failedLocalhostConsentClear,
+          queryFailed: query.state.status === "error",
+        });
       },
     },
   );
@@ -6484,8 +6497,7 @@ function DesignEditor() {
       !canEditDesign ||
       !request ||
       request.designId !== id ||
-      !request.connectionId ||
-      lastLocalhostConsentRequestRef.current === `${id}:${request.requestedAt}`
+      !request.connectionId
     ) {
       return;
     }
@@ -19154,6 +19166,7 @@ function DesignEditor() {
           pendingVisualEditHandoffPublicationRef.current,
           { status: "queued", designId: id, publicationRevision: revision },
         );
+      setPendingVisualEditHandoffServerRevision(null);
     }
     if (pendingVisualEditCount > 0) {
       pendingVisualEditClearRequestedRef.current = null;
@@ -19177,7 +19190,10 @@ function DesignEditor() {
           serverRevision,
         ) => {
           if (status === "ready") {
-            if (typeof serverRevision !== "number") return;
+            if (typeof serverRevision !== "number") {
+              setPendingVisualEditHandoffServerRevision(null);
+              return;
+            }
             const event = {
               status,
               designId: id,
@@ -19189,6 +19205,11 @@ function DesignEditor() {
                 pendingVisualEditHandoffPublicationRef.current,
                 event,
               );
+            setPendingVisualEditHandoffServerRevision({
+              designId: id,
+              publicationRevision,
+              serverRevision,
+            });
             pendingVisualEditReloadedHandoffRef.current =
               updateReloadedVisualEditHandoff(
                 pendingVisualEditReloadedHandoffRef.current,
@@ -19203,6 +19224,7 @@ function DesignEditor() {
               pendingVisualEditHandoffPublicationRef.current,
               event,
             );
+          setPendingVisualEditHandoffServerRevision(null);
           pendingVisualEditReloadedHandoffRef.current =
             updateReloadedVisualEditHandoff(
               pendingVisualEditReloadedHandoffRef.current,
@@ -19261,8 +19283,11 @@ function DesignEditor() {
       pendingLiveNonStyleEditsRef.current.length;
     const handoffPublication = pendingVisualEditHandoffPublicationRef.current;
     const serverRevision =
-      handoffPublication?.designId === id
-        ? handoffPublication.serverRevision
+      handoffPublication?.designId === id &&
+      pendingVisualEditHandoffServerRevision?.designId === id &&
+      pendingVisualEditHandoffServerRevision.publicationRevision ===
+        handoffPublication.publicationRevision
+        ? pendingVisualEditHandoffServerRevision.serverRevision
         : null;
     const handoff = pendingVisualEditHandoffQuery.data;
     if (
@@ -19283,6 +19308,7 @@ function DesignEditor() {
     id,
     pendingLiveNonStyleEdits,
     pendingVisualEditHandoffQuery.data,
+    pendingVisualEditHandoffServerRevision,
     pendingVisualStyleEdits,
   ]);
   const visualEditPromptResult = useCallback<
