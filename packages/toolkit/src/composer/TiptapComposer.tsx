@@ -2607,7 +2607,6 @@ export function TiptapComposer({
   draftScope,
   contextItems: providedContextItems,
   onRemoveContextItem,
-  onInspectContextItem,
   onRetryContextItem,
   contextMenuItems,
   plusMenuMode = "full",
@@ -5216,17 +5215,7 @@ export function TiptapComposer({
                 ) : (
                   <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
                 )}
-                {onInspectContextItem ? (
-                  <button
-                    type="button"
-                    onClick={() => onInspectContextItem(item.key)}
-                    className="min-w-0 truncate text-start hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {item.title}
-                  </button>
-                ) : (
-                  <span className="min-w-0 truncate">{item.title}</span>
-                )}
+                <span className="min-w-0 truncate">{item.title}</span>
                 {onRemoveContextItem && item.removable !== false ? (
                   <button
                     type="button"

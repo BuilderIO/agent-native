@@ -1564,23 +1564,25 @@ describe("controlled composer context", () => {
     expect(Object.isFrozen(options.contextItems[0])).toBe(true);
   });
 
-  it("keeps optional context inspection available without an underline", async () => {
+  it("keeps context chips inert except for the remove button", async () => {
     const onInspectContextItem = vi.fn();
+    const onRemoveContextItem = vi.fn();
     await mount({
       contextItems: [
         { key: "brief", title: "Brief", context: "Original context" },
       ],
+      onRemoveContextItem,
       onInspectContextItem,
     });
 
-    const inspectButton = container.querySelector<HTMLButtonElement>(
-      '[data-context-key="brief"] button',
-    )!;
     const contextChip = container.querySelector('[data-context-key="brief"]')!;
-    expect(inspectButton.textContent).toBe("Brief");
+    expect(contextChip.querySelector("span")?.textContent).toBe("Brief");
+    expect(contextChip.querySelectorAll("button")).toHaveLength(1);
+    expect(
+      contextChip.querySelector('button[aria-label="Remove Brief context"]'),
+    ).not.toBeNull();
     expect(contextChip.className).toContain("py-0.5");
-    expect(inspectButton.className).not.toContain("hover:underline");
-    await act(async () => inspectButton.click());
-    expect(onInspectContextItem).toHaveBeenCalledWith("brief");
+    await act(async () => contextChip.click());
+    expect(onInspectContextItem).not.toHaveBeenCalled();
   });
 });
