@@ -5987,7 +5987,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function recordSourceSubtree(root) {
-      if (root.nodeType === 1 && root.hasAttribute("data-agent-native-edit-overlay")) {
+      if (root.nodeType === 1 && (root.hasAttribute("data-agent-native-edit-overlay") || // The shader runtime inserts this before the snapshot; claiming it
+      // lets the next morph delete it as stale source.
+      root.hasAttribute("data-an-shader-canvas"))) {
         return;
       }
       if (root.nodeType === 1 && isTemplateCloneElement(root)) return;

@@ -7191,7 +7191,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function recordSourceSubtree(root: Node): void {
     if (
       root.nodeType === 1 &&
-      (root as Element).hasAttribute("data-agent-native-edit-overlay")
+      ((root as Element).hasAttribute("data-agent-native-edit-overlay") ||
+        // The shader runtime inserts this before the snapshot; claiming it
+        // lets the next morph delete it as stale source.
+        (root as Element).hasAttribute("data-an-shader-canvas"))
     ) {
       return;
     }
