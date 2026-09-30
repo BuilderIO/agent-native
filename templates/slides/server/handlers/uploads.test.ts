@@ -12,6 +12,17 @@ const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
 const mockWithSlidesRequestContext = vi.hoisted(() => vi.fn());
 const mockHasExpectedSvgSignature = vi.hoisted(() => vi.fn(() => true));
 const mockIsSafeSvg = vi.hoisted(() => vi.fn(() => true));
+const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockCanSaveAsUploadedAsset = vi.hoisted(() =>
+  vi.fn((..._args: unknown[]) => false),
+);
+const mockUploadImageAsset = vi.hoisted(() =>
+  vi.fn((..._args: unknown[]) => Promise.resolve({ url: "" })),
+);
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestOrgId: () => mockGetRequestOrgId(),
+}));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -47,10 +58,11 @@ vi.mock("../lib/uploaded-reference-storage.js", () => ({
 }));
 
 vi.mock("./assets.js", () => ({
-  canSaveAsUploadedAsset: () => false,
+  canSaveAsUploadedAsset: (...args: unknown[]) =>
+    mockCanSaveAsUploadedAsset(...args),
   hasExpectedSvgSignature: mockHasExpectedSvgSignature,
   isSafeSvg: () => mockIsSafeSvg(),
-  uploadImageAsset: vi.fn(),
+  uploadImageAsset: (...args: unknown[]) => mockUploadImageAsset(...args),
 }));
 
 vi.mock("./request-auth-context.js", () => ({
@@ -85,6 +97,11 @@ describe("Slides reference upload limits", () => {
     mockHasExpectedSvgSignature.mockReturnValue(true);
     mockIsSafeSvg.mockReset();
     mockIsSafeSvg.mockReturnValue(true);
+    mockGetRequestOrgId.mockReset();
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockCanSaveAsUploadedAsset.mockReset();
+    mockCanSaveAsUploadedAsset.mockReturnValue(false);
+    mockUploadImageAsset.mockReset();
     mockResolveSlidesRequestAuth.mockResolvedValue({
       ok: true,
       context: { email: "owner@example.com", orgId: "active-org" },
@@ -306,6 +323,38 @@ describe("Slides reference upload limits", () => {
         email: "owner@example.com",
         orgId: "active-org",
       }),
+    );
+  });
+
+  it("keeps the active organization for private and embeddable chat images", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockStoreUploadedReferenceBlob.mockResolvedValue(
+      "slides-upload:v1:scoped-handle",
+    );
+    mockCanSaveAsUploadedAsset.mockReturnValue(true);
+    mockUploadImageAsset.mockResolvedValue({
+      url: "https://cdn.builder.io/slides/chat-image.png",
+    });
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "chat-image.png",
+        data: png,
+        type: "image/png",
+      }),
+    ).resolves.toMatchObject({
+      path: "slides-upload:v1:scoped-handle",
+      url: "https://cdn.builder.io/slides/chat-image.png",
+    });
+
+    expect(mockStoreUploadedReferenceBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "active-org" }),
+    );
+    expect(mockUploadImageAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "active-org" }),
     );
   });
 
