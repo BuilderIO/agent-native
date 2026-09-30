@@ -300,6 +300,21 @@ const messages = {
     importing: "आयात हो रहा है...",
     importFile: "फ़ाइल आयात करें",
     downloadBackup: "बैकअप डाउनलोड करें",
+    conflictStatus: "टेक्स्ट में विरोध",
+    conflictStatusDescription:
+      "अन्य बदलाव सहेजने से पहले विरोध वाले टेक्स्ट की समीक्षा करें।",
+    reviewConflict: "विरोध की समीक्षा करें",
+    conflictTitle: "स्लाइड {{number}} में टेक्स्ट का विरोध है",
+    conflictDescription:
+      "आपके टेक्स्ट संपादित करते समय किसी अन्य संस्करण ने इस स्लाइड को बदला।",
+    conflictChoicesDescription:
+      "अपना टेक्स्ट रखने पर वह नवीनतम संस्करण पर सहेजा जाएगा। सहेजा हुआ टेक्स्ट चुनने पर केवल इस स्लाइड का स्थानीय ड्राफ़्ट बदलेगा।",
+    conflictBackupDescription:
+      "पूरी प्रस्तुति के इस ड्राफ़्ट को स्लाइड-दर-स्लाइड हल नहीं किया जा सकता। इसे सुरक्षित रखने के लिए बैकअप डाउनलोड करें।",
+    conflictResolveFailed:
+      "विरोध हल नहीं हो सका। आपका ड्राफ़्ट इस डिवाइस पर उपलब्ध है।",
+    conflictKeepMine: "मेरा टेक्स्ट रखें",
+    conflictUseLatest: "सहेजा हुआ टेक्स्ट इस्तेमाल करें",
     importBackup: "बैकअप आयात करें",
     backupDownloaded: "बैकअप डाउनलोड हो गया",
     backupDownloadFailed: "बैकअप डाउनलोड नहीं हो सका",
@@ -396,6 +411,8 @@ const messages = {
     orderedList: "क्रमबद्ध सूची",
     quote: "उद्धरण",
     blockquote: "ब्लॉक उद्धरण",
+    divider: "विभाजक",
+    horizontalRule: "क्षैतिज रेखा",
   },
   comments: {
     deleteComment: "टिप्पणी हटाएं",

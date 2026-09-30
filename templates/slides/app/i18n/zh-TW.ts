@@ -292,6 +292,18 @@ const messages = {
     importing: "正在匯入...",
     importFile: "匯入檔案",
     downloadBackup: "下載備份",
+    conflictStatus: "文字衝突",
+    conflictStatusDescription: "請先檢查衝突的文字，再儲存其他變更。",
+    reviewConflict: "檢視衝突",
+    conflictTitle: "第 {{number}} 張投影片有文字衝突",
+    conflictDescription: "編輯文字時，另一個版本變更了這張投影片。",
+    conflictChoicesDescription:
+      "保留我的文字會將它儲存到最新版本。使用已儲存的文字只會取代這張投影片的本機草稿。",
+    conflictBackupDescription:
+      "這份完整簡報草稿無法逐張投影片解決。請先下載備份以保留草稿。",
+    conflictResolveFailed: "無法解決衝突。此裝置上仍保留你的草稿。",
+    conflictKeepMine: "保留我的文字",
+    conflictUseLatest: "使用已儲存的文字",
     importBackup: "匯入備份",
     backupDownloaded: "備份已下載",
     backupDownloadFailed: "無法下載備份",
@@ -388,6 +400,8 @@ const messages = {
     orderedList: "有序清單",
     quote: "引用",
     blockquote: "塊引用",
+    divider: "分隔線",
+    horizontalRule: "水平線",
   },
   comments: {
     deleteComment: "刪除評論",

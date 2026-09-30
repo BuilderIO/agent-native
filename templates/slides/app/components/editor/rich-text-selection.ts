@@ -33,7 +33,12 @@ export interface InlineTextStyleApplication {
   range?: Range;
 }
 
-export type InlineTextFormat = "bold" | "italic" | "underline" | "strike";
+export type InlineTextFormat =
+  | "bold"
+  | "italic"
+  | "underline"
+  | "strike"
+  | "code";
 
 const CSS_PROPERTY_NAMES: Record<InlineTextStyleKey, string> = {
   color: "color",
@@ -207,6 +212,11 @@ function styleSelectedText(
 ): InlineTextStyleApplication {
   const range = getEditableTextRange(editable, selection);
   if (!range) return { scope: "block" };
+  const backward =
+    selection?.anchorNode === range.endContainer &&
+    selection.anchorOffset === range.endOffset &&
+    selection.focusNode === range.startContainer &&
+    selection.focusOffset === range.startOffset;
   const texts = splitSelectedText(editable, range);
   if (texts.length === 0) return { scope: "selection", range };
   style(texts);
@@ -217,8 +227,15 @@ function styleSelectedText(
   nextRange.setStart(texts[0], 0);
   nextRange.setEnd(last, last.length);
   if (selection) {
-    selection.removeAllRanges();
-    selection.addRange(nextRange);
+    if (backward && typeof selection.setBaseAndExtent === "function") {
+      selection.setBaseAndExtent(last, last.length, texts[0], 0);
+    } else if (backward && typeof selection.extend === "function") {
+      selection.collapse(last, last.length);
+      selection.extend(texts[0], 0);
+    } else {
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+    }
   }
   return { scope: "selection", range: nextRange };
 }
@@ -260,6 +277,7 @@ function isFormatActive(
   if (format === "italic") {
     return /italic|oblique/.test(window.getComputedStyle(element).fontStyle);
   }
+  if (format === "code") return !!element.closest("code");
   for (
     let current: Element | null = element;
     current && editable.contains(current);
@@ -369,6 +387,38 @@ export function toggleInlineTextFormat(
 ): InlineTextStyleApplication {
   return styleSelectedText(editable, selection, (texts) => {
     const on = !texts.every((text) => isFormatActive(text, format, editable));
+    if (format === "code") {
+      if (on) {
+        texts.splice(0, texts.length, ...wrapSelectedCode(editable, texts));
+        return;
+      }
+      for (const text of texts) {
+        const code = text.parentElement?.closest("code");
+        if (!code || !editable.contains(code) || text.parentNode !== code) {
+          if (code && editable.contains(code)) removeCodeFromText(code, text);
+          continue;
+        }
+        const children = Array.from(code.childNodes);
+        const selectedIndex = children.indexOf(text);
+        if (selectedIndex < 0) continue;
+        const replacement = document.createDocumentFragment();
+        const before = children.slice(0, selectedIndex);
+        const after = children.slice(selectedIndex + 1);
+        if (before.length) {
+          const wrapper = code.cloneNode(false) as HTMLElement;
+          wrapper.append(...before);
+          replacement.append(wrapper);
+        }
+        replacement.append(text);
+        if (after.length) {
+          const wrapper = code.cloneNode(false) as HTMLElement;
+          wrapper.append(...after);
+          replacement.append(wrapper);
+        }
+        code.replaceWith(replacement);
+      }
+      return;
+    }
     if (format === "underline" || format === "strike") {
       if (!on) {
         removeDecorationLine(editable, texts, format);
@@ -393,6 +443,159 @@ export function toggleInlineTextFormat(
       if (span.style.length === 0) span.removeAttribute("style");
     }
   });
+}
+
+function wrapSelectedCodeInBlock(editable: HTMLElement, texts: Text[]) {
+  const range = document.createRange();
+  range.setStart(texts[0]!, 0);
+  range.setEnd(texts.at(-1)!, texts.at(-1)!.length);
+  const scope =
+    range.commonAncestorContainer instanceof HTMLElement
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+  const contents = extractWithoutCopiedIdentity(range);
+  for (const nested of Array.from(contents.querySelectorAll("code"))) {
+    nested.replaceWith(...Array.from(nested.childNodes));
+  }
+  const code = document.createElement("code");
+  code.setAttribute("data-slide-authoring-format", "code");
+  code.append(contents);
+  range.insertNode(code);
+  let parent = code.parentElement;
+  while (
+    parent &&
+    parent !== editable &&
+    parent !== scope &&
+    !SLIDE_CLIPBOARD_BLOCK_TAGS.has(parent.tagName)
+  ) {
+    const beforeRange = document.createRange();
+    beforeRange.selectNodeContents(parent);
+    beforeRange.setEndBefore(code);
+    const before = extractWithoutCopiedIdentity(beforeRange);
+    const afterRange = document.createRange();
+    afterRange.selectNodeContents(parent);
+    afterRange.setStartAfter(code);
+    const after = extractWithoutCopiedIdentity(afterRange);
+    const replacement = document.createDocumentFragment();
+    const appendParentPart = (part: DocumentFragment) => {
+      if (!part.childNodes.length) return;
+      const copy = parent!.cloneNode(false) as HTMLElement;
+      stripCopiedIdentity(copy);
+      copy.append(part);
+      replacement.append(copy);
+    };
+    appendParentPart(before);
+    replacement.append(code);
+    appendParentPart(after);
+    parent.replaceWith(replacement);
+    parent = code.parentElement;
+  }
+
+  const isEmptyInline = (node: Node | null): node is HTMLElement =>
+    node instanceof HTMLElement &&
+    !SLIDE_CLIPBOARD_BLOCK_TAGS.has(node.tagName) &&
+    !node.textContent &&
+    node.childElementCount === 0;
+  for (
+    let sibling = code.previousSibling;
+    sibling;
+    sibling = code.previousSibling
+  ) {
+    if (sibling instanceof Text && !sibling.data) sibling.remove();
+    else if (isEmptyInline(sibling)) sibling.remove();
+    else break;
+  }
+  for (let sibling = code.nextSibling; sibling; sibling = code.nextSibling) {
+    if (sibling instanceof Text && !sibling.data) sibling.remove();
+    else if (isEmptyInline(sibling)) sibling.remove();
+    else break;
+  }
+
+  const selected: Text[] = [];
+  const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    selected.push(node as Text);
+  }
+  return selected;
+}
+
+function wrapSelectedCode(editable: HTMLElement, texts: Text[]) {
+  const groups = new Map<HTMLElement, Text[]>();
+  for (const text of texts) {
+    let block = text.parentElement;
+    while (
+      block &&
+      block !== editable &&
+      !SLIDE_CLIPBOARD_BLOCK_TAGS.has(block.tagName)
+    ) {
+      block = block.parentElement;
+    }
+    const scope = block ?? editable;
+    const group = groups.get(scope) ?? [];
+    group.push(text);
+    groups.set(scope, group);
+  }
+  return Array.from(groups.values()).flatMap((group) =>
+    wrapSelectedCodeInBlock(editable, group),
+  );
+}
+
+function removeCodeFromText(code: HTMLElement, text: Text) {
+  const ancestors: HTMLElement[] = [];
+  for (
+    let parent = text.parentElement;
+    parent && parent !== code;
+    parent = parent.parentElement
+  ) {
+    ancestors.push(parent);
+  }
+
+  const beforeRange = code.ownerDocument.createRange();
+  beforeRange.selectNodeContents(code);
+  beforeRange.setEndBefore(text);
+  const before = extractWithoutCopiedIdentity(beforeRange);
+
+  const selectedRange = code.ownerDocument.createRange();
+  selectedRange.selectNode(text);
+  const selected = extractWithoutCopiedIdentity(selectedRange);
+  let selectedNode = selected.firstChild;
+  if (!selectedNode) return;
+  for (const ancestor of ancestors) {
+    const wrapper = ancestor.cloneNode(false) as HTMLElement;
+    wrapper.append(selectedNode);
+    selectedNode = wrapper;
+  }
+
+  const afterRange = code.ownerDocument.createRange();
+  afterRange.selectNodeContents(code);
+  const after = extractWithoutCopiedIdentity(afterRange);
+
+  const replacement = code.ownerDocument.createDocumentFragment();
+  let hasCodeWrapper = false;
+  const appendCode = (content: DocumentFragment) => {
+    if (
+      !content.textContent &&
+      !content.querySelector(
+        "br, img, svg, video, canvas, picture, iframe, input",
+      )
+    ) {
+      return;
+    }
+    const wrapper = code.cloneNode(false) as HTMLElement;
+    if (hasCodeWrapper) {
+      wrapper.removeAttribute("id");
+      for (const { name } of Array.from(wrapper.attributes)) {
+        if (/^data-.+-id$/.test(name)) wrapper.removeAttribute(name);
+      }
+    }
+    wrapper.append(content);
+    replacement.append(wrapper);
+    hasCodeWrapper = true;
+  };
+  appendCode(before);
+  replacement.append(selectedNode);
+  appendCode(after);
+  code.replaceWith(replacement);
 }
 
 function splitLinkPart(
@@ -576,7 +779,24 @@ function isSlideClipboardBlock(element: Element): boolean {
 
 export function normalizeSlideClipboardHtml(html: string): string | null {
   if (!html || typeof DOMParser === "undefined") return null;
-  const sanitized = sanitizeSlideHtml(html);
+  const officeDoc = new DOMParser().parseFromString(html, "text/html");
+  officeDoc.querySelectorAll<HTMLElement>("[style]").forEach((element) => {
+    if (!/mso-list\s*:\s*ignore\b/i.test(element.getAttribute("style") ?? ""))
+      return;
+    let parent = element.parentElement;
+    element.remove();
+    while (
+      parent &&
+      parent !== officeDoc.body &&
+      !isSlideClipboardBlock(parent) &&
+      parent.childNodes.length === 0
+    ) {
+      const next = parent.parentElement;
+      parent.remove();
+      parent = next;
+    }
+  });
+  const sanitized = sanitizeSlideHtml(officeDoc.body.innerHTML);
   if (!sanitized.trim()) return null;
 
   const doc = new DOMParser().parseFromString(sanitized, "text/html");
@@ -585,6 +805,13 @@ export function normalizeSlideClipboardHtml(html: string): string | null {
       "style, .fmd-layout-spacer, [data-slide-layout-spacer-for]",
     )
     .forEach((element) => element.remove());
+  doc
+    .querySelectorAll<HTMLElement>("b[style], strong[style]")
+    .forEach((element) => {
+      if (/^(?:normal|400)$/i.test(element.style.fontWeight.trim())) {
+        element.replaceWith(...Array.from(element.childNodes));
+      }
+    });
   doc.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
     if (!image.getAttribute("src")?.trim().toLowerCase().startsWith("data:")) {
       return;
