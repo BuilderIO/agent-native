@@ -417,7 +417,7 @@ describe("slide slash command menu", () => {
     editingEl.contentEditable = "true";
     const block = document.createElement("p");
     const firstLine = document.createTextNode("Before");
-    const secondLine = document.createTextNode("After ");
+    const secondLine = document.createTextNode("");
     block.append(firstLine, document.createElement("br"), secondLine);
     editingEl.append(block);
     document.body.append(editingEl);
@@ -441,6 +441,18 @@ describe("slide slash command menu", () => {
     expect(screen.getByRole("option", { name: /Heading 2/ })).toBeTruthy();
     expect(document.activeElement).toBe(editingEl);
     expect(applyAuthoringCommand).not.toHaveBeenCalled();
+
+    keyDown(editingEl, "Enter");
+
+    const [, range] = applyAuthoringCommand.mock.calls[0] as [
+      InPlaceTextAuthoringCommand,
+      Range,
+    ];
+    expect(range.startContainer).toBe(secondLine);
+    expect(range.startOffset).toBe(0);
+    expect(range.endContainer).toBe(secondLine);
+    expect(range.endOffset).toBe(secondLine.length);
+    expect(range.toString()).toBe("/heading\u00a02");
   });
 
   it("closes when a whitespace query makes the slash literal", async () => {
@@ -497,6 +509,10 @@ describe("slide slash command menu", () => {
 
   it("connects active descendants to real cmdk nodes and scrolls through wraparound", async () => {
     const { editingEl } = renderWithTypedSlash("");
+    expect(screen.getByRole("combobox")).toBe(editingEl);
+    expect(editingEl.getAttribute("aria-haspopup")).toBe("listbox");
+    expect(editingEl.getAttribute("aria-autocomplete")).toBe("list");
+    expect(editingEl.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("listbox", { name: "Blocks" })).toBeTruthy();
     const translatedOption = screen.getByRole("option", { name: /Texto/ });
     expect(translatedOption.getAttribute("aria-selected")).toBe("true");
@@ -650,6 +666,7 @@ describe("slide slash command menu", () => {
   it("restores authored accessibility attributes when the menu closes", () => {
     const { editingEl, textNode } = renderMenu("", 0);
     const authored = {
+      role: "textbox",
       "aria-haspopup": "grid",
       "aria-autocomplete": "inline",
       "aria-expanded": "false",
@@ -661,6 +678,7 @@ describe("slide slash command menu", () => {
     }
 
     typeSlash(editingEl, textNode, 0);
+    expect(editingEl.getAttribute("role")).toBe("combobox");
     expect(editingEl.getAttribute("aria-haspopup")).toBe("listbox");
     expect(editingEl.getAttribute("aria-autocomplete")).toBe("list");
     expect(editingEl.getAttribute("aria-expanded")).toBe("true");
@@ -674,6 +692,7 @@ describe("slide slash command menu", () => {
   it("restores authored accessibility attributes before applying a retagging command", () => {
     const { editingEl, textNode, applyAuthoringCommand } = renderMenu("", 0);
     const authored = {
+      role: "textbox",
       "aria-haspopup": "grid",
       "aria-autocomplete": "inline",
       "aria-expanded": "false",
@@ -695,6 +714,7 @@ describe("slide slash command menu", () => {
     });
 
     typeSlash(editingEl, textNode, 0);
+    expect(editingEl.getAttribute("role")).toBe("combobox");
     expect(editingEl.getAttribute("aria-controls")).toMatch(
       /^slide-slash-.+-listbox$/,
     );

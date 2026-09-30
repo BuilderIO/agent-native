@@ -136,14 +136,33 @@ interface SlideSlashCommandMenuProps {
 function pointAt(root: Node, offset: number): [Node, number] {
   let remaining = offset;
   let last: Text | null = null;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let lastBreak: [Node, number] | null = null;
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+  );
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const element = node as HTMLElement;
+      if (element.tagName !== "BR") continue;
+      const parent = element.parentNode!;
+      const after = Array.from(parent.childNodes).indexOf(element) + 1;
+      if (remaining === 0) {
+        if (lastBreak) return lastBreak;
+        return last ? [last, last.length] : [parent, after - 1];
+      }
+      remaining -= 1;
+      lastBreak = [parent, after];
+      continue;
+    }
     const text = node as Text;
     if (remaining <= text.length) return [text, remaining];
     remaining -= text.length;
     last = text;
   }
-  return last ? [last, last.length] : [root, root.childNodes.length];
+  return (
+    lastBreak ?? (last ? [last, last.length] : [root, root.childNodes.length])
+  );
 }
 
 function visibleOffset(raw: string, offset: number) {
@@ -229,7 +248,13 @@ function findMenu(editingEl: HTMLElement): SlashMenuState | null {
   const base = document.createRange();
   base.setStart(block, 0);
   base.setEnd(...start);
-  const startOffset = base.toString().length;
+  let breakOffset = 0;
+  for (const br of Array.from(block.querySelectorAll("br"))) {
+    const parent = br.parentNode!;
+    const after = Array.from(parent.childNodes).indexOf(br) + 1;
+    if (base.comparePoint(parent, after) === 0) breakOffset += 1;
+  }
+  const startOffset = base.toString().length + breakOffset;
   const offset = visibleOffset(raw, slash);
   const range = document.createRange();
   range.setStart(...pointAt(block, startOffset + offset));
@@ -285,24 +310,24 @@ export function SlideSlashCommandMenu({
         : new DOMRect();
     },
   });
-  const originalAria = useRef<{
+  const originalAttributes = useRef<{
     element: HTMLElement;
     values: Map<string, string | null>;
   } | null>(null);
-  const restoreOriginalAria = () => {
-    const saved = originalAria.current;
+  const restoreOriginalAttributes = () => {
+    const saved = originalAttributes.current;
     if (!saved) return;
     for (const [name, value] of saved.values) {
       if (value === null) saved.element.removeAttribute(name);
       else saved.element.setAttribute(name, value);
     }
-    originalAria.current = null;
+    originalAttributes.current = null;
   };
   const applyAuthoringCommand = (
     kind: InPlaceTextAuthoringCommand,
     range: Range,
   ) => {
-    restoreOriginalAria();
+    restoreOriginalAttributes();
     textSession?.commands.applyAuthoringCommand(kind, range);
     menuRef.current = null;
     pendingSlash.current = false;
@@ -440,8 +465,11 @@ export function SlideSlashCommandMenu({
 
   useLayoutEffect(() => {
     if (!editingEl) return;
-    if (originalAria.current && originalAria.current.element !== editingEl) {
-      restoreOriginalAria();
+    if (
+      originalAttributes.current &&
+      originalAttributes.current.element !== editingEl
+    ) {
+      restoreOriginalAttributes();
     }
     if (menu && activeCommand) {
       const listbox = popoverContent?.querySelector<HTMLElement>("[cmdk-list]");
@@ -461,11 +489,12 @@ export function SlideSlashCommandMenu({
       const activeOptionId = optionId(activeCommand.kind);
       activeOption.id = activeOptionId;
       listbox.setAttribute("aria-activedescendant", activeOptionId);
-      if (originalAria.current?.element !== editingEl) {
-        originalAria.current = {
+      if (originalAttributes.current?.element !== editingEl) {
+        originalAttributes.current = {
           element: editingEl,
           values: new Map(
             [
+              "role",
               "aria-haspopup",
               "aria-autocomplete",
               "aria-expanded",
@@ -475,6 +504,7 @@ export function SlideSlashCommandMenu({
           ),
         };
       }
+      editingEl.setAttribute("role", "combobox");
       editingEl.setAttribute("aria-haspopup", "listbox");
       editingEl.setAttribute("aria-autocomplete", "list");
       editingEl.setAttribute("aria-expanded", "true");
@@ -482,8 +512,8 @@ export function SlideSlashCommandMenu({
       editingEl.setAttribute("aria-activedescendant", activeOptionId);
       return;
     }
-    if (originalAria.current?.element === editingEl) {
-      restoreOriginalAria();
+    if (originalAttributes.current?.element === editingEl) {
+      restoreOriginalAttributes();
     }
   }, [activeCommand, editingEl, listboxId, menu, popoverContent]);
 
@@ -497,13 +527,13 @@ export function SlideSlashCommandMenu({
 
   useEffect(
     () => () => {
-      const saved = originalAria.current;
+      const saved = originalAttributes.current;
       if (saved?.element !== editingEl) return;
       for (const [name, value] of saved.values) {
         if (value === null) editingEl.removeAttribute(name);
         else editingEl.setAttribute(name, value);
       }
-      originalAria.current = null;
+      originalAttributes.current = null;
     },
     [editingEl],
   );
