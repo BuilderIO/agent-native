@@ -4428,6 +4428,9 @@ function createAgentNativeConfig(
             ...(hasDep("@agent-native/scheduling", cwd)
               ? [/^@agent-native\/scheduling(\/.*)?$/]
               : []),
+            ...(hasDep("@agent-native/dispatch", cwd)
+              ? [/^@agent-native\/dispatch(\/.*)?$/]
+              : []),
             ...workspaceCoreNoExternal,
             ...localWorkspacePackageNoExternal,
             ...arrayFrom((userConfig.ssr as { noExternal?: any })?.noExternal),
