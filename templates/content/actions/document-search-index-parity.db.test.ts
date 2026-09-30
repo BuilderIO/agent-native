@@ -151,6 +151,12 @@ describe("indexed search and the fallback scan", () => {
     expect(indexed).toEqual(await search(query, { fallback: true }));
   });
 
+  it("agree that a phrase doesn't span a title and a description", async () => {
+    // p4's title is "Roadmap" and its description starts "Covers".
+    expect(await search('"roadmap covers"', { fallback: false })).toEqual([]);
+    expect(await search('"roadmap covers"', { fallback: true })).toEqual([]);
+  });
+
   it("agree on title-only searches", async () => {
     const indexed = await search("priorities", {
       fallback: false,
