@@ -529,11 +529,17 @@ test.describe.serial("public visual edit", () => {
       SIGNED_OUT_BASE_URL,
     );
     const unauthorizedResponses: string[] = [];
+    const updateFileResponses: string[] = [];
     const bridgeResponses: string[] = [];
     const routeResponses: string[] = [];
     const pageErrors: string[] = [];
     signedOut.page.on("response", (response) => {
       const responseUrl = new URL(response.url());
+      if (responseUrl.pathname.endsWith("/_agent-native/actions/update-file")) {
+        updateFileResponses.push(
+          `${response.status()} ${response.request().method()}`,
+        );
+      }
       if (
         response.request().resourceType() === "document" ||
         responseUrl.pathname.endsWith(".data") ||
@@ -902,6 +908,10 @@ test.describe.serial("public visual edit", () => {
       await expect
         .poll(() => publicationStatuses, { timeout: 15_000 })
         .toContain(200);
+      expect(
+        updateFileResponses,
+        "signed-out capability edits must stay DOM-only",
+      ).toEqual([]);
       const pull = async () => {
         const response = await mcpRequest.post(
           appUrl("/mcp/tool/get-visual-edit-pending", SIGNED_OUT_BASE_URL),
@@ -940,6 +950,51 @@ test.describe.serial("public visual edit", () => {
       expect(cleared).toMatchObject({
         status: "empty",
         pendingEditCount: 0,
+      });
+
+      await signedOut.page.evaluate(() => {
+        (window as any).__bridge = [];
+      });
+      const nextResizeBox = await resizeHandle.boundingBox();
+      expect(nextResizeBox).toBeTruthy();
+      await signedOut.page.mouse.move(
+        (nextResizeBox?.x ?? 0) + (nextResizeBox?.width ?? 0) / 2,
+        (nextResizeBox?.y ?? 0) + (nextResizeBox?.height ?? 0) / 2,
+      );
+      await signedOut.page.mouse.down();
+      await signedOut.page.mouse.move(
+        (nextResizeBox?.x ?? 0) + (nextResizeBox?.width ?? 0) / 2,
+        (nextResizeBox?.y ?? 0) + (nextResizeBox?.height ?? 0) / 2 + 8,
+        { steps: 4 },
+      );
+      await signedOut.page.mouse.up();
+      await waitForBridge(signedOut.page, "visual-style-change");
+      await expect(
+        signedOut.page.getByRole("button", {
+          name: /copy prompt to your agent|apply design update/i,
+        }),
+      ).toBeVisible();
+      const evidenceDirectory = path.resolve(
+        import.meta.dirname,
+        "../../../.tmp/visual-edit-evidence",
+      );
+      await mkdir(evidenceDirectory, { recursive: true });
+      await signedOut.page.screenshot({
+        path: path.join(evidenceDirectory, "pending-before-reload.png"),
+      });
+
+      await liveFrame.locator("body").evaluate(() => window.location.reload());
+      await expect(heading).toBeVisible({ timeout: 30_000 });
+      await expect(
+        signedOut.page.getByRole("button", {
+          name: /copy prompt to your agent|apply design update/i,
+        }),
+      ).toHaveCount(0, { timeout: 30_000 });
+      await expect
+        .poll(async () => (await pull()).body.status, { timeout: 15_000 })
+        .toBe("empty");
+      await signedOut.page.screenshot({
+        path: path.join(evidenceDirectory, "pending-cleared-after-reload.png"),
       });
 
       const direct = await openSignedOutPage(

@@ -585,6 +585,7 @@ interface DesignCanvasProps {
   onRoutePathChange?: (screenId: string | undefined, routePath: string) => void;
   onBootStart?: () => void;
   onBootReady?: () => void;
+  onRuntimeReload?: () => void;
   onScreenRootComputedStyles?: (computedStyles: Record<string, string>) => void;
   onRuntimeVerificationSnapshot?: (snapshot: {
     requestId: number;
@@ -1283,6 +1284,7 @@ export function DesignCanvas({
   onRoutePathChange,
   onBootStart,
   onBootReady,
+  onRuntimeReload,
   onScreenRootComputedStyles,
   onRuntimeVerificationSnapshot,
   fusionUrl,
@@ -1543,6 +1545,9 @@ export function DesignCanvas({
   const liveRoutePathRef = useRef<string | null>(null);
   const liveEditDocumentIdsRef = useRef(new Set<string>());
   const liveEditDocumentIdRef = useRef<string | null>(null);
+  const runtimeReloadingFromDocumentIdRef = useRef<string | undefined>(
+    undefined,
+  );
   const readyRuntimeLayerDocumentIdRef = useRef<string | null>(null);
   const runtimeLayerSnapshotDocumentIdRef = useRef<string | null>(null);
   const runtimeLayerSnapshotReadinessRequestIdRef = useRef(0);
@@ -3376,6 +3381,7 @@ export function DesignCanvas({
     : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
+    runtimeReloadingFromDocumentIdRef.current = undefined;
     pendingRuntimeLayerSnapshotReadinessRef.current = null;
     readyRuntimeLayerDocumentIdRef.current = null;
     runtimeLayerSnapshotDocumentIdRef.current = null;
@@ -3892,6 +3898,8 @@ export function DesignCanvas({
           );
         }
         if (usesLiveEditEditorBridge) {
+          runtimeReloadingFromDocumentIdRef.current =
+            liveEditDocumentIdRef.current ?? undefined;
           bootReadyRef.current = false;
           bridgeReadyRef.current = false;
           editorChromeReadyRef.current = false;
@@ -4093,6 +4101,16 @@ export function DesignCanvas({
           return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
+        const reloadStartedFromDocumentId =
+          runtimeReloadingFromDocumentIdRef.current;
+        if (
+          reloadStartedFromDocumentId !== undefined &&
+          documentId !== null &&
+          documentId !== reloadStartedFromDocumentId
+        ) {
+          runtimeReloadingFromDocumentIdRef.current = undefined;
+          onRuntimeReload?.();
+        }
         readyRuntimeLayerDocumentIdRef.current = documentId;
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
@@ -5109,6 +5127,7 @@ export function DesignCanvas({
     onBootReady,
     markPreviewFrameReady,
     onBootStart,
+    onRuntimeReload,
     externalPreviewUrl,
     onScreenRootComputedStyles,
     onRuntimeVerificationSnapshot,

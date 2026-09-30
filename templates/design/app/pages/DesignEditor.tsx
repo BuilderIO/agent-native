@@ -1066,6 +1066,7 @@ import {
   isVisualEditHandoffAcknowledged,
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
+  pendingLiveEditFrameTargets,
   pendingLiveStructureEditsFromEdit,
   pendingLiveStructureEditsFromUndoEntry,
   pendingLiveLayerNameUndoRevertValue,
@@ -1089,6 +1090,7 @@ import {
   shouldPreferRuntimeLayerProjection,
   shouldUseRuntimeLayerProjection,
   shouldBlockPendingVisualStyleNavigation,
+  shouldClearPendingLiveEditsAfterReload,
   shouldShowPendingVisualStyleApply,
 } from "./design-editor/pending-edits";
 import { usePendingLiveEditUnloadGuard } from "./design-editor/pending-live-edit-unload-guard";
@@ -1803,6 +1805,8 @@ function DesignEditor() {
   ] = useState<number | null>(null);
   const pendingVisualStyleEditsRef = useRef<PendingVisualStyleEdit[]>([]);
   const pendingLiveNonStyleEditsRef = useRef<PendingLiveNonStyleEdit[]>([]);
+  const pendingLiveEditReloadedTargetsRef = useRef<Set<string>>(new Set());
+  const liveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const pendingVisualEditPublicationRevisionRef = useRef(0);
   const pendingVisualEditPublisherIdRef = useRef(crypto.randomUUID());
   const pendingVisualEditPublicationQueueRef = useRef<Promise<void>>(
@@ -2035,6 +2039,7 @@ function DesignEditor() {
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
   const clearPendingLiveEditState = useCallback(() => {
+    pendingLiveEditReloadedTargetsRef.current.clear();
     if (
       id &&
       (pendingVisualStyleEditsRef.current.length > 0 ||
@@ -2076,6 +2081,36 @@ function DesignEditor() {
   useEffect(() => {
     clearPendingLiveEditStateRef.current = clearPendingLiveEditState;
   }, [clearPendingLiveEditState]);
+  const handleLiveScreenRuntimeReload = useCallback(
+    (screenId: string, frameId: string) => {
+      const pendingTargets = pendingLiveEditFrameTargets(
+        pendingVisualStyleEditsRef.current,
+        pendingLiveNonStyleEditsRef.current,
+      );
+      // HMR only resets URL-backed previews; it must not discard static edits.
+      if (
+        !pendingTargets.has(screenId) ||
+        Array.from(pendingTargets.keys()).some(
+          (pendingScreenId) => !liveScreenIdsRef.current.has(pendingScreenId),
+        )
+      ) {
+        return;
+      }
+      const reloadedTargets = pendingLiveEditReloadedTargetsRef.current;
+      reloadedTargets.add(`${screenId}\0${frameId}`);
+      if (
+        shouldClearPendingLiveEditsAfterReload(
+          pendingTargets,
+          reloadedTargets,
+          screenId,
+          frameId,
+        )
+      ) {
+        clearPendingLiveEditStateRef.current();
+      }
+    },
+    [],
+  );
   useEffect(() => {
     if (!pendingVisualStyleRevertRequest) return;
     const timeout = window.setTimeout(() => {
@@ -3095,10 +3130,12 @@ function DesignEditor() {
   );
   useEffect(() => {
     pendingVisualStyleEditsRef.current = pendingVisualStyleEdits;
+    pendingLiveEditReloadedTargetsRef.current.clear();
     syncUndoRedoState();
   }, [pendingVisualStyleEdits, syncUndoRedoState]);
   useEffect(() => {
     pendingLiveNonStyleEditsRef.current = pendingLiveNonStyleEdits;
+    pendingLiveEditReloadedTargetsRef.current.clear();
     syncUndoRedoState();
   }, [pendingLiveNonStyleEdits, syncUndoRedoState]);
   const recordContentHistoryEntry = useCallback(
@@ -4051,6 +4088,7 @@ function DesignEditor() {
     }
   }, [reviewAgentQueueThreadIds, reviewSendingThreadId]);
   const canEditDesignRef = useRef(canEditDesign);
+  const canPersistDesignSourceRef = useRef(canEditDesign && isSignedIn);
   const rawServerFilesByIdRef = useRef(new Map<string, DesignFile>());
   const historyFilesRef = useRef<DesignFile[]>([]);
   const pendingLocalFileContentsRef = useRef<
@@ -4126,7 +4164,8 @@ function DesignEditor() {
 
   useLayoutEffect(() => {
     canEditDesignRef.current = canEditDesign;
-  }, [canEditDesign]);
+    canPersistDesignSourceRef.current = canEditDesign && isSignedIn;
+  }, [canEditDesign, isSignedIn]);
 
   useEffect(() => {
     if (!id || !hasPendingGeneration) return;
@@ -4564,6 +4603,7 @@ function DesignEditor() {
       runPublishCanonicalContent(
         {
           canEditDesignRef,
+          canPersistDesignSourceRef,
           pendingLocalFileContentsRef,
           cancelIdentityMigration,
           queueFileContentSave,
@@ -6197,6 +6237,9 @@ function DesignEditor() {
 
   const activeFile =
     files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const handleActiveScreenRuntimeReload = useCallback(() => {
+    if (activeFile) handleLiveScreenRuntimeReload(activeFile.id, "primary");
+  }, [activeFile?.id, handleLiveScreenRuntimeReload]);
   const activeRuntimeLayerReadinessScreenIdRef = useRef<string | null>(
     activeFile?.id ?? null,
   );
@@ -7043,6 +7086,7 @@ function DesignEditor() {
     serverFiles,
     publishCanonicalContent,
     canEditDesign,
+    isSignedIn,
     activeFileId,
     viewMode,
     isSynced,
@@ -8882,6 +8926,7 @@ function DesignEditor() {
       ),
     [designSourceType, overviewScreens],
   );
+  liveScreenIdsRef.current = liveScreenIds;
   canEditLiveScreenIdsRef.current = canEditLiveScreens
     ? new Set([
         ...liveScreenIds,
@@ -24243,6 +24288,7 @@ function DesignEditor() {
           }
           onBootStart={renderOptions?.onBootStart}
           onBootReady={renderOptions?.onBootReady}
+          onRuntimeReload={renderOptions?.onRuntimeReload}
           onExternalContentSnapshot={
             screenSnapshotOnly
               ? undefined
@@ -24585,6 +24631,7 @@ function DesignEditor() {
         {
           onBootStart: frame.onBootStart,
           onBootReady: frame.onBootReady,
+          onRuntimeReload: frame.onRuntimeReload,
         },
       ),
     [renderEditableScreenContent],
@@ -27268,6 +27315,7 @@ function DesignEditor() {
                         onScreenSelectionChange={
                           handleOverviewScreenSelectionChange
                         }
+                        onScreenRuntimeReload={handleLiveScreenRuntimeReload}
                         geometryById={displayedCanvasFrameGeometryById}
                         geometryOverridesById={optimisticFrameGeometryById}
                         onGeometryChange={queueFrameGeometrySave}
@@ -27687,6 +27735,7 @@ function DesignEditor() {
                             ? undefined
                             : handleLiveRoutePathChange
                         }
+                        onRuntimeReload={handleActiveScreenRuntimeReload}
                         publicVisualEdit={
                           !activeScreenSnapshotOnly && publicVisualEdit
                         }

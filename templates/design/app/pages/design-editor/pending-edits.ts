@@ -820,6 +820,52 @@ export function pendingLiveNonStyleEditsFromUndoStack(
   return edits;
 }
 
+export function pendingLiveEditFrameTargets(
+  styleEdits: readonly PendingVisualStyleEdit[],
+  liveEdits: readonly PendingLiveNonStyleEdit[],
+): Map<string, Set<string>> {
+  const targets = new Map<string, Set<string>>();
+  const addTarget = (screenId: string, frameId: string) => {
+    const frameIds = targets.get(screenId) ?? new Set<string>();
+    frameIds.add(frameId);
+    targets.set(screenId, frameIds);
+  };
+  for (const edit of styleEdits) {
+    addTarget(
+      edit.screenId,
+      edit.breakpoint
+        ? `breakpoint:${edit.breakpoint.activeWidthPx}`
+        : "primary",
+    );
+  }
+  for (const edit of liveEdits) {
+    const members =
+      edit.kind === "structure"
+        ? pendingLiveStructureEditsFromEdit(edit)
+        : [edit];
+    for (const member of members) addTarget(member.screenId, "primary");
+  }
+  return targets;
+}
+
+export function shouldClearPendingLiveEditsAfterReload(
+  pendingTargets: ReadonlyMap<string, ReadonlySet<string>>,
+  reloadedTargets: ReadonlySet<string>,
+  reloadingScreenId: string,
+  reloadingFrameId: string,
+): boolean {
+  return (
+    pendingTargets.size > 0 &&
+    Array.from(pendingTargets).every(([screenId, frameIds]) =>
+      Array.from(frameIds).every(
+        (frameId) =>
+          (screenId === reloadingScreenId && frameId === reloadingFrameId) ||
+          reloadedTargets.has(`${screenId}\0${frameId}`),
+      ),
+    )
+  );
+}
+
 export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {
