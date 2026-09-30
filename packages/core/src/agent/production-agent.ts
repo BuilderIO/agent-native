@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
 import {
   defineEventHandler,
   getHeader,
@@ -4251,6 +4252,15 @@ const rawToolInputAjv = new Ajv({
   verbose: true,
 });
 
+const rawToolInputAjv2020 = new Ajv2020({
+  strict: false,
+  allErrors: true,
+  coerceTypes: true,
+  useDefaults: false,
+  removeAdditional: false,
+  verbose: true,
+});
+
 const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
 
 const optionalPlaceholderAjv = new Ajv({
@@ -4469,7 +4479,14 @@ function coerceStringifiedJsonToolValues(
 function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
   const cached = rawToolInputValidatorCache.get(schema);
   if (cached) return cached;
-  const validator = rawToolInputAjv.compile(schema);
+  const declaredDialect = (schema as { $schema?: unknown }).$schema;
+  const ajv =
+    typeof declaredDialect === "string" &&
+    declaredDialect.replace(/#$/, "") ===
+      "https://json-schema.org/draft/2020-12/schema"
+      ? rawToolInputAjv2020
+      : rawToolInputAjv;
+  const validator = ajv.compile(schema);
   rawToolInputValidatorCache.set(schema, validator);
   return validator;
 }
