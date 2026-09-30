@@ -356,7 +356,7 @@ interface PastedLine {
   fragment: DocumentFragment;
   lists: readonly HTMLElement[];
   sourceItem: HTMLElement | null;
-  blockTag: "P" | "BLOCKQUOTE" | "H1" | "H2" | "H3" | "H4" | null;
+  blockTag: "P" | "BLOCKQUOTE" | "H1" | "H2" | "H3" | "H4" | "HR" | null;
 }
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -778,6 +778,16 @@ function pastedHtmlLines(
   ) => {
     let line: PastedLine | null = null;
     for (const child of Array.from(parent.childNodes)) {
+      if (child instanceof HTMLElement && child.tagName === "HR") {
+        line = null;
+        lines.push({
+          fragment: document.createDocumentFragment(),
+          lists,
+          sourceItem,
+          blockTag: "HR",
+        });
+        continue;
+      }
       if (child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)) {
         line = null;
         const list = child.tagName === "UL" || child.tagName === "OL";
@@ -3462,8 +3472,13 @@ export function startInPlaceTextSession(
     }
     switch (kind) {
       case "paragraph":
-        if (block.tagName === "LI") {
-          splitListItemToParagraph(block, false);
+        if (block.tagName === "LI" || block.tagName === "P") {
+          const item = block.tagName === "LI" ? block : listItemAt(block);
+          if (item) {
+            splitListItemToParagraph(item, false);
+            break;
+          }
+          retagBlock(block, "P");
           break;
         }
         retagBlock(block, "P");

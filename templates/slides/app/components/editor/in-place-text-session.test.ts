@@ -1491,6 +1491,22 @@ describe("in-place text session: paste", () => {
     expect(session.element.children[3].outerHTML).toBe("<p>after</p>");
   });
 
+  it("preserves semantic dividers from rich pasted HTML", () => {
+    const el = mount('<div id="t">Start </div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Start "), 6);
+
+    paste(el, {
+      "text/html": "<p>Before</p><hr><p>After</p>",
+      "text/plain": "Before\nAfter",
+    });
+
+    const divider = session.element.querySelector(":scope > hr");
+    expect(divider).not.toBeNull();
+    expect(divider?.previousElementSibling?.textContent).toBe("Before");
+    expect(divider?.nextElementSibling?.textContent).toBe("After");
+  });
+
   it("preserves pasted H4 blocks", () => {
     const el = mount('<div id="t">Before after</div>');
     session = startInPlaceTextSession(el);
@@ -3683,6 +3699,33 @@ describe("in-place text session: Content authoring parity", () => {
     ).toEqual(["UL", "P", "UL"]);
     expect(session.element.children[1]?.textContent).toBe("Text");
     expect(session.element.querySelector("li p")).toBeNull();
+  });
+
+  it("converts a paragraph-backed list item with the Text slash command", () => {
+    const el = mount(
+      '<div id="t"><ul><li><p>One</p></li><li><p>/Text</p></li><li><p>Three</p></li></ul></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const source = textOf(el, "/Text");
+    const slash = document.createRange();
+    slash.setStart(source, 0);
+    slash.setEnd(source, 1);
+    caret(source, 1);
+
+    expect(session.commands.applyAuthoringCommand("paragraph", slash)).toBe(
+      true,
+    );
+
+    expect(
+      Array.from(session.element.children, (child) => child.tagName),
+    ).toEqual(["UL", "P", "UL"]);
+    expect(session.element.children[1]?.textContent).toBe("Text");
+    expect(
+      Array.from(
+        session.element.querySelectorAll(":scope > ul > li > p"),
+        (paragraph) => paragraph.textContent,
+      ),
+    ).toEqual(["One", "Three"]);
   });
 
   it("continues a numbered list when adjacent paragraphs are converted", () => {
