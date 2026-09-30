@@ -41,6 +41,9 @@ function render(
 }
 
 const ensureEmbedAuthFetchInterceptor = vi.hoisted(() => vi.fn());
+const tryDelegateBuildRequestToBuilder = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
 const promptComposerProps = vi.hoisted(() => vi.fn());
 const promptFile = new File(["pdf"], "large.pdf", {
   type: "application/pdf",
@@ -216,9 +219,9 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
 
 vi.mock("@agent-native/core/client/host", () => ({
   ensureEmbedAuthFetchInterceptor,
-  isTrustedFrameMessage: () => true,
-  isTrustedBuilderMessage: () => false,
-  tryDelegateBuildRequestToBuilder: async () => false,
+  isTrustedBuilderMessage: vi.fn(() => false),
+  isTrustedFrameMessage: vi.fn(() => false),
+  tryDelegateBuildRequestToBuilder,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

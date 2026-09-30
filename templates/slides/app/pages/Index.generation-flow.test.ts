@@ -114,12 +114,12 @@ describe("new deck generation flow", () => {
     );
 
     expect(recovery).toContain('settlePendingDeckAttachments("commit")');
-    const directGenerationIndex = promptSubmit.indexOf(
-      "options?.slidesContext &&",
+    const composerContextIndex = promptSubmit.indexOf(
+      "const retryComposerContext =",
     );
-    expect(directGenerationIndex).toBeGreaterThan(-1);
+    expect(composerContextIndex).toBeGreaterThan(-1);
     const promptCloseIndex = promptSubmit.indexOf("setNewDeckPromptOpen(false");
-    expect(promptCloseIndex).toBeLessThan(directGenerationIndex);
+    expect(promptCloseIndex).toBeGreaterThan(composerContextIndex);
     expect(promptCloseIndex).toBeLessThan(
       promptSubmit.indexOf("const promptReferenceDeckId ="),
     );

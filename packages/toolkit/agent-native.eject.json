@@ -967,7 +967,6 @@
         "@agent-native/core/client/resources/mcp-integration-catalog",
         "@agent-native/core/client/resources/mcp-integration-setup",
         "@agent-native/core/client/resources/mcp-integration-logos",
-        "@agent-native/core/client/resources/mcp-integration-setup",
         "@agent-native/core/client/resources/use-mcp-servers",
         "@agent-native/core/client/use-action",
         "@agent-native/core/file-upload/storage-settings",
