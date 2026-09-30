@@ -10,7 +10,7 @@ share the one branch browser and must hold the lock:**
 import { withLock } from ".agents/skills/design-clip-repro/harness/lock.mjs";
 import { open } from ".agents/skills/design-clip-repro/harness/figlib.mjs";
 await withLock("osmouse", async () => {
-  const F = await open();          // attaches to the Figma tab, closes coach marks
+  const F = await open(); // attaches to the Figma tab, closes coach marks
   /* … drive Figma … */
 });
 ```
@@ -23,12 +23,12 @@ repeating any of their claims.
 
 ## Choosing the input layer (this decides whether you waste a day)
 
-| Interaction | Use | Why |
-| --- | --- | --- |
-| Layers-panel row drag (HTML5 DnD) | Playwright `locator.dragTo()` | CDP `Input.dispatchMouseEvent` produces `isTrusted:true` pointer events but **cannot** drive HTML5 drag-and-drop. `dragTo` uses `Input.dispatchDragEvent`, which can. |
-| Canvas pointer drag in the design app | `page.mouse.move/down/…/up` | The canvas listens to pointer events; synthetic CDP events work fine. |
-| Figma's canvas | `page.mouse` on the branch browser | Measured: a CDP drag asked +150,+80 moved the node exactly +150,+80. Earlier "Figma ignores synthetic input" readings were OS clicks silently dropped, or drags swallowed by an onboarding coach mark. |
-| Anything needing real window focus | **osmouse** | |
+| Interaction                           | Use                                | Why                                                                                                                                                                                                    |
+| ------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Layers-panel row drag (HTML5 DnD)     | Playwright `locator.dragTo()`      | CDP `Input.dispatchMouseEvent` produces `isTrusted:true` pointer events but **cannot** drive HTML5 drag-and-drop. `dragTo` uses `Input.dispatchDragEvent`, which can.                                  |
+| Canvas pointer drag in the design app | `page.mouse.move/down/…/up`        | The canvas listens to pointer events; synthetic CDP events work fine.                                                                                                                                  |
+| Figma's canvas                        | `page.mouse` on the branch browser | Measured: a CDP drag asked +150,+80 moved the node exactly +150,+80. Earlier "Figma ignores synthetic input" readings were OS clicks silently dropped, or drags swallowed by an onboarding coach mark. |
+| Anything needing real window focus    | **osmouse**                        |                                                                                                                                                                                                        |
 
 **The single most useful fact:** almost nothing needs osmouse, in the app or
 in Figma. Keep it for a gesture you have proven fails under CDP.

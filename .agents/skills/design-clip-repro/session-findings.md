@@ -4,7 +4,7 @@ Worked examples for the method in `SKILL.md`, from one long local session.
 
 ## The original question
 
-The user's clip showed an element failing to drop *inside a group*. The first
+The user's clip showed an element failing to drop _inside a group_. The first
 real finding was that **this is not a bug**: Figma also inserts into the
 nearest auto-layout container at the nearest index, and getting an element
 inside a group requires the layers panel in Figma too. Measuring Figma first
@@ -15,6 +15,7 @@ would have saved the whole first investigation.
 ## Fixed (6)
 
 ### 1. Menu gated to single view
+
 `Add auto layout` / `Frame selection` were gated on `viewMode === "single"`
 while `Cmd+G` already worked from overview — the two entry points disagreed
 about the same command. Removed the gate; precedent was a comment already in
@@ -157,16 +158,16 @@ hypothesis is the closing context menu immediately dismissing the popover.
 
 ## Retracted before becoming false reports (8)
 
-| Claim | What was actually wrong |
-| --- | --- |
-| Persistence broken | Read the post-reload DOM, which showed optimistic state |
-| Figma refuses child drops | Read Figma's parent-relative child coords as absolute; drops landed on empty canvas |
-| App requires select-then-drag | The failing press was 8px from a frame edge — the resize-handle zone |
-| Components don't propagate | `Cmd+D` places the copy at identical coords; the click hit the copy, not the main |
-| Three menu items "disabled" | Five mutations against one design; `Hide` ran first |
-| Text colour picker broken | Picker sat at y≈908 in a 772px viewport; never scrolled into view |
-| Constraints popover never opens | It is a toggle (`aria-pressed`), and pins are SVG where `offsetParent` is null |
-| Breakpoint override leaks to base | The chip never switched scope; it was a base edit, so writing base was correct |
+| Claim                             | What was actually wrong                                                             |
+| --------------------------------- | ----------------------------------------------------------------------------------- |
+| Persistence broken                | Read the post-reload DOM, which showed optimistic state                             |
+| Figma refuses child drops         | Read Figma's parent-relative child coords as absolute; drops landed on empty canvas |
+| App requires select-then-drag     | The failing press was 8px from a frame edge — the resize-handle zone                |
+| Components don't propagate        | `Cmd+D` places the copy at identical coords; the click hit the copy, not the main   |
+| Three menu items "disabled"       | Five mutations against one design; `Hide` ran first                                 |
+| Text colour picker broken         | Picker sat at y≈908 in a 772px viewport; never scrolled into view                   |
+| Constraints popover never opens   | It is a toggle (`aria-pressed`), and pins are SVG where `offsetParent` is null      |
+| Breakpoint override leaks to base | The chip never switched scope; it was a base edit, so writing base was correct      |
 
 Plus two self-inflicted misses worth naming: a design **titled** "breakpoints"
 matched a control-label search (the document-title button got clicked, and the
@@ -186,4 +187,4 @@ with changes   33 passed   7 failed   8 did not run
 at HEAD        34 passed   6 failed   8 did not run
 ```
 
-  Exactly one regression, a stale assertion frame, corrected → 11 passed.
+Exactly one regression, a stale assertion frame, corrected → 11 passed.

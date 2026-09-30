@@ -1,6 +1,6 @@
 # Locating the cause and verification discipline
 
-Reading source to find *why* a gesture failed is slow and often wrong. The
+Reading source to find _why_ a gesture failed is slow and often wrong. The
 fastest tool is a temporary `console.warn` at the boundary, read back over CDP.
 
 Two defects in one session were cracked in minutes this way after source
@@ -24,7 +24,7 @@ Delete only the lines you added the moment you have the answer, and check
   post-reload DOM can show optimistic state. "Persistence is broken" was
   retracted this way.
 - **Dump ALL controls before calling one missing** — read
-  `aria-label || innerText || title`, and make the *clicker* derive labels the
+  `aria-label || innerText || title`, and make the _clicker_ derive labels the
   **same way as the dumper**. `Add breakpoint` is a `title` tooltip; a clicker
   reading only the first two reported `absent` for a control the dump had just
   printed.
@@ -36,10 +36,10 @@ Delete only the lines you added the moment you have the answer, and check
   Tooltip-wrapped buttons return the wrapping `<span>`, which false-negatives a
   working control.
 - **Assert what is selected before any per-element command.** A single click
-  selects the *container*; double-click drills in. `Cmd+D` duplicated a whole
+  selects the _container_; double-click drills in. `Cmd+D` duplicated a whole
   nav because the child was never selected.
 - **Assert the mode and the scope.** Overview vs single view behave differently,
-  and a breakpoint chip must be *provably* active (`aria-pressed`) before you
+  and a breakpoint chip must be _provably_ active (`aria-pressed`) before you
   believe an edit was scoped.
 - **Fresh design per mutating action.** Five mutations against one design once
   produced three false "disabled" results, because `Hide` ran first.

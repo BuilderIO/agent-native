@@ -13,18 +13,32 @@ import { pathToFileURL } from "node:url";
 
 import { LAUNCH, SHOTS_DIR, chromium } from "./harness-env.mjs";
 
-const MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
+const MIME = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+};
 const escapeHtml = (s) =>
-  String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  String(s).replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+  );
 const slug = (s) => s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-|-$/g, "");
 
 /** Writes a JPEG under SHOTS_DIR (or `out`) and returns its path. */
-export async function sheet(title, cells, { columns = Math.min(cells.length, 4), cellWidth = 480, out } = {}) {
+export async function sheet(
+  title,
+  cells,
+  { columns = Math.min(cells.length, 4), cellWidth = 480, out } = {},
+) {
   const figures = cells
     .map((c) => {
       const mime = MIME[extname(c.image).toLowerCase()] ?? "image/png";
       const data = readFileSync(c.image).toString("base64");
-      const caption = c.caption ? `<div class="cap">${escapeHtml(c.caption)}</div>` : "";
+      const caption = c.caption
+        ? `<div class="cap">${escapeHtml(c.caption)}</div>`
+        : "";
       return `<figure><figcaption>${escapeHtml(c.label)}</figcaption><img src="data:${mime};base64,${data}">${caption}</figure>`;
     })
     .join("");
@@ -39,7 +53,9 @@ img{display:block;width:100%}
 </style></head><body><h1>${escapeHtml(title)}</h1><main>${figures}</main></body></html>`;
   const browser = await chromium.launch(LAUNCH);
   try {
-    const page = await browser.newPage({ viewport: { width: columns * (cellWidth + 10) + 14, height: 300 } });
+    const page = await browser.newPage({
+      viewport: { width: columns * (cellWidth + 10) + 14, height: 300 },
+    });
     await page.setContent(html, { waitUntil: "load" });
     const path = out ?? `${SHOTS_DIR}/${slug(title)}.jpg`;
     await page.screenshot({ path, fullPage: true, type: "jpeg", quality: 82 });
@@ -49,10 +65,15 @@ img{display:block;width:100%}
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   const [title, ...pairs] = process.argv.slice(2);
   if (!title || pairs.length === 0) {
-    console.error('usage: sheet.mjs "<title>" "<label>=<image>" ["<label>=<image>" ...]');
+    console.error(
+      'usage: sheet.mjs "<title>" "<label>=<image>" ["<label>=<image>" ...]',
+    );
     process.exit(2);
   }
   const cells = pairs.map((pair) => {

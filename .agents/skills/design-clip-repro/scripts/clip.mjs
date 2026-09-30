@@ -29,24 +29,37 @@ async function get(u) {
   for (let attempt = 1; ; attempt++) {
     const res = await fetch(u);
     if (res.status !== 429 || attempt > 3) return res;
-    await new Promise((r) => setTimeout(r, Math.min(Number(res.headers.get("retry-after")) || 10, 30) * 1000));
+    await new Promise((r) =>
+      setTimeout(
+        r,
+        Math.min(Number(res.headers.get("retry-after")) || 10, 30) * 1000,
+      ),
+    );
   }
 }
 
 const ctxRes = await get(contextUrl);
-if (!ctxRes.ok) throw new Error(`clip context ${ctxRes.status}: private clips need their agent_access link`);
+if (!ctxRes.ok)
+  throw new Error(
+    `clip context ${ctxRes.status}: private clips need their agent_access link`,
+  );
 const context = await ctxRes.json();
 
 const dir = `${WORKTREE}/templates/design/.tmp/parity/clip-${id}`;
 mkdirSync(dir, { recursive: true });
 writeFileSync(`${dir}/context.json`, JSON.stringify(context, null, 2));
 const segments = context.transcript?.segments ?? [];
-writeFileSync(`${dir}/transcript.txt`, segments.map((s) => `[${s.timestamp}] ${s.text}`).join("\n"));
+writeFileSync(
+  `${dir}/transcript.txt`,
+  segments.map((s) => `[${s.timestamp}] ${s.text}`).join("\n"),
+);
 
 const frameTemplate = context.apis.frame.urlTemplate;
 const frameOrigin = new URL(frameTemplate, url).origin;
 if (frameOrigin !== url.origin) {
-  throw new Error(`clip frames are served from ${frameOrigin}, not ${url.origin}; refusing to fetch them`);
+  throw new Error(
+    `clip frames are served from ${frameOrigin}, not ${url.origin}; refusing to fetch them`,
+  );
 }
 
 const wanted = times
@@ -66,7 +79,11 @@ for (const f of wanted) {
     .filter((s) => s.endMs >= f.atMs - 3000 && s.startMs <= f.atMs + 3000)
     .map((s) => s.text)
     .join(" ");
-  frames.push({ path, label: `${Math.floor(f.atMs / 60000)}:${String(Math.floor(f.atMs / 1000) % 60).padStart(2, "0")}`, said });
+  frames.push({
+    path,
+    label: `${Math.floor(f.atMs / 60000)}:${String(Math.floor(f.atMs / 1000) % 60).padStart(2, "0")}`,
+    said,
+  });
 }
 const contact = await sheet(
   `clip ${id}: ${context.clip?.title ?? ""}`,
@@ -76,14 +93,28 @@ const contact = await sheet(
 
 const clip = context.clip ?? {};
 const designIds = [
-  ...new Set((JSON.stringify(context).match(/design\.agent-native\.com\/design\/[A-Za-z0-9_-]+/g) ?? []).map((u) => u.split("/").pop())),
+  ...new Set(
+    (
+      JSON.stringify(context).match(
+        /design\.agent-native\.com\/design\/[A-Za-z0-9_-]+/g,
+      ) ?? []
+    ).map((u) => u.split("/").pop()),
+  ),
 ];
 console.log(`clip: ${clip.title} (${clip.duration})`);
 if (clip.description) console.log(`description: ${clip.description}`);
-if (context.bugReport) console.log(`bugReport: ${JSON.stringify(context.bugReport).slice(0, 800)}`);
-console.log(designIds.length > 0 ? `design ids: ${designIds.join(", ")}` : "design id: not in the clip; read the URL bar in the frames, or ask the user");
+if (context.bugReport)
+  console.log(`bugReport: ${JSON.stringify(context.bugReport).slice(0, 800)}`);
+console.log(
+  designIds.length > 0
+    ? `design ids: ${designIds.join(", ")}`
+    : "design id: not in the clip; read the URL bar in the frames, or ask the user",
+);
 const rel = (p) => relative(WORKTREE, p);
 console.log(`transcript: ${rel(`${dir}/transcript.txt`)}`);
 console.log(`contact sheet (open this first): ${rel(contact)}`);
-console.log(`frames (open one only for detail): ${frames.map((f) => `${f.label} ${rel(f.path)}`).join(" | ")}`);
-if (failed.length > 0) console.log(`frames that failed to download: ${failed.join(", ")}`);
+console.log(
+  `frames (open one only for detail): ${frames.map((f) => `${f.label} ${rel(f.path)}`).join(" | ")}`,
+);
+if (failed.length > 0)
+  console.log(`frames that failed to download: ${failed.join(", ")}`);

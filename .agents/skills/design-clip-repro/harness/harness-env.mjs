@@ -22,11 +22,15 @@ function findWorktree() {
 }
 
 export const WORKTREE = findWorktree();
-export const FUSION = Boolean(process.env.FUSION_ENVIRONMENT?.startsWith("cloud"));
+export const FUSION = Boolean(
+  process.env.FUSION_ENVIRONMENT?.startsWith("cloud"),
+);
 
 // A Fusion branch ends a command after 5 minutes, so every harness script ends
 // itself first with a readable error.
-const HARNESS_TIMEOUT_MS = Number(process.env.HARNESS_TIMEOUT_MS ?? (FUSION ? 280 : 540) * 1000);
+const HARNESS_TIMEOUT_MS = Number(
+  process.env.HARNESS_TIMEOUT_MS ?? (FUSION ? 280 : 540) * 1000,
+);
 setTimeout(() => {
   console.error(
     `harness timeout: ${process.argv[1]} ran over ${HARNESS_TIMEOUT_MS / 1000}s and was stopped. ` +
@@ -35,7 +39,10 @@ setTimeout(() => {
   process.exit(124);
 }, HARNESS_TIMEOUT_MS).unref();
 
-export const SLUG = createHash("sha1").update(WORKTREE).digest("hex").slice(0, 6);
+export const SLUG = createHash("sha1")
+  .update(WORKTREE)
+  .digest("hex")
+  .slice(0, 6);
 
 /**
  * Locally each worktree gets its own port and database, so parallel worktrees
@@ -44,10 +51,13 @@ export const SLUG = createHash("sha1").update(WORKTREE).digest("hex").slice(0, 6
 const PINNED = (() => {
   const file = `${WORKTREE}/templates/design/.tmp/parity/.port`;
   if (!existsSync(file)) return undefined;
-  const port = Number(readFileSync(file, "utf8").trim());
+  const port = Number(readFileSync(file, "utf8").trim().split(/\s+/)[0]);
   return Number.isFinite(port) && port > 0 ? port : undefined;
 })();
-export const PORT = Number(process.env.DESIGN_PORT ?? (FUSION ? 8080 : (PINNED ?? 9300 + (parseInt(SLUG, 16) % 90))));
+export const PORT = Number(
+  process.env.DESIGN_PORT ??
+    (FUSION ? 8080 : (PINNED ?? 9300 + (parseInt(SLUG, 16) % 90))),
+);
 export const BASE = process.env.DESIGN_BASE ?? `http://127.0.0.1:${PORT}`;
 export const E2E_PORT = Number(process.env.E2E_PORT ?? PORT + 100);
 export const PGLITE = `pglite:${WORKTREE}/templates/design/.tmp/pglite-${SLUG}`;
@@ -62,10 +72,14 @@ export const CREDS = {
  * The deployed Design app and the dedicated test account that reaches real
  * designs. Never register there: a missing account is a setup problem to report.
  */
-export const PROD_BASE = process.env.DESIGN_PROD_BASE ?? "https://beta.design.agent-native.com";
+export const PROD_BASE =
+  process.env.DESIGN_PROD_BASE ?? "https://beta.design.agent-native.com";
 export const TEST_ACCOUNT =
   process.env.DESIGN_TEST_EMAIL && process.env.DESIGN_TEST_PASSWORD
-    ? { email: process.env.DESIGN_TEST_EMAIL, password: process.env.DESIGN_TEST_PASSWORD }
+    ? {
+        email: process.env.DESIGN_TEST_EMAIL,
+        password: process.env.DESIGN_TEST_PASSWORD,
+      }
     : null;
 
 /** Screenshots live in the workspace, where the Read tool can open them. */
@@ -81,12 +95,18 @@ mkdirSync(SHOTS_DIR, { recursive: true });
 export const HEADED = process.env.HEADED === "1";
 export const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9222";
 export const OSM =
-  process.env.OSMOUSE ?? (FUSION ? `${HERE}/osmouse-linux` : `${WORKTREE}/templates/design/.tmp/osinput/osmouse`);
+  process.env.OSMOUSE ??
+  (FUSION
+    ? `${HERE}/osmouse-linux`
+    : `${WORKTREE}/templates/design/.tmp/osinput/osmouse`);
 /** Pixels between the top of the screen and the page viewport. */
-export const SCREEN_Y_OFFSET = Number(process.env.SCREEN_Y_OFFSET ?? (FUSION ? 87 : 120));
+export const SCREEN_Y_OFFSET = Number(
+  process.env.SCREEN_Y_OFFSET ?? (FUSION ? 87 : 120),
+);
 
 // Locally Playwright's own Chromium is used; the container has the system one.
-const CHROME_BIN = process.env.CHROME_BIN ?? (FUSION ? "/usr/bin/chromium" : undefined);
+const CHROME_BIN =
+  process.env.CHROME_BIN ?? (FUSION ? "/usr/bin/chromium" : undefined);
 // Chromium refuses to sandbox as root, which is how a Fusion container runs.
 // Copied designs run their own scripts, so keep the sandbox everywhere else.
 const AS_ROOT = process.getuid?.() === 0;
@@ -97,7 +117,9 @@ export const LAUNCH = {
 };
 
 // The skill folder has no node_modules of its own; the Design app pins Playwright.
-export const { chromium, request } = createRequire(`${WORKTREE}/templates/design/package.json`)("playwright");
+export const { chromium, request } = createRequire(
+  `${WORKTREE}/templates/design/package.json`,
+)("playwright");
 
 export function describeEnv() {
   return `${FUSION ? "fusion" : "local"} worktree=${WORKTREE.split("/").pop()} port=${PORT} headed=${HEADED}`;

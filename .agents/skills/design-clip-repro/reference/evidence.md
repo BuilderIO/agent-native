@@ -8,13 +8,13 @@ check. **Capture every interaction on both sides and open the images.**
 
 Getting this wrong in either direction is how sessions go bad.
 
-| Claim | Authority | A screenshot is… |
-| --- | --- | --- |
-| "it persisted", "the node moved", "the attribute is set" | persisted file via `get-design`, computed style, geometry number | not enough — it also hides whatever is off-screen |
-| "Figma does X", "these look the same", "it renders wrong" | **the captured image** | the only valid evidence; a DOM read cannot answer it |
+| Claim                                                     | Authority                                                        | A screenshot is…                                     |
+| --------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------- |
+| "it persisted", "the node moved", "the attribute is set"  | persisted file via `get-design`, computed style, geometry number | not enough — it also hides whatever is off-screen    |
+| "Figma does X", "these look the same", "it renders wrong" | **the captured image**                                           | the only valid evidence; a DOM read cannot answer it |
 
-So: never close a *state* question with a picture, and never close a *visual or
-Figma-behaviour* question without one.
+So: never close a _state_ question with a picture, and never close a _visual or
+Figma-behaviour_ question without one.
 
 ### Non-negotiable rules
 
@@ -41,10 +41,10 @@ Figma-behaviour* question without one.
 
 ```js
 import { shots } from ".agents/skills/design-clip-repro/harness/shot.mjs";
-const cap = shots("drag-into-col");   // writes under templates/design/.tmp/parity/shots
+const cap = shots("drag-into-col"); // writes under templates/design/.tmp/parity/shots
 await cap.app(page, "before");
 /* …gesture… */
-const path = await cap.app(page, "after");   // then Read it
+const path = await cap.app(page, "after"); // then Read it
 ```
 
 Figma captures use the branch browser, so they run under
