@@ -52,8 +52,6 @@ export interface IndexedSearchSql {
 }
 
 const ALIAS = "search_index";
-const titleNorm = sql.raw(`${ALIAS}.title_norm`);
-const summaryNorm = sql.raw(`${ALIAS}.summary_norm`);
 
 function escapeLike(value: string) {
   return value.replace(/([\\%_])/g, "\\$1");
@@ -76,10 +74,6 @@ function wordPrefix(column: SQL, needle: string): SQL {
   return sql`${column} ~* ${`(^|[^[:alnum:]_])${pattern}`}`;
 }
 
-// A bare constant in ORDER BY is read as a column position, so ranking terms
-// that can only be zero are left out of the order rather than written as 0.
-const ZERO = sql<number>`0`;
-
 function sumOf(conditions: SQL[]): SQL<number> | null {
   if (!conditions.length) return null;
   return sql<number>`(${sql.join(
@@ -94,6 +88,14 @@ export function indexedSearchSql(
   options: IndexedSearchOptions,
 ): IndexedSearchSql {
   const { registration, query } = options;
+  // SQL is built per call, never at import: apps' tests stub drizzle-orm and
+  // still import core search.
+  const titleNorm = sql.raw(`${ALIAS}.title_norm`);
+  const summaryNorm = sql.raw(`${ALIAS}.summary_norm`);
+  // A bare constant in ORDER BY is read as a column position, so ranking
+  // terms that can only be zero are left out of the order rather than
+  // written as 0.
+  const zero = sql<number>`0`;
   const titleOnlyField = options.fields === "title";
   const needle = (term: SearchQueryTerm) => normalizeSearchText(term.text);
   const bodyTerms = (terms: readonly SearchQueryTerm[]) =>
@@ -217,9 +219,9 @@ export function indexedSearchSql(
     on: sql`${sql.raw(`${ALIAS}.app`)} = ${registration.app} AND ${sql.raw(`${ALIAS}.resource_type`)} = ${registration.type} AND ${sql.raw(`${ALIAS}.resource_id`)} = ${registration.idColumn}::text`,
     match,
     matchTier,
-    titleCoverage: titleCoverage ?? ZERO,
-    summaryCoverage: summaryCoverage ?? ZERO,
-    bodyPhrase: bodyPhrase ?? ZERO,
+    titleCoverage: titleCoverage ?? zero,
+    summaryCoverage: summaryCoverage ?? zero,
+    bodyPhrase: bodyPhrase ?? zero,
     orderBy: [matchTier, titleCoverage, summaryCoverage, bodyPhrase]
       .filter((term): term is SQL<number> => term !== null)
       .map((term) => sql`${term} desc`),
