@@ -24,13 +24,13 @@ const dialogMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../resources/McpIntegrationDialog.js", () => dialogMocks);
-vi.mock("../resources/use-mcp-servers.js", () => mcpMocks);
+vi.mock("@agent-native/core/client/resources/use-mcp-servers", () => mcpMocks);
 vi.mock("../settings/useBuilderStatus.js", () => builderMocks);
-vi.mock("./useIntegrationStatus.js", () => ({
+vi.mock("@agent-native/core/client/integrations/useIntegrationStatus", () => ({
   useIntegrationStatus: () => ({ statuses: [], loading: false, refetch() {} }),
 }));
 
-vi.mock("../i18n.js", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, unknown>): string => {

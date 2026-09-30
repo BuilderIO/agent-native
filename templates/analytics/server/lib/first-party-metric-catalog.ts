@@ -292,7 +292,8 @@ export function scopeFirstPartyPanelSql(sql: string): string {
   if (sql.includes("{{appFilter}}")) return sql;
   return sql
     .replace(
-      /(\bFROM\s+analytics_events(?:\s+AS\s+\w+)?\s+WHERE\s+)/gi,
+      // Retention scans join the column-disjoint date spine before their WHERE.
+      /(\bFROM\s+analytics_events(?:\s+AS\s+\w+)?(?:\s+CROSS\s+JOIN\s+date_spine_bounds)?\s+WHERE\s+)/gi,
       `$1${DASHBOARD_APP_FILTER} AND `,
     )
     .replace(

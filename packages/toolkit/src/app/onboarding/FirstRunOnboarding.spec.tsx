@@ -31,12 +31,16 @@ vi.mock("react-router", async (importOriginal) => {
   };
 });
 
-vi.mock("./use-onboarding.js", () => ({
+vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
+  useFeatureFlagState: () => ({ status: "ready", enabled: true }),
+}));
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   trackOnboardingEvent: mocks.trackOnboardingEvent,
   useOnboarding: mocks.useOnboarding,
 }));
 
-vi.mock("./use-preview-mode.js", () => ({
+vi.mock("@agent-native/core/client/onboarding/use-preview-mode", () => ({
   ONBOARDING_PREVIEW_QUERY_PARAM: "onboarding",
   ONBOARDING_PREVIEW_STEP_QUERY_PARAM: "step",
   useOnboardingPreviewMode: mocks.useOnboardingPreviewMode,
@@ -1590,7 +1594,9 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("sends manual setup to Agent › Model", () => {
-    expect(manualSetupSettingsRoute()).toBe("/settings/model");
+    expect(manualSetupSettingsRoute({ redesign: true })).toBe(
+      "/settings/model",
+    );
   });
 
   it("keeps the choice screen visible when completion fails", async () => {

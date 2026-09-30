@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../../../i18n.js";
 import { AgentTeamProgressWidget } from "./AgentTeamProgressWidget.js";
 
 const tasks = [
@@ -29,6 +30,8 @@ const tasks = [
     status: "queued",
   },
 ];
+
+const catalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("core.agent-team-progress", () => {
   let container: HTMLDivElement;
@@ -66,7 +69,7 @@ describe("core.agent-team-progress", () => {
   it("renders queued, working, and completed work as compact cards", async () => {
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
           <AgentTeamProgressWidget
             context={{
               toolName: "agent-teams",

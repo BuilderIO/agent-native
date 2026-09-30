@@ -974,6 +974,15 @@ function tokenizeAnalyticsSql(sql: string): AnalyticsSqlToken[] {
       tokens.push({ value, quoted: true, depth, start });
       continue;
     }
+    if (/[0-9]/.test(ch) || (ch === "." && /[0-9]/.test(next ?? ""))) {
+      const start = i;
+      const literal = sql
+        .slice(i)
+        .match(/^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/)![0];
+      tokens.push({ value: literal, quoted: false, depth, start });
+      i += literal.length;
+      continue;
+    }
     if (/[A-Za-z_]/.test(ch)) {
       const start = i;
       i++;

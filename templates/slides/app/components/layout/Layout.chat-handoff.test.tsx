@@ -66,10 +66,10 @@ function ThreadProbe(props: SurfaceProps) {
   );
 }
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: (props: SurfaceProps) => <ThreadProbe {...props} />,
-  AgentChatSurface: (props: SurfaceProps) => <ThreadProbe {...props} />,
-  focusAgentChat: vi.fn(),
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   isAgentChatHomeHandoffActive: () => false,
   markAgentChatHomeHandoff: vi.fn(),
   useAgentChatHomeHandoff: () => false,
@@ -79,10 +79,15 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     path: string,
   ) => navigate(path),
 }));
+vi.mock("@agent-native/toolkit/app/chat", () => ({
+  AgentSidebar: (props: SurfaceProps) => <ThreadProbe {...props} />,
+  AgentChatSurface: (props: SurfaceProps) => <ThreadProbe {...props} />,
+  focusAgentChat: vi.fn(),
+}));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/org", () => ({
   InvitationBanner: () => null,
 }));
 vi.mock("@agent-native/creative-context/client", () => ({

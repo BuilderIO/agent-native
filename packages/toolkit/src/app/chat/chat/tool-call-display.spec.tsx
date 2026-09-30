@@ -7,6 +7,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../../i18n.js";
 import { ThinkingDisplayProvider } from "../thinking-display.js";
 import {
   ApprovalContext,
@@ -968,7 +969,7 @@ describe("ToolCallDisplay native renderers", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
-          catalog={{
+          catalog={createToolkitI18nCatalog({
             sourceLocale: "en-US",
             messages: {
               agentChat: {
@@ -978,7 +979,7 @@ describe("ToolCallDisplay native renderers", () => {
                 },
               },
             },
-          }}
+          })}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}

@@ -16,6 +16,7 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => "",
   appPath: (path: string) => path,
 }));
 
@@ -34,11 +35,6 @@ vi.mock("@agent-native/core/shared", () => ({
 vi.mock("@agent-native/core/shared/auth-copy", () => ({
   resolveNativeAuthCopy: () =>
     new Proxy({}, { get: (_target, key) => String(key) }),
-}));
-
-vi.mock("@agent-native/core/client/ui", () => ({
-  buildSignInReturnHref: ({ returnTo }: { returnTo?: string } = {}) =>
-    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo ?? "/")}`,
 }));
 
 let mountPoint: HTMLDivElement;
@@ -62,9 +58,24 @@ afterEach(() => {
 
 describe("create account dialog", () => {
   it("keeps the viewer continuation while requesting the focused signup mode", () => {
-    expect(buildCreateAccountHref("/share/clip-1?at=90")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip-1%3Fat%3D90&tab=signup&initialPrompt=1&embedded=1",
+    const url = new URL(
+      buildCreateAccountHref("/share/clip-1?at=90"),
+      "https://clips.example.test",
     );
+    expect(url.pathname).toBe("/sign-in");
+    const continuation = url.searchParams.get("c");
+    expect(continuation).not.toBeNull();
+    expect(
+      decodeURIComponent(
+        atob(continuation!.replace(/-/g, "+").replace(/_/g, "/")),
+      ),
+    ).toBe("/share/clip-1?at=90");
+    url.searchParams.delete("c");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      tab: "signup",
+      initialPrompt: "1",
+      embedded: "1",
+    });
   });
 
   it("composes the shared auth pattern inside the modal", () => {

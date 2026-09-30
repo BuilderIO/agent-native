@@ -10,16 +10,19 @@ const mocks = vi.hoisted(() => ({
   preview: vi.fn(),
 }));
 
-vi.mock("./first-run-enabled.js", () => ({
+vi.mock("@agent-native/core/client/onboarding/first-run-enabled", () => ({
   isFirstRunOnboardingEnabled: mocks.enabled,
 }));
 
-vi.mock("./first-run-status.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./first-run-status.js")>()),
-  fetchFirstRunOnboardingStatus: mocks.fetchStatus,
-}));
+vi.mock(
+  "@agent-native/core/client/onboarding/first-run-status",
+  async (importOriginal) => ({
+    ...(await importOriginal<typeof import("./first-run-status.js")>()),
+    fetchFirstRunOnboardingStatus: mocks.fetchStatus,
+  }),
+);
 
-vi.mock("./use-preview-mode.js", () => ({
+vi.mock("@agent-native/core/client/onboarding/use-preview-mode", () => ({
   useOnboardingPreviewMode: mocks.preview,
 }));
 

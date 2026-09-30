@@ -1,17 +1,15 @@
 // @vitest-environment happy-dom
 
-import { downloadFile } from "@agent-native/core/client/resources";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { downloadFile } from "../../../db-admin/export-utils.js";
 import { DataTableWidget } from "./DataTableWidget.js";
 
-vi.mock("@agent-native/core/client/resources", async (importOriginal) => {
+vi.mock("../../../db-admin/export-utils.js", async (importOriginal) => {
   const actual =
-    await importOriginal<
-      typeof import("@agent-native/core/client/resources")
-    >();
+    await importOriginal<typeof import("../../../db-admin/export-utils.js")>();
   return {
     ...actual,
     downloadFile: vi.fn(),

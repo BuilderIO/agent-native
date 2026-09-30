@@ -53,7 +53,6 @@ export default defineConfig({
         "@assistant-ui/react",
         "@tiptap/core",
         "@tiptap/react",
-        "@tiptap/pm",
         "@tiptap/starter-kit",
         "@tiptap/extension-blockquote",
         "@tiptap/extension-code",

@@ -18,7 +18,16 @@ const {
   creativeContextLabEnabled: { value: false },
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  isAgentChatHomeHandoffActive: vi.fn(() => false),
+  navigateWithAgentChatViewTransition: navigateChatMock,
+  useAgentChatHomeHandoff: vi.fn(() => false),
+  useAgentChatHomeHandoffLinks: vi.fn(),
+}));
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentSidebar: ({
     children,
     ...props
@@ -36,16 +45,12 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     );
   },
   focusAgentChat: vi.fn(),
-  isAgentChatHomeHandoffActive: vi.fn(() => false),
-  navigateWithAgentChatViewTransition: navigateChatMock,
-  useAgentChatHomeHandoff: vi.fn(() => false),
-  useAgentChatHomeHandoffLinks: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) =>
     key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/org", () => ({
   InvitationBanner: () => <div data-testid="invitation-banner" />,
 }));
 vi.mock("@agent-native/creative-context/client", () => ({
@@ -60,7 +65,8 @@ vi.mock("@agent-native/toolkit/app-shell", () => ({
 vi.mock("@shared/google-docs", () => ({
   extractGoogleSlidesUrls: () => [],
 }));
-vi.mock("@tabler/icons-react", () => ({
+vi.mock("@tabler/icons-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tabler/icons-react")>()),
   IconMenu2: () => <span data-testid="menu-icon" />,
 }));
 vi.mock("@/context/DeckContext", () => ({ useDecks: useDecksMock }));

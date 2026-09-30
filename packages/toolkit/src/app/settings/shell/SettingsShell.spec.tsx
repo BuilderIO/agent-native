@@ -42,7 +42,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
   };
   return { ...actual, useT: () => translate };
 });
-vi.mock("../../AgentSidebar.js", () => ({
+vi.mock("../../chat/AgentSidebar.js", () => ({
   AgentToggleButton: () => <button type="button">agent</button>,
 }));
 
@@ -707,10 +707,12 @@ describe("SettingsShell", () => {
       // the router is still committing the previous navigation.
       const [, setTick] = useState(0);
       React.useEffect(() => {
-        // Several ticks land inside each 60ms loader, so the shell re-renders
-        // mid-navigation; a tick shorter than one render keeps act() from ever
-        // going idle on a slow runner.
-        const timer = setInterval(() => setTick((tick) => tick + 1), 25);
+        // Re-render during the 60ms loader without keeping act() busy forever.
+        let ticks = 0;
+        const timer = setInterval(() => {
+          setTick((tick) => tick + 1);
+          if (++ticks === 5) clearInterval(timer);
+        }, 10);
         return () => clearInterval(timer);
       }, []);
       const current = useLocation();

@@ -3320,6 +3320,9 @@ importers:
       vgpu:
         specifier: 0.3.1
         version: 0.3.1
+      yjs:
+        specifier: 'catalog:'
+        version: 13.6.32
       zod:
         specifier: ^4.3.6
         version: 4.4.3
@@ -4081,12 +4084,18 @@ importers:
       '@xterm/xterm':
         specifier: ^6.0.0
         version: 6.0.0
+      i18next:
+        specifier: 26.3.1
+        version: 26.3.1(typescript@6.0.3)
       mermaid:
         specifier: 11.15.0
         version: 11.15.0
       playwright:
         specifier: 'catalog:'
         version: 1.63.0
+      react-i18next:
+        specifier: 17.0.8
+        version: 17.0.8(i18next@26.3.1(typescript@6.0.3))(react-dom@19.2.7(react@19.2.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@6.0.3)
       react-router:
         specifier: 'catalog:'
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

@@ -5,6 +5,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { ThumbsFeedback } from "./ThumbsFeedback.js";
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -35,11 +36,14 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+const catalog = createToolkitI18nCatalog({ messages: {} });
+
 describe("ThumbsFeedback localization", () => {
   it("renders localized accessible labels and explanation copy", async () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="de-DE"
           initialPreference="de-DE"
           persistPreference={false}
@@ -70,6 +74,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -164,6 +169,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -278,6 +284,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -404,6 +411,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -494,6 +502,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -541,6 +550,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -579,6 +589,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -622,6 +633,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -657,6 +669,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -692,6 +705,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -729,6 +743,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -780,6 +795,7 @@ describe("ThumbsFeedback localization", () => {
     act(() => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={catalog}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}

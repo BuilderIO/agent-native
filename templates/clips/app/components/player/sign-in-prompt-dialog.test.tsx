@@ -14,10 +14,20 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     vars?.intent ? `${key}:${vars.intent}` : key,
 }));
 
-vi.mock("@agent-native/core/client/ui", () => ({
-  buildSignInReturnHref: ({ returnTo }: { returnTo?: string } = {}) =>
-    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo ?? "/")}`,
-}));
+function expectSignInHref(href: string | null | undefined, tab?: "signup") {
+  expect(href).toBeTypeOf("string");
+  const url = new URL(href!, "https://clips.example.test");
+  expect(url.pathname).toBe("/sign-in");
+  const continuation = url.searchParams.get("c");
+  expect(continuation).not.toBeNull();
+  expect(
+    decodeURIComponent(
+      atob(continuation!.replace(/-/g, "+").replace(/_/g, "/")),
+    ),
+  ).toBe("/share/clip-1?at=90");
+  url.searchParams.delete("c");
+  expect(Object.fromEntries(url.searchParams)).toEqual(tab ? { tab } : {});
+}
 
 describe("SignInPromptDialog", () => {
   let container: HTMLDivElement;
@@ -37,9 +47,7 @@ describe("SignInPromptDialog", () => {
   });
 
   it("opens account creation first and preserves the shared clip return path", () => {
-    expect(buildSignUpReturnHref("/share/clip-1?at=90")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip-1%3Fat%3D90&tab=signup",
-    );
+    expectSignInHref(buildSignUpReturnHref("/share/clip-1?at=90"), "signup");
 
     act(() => {
       root.render(
@@ -54,11 +62,9 @@ describe("SignInPromptDialog", () => {
 
     const links = Array.from(document.body.querySelectorAll("a"));
     expect(links[0]?.textContent).toContain("signInPrompt.signIn");
-    expect(links[0]?.getAttribute("href")).toContain(
-      "return=%2Fshare%2Fclip-1%3Fat%3D90",
-    );
+    expectSignInHref(links[0]?.getAttribute("href"));
     expect(links[1]?.textContent).toContain("signInPrompt.createAccount");
-    expect(links[1]?.getAttribute("href")).toContain("tab=signup");
+    expectSignInHref(links[1]?.getAttribute("href"), "signup");
     expect(document.body.querySelector('[role="dialog"] h2')?.textContent).toBe(
       "signInPrompt.title:signInPrompt.commentIntent",
     );

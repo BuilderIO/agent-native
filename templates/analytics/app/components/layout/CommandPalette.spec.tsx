@@ -18,10 +18,11 @@ vi.mock("@agent-native/core/client/navigation", async (importOriginal) => ({
   >()),
   openSettingsPage: mocks.openSettingsPage,
 }));
-vi.mock("@agent-native/core/client/changelog", () => ({
+vi.mock("@agent-native/toolkit/app/changelog", () => ({
   ChangelogDialog: () => null,
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: vi.fn(async () => []),
   useChangeVersions: () => 0,
 }));
@@ -29,7 +30,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     key === "settingsShortcut.command" ? "Settings" : key,
 }));
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
   useOrgRole: () => ({
     canManageOrg: false,
     isOwner: false,

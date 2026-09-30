@@ -10,11 +10,11 @@ const mcpMocks = vi.hoisted(() => ({
   useMcpServers: vi.fn(),
 }));
 
-vi.mock("../CommandMenu.js", () => ({
+vi.mock("../shared/index.js", () => ({
   openAgentSettings: vi.fn(),
 }));
 
-vi.mock("../i18n.js", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { name?: string }) => {
     if (key === "mcpIntegrations.connectSuggestion") {
       return `Connect ${options?.name ?? "integration"}`;
@@ -31,7 +31,7 @@ vi.mock("./McpIntegrationDialog.js", () => ({
   McpIntegrationDialog: () => null,
 }));
 
-vi.mock("./use-mcp-servers.js", () => mcpMocks);
+vi.mock("@agent-native/core/client/resources/use-mcp-servers", () => mcpMocks);
 
 import {
   DEFAULT_MCP_INTEGRATIONS,

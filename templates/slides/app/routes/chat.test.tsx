@@ -5,12 +5,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { chatSurfaceMock } = vi.hoisted(() => ({ chatSurfaceMock: vi.fn() }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  markAgentChatHomeHandoff: vi.fn(),
+}));
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentChatSurface: (props: Record<string, unknown>) => {
     chatSurfaceMock(props);
     return null;
   },
-  markAgentChatHomeHandoff: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) =>

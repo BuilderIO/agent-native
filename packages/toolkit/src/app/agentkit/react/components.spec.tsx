@@ -109,7 +109,7 @@ describe("AgentMessageActions layout", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
     const rules = Array.from(styles.matchAll(/([^{}]+)\{([^{}]*)\}/g));
     const rule = (selector: string) =>
       rules.find((match) => match[1].trim() === selector)?.[2];
@@ -272,7 +272,7 @@ describe("AgentKitChat", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
 
     expect(styles).toContain('[data-agent-composer-slot="root"]');
     expect(styles).toContain('[data-agent-message-queue="true"]');
@@ -433,7 +433,7 @@ describe("AgentKitChat", () => {
     const source = readFileSync(
       new URL("./components.tsx", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
     for (const prop of ["slashCommands", "slashSkills", "onSlashCommand"]) {
       expect(source).toContain(`${prop}={${prop}}`);
     }

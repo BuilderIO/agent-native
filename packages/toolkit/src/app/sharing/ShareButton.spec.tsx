@@ -6,6 +6,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { ShareButton } from "./ShareButton.js";
 
 const shareMutate = vi.hoisted(() => vi.fn());
@@ -46,7 +47,7 @@ const sharesData = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../use-action.js", () => ({
+vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: () => ({
     data: sharesData.current,
     isError: sharesError.current,
@@ -57,7 +58,7 @@ vi.mock("../use-action.js", () => ({
   }),
 }));
 
-vi.mock("../components/ui/popover.js", () => {
+vi.mock("@agent-native/toolkit/ui/popover", () => {
   const PopoverOpenContext = React.createContext(true);
   const isOuterSharePopover = (node: React.ReactNode): boolean =>
     React.Children.toArray(node).some((child) => {
@@ -129,7 +130,7 @@ vi.mock("../components/ui/popover.js", () => {
   };
 });
 
-vi.mock("../components/ui/sheet.js", () => ({
+vi.mock("@agent-native/toolkit/ui/sheet", () => ({
   Sheet: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SheetTrigger: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
@@ -1211,6 +1212,7 @@ describe("ShareButton", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={createToolkitI18nCatalog({ messages: {} })}
           initialLocale="de-DE"
           initialPreference="de-DE"
           persistPreference={false}

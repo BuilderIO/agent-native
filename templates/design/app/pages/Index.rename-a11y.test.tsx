@@ -47,6 +47,18 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
   BuilderConnectPopover: () => null,
 }));
 
+vi.mock(
+  "@agent-native/toolkit/app/chat/composer/index",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/composer/index")
+    >()),
+    useAgentKitCapabilities: () => ({
+      data: { sources: { figma: { available: false } }, integrations: [] },
+    }),
+  }),
+);
+
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
 }));
@@ -96,7 +108,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   setClientAppState: async () => undefined,
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
 }));
 

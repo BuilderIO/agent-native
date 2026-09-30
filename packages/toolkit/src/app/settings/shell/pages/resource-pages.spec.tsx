@@ -12,6 +12,9 @@ const orgState = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: orgState.value, isLoading: false }),
 }));
+vi.mock("@agent-native/core/client/org/hooks", () => ({
+  useOrg: () => ({ data: orgState.value, isLoading: false }),
+}));
 vi.mock("../../../org/workspace-app-links.js", () => ({
   useOrgSwitcherAppLinks: () => ({
     isWorkspace: true,
