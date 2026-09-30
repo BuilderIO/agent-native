@@ -19,6 +19,10 @@ const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
   source.indexOf("const handlePromptSubmit"),
 );
+const runner = source.slice(
+  source.indexOf("const runPendingDeckGeneration"),
+  source.indexOf("const handlePromptSubmit"),
+);
 
 describe("new deck generation flow", () => {
   it("renders the inline home composer immediately with chunk recovery", () => {
@@ -255,9 +259,30 @@ describe("new deck generation flow", () => {
   });
 
   it("keeps prior attachment chips when a generation retry adds files", () => {
-    expect(flow).toContain("const attachmentsForGeneration = [");
-    expect(flow).toContain("...newDeckRetryAttachments");
-    expect(flow).toContain("...attachments");
+    expect(runner).toContain("const attachmentsForGeneration = [");
+    expect(runner).toContain("...newDeckRetryAttachments");
+    expect(runner).toContain("...attachments");
+    expect(runner).toContain(
+      "mergeUploadedFilesForRetry(\n        newDeckRetryFiles,\n        files,\n      )",
+    );
+    expect(runner).toContain("modelSelection ?? newDeckRetryModelSelection");
+  });
+
+  it("shares saved retry inputs with composer-context generation", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const fastPath = promptSubmit.slice(
+      promptSubmit.indexOf("if (\n        retryComposerContext &&"),
+      promptSubmit.indexOf("setPendingDeck({"),
+    );
+
+    expect(fastPath).toContain("runPendingDeckGeneration(");
+    expect(fastPath).toContain("files,");
+    expect(fastPath).toContain("attachments.attachments");
+    expect(runner).toContain("mergeUploadedFilesForRetry(");
+    expect(runner).toContain("...newDeckRetryAttachments");
   });
   it("passes uploaded image references through the home agent submission", () => {
     expect(flow).toContain(

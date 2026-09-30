@@ -4315,6 +4315,32 @@ export function DeckProvider({
         throw new Error("The slide conflict has already been resolved");
       }
 
+      const pendingSlideOps = [
+        ...(inFlightOpSlides.get(deckId) ?? []),
+        ...(pendingOpsQueue.get(deckId) ?? []),
+      ];
+      const latestSlideWithPendingFields = pendingSlideOps.reduce(
+        (slide, op) => {
+          if (op.op !== "patch-slide" || op.slideId !== slideId) {
+            return slide;
+          }
+          const fields = { ...op.fields };
+          delete fields.content;
+          if (Object.keys(fields).length === 0) return slide;
+          return (
+            applyOpToDeck({ ...latest, slides: [slide] }, { ...op, fields })
+              .slides[0] ?? slide
+          );
+        },
+        latestSlide,
+      );
+      const resolvedSlide = {
+        ...latestSlideWithPendingFields,
+        content:
+          resolution === "latest" ? latestSlide.content : localSlide.content,
+        layoutFitRevision: latestSlide.layoutFitRevision,
+      };
+
       rememberDeckServerRevision(deckId, latest);
       setDecksLocal((prev) =>
         prev.map((deck) =>
@@ -4324,16 +4350,7 @@ export function DeckProvider({
                 ...deck,
                 updatedAt: latest.updatedAt,
                 slides: deck.slides.map((slide) =>
-                  slide.id !== slideId
-                    ? slide
-                    : {
-                        ...slide,
-                        content:
-                          resolution === "latest"
-                            ? latestSlide.content
-                            : localSlide.content,
-                        layoutFitRevision: latestSlide.layoutFitRevision,
-                      },
+                  slide.id !== slideId ? slide : resolvedSlide,
                 ),
               },
         ),
@@ -4375,8 +4392,19 @@ export function DeckProvider({
       if (!clearStaleContentConflict(deckId, slideId)) {
         throw new Error("The slide conflict has already been resolved");
       }
-      if (resolution === "latest" && pendingOpsQueue.has(deckId)) {
-        void drainPendingDeckOps(deckId);
+      if (resolution === "latest") {
+        const hasPendingWrites =
+          pendingOpsQueue.has(deckId) ||
+          inFlightOpSlides.has(deckId) ||
+          pendingSaves.has(deckId) ||
+          inFlightSaveChains.has(deckId) ||
+          inFlightKeepaliveSaves.has(deckId);
+        if (!hasPendingWrites) {
+          const wasFailed = failedSaveDecks.delete(deckId);
+          deckSaveRetryAttempts.delete(deckId);
+          if (wasFailed) notifySaveListeners();
+        }
+        if (pendingOpsQueue.has(deckId)) void drainPendingDeckOps(deckId);
       }
     },
     [setDecksLocal],
