@@ -239,6 +239,31 @@ const res = await extensionFetch("https://api.example.com/items", {
 to prevent JavaScript template literal evaluation. The substitution
 happens server-side, not in the browser.
 
+## Remote images and media
+
+The iframe's Content-Security-Policy loads images and media from `'self'
+data: blob:` only, so a remote `<img src="https://cdn.example.com/…">` is
+blocked by default. The app opts in from server config:
+
+```typescript
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  extensions: {
+    iframeImageSources: ["'self'", "https:", "data:", "blob:"],
+    iframeMediaSources: ["'self'", "https:", "data:", "blob:"],
+  },
+});
+```
+
+Each entry is one CSP source expression — `'self'`, `'none'`, a scheme such as
+`https:` or `blob:`, or an origin such as `https://cdn.example.com`. Prefer
+naming the origin over `https:` when the app knows it. These are display-only
+directives: `connect-src` stays `'self'` and is not configurable, so data still
+leaves only through the host bridge (`extensionFetch()` or an action), which
+enforces permissions and allow-lists.
+
 ## Tailwind classes
 
 Extensions inherit the main app's Tailwind v4 theme. Use the same utility

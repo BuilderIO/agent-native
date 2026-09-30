@@ -1,7 +1,15 @@
+import {
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+  getAppConfig,
+} from "../app-config/index.js";
 import { buildSessionReplayIframeBootstrap } from "./session-replay-iframe.js";
 
-const EXTENSION_IFRAME_CSP_BASE =
-  "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';";
+function extensionIframeCspBase(
+  imageSources: readonly string[],
+  mediaSources: readonly string[],
+): string {
+  return `default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src ${imageSources.join(" ")}; media-src ${mediaSources.join(" ")}; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';`;
+}
 
 export const EXTENSION_FRAME_ANCESTORS = [
   "'self'",
@@ -14,9 +22,26 @@ export const EXTENSION_FRAME_ANCESTORS = [
   "https://*.web-sandbox.oaiusercontent.com",
 ].join(" ");
 
-export const EXTENSION_IFRAME_CSP = `${EXTENSION_IFRAME_CSP_BASE} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
+// The two constants below are the policy an app gets before it configures
+// anything. `buildExtensionIframeCsp()` resolves `extensions.iframeImageSources`
+// and `extensions.iframeMediaSources` and is what the render route sets, so a
+// deployment that widens the display-only directives still gets the same
+// `connect-src 'self'` egress boundary as one that does not.
+export const EXTENSION_IFRAME_CSP = `${extensionIframeCspBase(DEFAULT_EXTENSION_DISPLAY_SOURCES, DEFAULT_EXTENSION_DISPLAY_SOURCES)} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
 
-export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
+export const EXTENSION_IFRAME_META_CSP = extensionIframeCspBase(
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+);
+
+export function buildExtensionIframeMetaCsp(): string {
+  const { iframeImageSources, iframeMediaSources } = getAppConfig().extensions;
+  return extensionIframeCspBase(iframeImageSources, iframeMediaSources);
+}
+
+export function buildExtensionIframeCsp(): string {
+  return `${buildExtensionIframeMetaCsp()} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
+}
 
 /**
  * SECURITY — EXTENSION CONTENT IS UNTRUSTED.
@@ -37,6 +62,12 @@ export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
  *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
  *      header sanitization, and method allowlist; do not relax those gates
  *      for "convenience" in this file or any caller.
+ *
+ *   3. `connect-src` stays `'self'` and stays out of app config. An app that
+ *      needs remote images sets `extensions.iframeImageSources`, which reaches
+ *      only `img-src` / `media-src`. That is deliberate, not an oversight: the
+ *      bridge is the permission-gated egress path, and widening a
+ *      display-only directive into a second one would route around it.
  *
  * For the trust model rationale, see audit 05-tools-sandbox.md (C1) and the
  * `extensions` skill. When in doubt, fail closed.
@@ -100,7 +131,7 @@ export function buildExtensionHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="${EXTENSION_IFRAME_META_CSP}" />
+  <meta http-equiv="Content-Security-Policy" content="${buildExtensionIframeMetaCsp()}" />
   ${binding && !binding.isAuthor ? `<meta name="agent-native-extension-author" content="${escapeHtmlAttribute(binding.authorEmail)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
