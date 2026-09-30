@@ -40,6 +40,19 @@ function askBrainResult(citations: unknown[]) {
   };
 }
 
+function searchEverythingResult(results: unknown[]) {
+  return {
+    name: "search-everything",
+    isError: false,
+    content: JSON.stringify({
+      query: "What did we decide about pricing?",
+      count: results.length,
+      lanes: { fts: { status: "ok" }, semantic: { status: "ok" } },
+      results,
+    }),
+  };
+}
+
 describe("Brain company-knowledge response guard", () => {
   it("identifies company-specific questions without gating general knowledge", () => {
     expect(
@@ -66,7 +79,7 @@ describe("Brain company-knowledge response guard", () => {
     expect(isCorrectionFollowUp("What is our product strategy?")).toBe(false);
   });
 
-  it("requires ask-brain before accepting a company-specific answer", () => {
+  it("requires Brain evidence before accepting a company-specific answer", () => {
     const result = brainFinalResponseGuard(
       guardContext({
         requestText: "What is Builder's mission statement?",
@@ -77,9 +90,21 @@ describe("Brain company-knowledge response guard", () => {
     expect(result).toMatchObject({
       maxRetries: 2,
       expandToolSurface: true,
-      retryMessage: expect.stringContaining("Call `ask-brain`"),
-      fallbackMessage: expect.stringContaining("couldn't verify"),
+      retryMessage: expect.stringContaining("Call `search-everything`"),
+      fallbackMessage: expect.stringContaining("couldn't find that in Brain"),
     });
+  });
+
+  it("accepts the not-found reply that the retry message prescribes", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What is Builder's mission statement?",
+        text: "I couldn't find that in Brain.",
+        toolResults: [searchEverythingResult([])],
+      }),
+    );
+
+    expect(result).toBeNull();
   });
 
   it("accepts a response grounded by cited ask-brain evidence", () => {
@@ -103,7 +128,70 @@ describe("Brain company-knowledge response guard", () => {
     );
 
     expect(result).toMatchObject({
-      retryMessage: expect.stringContaining("Call `ask-brain`"),
+      retryMessage: expect.stringContaining("Call `search-everything`"),
+    });
+  });
+
+  it("accepts a response grounded by a search-everything capture", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What did we decide about pricing?",
+        text: "In #pricing on 2026-09-20, the team decided to keep annual plans.",
+        toolResults: [
+          searchEverythingResult([
+            {
+              type: "capture",
+              id: "capture-1",
+              provider: "slack",
+              capturedAt: "2026-09-20T15:00:00.000Z",
+            },
+          ]),
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries when search-everything returns no results", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What did we decide about pricing?",
+        text: "The team decided to keep annual plans.",
+        toolResults: [searchEverythingResult([])],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Call `search-everything`"),
+    });
+  });
+
+  it("does not count source-only search results as answer evidence", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What did we decide about pricing?",
+        text: "The team decided to keep annual plans.",
+        toolResults: [
+          searchEverythingResult([{ type: "source", id: "source-1" }]),
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("still retries when no Brain tool ran", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What did we decide about pricing?",
+        text: "The team decided to keep annual plans.",
+        toolResults: [],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Call `search-everything`"),
     });
   });
 
@@ -117,7 +205,7 @@ describe("Brain company-knowledge response guard", () => {
     );
 
     expect(result).toMatchObject({
-      retryMessage: expect.stringContaining("do not fill the gap from memory"),
+      retryMessage: expect.stringContaining("answer only from their results"),
     });
   });
 
@@ -156,7 +244,7 @@ describe("Brain company-knowledge response guard", () => {
       retryMessage: expect.stringContaining("untrusted context"),
     });
     expect((result as { retryMessage: string }).retryMessage).toContain(
-      "Raw captures are leads",
+      "call `search-everything`",
     );
   });
 

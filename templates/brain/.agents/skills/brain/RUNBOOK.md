@@ -21,13 +21,18 @@ Brain applies the deterministic hard-category screen before any privacy model.
 It blocks performance/discipline, layoffs or termination, compensation,
 recruiting, health/accommodation, investigation, privileged legal, credentials,
 and personal data. An approved privacy classifier may make handling stricter;
-it cannot override a deterministic hit. When no classifier is configured,
-Brain is in degraded deterministic-only mode: clearly clean company material
-may be allowed, while uncertainty is quarantined and `get-brain-health` reports
-the missing configuration.
+it cannot override a deterministic hit. Jev (the default classifier)
+quarantines only when a category scores 0.6 or higher; everything else is
+stored in full apart from the always-on credential, email, phone, and link
+scrub. A Jev failure throws: the sync fails visibly and retries on the next
+hourly run instead of silently degrading. Keyword pre-storage sanitization is
+opt-in via `sanitizeBeforeStorage` (capture metadata or source config). When no
+classifier is configured, Brain is in degraded deterministic-only mode: clearly
+clean company material may be allowed, while uncertainty is quarantined and
+`get-brain-health` reports the missing configuration.
 
-Quarantined re-fetchable material from Slack, GitHub, or Granola keeps only a
-metadata receipt because the content can be re-fetched during an authorized
+Quarantined re-fetchable material from Slack, GitHub, Granola, or Zoom keeps
+only a metadata receipt because the content can be re-fetched during an authorized
 review. Push-only generic and Clips payloads instead use an encrypted,
 short-TTL private side store that no search, agent, source editor, log,
 citation, or distillation surface can read; expiry converts it to a suppression
@@ -38,18 +43,19 @@ non-identifying reviewed statement if it has durable organizational value.
 Every allowed capture and derived row has an audience id and ACL hash. Public
 and organization material use the trivial organization audience. Private Slack
 material uses its channel membership audience, and meeting material uses its
-attendee audience. Retrieval prefilters by audience before FTS/vector ranking;
+attendee audience, except Zoom recordings, which use the organization audience. Retrieval prefilters by audience before FTS/vector ranking;
 answers spanning multiple sources may only cite the intersection of their
 evidence audiences. Private Slack audiences fail closed when membership has not
 been refreshed for 15 minutes, so removal upstream cannot leave indefinite
 Brain access.
 
 Semantic indexing starts when a capture is `allowed`, rather than waiting for
-distillation. A derived row is current only when its staleness key matches
+distillation. Items are embedded with OpenAI `text-embedding-3-small` (1024
+dimensions, vault key `OPENAI_API_KEY`) into pgvector. A derived row is current
+only when its staleness key matches
 `contentHash + BRAIN_SEARCH_INDEX_VERSION + sensitivityPolicyVersion + aclHash`.
 Changing content, policy, or membership invalidates indexed artifacts,
-knowledge/proposal evidence, and mirrored canonical resources before they can
-be served.
+knowledge evidence, and mirrored canonical resources before they can be served.
 
 ## Search model layers
 
@@ -60,7 +66,10 @@ Brain search has three layers:
   and durable summaries. V1 exposes `search-knowledge` and `get-knowledge` for
   distilled company memory.
 - **V1.5 Brain-wide search:** use `search-everything` as the broad first pass
-  across knowledge, raw captures, and sources. Then call `get-knowledge` for
+  across knowledge, raw captures, and sources. It runs pgvector semantic plus
+  full-text search over every synced Slack thread and Zoom transcript; capture
+  results carry provider, location, content, `capturedAt`, and `sourceUrl`,
+  and `lanes.semantic.status` reports a failed semantic lane. Then call `get-knowledge` for
   reviewed entries or `get-capture` for exact source context and links. The
   action also returns `federatedCoverage`: Brain source/provider coverage,
   reusable workspace connection readiness, compact discovered agent metadata
@@ -142,17 +151,16 @@ pnpm --filter brain action list-captures \
 The listing omits raw capture content by default and includes each capture's
 latest distillation queue state. Use `get-capture` for one specific record when
 a reviewer or agent needs exact source context, then write only durable, cited
-knowledge. Keep `autoSync` disabled until the channel allow-list, review gate,
-and first distilled entries are validated.
+knowledge. Keep `autoSync` disabled until the channel allow-list and first
+distilled entries are validated.
 
 The Sources UI has the same flow: open **Captures** on a source card to review
 queued records, opt into short previews only when needed, queue distillation,
 see whether a capture is waiting on the distillation worker, or mark non-company
 material ignored. Slack source cards expose this as a clean rollout flow:
 **Test** checks the credential and allow-list without history reads, **Safe
-pilot** imports only a tiny capped sample, **Review captures** opens the capture
-inventory, and **Review queue** sends reviewers to approve proposals before they
-become queryable company memory.
+pilot** imports only a tiny capped sample, and **Review captures** opens the
+capture inventory.
 
 Use `get-pilot-report` after a sample sync to inspect sync health, capture
 counts, queue state, published knowledge, pending proposals, privacy notes, and
@@ -168,16 +176,16 @@ Recommended production rollout:
    is clean.
 5. Review captures with previews only when needed; ignore social, personal, or
    thin records.
-6. Distill durable company context, approve proposal-gated memories, and verify
-   `ask-brain` returns cited Slack permalinks.
+6. Distill durable company context and verify `search-everything` and
+   `ask-brain` return Slack permalinks.
 7. Expand with bounded manual `sync-source` runs before enabling background
    polling.
 
-When approving a proposal, keep the company-context switch off unless the memory
-should be ambient context for Dispatch and other apps. Turn it on for canonical
-decisions, policies, product facts, or durable process notes that are safe to
-place under `context/company-brain/...`; Brain shows the exact Markdown preview
-before approval publishes it. Use the Knowledge route or
+Keep a memory out of company context unless it should be ambient context for
+Dispatch and other apps. Use `set-knowledge-canonical` for canonical decisions,
+policies, product facts, or durable process notes that are safe to place under
+`context/company-brain/...`; Brain shows the exact Markdown preview before it
+publishes. Use the Knowledge route or
 `set-knowledge-canonical --published=false` to remove a mirrored resource after
 previewing what will be removed, without deleting the underlying Brain knowledge.
 
@@ -189,8 +197,8 @@ agent in the background. When no tab is open, the `brain-distillation` server
 sweep runs with `RUN_BACKGROUND_JOBS`, claims due queued rows, reclaims stale
 `processing` rows, and invokes the same agent loop headlessly. Re-running
 `enqueue-distillation` for an active queue item refreshes the handoff instead of
-duplicating queue rows. The agent reads the capture, writes cited knowledge or
-review proposals, then calls `mark-capture-distilled`, which marks the active
+duplicating queue rows. The agent reads the capture, writes cited knowledge, then
+calls `mark-capture-distilled`, which marks the active
 queue row done. If the agent does not close the queue, the worker requeues the
 item with a short delay and eventually fails it after repeated attempts.
 
@@ -256,8 +264,11 @@ GitHub, or future provider credentials.
 ## Scheduled sync internals
 
 The Sources page includes a setup sheet for Slack, Granola, GitHub, Clips,
-generic webhooks, and manual imports. Slack, Granola, and GitHub sources can opt
-into `autoSync` with a `pollMinutes` cadence. Use `sync-source` for a single
+generic webhooks, and manual imports; create Zoom sources with `create-source`.
+Slack, Granola, GitHub, and Zoom sources
+auto-sync every 60 minutes by default; set `autoSync: false` to opt out or
+`pollMinutes` (5-1440) to change the cadence. A failed sync (including a Jev
+failure) retries on the next poll. Use `sync-source` for a single
 source, `sync-due-sources` for all due accessible sources, or enable
 `RUN_BACKGROUND_JOBS=1` locally to let the Brain background job poll due sources
 from the Nitro process.
@@ -267,12 +278,11 @@ from the Nitro process.
 Brain ships with a repeatable product-decision demo corpus. `seed-demo-data`
 loads Slack, Clips, Granola, and webhook-style captures; creates cited knowledge
 about retiring freemium, how Decision Digest works, and why product decisions
-are the lead demo; queues a policy-sensitive proposal; redacts an email; and
-keeps a personal aside out of queryable knowledge.
+are the lead demo; redacts an email; and keeps a personal aside out of
+queryable knowledge.
 
 `run-demo-eval` checks the behavior that matters most for trust: recall,
-citations, supersede links, proposal gating, redaction, and personal-content
-exclusion. The Ask page includes a compact **Start demo** CTA for empty
+citations, supersede links, redaction, and personal-content exclusion. The Ask page includes a compact **Start demo** CTA for empty
 workspaces and reveals Review, Knowledge, and **Run eval** follow-ups once the
 demo is ready.
 

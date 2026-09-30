@@ -716,8 +716,7 @@ const enUS = {
     emptyTitle: "No company knowledge yet",
     emptyFilteredDetail:
       "Clear the search or filters to broaden the knowledge set.",
-    emptyDetail:
-      "Connect a source or approve review proposals to build company knowledge.",
+    emptyDetail: "Connect a source to build company knowledge.",
     updateFailedTitle: "Company context update failed",
     updateFailedDetail:
       "Brain could not update the workspace context resource.",
@@ -1054,7 +1053,7 @@ const baseMessagesByLocale = {
       notApplicable: "不适用",
       emptyTitle: "还没有公司知识",
       emptyFilteredDetail: "清除搜索或筛选器以扩大知识范围。",
-      emptyDetail: "连接来源或批准审核提案来建立公司知识。",
+      emptyDetail: "连接来源来建立公司知识。",
       updateFailedTitle: "公司上下文更新失败",
       updateFailedDetail: "Brain 无法更新工作区上下文资源。",
       waitingOnSearch: "等待 search-knowledge",
@@ -1272,8 +1271,7 @@ const baseMessagesByLocale = {
       emptyTitle: "Aún no hay conocimiento de empresa",
       emptyFilteredDetail:
         "Borra la búsqueda o los filtros para ampliar el conjunto de conocimiento.",
-      emptyDetail:
-        "Conecta una fuente o aprueba propuestas de revisión para crear conocimiento de empresa.",
+      emptyDetail: "Conecta una fuente para crear conocimiento de empresa.",
       updateFailedTitle: "Error al actualizar el contexto de empresa",
       updateFailedDetail:
         "Brain no pudo actualizar el recurso de contexto del workspace.",
@@ -1498,7 +1496,7 @@ const baseMessagesByLocale = {
       emptyFilteredDetail:
         "Effacez la recherche ou les filtres pour élargir l'ensemble de connaissances.",
       emptyDetail:
-        "Connectez une source ou approuvez des propositions de revue pour constituer la connaissance d'entreprise.",
+        "Connectez une source pour constituer la connaissance d'entreprise.",
       updateFailedTitle: "Échec de la mise à jour du contexte d'entreprise",
       updateFailedDetail:
         "Brain n'a pas pu mettre à jour la ressource de contexte de l'espace de travail.",
@@ -1720,8 +1718,7 @@ const baseMessagesByLocale = {
       emptyTitle: "Noch kein Unternehmenswissen",
       emptyFilteredDetail:
         "Suche oder Filter löschen, um die Wissensmenge zu erweitern.",
-      emptyDetail:
-        "Verbinde eine Quelle oder genehmige Prüfungsvorschläge, um Unternehmenswissen aufzubauen.",
+      emptyDetail: "Verbinde eine Quelle, um Unternehmenswissen aufzubauen.",
       updateFailedTitle:
         "Aktualisierung des Unternehmenskontexts fehlgeschlagen",
       updateFailedDetail:
@@ -1940,8 +1937,7 @@ const baseMessagesByLocale = {
       emptyTitle: "会社ナレッジはまだありません",
       emptyFilteredDetail:
         "検索やフィルターをクリアしてナレッジ範囲を広げてください。",
-      emptyDetail:
-        "ソースを接続するかレビュー提案を承認して会社ナレッジを構築してください。",
+      emptyDetail: "ソースを接続して会社ナレッジを構築してください。",
       updateFailedTitle: "会社コンテキストの更新に失敗しました",
       updateFailedDetail:
         "Brain はワークスペースのコンテキストリソースを更新できませんでした。",
@@ -2156,7 +2152,7 @@ const baseMessagesByLocale = {
       notApplicable: "해당 없음",
       emptyTitle: "아직 회사 지식이 없습니다",
       emptyFilteredDetail: "검색이나 필터를 지워 지식 범위를 넓히세요.",
-      emptyDetail: "소스를 연결하거나 검토 제안을 승인해 회사 지식을 만드세요.",
+      emptyDetail: "소스를 연결해 회사 지식을 만드세요.",
       updateFailedTitle: "회사 컨텍스트 업데이트 실패",
       updateFailedDetail:
         "Brain이 워크스페이스 컨텍스트 리소스를 업데이트하지 못했습니다.",
@@ -2376,8 +2372,7 @@ const baseMessagesByLocale = {
       emptyTitle: "Ainda não há conhecimento da empresa",
       emptyFilteredDetail:
         "Limpe a busca ou os filtros para ampliar o conjunto de conhecimento.",
-      emptyDetail:
-        "Conecte uma fonte ou aprove propostas de revisão para criar conhecimento da empresa.",
+      emptyDetail: "Conecte uma fonte para criar conhecimento da empresa.",
       updateFailedTitle: "Falha ao atualizar o contexto da empresa",
       updateFailedDetail:
         "Brain não conseguiu atualizar o recurso de contexto do workspace.",
@@ -2596,8 +2591,7 @@ const baseMessagesByLocale = {
       notApplicable: "लागू नहीं",
       emptyTitle: "अभी कोई कंपनी ज्ञान नहीं",
       emptyFilteredDetail: "knowledge set बढ़ाने के लिए search या filters साफ़ करें।",
-      emptyDetail:
-        "कंपनी ज्ञान बनाने के लिए source connect करें या review proposals approve करें।",
+      emptyDetail: "कंपनी ज्ञान बनाने के लिए source connect करें।",
       updateFailedTitle: "कंपनी संदर्भ update विफल",
       updateFailedDetail: "Brain workspace context resource update नहीं कर सका।",
       waitingOnSearch: "search-knowledge की प्रतीक्षा",
@@ -2813,7 +2807,7 @@ const baseMessagesByLocale = {
       notApplicable: "غير منطبق",
       emptyTitle: "لا توجد معرفة شركة بعد",
       emptyFilteredDetail: "امسح البحث أو عوامل التصفية لتوسيع مجموعة المعرفة.",
-      emptyDetail: "صل مصدرًا أو وافق على مقترحات المراجعة لبناء معرفة الشركة.",
+      emptyDetail: "صل مصدرًا لبناء معرفة الشركة.",
       updateFailedTitle: "فشل تحديث سياق الشركة",
       updateFailedDetail: "تعذر على Brain تحديث مورد سياق مساحة العمل.",
       waitingOnSearch: "بانتظار search-knowledge",

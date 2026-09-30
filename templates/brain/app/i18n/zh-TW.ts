@@ -655,7 +655,7 @@ const messages = {
     notApplicable: "不適用",
     emptyTitle: "還沒有公司知識",
     emptyFilteredDetail: "清除搜尋或篩選器以擴大知識範圍。",
-    emptyDetail: "連線來源或核准審核提案來建立公司知識。",
+    emptyDetail: "連線來源來建立公司知識。",
     updateFailedTitle: "公司脈絡更新失敗",
     updateFailedDetail: "Brain 無法更新工作區脈絡資源。",
     waitingOnSearch: "等待 search-knowledge",
