@@ -5,6 +5,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-09-29
 
+### Improved
+
+- Clean up Dispatch chat chrome and keep homepage prompts in chat
+
 ### Fixed
 
 - Apps and app launchers only show apps installed in this workspace
