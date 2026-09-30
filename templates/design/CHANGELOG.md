@@ -3,10 +3,28 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-09-29
+## 2026-09-30
 
 ### Improved
 
+- Design remembers your home library tab, so returning users can open straight to Recent.
+- Reloaded app changes stay available to your coding agent until they are acknowledged.
+
+### Fixed
+
+- Live editing recovers clearly when a local bridge stops responding, and visual changes stay pending until handoff is confirmed
+- Live previews accept localhost and 127.0.0.1 for the same connected app.
+
+## 2026-09-29
+
+### Added
+
+- Screens can use shader fills and shader effects, and their settings are saved
+
+### Improved
+
+- Corner-radius handles only appear on shapes with a visible fill or stroke.
+- Design marquee selections stay responsive as you add more elements.
 - Local editing setup now points to Chrome's Allow prompt and includes a settings fallback.
 - The local editing guide now shows the local network Allow prompt and its Site settings fallback.
 - The browser permission guide points to Allow and the Connection is secure step.
@@ -14,6 +32,15 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Avoid signed-out source-write errors during visual editing
+- Blur and shadow values typed in Effects now save when you press Enter or close the popover with Escape
+- Drop shadows on screens that contain scripts or shaders now show on the screen
+- Dropdowns and tooltips inside the fill picker, like shader presets, now show on top instead of behind it
+- Gradient fill opacity values like 100% are no longer cut off
+- Clear the local live-preview edit state after its connected frames reload while keeping the MCP handoff available until the coding agent acknowledges it.
+- Corner-radius handles follow the pointer and match visible paint on supported shapes, including stroked polygons but excluding unsupported single-stroke vector paths.
+- Switching a gradient layer to Image no longer erases it before an image is chosen
+- Text editing keeps native pointer selection reliable on the canvas.
 - Corner-radius handles follow the pointer and match visible paint on supported shapes.
 - Corner-radius handles stay in sync with visible shape paint.
 - The home composer stays put as the app opens.
@@ -29,6 +56,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Live previews stay ready when a delayed connection check completes.
 - Local visual edits use the copy prompt handoff for signed-in editors too.
 - Duplicated screens keep the same spacing as other screens on the board.
+
+### Removed
+
+- Noise, Pattern, and Video fills are hidden until they can render, since choosing them did nothing or erased the fill
 
 ## 2026-09-28
 

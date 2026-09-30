@@ -273,7 +273,7 @@ export default function ChatRoute() {
         key={agent ? `agent-${agent.id}` : "dispatch"}
         className="flex-1 min-h-0"
         contentClassName="max-w-none"
-        surfaceClassName="dispatch-chat-panel px-4 sm:px-6"
+        surfaceClassName="dispatch-chat-panel"
         chatViewTransition
         defaultMode="chat"
         storageKey={agent ? `dispatch-agent-${agent.id}` : "dispatch"}

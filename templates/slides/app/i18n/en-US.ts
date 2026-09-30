@@ -614,9 +614,12 @@ const messages = {
     slideNumber: "Slide {{number}}",
     noSlidesInSnapshot: "No slides in this snapshot.",
     restoreThisVersion: "Restore this version",
+    retry: "Retry",
     noSavedVersions: "No history yet",
     noSavedVersionsDescription:
       "History is saved automatically before future deck edits.",
+    loadFailed: "Could not load saved versions.",
+    snapshotLoadFailed: "Could not load this saved version.",
   },
   editorSidebar: {
     selectSlide: "Select slide {{number}}",

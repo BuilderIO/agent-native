@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.198.2",
+  "version": "0.198.3",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -275,6 +275,7 @@
     "./integrations/actions/list-messaging-channels": "./dist/integrations/actions/list-messaging-channels.js",
     "./integrations/actions/manage-messaging-channel": "./dist/integrations/actions/manage-messaging-channel.js",
     "./private-blob": "./dist/private-blob/index.js",
+    "./icon-assets": "./dist/icon-assets/index.js",
     "./agent/tool-result-images": "./dist/agent/tool-result-images.js",
     "./agent/context-xray/actions/context-manifest-get": "./dist/agent/context-xray/actions/context-manifest-get.js",
     "./agent/context-xray/actions/context-pin": "./dist/agent/context-xray/actions/context-pin.js",
@@ -651,6 +652,7 @@
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.45.2",
     "esbuild": "^0.28.1",
+    "fast-xml-parser": "5.11.1",
     "h3": "^2.0.1-rc.20",
     "i18next": "26.3.1",
     "ink": "6.8.0",
@@ -719,7 +721,6 @@
     "botframework-connector": "^4.23.3",
     "drizzle-kit": "^0.31.10",
     "express": "^5.2.1",
-    "fast-xml-parser": "^5.10.1",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "mermaid": "11.15.0",
@@ -730,7 +731,7 @@
     "prettier": "^3.8.3",
     "react": "19.2.7",
     "react-dom": "^19.2.7",
-    "react-router": "^8.1.0",
+    "react-router": "catalog:",
     "sharp": "^0.35.3",
     "tailwindcss": "catalog:",
     "ts-morph": "^28.0.0",
@@ -771,7 +772,6 @@
     "ai-sdk-ollama": ">=3",
     "botframework-connector": "^4.23.3",
     "drizzle-kit": ">=0.31",
-    "fast-xml-parser": "^5.10.1",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "node-pty": ">=1",
@@ -879,9 +879,6 @@
       "optional": true
     },
     "drizzle-kit": {
-      "optional": true
-    },
-    "fast-xml-parser": {
       "optional": true
     },
     "jszip": {

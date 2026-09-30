@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import { PROVIDER_PACKAGES } from "../agent/engine/ai-sdk-engine.js";
 import { addAppToWorkspace, createApp } from "./create.js";
@@ -44,6 +45,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   process.chdir(origCwd);
   removeTmpDir(tmpDir);
 }, 30_000);
@@ -117,6 +119,29 @@ function readAllTextFiles(dir: string): string {
 }
 
 describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
+  it("adds optional peers for features configured in the scaffold environment", async () => {
+    vi.stubEnv("SENTRY_AUTH_TOKEN", "dummy-upload-token");
+    vi.stubEnv("SENTRY_ORG", "dummy-org");
+    vi.stubEnv("SENTRY_PROJECT", "dummy-project");
+
+    await createApp("configured-chat", { template: "chat" });
+    await createApp("configured-workspace", {
+      template: "chat",
+      forceWorkspace: true,
+    });
+
+    for (const appDir of [
+      path.join(tmpDir, "configured-chat"),
+      path.join(tmpDir, "configured-workspace", "apps", "chat"),
+      path.join(tmpDir, "configured-workspace", "apps", "dispatch"),
+    ]) {
+      const dependencies = readPkg(appDir).dependencies;
+      expect(dependencies["@sentry/vite-plugin"]).toBe("^5.4.0");
+      expect(dependencies["@sentry/browser"]).toBeUndefined();
+      expect(dependencies["@sentry/node"]).toBeUndefined();
+    }
+  });
+
   it("rewrites the copied chat tracking app id to the generated app id", async () => {
     await createApp("test-app", { template: "chat" });
     const root = fs.readFileSync(
@@ -1039,9 +1064,11 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
-      expect(workspaceYaml).toContain(".tgz");
+      const workspaceOverrides = parseYaml(workspaceYaml).overrides;
+      expect(workspaceOverrides["@agent-native/toolkit"]).toMatch(/\.tgz$/);
       expect(workspaceYaml).toContain('"@agent-native/agentkit": "file://');
       expect(workspaceYaml).toContain("agent-native-agentkit-");
+      expect(workspaceOverrides["@agent-native/agentkit"]).toMatch(/\.tgz$/);
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
       expect(workspaceYaml).not.toContain("packages:");

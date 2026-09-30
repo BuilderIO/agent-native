@@ -1355,9 +1355,16 @@ export function RecordingPill() {
                   type="button"
                   onClick={() => void runCompletionAction("copy", viewUrl)}
                   disabled={completionActionBusy}
-                  className="h-[34px] flex-1 rounded-lg border border-[var(--pill-card-border-strong)] bg-[var(--pill-on-chrome)] text-[13px] font-semibold text-[var(--pill-card-ink)]"
+                  className="inline-flex h-[34px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--pill-card-border-strong)] bg-[var(--pill-on-chrome)] text-[13px] font-semibold text-[var(--pill-card-ink)]"
                 >
-                  {copied ? "Copied" : "Copy"}
+                  {copied ? (
+                    <>
+                      Copied
+                      <IconCheck size={14} aria-hidden />
+                    </>
+                  ) : (
+                    "Copy"
+                  )}
                 </button>
               </>
             ) : null}

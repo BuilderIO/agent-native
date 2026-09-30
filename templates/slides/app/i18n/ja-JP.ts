@@ -614,8 +614,11 @@ const messages = {
     slideNumber: "幻灯片 {{number}}",
     noSlidesInSnapshot: "此快照中没有幻灯片。",
     restoreThisVersion: "恢复此版本",
+    retry: "再試行",
     noSavedVersions: "还没有已保存版本",
     noSavedVersionsDescription: "以后编辑幻灯片前会自动保存版本。",
+    loadFailed: "保存済みバージョンを読み込めませんでした。",
+    snapshotLoadFailed: "この保存済みバージョンを読み込めませんでした。",
   },
   editorSidebar: {
     selectSlide: "选择幻灯片 {{number}}",

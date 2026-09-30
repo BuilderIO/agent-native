@@ -18,7 +18,7 @@ vi.mock("@agent-native/core/client/navigation", async (importOriginal) => ({
   >()),
   openSettingsPage: mocks.openSettingsPage,
 }));
-vi.mock("@agent-native/core/client/changelog", () => ({
+vi.mock("@agent-native/toolkit/app/changelog", () => ({
   ChangelogDialog: () => null,
 }));
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({

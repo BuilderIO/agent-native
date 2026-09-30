@@ -1585,7 +1585,7 @@ const messages = {
           "Search Gong calls and generate account and deal insights.",
         useCase: "Sales calls, transcripts, deal insights, account summaries",
         setupNote:
-          "Gong requires a tech admin to create an MCP integration and choose personal or shared authorization. The generated client ID and secret must be configured before connecting.",
+          "A Gong tech admin must create an MCP integration with personal or shared authorization. For Manual registration, save the generated client ID and secret as workspace secrets `GONG_MCP_CLIENT_ID` and `GONG_MCP_CLIENT_SECRET`; Automatic registration needs no client credentials.",
       },
       semgrep: {
         description: "Scan code for security findings.",

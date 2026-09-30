@@ -594,8 +594,13 @@ export const AgentKitAssistantChat = forwardRef<
       : readAgentKitThreadHandoffSnapshot(
           createAgentKitThreadHandoffKey(props, threadId),
         );
+  const [manualLoadThreadId, setManualLoadThreadId] = useState<string | null>(
+    () => (props.isNewThread ? threadId : null),
+  );
+  const hasManualLoadForCurrentThread =
+    props.isNewThread || manualLoadThreadId === threadId;
   const [threadRestore, setThreadRestore] = useState<ThreadRestoreState>(() =>
-    props.isThreadStateLoading || !props.isNewThread
+    props.isThreadStateLoading || !hasManualLoadForCurrentThread
       ? { status: "loading" }
       : { status: "ready" },
   );
@@ -612,14 +617,24 @@ export const AgentKitAssistantChat = forwardRef<
     setRestoreRetryThreadId(null);
   }, []);
   useEffect(() => {
+    setManualLoadThreadId((current) =>
+      props.isNewThread ? threadId : current === threadId ? current : null,
+    );
+  }, [props.isNewThread, threadId]);
+  useEffect(() => {
     setThreadRestore(
-      props.isThreadStateLoading || !props.isNewThread
+      props.isThreadStateLoading || !hasManualLoadForCurrentThread
         ? { status: "loading" }
         : { status: "ready" },
     );
     setRestoreRetryLoadPhase("idle");
     setRestoreRetryThreadId(null);
-  }, [props.isNewThread, props.isThreadStateLoading, threadId]);
+  }, [
+    hasManualLoadForCurrentThread,
+    props.isNewThread,
+    props.isThreadStateLoading,
+    threadId,
+  ]);
   const onThreadRestoreLoadError = useCallback(
     (error: unknown) => {
       const record = asRecord(error);
@@ -989,7 +1004,7 @@ export const AgentKitAssistantChat = forwardRef<
   ]);
   const agentKitLoad =
     props.isThreadStateLoading ||
-    props.isNewThread ||
+    hasManualLoadForCurrentThread ||
     (restoreRetryThreadId === threadId && restoreRetryLoadPhase === "release")
       ? "manual"
       : "auto";
@@ -2805,6 +2820,24 @@ const AgentKitAssistantChatBody = forwardRef<
           void sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
         }
       />
+      {history?.historyLoadFailed ? (
+        <div
+          role="alert"
+          className="mx-3 mb-2 flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs"
+        >
+          <span className="text-muted-foreground">
+            {t("agentChat.message.historyUnavailable")}
+          </span>
+          <button
+            type="button"
+            onClick={history.retryHistory}
+            disabled={history.isRetryingHistory}
+            className="shrink-0 font-medium text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
+      ) : null}
       <AgentKitChat
         className={props.className}
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
@@ -3668,12 +3701,12 @@ function AgentKitComposerSurface({
           disabled={
             (!canChat && !providerSubmissionPending) ||
             props.composerDisabled ||
-            isRestoring ||
-            isSubmissionInFlight
+            isRestoring
           }
           submissionDisabled={
             (!canChat && !providerSubmissionPending) ||
-            props.composerSubmissionDisabled === true
+            props.composerSubmissionDisabled === true ||
+            isSubmissionInFlight
           }
           onDisabledClick={
             props.composerDisabled || !setupMissing

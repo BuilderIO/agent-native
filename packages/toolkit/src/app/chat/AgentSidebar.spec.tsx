@@ -221,12 +221,12 @@ describe("AgentSidebar lazy panel boundary", () => {
     ).toBeTruthy();
   });
 
-  it("defers URL synchronization until the panel is mounted", () => {
+  it("keeps URL synchronization mounted while the panel is closed", () => {
     renderSidebar(false);
 
     expect(
       container?.querySelector("[data-testid='agent-sidebar-url-sync']"),
-    ).toBeNull();
+    ).toBeTruthy();
   });
 
   it("shows the panel skeleton before the lazy body resolves for open-by-default users", async () => {

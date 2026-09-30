@@ -51,6 +51,28 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.3
+
+### Patch Changes
+
+- 8f82288: Scaffold configured feature dependencies and preserve long workspace URLs.
+  Keep optional Playwright imports external to app bundles so builds do not require its optional Chromium dependency.
+- e6de282: Export the shared free email provider domain set for SQL-backed visitor classification.
+- 2384c2d: Apply every key in a fast burst to the `agent-native create` wizard in order, so typing ahead no longer toggles or picks a stale row.
+- bc1a43e: Connecting from a terminal now lets people who belong to several organizations choose one, and gives an account without an organization its default one. Connection tokens created on the connect page use that organization too.
+- 036c2c7: Tighten test-only assertions for the dev auth secret and the Dispatch auth plugin so they fail when the behavior they name breaks. No runtime change.
+- fd833a4: Allow equivalent loopback hostnames when serving live-edit previews.
+- Release all public npm packages with a patch version bump.
+- 64eb041: Omit an empty framework route prefix from workspace child and runtime environments.
+- ce1245c: Preserve queued chat intent through asynchronous preparation and resumed runtime streams.
+- a202db4: Allow the deployed Slack app's signing secret to verify webhooks under the integration owner's credential context while preserving scoped overrides and synthetic-request isolation. Keep unreadable hosted credential stores from falling through to deployment credentials.
+- e90dedc: Explain agent runs in the Observability dashboard: the Overview tab now summarizes spend, completion, and what the framework handled (parallel tool calls, recovered tool errors) with grouped "worth a look" findings, and the Conversations tab shows each prompt in plain language (what it did, which tools failed and why, what it cost per step) with the raw span trace one click away. Adds the `get-usage-insights` and `get-usage-run` actions.
+- Updated dependencies [8f82288]
+- Updated dependencies
+- Updated dependencies [ce1245c]
+  - @agent-native/recap-cli@0.5.53
+  - @agent-native/agentkit@0.198.3
+
 ## 0.198.2
 
 ### Patch Changes
@@ -3625,11 +3647,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
-
-## 0.164.18
-
-### Patch Changes
-
-- b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

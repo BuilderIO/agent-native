@@ -632,9 +632,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "Réessayer",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "Impossible de charger les versions enregistrées.",
+    snapshotLoadFailed: "Impossible de charger cette version enregistrée.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",
