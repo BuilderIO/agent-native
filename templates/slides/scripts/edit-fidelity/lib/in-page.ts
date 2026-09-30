@@ -52,6 +52,8 @@ export interface SnapRecord {
   key: string;
   kind: "text" | "box";
   inside: boolean;
+  tag?: string;
+  inlineStyle?: string;
   props: Record<string, string>;
   rect: Rect;
 }
@@ -108,7 +110,7 @@ export interface InPageHelpers {
   targetSourceHtml(canvasSel: string, targetIndex: number): string;
   snapshot(
     canvasSel: string,
-    edited: { targetIndex?: number; text?: string },
+    edited: { targetIndex?: number; text?: string; marker?: string },
   ): Snapshot;
   editorState(canvasSel: string): EditorState;
   /** Why the selection entering edit left is not at the gesture's point, or null. */
@@ -355,18 +357,20 @@ export function installInPageHelpers(chromeSelector: string) {
     const prefix = want.slice(0, 40);
     let best: Element | null = null;
     let bestScore = Infinity;
-    for (const el of Array.from(root.querySelectorAll("*"))) {
-      if (el.tagName === "STYLE" || isChrome(el)) continue;
+    let bestCount = 0;
+    for (const el of textTargets(root)) {
       const have = strip(el.textContent);
-      if (!have.startsWith(prefix)) continue;
+      if (!have.includes(prefix)) continue;
       const score = Math.abs(have.length - want.length);
-      // Ties go to the outermost element, which is what the editor targets.
       if (score < bestScore) {
         best = el;
         bestScore = score;
+        bestCount = 1;
+      } else if (score === bestScore) {
+        bestCount += 1;
       }
     }
-    return best;
+    return bestCount === 1 ? best : null;
   }
 
   /**
@@ -756,7 +760,7 @@ export function installInPageHelpers(chromeSelector: string) {
 
   function snapshot(
     canvasSel: string,
-    edited: { targetIndex?: number; text?: string },
+    edited: { targetIndex?: number; text?: string; marker?: string },
   ): Snapshot {
     const root = document.querySelector(canvasSel);
     if (!root) throw new Error(`canvas not found: ${canvasSel}`);
@@ -765,13 +769,22 @@ export function installInPageHelpers(chromeSelector: string) {
     const host = floatingHost(root, editor);
     const editingBlock = editedSource(root, editor);
     let editedEl: Element | null = null;
-    if (edited.targetIndex !== undefined) {
+    if (edited.marker) {
+      const marker = strip(edited.marker);
+      const matches = textTargets(root).filter((el) =>
+        strip(el.textContent).includes(marker),
+      );
+      editedEl = matches.length === 1 ? matches[0]! : null;
+    } else if (edited.targetIndex !== undefined) {
       editedEl = textTargets(root)[edited.targetIndex] ?? null;
     } else if (edited.text) {
       editedEl = findByText(root, edited.text);
     }
     const targetBlock =
-      editedEl ?? (edited.targetIndex === undefined ? editingBlock : null);
+      editedEl ??
+      (edited.targetIndex === undefined && !edited.marker
+        ? editingBlock
+        : null);
     const insideEdited = (el: Element) =>
       (!!host && host.contains(el)) ||
       (!!targetBlock && (targetBlock === el || targetBlock.contains(el)));
@@ -784,10 +797,18 @@ export function installInPageHelpers(chromeSelector: string) {
       inside: boolean,
       props: Record<string, string>,
       rect: Rect,
+      textElement?: Pick<SnapRecord, "tag" | "inlineStyle">,
     ) => {
       const n = seen.get(base) ?? 0;
       seen.set(base, n + 1);
-      records.push({ key: `${base}#${n}`, kind, inside, props, rect });
+      records.push({
+        key: `${base}#${n}`,
+        kind,
+        inside,
+        props,
+        rect,
+        ...textElement,
+      });
     };
     const boxKey = (el: Element) => {
       const cls = (el.getAttribute("class") ?? "")
@@ -817,6 +838,10 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           { ...pick(cs, TEXT_PROPS), visible: String(visible(el)) },
           textRect,
+          {
+            tag: el.tagName.toLowerCase(),
+            inlineStyle: el.getAttribute("style") ?? "",
+          },
         );
       }
       if (paints(el, cs)) {

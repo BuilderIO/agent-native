@@ -53,13 +53,13 @@ export type AuthoringFuzzOperation =
     };
 
 export interface AuthoringFuzzPersistence {
-  /** Canonical inner HTML of the full slide before editing. */
+  /** Exact inner HTML of the full slide before editing. */
   originalHtml: string;
-  /** Canonical inner HTML of the full live slide after editing ends. */
+  /** Exact inner HTML of the full live slide after editing ends. */
   liveHtml: string;
-  /** Canonical inner HTML of the full slide returned by persistence. */
+  /** Exact inner HTML of the full slide returned by persistence. */
   savedHtml: string;
-  /** Canonical inner HTML of the full slide after a fresh reload. */
+  /** Exact inner HTML of the full slide after a fresh reload. */
   reloadedHtml: string;
 }
 

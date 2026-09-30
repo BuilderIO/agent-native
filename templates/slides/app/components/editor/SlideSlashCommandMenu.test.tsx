@@ -28,6 +28,10 @@ const labels = vi.hoisted(() => ({
   "slideSlashMenu.divider": "Divider",
   "slideSlashMenu.horizontalRule": "Horizontal rule",
 }));
+const virtualAnchorProbe = vi.hoisted(() => ({
+  ids: new WeakMap<object, number>(),
+  nextId: 0,
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => labels[key as keyof typeof labels] ?? key,
@@ -46,12 +50,23 @@ vi.mock("@/components/ui/popover", async () => {
         getBoundingClientRect: () => DOMRect;
       } | null>;
     }) => {
-      const rect = virtualRef.current?.getBoundingClientRect();
+      const anchor = virtualRef.current;
+      let anchorId = anchor ? virtualAnchorProbe.ids.get(anchor) : undefined;
+      if (anchor && anchorId === undefined) {
+        anchorId = ++virtualAnchorProbe.nextId;
+        virtualAnchorProbe.ids.set(anchor, anchorId);
+      }
+      const rect = anchor?.getBoundingClientRect();
       return (
         <span
           data-testid="caret-anchor"
+          data-anchor-id={anchorId}
           data-left={rect?.left}
           data-top={rect?.top}
+          data-right={rect?.right}
+          data-bottom={rect?.bottom}
+          data-width={rect?.width}
+          data-height={rect?.height}
         />
       );
     },
@@ -832,19 +847,37 @@ describe("slide slash command menu", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
-  it("anchors from the viewport caret rect and asks Radix to avoid viewport edges", () => {
+  it("keeps the full viewport caret rect and updates the anchor as the query advances", () => {
     const transformedSlide = document.createElement("div");
     transformedSlide.style.transform = "scale(0.5)";
     document.body.append(transformedSlide);
-    const { editingEl, unmount } = renderWithTypedSlash("");
+    Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: function (this: Range) {
+        return new DOMRect(40 + this.endOffset * 10, 50, 0, 20);
+      },
+    });
+    const { editingEl, textNode, unmount } = renderWithTypedSlash("", "h");
     transformedSlide.append(editingEl);
     editingEl.focus();
 
-    expect(screen.getByTestId("caret-anchor").getAttribute("data-left")).toBe(
-      "40",
-    );
-    expect(screen.getByTestId("caret-anchor").getAttribute("data-top")).toBe(
-      "70",
+    const caretAnchor = screen.getByTestId("caret-anchor");
+    const initialAnchorId = caretAnchor.getAttribute("data-anchor-id");
+    expect(caretAnchor.getAttribute("data-left")).toBe("60");
+    expect(caretAnchor.getAttribute("data-top")).toBe("50");
+    expect(caretAnchor.getAttribute("data-bottom")).toBe("70");
+    expect(caretAnchor.getAttribute("data-width")).toBe("0");
+    expect(caretAnchor.getAttribute("data-height")).toBe("20");
+
+    act(() => {
+      textNode.insertData(textNode.length, "1");
+      setCaret(textNode, textNode.length);
+      fireInput(editingEl, "insertText", "1");
+    });
+
+    expect(caretAnchor.getAttribute("data-left")).toBe("70");
+    expect(caretAnchor.getAttribute("data-anchor-id")).not.toBe(
+      initialAnchorId,
     );
     expect(
       screen
