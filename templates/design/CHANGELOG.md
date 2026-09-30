@@ -7,11 +7,21 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Add references through compact dropdown menus and find designs with the centered home search.
+- Visual edit handoffs copy complete source instructions by default, and editors can update screen URLs.
 - Design remembers your home library tab, so returning users can open straight to Recent.
 - Reloaded app changes stay available to your coding agent until they are acknowledged.
 
 ### Fixed
 
+- Design preserves positions explicitly requested for localhost screens.
+- Fix selected-screen PNG and PDF exports for external previews.
+- New localhost screens avoid overlapping existing screens
+- PDF and SVG exports use the selected screen sizes and skip unavailable live frames.
+- PDF exports use the current localhost page after its route changes
+- PDF exports work with multiple selected screens and SVG exports stay on the chosen screen.
+- Selected screens duplicate with copy and paste.
+- Live preview export failures no longer show misleading screen or desktop-only guidance.
 - Copied visual edit prompts include the edits and explain how to apply them without Design MCP.
 - Design previews wait for the editor connection before becoming ready.
 - New local screens open beside existing canvas content.
