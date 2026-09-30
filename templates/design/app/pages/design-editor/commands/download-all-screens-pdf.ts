@@ -48,7 +48,7 @@ async function waitForScreenPreview(
   const deadline = window.performance.now() + SCREEN_PREVIEW_READY_TIMEOUT_MS;
   while (window.performance.now() < deadline) {
     const iframe = document.querySelector<HTMLIFrameElement>(
-      `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screen.id)}"]`,
+      `iframe[data-screen-iframe-id="${CSS.escape(screen.id)}"]`,
     );
     if (iframe?.isConnected) {
       let doc: Document | null = null;

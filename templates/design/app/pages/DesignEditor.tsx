@@ -524,6 +524,7 @@ import {
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
 import {
+  getDesignClipboardLayerEntries,
   readDesignClipboardPayloadFromSystem,
   readSystemClipboard,
 } from "@/lib/design-clipboard";
@@ -13731,17 +13732,12 @@ function DesignEditor() {
   );
 
   const getCanvasClipboardEntries = useCallback(() => {
-    if (copiedLayerEntriesRef.current.length > 0) {
-      return copiedLayerEntriesRef.current;
-    }
-    return copiedLayerHtmlRef.current
-      ? [
-          {
-            html: copiedLayerHtmlRef.current,
-            sourceFileId: activeFile?.id ?? "",
-          },
-        ]
-      : [];
+    return getDesignClipboardLayerEntries({
+      copiedEntries: copiedLayerEntriesRef.current,
+      copiedScreens: copiedScreenEntriesRef.current,
+      fallbackHtml: copiedLayerHtmlRef.current,
+      sourceFileId: activeFile?.id ?? "",
+    });
   }, [activeFile?.id]);
 
   const getCanvasScreenClipboardEntries = useCallback(() => {
@@ -19322,7 +19318,7 @@ function DesignEditor() {
           selectedScreenIds.length === 1 ? selectedScreenIds[0] : null;
         iframe = screenId
           ? document.querySelector<HTMLIFrameElement>(
-              `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+              `iframe[data-screen-iframe-id="${CSS.escape(screenId)}"]`,
             )
           : null;
         cropSelection = null;
@@ -19338,7 +19334,7 @@ function DesignEditor() {
               )
             : ownerFileId
               ? document.querySelector<HTMLIFrameElement>(
-                  `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(ownerFileId)}"]`,
+                  `iframe[data-screen-iframe-id="${CSS.escape(ownerFileId)}"]`,
                 )
               : null;
       }
@@ -19417,8 +19413,7 @@ function DesignEditor() {
           return;
         }
         const copy = {
-          externalPreview:
-            "designEditor.toasts.pngLivePreviewUnavailable" as const,
+          externalPreview: "designEditor.toasts.pngExportError" as const,
           readOnlyPreview:
             "designEditor.toasts.pngReadOnlyUnavailable" as const,
           selectionUnresolved: "designEditor.toasts.pngCreateError" as const,
@@ -19486,7 +19481,10 @@ function DesignEditor() {
   );
 
   const handleDownloadPdf = useCallback(
-    async (settings?: Partial<ExportSettingsValue>) =>
+    async (
+      settings?: Partial<ExportSettingsValue>,
+      scope: PngCaptureScope = "document",
+    ) =>
       runDownloadPdf(
         {
           fallbackExportName,
@@ -19499,6 +19497,7 @@ function DesignEditor() {
           triggerBlobDownload,
         },
         settings,
+        scope,
       ),
     [
       fallbackExportName,
@@ -19778,7 +19777,7 @@ function DesignEditor() {
         if (settings.format === "svg") {
           await handleDownloadSvg(settings);
         } else if (settings.format === "pdf") {
-          await handleDownloadPdf(settings);
+          await handleDownloadPdf(settings, inspectorRasterScope);
         } else if (settings.format === "jpg" || settings.format === "webp") {
           await handleDownloadPng(
             settings,

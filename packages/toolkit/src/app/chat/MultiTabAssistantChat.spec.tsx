@@ -2962,6 +2962,9 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
 
   it("replaces an active missing thread with a fresh chat", async () => {
     const replacementId = "thread-replacement";
+    window.history.replaceState({}, "", "/?thread=missing-thread");
+    threadMocks.activeThreadId = "missing-thread";
+    threadMocks.threads = [makeThread("missing-thread")];
     threadMocks.createThread.mockImplementationOnce(async () => {
       threadMocks.activeThreadId = replacementId;
       threadMocks.threads = [makeThread(replacementId), ...threadMocks.threads];
@@ -2996,6 +2999,15 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     });
 
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([replacementId]);
+    expect(new URL(window.location.href).searchParams.has("thread")).toBe(
+      false,
+    );
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "missing-thread-test",
+      null,
+      expect.objectContaining({ routeThreadId: undefined }),
+    );
   });
 
   it("does not replace a desktop thread before identity restore settles", async () => {

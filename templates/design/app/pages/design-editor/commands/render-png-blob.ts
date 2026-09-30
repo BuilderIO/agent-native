@@ -65,7 +65,7 @@ export async function runRenderPngBlob(
     const captures = selectedScreenIds
       .map((screenId, order) => {
         const iframe = document.querySelector<HTMLIFrameElement>(
-          `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+          `iframe[data-screen-iframe-id="${CSS.escape(screenId)}"]`,
         );
         if (!iframe) throw new PngCaptureError("no-preview");
         let doc: Document | null = null;

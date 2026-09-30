@@ -143,6 +143,12 @@ function isTerminalRunEvent(event: AgentEvent): boolean {
   );
 }
 
+function metadataRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function sameQueuedMessageIds(
   first: AgentQueuedMessage[],
   second: AgentQueuedMessage[],
@@ -537,6 +543,7 @@ export class AgentKitClient implements AgentKitController {
   private readonly retainActiveRunsOnThreadRelease: boolean;
   private readonly listeners = new Set<AgentKitListener>();
   private readonly consumers = new Map<string, Promise<void>>();
+  private readonly submittedUserMessages = new Map<string, string>();
   private readonly consumerAbortControllers = new Map<
     string,
     AbortController
@@ -1032,6 +1039,10 @@ export class AgentKitClient implements AgentKitController {
         });
       }
       this.markRunStarted(input.threadId, result.runId);
+      this.submittedUserMessages.set(
+        this.runKey(input.threadId, result.runId),
+        message.id,
+      );
       const completed = this.consume(input.threadId, result.runId);
       this.trackConsumer(input.threadId, result.runId, completed);
       return {
@@ -1774,6 +1785,7 @@ export class AgentKitClient implements AgentKitController {
     this.threadLeaseCounts.clear();
     this.queueMutationChains.clear();
     this.queuedMessageOverrides.clear();
+    this.submittedUserMessages.clear();
     this.patch({ connection: "offline" });
     this.listeners.clear();
     this.consumers.clear();
@@ -1975,6 +1987,9 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     terminalEvent: AgentEvent,
   ): Promise<void> {
+    this.submittedUserMessages.delete(
+      this.runKey(threadId, terminalEvent.runId),
+    );
     const snapshotPersistence = this.persistThreadSnapshot(threadId);
     const completed =
       terminalEvent.type === "run.completed" ||
@@ -3095,7 +3110,10 @@ export class AgentKitClient implements AgentKitController {
   }
 
   private applyEvent(event: AgentEvent): void {
-    const thread = this.getThread(event.threadId);
+    const thread = this.reconcileSubmittedUserMessage(
+      this.getThread(event.threadId),
+      event,
+    );
     const admission = classifyAgentEvent(thread, event);
     if (admission.status === "duplicate") {
       this.reportIntegrity({
@@ -3122,6 +3140,64 @@ export class AgentKitClient implements AgentKitController {
       this.queuedMessageOverrides.delete(event.threadId);
     }
     this.setThread(event.threadId, next);
+  }
+
+  private reconcileSubmittedUserMessage(
+    thread: AgentThreadState,
+    event: AgentEvent,
+  ): AgentThreadState {
+    if (
+      (event.type !== "message.created" &&
+        event.type !== "message.completed") ||
+      event.message.role !== "user"
+    ) {
+      return thread;
+    }
+    const runKey = this.runKey(event.threadId, event.runId);
+    const submittedMessageId = this.submittedUserMessages.get(runKey);
+    if (!submittedMessageId) return thread;
+    const submittedMessage = thread.messages.find(
+      (message) => message.id === submittedMessageId,
+    );
+    if (
+      submittedMessage?.role !== "user" ||
+      this.messageContentKey(submittedMessage) !==
+        this.messageContentKey(event.message)
+    ) {
+      return thread;
+    }
+
+    const idRemap = new Map([[submittedMessage.id, event.message.id]]);
+    const remapped = this.remapThreadMessageReferences(thread, idRemap);
+    const localCustom = metadataRecord(submittedMessage.metadata?.custom);
+    const confirmedCustom = metadataRecord(event.message.metadata?.custom);
+    const hasCustomMetadata =
+      localCustom !== undefined || confirmedCustom !== undefined;
+    const mergedMetadata = {
+      ...submittedMessage.metadata,
+      ...event.message.metadata,
+      ...(hasCustomMetadata
+        ? { custom: { ...localCustom, ...confirmedCustom } }
+        : {}),
+    };
+    const metadata =
+      Object.keys(mergedMetadata).length > 0 ? mergedMetadata : undefined;
+    const confirmedMessage: AgentMessage = {
+      ...submittedMessage,
+      ...event.message,
+      id: event.message.id,
+      parts: submittedMessage.parts,
+      metadata,
+    };
+    this.submittedUserMessages.set(runKey, event.message.id);
+    return {
+      ...remapped,
+      messages: remapped.messages.map((message) =>
+        message.id === event.message.id || message.id === submittedMessage.id
+          ? confirmedMessage
+          : message,
+      ),
+    };
   }
 
   private setThread(threadId: ThreadId, thread: AgentThreadState): void {

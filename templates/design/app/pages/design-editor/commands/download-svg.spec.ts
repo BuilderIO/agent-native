@@ -40,7 +40,6 @@ describe("resolveSvgExportIframe", () => {
 describe("runDownloadSvg", () => {
   it("downloads parseable XML when the preview contains Alpine directives", async () => {
     const iframe = document.createElement("iframe");
-    iframe.setAttribute("data-design-preview-iframe", "true");
     iframe.setAttribute("data-screen-iframe-id", "screen-1");
     document.body.append(iframe);
 

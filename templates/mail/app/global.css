@@ -761,6 +761,7 @@
 .inbox-zero .agent-sidebar-panel {
   position: relative;
   z-index: 1;
+  --agent-kit-nav-surface: rgba(0, 0, 0, 0.4);
   background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);

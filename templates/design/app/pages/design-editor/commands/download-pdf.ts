@@ -44,12 +44,13 @@ export async function runDownloadPdf(
     triggerBlobDownload,
   }: DownloadPdfArgs,
   settings?: Partial<ExportSettingsValue>,
+  scope: PngCaptureScope = "document",
 ) {
   if (pngExportingRef.current) return;
   pngExportingRef.current = true;
   setPngExporting(true);
   try {
-    const { cropSelection, doc, iframe } = resolvePngCaptureTarget("document");
+    const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
     const crop = resolveExportCropRect(doc, cropSelection);
     const pageCrop = crop ?? resolveBoardExportCropRect(doc, iframe);
     const pageWidth = Math.max(
@@ -75,7 +76,7 @@ export async function runDownloadPdf(
       settings?.scale ?? PDF_MIN_PRINT_RASTER_SCALE,
     );
     const png = await renderPngBlob({
-      scope: "document",
+      scope,
       settings: { ...settings, scale: pdfScale },
       format: "png",
     });

@@ -516,6 +516,31 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
 });
 
 test.describe("clipboard + duplicate (overview / board objects, cross-screen)", () => {
+  test("Cmd+C then Cmd+V duplicates the selected screen", async ({
+    page,
+    request,
+  }) => {
+    const { designId } = await createDesign(request, SIMPLE_HTML, 2);
+    try {
+      await page.goto(appPath(`/design/${designId}?view=overview`), {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
+        timeout: 30_000,
+      });
+
+      await page.locator("[data-frame-label]").first().click({ force: true });
+      await page.keyboard.press("ControlOrMeta+c");
+      await page.keyboard.press("ControlOrMeta+v");
+
+      await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
+        timeout: 10_000,
+      });
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+
   test("copy in screen A, select screen B, paste lands in screen B", async ({
     page,
     request,

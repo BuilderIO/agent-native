@@ -150,6 +150,79 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("reconciles confirmed user messages with their optimistic submissions", async () => {
+    let runNumber = 0;
+    const transport: AgentTransport = {
+      capabilities: { resumableRuns: true },
+      async startRun() {
+        runNumber += 1;
+        return { runId: `run-${runNumber}` };
+      },
+      async *subscribeToRun({ runId }) {
+        const event = (
+          sequence: number,
+          body: Omit<
+            AgentEvent,
+            "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+          >,
+        ) =>
+          ({
+            ...body,
+            id: `${runId}-event-${sequence}`,
+            threadId: "thread-1",
+            runId,
+            sequence,
+            occurredAt: "2026-08-29T00:00:00.000Z",
+          }) as AgentEvent;
+
+        yield event(1, { type: "run.started" });
+        yield event(2, {
+          type: "message.created",
+          message: {
+            id: `server-user-${runId}`,
+            role: "user",
+            status: "complete",
+            parts: [{ type: "text", text: "Repeat this prompt" }],
+            metadata: { custom: { submittedRunId: runId } },
+          },
+        });
+        yield event(3, { type: "run.completed" });
+      },
+      async cancelRun() {},
+    };
+    let messageNumber = 0;
+    const client = new AgentKitClient({
+      transport,
+      createId: () => `optimistic-${++messageNumber}`,
+    });
+
+    const firstRun = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Repeat this prompt",
+    });
+    await firstRun.completed;
+    const secondRun = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Repeat this prompt",
+    });
+    await secondRun.completed;
+
+    expect(client.getThread("thread-1").messages).toMatchObject([
+      {
+        id: "server-user-run-1",
+        role: "user",
+        parts: [{ type: "text", text: "Repeat this prompt" }],
+      },
+      {
+        id: "server-user-run-2",
+        role: "user",
+        parts: [{ type: "text", text: "Repeat this prompt" }],
+      },
+    ]);
+    expect(client.getThread("thread-1").messages).toHaveLength(2);
+    await client.shutdown();
+  });
+
   it("marks the local message failed if its acknowledgement callback throws", async () => {
     const startRun = vi.fn<AgentTransport["startRun"]>();
     const client = new AgentKitClient({

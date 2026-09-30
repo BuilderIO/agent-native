@@ -18,10 +18,6 @@ type ThreadFetchResult = {
 
 type WarmTarget = string | { id: string; accountEmail?: string };
 
-const STORAGE_KEY = "mail.threadCache.v1";
-const STORAGE_TTL = 60 * 60 * 1000;
-const STORAGE_MAX_ENTRIES = 50;
-const STORAGE_MAX_BYTES = 3 * 1024 * 1024;
 const BACKGROUND_RATE_LIMIT_COOLDOWN_MS = 90 * 1000;
 const BACKGROUND_AUTH_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 const WARM_BATCH_LIMIT = 4;
@@ -153,56 +149,12 @@ async function fetchThread(
   return { messages: await res.json(), providerSnapshotId };
 }
 
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-function loadFromStorage() {
-  if (typeof window === "undefined") return;
-  if (cache.size > 0) return;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, CacheEntry>;
-    const now = Date.now();
-    for (const [id, entry] of Object.entries(parsed)) {
-      if (!entry || now - entry.fetchedAt > STORAGE_TTL) continue;
-      cache.set(id, { ...entry, providerSnapshotId: undefined });
-    }
-  } catch {
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {}
-  }
-}
-
-function scheduleFlush() {
-  if (typeof window === "undefined") return;
-  if (flushTimer) return;
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    flushToStorage();
-  }, 250);
-}
-
-function flushToStorage() {
+function clearLegacyThreadStorage() {
   if (typeof window === "undefined") return;
   try {
-    const entries = [...cache.entries()].sort(
-      (a, b) => b[1].fetchedAt - a[1].fetchedAt,
-    );
-    const out: Record<string, CacheEntry> = {};
-    let bytes = 0;
-    let count = 0;
-    for (const [id, entry] of entries) {
-      if (count >= STORAGE_MAX_ENTRIES) break;
-      const serialized = JSON.stringify(entry);
-      if (bytes + serialized.length > STORAGE_MAX_BYTES) break;
-      out[id] = entry;
-      bytes += serialized.length;
-      count++;
-    }
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
-  } catch {
-    // Quota exceeded or private mode — silently give up, in-memory cache still works
+    window.localStorage.removeItem("mail.threadCache.v1");
+  } catch (error) {
+    console.warn("Could not clear the legacy Mail thread cache:", error);
   }
 }
 
@@ -217,7 +169,6 @@ export function setCachedThread(threadId: string, messages: EmailMessage[]) {
     providerSnapshotId: cache.get(threadId)?.providerSnapshotId,
   });
   notify(threadId);
-  scheduleFlush();
 }
 
 export function supersedeCachedThreadFetch(threadId: string) {
@@ -231,7 +182,6 @@ export function invalidateCachedThread(threadId: string) {
   inflight.delete(threadId);
   versions.set(threadId, getVersion(threadId) + 1);
   notify(threadId);
-  scheduleFlush();
 }
 
 const STALE_AFTER = 60 * 1000;
@@ -267,7 +217,6 @@ export function ensureThread(
       });
       clearOwnedInflight(threadId, p);
       notify(threadId);
-      scheduleFlush();
       return result;
     })
     .catch((err) => {
@@ -301,7 +250,6 @@ function backgroundRefresh(
         providerSnapshotId: result.providerSnapshotId,
       });
       clearOwnedInflight(threadId, p);
-      scheduleFlush();
       const prevJson = prev ? JSON.stringify(prev.messages) : "";
       const nextJson = JSON.stringify(result.messages);
       if (
@@ -413,13 +361,6 @@ if (typeof window !== "undefined") {
     invalidate: invalidateCachedThread,
     size: () => cache.size,
     keys: () => [...cache.keys()],
-    flush: () => flushToStorage(),
-    clearStorage: () => {
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-        console.log("[thread-cache] localStorage cleared");
-      } catch {}
-    },
   };
 
   (window as any).__showSkeleton = () => {
@@ -436,9 +377,6 @@ if (typeof window !== "undefined") {
       return origFetch.call(window, url, opts);
     } as typeof fetch;
     cache.clear();
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {}
     console.log(
       "[skeleton] Thread API blocked, cache cleared. Click an email to see the skeleton.",
     );
@@ -456,4 +394,5 @@ if (typeof window !== "undefined") {
   };
 }
 
-loadFromStorage();
+// Thread bodies are private account data and must not survive a sign-out.
+clearLegacyThreadStorage();

@@ -1,7 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
@@ -378,6 +378,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
 function AppLayoutInner({ children }: AppLayoutProps) {
   const t = useT();
+  const { formatNumber } = useFormatters();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const compose = useComposeState();
@@ -1410,7 +1411,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               onOpenAutoFocus={(event) => {
                 if (isPinnedSidebarVisible) event.preventDefault();
               }}
-              overlayClassName={isPinnedSidebarVisible ? "hidden" : undefined}
+              overlayClassName={
+                isPinnedSidebarVisible
+                  ? "hidden"
+                  : "bg-background/20 backdrop-blur-none"
+              }
               className={cn(
                 "inset-y-0 start-0 left-0 right-auto flex h-dvh w-[260px] max-h-none max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-e border-border bg-sidebar p-0 shadow-none rtl:left-auto rtl:right-0",
                 isPinnedSidebarVisible && "top-12 bottom-0 h-auto",
@@ -1655,8 +1660,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                   </span>
                                 </span>
                                 {count !== undefined && count > 0 && (
-                                  <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                    {count}
+                                  <span className="text-[12px] text-muted-foreground tabular-nums">
+                                    {formatNumber(count)}
                                   </span>
                                 )}
                               </Link>

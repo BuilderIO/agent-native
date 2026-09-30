@@ -177,6 +177,72 @@ describe("board document exports", () => {
     );
   });
 
+  it("exports the selected overview screen to PDF from its screen iframe", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-screen-iframe-id", "screen-1");
+    Object.defineProperties(iframe, {
+      clientHeight: { configurable: true, value: 200 },
+      clientWidth: { configurable: true, value: 320 },
+    });
+    document.body.append(iframe);
+    iframe.contentDocument!.body.innerHTML = "<main>Selected screen</main>";
+
+    const context = {
+      drawImage: vi.fn(),
+      restore: vi.fn(),
+      rotate: vi.fn(),
+      save: vi.fn(),
+      translate: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(context);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation((callback, type) =>
+        callback(new Blob(["image"], { type })),
+      );
+
+    try {
+      const args = {
+        ...renderArgs({ doc: iframe.contentDocument!, iframe }),
+        overviewScreens: [
+          { id: "screen-1", width: 320, height: 200 },
+        ] as never[],
+        selectedScreenIds: ["screen-1"],
+      };
+      const resolvePngCaptureTarget = vi.fn(() => ({
+        cropSelection: null,
+        doc: iframe.contentDocument!,
+        iframe,
+      }));
+
+      await runDownloadPdf(
+        {
+          fallbackExportName: () => "Test - Export.pdf",
+          pngExportingRef: { current: false },
+          renderPngBlob: (arg) => runRenderPngBlob(args, arg),
+          resolvePngCaptureTarget,
+          setPngExporting: vi.fn(),
+          showRasterCaptureError: vi.fn(),
+          t: () => "PDF downloaded",
+          triggerBlobDownload: vi.fn(),
+        },
+        { scale: 1 },
+        "screens",
+      );
+
+      expect(resolvePngCaptureTarget).toHaveBeenCalledWith("screens");
+      expect(mocks.html2canvas).toHaveBeenCalled();
+      expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ width: 320, height: 200 }),
+      );
+    } finally {
+      getContext.mockRestore();
+      toBlob.mockRestore();
+    }
+  });
+
   it("leaves ordinary screen document exports uncropped", async () => {
     const fixture = createReportedBoardFixture();
     fixture.iframe.setAttribute("data-screen-iframe-id", "screen-1");

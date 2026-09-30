@@ -320,6 +320,45 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(metadata).not.toHaveProperty("bridgeToken");
   });
 
+  it("places new routes below an existing screen when their defaults overlap it", async () => {
+    mocks.state.files = [
+      {
+        id: "home_file",
+        designId: "design_1",
+        filename: "localhost-home.html",
+        fileType: "html",
+        content: "http://localhost:5173/",
+      },
+    ];
+    mocks.state.designData = {
+      canvasFrames: {
+        home_file: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+      },
+      screenMetadata: {
+        home_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-home",
+          path: "/",
+          width: 1280,
+          height: 900,
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/schedule", "/instructions"],
+    });
+
+    expect(result.placedFrames).toHaveLength(2);
+    expect(result.placedFrames.map(({ frame }) => frame.y)).toEqual([
+      1060, 1060,
+    ]);
+    expect(result.placedFrames.map(({ frame }) => frame.x)).toEqual([0, 1440]);
+  });
+
   it("refreshes a legacy primary screen when its URL content identifies the route", async () => {
     mocks.state.files = [
       {

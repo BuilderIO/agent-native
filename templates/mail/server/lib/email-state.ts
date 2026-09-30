@@ -570,11 +570,16 @@ export async function untrashEmail(
   );
   const token = await getAccountToken(resolvedAccount, ownerEmail);
   const msg = await gmailGetMessage(token, id, "minimal");
-  const updated = (await gmailUntrashThread(token, msg.threadId)) as
-    | { historyId?: string }
-    | undefined;
+  if (!msg.threadId) throw new Error(`Thread not found for email ${id}`);
+  const updated = (await gmailModifyThread(
+    token,
+    msg.threadId,
+    ["INBOX"],
+    ["TRASH"],
+  )) as { historyId?: string } | undefined;
   invalidateThreadCache(ownerEmail, msg.threadId);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
+    add: ["INBOX"],
     remove: ["TRASH"],
     providerHistoryId: updated?.historyId,
   });
