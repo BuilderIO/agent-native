@@ -13,7 +13,14 @@ import type {
   AgentToolCall,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
-import { StrictMode, act, useEffect, useRef, type ReactNode } from "react";
+import {
+  StrictMode,
+  act,
+  useEffect,
+  useRef,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1220,6 +1227,116 @@ describe("AgentChat lifecycle", () => {
 
     expect(tree.container.textContent).toContain("Registered data");
     expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    await tree.unmount();
+  });
+
+  it("recomputes output boundaries when message renderers change", async () => {
+    const threadId = "thread-renderer-output-boundary";
+    const runId = "run-renderer-output-boundary";
+    const response = {
+      id: "assistant-data-response",
+      role: "assistant" as const,
+      status: "complete" as const,
+      parts: [{ type: "data" as const, data: { value: "visible" } }],
+    };
+    const activityEvent = {
+      id: "event-renderer-boundary-activity",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-09-30T00:00:00.000Z",
+      type: "activity.started" as const,
+      activity: {
+        id: "activity-renderer-boundary",
+        kind: "model",
+        label: "Contacting model",
+        status: "running" as const,
+      },
+    };
+    const responseEvent = {
+      id: "event-renderer-boundary-response",
+      threadId,
+      runId,
+      sequence: 2,
+      occurredAt: "2026-09-30T00:00:01.000Z",
+      type: "message.completed" as const,
+      message: response,
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [response],
+      events: [activityEvent, responseEvent],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 2,
+          startedAt: "2026-09-30T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    const render = (
+      props: Pick<
+        ComponentProps<typeof AgentKitProvider>,
+        "slots" | "registry"
+      > = {},
+    ) =>
+      tree.render(
+        <AgentKitProvider
+          controller={observable.controller}
+          threadId={threadId}
+          {...props}
+        >
+          <AgentKitChat composer={false} />
+        </AgentKitProvider>,
+      );
+    const expectActivityBeforeOutput = () => {
+      const work = tree.container.querySelector(".agentkit-activities");
+      const output = tree.container.querySelector("[data-rendered-data]");
+      expect(work).not.toBeNull();
+      expect(output).not.toBeNull();
+      expect(
+        work!.compareDocumentPosition(output!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        tree.container.querySelector("[data-agentkit-current-activity]"),
+      ).toBeNull();
+    };
+
+    await render();
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+
+    await render({
+      slots: { data: () => <span data-rendered-data>Visible data</span> },
+    });
+    expectActivityBeforeOutput();
+
+    await render();
+    await render({
+      registry: {
+        messageParts: {
+          data: () => <span data-rendered-data>Registered data</span>,
+        },
+      },
+    });
+    expect(
+      tree.container.querySelector("[data-rendered-data]")?.textContent,
+    ).toBe("Registered data");
+    expectActivityBeforeOutput();
     await tree.unmount();
   });
 

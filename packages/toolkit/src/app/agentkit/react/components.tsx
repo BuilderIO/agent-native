@@ -4176,7 +4176,7 @@ export function AgentKitChat({
       result.set(messageId, lastTextDeltaSequence.get(messageId) ?? sequence);
     }
     return result;
-  }, [thread.events, thread.messages]);
+  }, [registry.messageParts, slots.data, thread.events, thread.messages]);
   const lastAssistantMessagesByRun = useMemo(() => {
     const result = new Map<RunId, { id: string; sequence: number }>();
     for (const message of thread.messages) {
