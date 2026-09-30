@@ -53,16 +53,30 @@ describe("saved unchanged paragraph presentation", () => {
       { id: "action-created", status: "pending", operations: [operation] },
       raw,
     );
-    expect(presentation).not.toBeNull();
+    expect(presentation).toMatchObject({
+      id: "action-created",
+      kind: "replace_text",
+      beforeText: changedText,
+      afterText: replacement,
+    });
 
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: nfmToDoc(raw),
     });
     try {
-      expect(
-        suggestionHighlightSpec(editor.state.doc, presentation!),
-      ).not.toBeNull();
+      // The editor collapses the blank lines around the paragraph, so the
+      // range has to be re-resolved in editor coordinates. It must land on the
+      // replaced sentence, not on the heading or the list around it.
+      const spec = suggestionHighlightSpec(editor.state.doc, presentation!);
+      expect(spec).toMatchObject({
+        suggestionId: "action-created",
+        kind: "replace",
+        insertedText: replacement,
+      });
+      expect(editor.state.doc.textBetween(spec!.from, spec!.to, "\n")).toBe(
+        changedText,
+      );
     } finally {
       editor.destroy();
     }

@@ -70,16 +70,11 @@ function workspaceFrameworkRoutePrefixEnv(): string {
   );
 }
 
-// Workspace apps may pin an older Core than the root, and those Cores reject
-// config env keys they do not know even when the value is empty. Forward the
-// prefix only when one is configured; an empty value already means the default.
-// Generated functions delete any inherited value before applying these entries,
-// so they always run with the build-time prefix.
-function workspaceFrameworkRoutePrefixEnvEntries(): Record<string, string> {
-  const prefix = workspaceFrameworkRoutePrefixEnv();
-  return prefix
-    ? { AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: prefix }
-    : {};
+function workspaceFrameworkRoutePrefixEnvSnippet(): string {
+  const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
+  return frameworkRoutePrefix
+    ? `  processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = ${JSON.stringify(frameworkRoutePrefix)};\n`
+    : "  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;\n";
 }
 
 function workspaceFrameworkRoutePrefix(): string {
@@ -345,6 +340,7 @@ function buildOneApp(
       ? workspaceGatewayUrl
       : null);
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
+  const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NITRO_PRESET: preset,
@@ -393,10 +389,13 @@ function buildOneApp(
       : {}),
     [WORKSPACE_APPS_ENV_KEY]: JSON.stringify(workspaceApps),
   };
-  // A blank inherited value (for example an empty deployment env var) would
-  // otherwise pass through the spread above; forward only a configured one.
-  delete env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
-  Object.assign(env, workspaceFrameworkRoutePrefixEnvEntries());
+
+  if (frameworkRoutePrefix) {
+    env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      frameworkRoutePrefix;
+  } else {
+    delete env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+  }
 
   if (preset === "netlify" && appUsesNetlifyUnpooledDatabaseUrl(appDir)) {
     env.DATABASE_URL =
@@ -996,7 +995,6 @@ function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
 ${workspaceDirectoryEnvSnippet(workspaceApps)}
-  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1009,13 +1007,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    ...${JSON.stringify(workspaceFrameworkRoutePrefixEnvEntries())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 setBasePathEnv();
@@ -1105,7 +1103,6 @@ function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
 ${workspaceDirectoryEnvSnippet(workspaceApps)}
-  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1118,13 +1115,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    ...${JSON.stringify(workspaceFrameworkRoutePrefixEnvEntries())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 function enabled() {
@@ -1255,7 +1252,6 @@ function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
 ${workspaceDirectoryEnvSnippet(workspaceApps)}
-  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1268,13 +1264,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    ...${JSON.stringify(workspaceFrameworkRoutePrefixEnvEntries())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 setBasePathEnv();
@@ -1333,7 +1329,6 @@ function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
 ${workspaceDirectoryEnvSnippet(workspaceApps)}
-  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1346,13 +1341,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    ...${JSON.stringify(workspaceFrameworkRoutePrefixEnvEntries())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 function normalizeBasePathArgs(args) {

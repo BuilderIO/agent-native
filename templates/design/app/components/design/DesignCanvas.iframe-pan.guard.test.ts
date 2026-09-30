@@ -39,7 +39,7 @@ describe("DesignCanvas iframe pan bridge wiring", () => {
     );
     expect(canvasSource).toContain(": embeddedGestureBridgeForCurrentState");
     expect(canvasSource).toMatch(
-      /usesLiveEditInjectedBridge\s*&&\s*!liveEditBridgeRegistered/,
+      /registerRuntimeBridge\s*&&\s*usesLiveEditInjectedBridge\s*&&\s*!liveEditBridgeRegistered/,
     );
   });
 

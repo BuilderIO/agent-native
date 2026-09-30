@@ -25,7 +25,6 @@ let previousNetlify: string | undefined;
 let previousNetlifyLocal: string | undefined;
 let previousIntegrationDurableDispatch: string | undefined;
 let previousDisableRecurringJobs: string | undefined;
-let previousFrameworkRoutePrefix: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
@@ -43,6 +42,8 @@ let previousWorkspaceGatewayUrl: string | undefined;
 let previousWorkspaceOAuthOrigin: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
 let previousOrgDirectoryUrl: string | undefined;
+let previousFrameworkRoutePrefix: string | undefined;
+let previousDurableBackground: string | undefined;
 let execFile: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -72,8 +73,6 @@ beforeEach(() => {
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
   previousDisableRecurringJobs =
     process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
-  previousFrameworkRoutePrefix =
-    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
   previousViteWorkspaceAppsJson =
@@ -99,6 +98,9 @@ beforeEach(() => {
   previousWorkspaceOAuthOrigin = process.env.WORKSPACE_OAUTH_ORIGIN;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
   previousOrgDirectoryUrl = process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+  previousFrameworkRoutePrefix =
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+  previousDurableBackground = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   delete process.env.APP_BASE_PATH;
   delete process.env.APP_URL;
   delete process.env.A2A_SECRET;
@@ -110,7 +112,6 @@ beforeEach(() => {
   delete process.env.NETLIFY_LOCAL;
   delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
   delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
-  delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -128,6 +129,8 @@ beforeEach(() => {
   delete process.env.WORKSPACE_OAUTH_ORIGIN;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+  delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+  delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
 });
 
 afterEach(() => {
@@ -147,10 +150,6 @@ afterEach(() => {
   restoreEnv(
     "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
     previousDisableRecurringJobs,
-  );
-  restoreEnv(
-    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
-    previousFrameworkRoutePrefix,
   );
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
@@ -193,6 +192,11 @@ afterEach(() => {
   restoreEnv("WORKSPACE_OAUTH_ORIGIN", previousWorkspaceOAuthOrigin);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
   restoreEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", previousOrgDirectoryUrl);
+  restoreEnv(
+    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+    previousFrameworkRoutePrefix,
+  );
+  restoreEnv("AGENT_CHAT_DURABLE_BACKGROUND", previousDurableBackground);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -214,55 +218,36 @@ describe("workspace deploy", () => {
     });
   });
 
-  it("omits an empty framework route prefix that older app Cores reject", async () => {
-    // Apps pinned to an older Core throw on any config env key they do not
-    // know, even an empty one, so a blank inherited value must not reach them.
-    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "";
+  it("omits an empty framework route prefix and forwards a configured prefix", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
-    makeWorkspaceApp(tmpDir, "dispatch");
-    makeWorkspaceApp(tmpDir, "starter");
 
-    await runWorkspaceDeploy({
-      workspaceRoot: tmpDir,
-      args: ["--preset=netlify", "--build-only"],
-      execFile: execFile as typeof execFileSync,
-    });
-
-    for (const app of ["dispatch", "starter"]) {
-      expect(buildCallForApp(app)?.env).not.toHaveProperty(
-        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+    let importId = 0;
+    const assertRuntimePrefix = async (
+      entry: string,
+      expectedPrefix: string | undefined,
+    ) => {
+      if (expectedPrefix) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "";
+      }
+      await import(
+        `${pathToFileURL(entry).href}?t=${Date.now()}-${importId++}`
       );
-    }
-    // Loading a generated function applies its env, so a blank value the
-    // function runtime inherits must be gone before the app's Core loads.
-    const entries = generatedFunctionEntries(tmpDir).filter((entry) =>
-      fs.readFileSync(entry, "utf8").includes("function setBasePathEnv()"),
-    );
-    expect(entries.length).toBeGreaterThan(1);
-    for (const [index, entry] of entries.entries()) {
-      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "";
-      await import(`${pathToFileURL(entry).href}?t=${Date.now()}-${index}`);
-      expect(process.env).not.toHaveProperty(
-        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
-      );
-    }
-  });
+      if (expectedPrefix) {
+        expect(
+          process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX,
+        ).toBe(expectedPrefix);
+      } else {
+        expect(process.env).not.toHaveProperty(
+          "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        );
+      }
+    };
 
-  it("forwards a configured framework route prefix to app builds and functions", async () => {
-    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
-      " /_platform ";
-    makeWorkspaceApp(tmpDir, "dispatch");
-
-    await runWorkspaceDeploy({
-      workspaceRoot: tmpDir,
-      args: ["--preset=netlify", "--build-only"],
-      execFile: execFile as typeof execFileSync,
-    });
-
-    expect(buildCallForApp("dispatch")?.env).toMatchObject({
-      AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_platform",
-    });
-    const serverEntry = fs.readFileSync(
+    const netlifyEntries = [
       path.join(
         tmpDir,
         ".netlify",
@@ -270,29 +255,80 @@ describe("workspace deploy", () => {
         "dispatch-server",
         "dispatch-server.mjs",
       ),
-      "utf8",
-    );
-    expect(serverEntry).toContain(
-      '"AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX":"/_platform"',
-    );
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "dispatch-agent-background",
+        "dispatch-agent-background.mjs",
+      ),
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "dispatch-integration-recovery",
+        "dispatch-integration-recovery.mjs",
+      ),
+    ];
 
-    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "";
-    await import(
-      `${
-        pathToFileURL(
-          path.join(
-            tmpDir,
-            ".netlify",
-            "functions-internal",
-            "dispatch-server",
-            "dispatch-server.mjs",
-          ),
-        ).href
-      }?t=${Date.now()}-prefix`
-    );
-    expect(process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX).toBe(
-      "/_platform",
-    );
+    for (const configuredPrefix of ["  ", " /_platform "]) {
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+        configuredPrefix;
+      const expectedPrefix = configuredPrefix.trim() || undefined;
+      execFile.mockClear();
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+
+      const netlifyBuildEnv = buildCallForApp("dispatch")?.env;
+      if (expectedPrefix) {
+        expect(
+          netlifyBuildEnv?.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX,
+        ).toBe(expectedPrefix);
+      } else {
+        expect(netlifyBuildEnv).not.toHaveProperty(
+          "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        );
+      }
+      for (const entry of netlifyEntries) {
+        await assertRuntimePrefix(entry, expectedPrefix);
+      }
+
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+        configuredPrefix;
+      execFile.mockClear();
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "vercel",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+
+      const vercelBuildEnv = buildCallForApp("dispatch")?.env;
+      if (expectedPrefix) {
+        expect(
+          vercelBuildEnv?.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX,
+        ).toBe(expectedPrefix);
+      } else {
+        expect(vercelBuildEnv).not.toHaveProperty(
+          "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        );
+      }
+      await assertRuntimePrefix(
+        path.join(
+          tmpDir,
+          ".vercel",
+          "output",
+          "functions",
+          "dispatch-server.func",
+          "index.mjs",
+        ),
+        expectedPrefix,
+      );
+    }
   });
 
   it("builds direct-child apps with isolated workspace auth", async () => {
@@ -2014,18 +2050,6 @@ function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
     path.join(functionDir, ".vc-config.json"),
     JSON.stringify({ handler: "index.mjs", runtime: "nodejs24.x" }),
   );
-}
-
-function generatedFunctionEntries(workspaceRoot: string): string[] {
-  const functionsDir = path.join(
-    workspaceRoot,
-    ".netlify",
-    "functions-internal",
-  );
-  return fs
-    .readdirSync(functionsDir, { recursive: true, encoding: "utf8" })
-    .filter((entry) => entry.endsWith(".mjs"))
-    .map((entry) => path.join(functionsDir, entry));
 }
 
 function buildCallForApp(app: string): { env?: NodeJS.ProcessEnv } | undefined {

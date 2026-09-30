@@ -1194,6 +1194,29 @@ describe("Slides prompt-led home", () => {
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
     ).toBe("true");
+    expect(localStorage.getItem("slides:home-library-tab")).toBe("templates");
+
+    home.unmount();
+    renderHome({ decks: [ownDeck] });
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("remembers the automatic Recent selection across home opens", () => {
+    const home = renderHome({ decks: [ownDeck] });
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(localStorage.getItem("slides:home-library-tab")).toBe("recent");
+
+    home.unmount();
+    renderHome({ decks: [], loading: true });
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
   });
 
   it("keeps the composer as the focal point and shows both library tabs without accessible work", async () => {
