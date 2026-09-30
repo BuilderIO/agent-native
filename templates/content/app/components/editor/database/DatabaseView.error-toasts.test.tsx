@@ -108,7 +108,10 @@ const builderCmsModelsQuery = vi.hoisted(() => ({
   refetch: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   generateTabId: () => "database-error-toasts-test",
   useCodeMode: () => ({
     isCodeMode: false,
@@ -123,7 +126,10 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/toolkit/app/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/settings")
+  >()),
   useBuilderStatus: () => ({
     status: {
       configured: true,

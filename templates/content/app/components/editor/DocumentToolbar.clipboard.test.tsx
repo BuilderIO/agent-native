@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   suggestingChange: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/clipboard", () => ({
+vi.mock("@agent-native/toolkit/clipboard", () => ({
   writeClipboardText: mocks.copy,
 }));
 vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
@@ -40,7 +40,10 @@ vi.mock("sonner", async (importOriginal) => ({
     success: mocks.success,
   },
 }));
-vi.mock("@agent-native/core/client/sharing", () => ({
+vi.mock("@agent-native/toolkit/app/sharing", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/sharing")
+  >()),
   ShareButton: ({
     quickCopy,
     agentTabContent,

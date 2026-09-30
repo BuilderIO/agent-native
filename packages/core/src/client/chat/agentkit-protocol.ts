@@ -2036,7 +2036,10 @@ export function createAgentKitProtocolAdapter(
           {
             type: "suggestions.updated",
             ...base,
-            suggestions: event.suggestions,
+            suggestions: event.suggestions.map((suggestion) => ({
+              ...suggestion,
+              runId: run.runId,
+            })),
           },
         ];
       case "annotation": {

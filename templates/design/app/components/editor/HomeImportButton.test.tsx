@@ -29,7 +29,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       ? error.message.replace(/^Action failed: /, "")
       : undefined,
 }));
-vi.mock("@agent-native/core/client/command-navigation", () => ({
+vi.mock("@agent-native/toolkit/app/shared", () => ({
   openAgentSettings: (...args: unknown[]) => mocks.settings(...args),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({

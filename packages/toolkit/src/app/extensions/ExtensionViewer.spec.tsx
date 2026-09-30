@@ -19,7 +19,8 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   sendToAgentChat: chatMocks.sendToAgentChat,
 }));
 
-vi.mock("@agent-native/core/client/host", () => ({
+vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
   ensureEmbedAuthFetchInterceptor: vi.fn(),
   isEmbedMcpChatBridgeActive: () => embedState.active,
 }));

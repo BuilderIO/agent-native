@@ -14,8 +14,6 @@ const queriedActions = vi.hoisted(() => [] as Array<[string, unknown]>);
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: callActionMock,
-  defaultActionQueryRetry: () => false,
-  defaultActionQueryRetryDelay: () => 0,
   useActionQuery: (name: string, params: unknown, options?: any) => {
     queriedActions.push([name, params]);
     if (name === "list-audit-events") {
@@ -28,6 +26,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       isError: false,
     };
   },
+}));
+
+vi.mock("@agent-native/core/client/use-action", () => ({
+  defaultActionQueryRetry: () => false,
+  defaultActionQueryRetryDelay: () => 0,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

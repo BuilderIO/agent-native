@@ -12,12 +12,14 @@ const { sidebar, navigateChat, focusChat } = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  navigateWithAgentChatViewTransition: navigateChat,
+}));
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentSidebar: (props: Record<string, unknown>) => {
     sidebar(props);
     return null;
   },
   focusAgentChat: focusChat,
-  navigateWithAgentChatViewTransition: navigateChat,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,

@@ -1,11 +1,15 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { SecretsSection } from "./SecretsSection.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
@@ -73,9 +77,14 @@ function findButton(text: string) {
 
 function renderSecretsSection(root: Root, focusKey?: string) {
   root.render(
-    <TooltipProvider>
-      <SecretsSection focusKey={focusKey} />
-    </TooltipProvider>,
+    <AgentNativeI18nProvider
+      catalog={toolkitI18nCatalog}
+      persistPreference={false}
+    >
+      <TooltipProvider>
+        <SecretsSection focusKey={focusKey} />
+      </TooltipProvider>
+    </AgentNativeI18nProvider>,
   );
 }
 

@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(),
 }));
 
-vi.mock("../../../../core/src/client/use-action.ts", () => ({
+vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: vi.fn(() => mocks.query),
   useActionMutation: vi.fn((name: string) => {
     if (name === "share-resource") return mocks.share;
@@ -32,7 +32,7 @@ vi.mock("../../../../core/src/client/use-action.ts", () => ({
     return mocks.visibility;
   }),
 }));
-vi.mock("../../../../core/src/client/i18n.tsx", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string>) => {
     if (values?.title) return `${key}:${values.title}`;
     if (values?.type) return `${key}:${values.type}`;

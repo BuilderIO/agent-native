@@ -25,20 +25,22 @@ const storageMocks = vi.hoisted(() => ({
   setup: null as (() => void) | null,
 }));
 
-vi.mock("../uploads/use-file-upload-status.js", () => ({
+vi.mock("@agent-native/core/client/uploads/use-file-upload-status", () => ({
   useFileUploadStatus: () => ({
     ...storageMocks.status,
     refetch: storageMocks.refetch,
   }),
 }));
-vi.mock("../uploads/use-upload-resource.js", () => ({
+vi.mock("@agent-native/core/client/uploads/use-upload-resource", () => ({
   useUploadResource: () => ({ mutate: storageMocks.upload }),
 }));
-vi.mock("../org/hooks.js", () => ({
+vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: { orgId: "org-test", role: "member" } }),
 }));
-vi.mock("../i18n.js", () => ({ useT: () => (key: string) => key }));
-vi.mock("./use-resources.js", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
+vi.mock("@agent-native/core/client/resources/use-resources", () => ({
   useResourceTree: () => ({ data: [], isLoading: false }),
   useResource: () => ({ data: undefined, isError: false }),
   useCreateResource: () => ({ isPending: false, mutate: vi.fn() }),
@@ -50,13 +52,13 @@ vi.mock("./use-resources.js", () => ({
   withMcpServersFolder: (tree: unknown[]) => tree,
   withAgentScratchFolder: (tree: unknown[]) => tree,
 }));
-vi.mock("./use-mcp-servers.js", () => ({
+vi.mock("@agent-native/core/client/resources/use-mcp-servers", () => ({
   useMcpServers: () => ({ data: undefined }),
   useCreateMcpServer: () => ({ mutateAsync: vi.fn() }),
   useDeleteMcpServer: () => ({ isPending: false, mutate: vi.fn() }),
   parseMcpVirtualId: () => null,
 }));
-vi.mock("./use-builtin-capabilities.js", () => ({
+vi.mock("@agent-native/core/client/resources/use-builtin-capabilities", () => ({
   useBuiltinCapabilities: () => ({ data: undefined }),
   parseMcpBuiltinVirtualId: () => null,
 }));

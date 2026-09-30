@@ -67,8 +67,13 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/auth/change-email", () => emailChange);
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+
+import { createToolkitI18nCatalog } from "../../i18n.js";
 import { ProfileSettings } from "./ProfileSettings.js";
 import { PROFILE_SEARCH_ENTRIES } from "./search-entries.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("ProfileSettings", () => {
   let container: HTMLDivElement;
@@ -96,7 +101,14 @@ describe("ProfileSettings", () => {
 
   async function render() {
     await act(async () => {
-      root.render(<ProfileSettings />);
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={toolkitI18nCatalog}
+          persistPreference={false}
+        >
+          <ProfileSettings />
+        </AgentNativeI18nProvider>,
+      );
     });
   }
 

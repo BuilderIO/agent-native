@@ -20,11 +20,11 @@ const actions = vi.hoisted(() => ({
 }));
 
 const agent = vi.hoisted(() => ({ submitToAgent: vi.fn() }));
-vi.mock("../CommandMenu.js", () => agent);
+vi.mock("../shared/index.js", () => agent);
 
 // The hooks' transport belongs to the framework. The page's contract is which
 // action it calls with what, and what it does with the answer.
-vi.mock("../use-action.js", async () => {
+vi.mock("@agent-native/core/client/use-action", async () => {
   const { useMutation, useQuery, useQueryClient } =
     await import("@tanstack/react-query");
   const call = (name: string, params: unknown) =>
@@ -53,7 +53,7 @@ vi.mock("../use-action.js", async () => {
   };
 });
 
-vi.mock("../i18n.js", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, unknown>): string => {
