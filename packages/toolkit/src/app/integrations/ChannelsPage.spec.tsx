@@ -20,7 +20,7 @@ const actions = vi.hoisted(() => ({
 }));
 
 const agent = vi.hoisted(() => ({ submitToAgent: vi.fn() }));
-vi.mock("../CommandMenu.js", () => agent);
+vi.mock("../shared/index.js", () => agent);
 
 // The hooks' transport belongs to the framework. The page's contract is which
 // action it calls with what, and what it does with the answer.

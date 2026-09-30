@@ -114,7 +114,7 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
     );
   },
 }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
   BuilderSetupCard: ({ onRetry }: { onRetry?: () => void }) => (
     <button data-testid="chat-builder-setup" onClick={onRetry} />
   ),

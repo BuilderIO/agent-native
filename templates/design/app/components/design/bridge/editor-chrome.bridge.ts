@@ -7004,11 +7004,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       positionMultiSelectionBounds();
       return;
     }
+    var poolStyleChanged = style !== passiveSelectionOverlayPoolStyle;
+    var previousPassiveEls = passiveSelectionEls;
     passiveSelectionEls = nextPassiveEls;
     syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
     passiveSelectionEls.forEach(function (el, index) {
       var overlay = passiveSelectionOverlays[index];
-      if (overlay) positionOverlay(overlay, el);
+      if (overlay && (poolStyleChanged || previousPassiveEls[index] !== el)) {
+        positionOverlay(overlay, el);
+      }
     });
     positionMultiSelectionBounds();
   }
@@ -9661,14 +9665,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function cornerRadiusHandleKeys(el) {
     if (!el || el.nodeType !== 1) return [];
-    if (!cornerRadiusHasVisiblePaint(el)) return [];
     var kind = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
+    if (kind !== "rectangle" && kind !== "polygon" && kind !== "star")
+      return [];
+    if (!cornerRadiusHasVisiblePaint(el)) return [];
     if (kind === "rectangle") return ["nw", "ne", "se", "sw"];
-    if (kind !== "polygon" && kind !== "star") return [];
     var path = radiusPathData(el);
     if (!path || path.malformed) return [];
     if (kind === "star") return ["vertex-0"];
@@ -12056,25 +12061,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     originalMinWidth: string,
     originalMinHeight: string,
   ): void {
-    target.style.outline = "none";
-    target.style.outlineStyle = "none";
-    target.style.outlineWidth = "0px";
-    target.style.outlineColor = "transparent";
-    target.style.outlineOffset = "0px";
+    if (target.style.outlineStyle !== "none")
+      target.style.outlineStyle = "none";
+    if (target.style.outlineWidth !== "0px") target.style.outlineWidth = "0px";
+    if (target.style.outlineColor !== "transparent")
+      target.style.outlineColor = "transparent";
+    if (target.style.outlineOffset !== "0px")
+      target.style.outlineOffset = "0px";
     if (hasTextCharacters(target)) {
       document.documentElement.removeAttribute(
         "data-agent-native-empty-text-editing",
       );
-      target.style.minWidth = originalMinWidth;
-      target.style.minHeight = originalMinHeight;
+      if (target.style.minWidth !== originalMinWidth)
+        target.style.minWidth = originalMinWidth;
+      if (target.style.minHeight !== originalMinHeight)
+        target.style.minHeight = originalMinHeight;
       positionOverlay(selectionOverlay, target);
       setSelectionOverlayResizeChromeVisible(false);
       positionTextCaretOverlay(target);
       return;
     }
     hideTextCaretOverlay(target);
-    target.style.minWidth = originalMinWidth || "1px";
-    target.style.minHeight = originalMinHeight || "1em";
+    var minWidth = originalMinWidth || "1px";
+    var minHeight = originalMinHeight || "1em";
+    if (target.style.minWidth !== minWidth) target.style.minWidth = minWidth;
+    if (target.style.minHeight !== minHeight)
+      target.style.minHeight = minHeight;
     document.documentElement.setAttribute(
       "data-agent-native-empty-text-editing",
       "true",
