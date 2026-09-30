@@ -1592,11 +1592,11 @@ export default function Index({ active = true }: { active?: boolean }) {
           ? null
           : retryReferenceSelection?.referenceDeckIdSource === "automatic"
             ? (promptReferenceDeckId ??
-              (reusingRetryInputs
-                ? (carriedImportedReference?.deckId ??
-                  retryReferenceSelection.referenceDeckId)
-                : null) ??
-              (generationComposerContext ? null : undefined))
+              (!reusingRetryInputs
+                ? null
+                : (carriedImportedReference?.deckId ??
+                  retryReferenceSelection.referenceDeckId ??
+                  (generationComposerContext ? null : undefined))))
             : retryReferenceSelection?.referenceDeckIdSource === "prompt"
               ? reusingRetryInputs
                 ? (retryReferenceSelection.referenceDeckId ??
@@ -1608,14 +1608,17 @@ export default function Index({ active = true }: { active?: boolean }) {
                 : (carriedImportedReference?.deckId ??
                   promptReferenceDeckId ??
                   (generationComposerContext ? null : undefined));
-      const referenceDeckIdSource = hasExplicitComposerDeckReference
+      const hasExplicitDeckSelection =
+        hasExplicitComposerDeckReference ||
+        retryReferenceSelection?.referenceDeckIdSource === "selection" ||
+        (retryReferenceSelection?.referenceDeckId !== undefined &&
+          retryReferenceSelection.referenceDeckIdSource !== "prompt" &&
+          retryReferenceSelection.referenceDeckIdSource !== "automatic");
+      const referenceDeckIdSource = hasExplicitDeckSelection
         ? "selection"
         : promptReferenceDeckId
           ? "prompt"
-          : (retryReferenceSelection?.referenceDeckIdSource ??
-            (retryReferenceSelection?.referenceDeckId !== undefined
-              ? "selection"
-              : undefined));
+          : retryReferenceSelection?.referenceDeckIdSource;
       const referenceSelection: NewDeckReferenceSelection = {
         ...(retryReferenceSelection ?? {}),
         ...(automaticReferenceDeckId ? { automaticReferenceDeckId } : {}),

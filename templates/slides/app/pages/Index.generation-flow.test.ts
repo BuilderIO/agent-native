@@ -107,12 +107,45 @@ describe("new deck generation flow", () => {
       promptSubmit.indexOf("const referenceSelection ="),
     );
     expect(sourceClassification).toMatch(
-      /:\s*promptReferenceDeckId\s*\?\s*"prompt"\s*:\s*\(?\s*retryReferenceSelection\?\.referenceDeckIdSource\s*\?\?/,
+      /hasExplicitDeckSelection\s*\?\s*"selection"\s*:\s*promptReferenceDeckId\s*\?\s*"prompt"\s*:\s*retryReferenceSelection\?\.referenceDeckIdSource/,
     );
     expect(promptSubmit).toContain("promptReferenceDeckId ??");
     expect(promptSubmit).toContain("!reusingRetryInputs");
     expect(promptSubmit).toContain(
       "designSystemId: generationComposerContext.designSystemId",
+    );
+  });
+
+  it("clears an automatic deck on a changed retry without a link", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const referenceResolution = promptSubmit.slice(
+      promptSubmit.indexOf("const referenceDeckId ="),
+      promptSubmit.indexOf("const hasExplicitDeckSelection ="),
+    );
+
+    expect(referenceResolution).toMatch(
+      /referenceDeckIdSource === "automatic"\s*\?\s*\(?\s*promptReferenceDeckId \?\?\s*\(\s*!reusingRetryInputs\s*\?\s*null/,
+    );
+  });
+
+  it("preserves explicit selection provenance when the prompt has a deck link", () => {
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const sourceClassification = promptSubmit.slice(
+      promptSubmit.indexOf("const hasExplicitDeckSelection ="),
+      promptSubmit.indexOf("const referenceSelection ="),
+    );
+
+    expect(sourceClassification).toMatch(
+      /hasExplicitComposerDeckReference \|\|\s*retryReferenceSelection\?\.referenceDeckIdSource === "selection"/,
+    );
+    expect(sourceClassification).toMatch(
+      /hasExplicitDeckSelection\s*\?\s*"selection"\s*:\s*promptReferenceDeckId\s*\?\s*"prompt"/,
     );
   });
 
