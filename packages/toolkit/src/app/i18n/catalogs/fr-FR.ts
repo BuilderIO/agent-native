@@ -549,7 +549,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "Appels commerciaux, transcriptions, insights sur les opportunités, résumés de comptes",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong exige qu’un administrateur technique crée une intégration MCP et choisisse une autorisation personnelle ou partagée. L’ID client et le secret générés doivent être configurés avant la connexion.",
+    "Un administrateur technique Gong doit créer une intégration MCP avec une autorisation personnelle ou partagée. Pour l’inscription manuelle, enregistrez l’ID client et le secret générés dans les secrets de l’espace de travail `GONG_MCP_CLIENT_ID` et `GONG_MCP_CLIENT_SECRET` ; l’inscription automatique ne nécessite pas d’identifiants client.",
   "mcpIntegrations.catalog.semgrep.description":
     "Analysez le code pour détecter des problèmes de sécurité.",
   "mcpIntegrations.catalog.semgrep.useCase":

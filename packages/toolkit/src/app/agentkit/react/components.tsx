@@ -3176,6 +3176,7 @@ export function AgentKitComposer({
     (execute: () => Promise<unknown>) => execute(),
     threadId,
   );
+  const submissionBlocked = Boolean(submissionDisabled) || command.pending;
   const localComposerRef = useRef<TiptapComposerHandle>(null);
   const composerRef = hostComposerRef ?? localComposerRef;
   const selectedSuggestionRef = useRef<
@@ -3185,7 +3186,11 @@ export function AgentKitComposer({
   suggestionScope.current = {
     ...suggestionScope.current,
     threadId,
-    enabled: !disabled && suggestionsCapability.enabled && !editingMessage,
+    enabled:
+      !disabled &&
+      !submissionDisabled &&
+      suggestionsCapability.enabled &&
+      !editingMessage,
   };
   useEffect(() => {
     suggestionScope.current.mounted = true;
@@ -3494,6 +3499,7 @@ export function AgentKitComposer({
   ) => {
     if (
       disabled ||
+      submissionBlocked ||
       !suggestionsCapability.enabled ||
       selectedSuggestionRef.current ||
       !isCurrentAgentSuggestion(controller.getThread(threadId), suggestion)
@@ -3591,14 +3597,14 @@ export function AgentKitComposer({
           <Suggestions
             suggestions={suggestions}
             threadId={threadId}
-            pending={command.pending}
+            pending={submissionBlocked}
             onSelect={selectSuggestion}
           />
         ) : (
           <AgentSuggestionBar
             suggestions={suggestions.map((suggestion) => ({
               ...suggestion,
-              disabled: command.pending || Boolean(disabled),
+              disabled: submissionBlocked || Boolean(disabled),
             }))}
             ariaLabel={labels.suggestions}
             onSelect={selectSuggestion}
@@ -3619,7 +3625,7 @@ export function AgentKitComposer({
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
         disabled={disabled}
-        submissionDisabled={submissionDisabled || command.pending}
+        submissionDisabled={submissionBlocked}
         onDisabledClick={onDisabledClick}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}

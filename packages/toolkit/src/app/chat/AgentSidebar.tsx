@@ -1248,9 +1248,7 @@ export function AgentSidebar({
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
         <SettingsReturnPathRecorder />
-        {shouldMountPanel ? (
-          <URLSync browserTabId={resolvedBrowserTabId} />
-        ) : null}
+        {enabled ? <URLSync browserTabId={resolvedBrowserTabId} /> : null}
         {isResizing ? (
           <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
         ) : null}

@@ -510,6 +510,53 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     );
   });
 
+  it("stops preparing and shows recovery UI when the bridge health probe hangs", async () => {
+    let healthSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url;
+        if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+          return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+        }
+        if (url.startsWith(`${BRIDGE_URL}/health`)) {
+          healthSignal = init?.signal as AbortSignal;
+          return new Promise((_resolve, reject) => {
+            healthSignal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+    );
+
+    await renderLiveEditCanvas();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").toContain("Preparing live editor");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+      await flushMicrotasks();
+    });
+
+    expect(healthSignal?.aborted).toBe(true);
+    expect(container.textContent ?? "").toContain(
+      "Live editor connection failed",
+    );
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
   it("recovers from a destructive watchdog error when the exact retired live document posts ready late", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url =

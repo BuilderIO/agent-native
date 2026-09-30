@@ -744,7 +744,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "销售通话、转录文本、交易洞察、客户摘要",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong 需要技术管理员创建 MCP 集成，并选择个人授权或共享授权。连接前必须配置生成的客户端 ID 和密钥。",
+    "Gong 技术管理员需要创建 MCP 集成并选择个人或共享授权。使用手动注册时，请将生成的客户端 ID 和密钥保存为工作区密钥 `GONG_MCP_CLIENT_ID` 和 `GONG_MCP_CLIENT_SECRET`；自动注册无需客户端凭据。",
   "mcpIntegrations.catalog.semgrep.description": "扫描代码中的安全问题。",
   "mcpIntegrations.catalog.semgrep.useCase": "安全扫描、漏洞检测、代码分析",
   "mcpIntegrations.catalog.linear.description": "读取和写入 Linear 议题。",

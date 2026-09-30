@@ -225,12 +225,12 @@ describe("AgentSidebar panel", () => {
     ).toBeTruthy();
   });
 
-  it("defers URL synchronization until the panel is mounted", () => {
+  it("keeps URL synchronization mounted while the panel is closed", () => {
     renderSidebar(false);
 
     expect(
       container?.querySelector("[data-testid='agent-sidebar-url-sync']"),
-    ).toBeNull();
+    ).toBeTruthy();
   });
 
   it("renders an interactive composer without a loading skeleton", () => {
