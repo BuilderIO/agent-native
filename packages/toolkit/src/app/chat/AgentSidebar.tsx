@@ -1296,6 +1296,8 @@ export function focusAgentChat() {
 
 function focusAgentChatComposer() {
   const focusComposer = (attempt = 0) => {
+    if (typeof window === "undefined" || typeof document === "undefined")
+      return;
     const panel = document.querySelector(
       ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
         ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",

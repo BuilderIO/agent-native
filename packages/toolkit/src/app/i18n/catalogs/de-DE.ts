@@ -756,6 +756,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "Zu diesem Punkt zurückkehren? Änderungen danach gehen verloren.",
   "message.restoreRequestFailed": "Wiederherstellungsanfrage fehlgeschlagen.",
+  "message.historyUnavailable":
+    "Der Änderungsverlauf konnte nicht geladen werden.",
   "message.threadNotFound":
     "Dieser Chat-Thread ist nicht mehr verfügbar. Starte einen neuen Chat oder versuche es erneut, falls das unerwartet war.",
   "message.restoring": "Wird wiederhergestellt...",

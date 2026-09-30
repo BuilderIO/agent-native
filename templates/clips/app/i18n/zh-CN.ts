@@ -762,6 +762,11 @@ const messages = {
     agentTitle: "管理代理",
     pageTitle: "设置 · Clips",
     labs: "Labs",
+    labResilientRecording: "弹性录制",
+    labResilientRecordingDescription:
+      "尝试更快地上传录制内容，并在中断后获得更好的恢复体验。",
+    labResilientRecordingMixedDescription:
+      "之前的录制设置仍然有效。选择开启或关闭以使用统一设置。",
     labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
     labVideoEditing: "视频编辑",
     labVideoEditingDescription: "试用新的视频编辑器。",
@@ -1864,6 +1869,7 @@ const messages = {
     retry: "重试",
     retrying: "正在重试…",
     retryFailed: "无法重试此上传。",
+    retryCheckFailed: "无法检查能否重试此次上传。请刷新页面后重试。",
     retryUnavailableHere: "重试仅在录制此内容的设备或浏览器上可用。",
     viewsCount: "{{count}} 次观看",
     recordingMenu: "录制菜单",

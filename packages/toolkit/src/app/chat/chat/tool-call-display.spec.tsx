@@ -1267,7 +1267,7 @@ describe("ToolCallDisplay native renderers", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
-          catalog={{
+          catalog={createToolkitI18nCatalog({
             sourceLocale: "en-US",
             messages: {
               agentChat: {
@@ -1278,7 +1278,7 @@ describe("ToolCallDisplay native renderers", () => {
                 },
               },
             },
-          }}
+          })}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}

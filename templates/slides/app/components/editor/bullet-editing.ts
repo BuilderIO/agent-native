@@ -174,7 +174,7 @@ export function isBulletList(el: HTMLElement): boolean {
 }
 
 /** Regex for a markdown-style bullet prefix at the start of a line. */
-const MARKDOWN_BULLET_PREFIX = /^[-*] $/;
+const MARKDOWN_BULLET_PREFIX = /^[-*+] $/;
 
 function markdownBulletPrefixRange(
   el: HTMLElement,
@@ -197,12 +197,11 @@ function markdownBulletPrefixRange(
     }
   }
   if (previousBreak) range.setStartAfter(previousBreak);
-  const typed = range.toString().replaceAll(ZERO_WIDTH_SPACE, "");
+  const typed = range
+    .toString()
+    .replaceAll(ZERO_WIDTH_SPACE, "")
+    .replaceAll("\u00a0", " ");
   return MARKDOWN_BULLET_PREFIX.test(typed) ? { range, previousBreak } : null;
-}
-
-export function hasMarkdownBulletPrefixAtCaret(el: HTMLElement): boolean {
-  return markdownBulletPrefixRange(el) !== null;
 }
 
 /**

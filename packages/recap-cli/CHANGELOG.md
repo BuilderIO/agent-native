@@ -1,5 +1,12 @@
 # @agent-native/recap-cli
 
+## 0.5.54
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- be78352: Embed the PR recap workflow in the package runtime so bundled apps do not look for it in the consumer repository.
+
 ## 0.5.53
 
 ### Patch Changes

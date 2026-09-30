@@ -937,6 +937,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "要還原到這裡嗎？",
   "message.revertQuestion": "要還原到這裡嗎？之後所做的變更將會遺失。",
   "message.restoreRequestFailed": "還原要求失敗。",
+  "message.historyUnavailable": "無法載入變更歷史。",
   "message.threadNotFound":
     "此聊天串已無法使用。請開始新的聊天；如果這是意外情況，也可以重試。",
   "message.restoring": "正在還原...",

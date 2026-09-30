@@ -888,6 +888,8 @@ export interface TiptapComposerProps {
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
   submissionDisabled?: boolean;
+  /** Disable only the send control while the submission is being accepted. */
+  sendButtonDisabled?: boolean;
   /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
@@ -916,6 +918,7 @@ export interface TiptapComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
   /**
@@ -2547,6 +2550,7 @@ export function TiptapComposer({
   disabled = false,
   contextControlsDisabled = false,
   submissionDisabled = false,
+  sendButtonDisabled = false,
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
@@ -2558,6 +2562,7 @@ export function TiptapComposer({
   initialTextKey,
   onSubmit,
   onBeforeSubmit,
+  onSubmissionPendingChange,
   getSubmitFailureDraftScope,
   clearOnSubmit = true,
   clearOnSubmitImmediately = false,
@@ -4242,7 +4247,6 @@ export function TiptapComposer({
             slotReferencesRef.current.length > 0);
         const canPreserveFollowUp =
           preserveFollowUp &&
-          clearedBeforePreflight &&
           !isForkRecovery &&
           hasFollowUp &&
           (currentDraft === null ||
@@ -4329,6 +4333,7 @@ export function TiptapComposer({
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
+        onSubmissionPendingChange?.(true);
         try {
           const shouldSubmit = await onBeforeSubmit();
           if (!shouldSubmit) {
@@ -4350,6 +4355,7 @@ export function TiptapComposer({
           return false;
         } finally {
           submitInFlightRef.current = false;
+          onSubmissionPendingChange?.(false);
         }
       }
       if (
@@ -4497,6 +4503,7 @@ export function TiptapComposer({
         submitInFlightRef.current = true;
         let locallySubmitted = false;
         let settled = false;
+        onSubmissionPendingChange?.(true);
         const clearSubmittedComposer = () => {
           if (clearOnSubmit) {
             clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
@@ -4574,7 +4581,7 @@ export function TiptapComposer({
           );
         } catch (error) {
           if (locallySubmitted) {
-            restoreSubmittedDraft();
+            restoreSubmittedDraft(true);
             return true;
           }
           restoreSubmittedDraft(true);
@@ -4592,6 +4599,7 @@ export function TiptapComposer({
         } finally {
           settled = true;
           submitInFlightRef.current = false;
+          onSubmissionPendingChange?.(false);
         }
 
         if (!isCurrentDraftScope()) {
@@ -4684,6 +4692,7 @@ export function TiptapComposer({
       clearOnSubmitImmediately,
       getSubmitFailureDraftScope,
       onBeforeSubmit,
+      onSubmissionPendingChange,
       extractComposerPayload,
       syncComposerState,
       updateSlotReferences,
@@ -5391,7 +5400,7 @@ export function TiptapComposer({
                   <button
                     type="button"
                     onClick={() => void submitComposer("immediate")}
-                    disabled={!canSend}
+                    disabled={!canSend || sendButtonDisabled}
                     aria-label={sendButtonTooltip}
                     data-agent-composer-slot="send-button"
                     className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"

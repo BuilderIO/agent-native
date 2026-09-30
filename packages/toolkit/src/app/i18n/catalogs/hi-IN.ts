@@ -980,6 +980,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
   "message.revertQuestion": "इस बिंदु पर वापस जाएँ? इसके बाद किए गए बदलाव खो जाएँगे।",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
+  "message.historyUnavailable": "बदलावों का इतिहास लोड नहीं हो सका।",
   "message.threadNotFound":
     "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",

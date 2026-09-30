@@ -51,6 +51,25 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.4
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- 7a25922: Support Manual and Automatic Gong MCP OAuth registration.
+- df67544: Keep icon upload validation and transfer errors visible in the shared picker, with localized feedback for unsupported image formats and failed uploads.
+- c82ae28: Resolve migrated Labs choices against existing feature flag settings while preserving explicit Off and showing inherited mixed settings.
+- Release all public npm packages with a patch version bump.
+- df67544: Store uploaded icons in private blobs with scoped metadata and verified image reads.
+- a24f1d7: Route raw database queries through the active Drizzle transaction.
+- 20d3bb8: Restore typed workspace connection requests when chat resumes OAuth or a custom credential resolver finds no connection.
+- Updated dependencies [85a87e6]
+- Updated dependencies
+- Updated dependencies [20d3bb8]
+- Updated dependencies [be78352]
+  - @agent-native/agentkit@0.198.4
+  - @agent-native/recap-cli@0.5.54
+
 ## 0.198.3
 
 ### Patch Changes
@@ -3641,11 +3660,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
-
-## 0.164.19
-
-### Patch Changes
-
-- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

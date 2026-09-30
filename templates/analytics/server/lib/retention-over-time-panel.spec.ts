@@ -39,11 +39,12 @@ async function seedFirstSeenEvent(
   client: PGliteClient,
   userKey: string,
   date: string,
+  template = "chat",
 ) {
   await client.query(
     `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, signed_in)
-     VALUES ($1, 'session status', $2, $3, $4, $4, 'chat', 'true')`,
-    [`row-${nextRowId++}`, `${userKey}@example.com`, userKey, date],
+     VALUES ($1, 'session status', $2, $3, $4, $4, $5, 'true')`,
+    [`row-${nextRowId++}`, `${userKey}@example.com`, userKey, date, template],
   );
 }
 
@@ -124,6 +125,53 @@ describe("retention-over-time panel SQL", () => {
 
     expect(row(cohortBDate, "1-7d return").rate).not.toBeNull();
     expect(row(cohortBDate, "7-14d return").rate).toBeNull();
+  });
+
+  it("scopes both current activity and prior cohort history to the selected App", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(today, 17);
+    const priorDate = offsetDate(today, 40);
+
+    for (let index = 0; index < 5; index++) {
+      await seedFirstSeenEvent(client, `chat-${index}`, cohortDate);
+      await seedFirstSeenEvent(client, `chat-${index}`, priorDate, "mail");
+      await seedFirstSeenEvent(client, `mail-${index}`, cohortDate, "mail");
+      await seedFirstSeenEvent(client, `mail-${index}`, returnDate, "mail");
+      if (index < 3) {
+        await seedFirstSeenEvent(client, `chat-${index}`, returnDate);
+      }
+    }
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "custom",
+      timeRangeStart: cohortDate,
+      timeRangeEnd: returnDate,
+      emailFilter: "all",
+      appFilter: "chat",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number;
+          rate: number;
+        }>;
+      }
+    ).rows;
+    expect(
+      rows.find(
+        (row) => row.date === cohortDate && row.period === "1-7d return",
+      ),
+    ).toMatchObject({ cohort_users: 5, retained_users: 3, rate: 0.6 });
   });
 
   it("sizes a bounded spine to the same calendar days as the shared time-range filter", async () => {

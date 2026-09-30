@@ -3627,8 +3627,10 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).not.toContain("@agent-native/core > @uiw/react-codemirror");
     expect(deps).toContain("@agent-native/toolkit > @xterm/xterm");
     expect(deps).not.toContain("@agent-native/core > @xterm/xterm");
-    expect(deps).toContain("@agent-native/core > i18next");
-    expect(deps).toContain("@agent-native/core > react-i18next");
+    expect(deps).toContain("@agent-native/toolkit > i18next");
+    expect(deps).not.toContain("@agent-native/core > i18next");
+    expect(deps).toContain("@agent-native/toolkit > react-i18next");
+    expect(deps).not.toContain("@agent-native/core > react-i18next");
     expect(deps).toContain("@agent-native/toolkit > shiki/core");
     expect(deps).toContain("@paper-design/shaders-react");
     expect(deps).not.toContain(
@@ -3853,7 +3855,7 @@ describe("local-core dev aliases and router dedupe", () => {
       const aliases =
         (
           config.resolve as {
-            alias?: Array<{ find: RegExp; replacement: string }>;
+            alias?: Array<{ find: string | RegExp; replacement: string }>;
           }
         )?.alias ?? [];
 
@@ -3861,8 +3863,12 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(
         aliases.some(
           (alias) =>
-            alias.find.test("@agent-native/core/client/i18n") &&
-            alias.replacement.endsWith("src/client/i18n.tsx"),
+            (alias.find instanceof RegExp
+              ? alias.find.test("@agent-native/core/client/i18n")
+              : alias.find === "@agent-native/core/client/i18n") &&
+            alias.replacement
+              .replace(/\\/g, "/")
+              .endsWith("src/client/i18n.tsx"),
         ),
       ).toBe(true);
     } finally {

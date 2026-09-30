@@ -48,4 +48,18 @@ describe("the recap installer workflow", () => {
 
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toBe(source);
   });
+
+  it("embeds the workflow in the published runtime module", () => {
+    const source = readFileSync(
+      path.join(
+        repoRoot,
+        "packages/recap-cli/dist/pr-visual-recap-workflow.js",
+      ),
+      "utf8",
+    );
+
+    expect(source).toBe(
+      `export const PR_VISUAL_RECAP_WORKFLOW_YML = ${JSON.stringify(PR_VISUAL_RECAP_WORKFLOW_YML)};\n`,
+    );
+  });
 });

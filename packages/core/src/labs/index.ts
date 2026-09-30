@@ -2,6 +2,7 @@ export {
   defineLab,
   defineLabs,
   getLabDefinition,
+  getLabForLegacyFlag,
   listLabs,
   registerLabs,
   type LabDefinition,

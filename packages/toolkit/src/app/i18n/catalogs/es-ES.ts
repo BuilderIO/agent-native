@@ -754,6 +754,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "¿Volver a este punto? Se perderán los cambios posteriores.",
   "message.restoreRequestFailed": "Error en la solicitud de restauración.",
+  "message.historyUnavailable": "No se pudo cargar el historial de cambios.",
   "message.threadNotFound":
     "Este hilo de chat ya no está disponible. Inicia un chat nuevo o inténtalo de nuevo si esto no era esperado.",
   "message.restoring": "Restaurando...",

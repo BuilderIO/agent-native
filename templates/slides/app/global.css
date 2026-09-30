@@ -1144,6 +1144,23 @@ button[title="Open agent sidebar"] {
   line-height: inherit;
 }
 
+.slide-content[data-slide-content-scope]
+  code[data-slide-authoring-format="code"] {
+  font-size: 0.88em;
+  line-height: inherit;
+  padding: 0.12em 0.32em;
+  white-space: inherit;
+}
+
+.slide-content[data-slide-content-scope]
+  blockquote[data-slide-authoring-format="quote"] {
+  font-size: inherit;
+  line-height: inherit;
+  font-style: inherit;
+  margin: 0;
+  opacity: 1;
+}
+
 .slide-content .fmd-slide p,
 .slide-content .fmd-slide li {
   margin: 0;

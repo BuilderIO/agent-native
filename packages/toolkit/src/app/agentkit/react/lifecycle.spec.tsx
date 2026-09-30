@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentChat } from "./chat.js";
 import {
   AgentActivityGroup,
+  AgentConnectionRequestCard,
   AgentKitChat,
   AgentMessageActions,
   formatAgentKitDuration,
@@ -3634,6 +3635,47 @@ describe("AgentKit subscriptions and recovery", () => {
         connectionId: "workspace-slack",
       },
     });
+  });
+
+  it("leaves a workspace request pending while its connection callback redirects", async () => {
+    const threadId = "thread-workspace-connection";
+    const store = observableController({
+      connection: "connected",
+      capabilities: { connectionRequests: true },
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: createAgentThreadState(threadId) },
+      revision: 1,
+    });
+    const request = {
+      id: "connection-google-drive",
+      provider: "google_drive",
+      reason: "connect" as const,
+      status: "requested" as const,
+    };
+    const onConnect = vi.fn(async () => undefined);
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={store.controller} threadId={threadId}>
+        <AgentConnectionRequestCard
+          request={request}
+          runId="run-1"
+          providerLabel="Google Drive"
+          onConnect={onConnect}
+        />
+      </AgentKitProvider>,
+    );
+    const button = Array.from(tree.container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent === "Connect",
+    );
+    await act(async () => {
+      button?.click();
+      await Promise.resolve();
+    });
+
+    expect(tree.container.textContent).toContain("Connect Google Drive");
+    expect(onConnect).toHaveBeenCalledWith(request);
+    expect(store.controller.resolveConnectionRequest).not.toHaveBeenCalled();
   });
 
   it("renders a pre-connection-request controller projection", async () => {

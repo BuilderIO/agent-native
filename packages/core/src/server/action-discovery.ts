@@ -499,6 +499,10 @@ export async function mergeCoreSharingActions(
       () => import("../org/actions/list-workspace-app-access.js"),
     ],
     [
+      "list-workspace-icons",
+      () => import("../org/actions/list-workspace-icons.js"),
+    ],
+    [
       "set-workspace-app-access",
       () => import("../org/actions/set-workspace-app-access.js"),
     ],
@@ -611,6 +615,7 @@ export async function mergeCoreSharingActions(
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
     ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["get-lab-states", () => import("../labs/actions/get-lab-states.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
       "get-chatgpt-subscription-status",

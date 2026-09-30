@@ -2178,7 +2178,13 @@ describe("TiptapComposer slash commands", () => {
       resolveSubmit = resolve;
     });
     const onBeforeSubmit = vi.fn(() => preflight);
-    const onSubmit = vi.fn(() => submission);
+    const onSubmissionPendingChange = vi.fn();
+    const onSubmit = vi.fn<NonNullable<TiptapComposerProps["onSubmit"]>>(
+      async (_text, _references, _attachments, options) => {
+        await submission;
+        options?.onLocalSubmit?.();
+      },
+    );
     const focusRef = React.createRef<TiptapComposerHandle>();
 
     function Harness() {
@@ -2192,6 +2198,7 @@ describe("TiptapComposer slash commands", () => {
           React.createElement(TiptapComposer, {
             focusRef,
             onBeforeSubmit,
+            onSubmissionPendingChange,
             onSubmit,
             clearOnSubmitImmediately: true,
             includeDefaultSlashSkills: false,
@@ -2221,6 +2228,7 @@ describe("TiptapComposer slash commands", () => {
 
     expect(editor.textContent).toBe("");
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmissionPendingChange).toHaveBeenLastCalledWith(true);
     act(() => focusRef.current?.setText("follow-up prompt"));
 
     await act(async () => {
@@ -2237,6 +2245,8 @@ describe("TiptapComposer slash commands", () => {
     );
     expect(editor.textContent).toBe("follow-up prompt");
     await act(async () => resolveSubmit());
+    expect(editor.textContent).toBe("follow-up prompt");
+    expect(onSubmissionPendingChange).toHaveBeenLastCalledWith(false);
   });
 
   it("restores a prompt when async preflight declines it", async () => {
@@ -2349,10 +2359,11 @@ describe("TiptapComposer slash commands", () => {
 
   it("clears immediately while submitting and restores the draft on failure", async () => {
     let rejectSubmit!: (error: Error) => void;
-    const onSubmit = vi.fn(
-      () =>
+    const onSubmit = vi.fn<NonNullable<TiptapComposerProps["onSubmit"]>>(
+      (_text, _references, _attachments, options) =>
         new Promise<void>((_resolve, reject) => {
           rejectSubmit = reject;
+          options?.onLocalSubmit?.();
         }),
     );
     const focusRef = React.createRef<TiptapComposerHandle>();
@@ -2396,6 +2407,7 @@ describe("TiptapComposer slash commands", () => {
 
     expect(onSubmit).toHaveBeenCalledOnce();
     expect(editor.textContent).toBe("");
+    act(() => focusRef.current?.setText("follow-up prompt"));
 
     await act(async () => {
       rejectSubmit(new Error("network unavailable"));
@@ -2403,7 +2415,17 @@ describe("TiptapComposer slash commands", () => {
       await Promise.resolve();
     });
 
-    expect(editor.textContent).toBe("send this once");
+    expect(
+      [...editor.querySelectorAll("p")].map(
+        (paragraph) => paragraph.textContent,
+      ),
+    ).toEqual(["send this once", "follow-up prompt"]);
+    expect(localStorage.getItem(getComposerDraftKey())).toContain(
+      "send this once",
+    );
+    expect(localStorage.getItem(getComposerDraftKey())).toContain(
+      "follow-up prompt",
+    );
   });
 
   it("restores the persisted draft when an immediate submit fails after unmount", async () => {

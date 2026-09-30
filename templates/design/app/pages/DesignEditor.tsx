@@ -23,7 +23,6 @@ import {
   type AttributedRecentEdit,
   type OtherPresence,
 } from "@agent-native/core/client/collab";
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
   useActionMutation,
@@ -122,16 +121,19 @@ import {
   propNameToDataAttribute,
 } from "@shared/component-model";
 import { getOverviewScreenFileIds } from "@shared/design-files";
-import { DESIGN_REVIEW_PANEL } from "@shared/design-flags";
 import type { A11yFinding } from "@shared/design-review";
 import {
   DESIGN_CAPABILITY_NAMES,
   hasCapability,
 } from "@shared/design-source-capabilities";
-import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
+import { readFusionApp } from "@shared/full-app";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
-import { DESIGN_TWEAKS } from "@shared/labs";
+import {
+  DESIGN_REVIEW_TOOLS_LAB,
+  DESIGN_TWEAKS,
+  FULL_APP_BUILDING_LAB,
+} from "@shared/labs";
 import type { LayoutGrid } from "@shared/layout-grid";
 import { readLiteralJsxPropsAtAnchor } from "@shared/local-jsx-visual-edit";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
@@ -1460,7 +1462,7 @@ function DesignEditor() {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -9054,8 +9056,8 @@ function DesignEditor() {
     setBuilderHostConfirmed(true);
   }, [fusionApp?.source]);
 
-  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
-  const designReviewPanelEnabled = useFeatureFlag(DESIGN_REVIEW_PANEL.key);
+  const fullAppBuildingEnabled = useLab(FULL_APP_BUILDING_LAB);
+  const designReviewPanelEnabled = useLab(DESIGN_REVIEW_TOOLS_LAB);
 
   useEffect(() => {
     if (!tweaksEnabled && activeInspectorTab === "tweaks") {
@@ -17732,6 +17734,9 @@ function DesignEditor() {
     if (restored.length > 0) return restored;
     return activeFileId && fileIds.has(activeFileId) ? [activeFileId] : [];
   }, [activeFileId, files]);
+  const rememberOverviewScreenSelection = useCallback((screenId: string) => {
+    lastOverviewSelectedScreenIdsRef.current = [screenId];
+  }, []);
 
   const enterOverviewFromZoom = useCallback(
     (nextMode?: EditorMode) => {
@@ -17876,6 +17881,7 @@ function DesignEditor() {
           setMode,
           setPinMode,
           setSelectedElement,
+          rememberOverviewScreenSelection,
           overviewInteractScreenId,
           setOverviewInteractScreenId,
           t,
@@ -17896,6 +17902,7 @@ function DesignEditor() {
       enterSingleScreen,
       requestPendingLiveNonStyleRevert,
       requestPendingVisualStyleRevert,
+      rememberOverviewScreenSelection,
       t,
       files,
       overviewInteractScreenId,
@@ -23196,8 +23203,16 @@ function DesignEditor() {
     return [...paths];
   }, [overviewScreens]);
   const addLocalhostScreenPosition = useMemo(
-    () => nextLocalhostScreenPosition(canvasFrameGeometryById),
-    [canvasFrameGeometryById],
+    () =>
+      nextLocalhostScreenPosition(canvasFrameGeometryById, {
+        screenFileIds: overviewScreens.map((screen) => screen.id),
+        screenMetadataByFileId: getDesignDataRecord(
+          designDataJson,
+          "screenMetadata",
+        ),
+        breakpointWidths: overviewScreens[0]?.breakpointWidths,
+      }),
+    [canvasFrameGeometryById, designDataJson, overviewScreens],
   );
   const handleAddScreenAffordance = useCallback(() => {
     if (designSourceType === "localhost") {

@@ -799,6 +799,11 @@ const messages = {
     agentTitle: "إدارة الوكيل",
     pageTitle: "الإعدادات · Clips",
     labs: "Labs",
+    labResilientRecording: "تسجيل مرن",
+    labResilientRecordingDescription:
+      "جرّب رفع التسجيلات بسرعة أكبر واستعادتها بصورة أفضل بعد الانقطاع.",
+    labResilientRecordingMixedDescription:
+      "لا تزال إعدادات التسجيل السابقة سارية. اختر تشغيل أو إيقاف لاستخدام إعداد واحد.",
     labsIntro:
       "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     labVideoEditing: "تحرير الفيديو",
@@ -1940,6 +1945,8 @@ const messages = {
     retry: "إعادة المحاولة",
     retrying: "جارٍ إعادة المحاولة…",
     retryFailed: "تعذّرت إعادة محاولة هذا الرفع.",
+    retryCheckFailed:
+      "تعذّر التحقق مما إذا كان يمكن إعادة محاولة هذا الرفع. حدّث الصفحة للمحاولة مجددًا.",
     retryUnavailableHere:
       "لا تتوفر إعادة المحاولة إلا على الجهاز أو المتصفح الذي تم التسجيل عليه.",
     viewsCount: "{{count}} مشاهدة",

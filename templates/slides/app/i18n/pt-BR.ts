@@ -304,6 +304,21 @@ const messages = {
     importing: "Importando...",
     importFile: "Importar arquivo",
     downloadBackup: "Baixar backup",
+    conflictStatus: "Conflito de texto",
+    conflictStatusDescription:
+      "Revise o texto em conflito antes de salvar outras alterações.",
+    reviewConflict: "Revisar conflito",
+    conflictTitle: "Conflito de texto no slide {{number}}",
+    conflictDescription:
+      "Outra versão alterou este slide enquanto você editava o texto.",
+    conflictChoicesDescription:
+      "Manter seu texto o salva sobre a versão mais recente. Usar o texto salvo substitui apenas o rascunho local deste slide.",
+    conflictBackupDescription:
+      "Este rascunho da apresentação inteira não pode ser resolvido slide por slide. Baixe um backup para guardá-lo.",
+    conflictResolveFailed:
+      "Não foi possível resolver o conflito. Seu rascunho continua disponível neste dispositivo.",
+    conflictKeepMine: "Manter meu texto",
+    conflictUseLatest: "Usar o texto salvo",
     importBackup: "Importar backup",
     backupDownloaded: "Backup baixado",
     backupDownloadFailed: "Não foi possível baixar o backup",
@@ -402,6 +417,8 @@ const messages = {
     orderedList: "Lista ordenada",
     quote: "Citação",
     blockquote: "Bloco de citação",
+    divider: "Separador",
+    horizontalRule: "Linha horizontal",
   },
   comments: {
     deleteComment: "Excluir comentário",
@@ -622,9 +639,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "Tentar novamente",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "Não foi possível carregar as versões salvas.",
+    snapshotLoadFailed: "Não foi possível carregar esta versão salva.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",
