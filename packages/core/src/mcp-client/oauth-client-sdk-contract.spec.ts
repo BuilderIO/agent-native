@@ -21,6 +21,7 @@ const REDIRECT_URL =
   "https://app.example.com/_agent-native/mcp/servers/oauth/callback";
 
 let activeServer: http.Server | undefined;
+let lastRegistrationMetadata: Record<string, unknown> | undefined;
 const previousPrivateOrigins = process.env[PRIVATE_ORIGINS_ENV];
 
 afterEach(async () => {
@@ -28,6 +29,7 @@ afterEach(async () => {
     await new Promise<void>((resolve) => activeServer!.close(() => resolve()));
     activeServer = undefined;
   }
+  lastRegistrationMetadata = undefined;
   if (previousPrivateOrigins === undefined) {
     delete process.env[PRIVATE_ORIGINS_ENV];
   } else {
@@ -36,9 +38,11 @@ afterEach(async () => {
 });
 
 async function startAuthorizationServer(
-  extraMetadata: Record<string, unknown>,
+  extraMetadata:
+    | Record<string, unknown>
+    | ((origin: string) => Record<string, unknown>),
 ): Promise<string> {
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const json = (body: unknown) => {
       res.writeHead(200, { "content-type": "application/json" });
@@ -49,13 +53,30 @@ async function startAuthorizationServer(
       return;
     }
     if (req.url?.startsWith("/.well-known/oauth-authorization-server")) {
+      const overrides =
+        typeof extraMetadata === "function"
+          ? extraMetadata(origin)
+          : extraMetadata;
       json({
         issuer: origin,
         authorization_endpoint: `${origin}/authorize`,
         token_endpoint: `${origin}/token`,
         response_types_supported: ["code"],
         code_challenge_methods_supported: ["S256"],
-        ...extraMetadata,
+        ...overrides,
+      });
+      return;
+    }
+    if (req.url === "/register" && req.method === "POST") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      lastRegistrationMetadata = JSON.parse(
+        Buffer.concat(chunks).toString("utf8"),
+      ) as Record<string, unknown>;
+      json({
+        ...lastRegistrationMetadata,
+        client_id: "mcp-client",
+        client_secret: "mcp-client-secret",
       });
       return;
     }
@@ -70,6 +91,32 @@ async function startAuthorizationServer(
 }
 
 describe("MCP SDK registration contract", () => {
+  it("registers with a token auth method supported by the Gong server", async () => {
+    const origin = await startAuthorizationServer((issuer) => ({
+      registration_endpoint: `${issuer}/register`,
+      token_endpoint_auth_methods_supported: [
+        "client_secret_basic",
+        "client_secret_post",
+      ],
+    }));
+
+    const result = await startMcpOAuthAuthorization({
+      serverUrl: `${origin}/mcp`,
+      redirectUrl: REDIRECT_URL,
+      state: "<STATE>",
+    });
+
+    expect(lastRegistrationMetadata).toMatchObject({
+      token_endpoint_auth_method: "client_secret_basic",
+    });
+    expect(result.clientInformation).toMatchObject({
+      client_id: "mcp-client",
+      client_secret: "mcp-client-secret",
+      token_endpoint_auth_method: "client_secret_basic",
+    });
+    expect(result.authorizationUrl.origin).toBe(origin);
+  }, 30_000);
+
   it("cannot reach authorization via CIMD without a client metadata URL", async () => {
     const origin = await startAuthorizationServer({
       client_id_metadata_document_supported: true,

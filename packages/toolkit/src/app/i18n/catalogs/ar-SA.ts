@@ -789,7 +789,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "مكالمات المبيعات، والنصوص المفرّغة، ورؤى الصفقات، وملخصات الحسابات",
   "mcpIntegrations.catalog.gong.setupNote":
-    "يتطلب Gong أن ينشئ مسؤول تقني تكامل MCP ويختار تفويضًا شخصيًا أو مشتركًا. يجب إعداد معرّف العميل والسر الناتجين قبل الربط.",
+    "يجب أن ينشئ المسؤول التقني في Gong تكامل MCP مع تفويض شخصي أو مشترك. للتسجيل اليدوي، احفظ معرّف العميل والسر الناتجين كسرّي مساحة العمل `GONG_MCP_CLIENT_ID` و`GONG_MCP_CLIENT_SECRET`؛ أما التسجيل التلقائي فلا يحتاج إلى بيانات اعتماد للعميل.",
   "mcpIntegrations.catalog.semgrep.description":
     "فحص التعليمات البرمجية بحثًا عن مشكلات أمنية.",
   "mcpIntegrations.catalog.semgrep.useCase":
