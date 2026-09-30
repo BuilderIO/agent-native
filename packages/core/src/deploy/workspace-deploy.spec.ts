@@ -25,6 +25,7 @@ let previousNetlify: string | undefined;
 let previousNetlifyLocal: string | undefined;
 let previousIntegrationDurableDispatch: string | undefined;
 let previousDisableRecurringJobs: string | undefined;
+let previousFrameworkRoutePrefix: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
@@ -71,6 +72,8 @@ beforeEach(() => {
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
   previousDisableRecurringJobs =
     process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
+  previousFrameworkRoutePrefix =
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
   previousViteWorkspaceAppsJson =
@@ -107,6 +110,7 @@ beforeEach(() => {
   delete process.env.NETLIFY_LOCAL;
   delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
   delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
+  delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -143,6 +147,10 @@ afterEach(() => {
   restoreEnv(
     "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
     previousDisableRecurringJobs,
+  );
+  restoreEnv(
+    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+    previousFrameworkRoutePrefix,
   );
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
@@ -204,6 +212,63 @@ describe("workspace deploy", () => {
       VITE_AGENT_NATIVE_FEEDBACK_URL:
         "https://feedback.example.com/f/workspace/form-id",
     });
+  });
+
+  it("omits an empty framework route prefix that older app Cores reject", async () => {
+    // The root build leaves an empty prefix behind; apps pinned to an older
+    // Core throw on any config env key they do not know, even an empty one.
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    for (const app of ["dispatch", "starter"]) {
+      expect(buildCallForApp(app)?.env).not.toHaveProperty(
+        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      );
+    }
+    const entries = generatedFunctionEntries(tmpDir);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(fs.readFileSync(entry, "utf8")).not.toContain(
+        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      );
+    }
+  });
+
+  it("forwards a configured framework route prefix to app builds and functions", async () => {
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      " /_platform ";
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(buildCallForApp("dispatch")?.env).toMatchObject({
+      AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_platform",
+    });
+    const serverEntry = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "dispatch-server",
+        "dispatch-server.mjs",
+      ),
+      "utf8",
+    );
+    expect(serverEntry).toContain(
+      '"AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX":"/_platform"',
+    );
   });
 
   it("builds direct-child apps with isolated workspace auth", async () => {
@@ -1925,6 +1990,18 @@ function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
     path.join(functionDir, ".vc-config.json"),
     JSON.stringify({ handler: "index.mjs", runtime: "nodejs24.x" }),
   );
+}
+
+function generatedFunctionEntries(workspaceRoot: string): string[] {
+  const functionsDir = path.join(
+    workspaceRoot,
+    ".netlify",
+    "functions-internal",
+  );
+  return fs
+    .readdirSync(functionsDir, { recursive: true, encoding: "utf8" })
+    .filter((entry) => entry.endsWith(".mjs"))
+    .map((entry) => path.join(functionsDir, entry));
 }
 
 function buildCallForApp(app: string): { env?: NodeJS.ProcessEnv } | undefined {

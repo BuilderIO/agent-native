@@ -70,6 +70,16 @@ function workspaceFrameworkRoutePrefixEnv(): string {
   );
 }
 
+// Workspace apps may pin an older Core than the root, and those Cores reject
+// config env keys they do not know even when the value is empty. Forward the
+// prefix only when one is configured; an empty value already means the default.
+function workspaceFrameworkRoutePrefixEnvEntries(): Record<string, string> {
+  const prefix = workspaceFrameworkRoutePrefixEnv();
+  return prefix
+    ? { AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: prefix }
+    : {};
+}
+
 function workspaceFrameworkRoutePrefix(): string {
   return normalizeFrameworkRoutePrefix(
     workspaceFrameworkRoutePrefixEnv() || undefined,
@@ -351,8 +361,6 @@ function buildOneApp(
       : {}),
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX:
-      workspaceFrameworkRoutePrefixEnv(),
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
       workspaceAppRouteAccess.publicPaths,
@@ -383,6 +391,10 @@ function buildOneApp(
       : {}),
     [WORKSPACE_APPS_ENV_KEY]: JSON.stringify(workspaceApps),
   };
+  // The root build leaves an empty prefix in process.env; drop it before
+  // forwarding only a configured one.
+  delete env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+  Object.assign(env, workspaceFrameworkRoutePrefixEnvEntries());
 
   if (preset === "netlify" && appUsesNetlifyUnpooledDatabaseUrl(appDir)) {
     env.DATABASE_URL =
@@ -994,7 +1006,7 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
+    ...${JSON.stringify(workspaceFrameworkRoutePrefixEnvEntries())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
@@ -1102,7 +1114,7 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
+    ...${JSON.stringify(workspaceFrameworkRoutePrefixEnvEntries())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
@@ -1251,7 +1263,7 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
+    ...${JSON.stringify(workspaceFrameworkRoutePrefixEnvEntries())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
@@ -1328,7 +1340,7 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
+    ...${JSON.stringify(workspaceFrameworkRoutePrefixEnvEntries())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
