@@ -11,8 +11,6 @@ import {
   CODE_AGENT_CONVERSATION_MEDIA_TYPE,
   createCodeAgentAgentKitRuntime,
   startCodeAgentExternalTranscriptBridge,
-  type CodeAgentChatController,
-  type CodeAgentChatTranscriptEvent,
 } from "./code-agent-agentkit-runtime.js";
 
 function event(

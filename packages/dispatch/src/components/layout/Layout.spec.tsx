@@ -12,7 +12,7 @@ import {
   dispatchNavLinkTarget,
   formatThreadAge,
   isElectronEmbeddedSearch,
-  isSettingsShellPath,
+  isRedesignedSettingsPath,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
@@ -30,7 +30,10 @@ const clientState = vi.hoisted(() => ({
     .mockResolvedValue({ startUrl: "about:blank" }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
@@ -46,10 +49,20 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     renameThread: vi.fn(),
     refreshThreads: vi.fn(),
   }),
+  useChatModels: () => ({
+    availableModels: [],
+    defaultModel: "auto",
+    selectedModel: "auto",
+    selectedEngine: "auto",
+    selectedEffort: "medium",
+    setSelectedModel: vi.fn(),
+  }),
 }));
 
 vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
+  AgentChatSurface: () => null,
+  AgentToggleButton: () => null,
   AgentSidebar: ({ children }: { children: React.ReactNode }) => (
     <div data-agent-sidebar>{children}</div>
   ),
@@ -67,7 +80,8 @@ vi.mock("@agent-native/core/client/api-path", () => ({
       : path,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionQuery: (action: string) => ({
     data:
       action === "list-workspace-apps" ? clientState.workspaceApps : undefined,
@@ -204,14 +218,34 @@ describe("Dispatch workspace app sidebar", () => {
 
 describe("Dispatch Settings frame", () => {
   it("drops the Dispatch chrome on Settings", () => {
-    expect(isSettingsShellPath("/settings")).toBe(true);
-    expect(isSettingsShellPath("/settings/members")).toBe(true);
-    expect(isSettingsShellPath("/settings/app")).toBe(true);
+    const settingsEnabled = { enabled: true, status: "ready" } as const;
+    expect(isRedesignedSettingsPath("/settings", settingsEnabled)).toBe(true);
+    expect(isRedesignedSettingsPath("/settings/members", settingsEnabled)).toBe(
+      true,
+    );
+    expect(isRedesignedSettingsPath("/settings/app", settingsEnabled)).toBe(
+      true,
+    );
+    expect(
+      isRedesignedSettingsPath("/settings", {
+        enabled: false,
+        status: "loading",
+      }),
+    ).toBe(true);
   });
 
   it("keeps the Dispatch chrome off Settings", () => {
-    expect(isSettingsShellPath("/admin")).toBe(false);
-    expect(isSettingsShellPath("/apps/mail/settings")).toBe(false);
+    const settingsEnabled = { enabled: true, status: "ready" } as const;
+    expect(isRedesignedSettingsPath("/admin", settingsEnabled)).toBe(false);
+    expect(
+      isRedesignedSettingsPath("/apps/mail/settings", settingsEnabled),
+    ).toBe(false);
+    expect(
+      isRedesignedSettingsPath("/settings", {
+        enabled: false,
+        status: "unavailable",
+      }),
+    ).toBe(false);
   });
 });
 
@@ -746,11 +780,7 @@ function readMobileZIndexClass(className: string): number | null {
 
 describe("chat-first surface panel toggle stacking", () => {
   it("keeps the toggle above the mobile full-screen surface panel overlay", async () => {
-    const { ChatFirstSurfacePanelToggle: RealChatFirstSurfacePanelToggle } =
-      await vi.importActual<
-        typeof import("@agent-native/core/client/agent-chat")
-      >("@agent-native/core/client/agent-chat");
-    const { ChatFirstSurfacePanel } =
+    const { ChatFirstSurfacePanel, ChatFirstSurfacePanelToggle } =
       await import("@agent-native/toolkit/app/chat/chat-first");
 
     const container = document.createElement("div");
@@ -763,7 +793,7 @@ describe("chat-first surface panel toggle stacking", () => {
           <ChatFirstSurfacePanel width={320} onResizePointerDown={() => {}}>
             <div>side surface content</div>
           </ChatFirstSurfacePanel>
-          <RealChatFirstSurfacePanelToggle
+          <ChatFirstSurfacePanelToggle
             open={false}
             onToggle={() => {}}
             className={CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME}

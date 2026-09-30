@@ -46,7 +46,7 @@ const sharesData = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../use-action.js", () => ({
+vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: () => ({
     data: sharesData.current,
     isError: sharesError.current,

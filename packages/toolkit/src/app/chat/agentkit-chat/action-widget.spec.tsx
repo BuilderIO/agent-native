@@ -11,22 +11,37 @@ import {
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
 } from "@agent-native/core/action-ui";
-import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import {
+  AgentNativeI18nProvider as CoreAgentNativeI18nProvider,
+  type AgentNativeI18nProviderProps,
+} from "@agent-native/core/client/i18n";
 import {
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
 } from "@agent-native/core/data-widgets";
-import { AgentKitProvider } from "@agent-native/toolkit/app/agentkit/react/context";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { AgentKitProvider } from "../../agentkit/react/context.js";
+import { createToolkitI18nCatalog } from "../../i18n.js";
 import {
   registerActionChatRenderer,
   type ToolRendererProps,
 } from "../chat/tool-render-registry.js";
 import { AgentKitActionWidget } from "./action-widget.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+
+function AgentNativeI18nProvider(props: AgentNativeI18nProviderProps) {
+  return (
+    <CoreAgentNativeI18nProvider
+      {...props}
+      catalog={props.catalog ?? toolkitI18nCatalog}
+    />
+  );
+}
 
 describe("AgentKitActionWidget", () => {
   it("resolves the renderer with stored action args and structured result", async () => {
