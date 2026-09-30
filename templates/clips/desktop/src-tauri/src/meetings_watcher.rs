@@ -227,9 +227,9 @@ impl MeetingsWatcherState {
         Ok(())
     }
 
-    pub fn request_refresh(&self) {
+    pub fn invalidate_cache(&self) {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        g.request_refresh();
+        g.invalidate_cache();
     }
 
     fn fetch_due(&self, now_ts: i64) -> Option<u64> {
@@ -329,13 +329,24 @@ impl MeetingsWatcherState {
         due
     }
 
-    fn mark_notified(&self, due: &[(MeetingItem, i64)]) {
+    /// Marks the alerts about to be delivered and returns them, dropping any
+    /// the user snoozed after `due_alerts` ran so the snooze isn't overwritten.
+    fn mark_notified(&self, due: Vec<(MeetingItem, i64)>, now_ts: i64) -> Vec<(MeetingItem, i64)> {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        for (m, _) in due {
+        let mut delivered = Vec::with_capacity(due.len());
+        for (m, secs_until) in due {
+            if g.snoozed_until
+                .get(&m.id)
+                .is_some_and(|until| now_ts < *until)
+            {
+                continue;
+            }
             if let Some(start) = m.scheduled_start.clone() {
                 g.notified.insert(m.id.clone(), start);
             }
+            delivered.push((m, secs_until));
         }
+        delivered
     }
 
     pub(crate) fn should_poll(
@@ -713,8 +724,8 @@ async fn notify_due_meetings(
     if !config.meetings_enabled {
         return;
     }
-    state.mark_notified(&due);
-    for (m, secs_until) in due {
+    let now_ts = chrono::Utc::now().timestamp();
+    for (m, secs_until) in state.mark_notified(due, now_ts) {
         if config.meeting_transcription_mode == MeetingTranscriptionMode::Manual
             && !config.show_meeting_widget_enabled
         {
@@ -1111,7 +1122,7 @@ mod tests {
         let now_ts = 1_000_000;
         let generation = state.fetch_due(now_ts).expect("due");
 
-        state.request_refresh();
+        state.resume_polling();
 
         let fresh = Ok(FetchOutcome::Fetched(vec![meeting("a", None)]));
         assert!(state.finish_fetch(generation, now_ts, fresh).is_some());
@@ -1194,7 +1205,7 @@ mod tests {
 
         let due = state.due_alerts(now);
         assert_eq!(due.len(), 1);
-        state.mark_notified(&due);
+        assert_eq!(state.mark_notified(due, now.timestamp()).len(), 1);
         assert!(state.due_alerts(now).is_empty());
 
         let moved = start + chrono::Duration::seconds(15);
@@ -1205,6 +1216,25 @@ mod tests {
             Ok(FetchOutcome::Fetched(vec![meeting("m", Some(moved))])),
         );
         assert_eq!(state.due_alerts(now).len(), 1);
+    }
+
+    #[test]
+    fn a_snooze_after_the_due_check_wins() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 30, 10, 0, 0).unwrap();
+        let start = now + chrono::Duration::seconds(30);
+        let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
+
+        let due = state.due_alerts(now);
+        state
+            .inner
+            .lock()
+            .expect("state lock")
+            .snoozed_until
+            .insert("m".to_string(), now.timestamp() + 60);
+
+        assert!(state.mark_notified(due, now.timestamp()).is_empty());
+        let later = now + chrono::Duration::seconds(60);
+        assert_eq!(state.due_alerts(later).len(), 1);
     }
 
     #[test]
