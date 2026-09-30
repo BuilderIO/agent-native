@@ -7771,7 +7771,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return false;
         }
         var paintStyle = window.getComputedStyle(paintTarget);
-        return paintStyle.fill !== "none" && Number(paintStyle.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget);
+        return paintStyle.fill !== "none" && Number(paintStyle.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget) || paintStyle.stroke !== "none" && parseFloat(paintStyle.strokeWidth) > 0 && Number(paintStyle.strokeOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget);
       }
       var style = window.getComputedStyle(el);
       if (cornerRadiusVisibilityIsVisible(el) && (cornerRadiusBackgroundImageHasVisiblePaint(style.backgroundImage) || cornerRadiusColorIsVisible(style.backgroundColor))) {

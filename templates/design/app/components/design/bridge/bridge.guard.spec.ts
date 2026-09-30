@@ -7196,6 +7196,8 @@ it(
   <div id="filter-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:580px;width:80px;height:80px;background:#ddd;filter:opacity(0)"></div>
   <div style="position:absolute;left:780px;top:580px;filter:blur(0) opacity(0)"><div id="filter-opacity-ancestor-rectangle" data-agent-native-primitive="rectangle" style="width:80px;height:80px;background:#ddd"></div></div>
   <svg id="stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
+  <svg id="zero-opacity-stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:760px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4" stroke-opacity="0"></path></svg>
+  <svg id="stroke-only-path" data-an-primitive="path" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:520px;top:300px;width:80px;height:80px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
   <svg id="opacity-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:40px;width:80px;height:80px"><g opacity="0"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
   <svg id="visibility-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:140px;width:80px;height:80px"><g visibility="hidden"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
   <svg id="display-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:240px;width:80px;height:80px"><g display="none"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
@@ -7231,6 +7233,7 @@ it(
         ["rectangle", 4],
         ["visible-gradient-rectangle", 4],
         ["stroke-rectangle", 4],
+        ["stroke-polygon", 3],
         ["visible-paint-server-polygon", 3],
         ["visible-pattern-polygon", 3],
         ["inherited-pattern-polygon", 3],
@@ -7259,6 +7262,8 @@ it(
         "filter-opacity-rectangle",
         "filter-opacity-ancestor-rectangle",
         "stroke-polygon",
+        "zero-opacity-stroke-polygon",
+        "stroke-only-path",
         "opacity-group-polygon",
         "visibility-group-polygon",
         "display-group-polygon",
@@ -7522,7 +7527,8 @@ it(
         }
         if (
           id === "dynamic-pattern-polygon" ||
-          id === "stroke-pattern-polygon"
+          id === "stroke-pattern-polygon" ||
+          id === "stroke-polygon"
         ) {
           const box = await page.locator(`#${id}`).boundingBox();
           if (!box) throw new Error(`${id} is not visible`);
@@ -7541,6 +7547,11 @@ it(
               { timeout: 2_000 },
             );
           await waitForRadiusHandleVisibility(true);
+          if (id === "stroke-polygon") {
+            await page
+              .locator('[data-agent-native-radius-handle="vertex-0"]')
+              .waitFor({ state: "visible" });
+          }
           if (id === "dynamic-pattern-polygon") {
             await page
               .locator("#radius-dynamic-pattern rect")
