@@ -85,6 +85,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Find session replays by app, date, duration, visitor, and error signals
 - Analytics sidebar navigation and footer controls align consistently, with full-width dividers.
 - The Sessions list hides 0m recordings by default, with a filter to include them.
 
