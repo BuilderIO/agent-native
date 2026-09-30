@@ -39,13 +39,31 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
 ```
 
 Run the in-place rich-text authoring parity round in Chromium. It types every
-Content Markdown shortcut at a block start and after Enter, runs all eight
-enabled slash commands, and exercises styled bullet rows plus semantic UL/OL
-Enter, indentation, Backspace, and list exit behavior:
+Content StarterKit Markdown shortcut at a block start and after Enter, runs all
+eight enabled slash commands, and exercises styled bullet rows plus semantic
+UL/OL Enter, indentation, Backspace, and list exit behavior:
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
 ```
+
+## Authoring parity checklist
+
+Before #5916, Slides used the shared Content editor with tasks, code blocks,
+tables, and the Markdown serializer disabled. Its eight slash commands were
+Text, Heading 1–3, Bulleted list, Numbered list, Quote, and Divider. StarterKit
+still supplied its normal inline marks, headings 1–4, lists, blockquote, and
+horizontal-rule input rules.
+
+| Behavior           | Shared editor before #5916                                                                                                   | In-place editor before this fix                                                                                                                                                                                         | Restored behavior and gate                                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Slash menu         | Eight commands listed above                                                                                                  | No menu or command dispatch                                                                                                                                                                                             | Caret-anchored shadcn menu; all eight commands run in one undo step                                                      |
+| Markdown shortcuts | `- `, `* `, `+ `, numbered lists, `# ` through `#### `, `> `, `---` / `___` / `***`, strong, italic, strike, and inline code | Root `- ` / `* ` (including root hard-break lines), root-start `1. `, and H1–H3 in child blocks worked; nested bullets, other root hard-break shortcuts, H4, quote, horizontal-rule, and inline-mark rules were missing | Every shortcut works at any line or block start, including after Enter; unit tests and `--authoring` cover it            |
+| Lists              | Enter split and exited list items; Tab and Shift-Tab changed nesting                                                         | Enter / indentation mostly worked, but paragraph-backed list Backspace could leave separate paragraphs                                                                                                                  | Enter, Tab, Shift-Tab, Backspace joining, and empty-item exit are checked for real UL/OL and styled slide rows           |
+| Toolbar            | Bold, italic, strike, inline code, Heading 1–3, and Link                                                                     | Inline formatting and links remained; code and heading actions were missing                                                                                                                                             | The same actions remain in-place; selection formatting is covered by unit tests                                          |
+| Links              | Add and remove links on the selection                                                                                        | Available                                                                                                                                                                                                               | Still available; selection remains in the edited slide element                                                           |
+| Undo / redo        | StarterKit history                                                                                                           | Custom in-place history                                                                                                                                                                                                 | Authoring commands are undoable; text-surface Chromium QA checks undo / redo                                             |
+| Paste              | Rich HTML and plain text parsed by the shared editor                                                                         | A custom paste path replaced ProseMirror parsing, so it needed direct structure coverage                                                                                                                                | Safe rich paste preserves supported headings, quotes, lists, and inline styles; text-surface Chromium QA exercises paste |
 
 By default the harness starts its own scratch dev server with this command,
 run from the repo root:
@@ -82,7 +100,7 @@ because it creates and rewrites decks.
 | `--typing-chat`                | Check selection direction on edit entry and Agent chat typing with slide editing left open          |
 | `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                           |
 | `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic Chromium decks |
-| `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic Chromium decks |
+| `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic Chromium decks         |
 
 Exit codes:
 

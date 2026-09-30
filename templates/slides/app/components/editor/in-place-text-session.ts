@@ -56,6 +56,7 @@ export type InPlaceTextAuthoringCommand =
   | "heading1"
   | "heading2"
   | "heading3"
+  | "heading4"
   | "bulletList"
   | "orderedList"
   | "quote"
@@ -2202,7 +2203,8 @@ export function startInPlaceTextSession(
         break;
       case "heading1":
       case "heading2":
-      case "heading3": {
+      case "heading3":
+      case "heading4": {
         const tagName = `H${kind.slice(-1)}`;
         retagBlock(block, block.tagName === tagName ? "P" : tagName);
         break;
@@ -2241,7 +2243,10 @@ export function startInPlaceTextSession(
       return false;
     }
     const headingTag =
-      kind === "heading1" || kind === "heading2" || kind === "heading3"
+      kind === "heading1" ||
+      kind === "heading2" ||
+      kind === "heading3" ||
+      kind === "heading4"
         ? `H${kind.slice(-1)}`
         : null;
     const tagName =
@@ -2318,18 +2323,27 @@ export function startInPlaceTextSession(
     const typed = raw
       .replaceAll(ZERO_WIDTH_SPACE, "")
       .replaceAll("\u00a0", " ");
-    const bullet = /^[-*] $/.test(typed);
-    const ordered = typed === "1. ";
-    const heading = /^(#{1,3}) $/.exec(typed);
+    const bullet = /^[-*+] $/.test(typed);
+    const ordered = /^\d+\. $/.test(typed);
+    const heading = /^(#{1,4}) $/.exec(typed);
     const quote = typed === "> ";
-    const bold = /\*\*([^*\n]+)\*\*$/.exec(typed);
+    const divider = /^(?:---|___|\*\*\*) $/.test(typed);
+    const bold = /(\*\*|__)([^*_\n]+)\1$/.exec(typed);
+    const italicStar = bold ? null : /(?<!\*)\*([^*\n]+)\*(?!\*)$/.exec(typed);
+    const italicUnderscore = bold
+      ? null
+      : /(?<!_)_([^_\n]+)_(?!_)$/.exec(typed);
+    const strike = /~~([^~\n]+)~~$/.exec(typed);
+    const code = /`([^`\n]+)`$/.exec(typed);
     const kind = ordered
       ? "orderedList"
-      : heading
-        ? (`heading${heading[1].length}` as InPlaceTextAuthoringCommand)
-        : quote
-          ? "quote"
-          : null;
+      : divider
+        ? "divider"
+        : heading
+          ? (`heading${heading[1].length}` as InPlaceTextAuthoringCommand)
+          : quote
+            ? "quote"
+            : null;
 
     if (bullet) {
       command(() => {
@@ -2384,19 +2398,66 @@ export function startInPlaceTextSession(
       return;
     }
 
-    if (bold) {
+    const inline = bold
+      ? {
+          match: bold,
+          delimiter: bold[1],
+          text: bold[2],
+          format: "bold" as const,
+        }
+      : italicStar
+        ? {
+            match: italicStar,
+            delimiter: "*",
+            text: italicStar[1],
+            format: "italic" as const,
+          }
+        : italicUnderscore
+          ? {
+              match: italicUnderscore,
+              delimiter: "_",
+              text: italicUnderscore[1],
+              format: "italic" as const,
+            }
+          : strike
+            ? {
+                match: strike,
+                delimiter: "~~",
+                text: strike[1],
+                format: "strike" as const,
+              }
+            : code
+              ? {
+                  match: code,
+                  delimiter: "`",
+                  text: code[1],
+                  format: "code" as const,
+                }
+              : null;
+
+    if (inline) {
       command(() => {
         const base = textOffset(
           block,
           prefix.startContainer,
           prefix.startOffset,
         );
-        const openStart = visibleOffset(raw, bold.index);
-        const textStart = visibleOffset(raw, bold.index + 2);
-        const closeStart = visibleOffset(raw, bold.index + bold[0].length - 2);
+        const openStart = visibleOffset(raw, inline.match.index);
+        const textStart = visibleOffset(
+          raw,
+          inline.match.index + inline.delimiter.length,
+        );
+        const closeStart = visibleOffset(
+          raw,
+          inline.match.index + inline.match[0].length - inline.delimiter.length,
+        );
+        const contentEnd = visibleOffset(
+          raw,
+          inline.match.index + inline.match[0].length,
+        );
         const close = document.createRange();
         close.setStart(...textPoint(block, base + closeStart));
-        close.setEnd(...textPoint(block, base + raw.length));
+        close.setEnd(...textPoint(block, base + contentEnd));
         deleteRange(close);
         const open = document.createRange();
         open.setStart(...textPoint(block, base + openStart));
@@ -2406,10 +2467,12 @@ export function startInPlaceTextSession(
         if (!selection) return false;
         const content = document.createRange();
         content.setStart(...textPoint(block, base + openStart));
-        content.setEnd(...textPoint(block, base + openStart + bold[1].length));
+        content.setEnd(
+          ...textPoint(block, base + openStart + inline.text.length),
+        );
         selection.removeAllRanges();
         selection.addRange(content);
-        return toggleInlineTextFormat(el, "bold").scope === "selection";
+        return toggleInlineTextFormat(el, inline.format).scope === "selection";
       });
     }
   }
@@ -2599,7 +2662,9 @@ export function startInPlaceTextSession(
         (type === "insertReplacementText" ? targetRange(event) : null) ?? range;
       if (!target) return;
       edit("typing", () => insertText(data, target));
-      if (data === " " || data === "*") applyMarkdownShortcut();
+      if ([" ", "*", "_", "~", "`"].includes(data)) {
+        applyMarkdownShortcut();
+      }
       return;
     }
     if (type.startsWith("delete")) {
@@ -2654,7 +2719,7 @@ export function startInPlaceTextSession(
     const input = event as InputEvent;
     if (
       input.inputType === "insertText" &&
-      (input.data === " " || input.data === "*")
+      [" ", "*", "_", "~", "`"].includes(input.data ?? "")
     ) {
       applyMarkdownShortcut();
     }

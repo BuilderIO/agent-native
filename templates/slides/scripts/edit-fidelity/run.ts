@@ -1582,12 +1582,20 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
   const shortcuts = [
     ["- ", "bullet"],
     ["* ", "bullet"],
+    ["+ ", "bullet"],
     ["1. ", "ordered"],
     ["# ", "H1"],
     ["## ", "H2"],
     ["### ", "H3"],
+    ["#### ", "H4"],
     ["> ", "BLOCKQUOTE"],
+    ["--- ", "divider"],
     ["**bold**", "bold"],
+    ["__bold__", "bold"],
+    ["*italic*", "italic"],
+    ["_italic_", "italic"],
+    ["~~strike~~", "strike"],
+    ["`code`", "code"],
   ] as const;
   const slashCommands = [
     ["paragraph", "paragraph", "H2", "P"],
@@ -1730,7 +1738,11 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
           await editor.press("Home");
         }
         await editor.pressSequentially(test.shortcut);
-        if (test.shortcut !== "**bold**")
+        if (
+          !(["bold", "italic", "strike", "code"] as string[]).includes(
+            test.result,
+          )
+        )
           await editor.pressSequentially("Tail");
         await finish(index, async () => {
           const result = test.result;
@@ -1740,6 +1752,14 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
             await assertBlock(editor, "ol > li");
           } else if (result === "bold") {
             await assertBlock(editor, 'span[style*="font-weight"]');
+          } else if (result === "italic") {
+            await assertBlock(editor, 'span[style*="font-style"]');
+          } else if (result === "strike") {
+            await assertBlock(editor, 'span[style*="text-decoration"]');
+          } else if (result === "code") {
+            await assertBlock(editor, "code");
+          } else if (result === "divider") {
+            await assertBlock(editor, "hr");
           } else if (test.position === "start") {
             await assertTag(editor, result);
           } else {

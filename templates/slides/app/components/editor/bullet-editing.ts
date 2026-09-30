@@ -174,7 +174,7 @@ export function isBulletList(el: HTMLElement): boolean {
 }
 
 /** Regex for a markdown-style bullet prefix at the start of a line. */
-const MARKDOWN_BULLET_PREFIX = /^[-*] $/;
+const MARKDOWN_BULLET_PREFIX = /^[-*+] $/;
 
 function markdownBulletPrefixRange(
   el: HTMLElement,

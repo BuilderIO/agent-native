@@ -1275,6 +1275,18 @@ describe("in-place text session: commands", () => {
     expect(el.textContent).toBe("First line●");
   });
 
+  it("turns '* ' on a middle hard-break line into a bullet and keeps neighbors", () => {
+    const el = mount('<div id="t">Before<br>*<br>After</div>');
+    session = startInPlaceTextSession(el);
+    const markerLine = textOf(el, "*");
+    caret(markerLine, markerLine.length);
+
+    type(el, " ");
+
+    expect(el.textContent).toBe("Before●After");
+    expect(el.querySelectorAll("br")).toHaveLength(2);
+  });
+
   it("turns '1. ' at the start of a leaf into an ordered list", () => {
     const el = mount('<div id="t"></div>');
     session = startInPlaceTextSession(el);
@@ -2075,11 +2087,20 @@ describe("in-place text session: Content authoring parity", () => {
   it.each([
     ["- ", "bullet"],
     ["* ", "bullet"],
+    ["+ ", "bullet"],
     ["1. ", "ordered"],
     ["# ", "H1"],
     ["## ", "H2"],
     ["### ", "H3"],
+    ["#### ", "H4"],
     ["> ", "BLOCKQUOTE"],
+    ["--- ", "HR"],
+    ["**bold**", "bold"],
+    ["__bold__", "bold"],
+    ["*italic*", "italic"],
+    ["_italic_", "italic"],
+    ["~~strike~~", "strike"],
+    ["`code`", "code"],
   ])("applies %j at the start of the edited block", (shortcut, result) => {
     const el = mount('<div id="t">Alpha</div>');
     session = startInPlaceTextSession(el);
@@ -2092,6 +2113,22 @@ describe("in-place text session: Content authoring parity", () => {
       expect(root.textContent).toBe("●Alpha");
     } else if (result === "ordered") {
       expect(root.querySelector("ol > li")?.textContent).toBe("Alpha");
+    } else if (result === "bold") {
+      expect(
+        root.querySelector('span[style*="font-weight"]')?.textContent,
+      ).toBe("bold");
+    } else if (result === "italic") {
+      expect(root.querySelector('span[style*="font-style"]')?.textContent).toBe(
+        "italic",
+      );
+    } else if (result === "strike") {
+      expect(
+        root.querySelector('span[style*="text-decoration"]')?.textContent,
+      ).toBe("strike");
+    } else if (result === "code") {
+      expect(root.querySelector("code")?.textContent).toBe("code");
+    } else if (result === "HR") {
+      expect(root.querySelector("hr")).not.toBeNull();
     } else {
       expect(root.tagName).toBe(result);
       expect(root.textContent).toBe("Alpha");
@@ -2128,20 +2165,30 @@ describe("in-place text session: Content authoring parity", () => {
   it.each([
     ["- ", "bullet"],
     ["* ", "bullet"],
+    ["+ ", "bullet"],
     ["1. ", "ordered"],
     ["# ", "H1"],
     ["## ", "H2"],
     ["### ", "H3"],
+    ["#### ", "H4"],
     ["> ", "BLOCKQUOTE"],
-    ["**", "bold"],
+    ["--- ", "HR"],
+    ["**bold**", "bold"],
+    ["__bold__", "bold"],
+    ["*italic*", "italic"],
+    ["_italic_", "italic"],
+    ["~~strike~~", "strike"],
+    ["`code`", "code"],
   ])("applies %j after Enter", (shortcut, result) => {
     const el = mount('<div id="t">Before</div>');
     session = startInPlaceTextSession(el);
     caret(textOf(el, "Before"), 6);
     beforeInput(el, "insertParagraph");
 
-    type(session.element, shortcut === "**" ? "**bold**" : shortcut);
-    if (result !== "bold") type(session.element, "Tail");
+    type(session.element, shortcut);
+    if (!["bold", "italic", "strike", "code"].includes(result)) {
+      type(session.element, "Tail");
+    }
 
     const root = session.element;
     if (result === "bullet") {
@@ -2154,6 +2201,18 @@ describe("in-place text session: Content authoring parity", () => {
       expect(
         root.querySelector('span[style*="font-weight"]')?.textContent,
       ).toBe("bold");
+    } else if (result === "italic") {
+      expect(root.querySelector('span[style*="font-style"]')?.textContent).toBe(
+        "italic",
+      );
+    } else if (result === "strike") {
+      expect(
+        root.querySelector('span[style*="text-decoration"]')?.textContent,
+      ).toBe("strike");
+    } else if (result === "code") {
+      expect(root.querySelector("code")?.textContent).toBe("code");
+    } else if (result === "HR") {
+      expect(root.querySelector("hr")).not.toBeNull();
     } else {
       expect(
         root.querySelector(result)?.textContent?.replaceAll(ZWSP, ""),
