@@ -1,5 +1,17 @@
 # @agent-native/toolkit
 
+## 0.198.6
+
+### Patch Changes
+
+- 0670eb1: Improve chat activity status, tool error disclosure, and composer feedback.
+- 77540af: Keep Sonner toast actions inside the toast when content and actions share a narrow viewport.
+- df12726: Wait for the chat menu to close before opening its history popover.
+- Release all public npm packages with a patch version bump.
+- 4dfe557: Keep homepage submissions in the active full-page chat and hide unavailable request ID actions.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.6
+
 ## 0.198.5
 
 ### Patch Changes
@@ -984,11 +996,5 @@
 ### Patch Changes
 
 - dcd0810: Add clear creation actions to empty resource views and improve collaboration usage feedback.
-
-## 0.8.1
-
-### Patch Changes
-
-- 6d96437: Add clear creation actions to empty resource views and improve collaboration usage feedback.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

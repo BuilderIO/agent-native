@@ -19,6 +19,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The chat history menu stays open when opened from the header.
 - Chat prompts clear immediately while the assistant thinks.
 - App filters now keep retention charts scoped to the selected app.
 - Chat stays ready for your next draft while a message is being sent.

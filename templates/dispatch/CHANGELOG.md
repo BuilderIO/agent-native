@@ -22,6 +22,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- The chat history menu stays open when opened from the header.
 - New workspaces can open Dispatch pages without a server rendering error.
 - Apps and app launchers only show apps installed in this workspace
 

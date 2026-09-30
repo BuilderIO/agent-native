@@ -1,3 +1,9 @@
+## 0.164.21
+
+### Patch Changes
+
+- 68f299c: Clarify deployment targets and document Agent-Native app configuration.
+
 ## 0.164.20
 
 ### Patch Changes
