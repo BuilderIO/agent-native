@@ -223,12 +223,7 @@ function updateOutsideImageMasks(
     right: crop.left + image.offsetLeft + image.offsetWidth,
     bottom: crop.top + image.offsetTop + image.offsetHeight,
   };
-  const overlapLeft = Math.max(crop.left, imageBounds.left);
   const overlapTop = Math.max(crop.top, imageBounds.top);
-  const overlapWidth = Math.max(
-    0,
-    Math.min(crop.right, imageBounds.right) - overlapLeft,
-  );
   const overlapHeight = Math.max(
     0,
     Math.min(crop.bottom, imageBounds.bottom) - overlapTop,
