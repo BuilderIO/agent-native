@@ -1,5 +1,19 @@
 # @agent-native/dispatch
 
+## 0.40.8
+
+### Patch Changes
+
+- 1f2c8d5: Scope workspace dependency checks to Core apps, resolve Dispatch admin email settings through typed app config, and require Core 0.198.6 or newer for Dispatch.
+- Release all public npm packages with a patch version bump.
+- 8866527: Provide tooltip context throughout the Dispatch layout.
+- 52d8c49: Use the browser-safe integration catalog in Dispatch messaging settings so production builds don't pull server plugins into the client bundle.
+- Updated dependencies [48586af]
+- Updated dependencies
+- Updated dependencies [b147194]
+- Updated dependencies [3ba09b7]
+  - @agent-native/toolkit@0.198.7
+
 ## 0.40.7
 
 ### Patch Changes
@@ -1073,17 +1087,5 @@
 - 43fa797: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
 - Updated dependencies [43fa797]
   - @agent-native/toolkit@0.16.2
-
-## 0.27.1
-
-### Patch Changes
-
-- fb18771: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
-- fb18771: Avoid querying admin-only vault grants from workspace member key panels and
-  return a proper forbidden response for unauthorized grant requests.
-- fb18771: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
-- fb18771: Keep selected chat-first apps visible and open granted external apps from Dispatch.
-- Updated dependencies [fb18771]
-  - @agent-native/toolkit@0.16.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

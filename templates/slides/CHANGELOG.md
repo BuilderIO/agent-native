@@ -7,8 +7,15 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Add references through compact dropdown menus and find decks with the centered home search.
+- Rich text editing preserves imported slide layouts.
 - Slide text editing supports slash commands, Markdown shortcuts, formatting, links, and predictable lists while preserving slide styling
 - Slides remembers your home library tab, so returning users can open straight to Recent.
+
+### Fixed
+
+- Start presentation generation immediately after submitting a prompt.
+- Slides keeps your selected references when you retry generation or sign in
 
 ## 2026-09-29
 

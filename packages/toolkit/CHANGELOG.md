@@ -1,5 +1,17 @@
 # @agent-native/toolkit
 
+## 0.198.7
+
+### Patch Changes
+
+- 48586af: Restore compact nested composer context menus while keeping chat actions at the top level.
+- Release all public npm packages with a patch version bump.
+- b147194: Keep the chat history popover open after selecting it from the chat menu.
+- 3ba09b7: Copy complete Visual Edit instructions by default and show Builder.io for Builder credit connections.
+- Updated dependencies
+- Updated dependencies [3ba09b7]
+  - @agent-native/agentkit@0.198.7
+
 ## 0.198.6
 
 ### Patch Changes
@@ -990,11 +1002,5 @@
 ### Patch Changes
 
 - 5c78d2d: Fix cramped calendar day grid under Tailwind v4 and make the date picker responsive: smaller cell size on mobile, 20% smaller on desktop, and a viewport-bounded popover width.
-
-## 0.8.2
-
-### Patch Changes
-
-- dcd0810: Add clear creation actions to empty resource views and improve collaboration usage feedback.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
