@@ -7231,7 +7231,6 @@ it(
         ["rectangle", 4],
         ["visible-gradient-rectangle", 4],
         ["stroke-rectangle", 4],
-        ["stroke-polygon", 3],
         ["visible-paint-server-polygon", 3],
         ["visible-pattern-polygon", 3],
         ["inherited-pattern-polygon", 3],
@@ -7573,25 +7572,6 @@ it(
               ),
           );
           expect(visibleAtCorner).toEqual(["nw"]);
-        }
-        if (id === "stroke-polygon") {
-          const box = await page.locator(`#${id}`).boundingBox();
-          if (!box) throw new Error("stroke polygon is not visible");
-          await page.mouse.move(box.x + box.width / 2, box.y + 2);
-          const visibleAtVertex = await page.evaluate(() =>
-            Array.from(
-              document.querySelectorAll<HTMLElement>(
-                "[data-agent-native-radius-handle]",
-              ),
-            )
-              .filter(
-                (handle) => getComputedStyle(handle).visibility === "visible",
-              )
-              .map((handle) =>
-                handle.getAttribute("data-agent-native-radius-handle"),
-              ),
-          );
-          expect(visibleAtVertex).toEqual(["vertex-0"]);
         }
         if (
           id === "no-paint-rectangle" ||

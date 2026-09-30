@@ -7,7 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- Corner-radius handles only appear on shapes with a visible fill or stroke.
+- Stroke-only vector paths no longer show corner-radius handles.
 - Local editing setup now points to Chrome's Allow prompt and includes a settings fallback.
 - The local editing guide now shows the local network Allow prompt and its Site settings fallback.
 - The browser permission guide points to Allow and the Connection is secure step.
