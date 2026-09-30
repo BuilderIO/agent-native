@@ -2,4 +2,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Restore Observability settings and preserve AgentKit composer submission state.
+Restore Agent Observability to Settings and align its dashboard with the redesigned Settings surface.
