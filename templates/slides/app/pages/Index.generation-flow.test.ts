@@ -98,7 +98,6 @@ describe("new deck generation flow", () => {
     expect(promptSubmit).toContain(
       "retryReferenceSelection?.referenceDeckId !== undefined",
     );
-    expect(promptSubmit).toContain("options?.slidesContext === undefined");
     expect(promptSubmit).toContain(
       "{ designSystemId: retryComposerContext.designSystemId }",
     );

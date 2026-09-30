@@ -1596,6 +1596,48 @@ describe("Slides prompt-led home", () => {
     expect(attachments.commit).toHaveBeenCalledOnce();
   });
 
+  it("keeps a reference-step deck when the retry composer has no deck reference", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome(
+      {
+        decks: [
+          {
+            id: "reference-deck",
+            title: "Reference deck",
+            createdByMe: true,
+          },
+        ],
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+      },
+      {
+        retryPrompt: "Create a roadmap",
+        retryReferenceSelection: { referenceDeckId: "reference-deck" },
+      },
+    );
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+
+    await act(async () => {
+      promptProps.mock.lastCall![0].onSubmit(
+        "Create a roadmap",
+        [],
+        attachments,
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    expect(callAction).toHaveBeenCalledWith(
+      "get-deck-reference-context",
+      { id: "reference-deck" },
+      { method: "GET" },
+    );
+  });
+
   it("uses generic copy for a storage status failure during reference import", async () => {
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });

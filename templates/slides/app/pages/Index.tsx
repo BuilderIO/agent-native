@@ -1482,8 +1482,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         ? null
         : hasExplicitComposerDeckReference
           ? null
-          : retryReferenceSelection?.referenceDeckId !== undefined &&
-              options?.slidesContext === undefined
+          : retryReferenceSelection?.referenceDeckId !== undefined
             ? retryReferenceSelection.referenceDeckId
             : (carriedImportedReference?.deckId ??
               promptReferenceDeckId ??
