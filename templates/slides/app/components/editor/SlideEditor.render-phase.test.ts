@@ -284,8 +284,9 @@ describe("SlideEditor render-phase safety", () => {
       'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
+    expect(doubleClickBody).toContain("showImageOverlay(imagePlaceholder);");
     expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
       doubleClickBody.indexOf("const imageTarget"),
     );
@@ -308,7 +309,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(helperBody).toContain("return underlying ?? target;");
   });
 
-  it("preserves wrapped images for double-click overlays", () => {
+  it("enters crop mode for wrapped images on double-click", () => {
     const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
     const doubleClickEnd = source.indexOf(
       "const slideElementSelected =",
@@ -323,7 +324,7 @@ describe("SlideEditor render-phase safety", () => {
       'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
   });
 

@@ -125,6 +125,7 @@ import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
+import ImageCropOverlay from "./ImageCropOverlay";
 import ImageOverlay from "./ImageOverlay";
 import {
   startInPlaceTextSession,
@@ -680,6 +681,9 @@ function stripBuilderIds(html: string): string {
  * zero-width spaces would also delete an author's own.
  */
 function prepareSerializationRoot(root: ParentNode): void {
+  root.querySelectorAll("[data-slide-crop-overlay]").forEach((overlay) => {
+    overlay.remove();
+  });
   for (const child of Array.from(root.children)) {
     stripTransientSlideLayoutSpacers(child);
   }
@@ -1593,6 +1597,14 @@ function syncOverflowToAppState(
   }
 }
 
+type ActiveImageCrop = {
+  frame: HTMLElement;
+  viewport: HTMLElement;
+  image: HTMLImageElement;
+  restoreChrome: () => void;
+  cancel: () => void;
+};
+
 export default function SlideEditor({
   slide,
   onUpdateSlide,
@@ -1652,6 +1664,12 @@ export default function SlideEditor({
     objectFit: "cover" | "contain";
     objectPosition: ImageObjectPosition;
     imageOccurrence: number;
+  } | null>(null);
+  const [imageCrop, setImageCrop] = useState<ActiveImageCrop | null>(null);
+  const imageCropRef = useRef<ActiveImageCrop | null>(null);
+  const lastImageClickRef = useRef<{
+    image: HTMLImageElement;
+    timestamp: number;
   } | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
@@ -2222,6 +2240,28 @@ export default function SlideEditor({
   useEffect(() => {
     readCurrentSlideContentHtmlRef.current = readCurrentSlideContentHtml;
   }, [readCurrentSlideContentHtml]);
+
+  const finishImageCrop = useCallback((commit: boolean) => {
+    const crop = imageCropRef.current;
+    if (!crop) return;
+    imageCropRef.current = null;
+    setImageCrop(null);
+    if (commit) {
+      crop.restoreChrome();
+      preserveSlideObjectLayoutSpacer(crop.frame);
+      const html = readCurrentSlideContentHtmlRef.current();
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          persistence: "immediate",
+        });
+      }
+      return;
+    }
+    crop.cancel();
+    setSelectedImg(null);
+    setImageOverlay(null);
+    syncSelectionToAppState(null);
+  }, []);
 
   const persistInlineEditDraft = useCallback(
     (slideId: string, content: string) => {
@@ -3265,7 +3305,16 @@ export default function SlideEditor({
     if (!selectedImg) return;
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest(".image-overlay-menu")) return;
+      if (
+        target.closest(".image-overlay-menu") ||
+        target.closest("[data-slide-selection-chrome]")
+      ) {
+        return;
+      }
+      if (imageCropRef.current) {
+        if (imageCropRef.current.frame.contains(target)) return;
+        finishImageCrop(true);
+      }
       if (target.tagName === "IMG" && containerRef.current?.contains(target))
         return;
       setSelectedImg(null);
@@ -3274,7 +3323,7 @@ export default function SlideEditor({
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [selectedImg]);
+  }, [finishImageCrop, selectedImg]);
 
   // Clear selection when slide changes
   useEffect(() => {
@@ -7927,6 +7976,201 @@ export default function SlideEditor({
     [getPlaceholderTarget, publishImageSelection],
   );
 
+  const startImageCrop = useCallback(
+    (target: HTMLImageElement) => {
+      const slideContent = getSlideContent();
+      if (readOnly || !slideContent || !slideContent.contains(target)) return;
+
+      const existingFrame = findPersistedImageObject(target, slideContent);
+      const frameIsPersistedImage = Boolean(
+        existingFrame &&
+        (existingFrame.classList.contains("fmd-pptx-image") ||
+          existingFrame.getAttribute("data-pptx-element-kind") === "image"),
+      );
+      const originalFrame = frameIsPersistedImage
+        ? (existingFrame!.cloneNode(true) as HTMLElement)
+        : null;
+      const originalImage = frameIsPersistedImage
+        ? null
+        : (target.cloneNode(true) as HTMLImageElement);
+      const originalImageObjectId = target.getAttribute("data-slide-object-id");
+
+      let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
+      const frozen = freezeElementForFreeformSelection(frame);
+      if (!frozen) return;
+
+      let image: HTMLImageElement;
+      let viewport = frame.querySelector<HTMLElement>(
+        ".fmd-image-crop-viewport",
+      );
+      if (frameIsPersistedImage) {
+        image =
+          viewport?.querySelector<HTMLImageElement>("img") ??
+          frame.querySelector<HTMLImageElement>("img") ??
+          target;
+        if (!viewport) {
+          const computed = window.getComputedStyle(frame);
+          const clipPath = computed.clipPath;
+          const borderRadius = computed.borderRadius;
+          viewport = frame.ownerDocument.createElement("div");
+          viewport.className = "fmd-image-crop-viewport";
+          Object.assign(viewport.style, {
+            position: "absolute",
+            inset: "0",
+            width: "100%",
+            height: "100%",
+            overflow: "hidden",
+            clipPath: clipPath === "none" ? "" : clipPath,
+            borderRadius,
+          });
+          for (const child of Array.from(frame.childNodes)) {
+            viewport.appendChild(child);
+          }
+          frame.appendChild(viewport);
+          frame.style.clipPath = "none";
+          frame.style.borderRadius = "0";
+        }
+        const imageLeft = image.offsetLeft;
+        const imageTop = image.offsetTop;
+        const imageWidth = image.offsetWidth;
+        const imageHeight = image.offsetHeight;
+        Object.assign(image.style, {
+          position: "absolute",
+          left: `${imageLeft}px`,
+          top: `${imageTop}px`,
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          maxWidth: "none",
+          maxHeight: "none",
+          margin: "0",
+        });
+      } else {
+        image = target;
+        const parent = image.parentElement;
+        if (!parent) return;
+        const imageWidth = image.offsetWidth;
+        const imageHeight = image.offsetHeight;
+        const imageLeft = image.offsetLeft;
+        const imageTop = image.offsetTop;
+        const imageStyle = image.style;
+        const cropFrame = frame.ownerDocument.createElement("div");
+        cropFrame.className = "fmd-pptx-image";
+        cropFrame.setAttribute("data-pptx-element-kind", "image");
+        for (const property of [
+          "position",
+          "left",
+          "top",
+          "right",
+          "bottom",
+          "width",
+          "height",
+          "transform",
+          "transform-origin",
+          "z-index",
+        ]) {
+          const value = imageStyle.getPropertyValue(property);
+          if (value) cropFrame.style.setProperty(property, value);
+        }
+        cropFrame.style.position ||= "absolute";
+        cropFrame.style.left ||= `${imageLeft}px`;
+        cropFrame.style.top ||= `${imageTop}px`;
+        cropFrame.style.width ||= `${imageWidth}px`;
+        cropFrame.style.height ||= `${imageHeight}px`;
+        const objectId =
+          image.getAttribute("data-slide-object-id") ??
+          ensureSlideObjectId(image);
+        cropFrame.setAttribute("data-slide-object-id", objectId);
+        image.removeAttribute("data-slide-object-id");
+        cropFrame.setAttribute("data-builder-id", ensureBuilderId(cropFrame));
+
+        viewport = frame.ownerDocument.createElement("div");
+        viewport.className = "fmd-image-crop-viewport";
+        Object.assign(viewport.style, {
+          position: "absolute",
+          inset: "0",
+          width: "100%",
+          height: "100%",
+          overflow: "hidden",
+        });
+        parent.insertBefore(cropFrame, image);
+        cropFrame.appendChild(viewport);
+        viewport.appendChild(image);
+        frame = cropFrame;
+        Object.assign(image.style, {
+          position: "absolute",
+          left: "0px",
+          top: "0px",
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          transform: "none",
+          transformOrigin: "0 0",
+          maxWidth: "none",
+          maxHeight: "none",
+          margin: "0",
+        });
+      }
+
+      frame.classList.add("fmd-pptx-image");
+      frame.setAttribute("data-pptx-element-kind", "image");
+      frame.style.overflow = "visible";
+      const originalZIndex = frame.style.zIndex;
+      frame.style.zIndex = "2147483000";
+      ensureSlideObjectId(frame);
+      const activeCrop: ActiveImageCrop = {
+        frame,
+        viewport: viewport!,
+        image,
+        restoreChrome: () => {
+          frame.style.overflow = "hidden";
+          if (originalZIndex) frame.style.zIndex = originalZIndex;
+          else frame.style.removeProperty("z-index");
+        },
+        cancel: () => {
+          const objectId = frame.getAttribute("data-slide-object-id");
+          if (objectId) {
+            slideContent
+              .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+              .forEach((spacer) => {
+                if (
+                  spacer.getAttribute("data-slide-layout-spacer-for") ===
+                  objectId
+                ) {
+                  spacer.remove();
+                }
+              });
+          }
+          if (frameIsPersistedImage) {
+            frame.replaceWith(originalFrame!);
+            frozen.restoreMarkdownTree?.();
+            return;
+          }
+          if (frozen.restoreMarkdownTree) {
+            frame.remove();
+            frozen.restoreMarkdownTree();
+            if (originalImageObjectId === null) {
+              image.removeAttribute("data-slide-object-id");
+            } else {
+              image.setAttribute("data-slide-object-id", originalImageObjectId);
+            }
+            return;
+          }
+          frame.replaceWith(originalImage!);
+        },
+      };
+      imageCropRef.current = activeCrop;
+      setImageCrop(activeCrop);
+      setImageOverlay(null);
+      setSelectedImg(image);
+      publishImageSelection(frame);
+    },
+    [
+      freezeElementForFreeformSelection,
+      getSlideContent,
+      publishImageSelection,
+      readOnly,
+    ],
+  );
+
   // Browsers put the dragged element's outerHTML on the "text/html" data
   // type. Sniffing specifically for an <img> tag there (rather than trusting
   // any URL on text/uri-list or text/plain) matters because those same types
@@ -8089,7 +8333,6 @@ export default function SlideEditor({
             e.clientY,
           )
         : (e.target as HTMLElement);
-
       const shapePress = shapePressRef.current;
       shapePressRef.current = null;
       const shapeOwner = slideContent
@@ -8797,11 +9040,17 @@ export default function SlideEditor({
         ".fmd-img-placeholder",
       );
 
-      // For images / placeholders, show overlay
-      if (imageTarget || imagePlaceholder) {
+      if (imageTarget) {
         e.preventDefault();
         e.stopPropagation();
-        showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);
+        startImageCrop(imageTarget as HTMLImageElement);
+        return;
+      }
+
+      if (imagePlaceholder) {
+        e.preventDefault();
+        e.stopPropagation();
+        showImageOverlay(imagePlaceholder);
         return;
       }
 
@@ -8820,7 +9069,7 @@ export default function SlideEditor({
       e.stopPropagation();
       enterInlineEdit(block, { x: e.clientX, y: e.clientY }, true);
     },
-    [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
+    [startImageCrop, showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
   );
 
   const slideElementSelected =
@@ -8833,6 +9082,45 @@ export default function SlideEditor({
   // Flow objects are promoted for the resize gesture and restored when a
   // press does not become a resize.
   const selectedForDrag = selectedElementRect ? resolveSelectedElement() : null;
+  const selectedImageForCrop = selectedForDrag?.matches("img")
+    ? (selectedForDrag as HTMLImageElement)
+    : selectedForDrag &&
+        (selectedForDrag.classList.contains("fmd-pptx-image") ||
+          selectedForDrag.getAttribute("data-pptx-element-kind") === "image")
+      ? selectedForDrag.querySelector<HTMLImageElement>("img")
+      : null;
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const slideContent = getSlideContent();
+      const image =
+        target.tagName === "IMG" && slideContent?.contains(target)
+          ? (target as HTMLImageElement)
+          : target.closest("[data-slide-group-move-handle]")
+            ? selectedImageForCrop
+            : null;
+      if (!image) return;
+      const lastImageClick = lastImageClickRef.current;
+      const timestamp = Date.now();
+      if (
+        target.closest("[data-slide-group-move-handle]") &&
+        lastImageClick?.image === image &&
+        timestamp - lastImageClick.timestamp <= 500
+      ) {
+        lastImageClickRef.current = null;
+        event.preventDefault();
+        event.stopPropagation();
+        startImageCrop(image);
+      } else {
+        lastImageClickRef.current = { image, timestamp };
+      }
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [getSlideContent, selectedImageForCrop, startImageCrop]);
   const isSelectedElementDraggable = selectedForDrag
     ? !isSlideCanvasShell(selectedForDrag)
     : false;
@@ -9363,15 +9651,18 @@ export default function SlideEditor({
           />
         )
       )}
-      {selectedElementRect && selectedContainer && !multiSelectionBounds && (
-        <ElementHoverOutline
-          container
-          rect={selectedContainer.rect}
-          frame={selectedContainer.frame}
-          viewportRect={selectionViewportRect}
-        />
-      )}
-      {selectedElementRect && !multiSelectionBounds && (
+      {!imageCrop &&
+        selectedElementRect &&
+        selectedContainer &&
+        !multiSelectionBounds && (
+          <ElementHoverOutline
+            container
+            rect={selectedContainer.rect}
+            frame={selectedContainer.frame}
+            viewportRect={selectionViewportRect}
+          />
+        )}
+      {!imageCrop && selectedElementRect && !multiSelectionBounds && (
         <ElementSelectionOutline
           rect={selectedElementRect}
           frame={selectedElementFrame}
@@ -9490,11 +9781,24 @@ export default function SlideEditor({
           src={imageOverlay.src}
           objectFit={imageOverlay.objectFit}
           objectPosition={imageOverlay.objectPosition}
-          onGenerate={onGenerateImage}
-          onLibrary={() => onOpenAssetLibrary(imageOverlay.src)}
-          onUpload={() => onUploadImage(imageOverlay.src)}
-          onDownload={() => void downloadImage(imageOverlay.src)}
+          onGenerate={() => {
+            finishImageCrop(true);
+            onGenerateImage();
+          }}
+          onLibrary={() => {
+            finishImageCrop(true);
+            onOpenAssetLibrary(imageOverlay.src);
+          }}
+          onUpload={() => {
+            finishImageCrop(true);
+            onUploadImage(imageOverlay.src);
+          }}
+          onDownload={() => {
+            finishImageCrop(true);
+            void downloadImage(imageOverlay.src);
+          }}
           onToggleObjectFit={() => {
+            finishImageCrop(true);
             const newFit =
               imageOverlay.objectFit === "cover" ? "contain" : "cover";
             onToggleObjectFit(
@@ -9511,6 +9815,7 @@ export default function SlideEditor({
             }
           }}
           onChangeObjectPosition={(objectPosition) => {
+            finishImageCrop(true);
             onChangeObjectPosition(
               imageOverlay.src,
               objectPosition,
@@ -9525,6 +9830,17 @@ export default function SlideEditor({
             }
           }}
           onClose={() => setImageOverlay(null)}
+        />
+      )}
+
+      {imageCrop && (
+        <ImageCropOverlay
+          frame={imageCrop.frame}
+          viewport={imageCrop.viewport}
+          image={imageCrop.image}
+          canvas={imageCrop.frame.closest<HTMLElement>(".slide-content")!}
+          onFinish={finishImageCrop}
+          onImageOptions={() => showImageOverlay(imageCrop.image)}
         />
       )}
 
