@@ -896,6 +896,9 @@ interface AnalyticsSqlSource {
   commaSeparated: boolean;
 }
 
+const ANALYTICS_SQL_IDENTIFIER_RE =
+  /^[A-Za-z_\u0080-\uFFFF][A-Za-z0-9_$\u0080-\uFFFF]*$/;
+
 const SQL_SOURCE_CLAUSE_ENDS = new Set([
   "where",
   "group",
@@ -974,10 +977,34 @@ function tokenizeAnalyticsSql(sql: string): AnalyticsSqlToken[] {
       tokens.push({ value, quoted: true, depth, start });
       continue;
     }
-    if (/[A-Za-z_]/.test(ch)) {
+    if (/[A-Za-z_\u0080-\uFFFF]/.test(ch)) {
       const start = i;
       i++;
-      while (i < sql.length && /[A-Za-z0-9_$]/.test(sql[i])) i++;
+      while (i < sql.length && /[A-Za-z0-9_$\u0080-\uFFFF]/.test(sql[i])) i++;
+      tokens.push({
+        value: sql.slice(start, i),
+        quoted: false,
+        depth,
+        start,
+      });
+      continue;
+    }
+    if (/\d/.test(ch) || (ch === "." && /\d/.test(next ?? ""))) {
+      const start = i;
+      if (ch === ".") i++;
+      while (i < sql.length && /\d/.test(sql[i])) i++;
+      if (ch !== "." && sql[i] === ".") {
+        i++;
+        while (i < sql.length && /\d/.test(sql[i])) i++;
+      }
+      if (/[eE]/.test(sql[i] ?? "")) {
+        const exponentStart = i;
+        i++;
+        if (/[+-]/.test(sql[i] ?? "")) i++;
+        const exponentDigitsStart = i;
+        while (i < sql.length && /\d/.test(sql[i])) i++;
+        if (i === exponentDigitsStart) i = exponentStart;
+      }
       tokens.push({
         value: sql.slice(start, i),
         quoted: false,
@@ -1041,7 +1068,7 @@ function readAnalyticsSqlSource(
     }
     return { source: null, next: Math.min(index + 1, tokens.length) };
   }
-  if (!first.quoted && !/^[A-Za-z_][A-Za-z0-9_$]*$/.test(first.value)) {
+  if (!first.quoted && !ANALYTICS_SQL_IDENTIFIER_RE.test(first.value)) {
     return { source: null, next: index + 1 };
   }
 
@@ -1051,7 +1078,7 @@ function readAnalyticsSqlSource(
     tokens[index + 1]?.value === "." &&
     tokens[index + 2] &&
     (tokens[index + 2].quoted ||
-      /^[A-Za-z_][A-Za-z0-9_$]*$/.test(tokens[index + 2].value))
+      ANALYTICS_SQL_IDENTIFIER_RE.test(tokens[index + 2].value))
   ) {
     ref += `.${tokens[index + 2].value}`;
     quoted ||= tokens[index + 2].quoted;
@@ -1133,7 +1160,7 @@ function validateAnalyticsSqlFunctions(sql: string): void {
   for (let i = 0; i + 1 < tokens.length; i++) {
     const token = tokens[i];
     if (tokens[i + 1].value !== "(") continue;
-    if (!token.quoted && !/^[A-Za-z_][A-Za-z0-9_$]*$/.test(token.value)) {
+    if (!token.quoted && !ANALYTICS_SQL_IDENTIFIER_RE.test(token.value)) {
       continue;
     }
     const name = token.value.toLowerCase();
@@ -1144,19 +1171,8 @@ function validateAnalyticsSqlFunctions(sql: string): void {
       );
     }
 
-    const schemaCandidate = tokens[i - 2];
-    const separator = tokens[i - 1];
-    const decimalPoint =
-      separator?.value === "." &&
-      /\d/.test(sql[separator.start - 1] ?? "") &&
-      /\d/.test(sql[separator.start + 1] ?? "");
-    const schemaQualified =
-      separator?.value === "." &&
-      !decimalPoint &&
-      (schemaCandidate?.quoted === true ||
-        (schemaCandidate?.quoted === false &&
-          /^[A-Za-z_][A-Za-z0-9_$]*$/.test(schemaCandidate.value)));
-    const schema = schemaQualified ? schemaCandidate : undefined;
+    const schemaQualified = tokens[i - 1]?.value === ".";
+    const schema = schemaQualified ? tokens[i - 2] : undefined;
     const allowedSchema =
       !schemaQualified ||
       (schema?.quoted === false &&
