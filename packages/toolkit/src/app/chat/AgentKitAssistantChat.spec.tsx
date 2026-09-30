@@ -759,9 +759,28 @@ describe("AgentKitAssistantChat host behavior", () => {
     ];
     await mount(baseProps());
 
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "agentChat.status.thinking",
-    );
+    const thinking = container.querySelector('[role="status"]');
+    expect(thinking?.textContent).toBe("agentChat.status.thinking");
+    expect(thinking?.classList.contains("agent-thinking-indicator")).toBe(true);
+    expect(
+      thinking?.querySelector(".agent-thinking-indicator__text"),
+    ).not.toBeNull();
+  });
+
+  it("does not duplicate Thinking after the run becomes active", async () => {
+    chatMocks.history = { isSubmissionInFlight: true };
+    chatMocks.thread.activeRunIds = ["run-active"];
+    chatMocks.thread.messages = [
+      {
+        id: "user-pending",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize my inbox" }],
+        metadata: {},
+      },
+    ];
+    await mount(baseProps());
+
+    expect(container.querySelector(".agent-thinking-indicator")).toBeNull();
   });
 
   it("gives JS callers a migration error for the removed createAdapter prop", async () => {

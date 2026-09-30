@@ -791,19 +791,16 @@ describe("controlled composer context", () => {
       expect(option).toBeDefined();
       await act(async () => option.click());
       expect(onSelect).toHaveBeenCalledOnce();
+      const contextRow = container.querySelector('[data-context-key="brief"]');
+      expect(contextRow?.querySelectorAll("button")).toHaveLength(1);
       await act(async () => {
-        container
-          .querySelector<HTMLButtonElement>(
-            'button[aria-label="Retry Brief context"]',
-          )!
-          .click();
         container
           .querySelector<HTMLButtonElement>(
             'button[aria-label="Remove Brief context"]',
           )!
           .click();
       });
-      expect(onRetry).toHaveBeenCalledWith("brief");
+      expect(onRetry).not.toHaveBeenCalled();
       expect(onRemove).toHaveBeenCalledWith("brief");
       expect(onDisabledClick).not.toHaveBeenCalled();
       const send = container.querySelector<HTMLButtonElement>(
@@ -1456,7 +1453,7 @@ describe("controlled composer context", () => {
       expect(remove).not.toHaveBeenCalled();
     },
   );
-  it("renders context inside the frame, forwards inspection/retry/removal, and blocks click and keyboard submission until ready", async () => {
+  it("renders a noninteractive context chip with only removal and blocks submission until ready", async () => {
     const onSubmit = vi.fn();
     const onRemoveContextItem = vi.fn();
     const onInspectContextItem = vi.fn();
@@ -1522,21 +1519,21 @@ describe("controlled composer context", () => {
     await pressEnter();
     expect(onSubmit).not.toHaveBeenCalled();
     const contextRow = container.querySelector('[data-context-key="brief"]')!;
+    expect(contextRow.className).toContain("py-0.5");
+    expect(contextRow.querySelector("span")?.textContent).toBe("Brief");
+    expect(contextRow.querySelectorAll("button")).toHaveLength(1);
+    expect(
+      contextRow.querySelector('[aria-label="Context failed"]'),
+    ).not.toBeNull();
     await act(async () => {
-      contextRow.querySelector<HTMLButtonElement>("button")!.click();
-      contextRow
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="Retry Brief context"]',
-        )!
-        .click();
       contextRow
         .querySelector<HTMLButtonElement>(
           'button[aria-label="Remove Brief context"]',
         )!
         .click();
     });
-    expect(onInspectContextItem).toHaveBeenCalledWith("brief");
-    expect(onRetryContextItem).toHaveBeenCalledWith("brief");
+    expect(onInspectContextItem).not.toHaveBeenCalled();
+    expect(onRetryContextItem).not.toHaveBeenCalled();
     expect(onRemoveContextItem).toHaveBeenCalledWith("brief");
     expect(
       container.querySelector('[data-context-key="brief"]'),

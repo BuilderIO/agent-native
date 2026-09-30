@@ -764,6 +764,10 @@ function RepeatedActivityCluster({
 }
 
 function toolToActivity(tool: AgentToolCall): AgentActivity {
+  const failed = tool.status === "failed";
+  const errorMessage =
+    tool.error?.message ??
+    (failed && typeof tool.output === "string" ? tool.output : undefined);
   return {
     id: tool.id,
     kind: inferAgentActivityKind(tool.name),
@@ -774,12 +778,17 @@ function toolToActivity(tool: AgentToolCall): AgentActivity {
         : tool.status === "running"
           ? "running"
           : tool.status,
-    detail:
-      typeof tool.output === "string"
+    detail: failed
+      ? undefined
+      : typeof tool.output === "string"
         ? tool.output
         : typeof tool.input === "string"
           ? tool.input
           : undefined,
+    summary:
+      failed && errorMessage
+        ? [{ type: "text", text: errorMessage }]
+        : undefined,
   };
 }
 
@@ -1011,9 +1020,8 @@ export function AgentActivityGroup({
   const activityItems = items.filter(
     (activity) => !durableToolResultIds.has(activity.id),
   );
-  const latestActivity = activityItems.reduce<AgentActivity | undefined>(
+  const latestActivity = items.reduce<AgentActivity | undefined>(
     (current, activity) => {
-      if (activity.status !== "running") return current;
       if (!current) return activity;
       return (latestSequence.get(activity.id) ?? -1) >=
         (latestSequence.get(current.id) ?? -1)
@@ -1046,38 +1054,36 @@ export function AgentActivityGroup({
     Number.isFinite(startedAt) && Number.isFinite(completedAt)
       ? Math.max(0, completedAt - startedAt)
       : undefined;
-  const activelyWorking =
-    throughSequence === undefined &&
-    (run === undefined ? running : run.status === "running");
-  const currentActivity = activelyWorking ? latestActivity : undefined;
-  const visiblyRunning =
-    throughSequence === undefined && activelyWorking && running;
-  const [elapsedAt, setElapsedAt] = useState<number>();
-  useEffect(() => {
-    if (!activelyWorking || !Number.isFinite(startedAt)) return;
-    const update = () => setElapsedAt(Date.now());
-    update();
-    const interval = globalThis.setInterval(update, 1_000);
-    return () => globalThis.clearInterval(interval);
-  }, [activelyWorking, startedAt]);
-  const activeDurationMs =
-    activelyWorking && elapsedAt !== undefined && Number.isFinite(startedAt)
-      ? Math.max(0, elapsedAt - startedAt)
-      : undefined;
+  const hasTerminalRunEvent = runEvents.some(
+    (event) =>
+      event.runId === runId &&
+      (event.type === "run.completed" ||
+        event.type === "run.failed" ||
+        event.type === "run.cancelled"),
+  );
+  const activelyWorking = run
+    ? run.status === "running"
+    : throughSequence === undefined && running && !hasTerminalRunEvent;
   const completedRunSummary =
-    throughSequence !== undefined ||
-    (items.length > 0 && !running) ||
-    runEvents.some(
-      (event) =>
-        event.runId === runId &&
-        (event.type === "run.completed" ||
-          event.type === "run.failed" ||
-          event.type === "run.cancelled"),
-    ) ||
-    (afterSequence === undefined &&
-      run !== undefined &&
-      ["completed", "failed", "cancelled"].includes(run.status));
-  if (items.length === 0) return null;
+    !activelyWorking &&
+    ((items.length > 0 && !running) ||
+      hasTerminalRunEvent ||
+      (afterSequence === undefined &&
+        run !== undefined &&
+        ["completed", "failed", "cancelled"].includes(run.status)));
+  if (items.length === 0 && !activelyWorking) return null;
+  const currentActivity = activelyWorking
+    ? (latestActivity ?? {
+        id: `thinking:${runId ?? thread.id}`,
+        kind: "model",
+        label: labels.reasoning,
+        status: "running",
+      })
+    : undefined;
+  const currentActivityLabel =
+    currentActivity?.label === "Contacting model"
+      ? labels.reasoning
+      : currentActivity?.label;
   const displayGroups = new Map<ActivityBucket, AgentActivity[][]>(
     ACTIVITY_BUCKET_ORDER.map((bucket) => [bucket, []]),
   );
@@ -1114,7 +1120,9 @@ export function AgentActivityGroup({
     }
   }
   const hasExpandableActivity = ACTIVITY_BUCKET_ORDER.some(
-    (bucket) => displayGroups.get(bucket)!.length > 0,
+    (bucket) =>
+      (!completedRunSummary || bucket !== "thinking") &&
+      displayGroups.get(bucket)!.length > 0,
   );
   const activityBucketLabels = {
     thinking: "Thinking",
@@ -1130,34 +1138,15 @@ export function AgentActivityGroup({
       second: labels.durationSecondShort,
     });
   const summaryLabel = activelyWorking
-    ? activeDurationMs !== undefined && activeDurationMs >= 1_000
-      ? labels.workingFor.replace(
-          "{{duration}}",
-          formatDuration(activeDurationMs),
-        )
-      : labels.working
+    ? ""
     : completedRunSummary
       ? durationMs !== undefined && durationMs >= 1_000
         ? labels.workedFor.replace("{{duration}}", formatDuration(durationMs))
         : labels.worked
       : labels.activities;
+  const visiblyRunning = activelyWorking;
   return (
     <>
-      {items
-        .filter((activity) => activity.status === "failed")
-        .map((activity) => (
-          <div key={activity.id} className="agentkit-run-failure" role="alert">
-            <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-            <div className="agentkit-run-failure-copy">
-              <strong>{activity.label}</strong>
-              <span>
-                {toolMap.get(activity.id)?.error?.message ??
-                  activity.detail ??
-                  labels.error}
-              </span>
-            </div>
-          </div>
-        ))}
       {durableToolResults.length ? (
         <div data-agentkit-tool-results="true">
           {durableToolResults.map(({ tool, Renderer }) => (
@@ -1182,8 +1171,8 @@ export function AgentActivityGroup({
                   threadId={threadId}
                   compact
                 />
-                <span className="agentkit-activities-current-label">
-                  {currentActivity.label}
+                <span className="agentkit-activities-current-label agent-running-shimmer">
+                  {currentActivityLabel}
                 </span>
               </span>
             ) : null
@@ -1191,6 +1180,7 @@ export function AgentActivityGroup({
         >
           <div className="agentkit-activities-list">
             {ACTIVITY_BUCKET_ORDER.map((bucket) => {
+              if (completedRunSummary && bucket === "thinking") return null;
               const groups = displayGroups.get(bucket)!;
               if (groups.length === 0) return null;
               return (
@@ -1262,7 +1252,9 @@ export function AgentActivityGroup({
         </AgentWorkDisclosure>
       ) : (
         <div className="agentkit-activities-static">
-          <span className="agentkit-activities-label">{summaryLabel}</span>
+          {summaryLabel ? (
+            <span className="agentkit-activities-label">{summaryLabel}</span>
+          ) : null}
           {currentActivity ? (
             <span
               className="agentkit-activities-current"
@@ -1275,8 +1267,8 @@ export function AgentActivityGroup({
                 threadId={threadId}
                 compact
               />
-              <span className="agentkit-activities-current-label">
-                {currentActivity.label}
+              <span className="agentkit-activities-current-label agent-running-shimmer">
+                {currentActivityLabel}
               </span>
             </span>
           ) : null}
@@ -1311,14 +1303,18 @@ function AgentWorkDisclosure({
           setOpen((value) => !value);
         }}
       >
-        <span className="agentkit-activities-heading">
-          <span className="agentkit-activities-label">{label}</span>
-          <IconChevronRight
-            aria-hidden="true"
-            className="agentkit-icon agentkit-summary-chevron"
-          />
+        <span className="agentkit-activities-summary-content">
+          {label ? (
+            <span className="agentkit-activities-heading">
+              <span className="agentkit-activities-label">{label}</span>
+            </span>
+          ) : null}
+          {current}
         </span>
-        {current}
+        <IconChevronRight
+          aria-hidden="true"
+          className="agentkit-icon agentkit-summary-chevron"
+        />
       </summary>
       {children}
     </details>
@@ -2551,7 +2547,11 @@ export function AgentMessageActions({
     forkAction.error ??
     regenerateAction.error;
   return (
-    <div className="agentkit-message-actions" data-role={message.role}>
+    <div
+      className="agentkit-message-actions"
+      data-role={message.role}
+      data-streaming={message.status === "streaming" ? "true" : undefined}
+    >
       {message.role === "assistant" ? (
         <>
           <div className="agentkit-message-actions-leading">

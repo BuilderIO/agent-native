@@ -717,7 +717,7 @@ describe("AgentChat lifecycle", () => {
       type: "activity.started" as const,
       activity: {
         id: "activity-1",
-        kind: "tool",
+        kind: "model",
         label: "Contacting model",
         status: "running" as const,
       },
@@ -759,7 +759,12 @@ describe("AgentChat lifecycle", () => {
     expect(
       runWorkBefore?.querySelector("[data-agentkit-current-activity]")
         ?.textContent,
-    ).toBe("Contacting model");
+    ).toBe("Thinking");
+    expect(
+      runWorkBefore?.querySelector(
+        "[data-agentkit-current-activity] .agent-running-shimmer",
+      ),
+    ).not.toBeNull();
 
     const assistantMessage = {
       id: "assistant-1",
@@ -862,12 +867,17 @@ describe("AgentChat lifecycle", () => {
     const response = tree.container.querySelector(
       '[data-message-id="assistant-1"]',
     );
+    expect(
+      response
+        ?.querySelector(".agentkit-message-actions")
+        ?.getAttribute("data-streaming"),
+    ).toBe("true");
     expect(runWorkAfter).toBe(runWorkBefore);
     expect(runWorkAfter?.open).toBe(false);
     expect(
       runWorkAfter?.querySelector(".agentkit-activities-summary")?.textContent,
-    ).toBe("Worked for 4s");
-    expect(runWorkAfter?.hasAttribute("data-running")).toBe(false);
+    ).toBe("Thinking");
+    expect(runWorkAfter?.hasAttribute("data-running")).toBe(true);
     expect(runWorkAfter?.querySelector('[data-status="running"]')).toBeNull();
     expect(
       runWorkAfter && response
@@ -920,19 +930,20 @@ describe("AgentChat lifecycle", () => {
     });
     await flush();
     expect(
-      runWorkAfter?.querySelector(".agentkit-activities-summary")?.textContent,
+      tree.container.querySelector(
+        ".agentkit-activities-static .agentkit-activities-label",
+      )?.textContent,
     ).toBe("Worked for 4s");
-
-    await act(async () => {
-      runWorkAfter
-        ?.querySelector("summary")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-    expect(runWorkAfter?.open).toBe(true);
+    expect(
+      tree.container
+        .querySelector('[data-message-id="assistant-1"]')
+        ?.querySelector(".agentkit-message-actions")
+        ?.hasAttribute("data-streaming"),
+    ).toBe(false);
+    expect(tree.container.querySelector(".agentkit-reasoning")).toBeNull();
   });
 
-  it("keeps thoughts inside one work disclosure through streaming and completion", async () => {
+  it("keeps thoughts in active history and omits them after completion", async () => {
     const threadId = "thread-reasoning-work";
     const runId = "run-reasoning-work";
     const base = (sequence: number, seconds: number = sequence) => ({
@@ -1018,10 +1029,10 @@ describe("AgentChat lifecycle", () => {
       work.querySelector("[data-agentkit-current-activity]")?.textContent,
     ).toBe("Searching documentation");
     expect(
-      work
-        .querySelector(".agentkit-activities-label")
-        ?.nextElementSibling?.classList.contains("agentkit-summary-chevron"),
-    ).toBe(true);
+      work.querySelector(
+        ".agentkit-activities-summary > .agentkit-summary-chevron",
+      ),
+    ).not.toBeNull();
     expect(
       work
         .querySelector('[data-thought="thread-reasoning-work:assistant-2:0"]')
@@ -1062,9 +1073,59 @@ describe("AgentChat lifecycle", () => {
     ).not.toBe(0);
     await act(async () => work.querySelector("summary")!.click());
     expect(work.open).toBe(true);
-    expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
+    expect(work.querySelectorAll("[data-thought]")).toHaveLength(0);
+    expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
     await act(async () => work.querySelector("summary")!.click());
     expect(work.open).toBe(false);
+  });
+
+  it("shows localized Thinking before the first activity arrives", async () => {
+    const threadId = "thread-no-activity-yet";
+    const runId = "run-no-activity-yet";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 0,
+          startedAt: "2026-09-28T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        labels={{ reasoning: "Thinking in Spanish" }}
+      >
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelectorAll("[data-agentkit-current-activity]"),
+    ).toHaveLength(1);
+    expect(
+      tree.container.querySelector(
+        "[data-agentkit-current-activity] .agent-running-shimmer",
+      )?.textContent,
+    ).toBe("Thinking in Spanish");
+    expect(tree.container.textContent).not.toContain("Working for");
+    expect(
+      tree.container.querySelector(".agentkit-activities-summary"),
+    ).toBeNull();
+    await tree.unmount();
   });
 
   it.each(["completed", "cancelled"] as const)(
@@ -1118,13 +1179,10 @@ describe("AgentChat lifecycle", () => {
       );
       const work = tree.container.querySelector<HTMLDetailsElement>(
         ".agentkit-activities",
-      )!;
-      expect(work.open).toBe(false);
-      expect(work.querySelector("summary")?.textContent).toBe("Worked for 18s");
-      expect(work.querySelector(".agentkit-reasoning")).not.toBeNull();
-      expect(
-        work.querySelector("[data-active], [data-agentkit-current-activity]"),
-      ).toBeNull();
+      );
+      expect(work).toBeNull();
+      expect(tree.container.textContent).toContain("Worked for 18s");
+      expect(tree.container.querySelector(".agentkit-reasoning")).toBeNull();
       expect(tree.container.querySelector("article")).toBeNull();
     },
   );
@@ -1291,7 +1349,7 @@ describe("AgentChat lifecycle", () => {
       );
       expect(
         work?.querySelector(".agentkit-activities-summary")?.textContent,
-      ).toContain("Working for 15s");
+      ).toBe("Reviewing results");
       expect(work?.open).toBe(false);
       expect(
         work?.querySelector("[data-agentkit-current-activity]")?.textContent,
@@ -1338,7 +1396,7 @@ describe("AgentChat lifecycle", () => {
       });
       expect(
         work?.querySelector(".agentkit-activities-summary")?.textContent,
-      ).toContain("Working for 16s");
+      ).toBe("Reviewing results");
     } finally {
       vi.useRealTimers();
     }
@@ -1513,7 +1571,7 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("keeps failed tools visible while successful work stays collapsed", async () => {
+  it("keeps failed tool errors inside explicitly expanded history", async () => {
     const threadId = "thread-tool-failure";
     const runId = "run-tool-failure";
     const tools: AgentToolCall[] = [
@@ -1561,13 +1619,24 @@ describe("AgentChat lifecycle", () => {
         <AgentKitChat composer={false} />
       </AgentKitProvider>,
     );
-    const failure = tree.container.querySelector('[role="alert"]');
-    expect(failure?.textContent).toContain("The file could not be saved.");
-    expect(failure?.closest("details")).toBeNull();
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    expect(tree.container.querySelector(".agentkit-run-failure")).toBeNull();
+    expect(work?.open).toBe(false);
+    expect(work?.querySelector(".agentkit-activity-summary")).toBeNull();
+    await act(async () => work?.querySelector("summary")?.click());
+    expect(work?.open).toBe(true);
+    const failedTool = work?.querySelector(
+      '.agentkit-activity-item[data-status="failed"]',
+    );
+    expect(failedTool?.textContent).not.toContain(
+      "The file could not be saved.",
+    );
+    await act(async () => failedTool?.querySelector("button")?.click());
     expect(
-      tree.container.querySelector<HTMLDetailsElement>(".agentkit-activities")
-        ?.open,
-    ).toBe(false);
+      failedTool?.querySelector(".agentkit-activity-summary")?.textContent,
+    ).toBe("The file could not be saved.");
   });
 
   it("resets disclosure state when switching threads with reused run ids", async () => {

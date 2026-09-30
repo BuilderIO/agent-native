@@ -2029,32 +2029,25 @@ describe("ReasoningCell", () => {
     expect(container.textContent).toContain("verify the join keys first.");
   });
 
-  it("keeps its own disclosure inside the shared work disclosure", () => {
+  it("keeps work details inside the shared work disclosure", () => {
     act(() => {
       root.render(
         <WorkedForSummary>
-          <ReasoningCell text="I should verify the join keys first." />
+          <div>Tool call details</div>
         </WorkedForSummary>,
       );
     });
 
-    expect(container.querySelectorAll("button")).toHaveLength(1);
-    expect(container.textContent).not.toContain("verify the join keys first.");
+    const button = container.querySelector("button");
+    expect(button?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Tool call details");
 
     act(() => {
-      container.querySelector("button")?.click();
+      button?.click();
     });
 
-    const buttons = Array.from(container.querySelectorAll("button"));
-    expect(buttons).toHaveLength(2);
-    expect(container.textContent).toContain("Thought");
-    expect(container.textContent).not.toContain("verify the join keys first.");
-
-    act(() => {
-      buttons[1]?.click();
-    });
-
-    expect(container.textContent).toContain("verify the join keys first.");
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Tool call details");
   });
 
   it('shows a shimmering "Thinking" label while streaming', () => {
@@ -2278,6 +2271,54 @@ describe("WorkedForSummary", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("omits completed reasoning while preserving tools and the final response", () => {
+    const finalResponse = "The warehouse shows 12% growth.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          argsText={finalResponse}
+          result="Agent call completed"
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 3,
+              startedAt: 1,
+              updatedAt: 3,
+              durationMs: 5_000,
+              activePhase: "complete",
+              reasoning: ["This private thought should not appear."],
+              toolCalls: [
+                {
+                  id: "query-1",
+                  name: "query-warehouse",
+                  status: "completed",
+                },
+              ],
+              response: ["The query returned a 12% increase."],
+            },
+          }}
+        />,
+      );
+    });
+
+    const workedFor = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    ).find((button) => button.textContent?.includes("Worked for"));
+    expect(workedFor).not.toBeNull();
+    act(() => workedFor?.click());
+
+    expect(container.textContent).not.toContain("This private thought");
+    expect(container.textContent).toContain("query warehouse");
+    expect(container.textContent).toContain(
+      "The query returned a 12% increase.",
+    );
+    expect(container.textContent).toContain(finalResponse);
   });
 
   it("does not flash open when a completed summary remounts", () => {

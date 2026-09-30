@@ -1127,16 +1127,16 @@ function AgentCallCell({
   const formatDuration = useLocalizedWorkedDuration();
   const [open, setOpen] = useState(true);
   const responseKey = toolCallId ?? agentName;
+  const activeReasoning = isRunning ? (activity?.reasoning ?? []) : [];
   const toolCount = activity?.toolCalls?.length ?? 0;
   const segments = activity?.response ?? [];
   const inlineSegments =
     responseText && !isRunning ? segments.slice(0, toolCount) : segments;
   const finalText =
     responseText || (inlineSegments.length ? "" : activity?.responseText);
-  const work =
-    activity?.reasoning?.length || toolCount || inlineSegments.length;
+  const work = activeReasoning.length || toolCount || inlineSegments.length;
   const workItemCount = Math.max(
-    activity?.reasoning?.length ?? 0,
+    activeReasoning.length,
     toolCount,
     inlineSegments.length,
   );
@@ -1148,7 +1148,7 @@ function AgentCallCell({
   const workContent = work ? (
     <div className="space-y-1">
       {Array.from({ length: workItemCount }, (_, index) => {
-        const reasoningText = activity?.reasoning?.[index];
+        const reasoningText = activeReasoning[index];
         const segment = inlineSegments[index];
         const tool = activity?.toolCalls?.[index];
         return (
@@ -1158,11 +1158,11 @@ function AgentCallCell({
                 text={reasoningText}
                 isStreaming={
                   isRunning &&
-                  activity.activePhase === "reasoning" &&
-                  index === activity.reasoning.length - 1
+                  activity?.activePhase === "reasoning" &&
+                  index === activeReasoning.length - 1
                 }
-                defaultOpen={index === activity.reasoning.length - 1}
-                collapseWhenReplaced={index < activity.toolCalls.length}
+                defaultOpen={index === activeReasoning.length - 1}
+                collapseWhenReplaced={index < toolCount}
               />
             )}
             {segment && (
