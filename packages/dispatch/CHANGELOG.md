@@ -1,5 +1,15 @@
 # @agent-native/dispatch
 
+## 0.40.3
+
+### Patch Changes
+
+- 181ca1d: Keep the package changelog in Dispatch's route wrapper so generated workspaces can render the shared Settings page during SSR.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [63c4c02]
+  - @agent-native/toolkit@0.198.2
+
 ## 0.40.2
 
 ### Patch Changes
@@ -1077,12 +1087,5 @@
 - 89f194f: Provision cross-app SSO state and authorization-code tables during release migrations so production serverless requests never perform schema DDL.
 - Updated dependencies [89f194f]
   - @agent-native/toolkit@0.14.3
-
-## 0.24.6
-
-### Patch Changes
-
-- Updated dependencies [2db503b]
-  - @agent-native/toolkit@0.14.2
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
