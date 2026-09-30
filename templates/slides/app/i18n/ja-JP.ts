@@ -172,6 +172,15 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "最新の変更はこのデバイスにしかありません。離れる前にバックアップをダウンロードしてください。",
+    slideConflictReview: "確認",
+    slideConflictTitle: "このスライドは別の場所で変更されました",
+    slideConflictDescription:
+      "別の編集者が新しいバージョンを保存しました。下書きを保持すると保存済みのスライド内容が置き換わります。最新バージョンを使用することもできます。",
+    slideConflictUseLatest: "最新バージョンを使用",
+    slideConflictKeepDraft: "下書きを保持",
+    slideConflictKeepEditing: "編集を続ける",
+    slideConflictResolutionFailed:
+      "競合を解決できませんでした。下書きは保持されています。",
     offline: "オフライン",
     selected: "選択済み",
     chooseDesignSystem: "デザインシステムを選択",

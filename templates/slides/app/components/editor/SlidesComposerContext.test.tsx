@@ -483,6 +483,35 @@ describe("Slides context readiness and identity", () => {
     expect(callAction).not.toHaveBeenCalled();
   });
 
+  it("restores composer references from a generation retry", async () => {
+    const initialSelection = {
+      designSystemId: null,
+      references: [
+        { source: "slides" as const, id: "shared", title: "Shared deck" },
+      ],
+    };
+    const { result } = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, initialSelection }),
+    );
+
+    await waitFor(() =>
+      expect(result.current.props.contextItems[0]).toMatchObject({
+        key: "slides:shared:",
+        status: "ready",
+      }),
+    );
+    let submitted!: Awaited<ReturnType<typeof result.current.beforeSend>>;
+    await act(async () => {
+      submitted = await result.current.beforeSend();
+    });
+
+    expect(submitted.selection).toEqual(initialSelection);
+    expect(submitted.items[0].context).toBe("Visual language");
+    expect(
+      window.localStorage.getItem("slides-home-context:one@example.test:one"),
+    ).toBe(JSON.stringify(initialSelection));
+  });
+
   it("ignores reference reads that finish after the Home route deactivates", async () => {
     let resolve!: (value: unknown) => void;
     callAction.mockReturnValue(new Promise((done) => (resolve = done)));

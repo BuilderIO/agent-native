@@ -1861,6 +1861,34 @@ export function startInPlaceTextSession(
                   : range.intersectsNode(row),
               )
             : [];
+          const selectedUnmarkedRows = range
+            ? Array.from(el.children).filter(
+                (child): child is HTMLElement =>
+                  child instanceof HTMLElement &&
+                  !isBulletRow(child) &&
+                  ["DIV", "LI", "P"].includes(child.tagName) &&
+                  rows.some((row) => row.tagName === child.tagName) &&
+                  (range.collapsed
+                    ? child.contains(range.startContainer)
+                    : range.intersectsNode(child)),
+              )
+            : [];
+          if (
+            kind === "bullet" &&
+            rows.length > 0 &&
+            selectedRows.length === 0 &&
+            selectedUnmarkedRows.length > 0
+          ) {
+            const marker = rows[0].firstElementChild;
+            if (marker) {
+              for (const row of selectedUnmarkedRows) {
+                const restoredMarker = marker.cloneNode(true) as HTMLElement;
+                stripCopiedIdentity(restoredMarker);
+                row.prepend(restoredMarker);
+              }
+              return true;
+            }
+          }
           if (
             kind === "bullet" &&
             selectedRows.length !== 0 &&
