@@ -11,6 +11,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- New workspaces can open Dispatch pages without a server rendering error.
 - Apps and app launchers only show apps installed in this workspace
 
 ## 2026-09-28

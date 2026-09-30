@@ -1,3 +1,4 @@
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 // @vitest-environment happy-dom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -40,6 +41,17 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ) => navigate(path),
   useAgentChatHomeHandoff: () => false,
   useAgentChatHomeHandoffLinks: vi.fn(),
+  useChatModels: () => ({
+    availableModels: [],
+    defaultModel: "auto",
+    selectedModel: "auto",
+    selectedEngine: "",
+    selectedEffort: "medium" as const,
+    isLoading: false,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
   useChatThreads: () => ({
     threads: clientState.threads,
     activeThreadId: "active-thread",
@@ -78,6 +90,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
     clientState.basePath && path.startsWith("/")
       ? `${clientState.basePath}${path}`
       : path,
+  frameworkRoutePrefix: () => "",
 }));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
@@ -101,6 +114,7 @@ vi.mock("next-themes", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
   useT: () => (key: string, values?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "dispatch.nav.chat": "Chat",
@@ -127,6 +141,10 @@ vi.mock("@agent-native/toolkit/app/shared", async (importOriginal) => ({
     typeof import("@agent-native/toolkit/app/shared")
   >()),
   openCommandMenu: vi.fn(),
+}));
+
+vi.mock("../create-app-popover", () => ({
+  CreateAppPopover: () => null,
 }));
 
 vi.mock("@agent-native/toolkit/app/feedback", () => ({
@@ -780,7 +798,11 @@ function readMobileZIndexClass(className: string): number | null {
 
 describe("chat-first surface panel toggle stacking", () => {
   it("keeps the toggle above the mobile full-screen surface panel overlay", async () => {
-    const { ChatFirstSurfacePanel, ChatFirstSurfacePanelToggle } =
+    const { ChatFirstSurfacePanelToggle: RealChatFirstSurfacePanelToggle } =
+      await vi.importActual<
+        typeof import("@agent-native/toolkit/app/chat/chat-first")
+      >("@agent-native/toolkit/app/chat/chat-first");
+    const { ChatFirstSurfacePanel } =
       await import("@agent-native/toolkit/app/chat/chat-first");
 
     const container = document.createElement("div");
@@ -793,7 +815,7 @@ describe("chat-first surface panel toggle stacking", () => {
           <ChatFirstSurfacePanel width={320} onResizePointerDown={() => {}}>
             <div>side surface content</div>
           </ChatFirstSurfacePanel>
-          <ChatFirstSurfacePanelToggle
+          <RealChatFirstSurfacePanelToggle
             open={false}
             onToggle={() => {}}
             className={CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME}
