@@ -53,7 +53,7 @@ export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   automaticReferenceDeckId?: string | null;
   referenceDeckId?: string | null;
-  referenceDeckIdSource?: "prompt" | "selection";
+  referenceDeckIdSource?: "prompt" | "selection" | "automatic";
   referenceFilePaths?: string[];
   importedReferenceFilePath?: string;
   referenceSource?: {
@@ -294,6 +294,9 @@ export function NewDeckReferenceStep({
       await onSelect({
         designSystemId: selectedDesignSystemId,
         referenceDeckId: selectedReferenceDeckId,
+        referenceDeckIdSource: referenceDeckAutoRef.current
+          ? "automatic"
+          : "selection",
         referenceSource: trimmedSource,
         ...(importedReference?.referenceFilePaths?.length
           ? { referenceFilePaths: importedReference.referenceFilePaths }

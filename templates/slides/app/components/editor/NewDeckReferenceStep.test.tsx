@@ -226,6 +226,7 @@ describe("<NewDeckReferenceStep>", () => {
     expect(onSelect).toHaveBeenCalledWith({
       designSystemId: null,
       referenceDeckId: "deck-pptx",
+      referenceDeckIdSource: "selection",
       referenceSource: null,
       referenceFilePaths: ["/uploads/reference.pptx"],
     });
@@ -588,7 +589,7 @@ describe("<NewDeckReferenceStep>", () => {
   });
 
   it("shows the last selected reference deck when the step opens", async () => {
-    await renderStep({
+    const { onSelect } = await renderStep({
       decks: [
         {
           id: "deck-last-used",
@@ -604,6 +605,14 @@ describe("<NewDeckReferenceStep>", () => {
     expect(
       screen.getByRole("combobox", { name: "Reference deck" }).textContent,
     ).toContain("Last used deck");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceDeckIdSource: "automatic" }),
+    );
   });
 
   it("hydrates the default design system when the list resolves after opening", async () => {
@@ -718,7 +727,7 @@ describe("<NewDeckReferenceStep>", () => {
   });
 
   it("shows the deck name in the trigger after selecting a deck", async () => {
-    await renderStep({
+    const { onSelect } = await renderStep({
       decks: [
         {
           id: "deck-1",
@@ -733,8 +742,15 @@ describe("<NewDeckReferenceStep>", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
     fireEvent.click(screen.getByRole("option", { name: "Some deck" }));
 
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
     expect(
       screen.getByRole("combobox", { name: "Reference deck" }).textContent,
     ).toBe("Some deck");
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceDeckIdSource: "selection" }),
+    );
   });
 });

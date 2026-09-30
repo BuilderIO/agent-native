@@ -143,7 +143,10 @@ import {
   importUploadedDeckIntoDeck,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
-import { findPromptReferenceDeckId } from "@/lib/new-deck-reference-selection";
+import {
+  findPromptReferenceDeckId,
+  resolveRetryReferenceDeckSelection,
+} from "@/lib/new-deck-reference-selection";
 import type { UploadedFile } from "@/lib/prompt-file-uploads";
 import {
   forgetRecentReference,
@@ -286,7 +289,9 @@ const storedReferenceSelectionSchema = z.object({
   designSystemId: z.string().nullable().optional(),
   automaticReferenceDeckId: z.string().nullable().optional(),
   referenceDeckId: z.string().nullable().optional(),
-  referenceDeckIdSource: z.enum(["prompt", "selection"]).optional(),
+  referenceDeckIdSource: z
+    .enum(["prompt", "selection", "automatic"])
+    .optional(),
   referenceFilePaths: z.array(z.string()).optional(),
   importedReferenceFilePath: z.string().optional(),
   referenceSource: z
@@ -1537,6 +1542,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         ? (retryReferenceSelection?.referenceFilePaths ?? [])
         : [];
       const carriedImportedReference =
+        reusingRetryInputs &&
         retryReferenceSelection?.referenceDeckId &&
         retryReferenceSelection.importedReferenceFilePath
           ? {
@@ -1556,10 +1562,21 @@ export default function Index({ active = true }: { active?: boolean }) {
       const automaticReferenceDeckId =
         retryReferenceSelection?.automaticReferenceDeckId ??
         composerContext.automaticReferenceDeckId;
+      const automaticReferenceDeckRemovedFromComposer =
+        Boolean(automaticReferenceDeckId) &&
+        options?.slidesContext !== undefined &&
+        !options.slidesContext.references.some(
+          (reference) =>
+            reference.source === "slides" &&
+            reference.id === automaticReferenceDeckId,
+        );
+      const replaceAutomaticDeckContext =
+        Boolean(automaticReferenceDeckId) &&
+        (!reusingRetryInputs ||
+          Boolean(promptReferenceDeckId) ||
+          automaticReferenceDeckRemovedFromComposer);
       const generationComposerContext =
-        retryComposerContext &&
-        promptReferenceDeckId &&
-        automaticReferenceDeckId
+        retryComposerContext && replaceAutomaticDeckContext
           ? {
               ...retryComposerContext,
               references: retryComposerContext.references.filter(
@@ -1582,31 +1599,19 @@ export default function Index({ active = true }: { active?: boolean }) {
             reference.source === "slides" &&
             reference.id !== automaticReferenceDeckId,
         ) ?? false;
-      const referenceDeckId = carriedDeckMissing
-        ? null
-        : hasExplicitComposerDeckReference
-          ? null
-          : retryReferenceSelection?.referenceDeckIdSource === "prompt"
-            ? reusingRetryInputs
-              ? (retryReferenceSelection.referenceDeckId ??
-                promptReferenceDeckId ??
-                null)
-              : (promptReferenceDeckId ?? null)
-            : retryReferenceSelection?.referenceDeckId !== undefined
-              ? retryReferenceSelection.referenceDeckId
-              : (carriedImportedReference?.deckId ??
-                promptReferenceDeckId ??
-                (generationComposerContext ? null : undefined));
-      const referenceDeckIdSource = hasExplicitComposerDeckReference
-        ? "selection"
-        : retryReferenceSelection?.referenceDeckIdSource === "selection" ||
-            (retryReferenceSelection?.referenceDeckId !== undefined &&
-              retryReferenceSelection.referenceDeckIdSource !== "prompt")
-          ? "selection"
-          : retryReferenceSelection?.referenceDeckIdSource === "prompt" ||
-              promptReferenceDeckId
-            ? "prompt"
-            : undefined;
+      const { referenceDeckId, referenceDeckIdSource } =
+        resolveRetryReferenceDeckSelection({
+          carriedDeckMissing,
+          automaticReferenceDeckRemovedFromComposer,
+          hasComposerContext: Boolean(generationComposerContext),
+          hasExplicitComposerDeckReference,
+          carriedImportedReferenceDeckId: carriedImportedReference?.deckId,
+          promptReferenceDeckId,
+          reusingRetryInputs,
+          retryReferenceDeckId: retryReferenceSelection?.referenceDeckId,
+          retryReferenceDeckIdSource:
+            retryReferenceSelection?.referenceDeckIdSource,
+        });
       const referenceSelection: NewDeckReferenceSelection = {
         ...(retryReferenceSelection ?? {}),
         ...(automaticReferenceDeckId ? { automaticReferenceDeckId } : {}),
@@ -1885,7 +1890,8 @@ export default function Index({ active = true }: { active?: boolean }) {
         pending.files,
         {
           ...selection,
-          ...(selection.referenceDeckId !== undefined
+          ...(selection.referenceDeckId !== undefined &&
+          selection.referenceDeckIdSource === undefined
             ? { referenceDeckIdSource: "selection" as const }
             : {}),
           ...(composerContext ? { composerContext, contextItems } : {}),

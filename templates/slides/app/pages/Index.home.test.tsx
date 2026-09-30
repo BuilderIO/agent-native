@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 // @vitest-environment happy-dom
 import {
   act,
@@ -15,6 +16,7 @@ import { Link, MemoryRouter, useMatch } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type PromptPopover from "@/components/editor/PromptDialog";
+import { findPromptReferenceDeckId } from "@/lib/new-deck-reference-selection";
 
 const systemFlag = vi.hoisted(() => ({ enabled: true, query: vi.fn() }));
 const suggestionQuery = vi.hoisted(() => ({
@@ -1738,6 +1740,49 @@ describe("Slides prompt-led home", () => {
     );
     expect(agentSubmit.mock.calls[0][1]).not.toContain(
       "Automatic recent-deck context",
+    );
+  });
+
+  it("recomputes prompt-linked decks when a retry prompt changes", async () => {
+    createDeck.mockReturnValue({ id: "generated-deck" });
+    renderHome(
+      {
+        decks: [
+          { id: "old-deck", title: "Old deck", createdByMe: true },
+          { id: "new-deck", title: "New deck", createdByMe: true },
+        ],
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+      },
+      {
+        retryPrompt: "Use the old deck",
+        retryReferenceSelection: {
+          referenceDeckId: "old-deck",
+          referenceDeckIdSource: "automatic",
+        },
+      },
+    );
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+    const prompt = `Use this style: ${window.location.origin}${appPath("/deck/new-deck")}`;
+    expect(
+      findPromptReferenceDeckId(prompt, window.location.origin, [
+        { id: "old-deck" },
+        { id: "new-deck" },
+      ]),
+    ).toBe("new-deck");
+
+    await act(async () => {
+      promptProps.mock.lastCall![0].onSubmit(prompt, [], attachments, {
+        slidesContext: { designSystemId: null, references: [] },
+        contextItems: [],
+      });
+    });
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    expect(callAction).toHaveBeenCalledWith(
+      "get-deck-reference-context",
+      { id: "new-deck" },
+      { method: "GET" },
     );
   });
 
