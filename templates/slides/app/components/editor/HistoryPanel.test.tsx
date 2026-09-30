@@ -165,6 +165,46 @@ describe("HistoryPanel", () => {
     ).toBe(true);
   });
 
+  it("treats a malformed selected snapshot as a load failure", () => {
+    mocks.versionsQuery = {
+      data: {
+        versions: [
+          {
+            id: "version-1",
+            title: "Version 1",
+            slideCount: 1,
+            createdAt: "2026-09-29T12:00:00.000Z",
+            slidePreviews: [],
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      isSuccess: true,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+    mocks.versionQuery = {
+      data: {},
+      isLoading: false,
+      isError: false,
+      isSuccess: true,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+
+    render(<HistoryPanel deckId="deck-1" open onOpenChange={vi.fn()} />);
+    fireEvent.click(screen.getByText("Version 1"));
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "history.snapshotLoadFailed",
+    );
+    expect(
+      (screen.getByText("history.restoreThisVersion") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
   it("clears the selected snapshot when the deck changes", async () => {
     mocks.versionsQuery = {
       data: {

@@ -99,10 +99,10 @@ export default function HistoryPanel({
     versionsQuery.isError ||
     (versionsQuery.isSuccess && !Array.isArray(versionsQuery.data?.versions));
   const selectedVersion = versionQuery.data;
+  const hasSelectedVersionSlides = Array.isArray(selectedVersion?.slides);
   const versionLoadFailed =
-    (versionQuery.isError ||
-      (versionQuery.isSuccess && versionQuery.data == null)) &&
-    !versionQuery.data;
+    (versionQuery.isError || versionQuery.isSuccess) &&
+    !hasSelectedVersionSlides;
   const selectedSlides = useMemo(
     () =>
       (selectedVersion?.slides ?? []).map((slide) => ({
