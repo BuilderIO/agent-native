@@ -154,9 +154,8 @@ describe("agent-native create TUI", () => {
     await cli.waitFor("[x] Dispatch");
     await cli.waitFor("required · default");
     await wait(50);
-    for (let index = 0; index < 8; index++) cli.child.write("\x1b[B");
-    await cli.waitFor("Forms");
-    cli.child.write(" ");
+    // One write, so Ink hands the TUI every key before it re-renders.
+    cli.child.write(`${"\x1b[B".repeat(8)} `);
     await cli.waitFor("3 selected");
     cli.child.write("\x02");
     const startAgain = await cli.waitFor(
