@@ -8,8 +8,6 @@ import ChatRoute from "./chat";
 
 const clientState = vi.hoisted(() => ({
   surfaceProps: null as Record<string, unknown> | null,
-  activeRunId: null as string | null,
-  writeClipboardText: vi.fn(),
   openWorkspaceApp: vi.fn(),
   workspaceApps: [
     {
@@ -36,7 +34,6 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   insertAgentComposerReference: vi.fn(),
   markAgentChatHomeHandoff: vi.fn(),
   readChatFirstMode: () => true,
-  useActiveAgentChatRunId: () => clientState.activeRunId,
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
@@ -54,10 +51,6 @@ vi.mock("@agent-native/toolkit/app/chat", () => ({
       </>
     );
   },
-}));
-
-vi.mock("@agent-native/toolkit/clipboard", () => ({
-  writeClipboardText: clientState.writeClipboardText,
 }));
 
 vi.mock("../../components/create-app-popover", () => ({
@@ -127,7 +120,6 @@ describe("Dispatch ChatRoute", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.surfaceProps = null;
-    clientState.activeRunId = null;
     clientState.agents = [];
     clientState.openWorkspaceApp.mockReset();
     clientState.retryWorkspaceApps.mockReset();
@@ -264,6 +256,13 @@ describe("Dispatch ChatRoute", () => {
     );
     expect(clientState.surfaceProps?.suggestions).toEqual([]);
     expect(container.textContent).not.toContain("What should we do today?");
+
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("What should we do today?");
   });
 
   it("keeps an agent chat scoped and preserves the scope in thread URLs", async () => {
@@ -307,10 +306,7 @@ describe("Dispatch ChatRoute", () => {
     ).toBe("/chat/thread-1?agent=agents%2Fresearch-partner.md");
   });
 
-  it("exposes a copyable request ID affordance on threaded chats", async () => {
-    clientState.activeRunId = "run-456";
-    clientState.writeClipboardText.mockResolvedValue(true);
-
+  it("keeps threaded chats free of request ID chrome", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/chat/chat-123"]}>
@@ -320,33 +316,7 @@ describe("Dispatch ChatRoute", () => {
     });
 
     expect(clientState.surfaceProps?.suggestions).toEqual([]);
-
-    const button = Array.from(container.querySelectorAll("button")).find((el) =>
-      el.textContent?.includes("Copy request ID"),
-    );
-    expect(button).toBeTruthy();
-
-    await act(async () => {
-      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-
-    expect(clientState.writeClipboardText).toHaveBeenCalledWith("run-456");
-  });
-
-  it("keeps the request ID affordance unavailable before a run starts", async () => {
-    await act(async () => {
-      root.render(
-        <MemoryRouter initialEntries={["/chat/chat-123"]}>
-          <ChatRoute />
-        </MemoryRouter>,
-      );
-    });
-
-    const button = Array.from(container.querySelectorAll("button")).find((el) =>
-      el.textContent?.includes("Request ID unavailable"),
-    );
-    expect(button).toBeTruthy();
-    expect(button).toHaveProperty("disabled", true);
+    expect(clientState.surfaceProps?.contentClassName).toBe("max-w-none");
+    expect(container.textContent).not.toContain("Request ID");
   });
 });

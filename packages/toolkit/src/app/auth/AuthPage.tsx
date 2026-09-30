@@ -29,6 +29,7 @@ import { isSyntheticTrafficValue } from "@agent-native/core/shared/test-traffic"
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
+
 import { StarfieldBackground } from "../shared/StarfieldBackground.js";
 
 export type {

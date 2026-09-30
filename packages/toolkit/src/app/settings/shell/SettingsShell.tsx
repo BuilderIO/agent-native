@@ -976,7 +976,6 @@ function SettingsNav({
   };
 
   const searching = enableSearch && query.trim().length > 0;
-  const footerPages = groups.get("footer") ?? [];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1084,30 +1083,22 @@ function SettingsNav({
           aria-label={t("agentChat.settingsShell.navLabel")}
           className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3"
         >
-          {SETTINGS_PAGE_GROUPS.filter((group) => group !== "footer")
-            .filter((group) => (groups.get(group) ?? []).length > 0)
-            .map((group) => (
-              <div
-                key={group}
-                data-settings-group={group}
-                className="mt-3.5 flex flex-col gap-px"
-              >
-                <div className="truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground">
-                  {groupLabel(group)}
-                </div>
-                {(groups.get(group) ?? []).map(renderItem)}
+          {SETTINGS_PAGE_GROUPS.filter(
+            (group) => (groups.get(group) ?? []).length > 0,
+          ).map((group) => (
+            <div
+              key={group}
+              data-settings-group={group}
+              className="mt-3.5 flex flex-col gap-px"
+            >
+              <div className="truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground">
+                {groupLabel(group)}
               </div>
-            ))}
+              {(groups.get(group) ?? []).map(renderItem)}
+            </div>
+          ))}
         </nav>
       )}
-      {footerPages.length > 0 ? (
-        <div
-          data-settings-group="footer"
-          className="flex shrink-0 flex-col gap-px px-2.5 pb-3 pt-2"
-        >
-          {footerPages.map(renderItem)}
-        </div>
-      ) : null}
     </div>
   );
 }

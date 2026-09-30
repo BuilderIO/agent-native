@@ -9,6 +9,7 @@ import {
   deriveBridgedAppPages,
 } from "./bridge.js";
 import { CORE_SETTINGS_PAGES } from "./core-pages.js";
+import { sortSettingsPages } from "./registry.js";
 
 const Stub = () => null;
 
@@ -57,6 +58,28 @@ describe("settings shell bridge", () => {
     );
     expect(personalization?.group).toBe("agent");
     expect(personalization?.legacyTabIds).toContain("agent:personalization");
+  });
+
+  it("keeps bridged Agent pages after the core Agent pages", () => {
+    const { pages } = deriveBridgedAppPages(
+      [tab("observability", { group: "agent" })],
+      CORE_SETTINGS_PAGES,
+      Stub,
+    );
+    const agentPages = sortSettingsPages([...CORE_SETTINGS_PAGES, ...pages])
+      .filter((page) => page.group === "agent")
+      .map((page) => page.id);
+
+    expect(agentPages).toEqual([
+      "model",
+      "instructions",
+      "personalization",
+      "memory",
+      "skills",
+      "files",
+      "sub-agents",
+      "observability",
+    ]);
   });
 
   it("prefixes an app tab whose id collides with a core page", () => {

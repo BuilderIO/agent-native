@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -31,6 +31,15 @@ const {
   mockConfirmAgentChat: vi.fn(),
   mockPromoteTraceEval: vi.fn(),
 }));
+
+function activateTab(tab: HTMLButtonElement | undefined) {
+  tab?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+}
+
+function CurrentPath() {
+  const location = useLocation();
+  return <output data-current-path>{location.pathname}</output>;
+}
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
@@ -77,9 +86,15 @@ vi.mock("./useObservability.js", () => ({
     isError: false,
     error: null,
   }),
-  useFeedbackList: vi.fn(),
-  useFeedbackStats: vi.fn(),
-  useEvalStats: vi.fn(),
+  useFeedbackList: () => ({ data: [], isLoading: false }),
+  useFeedbackStats: () => ({
+    data: { total: 0, thumbsUp: 0, thumbsDown: 0, categories: {} },
+    isLoading: false,
+  }),
+  useEvalStats: () => ({
+    data: { totalEvals: 0, avgScore: 0, byCriteria: [] },
+    isLoading: false,
+  }),
   useExperiments: () => ({ data: [], isLoading: false }),
   useExperimentDetail: vi.fn(),
   useExperimentResults: vi.fn(),
@@ -524,7 +539,7 @@ describe("ObservabilityDashboard human review", () => {
     const experimentsTab = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent?.includes("Experiments"));
-    await act(async () => experimentsTab?.click());
+    await act(async () => activateTab(experimentsTab));
     expect(
       container.querySelector<HTMLAnchorElement>('a[href*="#experiments"]'),
     ).toBeTruthy();
@@ -532,7 +547,7 @@ describe("ObservabilityDashboard human review", () => {
     const conversationsTab = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent?.includes("Conversations"));
-    await act(async () => conversationsTab?.click());
+    await act(async () => activateTab(conversationsTab));
     expect(
       container.querySelector<HTMLAnchorElement>('a[href*="#conversations"]'),
     ).toBeTruthy();
@@ -596,6 +611,7 @@ describe("ObservabilityDashboard human review", () => {
                 routeBasePath="/settings/observability"
                 showHumanReview
               />
+              <CurrentPath />
             </AgentNativeI18nProvider>
           </MemoryRouter>
         </QueryClientProvider>,
@@ -603,9 +619,7 @@ describe("ObservabilityDashboard human review", () => {
     });
 
     const tabs = Array.from(
-      container.querySelectorAll<HTMLAnchorElement>(
-        'a[href^="/settings/observability/"]',
-      ),
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
     );
     expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
       "Overview",
@@ -615,18 +629,21 @@ describe("ObservabilityDashboard human review", () => {
       "Experiments",
       "Feedback",
     ]);
-    expect(tabs[1]?.getAttribute("href")).toBe(
-      "/settings/observability/human-review",
-    );
-    expect(tabs[1]?.getAttribute("aria-current")).toBe("page");
-    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual([
+    expect(tabs[1]?.getAttribute("aria-selected")).toBe("true");
+    const paths = [
       "/settings/observability/overview",
       "/settings/observability/human-review",
       "/settings/observability/conversations",
       "/settings/observability/evals",
       "/settings/observability/experiments",
       "/settings/observability/feedback",
-    ]);
+    ];
+    for (const [index, path] of paths.entries()) {
+      await act(async () => activateTab(tabs[index]));
+      expect(container.querySelector("[data-current-path]")?.textContent).toBe(
+        path,
+      );
+    }
   });
 
   it("scopes the bulk summary request to visible review runs", async () => {
@@ -642,7 +659,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>("[data-review-bulk-summary]")
@@ -706,7 +723,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     const row = container.querySelector<HTMLElement>(
       '[data-review-row="run-1"]',
     )!;
@@ -819,7 +836,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>("[data-review-bulk-summary]")
@@ -949,7 +966,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     const row = container.querySelector<HTMLElement>(
       '[data-review-row="run-1"]',
     )!;
@@ -1006,7 +1023,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     expect(
       [
         ...container.querySelectorAll<HTMLButtonElement>(
@@ -1195,7 +1212,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     const row = container.querySelector<HTMLElement>(
       '[data-review-row="run-1"]',
     )!;
@@ -1283,7 +1300,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
@@ -1428,7 +1445,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
 
     const improveButton = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
@@ -1474,7 +1491,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
@@ -1532,7 +1549,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     const row = container.querySelector<HTMLElement>(
       '[data-review-row="run-2"]',
     )!;
@@ -1576,7 +1593,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
@@ -1627,7 +1644,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>("[data-review-bulk-summary]")
@@ -1718,7 +1735,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     const row = container.querySelector<HTMLElement>(
       '[data-review-row="run-1"]',
     )!;
@@ -1806,7 +1823,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     const bulkButton = container.querySelector<HTMLButtonElement>(
       "[data-review-bulk-summary]",
     );
@@ -1869,7 +1886,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     const row = container.querySelector<HTMLElement>(
       '[data-review-row="run-1"]',
     )!;
@@ -1916,7 +1933,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
 
     const row = container.querySelector<HTMLElement>(
       '[data-review-row="run-1"]',
@@ -2008,7 +2025,9 @@ describe("ObservabilityDashboard human review", () => {
     await act(async () =>
       Array.from(container.querySelectorAll("button"))
         .find((button) => button.textContent?.includes("Human review"))
-        ?.click(),
+        ?.dispatchEvent(
+          new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+        ),
     );
     await act(async () =>
       container
@@ -2073,7 +2092,9 @@ describe("ObservabilityDashboard human review", () => {
     await act(async () =>
       Array.from(container.querySelectorAll("button"))
         .find((button) => button.textContent?.includes("Human review"))
-        ?.click(),
+        ?.dispatchEvent(
+          new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+        ),
     );
     const row = container.querySelector<HTMLElement>(
       '[data-review-row="run-1"]',
@@ -2122,7 +2143,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
@@ -2172,7 +2193,7 @@ describe("ObservabilityDashboard human review", () => {
       (button) => button.textContent?.includes("Human review"),
     );
     expect(reviewTab).toBeTruthy();
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
 
     expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(3);
     expect(
@@ -2379,7 +2400,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
 
     const row = container.querySelector<HTMLButtonElement>(
       '[data-review-run-id="run-summary"]',
@@ -2440,7 +2461,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
@@ -2561,7 +2582,7 @@ describe("ObservabilityDashboard human review", () => {
     const reviewTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Human review"),
     );
-    await act(async () => reviewTab?.click());
+    await act(async () => activateTab(reviewTab));
 
     const openRun = async (runId: string) => {
       await act(async () => {

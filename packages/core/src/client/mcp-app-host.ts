@@ -497,7 +497,10 @@ function openAiFollowUpPrompt(chat: McpAppHostChatMessage): string | null {
   if (
     content.some((part) => {
       const audience = objectValue(part.annotations).audience;
-      return Array.isArray(audience) && audience.includes("assistant");
+      return (
+        Array.isArray(audience) &&
+        (!audience.includes("assistant") || !audience.includes("user"))
+      );
     })
   ) {
     return null;
