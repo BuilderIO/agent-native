@@ -776,6 +776,35 @@ describe("ToolCallDisplay native renderers", () => {
     ).toBeNull();
   });
 
+  it("keeps fallback tool errors collapsed until explicitly expanded", () => {
+    const errorMessage =
+      "Error running update-slide: replace found no matches.";
+    act(() => {
+      root.render(
+        <ToolCallFallback
+          toolName="update-slide"
+          args={{}}
+          argsText="{}"
+          result={errorMessage}
+          isError
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+
+    act(() => disclosure?.click());
+
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+  });
+
   it("does not animate a tool row that mounts already resolved", () => {
     act(() => {
       root.render(

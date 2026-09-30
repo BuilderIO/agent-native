@@ -1439,6 +1439,7 @@ export function ToolCallFallback({
       structuredMeta={rest.structuredMeta}
       activity={rest.activity}
       isRunning={isRunning}
+      isError={rest.isError}
       outcome={rest.outcome}
       isActiveTail={rest.isActiveTail}
       isLatestRunning={rest.isLatestRunning}
