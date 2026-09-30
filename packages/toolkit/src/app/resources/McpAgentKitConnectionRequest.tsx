@@ -15,7 +15,7 @@ import {
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { AgentConnectionRequestCard } from "../agentkit/react/components.js";
 import {
@@ -34,6 +34,7 @@ export interface McpAgentKitConnectionRequestCardProps {
   provider: string;
   detail?: string;
   reason?: AgentConnectionRequest["reason"];
+  status?: AgentConnectionRequest["status"];
   appId?: string;
   source?: AgentConnectionRequest["source"];
   target: McpAgentKitConnectionTarget;
@@ -46,6 +47,7 @@ export function McpAgentKitConnectionRequestCard({
   provider,
   detail,
   reason,
+  status = "requested",
   appId,
   source,
   target,
@@ -55,6 +57,7 @@ export function McpAgentKitConnectionRequestCard({
 }: McpAgentKitConnectionRequestCardProps) {
   const settledRef = useRef(false);
   const popupCleanupRef = useRef<(() => void) | null>(null);
+  const [workspaceSetupOpened, setWorkspaceSetupOpened] = useState(false);
   const integrations = useMemo(() => getDefaultMcpIntegrations(), []);
   useEffect(
     () => () => {
@@ -76,6 +79,9 @@ export function McpAgentKitConnectionRequestCard({
     source.id === provider &&
     (reason === "grant" || !workspaceProvider?.oauth);
   const { apps: workspaceApps } = useOrgSwitcherAppLinks(needsWorkspaceSetup);
+  useEffect(() => {
+    if (status === "failed") setWorkspaceSetupOpened(false);
+  }, [status]);
   const settle = async (callback: () => void | Promise<void>) => {
     if (settledRef.current) return;
     settledRef.current = true;
@@ -92,7 +98,7 @@ export function McpAgentKitConnectionRequestCard({
       id: target.requestId,
       provider,
       reason: reason ?? "connect",
-      status: "requested",
+      status,
       appId,
       detail,
       source,
@@ -103,12 +109,15 @@ export function McpAgentKitConnectionRequestCard({
           request={request}
           runId={target.runId}
           providerLabel={source.label}
+          retry={workspaceSetupOpened}
           onConnect={() => {
+            if (workspaceSetupOpened) return onConnected();
             window.open(
               dispatchIntegrationsHref(workspaceApps),
               "_blank",
               "noopener,noreferrer",
             );
+            setWorkspaceSetupOpened(true);
           }}
         />
       );

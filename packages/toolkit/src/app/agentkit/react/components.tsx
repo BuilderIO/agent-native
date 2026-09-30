@@ -1727,11 +1727,13 @@ export function AgentConnectionRequestCard({
   request,
   runId,
   providerLabel,
+  retry = false,
   onConnect,
 }: {
   request: AgentConnectionRequest;
   runId: string;
   providerLabel?: string;
+  retry?: boolean;
   onConnect?: (
     request: AgentConnectionRequest,
   ) => boolean | void | Promise<boolean | void>;
@@ -1813,7 +1815,9 @@ export function AgentConnectionRequestCard({
           >
             {resolution.pending
               ? labels.connectionConnecting
-              : labels.connectionConnect}
+              : retry
+                ? labels.connectionRetry
+                : labels.connectionConnect}
           </ActionButton>
         </div>
       ) : request.status === "failed" && (onConnectionRequest || onConnect) ? (

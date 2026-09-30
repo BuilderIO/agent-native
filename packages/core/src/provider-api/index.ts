@@ -4363,7 +4363,7 @@ async function throwWorkspaceConnectionRequired(options: {
     provider: options.provider,
     reason,
     appId: options.runtime.appId,
-    ...(connectionProvider?.oauth
+    ...(connectionProvider
       ? {
           source: {
             id: options.provider,

@@ -390,6 +390,7 @@ function ChatMcpConnectionRequest({
     <McpAgentKitConnectionRequestCard
       provider={request.provider}
       reason={request.reason}
+      status={request.status}
       appId={request.appId}
       source={request.source}
       {...(request.detail ? { detail: request.detail } : {})}

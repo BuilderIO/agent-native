@@ -4129,6 +4129,7 @@ function AgentKitConnectionRequest({
       provider={value.provider}
       detail={value.detail}
       reason={value.reason}
+      status={value.status}
       appId={value.appId}
       source={value.source}
       target={{ threadId, runId, requestId: value.id }}

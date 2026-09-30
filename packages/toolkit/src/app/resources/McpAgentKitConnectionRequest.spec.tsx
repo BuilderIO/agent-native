@@ -43,16 +43,26 @@ vi.mock("../agentkit/react/components.js", async () => {
   return {
     AgentConnectionRequestCard: ({
       request,
+      retry,
       onConnect,
     }: {
-      request: { provider: string };
+      request: { provider: string; status: string };
+      retry?: boolean;
       onConnect?: () => void | boolean | Promise<void | boolean>;
-    }) =>
-      createElement(
+    }) => {
+      if (request.status === "connected" || request.status === "declined") {
+        return null;
+      }
+      return createElement(
         "button",
-        { type: "button", onClick: () => void onConnect?.() },
-        `Connect ${request.provider}`,
-      ),
+        {
+          type: "button",
+          "data-status": request.status,
+          onClick: () => void onConnect?.(),
+        },
+        `${retry ? "Try again" : "Connect"} ${request.provider}`,
+      );
+    },
   };
 });
 
@@ -179,11 +189,12 @@ describe("McpAgentKitConnectionRequestCard", () => {
     act(() => root.unmount());
   });
 
-  it("does not launch user OAuth for an existing connection grant", () => {
+  it("keeps a granted connection request pending until the user retries", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     vi.mocked(openOAuthPopup).mockClear();
     const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const onConnected = vi.fn();
 
     act(() => {
       root.render(
@@ -201,7 +212,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
             runId: "run-1",
             requestId: "request-1",
           }}
-          onConnected={() => undefined}
+          onConnected={onConnected}
           onDeclined={() => undefined}
         />,
       );
@@ -209,21 +220,81 @@ describe("McpAgentKitConnectionRequestCard", () => {
 
     expect(container.textContent).toContain("Connect google_drive");
     expect(openOAuthPopup).not.toHaveBeenCalled();
-    act(() => container.querySelector("button")?.click());
+    await act(async () => container.querySelector("button")?.click());
     expect(open).toHaveBeenCalledWith(
       dispatchIntegrationsHref([]),
       "_blank",
       "noopener,noreferrer",
     );
+    expect(onConnected).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Try again google_drive");
+    await act(async () => container.querySelector("button")?.click());
+    expect(onConnected).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="google_drive"
+          reason="grant"
+          status="connected"
+          appId="dispatch"
+          source={{
+            id: "google_drive",
+            kind: "workspace_connection",
+            label: "Google Drive",
+          }}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={onConnected}
+          onDeclined={() => undefined}
+        />,
+      );
+    });
+    expect(container.querySelector("button")).toBeNull();
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="google_drive"
+          reason="grant"
+          status="failed"
+          appId="dispatch"
+          source={{
+            id: "google_drive",
+            kind: "workspace_connection",
+            label: "Google Drive",
+          }}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={onConnected}
+          onDeclined={() => undefined}
+        />,
+      );
+    });
+    expect(container.querySelector("button")?.getAttribute("data-status")).toBe(
+      "failed",
+    );
+    await act(async () => container.querySelector("button")?.click());
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(onConnected).toHaveBeenCalledOnce();
+    await act(async () => container.querySelector("button")?.click());
+    expect(onConnected).toHaveBeenCalledTimes(2);
     act(() => root.unmount());
     open.mockRestore();
   });
 
-  it("routes workspace providers without OAuth to Dispatch integrations", () => {
+  it("keeps non-OAuth workspace requests pending until the user retries", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     vi.mocked(openOAuthPopup).mockClear();
     const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const onConnected = vi.fn();
 
     act(() => {
       root.render(
@@ -240,7 +311,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
             runId: "run-1",
             requestId: "request-1",
           }}
-          onConnected={() => undefined}
+          onConnected={onConnected}
           onDeclined={() => undefined}
           fallback={<div data-unsupported-provider="">Setup unavailable</div>}
         />,
@@ -249,14 +320,49 @@ describe("McpAgentKitConnectionRequestCard", () => {
 
     expect(container.textContent).toContain("Connect slack");
     expect(openOAuthPopup).not.toHaveBeenCalled();
-    act(() => container.querySelector("button")?.click());
+    await act(async () => container.querySelector("button")?.click());
     expect(open).toHaveBeenCalledWith(
       dispatchIntegrationsHref([]),
       "_blank",
       "noopener,noreferrer",
     );
+    expect(onConnected).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Try again slack");
+    await act(async () => container.querySelector("button")?.click());
+    expect(onConnected).toHaveBeenCalledOnce();
     act(() => root.unmount());
     open.mockRestore();
+  });
+
+  it("passes terminal request state through to the shared card", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="google_drive"
+          reason="connect"
+          status="declined"
+          appId="dispatch"
+          source={{
+            id: "google_drive",
+            kind: "workspace_connection",
+            label: "Google Drive",
+          }}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.querySelector("button")).toBeNull();
+    act(() => root.unmount());
   });
 
   it("resumes a prose-inferred connection request through the host thread", async () => {

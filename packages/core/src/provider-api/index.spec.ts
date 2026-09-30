@@ -830,6 +830,11 @@ describe("provider API runtime", () => {
       provider: "slack",
       reason: "connect",
       appId: "dispatch",
+      source: {
+        id: "slack",
+        kind: "workspace_connection",
+        label: "Slack",
+      },
     });
   });
 

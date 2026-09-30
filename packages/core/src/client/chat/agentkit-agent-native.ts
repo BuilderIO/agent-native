@@ -68,7 +68,7 @@ interface ActiveRunStatus {
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
-const RUN_SLOT_TIMEOUT_MS = RUN_SLOT_POLL_INTERVAL_MS * RUN_SLOT_STABLE_POLLS;
+const RUN_SLOT_MAX_POLLS = RUN_SLOT_STABLE_POLLS * 2;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -1212,9 +1212,8 @@ export function createAgentNativeAgentKitTransport(
   }
 
   async function waitForRunSlot(threadId: string): Promise<void> {
-    const deadline = Date.now() + RUN_SLOT_TIMEOUT_MS;
     let consecutiveClearPolls = 0;
-    while (Date.now() < deadline) {
+    for (let poll = 0; poll < RUN_SLOT_MAX_POLLS; poll += 1) {
       const response = await fetcher(
         `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
         { headers: await headers({ sessionId: threadId }) },
@@ -1237,9 +1236,11 @@ export function createAgentNativeAgentKitTransport(
           status.status === "aborted");
       consecutiveClearPolls = clear ? consecutiveClearPolls + 1 : 0;
       if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
-      await new Promise((resolve) =>
-        setTimeout(resolve, RUN_SLOT_POLL_INTERVAL_MS),
-      );
+      if (poll + 1 < RUN_SLOT_MAX_POLLS) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, RUN_SLOT_POLL_INTERVAL_MS),
+        );
+      }
     }
     throw new AgentKitRunSlotBusyError();
   }

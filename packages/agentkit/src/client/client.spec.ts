@@ -3627,9 +3627,11 @@ describe("AgentKitClient", () => {
     });
     closeApprovalStream.resolve();
     await run.completed;
-    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+    await vi.waitFor(() => {
+      expect(promoted).toHaveBeenCalledOnce();
+      expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    });
     expect(subscriptions).toBe(2);
-    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
   });
 
   it("reports replacement-run failures and permits an explicit reattach", async () => {
