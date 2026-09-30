@@ -170,13 +170,19 @@ describe("LanguagePicker", () => {
     });
   }
 
-  async function waitForContainerText(expected: string) {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      if (container.textContent === expected) return;
+  // Catalogs load through dynamic imports, which take far longer than a few
+  // polls when every core is busy, so wait on a deadline, not an attempt count.
+  async function waitForContainer(done: () => boolean) {
+    const deadline = Date.now() + 5_000;
+    while (!done() && Date.now() < deadline) {
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 5));
       });
     }
+  }
+
+  async function waitForContainerText(expected: string) {
+    await waitForContainer(() => container.textContent === expected);
     expect(container.textContent).toBe(expected);
   }
 
@@ -394,12 +400,9 @@ describe("LanguagePicker", () => {
       );
     });
 
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      if (container.textContent?.includes("Sta pensando")) break;
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      });
-    }
+    await waitForContainer(
+      () => container.textContent?.includes("Sta pensando") ?? false,
+    );
     expect(container.textContent).toContain("Sta pensando");
     expect(
       container

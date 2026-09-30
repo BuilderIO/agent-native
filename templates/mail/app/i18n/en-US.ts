@@ -656,6 +656,7 @@ const messages = {
       ruleBackfillMatches: "{{count}} recent messages matched",
       ruleBackfillNoMatches: "No recent messages matched this rule.",
       ruleBackfillFailed: "Could not apply this rule to recent mail.",
+      ruleBackfillRunFailed: "Could not complete the recent mail backfill.",
       backfillStatusLoadFailed: "Couldn't load recent rule status.",
       ruleBackfillPartialFailure: "{{count}} messages could not be updated.",
       ruleBackfillUndoing: "Restoring recent mail…",

@@ -663,6 +663,8 @@ const messages = {
       ruleBackfillNoMatches:
         "最近のメールにこのルールと一致するものはありません。",
       ruleBackfillFailed: "最近のメールにこのルールを適用できませんでした。",
+      ruleBackfillRunFailed:
+        "最近のメールへのルール適用を完了できませんでした。",
       backfillStatusLoadFailed: "最近のルールの状態を読み込めませんでした。",
       ruleBackfillPartialFailure:
         "{{count}} 件のメッセージを更新できませんでした。",
