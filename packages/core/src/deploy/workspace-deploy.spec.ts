@@ -233,10 +233,16 @@ describe("workspace deploy", () => {
         "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
       );
     }
-    const entries = generatedFunctionEntries(tmpDir);
-    expect(entries.length).toBeGreaterThan(0);
-    for (const entry of entries) {
-      expect(fs.readFileSync(entry, "utf8")).not.toContain(
+    // Loading a generated function applies its env, so a blank value the
+    // function runtime inherits must be gone before the app's Core loads.
+    const entries = generatedFunctionEntries(tmpDir).filter((entry) =>
+      fs.readFileSync(entry, "utf8").includes("function setBasePathEnv()"),
+    );
+    expect(entries.length).toBeGreaterThan(1);
+    for (const [index, entry] of entries.entries()) {
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "";
+      await import(`${pathToFileURL(entry).href}?t=${Date.now()}-${index}`);
+      expect(process.env).not.toHaveProperty(
         "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
       );
     }
@@ -268,6 +274,24 @@ describe("workspace deploy", () => {
     );
     expect(serverEntry).toContain(
       '"AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX":"/_platform"',
+    );
+
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "";
+    await import(
+      `${
+        pathToFileURL(
+          path.join(
+            tmpDir,
+            ".netlify",
+            "functions-internal",
+            "dispatch-server",
+            "dispatch-server.mjs",
+          ),
+        ).href
+      }?t=${Date.now()}-prefix`
+    );
+    expect(process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX).toBe(
+      "/_platform",
     );
   });
 

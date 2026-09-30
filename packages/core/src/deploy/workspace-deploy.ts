@@ -73,6 +73,8 @@ function workspaceFrameworkRoutePrefixEnv(): string {
 // Workspace apps may pin an older Core than the root, and those Cores reject
 // config env keys they do not know even when the value is empty. Forward the
 // prefix only when one is configured; an empty value already means the default.
+// Generated functions delete any inherited value before applying these entries,
+// so they always run with the build-time prefix.
 function workspaceFrameworkRoutePrefixEnvEntries(): Record<string, string> {
   const prefix = workspaceFrameworkRoutePrefixEnv();
   return prefix
@@ -994,6 +996,7 @@ function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
 ${workspaceDirectoryEnvSnippet(workspaceApps)}
+  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1102,6 +1105,7 @@ function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
 ${workspaceDirectoryEnvSnippet(workspaceApps)}
+  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1251,6 +1255,7 @@ function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
 ${workspaceDirectoryEnvSnippet(workspaceApps)}
+  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1328,6 +1333,7 @@ function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
 ${workspaceDirectoryEnvSnippet(workspaceApps)}
+  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
