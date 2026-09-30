@@ -407,6 +407,24 @@ describe("open-visual-edit", () => {
     ]);
   });
 
+  it("starts a viewport grid beside legacy overview files without saved geometry", async () => {
+    mocks.designFiles = [
+      { id: "legacy", filename: "screen.html", fileType: "html" },
+    ];
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/new"],
+      viewports: [{ label: "Desktop", width: 1280, height: 900 }],
+      navigate: false,
+    });
+
+    const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(routes[0]).toMatchObject({ x: 480, y: 0 });
+  });
+
   it("starts viewport grids beyond rendered responsive breakpoint frames", async () => {
     mocks.designData = JSON.stringify({
       canvasFrames: {

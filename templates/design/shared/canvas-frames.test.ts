@@ -456,7 +456,7 @@ describe("nextCanvasFramePosition", () => {
       nextCanvasFramePosition({ screen: { x: 100, y: 200 } }, 160, {
         responsiveLayout: { screenFileIds: ["screen"] },
       }),
-    ).toEqual({ x: 1540, y: 200 });
+    ).toEqual({ x: 580, y: 200 });
     expect(
       nextCanvasFramePosition({ screen: { x: 100, y: 200 } }, 160, {
         responsiveLayout: {
@@ -466,6 +466,14 @@ describe("nextCanvasFramePosition", () => {
           },
         },
       }),
-    ).toEqual({ x: 900, y: 200 });
+    ).toEqual({ x: 580, y: 200 });
+  });
+
+  it("includes overview screens that only have renderer-generated geometry", () => {
+    expect(
+      nextCanvasFramePosition({}, 160, {
+        responsiveLayout: { screenFileIds: ["first", "second"] },
+      }),
+    ).toEqual({ x: 856, y: 0 });
   });
 });

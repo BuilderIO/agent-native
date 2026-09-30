@@ -20,6 +20,36 @@ export interface CanvasFrameGeometry {
 
 export type CanvasFrameGeometryById = Record<string, CanvasFrameGeometry>;
 
+export const OVERVIEW_FRAME_WIDTH = 320;
+export const OVERVIEW_FRAME_GAP = 56;
+export const OVERVIEW_FRAME_LABEL_HEIGHT = 28;
+
+export function getOverviewFrameHeight(
+  width: number,
+  metadata?: { width?: number; height?: number },
+) {
+  const sourceWidth =
+    metadata?.width && metadata.width > 0 ? metadata.width : 1280;
+  const sourceHeight =
+    metadata?.height && metadata.height > 0 ? metadata.height : 2560;
+  return Math.max(80, Math.round((width * sourceHeight) / sourceWidth));
+}
+
+export function getInitialCanvasFrameGeometry(
+  index: number,
+  metadata?: { width?: number; height?: number },
+): Required<Pick<CanvasFrameGeometry, "x" | "y" | "width" | "height">> {
+  const column = index % 3;
+  const row = Math.floor(index / 3);
+  const height = getOverviewFrameHeight(OVERVIEW_FRAME_WIDTH, metadata);
+  return {
+    x: column * (OVERVIEW_FRAME_WIDTH + OVERVIEW_FRAME_GAP),
+    y: row * (height + OVERVIEW_FRAME_LABEL_HEIGHT + OVERVIEW_FRAME_GAP),
+    width: OVERVIEW_FRAME_WIDTH,
+    height,
+  };
+}
+
 export interface CanvasResponsiveLayout {
   screenFileIds?: readonly string[];
   screenMetadataByFileId?: unknown;
@@ -179,12 +209,32 @@ export function nextCanvasFramePosition(
   gap = 160,
   options: { responsiveLayout?: CanvasResponsiveLayout } = {},
 ): { x: number; y: number } {
-  const frames = Object.entries(framesById);
-  if (frames.length === 0) return { x: 0, y: 0 };
+  const responsiveLayout = options.responsiveLayout;
+  const metadataByFileId = responsiveLayout?.screenMetadataByFileId;
+  const screenMetadata =
+    metadataByFileId &&
+    typeof metadataByFileId === "object" &&
+    !Array.isArray(metadataByFileId)
+      ? (metadataByFileId as Record<string, unknown>)
+      : {};
+  const frames = new Map(Object.entries(framesById));
+  for (const [index, id] of (responsiveLayout?.screenFileIds ?? []).entries()) {
+    const metadata = screenMetadata[id];
+    frames.set(id, {
+      ...getInitialCanvasFrameGeometry(
+        index,
+        metadata && typeof metadata === "object" && !Array.isArray(metadata)
+          ? (metadata as { width?: number; height?: number })
+          : undefined,
+      ),
+      ...frames.get(id),
+    });
+  }
+  if (frames.size === 0) return { x: 0, y: 0 };
   const responsiveScreenIds = new Set(
     options.responsiveLayout?.screenFileIds ?? [],
   );
-  const bounds = frames.map(([id, frame]) =>
+  const bounds = Array.from(frames).map(([id, frame]) =>
     canvasFrameBounds(id, frame, options.responsiveLayout, responsiveScreenIds),
   );
   const maxRight = Math.max(...bounds.map((frame) => frame.right));

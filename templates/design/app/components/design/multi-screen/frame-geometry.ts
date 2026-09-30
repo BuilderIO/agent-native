@@ -1,4 +1,11 @@
 import {
+  getInitialCanvasFrameGeometry,
+  getOverviewFrameHeight as getSharedOverviewFrameHeight,
+  OVERVIEW_FRAME_GAP,
+  OVERVIEW_FRAME_LABEL_HEIGHT,
+  OVERVIEW_FRAME_WIDTH,
+} from "../../../../shared/canvas-frames";
+import {
   BREAKPOINT_FRAME_GAP,
   deviceViewportFloorForWidth,
   getResponsiveGroupHeight,
@@ -11,9 +18,9 @@ import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
 import { SURFACE_PADDING } from "./overview-layout";
 import type { FrameGeometry, FrameGeometryById, Point } from "./types";
 
-const SCREEN_WIDTH = 320;
-const SCREEN_GAP = 56;
-const FRAME_LABEL_HEIGHT = 28;
+const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
+const SCREEN_GAP = OVERVIEW_FRAME_GAP;
+const FRAME_LABEL_HEIGHT = OVERVIEW_FRAME_LABEL_HEIGHT;
 
 export {
   BREAKPOINT_FRAME_GAP,
@@ -322,26 +329,14 @@ export function getInitialFrameGeometry(
   index: number,
   metadata?: ScreenViewportSize,
 ): FrameGeometry {
-  const column = index % 3;
-  const row = Math.floor(index / 3);
-  const height = getOverviewFrameHeight(SCREEN_WIDTH, metadata);
-  return {
-    x: column * (SCREEN_WIDTH + SCREEN_GAP),
-    y: row * (height + FRAME_LABEL_HEIGHT + SCREEN_GAP),
-    width: SCREEN_WIDTH,
-    height,
-  };
+  return getInitialCanvasFrameGeometry(index, metadata);
 }
 
 export function getOverviewFrameHeight(
   width: number,
   metadata?: ScreenViewportSize,
 ) {
-  const sourceWidth =
-    metadata?.width && metadata.width > 0 ? metadata.width : 1280;
-  const sourceHeight =
-    metadata?.height && metadata.height > 0 ? metadata.height : 2560;
-  return Math.max(80, Math.round((width * sourceHeight) / sourceWidth));
+  return getSharedOverviewFrameHeight(width, metadata);
 }
 
 export function sameFrameGeometry(a: FrameGeometry, b: FrameGeometry): boolean {

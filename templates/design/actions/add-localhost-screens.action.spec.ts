@@ -262,6 +262,33 @@ describe("add-localhost-screens refresh behavior", () => {
     ]);
   });
 
+  it("places new screens beside legacy overview files without saved geometry", async () => {
+    mocks.state.files = [
+      {
+        id: "legacy_1",
+        designId: "design_1",
+        filename: "legacy-home.html",
+        fileType: "html",
+        content: "<main>Home</main>",
+      },
+      {
+        id: "legacy_2",
+        designId: "design_1",
+        filename: "legacy-about.html",
+        fileType: "html",
+        content: "<main>About</main>",
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/new"],
+    });
+
+    expect(result.placedFrames[0]?.frame).toMatchObject({ x: 856, y: 0 });
+  });
+
   it("places new routes beyond responsive breakpoint frames", async () => {
     mocks.state.files = [
       {
