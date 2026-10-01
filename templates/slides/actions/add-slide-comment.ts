@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyClients } from "../server/handlers/decks.js";
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
 import {
   serializeSlideCommentAnchor,
@@ -187,6 +188,8 @@ export default defineAction({
       content,
       isReply: requestedThreadId !== undefined,
     });
+
+    await notifyClients(deckId, "comments-changed");
 
     return { id, threadId, notified };
   },

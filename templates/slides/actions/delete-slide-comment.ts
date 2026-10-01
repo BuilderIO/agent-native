@@ -5,6 +5,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyClients } from "../server/handlers/decks.js";
 
 export default defineAction({
   description:
@@ -94,6 +95,7 @@ export default defineAction({
         );
     });
 
+    await notifyClients(comment.deckId, "comments-changed");
     return { ok: true };
   },
 });
