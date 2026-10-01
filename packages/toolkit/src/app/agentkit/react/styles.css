@@ -1365,11 +1365,6 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   padding-inline: 0;
 }
 
-.agentkit-activity-row {
-  display: grid;
-  min-inline-size: 0;
-}
-
 .agentkit-tasks-list {
   display: grid;
   gap: 0.125rem;

@@ -2595,10 +2595,35 @@ async function assertAgentKitChatAcceptance(
     "completed activity must transition from Working to Worked",
   );
   await helloActivity.click();
-  await page
+  const helloLabel = page
     .locator(".agentkit-activity-label")
-    .filter({ hasText: /^Hello$/u })
-    .waitFor({ state: "visible" });
+    .filter({ hasText: /^Hello$/u });
+  await helloLabel.waitFor({ state: "visible" });
+  const helloRowAlignment = await helloLabel.evaluate((label) => {
+    const row = label.closest<HTMLElement>(".agentkit-activity-row");
+    const icon = row?.querySelector<SVGSVGElement>("svg");
+    if (!row || !icon) return null;
+    const iconRect = icon.getBoundingClientRect();
+    const labelRect = label.getBoundingClientRect();
+    return {
+      display: getComputedStyle(row).display,
+      alignItems: getComputedStyle(row).alignItems,
+      iconCenter: Math.round(iconRect.top + iconRect.height / 2),
+      labelCenter: Math.round(labelRect.top + labelRect.height / 2),
+    };
+  });
+  assert.ok(
+    helloRowAlignment,
+    "the activity label must render with its source icon",
+  );
+  assert.equal(helloRowAlignment.display, "flex");
+  assert.equal(helloRowAlignment.alignItems, "center");
+  assert.equal(helloRowAlignment.iconCenter, helloRowAlignment.labelCenter);
+  await helloLabel.scrollIntoViewIfNeeded();
+  fs.mkdirSync(path.join(repoRoot, ".tmp"), { recursive: true });
+  await page.screenshot({
+    path: path.join(repoRoot, ".tmp", "agentkit-activity-row-alignment.png"),
+  });
   await helloActivity.click();
   await waitForLoopbackState(
     "the real hello action result",

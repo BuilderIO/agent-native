@@ -1282,7 +1282,7 @@ export function AgentActivityGroup({
               const reasoningMessage = reasoningMap.get(activity.id);
               if (reasoningMessage) {
                 return (
-                  <li key={activity.id} className="agentkit-activity-row">
+                  <li key={activity.id}>
                     <AgentReasoningParts
                       message={reasoningMessage}
                       threadId={threadId}
@@ -1295,10 +1295,7 @@ export function AgentActivityGroup({
               }
               if (activities.length > 1) {
                 return (
-                  <li
-                    key={`cluster:${activity.id}`}
-                    className="agentkit-activity-row"
-                  >
+                  <li key={`cluster:${activity.id}`}>
                     <RepeatedActivityCluster
                       activities={activities}
                       threadId={threadId}
@@ -1312,7 +1309,7 @@ export function AgentActivityGroup({
                 : undefined;
               if (sourceTool && ToolRenderer) {
                 return (
-                  <li key={sourceTool.id} className="agentkit-activity-row">
+                  <li key={sourceTool.id}>
                     <ToolRenderer value={sourceTool} threadId={threadId} />
                   </li>
                 );
@@ -1322,7 +1319,7 @@ export function AgentActivityGroup({
                 slots.activity ??
                 AgentActivityItem;
               return (
-                <li key={activity.id} className="agentkit-activity-row">
+                <li key={activity.id}>
                   <Renderer value={activity} threadId={threadId} />
                 </li>
               );
