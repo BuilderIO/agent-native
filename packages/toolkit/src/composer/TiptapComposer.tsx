@@ -2211,7 +2211,11 @@ function ModelSelector({
                                   if (onConnectProvider) {
                                     onConnectProvider();
                                   } else {
-                                    builderFlow.start();
+                                    // Without the consent popover there is no
+                                    // terms line, so never create an account.
+                                    builderFlow.start({
+                                      provisionAccount: false,
+                                    });
                                   }
                                 }}
                                 disabled={builderFlow.connecting}
