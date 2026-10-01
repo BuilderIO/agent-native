@@ -246,7 +246,7 @@ CREATE TEMPORARY VIEW "notes" AS
 
 Les instructions INSERT sont automatiquement injectées dans `owner_email` lorsque la colonne n'est pas déjà présente.
 
-Les outils `db-query` / `db-exec` rejettent les références de table qualifiées par le schéma (`public.<table>`) : un nom qualifié est résolu en table de base et contournerait la vue temporaire ci-dessus. Les agents utilisent des noms de table nus ; la portée est appliquée automatiquement.
+Les outils `db-query`, `db-exec` et `db-patch` lisent chaque instruction comme Postgres et vérifient, dans la transaction, que chaque nom se résout vers l'une des vues temporaires ci-dessus. Ils refusent les noms qualifiés par un schéma ou une base de données (`public.<table>`), les relations que les vues ne couvrent pas, les fonctions et opérateurs SQL ou PL/pgSQL définis par l'application, ainsi que les fonctions intégrées qui exécutent du texte SQL ou modifient les paramètres de session. `db-query` s'exécute en lecture seule. Les agents utilisent des noms de table nus ; la portée est appliquée automatiquement. Utilisez `@agent-native/core/agent-sql` pour appliquer les mêmes vérifications lorsque votre application exécute elle-même du SQL écrit par un agent.
 
 ### Portée par organisation (`org_id`)
 
