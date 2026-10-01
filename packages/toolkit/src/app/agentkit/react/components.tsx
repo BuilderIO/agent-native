@@ -4749,3 +4749,5 @@ export function AgentKitChat({
     </AgentMessageEditContext.Provider>
   );
 }
+
+export { useAgentKitStopButton } from "./stop-button.js";

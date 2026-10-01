@@ -35,6 +35,11 @@ const routeState = vi.hoisted(() => ({
   }>,
   rootProps: null as Record<string, unknown> | null,
   chatProps: null as Record<string, unknown> | null,
+  stopButton: "stop-button-element" as unknown,
+  stopButtonOptions: null as {
+    label: string;
+    onError: (error: Error) => void;
+  } | null,
   connectionRequestProps: null as Record<string, unknown> | null,
   resumeProps: null as Record<string, unknown> | null,
   resolveConnectionRequest: vi.fn(),
@@ -115,6 +120,13 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
     <div data-testid="generic-run-failure">{error.message}</div>
   ),
   AgentConnectionRequestCard: () => null,
+  useAgentKitStopButton: (options: {
+    label: string;
+    onError: (error: Error) => void;
+  }) => {
+    routeState.stopButtonOptions = options;
+    return routeState.stopButton;
+  },
   AgentKitChat: (props: Record<string, unknown>) => {
     routeState.chatProps = props;
     return (
@@ -263,7 +275,12 @@ describe("ChatRoute AgentKit surface", () => {
         voiceEnabled: true,
         includeDefaultSlashCommands: false,
         includeDefaultSlashSkills: false,
+        stopButton: routeState.stopButton,
       },
+    });
+    expect(routeState.stopButtonOptions).toMatchObject({
+      label: expect.any(String),
+      onError: expect.any(Function),
     });
     expect(
       container.querySelector("[data-core-composer-runtime]"),
