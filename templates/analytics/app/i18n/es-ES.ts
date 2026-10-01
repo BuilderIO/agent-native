@@ -1379,6 +1379,8 @@ export default {
     catalogStoppedFiring: "Ya no se envía",
     catalogPropertyKeys: "Claves de propiedades",
     catalogMoreKeys: "+{{count}} más",
+    catalogTruncated:
+      "Solo se muestran los {{count}} eventos vistos más recientemente.",
     anyActivity: "Cualquier actividad",
     filtersDescription:
       "Los filtros se guardan en la URL para que el agente y los enlaces compartidos vean la misma lista de sesiones.",

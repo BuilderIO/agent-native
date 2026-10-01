@@ -1390,6 +1390,8 @@ export default {
     catalogStoppedFiring: "Nicht mehr gesendet",
     catalogPropertyKeys: "Eigenschaftsschlüssel",
     catalogMoreKeys: "+{{count}} weitere",
+    catalogTruncated:
+      "Nur die {{count}} zuletzt gesehenen Ereignisse werden angezeigt.",
     anyActivity: "Beliebige Aktivität",
     filtersDescription:
       "Filter werden in der URL gespeichert, damit Agent und geteilte Links dieselbe Sitzungsliste sehen.",

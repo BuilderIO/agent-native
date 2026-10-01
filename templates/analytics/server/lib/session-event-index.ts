@@ -7,6 +7,7 @@ import {
   inArray,
   lt,
   lte,
+  notInArray,
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -16,6 +17,7 @@ import {
   type EventCatalogApp,
   type EventCatalogEntry,
   type EventCatalogResult,
+  sessionEventBoundSchema,
   type SessionEventNameCount,
 } from "../../shared/session-events.js";
 import { getDb, schema } from "../db/index.js";
@@ -23,12 +25,12 @@ import { getDb, schema } from "../db/index.js";
 /**
  * Session event index.
  *
- * `recordAnalyticsEvents` writes every accepted event here after it persists
- * the event, whatever the storage sink. Session filters, event-name options,
+ * `recordAnalyticsEvents` writes every accepted event here in the transaction
+ * that persists the event, whatever the storage sink. Session filters, event-name options,
  * and the event catalog read only these Postgres tables, so no view queries
  * BigQuery. Event filters exclude sessions that started before a tenant's index
  * began, because their coverage is incomplete. "Didn't" conditions also
- * exclude sessions the index never saw.
+ * exclude sessions the index never saw or failed to write.
  */
 
 export interface SessionEventIndexInputRow {
@@ -53,10 +55,10 @@ const MAX_EVENT_NAME_LENGTH = 200;
 const STOPPED_FIRING_DAYS = 7;
 const SESSION_EVENT_INDEX_RETENTION_BUFFER_DAYS = 2;
 export const EVENT_CATALOG_RETENTION_DAYS = 180;
+export const EVENT_CATALOG_MAX_ENTRIES = 1000;
 const WARN_INTERVAL_MS = 60_000;
 
 let lastWarnAt = 0;
-const coverageTenants = new Set<string>();
 
 export function sessionEventTenantKey(
   ownerEmail: string,
@@ -97,12 +99,21 @@ export function samplePropertyKeys(properties: string): string[] {
 
 type SessionEventRow = typeof schema.analyticsSessionEvents.$inferInsert;
 type CatalogRow = typeof schema.analyticsEventCatalogDaily.$inferInsert;
+type CatalogLatestRow = typeof schema.analyticsEventCatalogLatest.$inferInsert;
+type SessionGapRow = typeof schema.analyticsSessionEventGaps.$inferInsert;
+
+function sortedByKey<T>(entries: Iterable<[string, T]>): T[] {
+  return [...entries]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, row]) => row);
+}
 
 export function aggregateSessionEventIndexRows(
   rows: readonly SessionEventIndexInputRow[],
 ): {
   sessionEvents: SessionEventRow[];
   catalog: CatalogRow[];
+  catalogLatest: CatalogLatestRow[];
 } {
   const sessionEvents = new Map<string, SessionEventRow>();
   const catalog = new Map<
@@ -171,98 +182,158 @@ export function aggregateSessionEventIndexRows(
     }
   }
 
+  const sortedCatalog = sortedByKey(catalog.entries()).map((entry) => ({
+    ...entry.row,
+    propertyKeys: JSON.stringify(samplePropertyKeys(entry.latestProperties)),
+  }));
+  const catalogLatest = new Map<string, CatalogLatestRow>();
+  for (const row of sortedCatalog) {
+    const key = JSON.stringify([row.tenantKey, row.eventName, row.app]);
+    const existing = catalogLatest.get(key);
+    if (existing && existing.lastSeenAt >= row.lastSeenAt) continue;
+    catalogLatest.set(key, {
+      id: stableId("aecl", [row.tenantKey, row.eventName, row.app ?? ""]),
+      tenantKey: row.tenantKey,
+      ownerEmail: row.ownerEmail,
+      orgId: row.orgId,
+      eventName: row.eventName,
+      app: row.app,
+      lastSeenAt: row.lastSeenAt,
+      propertyKeys: row.propertyKeys,
+    });
+  }
   // Sort by the conflict key so concurrent batches take row locks in the
   // same order.
-  const sortedSessionEvents = [...sessionEvents.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, row]) => row);
-  const sortedCatalog = [...catalog.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, entry]) => ({
-      ...entry.row,
-      propertyKeys: JSON.stringify(samplePropertyKeys(entry.latestProperties)),
-    }));
-  return { sessionEvents: sortedSessionEvents, catalog: sortedCatalog };
+  return {
+    sessionEvents: sortedByKey(sessionEvents.entries()),
+    catalog: sortedCatalog,
+    catalogLatest: sortedByKey(catalogLatest.entries()),
+  };
+}
+
+function sessionEventGapRows(
+  rows: readonly SessionEventIndexInputRow[],
+  receivedAt: string,
+): SessionGapRow[] {
+  const gaps = new Map<string, SessionGapRow>();
+  for (const row of rows) {
+    const sessionId = row.sessionId?.trim();
+    if (!sessionId || !row.ownerEmail) continue;
+    const orgId = row.orgId || null;
+    const tenantKey = sessionEventTenantKey(row.ownerEmail, orgId);
+    const id = stableId("aseg", [tenantKey, sessionId]);
+    if (gaps.has(id)) continue;
+    gaps.set(id, {
+      id,
+      tenantKey,
+      ownerEmail: row.ownerEmail,
+      orgId,
+      sessionId,
+      recordedAt: receivedAt,
+    });
+  }
+  return sortedByKey(gaps.entries());
 }
 
 /**
- * Best-effort: indexing never fails ingest. Events are already persisted
- * when this runs.
+ * Runs inside the transaction that stores the events, so a batch's events
+ * commit with either their index rows or a gap marker for their sessions.
+ * An index failure rolls back to a savepoint and never fails ingest; only a
+ * failed gap marker does, taking the events with it.
  */
 export async function recordSessionEventIndex(
+  tx: any,
   rows: readonly SessionEventIndexInputRow[],
   receivedAt: string,
 ): Promise<void> {
   if (!rows.length) return;
   try {
-    const { sessionEvents, catalog } = aggregateSessionEventIndexRows(rows);
-    const db = getDb() as any;
-    const t = schema.analyticsSessionEvents;
-    const c = schema.analyticsEventCatalogDaily;
+    await tx.transaction(async (savepoint: any) => {
+      const { sessionEvents, catalog, catalogLatest } =
+        aggregateSessionEventIndexRows(rows);
+      const t = schema.analyticsSessionEvents;
+      const c = schema.analyticsEventCatalogDaily;
+      const l = schema.analyticsEventCatalogLatest;
 
-    if (sessionEvents.length) {
-      await db
-        .insert(t)
-        .values(sessionEvents)
-        .onConflictDoUpdate({
-          target: [t.tenantKey, t.sessionId, t.eventName],
-          set: {
-            eventCount: sql`${t.eventCount} + excluded.event_count`,
-            firstAt: sql`least(${t.firstAt}, excluded.first_at)`,
-            lastAt: sql`greatest(${t.lastAt}, excluded.last_at)`,
-            app: sql`case when excluded.app <> '' then excluded.app else ${t.app} end`,
-          },
-        });
-    }
+      if (sessionEvents.length) {
+        await savepoint
+          .insert(t)
+          .values(sessionEvents)
+          .onConflictDoUpdate({
+            target: [t.tenantKey, t.sessionId, t.eventName],
+            set: {
+              eventCount: sql`${t.eventCount} + excluded.event_count`,
+              firstAt: sql`least(${t.firstAt}, excluded.first_at)`,
+              lastAt: sql`greatest(${t.lastAt}, excluded.last_at)`,
+              app: sql`case when excluded.app <> '' then excluded.app else ${t.app} end`,
+            },
+          });
 
-    // Coverage starts only once a session write has succeeded, so a failed
-    // first write never opens coverage over sessions the index missed.
-    const tenants = new Map<
-      string,
-      { ownerEmail: string; orgId: string | null }
-    >();
-    for (const row of sessionEvents) {
-      if (!coverageTenants.has(row.tenantKey)) {
-        tenants.set(row.tenantKey, {
-          ownerEmail: row.ownerEmail,
-          orgId: row.orgId ?? null,
-        });
+        const tenants = new Map<
+          string,
+          { ownerEmail: string; orgId: string | null }
+        >();
+        for (const row of sessionEvents) {
+          tenants.set(row.tenantKey, {
+            ownerEmail: row.ownerEmail,
+            orgId: row.orgId ?? null,
+          });
+        }
+        await savepoint
+          .insert(schema.analyticsSessionEventCoverage)
+          .values(
+            [...tenants.entries()].map(([tenantKey, tenant]) => ({
+              tenantKey,
+              ownerEmail: tenant.ownerEmail,
+              orgId: tenant.orgId,
+              startedAt: receivedAt,
+            })),
+          )
+          .onConflictDoNothing();
       }
-    }
-    if (tenants.size) {
-      await db
-        .insert(schema.analyticsSessionEventCoverage)
-        .values(
-          [...tenants.entries()].map(([tenantKey, tenant]) => ({
-            tenantKey,
-            ownerEmail: tenant.ownerEmail,
-            orgId: tenant.orgId,
-            startedAt: receivedAt,
-          })),
-        )
-        .onConflictDoNothing();
-      for (const tenantKey of tenants.keys()) coverageTenants.add(tenantKey);
-    }
 
-    if (catalog.length) {
-      await db
-        .insert(c)
-        .values(catalog)
-        .onConflictDoUpdate({
-          target: [c.tenantKey, c.eventDate, c.eventName, c.app],
-          set: {
-            eventCount: sql`${c.eventCount} + excluded.event_count`,
-            lastSeenAt: sql`greatest(${c.lastSeenAt}, excluded.last_seen_at)`,
-            propertyKeys: sql`case when excluded.last_seen_at >= ${c.lastSeenAt} then excluded.property_keys else ${c.propertyKeys} end`,
-          },
-        });
-    }
+      if (catalog.length) {
+        await savepoint
+          .insert(c)
+          .values(catalog)
+          .onConflictDoUpdate({
+            target: [c.tenantKey, c.eventDate, c.eventName, c.app],
+            set: {
+              eventCount: sql`${c.eventCount} + excluded.event_count`,
+              lastSeenAt: sql`greatest(${c.lastSeenAt}, excluded.last_seen_at)`,
+              propertyKeys: sql`case when excluded.last_seen_at >= ${c.lastSeenAt} then excluded.property_keys else ${c.propertyKeys} end`,
+            },
+          });
+      }
+
+      if (catalogLatest.length) {
+        await savepoint
+          .insert(l)
+          .values(catalogLatest)
+          .onConflictDoUpdate({
+            target: [l.tenantKey, l.eventName, l.app],
+            set: {
+              lastSeenAt: sql`greatest(${l.lastSeenAt}, excluded.last_seen_at)`,
+              propertyKeys: sql`case when excluded.last_seen_at >= ${l.lastSeenAt} then excluded.property_keys else ${l.propertyKeys} end`,
+            },
+          });
+      }
+    });
   } catch (error) {
+    // A later batch can still index these sessions, so the gap must be
+    // recorded or "didn't" would read their missing events as absence.
+    const gaps = sessionEventGapRows(rows, receivedAt);
+    if (gaps.length) {
+      await tx
+        .insert(schema.analyticsSessionEventGaps)
+        .values(gaps)
+        .onConflictDoNothing();
+    }
     const now = Date.now();
     if (now - lastWarnAt >= WARN_INTERVAL_MS) {
       lastWarnAt = now;
       console.warn(
-        "[first-party-analytics] Session event index write failed; events were stored:",
+        "[first-party-analytics] Session event index write failed; its sessions are marked incomplete:",
         error,
       );
     }
@@ -307,6 +378,7 @@ export function sessionEventFilterConditions(filters: SessionEventFilters) {
   const sibling = alias(schema.sessionRecordings, "session_event_sibling");
   const se = schema.analyticsSessionEvents;
   const coverage = schema.analyticsSessionEventCoverage;
+  const gaps = schema.analyticsSessionEventGaps;
   const tenantOf = (recording: { orgId: AnyColumn; ownerEmail: AnyColumn }) =>
     sql`(case when ${recording.orgId} is not null then 'org:' || ${recording.orgId} else 'user:' || ${recording.ownerEmail} end)`;
   const recordingTenant = tenantOf(r);
@@ -321,13 +393,22 @@ export function sessionEventFilterConditions(filters: SessionEventFilters) {
     // index never saw.
     sql`not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${tenantOf(sibling)} = ${recordingTenant} and ${sibling.startedAt} < ${coverageStart})`,
     ...didEvents.map((eventName) => sessionIndexed(eventName)),
-    // "Didn't" needs a session the index saw, so a failed or pruned index
-    // write never reads as the event's absence.
-    ...(didNotEvents.length ? [sessionIndexed()] : []),
+    // "Didn't" needs a session the index saw completely, so a failed or
+    // pruned index write never reads as the event's absence.
+    ...(didNotEvents.length
+      ? [
+          sessionIndexed(),
+          sql`not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${recordingTenant} and ${gaps.sessionId} = ${r.sessionId})`,
+        ]
+      : []),
     ...didNotEvents.map((eventName) => sql`not ${sessionIndexed(eventName)}`),
   ];
 }
 
+/**
+ * The latest coverage start among the viewer's tenants. Each recording is
+ * filtered by its own tenant's start, so only the latest holds for all.
+ */
 export async function getSessionEventCoverageStart(
   scope: SessionEventScope,
 ): Promise<string | null> {
@@ -341,7 +422,7 @@ export async function getSessionEventCoverageStart(
     .map((row: { startedAt: string }) => row.startedAt)
     .filter(Boolean)
     .sort();
-  return starts[0] ?? null;
+  return starts.at(-1) ?? null;
 }
 
 export async function listSessionEventNames(
@@ -354,8 +435,10 @@ export async function listSessionEventNames(
   const db = getDb() as any;
   const se = schema.analyticsSessionEvents;
   const conditions: any[] = [inArray(se.tenantKey, viewerTenantKeys(scope))];
-  if (filters.from) conditions.push(gte(se.lastAt, filters.from));
-  if (filters.to) conditions.push(lte(se.firstAt, filters.to));
+  if (filters.from) {
+    conditions.push(gte(se.lastAt, isoTimestamp(filters.from)));
+  }
+  if (filters.to) conditions.push(lte(se.firstAt, isoTimestamp(filters.to)));
   if (filters.app) conditions.push(eq(se.app, filters.app));
   const limit = Math.min(500, Math.max(1, filters.limit ?? 200));
   const [rows, coverageStartedAt] = await Promise.all([
@@ -384,11 +467,17 @@ export function isAutomaticAnalyticsEvent(eventName: string): boolean {
   return AUTOMATIC_ANALYTICS_EVENT_NAMES.has(eventName);
 }
 
+function isoTimestamp(value: string): string {
+  if (!sessionEventBoundSchema.safeParse(value).success) {
+    throw new Error(`Invalid event range bound: ${value}`);
+  }
+  return new Date(value).toISOString();
+}
+
 function isoDate(value: string | undefined, fallback: Date): string {
-  const date = value ? new Date(value) : fallback;
-  return (Number.isNaN(date.getTime()) ? fallback : date)
-    .toISOString()
-    .slice(0, 10);
+  return (
+    value === undefined ? fallback.toISOString() : isoTimestamp(value)
+  ).slice(0, 10);
 }
 
 export async function listEventCatalog(
@@ -411,38 +500,73 @@ export async function listEventCatalog(
   ).toISOString();
   const db = getDb() as any;
   const c = schema.analyticsEventCatalogDaily;
-  const tenantCondition = inArray(c.tenantKey, viewerTenantKeys(scope));
-  const appCondition = filters.app ? [eq(c.app, filters.app)] : [];
+  const l = schema.analyticsEventCatalogLatest;
+  const tenantKeys = viewerTenantKeys(scope);
+  const latestPerEvent = db
+    .selectDistinctOn([l.eventName, l.app], {
+      eventName: l.eventName,
+      app: l.app,
+      lastSeenAt: l.lastSeenAt,
+      propertyKeys: l.propertyKeys,
+    })
+    .from(l)
+    .where(
+      and(
+        inArray(l.tenantKey, tenantKeys),
+        ...(filters.app ? [eq(l.app, filters.app)] : []),
+      ),
+    )
+    .orderBy(l.eventName, l.app, desc(l.lastSeenAt))
+    .as("latest_per_event");
 
-  // Volume is scoped to the range; last seen and property keys use every
-  // retained day so an event that stopped firing still shows when it last did.
-  const [volumeRows, lastSeenRows] = await Promise.all([
+  // Last seen and property keys come from each event's latest sighting, so an
+  // event that stopped firing still shows; volume is scoped to the range.
+  const latestRows = await db
+    .select()
+    .from(latestPerEvent)
+    .orderBy(
+      desc(latestPerEvent.lastSeenAt),
+      latestPerEvent.eventName,
+      latestPerEvent.app,
+    )
+    .limit(EVENT_CATALOG_MAX_ENTRIES + 1);
+  const truncated = latestRows.length > EVENT_CATALOG_MAX_ENTRIES;
+  const lastSeenRows = latestRows.slice(0, EVENT_CATALOG_MAX_ENTRIES);
+  const listedNames: string[] = [
+    ...new Set<string>(
+      lastSeenRows.map((row: { eventName: string }) => row.eventName),
+    ),
+  ];
+  const inRange = and(
+    inArray(c.tenantKey, tenantKeys),
+    gte(c.eventDate, fromDate),
+    lte(c.eventDate, toDate),
+    ...(filters.app ? [eq(c.app, filters.app)] : []),
+  );
+  // App totals come from every event in range, not just the listed ones, so a
+  // truncated list cannot make an app look like it sends only automatic events.
+  const [volumeRows, appRows] = await Promise.all([
+    listedNames.length
+      ? db
+          .select({
+            eventName: c.eventName,
+            app: c.app,
+            volume: sql<number>`sum(${c.eventCount})`,
+          })
+          .from(c)
+          .where(and(inRange, inArray(c.eventName, listedNames)))
+          .groupBy(c.eventName, c.app)
+      : [],
     db
       .select({
-        eventName: c.eventName,
         app: c.app,
+        eventCount: sql<number>`count(distinct ${c.eventName})`,
+        customEventCount: sql<number>`count(distinct ${c.eventName}) filter (where ${notInArray(c.eventName, [...AUTOMATIC_ANALYTICS_EVENT_NAMES])})`,
         volume: sql<number>`sum(${c.eventCount})`,
       })
       .from(c)
-      .where(
-        and(
-          tenantCondition,
-          gte(c.eventDate, fromDate),
-          lte(c.eventDate, toDate),
-          ...appCondition,
-        ),
-      )
-      .groupBy(c.eventName, c.app),
-    db
-      .selectDistinctOn([c.eventName, c.app], {
-        eventName: c.eventName,
-        app: c.app,
-        lastSeenAt: c.lastSeenAt,
-        propertyKeys: c.propertyKeys,
-      })
-      .from(c)
-      .where(and(tenantCondition, lte(c.eventDate, toDate), ...appCondition))
-      .orderBy(c.eventName, c.app, desc(c.lastSeenAt)),
+      .where(inRange)
+      .groupBy(c.app),
   ]);
 
   const volumes = new Map<string, number>();
@@ -496,21 +620,19 @@ export async function listEventCatalog(
       (appLastSeen.get(entry.app ?? "") ?? "") >= stoppedBefore;
   }
 
-  const apps = new Map<string, EventCatalogApp>();
-  for (const entry of entries) {
-    if (entry.volume <= 0) continue;
-    const key = entry.app ?? "";
-    const app = apps.get(key) ?? {
-      app: entry.app,
-      eventCount: 0,
-      volume: 0,
-      onlyAutomaticEvents: true,
-    };
-    app.eventCount += 1;
-    app.volume += entry.volume;
-    if (!entry.automatic) app.onlyAutomaticEvents = false;
-    apps.set(key, app);
-  }
+  const apps: EventCatalogApp[] = appRows.map(
+    (row: {
+      app: string;
+      eventCount: unknown;
+      customEventCount: unknown;
+      volume: unknown;
+    }) => ({
+      app: row.app || null,
+      eventCount: Number(row.eventCount),
+      volume: Number(row.volume),
+      onlyAutomaticEvents: Number(row.customEventCount) === 0,
+    }),
+  );
 
   entries.sort(
     (a, b) =>
@@ -522,7 +644,8 @@ export async function listEventCatalog(
     from: fromDate,
     to: toDate,
     entries,
-    apps: [...apps.values()].sort((a, b) => b.volume - a.volume),
+    apps: apps.sort((a, b) => b.volume - a.volume),
+    truncated,
   };
 }
 
@@ -563,10 +686,24 @@ export async function pruneSessionEventIndex(
         sql`not exists (select 1 from ${se} as ${recent} where ${recent.tenantKey} = ${se.tenantKey} and ${recent.sessionId} = ${se.sessionId} and ${recent.lastAt} >= ${sessionCutoff})`,
       ),
     );
+  const gaps = schema.analyticsSessionEventGaps;
+  // guard:allow-unscoped -- retention intentionally sweeps expired gap markers across tenants.
+  await db
+    .delete(gaps)
+    .where(
+      and(
+        lt(gaps.recordedAt, sessionCutoff),
+        sql`not exists (select 1 from ${se} where ${se.tenantKey} = ${gaps.tenantKey} and ${se.sessionId} = ${gaps.sessionId})`,
+      ),
+    );
   // guard:allow-unscoped -- retention intentionally sweeps expired catalog days across tenants.
   const catalogResult = await db
     .delete(schema.analyticsEventCatalogDaily)
     .where(lt(schema.analyticsEventCatalogDaily.eventDate, catalogCutoff));
+  // guard:allow-unscoped -- retention intentionally sweeps events unseen for the whole catalog window across tenants.
+  await db
+    .delete(schema.analyticsEventCatalogLatest)
+    .where(lt(schema.analyticsEventCatalogLatest.lastSeenAt, catalogCutoff));
   return {
     sessionEvents: Number(sessionResult?.rowCount ?? 0),
     catalogDays: Number(catalogResult?.rowCount ?? 0),
@@ -574,6 +711,5 @@ export async function pruneSessionEventIndex(
 }
 
 export function __resetSessionEventIndexForTests(): void {
-  coverageTenants.clear();
   lastWarnAt = 0;
 }

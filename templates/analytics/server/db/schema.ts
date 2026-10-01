@@ -321,6 +321,47 @@ export const analyticsEventCatalogDaily = table(
   }),
 );
 
+// Each event's latest sighting per app, so the catalog never scans daily
+// history for last-seen times.
+export const analyticsEventCatalogLatest = table(
+  "analytics_event_catalog_latest",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventName: text("event_name").notNull(),
+    app: text("app").notNull().default(""),
+    lastSeenAt: text("last_seen_at").notNull(),
+    propertyKeys: text("property_keys").notNull().default("[]"),
+  },
+  (t) => ({
+    catalogLatestUnique: uniqueIndex(
+      "analytics_event_catalog_latest_key_idx",
+    ).on(t.tenantKey, t.eventName, t.app),
+  }),
+);
+
+// Sessions whose index write failed. A later batch can still index them, so
+// "didn't" filters exclude them rather than read missing rows as absence.
+export const analyticsSessionEventGaps = table(
+  "analytics_session_event_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    sessionGapUnique: uniqueIndex("analytics_session_event_gaps_key_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+  }),
+);
+
 // When each tenant's session event index started. Sessions that began earlier
 // have incomplete event coverage, so event filters exclude them.
 export const analyticsSessionEventCoverage = table(

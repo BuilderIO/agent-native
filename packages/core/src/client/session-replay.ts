@@ -113,6 +113,8 @@ interface SessionReplayState {
   removeLifecycleListeners: (() => void) | null;
   restoreIframeBridge: (() => void) | null;
   addCustomEvent: ((tag: string, payload: unknown) => void) | null;
+  analyticsEventCount: number;
+  analyticsEventReplayId: string | null;
   takeFullSnapshot: ((isCheckout?: boolean) => void) | null;
   restoreCaptures: (() => void) | null;
   options: NormalizedSessionReplayOptions | null;
@@ -350,8 +352,7 @@ const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
 const DEFAULT_MAX_NETWORK_EVENTS = 2000;
 const MAX_CONSOLE_MESSAGE_LENGTH = 500;
 const MAX_ANALYTICS_EVENT_NAME_LENGTH = 120;
-const MAX_ANALYTICS_EVENTS_PER_PAGE = 1000;
-let replayAnalyticsEventCount = 0;
+const MAX_ANALYTICS_EVENTS_PER_REPLAY = 1000;
 const MAX_CONSOLE_ARGS = 10;
 const MAX_CONSOLE_STACK_LENGTH = 2000;
 const MAX_CONSOLE_SERIALIZE_DEPTH = 4;
@@ -431,6 +432,8 @@ function getState(): SessionReplayState {
       removeLifecycleListeners: null,
       restoreIframeBridge: null,
       addCustomEvent: null,
+      analyticsEventCount: 0,
+      analyticsEventReplayId: null,
       takeFullSnapshot: null,
       restoreCaptures: null,
       options: null,
@@ -3397,6 +3400,12 @@ async function startSessionReplayRecorder(
   state.lastAuthenticatedProperties = replayUserEmail(initialProperties)
     ? { ...initialProperties }
     : null;
+  // A resumed replay keeps its marker count. The count lives in memory, so a
+  // page reload starts it over.
+  if (state.analyticsEventReplayId !== state.replayId) {
+    state.analyticsEventReplayId = state.replayId;
+    state.analyticsEventCount = 0;
+  }
   state.active = true;
 
   try {
@@ -3629,10 +3638,10 @@ export function emitSessionReplayException(input: {
 export function emitSessionReplayAnalyticsEvent(name: string): void {
   const state = getState();
   if (!state.active || !state.addCustomEvent) return;
-  if (replayAnalyticsEventCount >= MAX_ANALYTICS_EVENTS_PER_PAGE) return;
+  if (state.analyticsEventCount >= MAX_ANALYTICS_EVENTS_PER_REPLAY) return;
   const bounded = name.trim().slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH);
   if (!bounded) return;
-  replayAnalyticsEventCount += 1;
+  state.analyticsEventCount += 1;
   emitReplayCustomEvent(state, SESSION_REPLAY_ANALYTICS_EVENT_TAG, {
     name: bounded,
   });

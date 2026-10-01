@@ -1390,6 +1390,8 @@ export default {
     catalogStoppedFiring: "N'est plus envoyé",
     catalogPropertyKeys: "Clés de propriétés",
     catalogMoreKeys: "+{{count}} de plus",
+    catalogTruncated:
+      "Seuls les {{count}} événements apparus le plus récemment sont affichés.",
     anyActivity: "Toute activité",
     filtersDescription:
       "Les filtres sont stockés dans l'URL afin que l'agent et les liens partagés voient la même liste de sessions.",

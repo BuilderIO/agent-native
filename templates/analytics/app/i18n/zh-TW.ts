@@ -1378,6 +1378,7 @@ export default {
     catalogStoppedFiring: "已停止傳送",
     catalogPropertyKeys: "屬性鍵",
     catalogMoreKeys: "另外 {{count}} 個",
+    catalogTruncated: "僅顯示最近出現的 {{count}} 個事件。",
     anyActivity: "任何活動",
     filtersDescription:
       "篩選器儲存在 URL 中，因此代理和共用連結會看到同一份工作階段清單。",

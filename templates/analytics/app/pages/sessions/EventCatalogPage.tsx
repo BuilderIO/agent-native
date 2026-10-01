@@ -254,6 +254,13 @@ export default function EventCatalogPage() {
               </ul>
             )}
           </Card>
+          {data?.truncated ? (
+            <p className="text-xs text-muted-foreground">
+              {t("sessions.catalogTruncated", {
+                count: data.entries.length.toLocaleString(),
+              })}
+            </p>
+          ) : null}
         </>
       )}
     </div>

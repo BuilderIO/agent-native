@@ -1342,6 +1342,7 @@ export default {
     catalogStoppedFiring: "توقّف الإرسال",
     catalogPropertyKeys: "مفاتيح الخصائص",
     catalogMoreKeys: "+{{count}} أخرى",
+    catalogTruncated: "يتم عرض أحدث {{count}} حدث ظهورًا فقط.",
     anyActivity: "أي نشاط",
     filtersDescription:
       "تُحفظ عوامل التصفية في URL حتى يرى الوكيل والروابط المشتركة قائمة الجلسات نفسها.",

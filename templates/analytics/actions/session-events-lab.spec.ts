@@ -26,6 +26,7 @@ const listEventCatalog = vi.hoisted(() =>
       },
     ],
     apps: [],
+    truncated: false,
   })),
 );
 
@@ -106,5 +107,22 @@ describe("Sessions triage Lab guard on event actions", () => {
       ReturnType<typeof listEventCatalog>
     >;
     expect(catalog.entries[0].description).toBe("A viewer opened a clip.");
+  });
+
+  it("rejects event range bounds that are not timestamps", () => {
+    expect(listCatalog.schema.safeParse({ from: "last week" }).success).toBe(
+      false,
+    );
+    expect(listEventNames.schema.safeParse({ to: "soon" }).success).toBe(false);
+    for (const bound of ["Sept 1", "2026-02-30", "2026-09-20T10:00:00"]) {
+      expect(listCatalog.schema.safeParse({ from: bound }).success).toBe(false);
+    }
+    for (const bound of [
+      "2026-09-01",
+      "2026-09-01T00:00:00.000Z",
+      "2026-09-01T02:00:00+02:00",
+    ]) {
+      expect(listCatalog.schema.safeParse({ from: bound }).success).toBe(true);
+    }
   });
 });

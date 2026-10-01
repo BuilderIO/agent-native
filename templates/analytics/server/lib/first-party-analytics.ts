@@ -33,7 +33,10 @@ import {
 } from "./first-party-analytics-health.js";
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
-import { recordSessionEventIndex } from "./session-event-index.js";
+import {
+  recordSessionEventIndex,
+  type SessionEventIndexInputRow,
+} from "./session-event-index.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -193,12 +196,9 @@ function id(prefix: string): string {
 
 async function persistBigQueryRowsWithMigrationFallback(
   db: any,
-  rows: Array<{
-    id: string;
-    ownerEmail: string;
-    orgId: string | null;
-    [key: string]: unknown;
-  }>,
+  rows: Array<
+    SessionEventIndexInputRow & { id: string; [key: string]: unknown }
+  >,
   table: string | null,
   scope: AnalyticsScope,
   receivedAt: string,
@@ -217,6 +217,7 @@ async function persistBigQueryRowsWithMigrationFallback(
           updatedAt: receivedAt,
         })),
       );
+      await recordSessionEventIndex(tx, rows, receivedAt);
     });
   } catch (error) {
     if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
@@ -241,6 +242,7 @@ async function persistBigQueryRowsWithMigrationFallback(
               ON CONFLICT (key) DO NOTHING`,
         );
       }
+      await recordSessionEventIndex(tx, rows, receivedAt);
     });
     try {
       const result = await runWithRequestContext(
@@ -798,14 +800,12 @@ export async function recordAnalyticsEvents(
           }
           await tx.insert(schema.analyticsEvents).values(rows);
           await upsertFirstPartyAnalyticsRollups(rows, tx);
+          await recordSessionEventIndex(tx, rows, receivedAt);
         });
       }
     } catch (error) {
       persistenceError = error;
     }
-  }
-  if (rows.length && !persistenceError) {
-    await recordSessionEventIndex(rows, receivedAt);
   }
   if (rows.length) {
     await touchPublicKeyLastUsedAt(key.id, receivedAt);

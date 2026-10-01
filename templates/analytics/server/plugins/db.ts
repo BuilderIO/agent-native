@@ -1508,6 +1508,28 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
     );
     CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_catalog_daily_key_idx
       ON analytics_event_catalog_daily (tenant_key, event_date, event_name, app);
+    CREATE TABLE IF NOT EXISTS analytics_event_catalog_latest (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_name TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      last_seen_at TEXT NOT NULL,
+      property_keys TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_catalog_latest_key_idx
+      ON analytics_event_catalog_latest (tenant_key, event_name, app);
+    CREATE TABLE IF NOT EXISTS analytics_session_event_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_event_gaps_key_idx
+      ON analytics_session_event_gaps (tenant_key, session_id);
     CREATE TABLE IF NOT EXISTS analytics_session_event_coverage (
       tenant_key TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,

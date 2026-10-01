@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /** rrweb custom-event tag the core recorder uses for tracked app events. */
 export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
 
@@ -64,7 +66,18 @@ export interface EventCatalogResult {
   to: string;
   entries: EventCatalogEntry[];
   apps: EventCatalogApp[];
+  /** More events exist than the catalog returns; the most recently seen win. */
+  truncated: boolean;
 }
+
+/**
+ * A range bound for event actions: an ISO date or an ISO timestamp with an
+ * offset. `new Date()` would accept "Sept 1" as 2001 and roll Feb 30 forward.
+ */
+export const sessionEventBoundSchema = z.union([
+  z.iso.date(),
+  z.iso.datetime({ offset: true }),
+]);
 
 /** Data Dictionary entries describe an event when their name matches it. */
 export function eventDescriptionKey(name: string): string {

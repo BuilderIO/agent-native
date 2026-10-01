@@ -11,7 +11,10 @@ import { z } from "zod";
 
 import { listEventCatalog } from "../server/lib/session-event-index.js";
 import { assertSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
-import { eventDescriptionKey } from "../shared/session-events.js";
+import {
+  eventDescriptionKey,
+  sessionEventBoundSchema,
+} from "../shared/session-events.js";
 
 const DATA_DICTIONARY_PREFIX = "data-dict-";
 
@@ -46,18 +49,18 @@ async function dataDictionaryDescriptions(
 
 export default defineAction({
   description:
-    "List the events Analytics has received, with each event's app, volume in the range, last-seen time, sample property keys, and Data Dictionary description. Flags apps that send only automatic events and events that stopped firing. Reads Analytics' own index. Requires the Sessions triage Lab.",
+    "List the events Analytics has received, with each event's app, volume in the range, last-seen time, sample property keys, and Data Dictionary description. Flags apps that send only automatic events and events that stopped firing. Keeps the 1,000 most recently seen events, sorted by volume, and sets truncated when more exist; app flags still count every event in the range. Reads Analytics' own index. Requires the Sessions triage Lab.",
   schema: z.object({
-    from: z
-      .string()
+    from: sessionEventBoundSchema
       .optional()
       .describe(
-        "Inclusive lower bound as an ISO timestamp; defaults to 30 days ago",
+        "Inclusive lower bound as an ISO date or a timestamp with an offset; defaults to 30 days ago. Bounds volume, which counts whole UTC days.",
       ),
-    to: z
-      .string()
+    to: sessionEventBoundSchema
       .optional()
-      .describe("Inclusive upper bound as an ISO timestamp; defaults to now"),
+      .describe(
+        "Inclusive upper bound as an ISO date or a timestamp with an offset; defaults to now. Bounds volume, which counts whole UTC days; last seen is always the latest sighting.",
+      ),
     app: z.string().optional().describe("Optional app filter"),
   }),
   http: { method: "GET" },

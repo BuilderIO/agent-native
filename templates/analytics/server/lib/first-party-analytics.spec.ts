@@ -472,6 +472,7 @@ describe("recordAnalyticsEvents", () => {
 
       expect(sessionEventIndexMocks.record).toHaveBeenCalledOnce();
       expect(sessionEventIndexMocks.record).toHaveBeenCalledWith(
+        analyticsDbMocks.db,
         [
           expect.objectContaining({
             eventName: "recording_started",
@@ -491,6 +492,16 @@ describe("recordAnalyticsEvents", () => {
     ).rejects.toThrow();
 
     expect(sessionEventIndexMocks.record).not.toHaveBeenCalled();
+  });
+
+  it("fails the batch when its sessions cannot be indexed or marked incomplete", async () => {
+    sessionEventIndexMocks.record.mockRejectedValueOnce(
+      new Error("gap marker write failed"),
+    );
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("gap marker write failed");
   });
 
   it("enforces the Postgres volume limit during dual writes", async () => {

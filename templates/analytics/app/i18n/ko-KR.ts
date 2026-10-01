@@ -1342,6 +1342,7 @@ export default {
     catalogStoppedFiring: "수신 중단",
     catalogPropertyKeys: "속성 키",
     catalogMoreKeys: "+{{count}}개 더",
+    catalogTruncated: "가장 최근에 수신한 이벤트 {{count}}개만 표시합니다.",
     anyActivity: "모든 활동",
     filtersDescription:
       "필터는 URL에 저장되므로 에이전트와 공유 링크가 같은 세션 목록을 봅니다.",

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
-import { and, asc } from "drizzle-orm";
+import { and, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,6 +22,7 @@ import { schema } from "../db/index.js";
 import {
   __resetSessionEventIndexForTests,
   aggregateSessionEventIndexRows,
+  EVENT_CATALOG_MAX_ENTRIES,
   listEventCatalog,
   listSessionEventNames,
   pruneSessionEventIndex,
@@ -210,8 +211,43 @@ describe("session event index on Postgres", () => {
     return rows.map((row: { id: string }) => row.id);
   }
 
+  function index(rows: SessionEventIndexInputRow[], receivedAt: string) {
+    return db.transaction((tx: any) =>
+      recordSessionEventIndex(tx, rows, receivedAt),
+    );
+  }
+
+  /** A real write error, so the savepoint rollback runs as it does in production. */
+  async function failInsertsInto(table: string) {
+    await client.query(
+      "CREATE OR REPLACE FUNCTION fail_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'insert failed'; END $$",
+    );
+    await client.query(
+      `CREATE TRIGGER fail_insert BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION fail_insert()`,
+    );
+  }
+
+  async function restoreInsertsInto(table: string) {
+    await client.query(`DROP TRIGGER fail_insert ON ${table}`);
+  }
+
+  async function storeBatch(
+    recordingId: string,
+    rows: SessionEventIndexInputRow[],
+    receivedAt: string,
+  ) {
+    // The recording row stands in for the events the ingest transaction stores.
+    await db.transaction(async (tx: any) => {
+      await tx.execute(
+        sql`INSERT INTO session_recordings (id, session_id, owner_email, org_id, started_at)
+            VALUES (${recordingId}, 'stored', ${OWNER}, ${ORG}, ${receivedAt})`,
+      );
+      await recordSessionEventIndex(tx, rows, receivedAt);
+    });
+  }
+
   it("returns exactly the sessions that did one event and not another", async () => {
-    await recordSessionEventIndex(
+    await index(
       [
         event({
           eventName: "recording_started",
@@ -255,7 +291,7 @@ describe("session event index on Postgres", () => {
   });
 
   it("never treats a session the index never saw as not doing an event", async () => {
-    await recordSessionEventIndex(
+    await index(
       [
         event({
           eventName: "pageview",
@@ -275,7 +311,7 @@ describe("session event index on Postgres", () => {
   });
 
   it("excludes a session that had a recording before coverage began", async () => {
-    await recordSessionEventIndex(
+    await index(
       [
         event({
           eventName: "pageview",
@@ -307,15 +343,6 @@ describe("session event index on Postgres", () => {
 
   it("starts coverage only after a session write succeeds", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const realDb = db;
-    getDbMock.mockReturnValueOnce({
-      insert: (table: unknown) => {
-        if (table === schema.analyticsSessionEvents) {
-          throw new Error("session index write failed");
-        }
-        return realDb.insert(table);
-      },
-    });
     const batch = [
       event({
         eventName: "pageview",
@@ -323,8 +350,10 @@ describe("session event index on Postgres", () => {
         timestamp: "2026-09-20T10:01:00.000Z",
       }),
     ];
-    await recordSessionEventIndex(batch, "2026-09-20T10:00:00.000Z");
-    await recordSessionEventIndex(batch, "2026-09-20T11:00:00.000Z");
+    await failInsertsInto("analytics_session_events");
+    await index(batch, "2026-09-20T10:00:00.000Z");
+    await restoreInsertsInto("analytics_session_events");
+    await index(batch, "2026-09-20T11:00:00.000Z");
     warn.mockRestore();
 
     const coverage = await client.query(
@@ -333,8 +362,104 @@ describe("session event index on Postgres", () => {
     expect(coverage.rows).toEqual([{ started_at: "2026-09-20T11:00:00.000Z" }]);
   });
 
+  it("keeps a session whose index write failed out of didn't filters", async () => {
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-ok",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The failed batch held s-gap's clip view.
+    await failInsertsInto("analytics_session_events");
+    await index(
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s-gap",
+          timestamp: "2026-09-20T10:05:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:05:00.000Z",
+    );
+    await restoreInsertsInto("analytics_session_events");
+    warn.mockRestore();
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-gap",
+          timestamp: "2026-09-20T10:06:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:06:00.000Z",
+    );
+    await addRecording("r-ok", "s-ok", "2026-09-20T10:00:30.000Z");
+    await addRecording("r-gap", "s-gap", "2026-09-20T10:04:00.000Z");
+
+    expect(await matchingRecordings({ didNotEvents: ["clip_viewed"] })).toEqual(
+      ["r-ok"],
+    );
+    expect(await matchingRecordings({ didEvents: ["pageview"] })).toEqual([
+      "r-gap",
+      "r-ok",
+    ]);
+  });
+
+  it("reports the coverage start that holds for every tenant the viewer sees", async () => {
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-personal",
+          timestamp: "2026-09-19T09:01:00.000Z",
+          orgId: null,
+        }),
+      ],
+      "2026-09-19T09:00:00.000Z",
+    );
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-org",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+
+    const names = await listSessionEventNames({ userEmail: OWNER, orgId: ORG });
+    expect(names.coverageStartedAt).toBe("2026-09-20T10:00:00.000Z");
+  });
+
+  it("rejects range bounds it cannot parse", async () => {
+    const scope = { userEmail: OWNER, orgId: ORG };
+    await expect(
+      listEventCatalog(scope, { from: "last week" }),
+    ).rejects.toThrow("Invalid event range bound");
+    // All but the first parse with `new Date()` as some other moment.
+    for (const bound of [
+      "not-a-date",
+      "Sept 1",
+      "2026-02-30",
+      "2026-09-20T10:00:00",
+    ]) {
+      await expect(listEventCatalog(scope, { to: bound })).rejects.toThrow(
+        "Invalid event range bound",
+      );
+    }
+    await expect(
+      listSessionEventNames(scope, { from: "last week" }),
+    ).rejects.toThrow("Invalid event range bound");
+  });
+
   it("excludes sessions recorded before the index covered their tenant", async () => {
-    await recordSessionEventIndex(
+    await index(
       [
         event({
           eventName: "recording_started",
@@ -354,7 +479,7 @@ describe("session event index on Postgres", () => {
   });
 
   it("never matches index rows from another tenant's session", async () => {
-    await recordSessionEventIndex(
+    await index(
       [
         event({
           eventName: "recording_started",
@@ -396,8 +521,8 @@ describe("session event index on Postgres", () => {
         timestamp: "2026-09-20T10:03:00.000Z",
       }),
     ];
-    await recordSessionEventIndex(batch, "2026-09-20T10:00:00.000Z");
-    await recordSessionEventIndex(
+    await index(batch, "2026-09-20T10:00:00.000Z");
+    await index(
       [
         event({
           eventName: "clip_viewed",
@@ -439,7 +564,7 @@ describe("session event index on Postgres", () => {
 
   it("builds the catalog with volume, last seen, keys, and health flags", async () => {
     const now = new Date("2026-09-24T12:00:00.000Z");
-    await recordSessionEventIndex(
+    await index(
       [
         event({
           eventName: "clip_viewed",
@@ -492,6 +617,7 @@ describe("session event index on Postgres", () => {
       stoppedFiring: true,
     });
     expect(byName["slides:pageview"]).toMatchObject({ automatic: true });
+    expect(catalog.truncated).toBe(false);
     expect(catalog.apps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ app: "slides", onlyAutomaticEvents: true }),
@@ -500,8 +626,158 @@ describe("session event index on Postgres", () => {
     );
   });
 
+  it("returns the most recently seen events up to the catalog cap", async () => {
+    const now = new Date("2026-09-24T12:00:00.000Z");
+    const base = Date.parse("2026-09-01T00:00:00.000Z");
+    await index(
+      Array.from({ length: EVENT_CATALOG_MAX_ENTRIES + 1 }, (_, index) =>
+        event({
+          eventName: `event_${String(index).padStart(4, "0")}`,
+          sessionId: "s1",
+          timestamp: new Date(base + index * 60_000).toISOString(),
+        }),
+      ),
+      "2026-09-01T00:00:00.000Z",
+    );
+
+    const catalog = await listEventCatalog(
+      { userEmail: OWNER, orgId: ORG },
+      { now },
+    );
+
+    expect(catalog.truncated).toBe(true);
+    expect(catalog.entries).toHaveLength(EVENT_CATALOG_MAX_ENTRIES);
+    expect(
+      catalog.entries.some((entry) => entry.eventName === "event_0000"),
+    ).toBe(false);
+  });
+
+  it("keeps last seen from the latest sighting across batches", async () => {
+    await index(
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s1",
+          timestamp: "2026-09-22T10:00:00.000Z",
+          properties: JSON.stringify({ newer: true }),
+        }),
+      ],
+      "2026-09-22T10:00:00.000Z",
+    );
+    // A late batch with an older event never rolls last seen back.
+    await index(
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s2",
+          timestamp: "2026-09-21T10:00:00.000Z",
+          properties: JSON.stringify({ older: true }),
+        }),
+      ],
+      "2026-09-22T10:01:00.000Z",
+    );
+
+    const catalog = await listEventCatalog(
+      { userEmail: OWNER, orgId: ORG },
+      { now: new Date("2026-09-24T12:00:00.000Z") },
+    );
+    expect(catalog.entries).toEqual([
+      expect.objectContaining({
+        eventName: "clip_viewed",
+        volume: 2,
+        lastSeenAt: "2026-09-22T10:00:00.000Z",
+        propertyKeys: ["newer"],
+      }),
+    ]);
+  });
+
+  it("flags apps from every event in range, not just the listed ones", async () => {
+    const now = new Date("2026-09-21T12:00:00.000Z");
+    // crm's custom event is its oldest, so the cap cuts it from the list.
+    await index(
+      [
+        event({
+          eventName: "deal_won",
+          sessionId: "s-crm",
+          timestamp: "2026-09-11T10:00:00.000Z",
+          app: "crm",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s-crm",
+          timestamp: "2026-09-20T10:01:00.000Z",
+          app: "crm",
+        }),
+        ...Array.from({ length: EVENT_CATALOG_MAX_ENTRIES }, (_, index) =>
+          event({
+            eventName: `web_${String(index).padStart(4, "0")}`,
+            sessionId: "s-web",
+            timestamp: "2026-09-20T10:00:00.000Z",
+            app: "web",
+          }),
+        ),
+      ],
+      "2026-09-20T10:01:00.000Z",
+    );
+
+    const catalog = await listEventCatalog(
+      { userEmail: OWNER, orgId: ORG },
+      { now },
+    );
+
+    expect(catalog.truncated).toBe(true);
+    expect(
+      catalog.entries.some((entry) => entry.eventName === "deal_won"),
+    ).toBe(false);
+    expect(catalog.apps.find((app) => app.app === "crm")).toEqual({
+      app: "crm",
+      eventCount: 2,
+      volume: 2,
+      onlyAutomaticEvents: false,
+    });
+  });
+
+  it("merges an event the viewer's org and personal tenants both saw", async () => {
+    await index(
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s-personal",
+          timestamp: "2026-09-20T10:00:00.000Z",
+          orgId: null,
+          properties: JSON.stringify({ personal: true }),
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    await index(
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s-org",
+          timestamp: "2026-09-21T10:00:00.000Z",
+          properties: JSON.stringify({ org: true }),
+        }),
+      ],
+      "2026-09-21T10:00:00.000Z",
+    );
+
+    const catalog = await listEventCatalog(
+      { userEmail: OWNER, orgId: ORG },
+      { now: new Date("2026-09-24T12:00:00.000Z") },
+    );
+    expect(catalog.entries).toEqual([
+      expect.objectContaining({
+        eventName: "clip_viewed",
+        volume: 2,
+        lastSeenAt: "2026-09-21T10:00:00.000Z",
+        propertyKeys: ["org"],
+      }),
+    ]);
+  });
+
   it("prunes session rows past replay retention and old catalog days", async () => {
-    await recordSessionEventIndex(
+    await index(
       [
         event({
           eventName: "old_event",
@@ -527,10 +803,50 @@ describe("session event index on Postgres", () => {
       "SELECT event_name FROM analytics_event_catalog_daily ORDER BY event_name",
     );
     expect(catalog.rows).toEqual([{ event_name: "new_event" }]);
+    const latest = await client.query(
+      "SELECT event_name FROM analytics_event_catalog_latest ORDER BY event_name",
+    );
+    expect(latest.rows).toEqual([{ event_name: "new_event" }]);
+  });
+
+  it("prunes a gap marker only once its session has expired", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await failInsertsInto("analytics_session_events");
+    for (const sessionId of ["s-expired", "s-active"]) {
+      await index(
+        [
+          event({
+            eventName: "clip_viewed",
+            sessionId,
+            timestamp: "2026-08-01T10:00:00.000Z",
+          }),
+        ],
+        "2026-08-01T10:00:00.000Z",
+      );
+    }
+    await restoreInsertsInto("analytics_session_events");
+    warn.mockRestore();
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-active",
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+
+    await pruneSessionEventIndex(30, new Date("2026-09-24T00:00:00.000Z"));
+
+    const gaps = await client.query(
+      "SELECT session_id FROM analytics_session_event_gaps ORDER BY session_id",
+    );
+    expect(gaps.rows).toEqual([{ session_id: "s-active" }]);
   });
 
   it("keeps a session's rows together until all of them expire", async () => {
-    await recordSessionEventIndex(
+    await index(
       [
         event({
           eventName: "purchase",
@@ -561,15 +877,48 @@ describe("session event index on Postgres", () => {
     );
   });
 
-  it("never throws when the index write fails", async () => {
+  it("stores a batch whose index write fails, with its sessions marked incomplete", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    getDbMock.mockReturnValue({
-      insert: () => {
-        throw new Error("db down");
-      },
-    });
+    // The last write fails, so the earlier ones must roll back with it.
+    await failInsertsInto("analytics_event_catalog_latest");
+    await storeBatch(
+      "r-stored",
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s1",
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    expect(warn).toHaveBeenCalledOnce();
+    expect(String(warn.mock.calls[0][0])).toContain("marked incomplete");
+    warn.mockRestore();
+
+    const stored = await client.query("SELECT id FROM session_recordings");
+    expect(stored.rows).toEqual([{ id: "r-stored" }]);
+    const sessions = await client.query(
+      "SELECT session_id FROM analytics_session_events",
+    );
+    expect(sessions.rows).toEqual([]);
+    const daily = await client.query(
+      "SELECT event_name FROM analytics_event_catalog_daily",
+    );
+    expect(daily.rows).toEqual([]);
+    const gaps = await client.query(
+      "SELECT session_id FROM analytics_session_event_gaps",
+    );
+    expect(gaps.rows).toEqual([{ session_id: "s1" }]);
+  });
+
+  it("rolls back the batch when its sessions cannot be marked incomplete", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await failInsertsInto("analytics_session_events");
+    await failInsertsInto("analytics_session_event_gaps");
     await expect(
-      recordSessionEventIndex(
+      storeBatch(
+        "r-lost",
         [
           event({
             eventName: "clip_viewed",
@@ -579,13 +928,15 @@ describe("session event index on Postgres", () => {
         ],
         "2026-09-20T10:00:00.000Z",
       ),
-    ).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(1);
+    ).rejects.toThrow(/insert into "analytics_session_event_gaps"/);
     warn.mockRestore();
+
+    const stored = await client.query("SELECT id FROM session_recordings");
+    expect(stored.rows).toEqual([]);
   });
 
   it("serves every read from the index tables, never the event store", async () => {
-    await recordSessionEventIndex(
+    await index(
       [
         event({
           eventName: "clip_viewed",
@@ -609,6 +960,9 @@ describe("session event index on Postgres", () => {
     expect(await matchingRecordings({ didEvents: ["clip_viewed"] })).toEqual([
       "r1",
     ]);
+    expect(await matchingRecordings({ didNotEvents: ["purchase"] })).toEqual([
+      "r1",
+    ]);
 
     const tables = new Set(
       queries.flatMap((query) =>
@@ -619,7 +973,9 @@ describe("session event index on Postgres", () => {
     );
     expect([...tables].sort()).toEqual([
       "analytics_event_catalog_daily",
+      "analytics_event_catalog_latest",
       "analytics_session_event_coverage",
+      "analytics_session_event_gaps",
       "analytics_session_events",
       "session_recordings",
     ]);

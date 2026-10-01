@@ -1330,6 +1330,7 @@ export default {
     catalogStoppedFiring: "भेजना बंद हुआ",
     catalogPropertyKeys: "प्रॉपर्टी कुंजियाँ",
     catalogMoreKeys: "+{{count}} और",
+    catalogTruncated: "सिर्फ़ हाल ही में देखे गए {{count}} इवेंट दिखाए जा रहे हैं।",
     anyActivity: "कोई भी गतिविधि",
     filtersDescription:
       "फ़िल्टर URL में सहेजे जाते हैं ताकि एजेंट और साझा लिंक वही सत्र सूची देखें।",

@@ -1295,6 +1295,7 @@ export default {
     catalogStoppedFiring: "已停止发送",
     catalogPropertyKeys: "属性键",
     catalogMoreKeys: "另外 {{count}} 个",
+    catalogTruncated: "仅显示最近出现的 {{count}} 个事件。",
     anyActivity: "任意活动",
     filtersDescription:
       "筛选器保存在 URL 中，因此代理和共享链接会看到同一份会话列表。",

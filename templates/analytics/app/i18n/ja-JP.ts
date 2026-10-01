@@ -1363,6 +1363,8 @@ export default {
     catalogStoppedFiring: "送信停止",
     catalogPropertyKeys: "プロパティキー",
     catalogMoreKeys: "他 {{count}} 件",
+    catalogTruncated:
+      "最近受信した {{count}} 件のイベントのみを表示しています。",
     anyActivity: "任意のアクティビティ",
     filtersDescription:
       "フィルターは URL に保存されるため、エージェントと共有リンクで同じセッション一覧を表示できます。",
