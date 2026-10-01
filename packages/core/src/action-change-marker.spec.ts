@@ -39,4 +39,39 @@ describe("action change markers", () => {
       ),
     ).toEqual(expect.objectContaining({ nonce: "marker-123" }));
   });
+
+  it("round-trips the resource an action changed so collaborators can be notified", () => {
+    const target = {
+      actionName: "update-document",
+      owner: "owner@example.com",
+      resourceType: "document",
+      resourceId: "doc-1",
+    };
+
+    expect(
+      parseActionChangeMarker(
+        "owner@example.com",
+        actionChangeMarkerValue(target),
+      ),
+    ).toEqual(expect.objectContaining(target));
+    expect(actionChangeDedupeKey(target, "action|n")).toBe(
+      "action|n|update-document|owner@example.com||document|doc-1",
+    );
+  });
+
+  it("ignores a half-specified resource", () => {
+    const marker = actionChangeMarkerValue({
+      actionName: "update-document",
+      owner: "owner@example.com",
+      resourceType: "document",
+    });
+
+    expect(marker).not.toHaveProperty("resourceType");
+    expect(
+      parseActionChangeMarker("owner@example.com", {
+        ...marker,
+        resourceType: "document",
+      }),
+    ).not.toHaveProperty("resourceType");
+  });
 });

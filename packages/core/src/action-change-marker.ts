@@ -7,13 +7,21 @@ export interface ActionChangeTarget {
   orgId?: string;
   requestSource?: string;
   nonce?: string;
+  /** Delivers the event to every user who can read this resource, not just the
+   *  actor. Both fields travel together. */
+  resourceType?: string;
+  resourceId?: string;
 }
 
 export function actionChangeDedupeKey(
   target: ActionChangeTarget,
   markerIdentity: string,
 ): string {
-  return `${markerIdentity}|${target.actionName ?? ""}|${target.owner ?? ""}|${target.orgId ?? ""}`;
+  const resource =
+    target.resourceType && target.resourceId
+      ? `|${target.resourceType}|${target.resourceId}`
+      : "";
+  return `${markerIdentity}|${target.actionName ?? ""}|${target.owner ?? ""}|${target.orgId ?? ""}${resource}`;
 }
 
 export function actionChangeMarkerSession(
@@ -34,6 +42,9 @@ export function actionChangeMarkerValue(
     ...(target.orgId ? { orgId: target.orgId } : {}),
     ...(target.requestSource ? { requestSource: target.requestSource } : {}),
     ...(target.nonce ? { nonce: target.nonce } : {}),
+    ...(target.resourceType && target.resourceId
+      ? { resourceType: target.resourceType, resourceId: target.resourceId }
+      : {}),
   };
 }
 
@@ -55,6 +66,8 @@ export function parseActionChangeMarker(
   let orgId: string | undefined;
   let requestSource: string | undefined;
   let nonce: string | undefined;
+  let resourceType: string | undefined;
+  let resourceId: string | undefined;
 
   if (parsed && typeof parsed === "object") {
     const record = parsed as Record<string, unknown>;
@@ -67,6 +80,13 @@ export function parseActionChangeMarker(
         ? record.requestSource
         : undefined;
     nonce = typeof record.nonce === "string" ? record.nonce : undefined;
+    if (
+      typeof record.resourceType === "string" &&
+      typeof record.resourceId === "string"
+    ) {
+      resourceType = record.resourceType;
+      resourceId = record.resourceId;
+    }
   }
 
   if (!owner && !orgId && typeof sessionId === "string" && sessionId) {
@@ -87,5 +107,6 @@ export function parseActionChangeMarker(
     orgId,
     requestSource,
     ...(nonce ? { nonce } : {}),
+    ...(resourceType && resourceId ? { resourceType, resourceId } : {}),
   };
 }

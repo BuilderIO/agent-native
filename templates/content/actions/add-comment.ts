@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 
 type Mention = { email: string; name: string };
 
@@ -317,5 +318,6 @@ export default defineAction({
   deferLoading: false,
   mcpTool: true,
   schema: commentSchema,
+  changeResource: (input) => documentChangeResource(input.documentId),
   run: (args, ctx) => addCommentWithGuard(args, ctx),
 });

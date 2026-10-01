@@ -1998,6 +1998,41 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("scopes a mutating call's change event to the resource it declares", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "update-doc": {
+        http: { method: "GET" },
+        readOnly: false,
+        changeResource: (input: { id: string }) => ({
+          resourceType: "document",
+          resourceId: input.id,
+        }),
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    await mounted[0].handler({
+      _method: "GET",
+      _headers: {},
+      req: { url: "http://app.test/_agent-native/actions/update-doc?id=doc-1" },
+    });
+
+    expect(mockNotifyActionChange).toHaveBeenCalledWith({
+      actionName: "update-doc",
+      resourceType: "document",
+      resourceId: "doc-1",
+    });
+  });
+
   it("publishes change events only for calls that mutate and have not opted out", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

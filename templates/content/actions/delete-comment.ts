@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 
 export default defineAction({
   description:
@@ -14,6 +15,7 @@ export default defineAction({
     id: z.string().describe("Comment ID"),
     documentId: z.string().optional().describe("Document ID"),
   }),
+  changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args) => {
     const db = getDb();
     const [comment] = await db

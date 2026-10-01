@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
@@ -90,6 +91,7 @@ export default defineAction({
     value: z.unknown().describe("Value for the property type"),
     expectedBlocksFieldRevision: z.number().int().nonnegative().optional(),
   }),
+  changeResource: (input) => documentChangeResource(input.documentId),
   run: async ({
     documentId,
     databaseId,

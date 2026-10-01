@@ -18,6 +18,7 @@ import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallEmitsChange,
   actionCallIsReadOnly,
+  actionChangeResource,
 } from "../action-call-classification.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
@@ -1034,6 +1035,9 @@ export interface ActionEntry {
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
   changeEvents?: boolean;
+  changeResource?: (
+    input: any,
+  ) => import("../action.js").ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -6962,6 +6966,7 @@ export async function runAgentLoop(opts: {
               const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
               notifyActionChangeInBackground({
                 actionName: toolCall.name,
+                ...actionChangeResource(actionEntry, toolCall.input),
                 ...(owner ? { owner } : {}),
                 ...(orgId ? { orgId } : {}),
               });
