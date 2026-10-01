@@ -135,6 +135,10 @@ describe("tracking captureException", () => {
   it.each([
     ["EXECUTE", "EXECUTE prepared_statement($1)"],
     ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
+    [
+      "DECLARE CURSOR",
+      "DECLARE customer_cursor CURSOR FOR SELECT email FROM users WHERE email = $1",
+    ],
   ])("redacts PostgreSQL %s bind parameters", (_statement, query) => {
     const track = vi.fn();
     registerTrackingProvider({ name: "qa-exception", track });

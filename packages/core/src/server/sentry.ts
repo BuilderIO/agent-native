@@ -126,10 +126,16 @@ export function initServerSentry(): Promise<boolean> {
           }
 
           const hasSqlLogEntryFailure = isSqlLogEntryFailure(event.logentry);
+          const hasSqlExceptionValue = event.exception?.values?.some(
+            (exception) =>
+              typeof exception.value === "string" &&
+              isSqlStatementText(exception.value),
+          );
           redactSentryEventPayload(event, false, true);
           if (
-            typeof event.message === "string" &&
-            isSqlStatementText(event.message) &&
+            ((typeof event.message === "string" &&
+              isSqlStatementText(event.message)) ||
+              hasSqlExceptionValue) &&
             event.extra &&
             typeof event.extra === "object"
           ) {
