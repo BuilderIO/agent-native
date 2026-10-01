@@ -1,3 +1,9 @@
+import { canonicalizeNfm, docToNfm } from "@shared/nfm";
+import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import {
+  resolveMarkdownSuggestionRange,
+  resolveMarkdownSuggestionRangeInContext,
+} from "@shared/suggestion-rebase";
 import {
   suggestionTextPresentationForSource,
   suggestionTextPresentation,
@@ -8,6 +14,8 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+
+import { buildDocText } from "../comment-anchors";
 
 export type SuggestionHighlightKind =
   | "delete"
@@ -27,6 +35,10 @@ export interface SuggestionHighlightSpec {
   deletedPresentation?: SuggestionPresentationContext;
   editableBoundary?: boolean;
   editableText?: boolean;
+  settling?: boolean;
+  settlingBeforePresentation?: SuggestionPresentationContext;
+  settlingAfterSource?: string;
+  settlingReadbackContent?: string | null;
 }
 
 export interface SuggestionHighlightState {
@@ -66,6 +78,7 @@ function classes(base: string, active: boolean): string {
 function appendPresentationNode(
   parent: HTMLElement,
   node: SuggestionPresentationNode,
+  showLinkDestination: boolean,
 ): void {
   if (node.type === "text" || node.type === "indent") {
     parent.append(document.createTextNode(node.value));
@@ -90,10 +103,11 @@ function appendPresentationNode(
   } else if (node.type === "link") {
     element.className = "underline underline-offset-2";
   }
-  for (const child of node.children) appendPresentationNode(element, child);
+  for (const child of node.children)
+    appendPresentationNode(element, child, showLinkDestination);
   parent.append(element);
 
-  if (node.type === "link") {
+  if (node.type === "link" && showLinkDestination) {
     parent.append(document.createTextNode(` (${node.url})`));
   }
 }
@@ -102,19 +116,31 @@ function appendSuggestionText(
   parent: HTMLElement,
   content: string,
   context?: SuggestionPresentationContext,
+  showLinkDestination = true,
 ): void {
   const nodes = context
     ? suggestionTextPresentationForSource(content, context)
     : suggestionTextPresentation(content);
   if (!nodes) return;
   for (const node of nodes) {
-    appendPresentationNode(parent, node);
+    appendPresentationNode(parent, node, showLinkDestination);
   }
 }
 
 function insertionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   return () => {
     const widget = document.createElement("span");
+    if (spec.settling) {
+      widget.className = "suggestion-settling-text suggestion-inline-widget";
+      widget.setAttribute("data-suggestion-widget", "true");
+      appendSuggestionText(
+        widget,
+        spec.insertedText ?? "",
+        spec.insertedPresentation,
+        false,
+      );
+      return widget;
+    }
     widget.className = classes(
       `${
         spec.kind === "add_block" ? "suggestion-add-block" : "suggestion-insert"
@@ -161,6 +187,134 @@ function deletionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   };
 }
 
+function insertionAtOperationAnchor(
+  doc: ProseMirrorNode,
+  from: number,
+  inserted: string | undefined,
+) {
+  return Boolean(
+    inserted &&
+    from >= 0 &&
+    from + inserted.length <= doc.content.size &&
+    doc.textBetween(from, from + inserted.length) === inserted,
+  );
+}
+
+function anchoredNfmMatches(
+  doc: ProseMirrorNode,
+  from: number,
+  to: number,
+  expectedSource: string,
+): boolean {
+  const range = clampRange(from, to, doc.content.size);
+  const { paragraph, doc: documentNode } = doc.type.schema.nodes;
+  if (!range || !paragraph || !documentNode) return false;
+  const selected = doc.slice(range.from, range.to);
+  if (selected.content.content.some((node) => !node.isText)) return false;
+  const isolatedDocument = documentNode.create(
+    null,
+    paragraph.create(null, selected.content),
+  );
+  return (
+    canonicalizeNfm(docToNfm(isolatedDocument.toJSON())) ===
+    canonicalizeNfm(expectedSource)
+  );
+}
+
+export function acceptedSuggestionAtRange(
+  doc: ProseMirrorNode,
+  mounted: Range,
+  before: SuggestionPresentationContext,
+  after: SuggestionPresentationContext,
+): boolean {
+  const source = docToNfm(doc.toJSON());
+  const beforeText = before.source.slice(before.from, before.to);
+  const afterText = after.source.slice(after.from, after.to);
+  const operation = (
+    original: SuggestionPresentationContext,
+    proposed: SuggestionPresentationContext,
+  ) => ({
+    before: {
+      markdown: original.source,
+      changedText: original.source.slice(original.from, original.to),
+    },
+    after: {
+      markdown: proposed.source,
+      changedText: proposed.source.slice(proposed.from, proposed.to),
+    },
+    anchor: {
+      from: original.from,
+      to: original.to,
+      prefix: original.source.slice(
+        Math.max(0, original.from - 32),
+        original.from,
+      ),
+      suffix: original.source.slice(original.to, original.to + 32),
+    },
+  });
+  if (
+    beforeText === afterText ||
+    (beforeText &&
+      resolveMarkdownSuggestionRange(source, operation(before, after)))
+  )
+    return false;
+  const accepted = resolveMarkdownSuggestionRangeInContext(
+    source,
+    operation(after, before),
+  );
+  if (!accepted) return false;
+  const mapped = suggestionFormattingSourceRange(
+    source,
+    accepted.from,
+    accepted.to,
+  );
+  if (!mapped || mapped.text !== buildDocText(doc).text) return false;
+  const from = doc.textBetween(0, mounted.from, "").length;
+  const to = doc.textBetween(0, mounted.to, "").length;
+  // Insertions map to the accepted span's end when canonical text arrives.
+  return before.from === before.to
+    ? from === mapped.from || from === mapped.to
+    : Math.min(from, to) === mapped.from && Math.max(from, to) === mapped.to;
+}
+
+function settledAtOperation(
+  doc: ProseMirrorNode,
+  spec: SuggestionHighlightSpec,
+) {
+  const presentation = spec.insertedPresentation;
+  if (!presentation) return false;
+  const before = spec.settlingBeforePresentation;
+  if (before && acceptedSuggestionAtRange(doc, spec, before, presentation))
+    return true;
+  if (spec.kind === "insert")
+    return insertionAtOperationAnchor(doc, spec.from, spec.insertedText);
+  if (spec.kind !== "delete" && spec.kind !== "replace") return false;
+  if (!before) return false;
+  if (spec.kind === "replace")
+    return anchoredNfmMatches(doc, spec.from, spec.to, spec.insertedText ?? "");
+  const removed = before.source.slice(before.from, before.to);
+  if (
+    removed &&
+    doc.textBetween(spec.from, spec.from + removed.length) === removed
+  )
+    return false;
+  const right = presentation.source.slice(
+    presentation.from,
+    presentation.from + 32,
+  );
+  if (right)
+    return doc.textBetween(spec.from, spec.from + right.length) === right;
+  const left = presentation.source.slice(
+    Math.max(0, presentation.from - 32),
+    presentation.from,
+  );
+  return Boolean(
+    left &&
+    spec.from >= left.length &&
+    doc.textBetween(spec.from - left.length, spec.from) === left,
+  );
+}
+
 function buildDecorations(
   doc: ProseMirrorNode,
   specs: SuggestionHighlightSpec[],
@@ -168,20 +322,77 @@ function buildDecorations(
 ): DecorationSet {
   const decorations: Decoration[] = [];
   const size = doc.content.size;
+  const canonicalContent = new Map<string, string>();
+  const canonicalizeContent = (content: string) => {
+    const canonical = canonicalContent.get(content);
+    if (canonical !== undefined) return canonical;
+    const normalized = canonicalizeNfm(content);
+    canonicalContent.set(content, normalized);
+    return normalized;
+  };
+  const settledContent = specs.some((spec) => spec.settling)
+    ? canonicalizeContent(docToNfm(doc.toJSON()))
+    : null;
 
   for (const spec of specs) {
+    if (
+      spec.settling &&
+      settledContent !== null &&
+      ((spec.insertedPresentation !== undefined &&
+        settledContent ===
+          canonicalizeContent(spec.insertedPresentation.source)) ||
+        settledAtOperation(doc, spec) ||
+        (spec.settlingReadbackContent !== null &&
+          spec.settlingReadbackContent !== undefined &&
+          settledContent === canonicalizeContent(spec.settlingReadbackContent)))
+    )
+      continue;
     const active = activeId === spec.suggestionId;
     const range = clampRange(spec.from, spec.to, size);
-    const attrs = {
-      "data-suggestion-id": spec.suggestionId,
-      ...(spec.editableText
-        ? {}
-        : {
-            role: "button",
-            tabindex: "0",
-            "aria-label": "Inspect suggested change",
+    const attrs = spec.settling
+      ? {}
+      : {
+          "data-suggestion-id": spec.suggestionId,
+          ...(spec.editableText
+            ? {}
+            : {
+                role: "button",
+                tabindex: "0",
+                "aria-label": "Inspect suggested change",
+              }),
+        };
+
+    if (spec.settling) {
+      if (range && range.to > range.from) {
+        decorations.push(
+          Decoration.inline(range.from, range.to, {
+            class: "suggestion-settling-original",
           }),
-    };
+        );
+      }
+      if (spec.kind !== "delete") {
+        decorations.push(
+          Decoration.widget(
+            clampPosition(range ? range.to : spec.from, size),
+            insertionWidget(spec, false),
+            {
+              key: JSON.stringify([
+                spec.suggestionId,
+                "settling",
+                range?.from ?? spec.from,
+                range?.to ?? spec.from,
+                spec.insertedText,
+                spec.insertedPresentation?.from,
+                spec.insertedPresentation?.to,
+              ]),
+              marks: [],
+              side: 1,
+            },
+          ),
+        );
+      }
+      continue;
+    }
 
     if (spec.kind === "delete" || spec.kind === "replace") {
       if (range) {
