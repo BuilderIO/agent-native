@@ -1,8 +1,10 @@
 import type { LabDefinition } from "../../labs/registry.js";
+import type { UserLabState } from "../../labs/store.js";
 import { useActionQuery } from "../use-action.js";
 import { useSession } from "../use-session.js";
 
 export type LabValues = Record<string, boolean>;
+export type LabStates = Record<string, UserLabState>;
 
 /**
  * A lab by key, or by its definition. Pass the definition so the lab reads as
@@ -19,19 +21,30 @@ function labKey(lab: LabReference): string {
 
 export function useLabState(lab: LabReference): {
   enabled: boolean;
+  source: UserLabState["source"] | null;
+  mixed: boolean;
+  legacyValues?: Record<string, boolean>;
   isLoading: boolean;
   isError: boolean;
   isSuccess: boolean;
 } {
   const key = labKey(lab);
   const { status } = useSession();
-  const query = useActionQuery<LabValues>("get-labs" as never, undefined, {
-    enabled: status === "authenticated",
-  });
+  const query = useActionQuery<LabStates>(
+    "get-lab-states" as never,
+    undefined,
+    {
+      enabled: status === "authenticated",
+    },
+  );
+  const state = query.data?.[key];
   return {
-    enabled: query.data
-      ? query.data[key] === true
+    enabled: state
+      ? state.enabled
       : typeof lab !== "string" && lab.defaultEnabled === true,
+    source: state?.source ?? null,
+    mixed: state?.mixed ?? false,
+    legacyValues: state?.legacyValues,
     isLoading:
       query.isLoading || (status === "loading" && query.data === undefined),
     isError: query.isError,

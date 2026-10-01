@@ -1,0 +1,203 @@
+---
+title: "Kit de paramètres"
+description: "Une page Paramètres consultable, avec les mêmes groupes Compte, Connexions, Agent et Organisation dans chaque application, ainsi qu’un groupe dédié aux paramètres propres à l’application."
+---
+
+# Kit de paramètres
+
+Le Kit de paramètres fournit à chaque application une page Paramètres de même structure. L’emplacement d’un paramètre indique ce qu’il affecte : **Compte**, **Connexions**, **Agent** et **Organisation** sont identiques dans toutes les applications ; un groupe portant le nom de l’application regroupe les paramètres qui ne concernent qu’elle. Les utilisateurs n’ont ainsi pas à se demander si une clé de modèle se trouve dans une page de l’application, la barre latérale de l’agent ou une carte de configuration du fournisseur.
+
+La page Paramètres s’ouvre depuis le menu du compte (votre photo et votre nom en bas de la barre latérale) ou depuis n’importe où dans l’application avec **⌘,** (**Ctrl+,** sous Windows et Linux). Le menu de commandes (⌘K) propose également la commande **Paramètres**. Toutes les pages sont consultables dès le départ : saisissez « langue », « S3 » ou « clé API » pour trouver la ligne correspondante sur toute page que vous pouvez voir.
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:3px'><div class='wf-muted' style='display:flex;align-items:center;gap:6px;margin-bottom:6px'><span data-icon='chevronLeft'></span> Retour à Mail</div><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>Search</span><span class='wf-pill'>/</span></div><small class='wf-muted'>Account</small><div style='padding:4px 9px'>Profile</div><div style='padding:4px 9px'>Preferences</div><small class='wf-muted' style='margin-top:6px'>Connections</small><div style='padding:4px 9px'>Integrations</div><div style='padding:4px 9px'>Clés API</div><small class='wf-muted' style='margin-top:6px'>Agent</small><div style='padding:4px 9px;border-radius:8px;background:var(--wf-accent-soft)'>Model</div><div style='padding:4px 9px'>Instructions</div><div style='padding:4px 9px'>Sous-agents</div><small class='wf-muted' style='margin-top:6px'>Organization</small><div style='padding:4px 9px'>Members</div><div style='padding:4px 9px'>Usage</div><small class='wf-muted' style='margin-top:6px'>Mail</small><div style='padding:4px 9px'>General</div><div style='padding:4px 9px'>Channels</div><div style='flex:1'></div><div class='wf-muted' style='padding:4px 9px'>Labs · Nouveautés</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>Model</h2><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Fournisseurs de l’organisation</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Builder.io</div><span class='wf-pill'>Connected</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Anthropic</div><button>Manage</button></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Fournisseurs personnels</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>OpenAI</div><button>Add</button></div></div><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>Modèle par défaut</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Claude Sonnet</div><span data-icon='chevronDown'></span></div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## Groupes et pages {#groups-and-pages}
+
+Les identifiants de page sont des segments d’URL stables (`/settings/<page>` et `/settings/<page>/<sub>`), des cibles de recherche et le nom qu’utilise l’agent pour désigner une page.
+
+| Groupe               | Page (ID)                                                                                                                                                          | Visible par                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| Compte               | Profil (`profile`), Préférences (`preferences`), Sécurité (`security`)                                                                                             | Tout le monde                    |
+| Connexions           | Intégrations (`integrations`, avec `integrations/builder` pour Builder.io), Clés API (`api-keys`)                                                                  | Tout le monde                    |
+| Agent                | Modèle (`model`), Instructions (`instructions`), Mémoire (`memory`), Compétences (`skills`), Fichiers (`files`), Sous-agents (`sub-agents`)                        | Tout le monde                    |
+| Organisation         | Général (`org`), Membres (`members`), Utilisation (`usage`)                                                                                                        | Tout le monde                    |
+| Organisation         | Authentification (`auth`), Applications (`apps`), Infrastructure (`infra`), Journal d’audit (`audit`)                                                              | Propriétaires et administrateurs |
+| Nom de l’application | Général (`app`), Notifications (`notifications`), Automatisations (`automations`), Canaux (`channels`), Serveur MCP (`mcp`), Contexte créatif (`creative-context`) | Tout le monde                    |
+| Pied de page         | Labs (`labs`), Nouveautés (`whats-new`)                                                                                                                            | Tout le monde                    |
+
+Le groupe de l’application reprend son nom et son icône. Les notifications ne s’affichent que si l’application fournit des paramètres de notification, et le Contexte créatif uniquement lorsque le lab correspondant est activé. Si l’utilisateur ne peut pas voir une page, Profil s’ouvre à la place. Paramètres s’ouvre également sur Profil, sauf si un lien indique une autre page. Masquer une page ne change que sa présentation : chaque action associée vérifie le rôle de l’utilisateur côté serveur.
+
+## Contrat de page {#page-contract}
+
+Chaque application expose `/settings` ainsi qu’une route générique (`settings.$.tsx` qui réexporte la route des paramètres), afin que `/settings/<page>/<sub>` soit résolu. La route affiche `<SettingsTabsPage>` ; Core gère les pages Compte, Connexions, Agent et Organisation, tandis que l’application fournit uniquement son propre contenu.
+
+```tsx
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+
+  return (
+    <div className="h-dvh">
+      <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
+        generalGroups={<RecordingDefaults />}
+        appAreas={[
+          { id: "meetings", label: "Meetings", content: <MeetingSettings /> },
+        ]}
+        notifications={<EmailNotificationSettings />}
+        mcpAbout="Record, search, and share clips from any MCP host."
+        whatsNewMarkdown={changelog}
+      />
+    </div>
+  );
+}
+```
+
+Paramètres fournit son propre lien de retour vers l’application, sa navigation et son en-tête de page. La mise en page de l’application masque donc la barre latérale et l’en-tête sur les routes Paramètres (`isSettingsPathname(pathname)`).
+
+| Prop                                          | Emplacement d’affichage                                                                                                                                         |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generalGroups`                               | Les `SettingsGroup`s propres à l’application dans Application › Général, entre Agent › Modèle par défaut et Ce navigateur › Mode démo de Core.                  |
+| `appAreas`                                    | Onglets dans Application › Général, accessibles via `/settings/app/<id>` : `{ id, label, content, visible?, icon?, keywords?, searchEntries? }`.                |
+| `notifications`, `notificationsSearchEntries` | Application › Notifications. La page s’affiche uniquement si `notifications` est fourni.                                                                        |
+| `mcpAbout`                                    | La ligne d’information traduite dans Application › Serveur MCP, qui indique ce qu’un hôte MCP peut faire dans cette application.                                |
+| `labs`                                        | Définitions des labs sur la page Labs.                                                                                                                          |
+| `whatsNewMarkdown` ou `whatsNew`              | Nouveautés, avec un point indiquant le contenu non lu jusqu’à la visite de la page.                                                                             |
+| `appName`, `appIcon`, `appId`                 | Libellé et icône du groupe de l’application. Par défaut, ceux du modèle sont utilisés.                                                                          |
+| `extraTabs`                                   | Autres onglets de l’application. Chacun devient une page dans son groupe ; `settingsPlacement: "app-area"` en fait plutôt un onglet dans Application › Général. |
+
+Définissez `visible: false` pour une zone d’application tant que le lab correspondant est désactivé. `useLab(ref)` et `useLabState(ref)` acceptent un `LabReference`, soit une clé, soit `{ key, defaultEnabled? }`. Transmettez la définition du lab plutôt qu’une simple clé afin que, pendant le chargement des labs, celui-ci respecte sa valeur `defaultEnabled`. N’ajoutez pas de ligne Modèle par défaut, Langue ou Mode démo aux groupes de l’application : Core les affiche déjà.
+
+### Enregistrer une page {#registering-a-page}
+
+Une page d’application commence généralement par un élément `extraTabs`, qui devient sa propre page dans le groupe de l’application. Pour mieux la contrôler, enregistrez au niveau du module une `SettingsPageDefinition` (`id`, `group`, `order`, `label`, `icon`, `component`, ainsi que les champs facultatifs `visible`, `subpages` et `searchEntries`) avec `registerSettingsPages`. Une définition reprenant l’identifiant d’une page existante la remplace. C’est ainsi qu’une application peut substituer sa propre variante à une page de Core. Dispatch ajoute de cette manière sa colonne de rôle d’application à Membres :
+
+```tsx
+import { OrgMembersPage } from "@agent-native/core/client/org";
+import {
+  CORE_SETTINGS_PAGES,
+  registerSettingsPages,
+} from "@agent-native/toolkit/app/settings";
+
+const coreMembersPage = CORE_SETTINGS_PAGES.find(
+  (page) => page.id === "members",
+)!;
+
+registerSettingsPages([
+  {
+    ...coreMembersPage,
+    component: () => <OrgMembersPage appRoles={dispatchAccessDescriptor} />,
+  },
+]);
+```
+
+Un composant de page reçoit `{ pageId, sub, context, bridge }`, où `context` contient le rôle de l’utilisateur, les labs et les indicateurs. Dans une page, `useSettingsPageHeader({ title?, action?, badge? })` définit le fil d’Ariane de la sous-page, l’action principale de l’en-tête ou un badge à côté du titre.
+
+Une application ajoute une section à la page d’un canal avec `registerChannelSettingsExtensions([{ id, platform, component }])` au niveau du module, à côté de sa route de paramètres. Clips et Mail l’utilisent pour leurs groupes Slack.
+
+## Liens {#links}
+
+N’écrivez jamais les chaînes `/settings/...` à la main. Construisez les liens avec l’assistant de routage :
+
+```ts
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+
+buildSettingsRoute("integrations", "builder"); // /settings/integrations/builder
+buildSettingsRoute("app", "recordings"); // /settings/app/recordings
+buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limits
+```
+
+Les anciens liens continuent de fonctionner. Les anciens identifiants d’onglet (`agent`, `keys`, `team`), les identifiants imbriqués (`agent:resources:memory`), les ancres de section (`#llm`, `#secrets:OPENAI_API_KEY`) et les sections `agent-panel:open-settings` sont tous résolus par une table de redirection unique dans `packages/core/src/navigation/settings-redirects.ts`. Pour déplacer un ancien lien, modifiez sa ligne dans cette table et ajoutez un cas à `settings-redirects.spec.ts`.
+
+`openSettingsPage(page?)` de `@agent-native/core/client/navigation` ouvre Paramètres de partout, y compris hors du routeur. `AppProviders` associe déjà ⌘, à `useSettingsShortcut()` ; l’application n’a donc pas à l’enregistrer une seconde fois.
+
+## Recherche {#search}
+
+La recherche indexe les noms des pages et les `searchEntries` déclarés par chacune, sans afficher les pages. Un résultat indique le libellé de la ligne et son emplacement (« Agent › Modèle ») ; la touche Entrée l’ouvre et met la ligne en évidence.
+
+- Dans une définition de page, `anchor` d’une entrée de recherche correspond à l’identifiant de son `SettingsRow`.
+- Dans une zone d’application ou `notificationsSearchEntries`, `hash` correspond à l’identifiant de son `SettingsRow`.
+- Ajoutez des `keywords` pour les synonymes et les noms de fournisseurs absents du libellé, par exemple « S3 », « R2 » et « bucket » pour le stockage de fichiers.
+
+Attribuez un `id` stable à chaque `SettingsRow` ou `SettingsGroup` consultable. Ces identifiants servent également d’ancres de lien : ne les renommez pas.
+
+## Parité avec l’agent {#agent-parity}
+
+L’agent peut lire et modifier tous les paramètres de ces pages via des actions, et sait quelle page l’utilisateur a ouverte :
+
+- L’interface Paramètres écrit l’état d’application `settings-view` = `{ page, sub, label }` pour l’onglet du navigateur ; `<current-url>` l’affiche sous la forme `settingsPage: integrations/builder (Connections › Integrations › Builder.io)`.
+- L’outil intégré `open-settings-page` ouvre n’importe quelle page par son identifiant, avec `sub` et `anchor` en option. Les anciens identifiants d’onglet et de section fonctionnent également.
+
+| Page                          | Actions                                                                                                                                            |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Profil                        | `get-user-profile`, `update-user-profile`                                                                                                          |
+| Intégrations › Builder.io     | `manage-builder-connection`                                                                                                                        |
+| Clés API                      | `list-api-keys`, `preview-secret-removal`, `delete-api-key`                                                                                        |
+| Modèle                        | `list-model-providers`, `check-provider-key`, `get-provider-models`, `manage-provider-models`, `manage-provider-key-policy`, `manage-agent-engine` |
+| Utilisation                   | `get-usage-metrics`, `manage-usage-alert`                                                                                                          |
+| Authentification              | `list-sign-in-methods`                                                                                                                             |
+| Applications                  | `list-workspace-app-access`, `set-workspace-app-access`                                                                                            |
+| Infrastructure                | `get-infrastructure-status`, `get-file-storage`, `manage-file-storage`, `manage-service-providers`                                                 |
+| Journal d’audit               | `list-audit-events`, `get-audit-event`, `export-audit-events`                                                                                      |
+| Application › Automatisations | `manage-automations`                                                                                                                               |
+| Application › Canaux          | `list-messaging-channels`, `manage-messaging-channel`                                                                                              |
+
+Les lignes propres à l’application suivent la même règle : chaque contrôle dans `generalGroups`, `appAreas` ou `notifications` enregistre ses modifications via une action de l’application que l’agent peut appeler.
+
+## Rôles {#roles}
+
+| Capacité                                                                                                              | Membre                | Administrateur                                                | Propriétaire                 |
+| --------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------- | ---------------------------- |
+| Pages du compte, connexion de ses propres intégrations                                                                | Oui                   | Oui                                                           | Oui                          |
+| Fournisseurs personnels et connexion Builder.io personnelle                                                           | Oui, sauf restriction | Ses propres clés ; Builder.io se connecte pour l’organisation | Identique à l’administrateur |
+| Fournisseurs de l’organisation, modèle par défaut, nombre maximal d’itérations, restriction des clés API personnelles | Lecture seule         | Oui                                                           | Oui                          |
+| Instructions, mémoire, compétences et fichiers de l’organisation                                                      | Lecture seule         | Oui                                                           | Oui                          |
+| Inviter des membres                                                                                                   | Non                   | Membres                                                       | Membres et administrateurs   |
+| Modifier le rôle des membres                                                                                          | Non                   | Non                                                           | Oui                          |
+| Authentification, applications, infrastructure, journal d’audit                                                       | Masqué                | Oui                                                           | Oui                          |
+| Secret A2A partagé, suppression de l’organisation                                                                     | Non                   | Non                                                           | Oui                          |
+
+## Normes UX {#ux-standard}
+
+- Les paramètres durables restent dans Paramètres. La barre latérale de l’agent renvoie vers une page au lieu d’afficher les paramètres directement.
+- Une clé de fournisseur s’ajoute, se modifie et se supprime dans une seule boîte de dialogue, quelle que soit la page qui l’a ouverte.
+- Les lignes en lecture seule affichent la valeur avec un cadenas et une info-bulle indiquant qui peut la modifier (`ReadOnlySettingValue`). La suppression d’une clé, la déconnexion de Builder.io ou la restriction des clés personnelles ouvre une boîte de confirmation qui précise ce qui cessera de fonctionner.
+- Une ligne comporte un libellé, une description facultative et un contrôle. Pas de sous-titre de page, de surtitre ni de bandeau de compteurs.
+- Ajoutez une entrée de recherche pour chaque ligne importante.
+
+## Se connecter avec ChatGPT dans les applications open source {#chatgpt-subscription-lab}
+
+Agent-Native utilise le flux officiel de partage de jetons Sign in with ChatGPT d’OpenAI pour les usages open source éligibles. Il autorise l’application locale à envoyer des requêtes admissibles à la Responses API publique d’OpenAI avec le forfait ChatGPT de l’utilisateur connecté. Il ne donne pas accès aux conversations ni à l’historique ChatGPT de l’utilisateur.
+
+Le labo du forfait ChatGPT est désactivé par défaut. Activez-le dans **Paramètres → Labs**.
+
+Pour une application open source exécutée localement, vous n’avez besoin ni d’une approbation partenaire d’OpenAI ni d’un identifiant client préconfiguré. OpenAI attribue l’identifiant client lors de la première connexion, puis l’application le réutilise pour ce compte ChatGPT.
+
+Cette implémentation nécessite un rappel OAuth HTTP sur `127.0.0.1`, l’adresse de bouclage sur l’ordinateur de l’utilisateur ; `localhost` ne peut pas la remplacer. Ce flux en libre-service ne fonctionne pas sur les sites hébergés `*.agent-native.com`. L’approbation partenaire concerne l’opérateur de l’application hébergée, qui peut la demander via le [formulaire d’intérêt d’OpenAI](https://openai.com/form/sign-in-with-chatgpt-interest).
+
+<Steps>
+
+### Connecter ChatGPT
+
+Ouvrez **Paramètres → Agent → Modèle** et connectez ChatGPT dans la liste des fournisseurs personnels. Connectez-vous au compte ChatGPT dont vous voulez utiliser le forfait, puis autorisez l’accès demandé. Une fois connecté, choisissez un modèle disponible dans le sélecteur de modèles de la conversation. Vous pouvez déconnecter ChatGPT depuis la même ligne de paramètres. Si OpenAI ne peut pas confirmer la révocation à distance, les jetons locaux sont tout de même supprimés ; utilisez le lien d’avertissement pour gérer l’accès de cette application dans Paramètres ChatGPT → Utilisation.
+
+</Steps>
+
+Utilisez uniquement la Responses API publique pour l’inférence. Les points de terminaison privés du backend de ChatGPT et les données de ses conversations ne sont pas couverts par cette autorisation. OpenAI indique que le partage de jetons est en préversion ; la disponibilité des modèles, les limites et les fonctionnalités d’API prises en charge peuvent donc changer. Consultez la [présentation de Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source), [l’inscription et la connexion](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), [les comptes et sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions), [les modèles et l’inférence](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference), [les limites de la préversion](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations), [la récupération après erreur](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery) et les [consignes UI/UX](https://developers.openai.com/siwc/ui-ux-guidelines) d’OpenAI.
+
+## Et ensuite ?
+
+- [**Internationalisation**](/docs/internationalization) — traduisez les textes des paramètres de l’application.
+- [**Onboarding**](/docs/onboarding) — enregistrez les étapes de configuration vers lesquelles pointent les liens profonds des paramètres.
+- [**Connexions d’espace de travail**](/docs/workspace-connections) — le modèle partagé de connexion aux fournisseurs qui sous-tend leur disponibilité.

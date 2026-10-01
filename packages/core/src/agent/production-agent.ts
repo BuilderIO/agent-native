@@ -964,6 +964,7 @@ export interface ActionEntry {
   uiOnly?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
+  mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
@@ -2536,7 +2537,11 @@ export async function callConnectedAgentReference(input: {
           ...(connectionRequest.appId
             ? { appId: connectionRequest.appId }
             : {}),
-          source: { id: input.agent, kind: "agent", label: input.agent },
+          source: connectionRequest.source ?? {
+            id: input.agent,
+            kind: "agent",
+            label: input.agent,
+          },
         },
       );
     }
@@ -2570,12 +2575,31 @@ function parseA2AConnectionRequest(
   const appId = typeof request.appId === "string" ? request.appId.trim() : "";
   const detail =
     typeof request.detail === "string" ? request.detail.trim() : "";
+  const sourceValue =
+    request.source && typeof request.source === "object"
+      ? (request.source as Record<string, unknown>)
+      : null;
+  const sourceId =
+    typeof sourceValue?.id === "string" ? sourceValue.id.trim() : "";
+  const sourceLabel =
+    typeof sourceValue?.label === "string" ? sourceValue.label.trim() : "";
   return {
     version: 1,
     provider,
     reason,
     ...(appId && appId.length <= 120 ? { appId } : {}),
     ...(detail && detail.length <= 1_000 ? { detail } : {}),
+    ...(sourceValue?.kind === "workspace_connection" &&
+    sourceId === provider &&
+    sourceId.length <= 120
+      ? {
+          source: {
+            id: sourceId,
+            kind: "workspace_connection" as const,
+            ...(sourceLabel ? { label: sourceLabel.slice(0, 120) } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -3821,11 +3845,21 @@ export function normalizeToolErrorForBreaker(error: string): string {
   );
 }
 
-function rateLimitRecoveryHint(message: string): string {
+function rateLimitRecoveryHint(message: string, error?: unknown): string {
+  const statusCode =
+    typeof error === "object" && error !== null && "statusCode" in error
+      ? error.statusCode
+      : undefined;
+  const errorCode =
+    typeof error === "object" && error !== null && "errorCode" in error
+      ? error.errorCode
+      : undefined;
   if (
+    statusCode !== 429 &&
     !/\b(?:429|rate[-\s]?limit|rate limited|quota exceeded|too many requests|calls limit exceeded)\b/i.test(
       message,
-    )
+    ) &&
+    !(typeof errorCode === "string" && /rate[-_]?limit|quota/i.test(errorCode))
   ) {
     return "";
   }
@@ -3887,6 +3921,12 @@ export function permanentPreconditionReason(
     .trim()
     // The headline appends its own sentence punctuation.
     .replace(/[.。]+$/, "");
+  const nestedPrecondition = reason
+    .match(
+      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)\. That needs to be fixed outside this chat\b/i,
+    )?.[1]
+    ?.trim();
+  if (nestedPrecondition) return nestedPrecondition;
   if (!reason) return null;
   if (
     /\bI stopped because\b/i.test(reason) ||
@@ -6776,7 +6816,7 @@ export async function runAgentLoop(opts: {
               isActionContractError(err) && err.errorCode !== "action_failed"
                 ? ` (errorCode: ${err.errorCode})`
                 : "";
-            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
+            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message, err)}`;
           }
           isError = true;
         }

@@ -808,6 +808,12 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(liveIframe?.style.pointerEvents).toBe("none");
 
     await act(async () => {
+      liveIframe?.dispatchEvent(new Event("load"));
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
+    expect(liveIframe?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
           data: {

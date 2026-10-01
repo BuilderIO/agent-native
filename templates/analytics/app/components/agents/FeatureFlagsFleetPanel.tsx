@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 
 export interface FeatureFlag {
   key: string;
+  canManage?: boolean;
+  movedToLab?: string;
   displayName?: string | null;
   description?: string | null;
   defaultValue?: boolean;

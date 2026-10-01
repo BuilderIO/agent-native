@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-30
+
+### Fixed
+
+- Chat stays ready for your next draft while a message is being sent.
+- Page edits and comments save reliably
+
 ## 2026-09-29
 
 ### Improved
@@ -13,6 +20,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Duplicated rows and restored document versions keep collaborators' uploaded icons.
 - Text typed just before leaving a page and coming back is no longer lost or reported as a failed save
 - Inline prompts no longer show temporary status rows.
 - Sent chat prompts clear immediately, while reply progress appears in the conversation.

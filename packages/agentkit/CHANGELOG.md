@@ -1,5 +1,38 @@
 # @agent-native/agentkit
 
+## 0.198.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 3ba09b7: Copy complete Visual Edit instructions by default and show Builder.io for Builder credit connections.
+
+## 0.198.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.4
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- Release all public npm packages with a patch version bump.
+- 20d3bb8: Retry automatic queued message promotion when the run slot remains occupied.
+
 ## 0.198.3
 
 ### Patch Changes

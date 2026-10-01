@@ -87,6 +87,35 @@ export async function canvasZoom(page: Page): Promise<number> {
   return card.width / contentWidth;
 }
 
+export async function enableLab(
+  page: Page,
+  key: string,
+): Promise<() => Promise<void>> {
+  const response = await page.request.get(
+    `${e2eBaseUrl(page)}/_agent-native/actions/get-lab-states`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-lab-states failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const states = await response.json();
+  const previousEnabled = states[key]?.enabled;
+  if (typeof previousEnabled !== "boolean") {
+    throw new Error(`get-lab-states did not return a state for ${key}`);
+  }
+  const enabled = await postAction(page, "set-lab", { key, enabled: true });
+  expect(enabled.enabled).toBe(true);
+  return async () => {
+    // set-lab has no unset operation; inherited states restore their effective value.
+    const restored = await postAction(page, "set-lab", {
+      key,
+      enabled: previousEnabled,
+    });
+    expect(restored.enabled).toBe(previousEnabled);
+  };
+}
+
 export async function enableFeatureFlag(
   page: Page,
   key: string,

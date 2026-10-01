@@ -227,6 +227,11 @@ export default defineAction({
   agentInputSchema: externalEditDocumentSchema,
   schema: editDocumentSchema,
   http: false,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");

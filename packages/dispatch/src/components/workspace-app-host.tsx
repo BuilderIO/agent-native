@@ -7,12 +7,9 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
-import { AgentSidebar } from "@agent-native/toolkit/app/chat";
-import {
-  ChatFirstAppPane,
-  defaultChatFirstCopy,
-  type ChatFirstCopy,
-} from "@agent-native/toolkit/app/chat/chat-first";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat/AgentSidebar";
+import { defaultChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first-copy";
+import type { ChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first/types";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -43,6 +40,7 @@ import {
 import { DISPATCH_WORKSPACE_SSO_FLAG } from "../shared/feature-flags";
 import { workspaceAppChatProxyPath } from "../shared/workspace-app-chat";
 import { ActionQueryError } from "./action-query-error";
+import { ChatFirstAppPane } from "./deferred-chat-components.js";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";

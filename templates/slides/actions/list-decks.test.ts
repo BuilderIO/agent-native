@@ -103,6 +103,11 @@ beforeEach(() => {
 });
 
 describe("list-decks", () => {
+  it("exposes this listing action to read-only OAuth clients", () => {
+    expect(action.readOnly).toBe(true);
+    expect(action.mcpAnnotations?.readOnlyHint).toBe(true);
+  });
+
   it("returns a bounded preview gallery without selecting complete decks", async () => {
     const result = await action.run({ limit: 12, includePreview: "true" });
     expect(limitFn).toHaveBeenCalledWith(13);

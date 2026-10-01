@@ -149,6 +149,11 @@ export default defineAction({
       height: 900,
     }),
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, context) => {
     if (context?.caller === "mcp") createDatabaseAgentSchema.parse(args);
     if (args.idempotencyKey !== undefined)

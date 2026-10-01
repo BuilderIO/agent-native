@@ -73,8 +73,8 @@ vi.mock("@agent-native/core/file-upload", () => ({
     mockGetActiveFileUploadProviderForRequest(...args),
 }));
 
-vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: (...args: unknown[]) =>
+vi.mock("../../../../lib/recording-policy.js", () => ({
+  snapshotUploadRecoveryPolicy: (...args: unknown[]) =>
     mockIsFeatureFlagEnabled(...args),
 }));
 
@@ -318,6 +318,33 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       expect.objectContaining({ staleAttempt: true }),
     );
     expect(mockUpdateSets).toHaveLength(0);
+  });
+
+  it("preserves recovery for a pre-migration buffered capture with zero upload progress", async () => {
+    mockIsFeatureFlagEnabled.mockImplementation(
+      async (
+        _email: unknown,
+        _orgId: unknown,
+        _recordingId: unknown,
+        preserveExisting: boolean,
+      ) => preserveExisting,
+    );
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/webm",
+      useGenerationFence: true,
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      uploadGenerationId: expect.any(String),
+    });
+    expect(mockIsFeatureFlagEnabled).toHaveBeenCalledWith(
+      "owner@example.com",
+      "org-1",
+      "rec-1",
+      true,
+    );
   });
 
   it("preserves a fenced retry through flag disable when the client echoes its claim", async () => {

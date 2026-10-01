@@ -167,6 +167,11 @@ beforeEach(() => {
 });
 
 describe("get-deck", () => {
+  it("classifies its duplicate-ID repair as a write", () => {
+    expect(action.readOnly).toBe(false);
+    expect(action.mcpAnnotations?.readOnlyHint).toBe(false);
+  });
+
   it("accepts the deck id under either `id` or `deckId`", () => {
     expect(action.schema.safeParse({ id: "deck-1" }).success).toBe(true);
     expect(action.schema.safeParse({ deckId: "deck-1" }).success).toBe(true);

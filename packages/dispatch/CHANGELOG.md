@@ -1,5 +1,69 @@
 # @agent-native/dispatch
 
+## 0.40.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [4e85ccd]
+- Updated dependencies
+  - @agent-native/toolkit@0.198.8
+
+## 0.40.8
+
+### Patch Changes
+
+- 1f2c8d5: Scope workspace dependency checks to Core apps, resolve Dispatch admin email settings through typed app config, and require Core 0.198.6 or newer for Dispatch.
+- Release all public npm packages with a patch version bump.
+- 8866527: Provide tooltip context throughout the Dispatch layout.
+- 52d8c49: Use the browser-safe integration catalog in Dispatch messaging settings so production builds don't pull server plugins into the client bundle.
+- Updated dependencies [48586af]
+- Updated dependencies
+- Updated dependencies [b147194]
+- Updated dependencies [3ba09b7]
+  - @agent-native/toolkit@0.198.7
+
+## 0.40.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 4dfe557: Keep homepage submissions in the active full-page chat and hide unavailable request ID actions.
+- Updated dependencies [0670eb1]
+- Updated dependencies [77540af]
+- Updated dependencies [df12726]
+- Updated dependencies
+- Updated dependencies [4dfe557]
+  - @agent-native/toolkit@0.198.6
+
+## 0.40.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.198.5
+
+## 0.40.5
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- cefc33b: Align full-page chat headers to the pane edges and remove the extra gap below them.
+- Release all public npm packages with a patch version bump.
+- df67544: Store uploaded icons in private blobs with scoped metadata and verified image reads.
+- Updated dependencies [85a87e6]
+- Updated dependencies [cefc33b]
+- Updated dependencies [7a25922]
+- Updated dependencies [df67544]
+- Updated dependencies [2fdd284]
+- Updated dependencies [c82ae28]
+- Updated dependencies
+- Updated dependencies [c650ba5]
+- Updated dependencies [9fa81ab]
+- Updated dependencies [20d3bb8]
+  - @agent-native/toolkit@0.198.4
+
 ## 0.40.4
 
 ### Patch Changes
@@ -1019,65 +1083,5 @@
 - 81fb79e: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
 - Updated dependencies [81fb79e]
   - @agent-native/toolkit@0.16.3
-
-## 0.27.2
-
-### Patch Changes
-
-- 43fa797: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
-- 43fa797: Avoid querying admin-only vault grants from workspace member key panels and
-  return a proper forbidden response for unauthorized grant requests.
-- 43fa797: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
-- 43fa797: Keep selected chat-first apps visible and open granted external apps from Dispatch.
-- 43fa797: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
-- Updated dependencies [43fa797]
-  - @agent-native/toolkit@0.16.2
-
-## 0.27.1
-
-### Patch Changes
-
-- fb18771: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
-- fb18771: Avoid querying admin-only vault grants from workspace member key panels and
-  return a proper forbidden response for unauthorized grant requests.
-- fb18771: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
-- fb18771: Keep selected chat-first apps visible and open granted external apps from Dispatch.
-- Updated dependencies [fb18771]
-  - @agent-native/toolkit@0.16.1
-
-## 0.27.0
-
-### Minor Changes
-
-- 9e21e1b: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
-
-### Patch Changes
-
-- 9e21e1b: Refresh workspace app lists after starting a Builder app creation.
-- 9e21e1b: Keep embedded workspace apps synchronized with their parent light or dark theme.
-- Updated dependencies [9e21e1b]
-- Updated dependencies [9e21e1b]
-- Updated dependencies [9e21e1b]
-  - @agent-native/toolkit@0.16.0
-
-## 0.26.0
-
-### Minor Changes
-
-- 73c4a97: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
-
-### Patch Changes
-
-- 73c4a97: Refresh workspace app lists after starting a Builder app creation.
-- Updated dependencies [73c4a97]
-- Updated dependencies [73c4a97]
-  - @agent-native/toolkit@0.15.1
-
-## 0.25.1
-
-### Patch Changes
-
-- Updated dependencies [f07ec04]
-  - @agent-native/toolkit@0.15.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

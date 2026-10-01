@@ -130,6 +130,39 @@ export interface StyleDiff {
   added: Array<{ key: string; inside: boolean }>;
 }
 
+export const followsCenteredFlexReflow = (
+  before: SnapRecord | undefined,
+  after: SnapRecord | undefined,
+  prop: string,
+  actualShift: number,
+) => {
+  const a = before?.flexCrossAlignment;
+  const b = after?.flexCrossAlignment;
+  if (
+    !a ||
+    !b ||
+    prop !== a.axis ||
+    a.axis !== b.axis ||
+    a.context !== b.context
+  )
+    return false;
+  const containerShift = b.containerPosition - a.containerPosition;
+  const containerSizeShift = b.containerSize - a.containerSize;
+  const editedItemSizeShift = b.editedItemSize - a.editedItemSize;
+  const expectedShift =
+    containerShift + (containerSizeShift - (b.itemSize - a.itemSize)) / 2;
+  // Only edit-caused line growth with a stationary parent and unchanged item-local offset is natural reflow.
+  const lineFollowsEdit =
+    Math.abs(containerSizeShift) <= 1 ||
+    (Math.sign(containerSizeShift) === Math.sign(editedItemSizeShift) &&
+      Math.abs(containerSizeShift) <= Math.abs(editedItemSizeShift) + 1);
+  return (
+    lineFollowsEdit &&
+    Math.abs(containerShift) <= 1 &&
+    Math.abs(actualShift - expectedShift) <= 1
+  );
+};
+
 function textOf(key: string): string | null {
   const m = key.match(/^text:(.*)#\d+$/);
   return m ? m[1].replace(/\s+/g, "") : null;
@@ -532,8 +565,15 @@ export function isSplicedOnce(
  * the run it continued, so it loses the run's color or weight. `diffSnapshots`
  * lists such records as added, which alone is no violation.
  */
-export function restyledAddedText(a: Snapshot, b: Snapshot): string[] {
+export function restyledAddedText(
+  a: Snapshot,
+  b: Snapshot,
+  startingBlockTag: string | null = null,
+): string[] {
   const added = new Set(diffSnapshots(a, b).added.map((r) => r.key));
+  const startsInConvertibleBlock =
+    /^h[1-6]$/i.test(startingBlockTag ?? "") ||
+    startingBlockTag?.toLowerCase() === "li";
   const known = new Set(
     a.records
       .filter((r) => r.kind === "text" && r.inside)
@@ -545,6 +585,11 @@ export function restyledAddedText(a: Snapshot, b: Snapshot): string[] {
         r.kind === "text" &&
         r.inside &&
         added.has(r.key) &&
+        !(
+          startsInConvertibleBlock &&
+          r.tag === "p" &&
+          !r.inlineStyle?.trim()
+        ) &&
         !known.has(JSON.stringify(r.props)),
     )
     .map((r) => r.key);

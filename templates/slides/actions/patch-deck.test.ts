@@ -27,6 +27,10 @@ const mockNotifyClients = vi.fn();
 
 let mockDeckRow: Record<string, unknown> | undefined;
 let lastUpdatedDeckData: string | undefined;
+let nextDeckWriteMiss: (() => void) | undefined;
+const mockCreateDeckVersionSnapshot = vi.hoisted(() =>
+  vi.fn(async () => ({ created: true })),
+);
 const mockGetGenerationCreativeContext = vi.fn(async () => null);
 const mockRecordGenerationCreativeContext = vi.fn(async () => undefined);
 const mockValidateGenerationCreativeContext = vi.fn(
@@ -56,6 +60,12 @@ const mockDb = {
   update: () => ({
     set: (fields: Record<string, unknown>) => ({
       where: async () => {
+        if (typeof fields.data === "string" && nextDeckWriteMiss) {
+          const simulateWriteMiss = nextDeckWriteMiss;
+          nextDeckWriteMiss = undefined;
+          simulateWriteMiss();
+          return { rowsAffected: 0 };
+        }
         if (typeof fields.data === "string") {
           lastUpdatedDeckData = fields.data;
         }
@@ -124,6 +134,40 @@ vi.mock("@agent-native/creative-context/server", () => ({
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
+
+vi.mock("../server/lib/deck-versions.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../server/lib/deck-versions.js")>();
+  return {
+    ...actual,
+    createDeckVersionSnapshot: (...args: unknown[]) =>
+      mockCreateDeckVersionSnapshot(...args),
+  };
+});
+
+async function runPatchDeckAction(args: any, context?: any) {
+  const deck = JSON.parse(String(mockDeckRow?.data ?? "{}"));
+  const slides = Array.isArray(deck.slides) ? deck.slides : [];
+  const operations = Array.isArray(args.operations)
+    ? args.operations.map((operation: any) => {
+        if (
+          operation.op !== "patch-slide" ||
+          typeof operation.fields?.content !== "string" ||
+          operation.baseContentHash !== undefined
+        ) {
+          return operation;
+        }
+        const slide = slides.find(
+          (candidate: any) => candidate.id === operation.slideId,
+        );
+        return {
+          ...operation,
+          baseContentHash: hashSlideContent(String(slide?.content ?? "")),
+        };
+      })
+    : args.operations;
+  return patchDeckAction.run({ ...args, operations }, context);
+}
 
 describe("applyOperation — patch-slide", () => {
   it("updates only the specified fields of a slide", () => {
@@ -1151,7 +1195,7 @@ describe("source-imported deck structure", () => {
     };
 
     await expect(
-      patchDeckAction.run(
+      runPatchDeckAction(
         {
           deckId: "deck-1",
           rewriteSource: true,
@@ -1520,6 +1564,23 @@ describe("patch-deck agent schema", () => {
     ).toBe(false);
   });
 
+  it("requires a content hash for every patch-slide content replacement", () => {
+    expect(
+      OperationSchema.safeParse({
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "<div>New</div>" },
+      }).success,
+    ).toBe(false);
+    expect(
+      OperationSchema.safeParse({
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { notes: "New notes" },
+      }).success,
+    ).toBe(true);
+  });
+
   it("spells out the animation entry shape and its replace semantics", () => {
     const parameters = patchDeckAction.tool.parameters as any;
     const slidePatch = parameters.properties.operations.items.anyOf.find(
@@ -1674,6 +1735,7 @@ describe("resolveDeckColumnUpdates", () => {
 describe("run() — asynchronous layout fit metadata", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    nextDeckWriteMiss = undefined;
     lastUpdatedDeckData = undefined;
     mockDeckRow = {
       id: "deck-1",
@@ -1704,22 +1766,20 @@ describe("run() — asynchronous layout fit metadata", () => {
         slides,
       });
 
-      const error = await patchDeckAction
-        .run(
-          {
-            deckId: "deck-1",
-            requireAllSourceSlides: false,
-            operations: [
-              {
-                op: "add-slide",
-                slideId: "slide-9",
-                fields: { content: "<div>9</div>" },
-              },
-            ],
-          },
-          { caller },
-        )
-        .catch((caught: unknown) => caught);
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-9",
+              fields: { content: "<div>9</div>" },
+            },
+          ],
+        },
+        { caller },
+      ).catch((caught: unknown) => caught);
 
       expect(isAgentActionStopError(error)).toBe(true);
       expect(error).toMatchObject({
@@ -1736,7 +1796,7 @@ describe("run() — asynchronous layout fit metadata", () => {
     },
   );
 
-  it("requires a source hash for every slide in an agent content batch", async () => {
+  it("requires a source hash for every agent slide content replacement", async () => {
     const error = await patchDeckAction
       .run(
         {
@@ -1759,12 +1819,14 @@ describe("run() — asynchronous layout fit metadata", () => {
       .catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({
-      message: expect.stringContaining("requires the contentHash read"),
+      message: expect.stringContaining(
+        "Content replacement requires the source slide contentHash",
+      ),
     });
     expect(lastUpdatedDeckData).toBeUndefined();
   });
 
-  it("rejects a stale single-slide hash before writing", async () => {
+  it("rejects a hashless single-slide content replacement", async () => {
     const error = await patchDeckAction
       .run(
         {
@@ -1774,13 +1836,36 @@ describe("run() — asynchronous layout fit metadata", () => {
               op: "patch-slide",
               slideId: "slide-1",
               fields: { content: "<div>Overwritten</div>" },
-              baseContentHash: "stale-hash",
             },
           ],
         },
         { caller: "tool" },
       )
       .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining(
+        "Content replacement requires the source slide contentHash",
+      ),
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects a stale single-slide hash before writing", async () => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Overwritten</div>" },
+            baseContentHash: "stale-hash",
+          },
+        ],
+      },
+      { caller: "tool" },
+    ).catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({
       message: expect.stringContaining("changed since it was read"),
@@ -1803,7 +1888,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       slides: [{ id: "slide-1", content: source, animations }],
     });
 
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         operations: [
@@ -1840,7 +1925,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       slides: [{ id: "slide-1", content: source }],
     });
 
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         operations: [
@@ -1923,7 +2008,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       slides: [{ id: "slide-1", content: source }],
     });
 
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         operations: [
@@ -1949,7 +2034,7 @@ describe("run() — asynchronous layout fit metadata", () => {
   });
 
   it("returns pending hashes for every content-changed slide", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -1995,22 +2080,20 @@ describe("run() — asynchronous layout fit metadata", () => {
   it.each(["frontend", "tool"] as const)(
     "does not persist an unchanged patch for %s callers",
     async (caller) => {
-      const result = await patchDeckAction
-        .run(
-          {
-            deckId: "deck-1",
-            requireAllSourceSlides: false,
-            operations: [
-              {
-                op: "patch-slide",
-                slideId: "slide-1",
-                fields: { content: "<div>One</div>" },
-              },
-            ],
-          },
-          { caller },
-        )
-        .catch((error: unknown) => error);
+      const result = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>One</div>" },
+            },
+          ],
+        },
+        { caller },
+      ).catch((error: unknown) => error);
 
       if (caller === "tool") {
         expect(result).toMatchObject({
@@ -2029,7 +2112,7 @@ describe("run() — asynchronous layout fit metadata", () => {
   );
 
   it("broadcasts the changed slide for a single-slide agent patch", async () => {
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2052,7 +2135,7 @@ describe("run() — asynchronous layout fit metadata", () => {
   });
 
   it("returns pending fit metadata for layout-only and Excalidraw patches", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2090,7 +2173,7 @@ describe("run() — asynchronous layout fit metadata", () => {
   });
 
   it("returns pending fit metadata for deck-wide geometry changes", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2141,7 +2224,7 @@ describe("run() — asynchronous layout fit metadata", () => {
     };
     mockDeckRow!.data = JSON.stringify(persistedDeck);
 
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2164,7 +2247,7 @@ describe("run() — asynchronous layout fit metadata", () => {
   });
 
   it("does not target a mixed structural batch at one slide", async () => {
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2184,7 +2267,7 @@ describe("run() — asynchronous layout fit metadata", () => {
   });
 
   it("does not target a slide when deck fields are also patched", async () => {
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2204,7 +2287,7 @@ describe("run() — asynchronous layout fit metadata", () => {
   });
 
   it("reports slide ids that were actually deleted", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2224,7 +2307,7 @@ describe("run() — asynchronous layout fit metadata", () => {
   });
 
   it("omits layout fit metadata when content was not patched", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2257,7 +2340,7 @@ describe("run() — asynchronous layout fit metadata", () => {
     };
     mockDeckRow!.data = JSON.stringify(persistedDeck);
 
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2276,7 +2359,7 @@ describe("run() — asynchronous layout fit metadata", () => {
     ).toBeUndefined();
 
     mockDeckRow!.data = JSON.stringify(persistedDeck);
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2330,7 +2413,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       }),
     };
 
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         operations: [{ op: "delete-slide", slideId: "slide-1" }],
@@ -2386,7 +2469,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       }),
     };
 
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         operations: [
@@ -2447,15 +2530,13 @@ describe("run() — asynchronous layout fit metadata", () => {
       }),
     };
 
-    const result = (await patchDeckAction
-      .run(
-        {
-          deckId: "deck-1",
-          operations: [{ op: "delete-slide", slideId: "missing" }],
-        },
-        { caller: "tool" },
-      )
-      .catch((error: unknown) => error)) as Record<string, unknown>;
+    const result = (await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [{ op: "delete-slide", slideId: "missing" }],
+      },
+      { caller: "tool" },
+    ).catch((error: unknown) => error)) as Record<string, unknown>;
 
     expect(result.message).toContain("Nothing was written");
     expect(lastUpdatedDeckData).toBeUndefined();
@@ -2489,7 +2570,7 @@ describe("run() — partial no-op deck restyle", () => {
   });
 
   it("reports only the slides whose content actually changed", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2550,29 +2631,27 @@ describe("run() — all-no-op deck restyle masked by animation clearing", () => 
   });
 
   it("fails loudly when no slide content changed", async () => {
-    const error = await patchDeckAction
-      .run(
-        {
-          deckId: "deck-1",
-          requireAllSourceSlides: false,
-          operations: [
-            {
-              op: "patch-slide",
-              slideId: "slide-1",
-              fields: { content: "<div>One</div>" },
-              baseContentHash: hashSlideContent("<div>One</div>"),
-            },
-            {
-              op: "patch-slide",
-              slideId: "slide-2",
-              fields: { content: "<div>Two</div>" },
-              baseContentHash: hashSlideContent("<div>Two</div>"),
-            },
-          ],
-        },
-        { caller: "tool" },
-      )
-      .catch((caught: unknown) => caught);
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
+          },
+        ],
+      },
+      { caller: "tool" },
+    ).catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({
       message: expect.stringContaining("Nothing was written"),
@@ -2608,7 +2687,7 @@ describe("run() — no-op content patches leave the slide alone", () => {
   });
 
   it("keeps reveals on a slide whose content was re-sent unchanged", async () => {
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2636,7 +2715,7 @@ describe("run() — no-op content patches leave the slide alone", () => {
   });
 
   it("drops reveals on a slide whose content really changed", async () => {
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2678,7 +2757,7 @@ describe("run() — deck-wide fit bump does not fake a slide edit", () => {
   });
 
   it("keeps an unchanged slide unchanged when the aspect ratio changes", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2720,7 +2799,7 @@ describe("run() — slides absent from the final deck are only reported deleted"
   });
 
   it("does not report a patched-then-deleted slide as updated", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2742,7 +2821,7 @@ describe("run() — slides absent from the final deck are only reported deleted"
   });
 
   it("does not report an added-then-deleted slide as unchanged", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2796,7 +2875,7 @@ describe("run() — reveals survive a non-content field change", () => {
   });
 
   it("keeps reveals when identical content ships alongside new notes", async () => {
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2851,7 +2930,7 @@ describe("run() — the no-op gate spares real deck-level mutations", () => {
       }),
     };
 
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         rewriteSource: true,
@@ -2885,7 +2964,7 @@ describe("run() — the no-op gate spares real deck-level mutations", () => {
       }),
     };
 
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2939,7 +3018,7 @@ describe("run() — a deleted-then-readded slide is not reported deleted", () =>
   });
 
   it("reports a replaced slide as updated only", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -2985,7 +3064,7 @@ describe("run() — a content round-trip is not an edit", () => {
   });
 
   it("does not report a slide patched away and back as updated", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -3044,7 +3123,7 @@ describe("run() — derived state and lifecycle around net-zero edits", () => {
   });
 
   it("keeps derived fit and warning state across a content round-trip", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -3086,7 +3165,7 @@ describe("run() — derived state and lifecycle around net-zero edits", () => {
   });
 
   it("still honours an explicit warning dismissal on an unchanged slide", async () => {
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -3119,7 +3198,7 @@ describe("run() — derived state and lifecycle around net-zero edits", () => {
   });
 
   it("reports an identical delete-and-readd as a replacement", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -3140,7 +3219,7 @@ describe("run() — derived state and lifecycle around net-zero edits", () => {
   });
 
   it("schedules no layout-fit work for an added-then-deleted slide", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -3195,7 +3274,7 @@ describe("run() — fit state follows the net change, not the replay", () => {
   });
 
   it("persists a warning-dismissal-only patch instead of rejecting it", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -3219,7 +3298,7 @@ describe("run() — fit state follows the net change, not the replay", () => {
   });
 
   it("does not re-measure a slide whose rendered fields net out unchanged", async () => {
-    const result = (await patchDeckAction.run(
+    const result = (await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -3268,7 +3347,7 @@ describe("run() — explicit dismissal survives a content change", () => {
   });
 
   it("keeps a dismissal requested in the same patch as new content", async () => {
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -3310,7 +3389,7 @@ describe("run() — explicit dismissal survives a content change", () => {
       }),
     };
 
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         requireAllSourceSlides: false,
@@ -3348,13 +3427,16 @@ describe("run() — client write ordering", () => {
       data: JSON.stringify({
         title: "Deck",
         updatedAt: baseRevision,
-        slides: [{ id: "slide-1", content: "base" }],
+        slides: [
+          { id: "slide-1", content: "base" },
+          { id: "slide-2", content: "second-base" },
+        ],
       }),
     };
   });
 
   it("rebases a newer write and rejects an older request that arrives later", async () => {
-    await patchDeckAction.run(
+    await runPatchDeckAction(
       {
         deckId: "deck-1",
         clientWrite: {
@@ -3374,7 +3456,7 @@ describe("run() — client write ordering", () => {
     );
 
     await expect(
-      patchDeckAction.run(
+      runPatchDeckAction(
         {
           deckId: "deck-1",
           clientWrite: {
@@ -3396,6 +3478,256 @@ describe("run() — client write ordering", () => {
 
     expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(
       "newest",
+    );
+  });
+
+  it("accepts same-revision edits to different slides", async () => {
+    for (const [clientId, slideId, content] of [
+      ["editor-one", "slide-1", "first edit"],
+      ["editor-two", "slide-2", "second edit"],
+    ]) {
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          clientWrite: {
+            clientId,
+            sequence: 1,
+            expectedUpdatedAt: baseRevision,
+          },
+          operations: [
+            {
+              op: "patch-slide",
+              slideId,
+              fields: { content },
+              baseContentHash: hashSlideContent(
+                slideId === "slide-1" ? "base" : "second-base",
+              ),
+            },
+          ],
+        },
+        {},
+      );
+    }
+
+    const slides = JSON.parse(mockDeckRow!.data as string).slides;
+    expect(slides.map((slide: { content: string }) => slide.content)).toEqual([
+      "first edit",
+      "second edit",
+    ]);
+  });
+
+  it("rejects stale unguarded slide, delete, reorder, and deck-field operations", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "remote-editor",
+          sequence: 1,
+          expectedUpdatedAt: baseRevision,
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { notes: "Remote edit" },
+          },
+        ],
+      },
+      {},
+    );
+
+    for (const operation of [
+      {
+        op: "patch-slide",
+        slideId: "slide-2",
+        fields: { notes: "Stale notes" },
+      },
+      { op: "patch-slide", slideId: "slide-1", fields: { layout: "title" } },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Stale mixed edit", notes: "Stale notes" },
+        baseContentHash: hashSlideContent("base"),
+      },
+      { op: "delete-slide", slideId: "slide-1" },
+      { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
+      { op: "patch-deck-fields", fields: { title: "Stale title" } },
+    ]) {
+      await expect(
+        runPatchDeckAction(
+          {
+            deckId: "deck-1",
+            clientWrite: {
+              clientId: `stale-${operation.op}`,
+              sequence: 1,
+              expectedUpdatedAt: baseRevision,
+            },
+            operations: [operation],
+          },
+          {},
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "deck_revision_conflict",
+      });
+    }
+
+    expect(JSON.parse(mockDeckRow!.data as string)).toMatchObject({
+      title: "Deck",
+      slides: [
+        { id: "slide-1", content: "base" },
+        { id: "slide-2", content: "second-base", notes: "Remote edit" },
+      ],
+    });
+  });
+
+  it("re-reads and reapplies granular edits after a lost database CAS", async () => {
+    nextDeckWriteMiss = () => {
+      const latest = JSON.parse(mockDeckRow!.data as string);
+      latest.slides[1].content = "remote edit";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "local edit" },
+            baseContentHash: hashSlideContent("base"),
+          },
+        ],
+      },
+      {},
+    );
+
+    const slides = JSON.parse(mockDeckRow!.data as string).slides;
+    expect(slides.map((slide: { content: string }) => slide.content)).toEqual([
+      "local edit",
+      "remote edit",
+    ]);
+  });
+
+  it("does not retry metadata edits after a lost database CAS", async () => {
+    nextDeckWriteMiss = () => {
+      const latest = JSON.parse(mockDeckRow!.data as string);
+      latest.slides[0].notes = "remote edit";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { notes: "local edit" },
+            },
+          ],
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "deck_write_conflict",
+      statusCode: 409,
+    });
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0]).toMatchObject({
+      content: "base",
+      notes: "remote edit",
+    });
+  });
+
+  it("keeps a same-slide content conflict after a lost database CAS", async () => {
+    nextDeckWriteMiss = () => {
+      const latest = JSON.parse(mockDeckRow!.data as string);
+      latest.slides[0].content = "remote edit";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "local edit" },
+              baseContentHash: hashSlideContent("base"),
+            },
+          ],
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_content_stale",
+      statusCode: 409,
+    });
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(
+      "remote edit",
+    );
+  });
+});
+
+describe("run() — human deck history", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      ownerEmail: "owner@example.com",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      lastWriteClientId: null,
+      lastWriteClientSequence: null,
+      lastWriteRevision: null,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "before" }],
+      }),
+    };
+  });
+
+  it("snapshots human slide edits with the normal history throttle", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "after" },
+          },
+        ],
+      },
+      { caller: "browser" },
+    );
+
+    expect(mockCreateDeckVersionSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "deck-1",
+        ownerEmail: "owner@example.com",
+      }),
+      expect.objectContaining({ force: false, label: "Before deck patch" }),
     );
   });
 });

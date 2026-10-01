@@ -7,7 +7,18 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Typing stays responsive while slides fit longer text.
+- Add references through compact dropdown menus and find decks with the centered home search.
+- Rich text editing preserves imported slide layouts.
+- Slide text editing supports slash commands, Markdown shortcuts, formatting, links, and predictable lists while preserving slide styling
 - Slides remembers your home library tab, so returning users can open straight to Recent.
+
+### Fixed
+
+- Empty Slides libraries show one clear next step without search and filter controls.
+- Slides retries honor deck links in edited prompts
+- Start presentation generation immediately after submitting a prompt.
+- Slides keeps your selected references when you retry generation or sign in
 
 ## 2026-09-29
 
@@ -20,6 +31,9 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Slides reports when saved history cannot load and lets you retry
 - Choosing the latest slide version preserves other pending slide edits.
 - Generation retries keep the original files and references.
 - List commands now change only the selected text rows, leaving other rows untouched.

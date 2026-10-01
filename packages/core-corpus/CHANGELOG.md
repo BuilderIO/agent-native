@@ -1,5 +1,35 @@
 # @agent-native/core-corpus
 
+## 0.198.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.198.3
 
 ### Patch Changes

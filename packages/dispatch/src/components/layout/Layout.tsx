@@ -42,30 +42,18 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
-  AgentChatSurface,
   AgentToggleButton,
   AgentSidebar,
   focusAgentChat,
-} from "@agent-native/toolkit/app/chat";
-import { ChatFirstSurfacePanelToggle } from "@agent-native/toolkit/app/chat/chat-first";
-import {
-  ChatFirstAgentsPane,
-  ChatFirstAppPane,
-  ChatFirstAppsRail,
-  ChatFirstBrowserPane,
-  ChatFirstChatHistory,
-  ChatFirstPrimaryNavigation,
-  ChatFirstSessionWatchPane,
-  ChatFirstSurfacePanel,
-  ChatFirstSurfaceContent,
-  ChatFirstSurfaceTabs,
-  defaultChatFirstCopy,
-  type ChatFirstAgentActivity,
-  type ChatFirstAppItem,
-  type ChatFirstCopy,
-  type ChatFirstEmbedTarget,
-  type ChatFirstPrimaryTab,
-} from "@agent-native/toolkit/app/chat/chat-first";
+} from "@agent-native/toolkit/app/chat/AgentSidebar";
+import { defaultChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first-copy";
+import type { ChatFirstPrimaryTab } from "@agent-native/toolkit/app/chat/chat-first/primary-nav";
+import type {
+  ChatFirstAgentActivity,
+  ChatFirstAppItem,
+  ChatFirstCopy,
+  ChatFirstEmbedTarget,
+} from "@agent-native/toolkit/app/chat/chat-first/types";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { RunsTray } from "@agent-native/toolkit/app/progress";
@@ -132,10 +120,29 @@ import {
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
+import {
+  AgentChatSurface,
+  ChatFirstAgentsPane,
+  ChatFirstAppPane,
+  ChatFirstAppsRail,
+  ChatFirstBrowserPane,
+  ChatFirstChatHistory,
+  ChatFirstPrimaryNavigation,
+  ChatFirstSessionWatchPane,
+  ChatFirstSurfaceContent,
+  ChatFirstSurfacePanel,
+  ChatFirstSurfacePanelToggle,
+  ChatFirstSurfaceTabs,
+} from "../deferred-chat-components.js";
 import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 import {
   WorkspaceAppChatRail,
   WorkspaceAppFrame,
@@ -1363,7 +1370,15 @@ export function renderChatFirstAppSurfaceTab({
   );
 }
 
-export function Layout({
+export function Layout(props: DispatchLayoutProps) {
+  return (
+    <TooltipProvider>
+      <DispatchLayout {...props} />
+    </TooltipProvider>
+  );
+}
+
+function DispatchLayout({
   children,
   extensions,
   agentPageHref,

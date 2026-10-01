@@ -47,7 +47,7 @@ const messages = {
     designSystems: "Designsysteme",
   },
   settings: {
-    agentObservability: "Agentenbeobachtbarkeit",
+    agentObservability: "Beobachtbarkeit",
     title: "Einstellungen",
     labs: "Labs",
     labsIntro: "Teste experimentelle Funktionen vor ihrer Veröffentlichung.",
@@ -308,6 +308,21 @@ const messages = {
     importing: "Importiert...",
     importFile: "Datei importieren",
     downloadBackup: "Backup herunterladen",
+    conflictStatus: "Textkonflikt",
+    conflictStatusDescription:
+      "Prüfe den Textkonflikt, bevor du weitere Änderungen speicherst.",
+    reviewConflict: "Konflikt prüfen",
+    conflictTitle: "Textkonflikt auf Folie {{number}}",
+    conflictDescription:
+      "Während du den Text bearbeitet hast, wurde diese Folie in einer anderen Version geändert.",
+    conflictChoicesDescription:
+      "Wenn du deinen Text behältst, wird er über die neueste Version gespeichert. Der gespeicherte Text ersetzt nur den lokalen Entwurf dieser Folie.",
+    conflictBackupDescription:
+      "Dieser Entwurf der gesamten Präsentation lässt sich nicht Folie für Folie auflösen. Lade ein Backup herunter, um ihn zu behalten.",
+    conflictResolveFailed:
+      "Der Konflikt konnte nicht aufgelöst werden. Dein Entwurf ist weiterhin auf diesem Gerät verfügbar.",
+    conflictKeepMine: "Meinen Text behalten",
+    conflictUseLatest: "Gespeicherten Text verwenden",
     importBackup: "Backup importieren",
     backupDownloaded: "Backup heruntergeladen",
     backupDownloadFailed: "Backup konnte nicht heruntergeladen werden",
@@ -406,6 +421,8 @@ const messages = {
     orderedList: "Geordnete Liste",
     quote: "Zitat",
     blockquote: "Blockzitat",
+    divider: "Trennlinie",
+    horizontalRule: "Horizontale Linie",
   },
   comments: {
     deleteComment: "Kommentar löschen",
@@ -439,6 +456,7 @@ const messages = {
     retry: "Erneut versuchen",
     clickToAddComment: "Klicken, um einen Kommentar hinzuzufügen",
     selectSlideToAdd: "Wähle eine Folie aus, um einen hinzuzufügen",
+    filters: "Kommentarfilter",
     scope: "Kommentarbereich",
     thisSlide: "Diese Folie",
     allComments: "Alle Folien",

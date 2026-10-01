@@ -51,6 +51,70 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.8
+
+### Patch Changes
+
+- 5b37ae2: Expose app actions to dev-mode sub-agents.
+- Release all public npm packages with a patch version bump.
+- eca03a6: Keep optional migration codemods out of application build graphs.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.8
+  - @agent-native/recap-cli@0.5.58
+
+## 0.198.7
+
+### Patch Changes
+
+- 1f2c8d5: Scope workspace dependency checks to Core apps, resolve Dispatch admin email settings through typed app config, and require Core 0.198.6 or newer for Dispatch.
+- 3ba09b7: Stop an agent from retrying a typed provider rate-limit error in the same turn.
+- 3ba09b7: Refresh chat readiness after a provider connection so chat unlocks immediately.
+- Release all public npm packages with a patch version bump.
+- 52d8c49: Include Drizzle ORM in generated app dependencies so production server bundles can resolve database modules.
+- 3ba09b7: Copy complete Visual Edit instructions by default and show Builder.io for Builder credit connections.
+- c3427be: `agent-native dev` no longer crashes in headless environments when no browser opener is installed. Workspace dev skips browser auto-open in CI, remote containers, and Linux without a display, and accepts `--no-open`.
+- Updated dependencies
+- Updated dependencies [3ba09b7]
+  - @agent-native/agentkit@0.198.7
+  - @agent-native/recap-cli@0.5.57
+
+## 0.198.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.6
+  - @agent-native/recap-cli@0.5.56
+
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.5
+  - @agent-native/recap-cli@0.5.55
+
+## 0.198.4
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- 7a25922: Support Manual and Automatic Gong MCP OAuth registration.
+- df67544: Keep icon upload validation and transfer errors visible in the shared picker, with localized feedback for unsupported image formats and failed uploads.
+- c82ae28: Resolve migrated Labs choices against existing feature flag settings while preserving explicit Off and showing inherited mixed settings.
+- Release all public npm packages with a patch version bump.
+- df67544: Store uploaded icons in private blobs with scoped metadata and verified image reads.
+- a24f1d7: Route raw database queries through the active Drizzle transaction.
+- 20d3bb8: Restore typed workspace connection requests when chat resumes OAuth or a custom credential resolver finds no connection.
+- Updated dependencies [85a87e6]
+- Updated dependencies
+- Updated dependencies [20d3bb8]
+- Updated dependencies [be78352]
+  - @agent-native/agentkit@0.198.4
+  - @agent-native/recap-cli@0.5.54
+
 ## 0.198.3
 
 ### Patch Changes
@@ -3616,36 +3680,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
 - 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
-
-## 0.164.23
-
-### Patch Changes
-
-- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
-
-## 0.164.22
-
-### Patch Changes
-
-- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
-- 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
-
-## 0.164.21
-
-### Patch Changes
-
-- 68f299c: Clarify deployment targets and document Agent-Native app configuration.
-
-## 0.164.20
-
-### Patch Changes
-
-- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
-
-## 0.164.19
-
-### Patch Changes
-
-- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

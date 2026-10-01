@@ -1356,8 +1356,8 @@ const widgetSecondBatchPrompt =
   "Render the sample booking link, then summarize it.";
 const queuedPrompt =
   "Queued follow-up: confirm production queue promotion in one sentence.";
-const rejectedSteerPrompt =
-  "Rejected steer: prove the queued message is restored before retry.";
+const failedRunQueuedPrompt =
+  "Queued after failure: verify automatic promotion.";
 const secondMarkdownPrompt =
   "Stream a second independent markdown response with a short checklist.";
 const suggestionPrompt =
@@ -1454,7 +1454,7 @@ interface LoopbackProviderState {
   releaseMarkdownPartial: (() => void) | null;
   releaseIncompleteStream: (() => void) | null;
   queuedPromptSeen: boolean;
-  rejectedSteerPromptSeen: boolean;
+  failedRunQueuedPromptSeen: boolean;
   suggestionPromptSeen: boolean;
   incompleteAttempts: number;
   errors: string[];
@@ -1794,12 +1794,12 @@ async function handleLoopbackCompletion(
     return;
   }
 
-  if (prompt === rejectedSteerPrompt) {
-    state.rejectedSteerPromptSeen = true;
+  if (prompt === failedRunQueuedPrompt) {
+    state.failedRunQueuedPromptSeen = true;
     await streamTextResponse(
       response,
       requestNumber,
-      ["Queue rollback preserved the exact prompt, ", "then steering retried."],
+      ["Queued message ran after ", "the previous run failed."],
       state,
     );
     return;
@@ -1853,7 +1853,7 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
     releaseMarkdownPartial: null,
     releaseIncompleteStream: null,
     queuedPromptSeen: false,
-    rejectedSteerPromptSeen: false,
+    failedRunQueuedPromptSeen: false,
     suggestionPromptSeen: false,
     incompleteAttempts: 0,
     errors: [],
@@ -3020,8 +3020,8 @@ async function assertAgentKitChatAcceptance(
   await page
     .getByText("This partial response must not survive retry", { exact: false })
     .waitFor({ state: "visible" });
-  await fillAndSubmitComposer(page, rejectedSteerPrompt);
-  await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
+  await fillAndSubmitComposer(page, failedRunQueuedPrompt);
+  await queue.getByText(failedRunQueuedPrompt, { exact: true }).waitFor({
     state: "visible",
   });
   provider.releaseIncompleteStream?.();
@@ -3032,66 +3032,25 @@ async function assertAgentKitChatAcceptance(
     .waitFor({ state: "visible" });
   network.allowExpectedIncompleteStreamFailure = false;
   await approval.waitFor({ state: "detached" });
-  await queue
-    .getByRole("button", { name: /Steer/u })
-    .waitFor({ state: "visible" });
-  const steer = queue.getByRole("button", { name: /Steer/u });
-  await steer.click();
-  try {
-    await page
-      .getByRole("alert")
-      .filter({ hasText: "Deterministic queue steering rejection" })
-      .waitFor({ state: "visible", timeout: 30_000 });
-  } catch (error) {
-    console.error(
-      "Queue steering rejection diagnostics:",
-      JSON.stringify(
-        {
-          alerts: await page.getByRole("alert").allTextContents(),
-          queue: await queue.allInnerTexts(),
-          composerErrors: await page
-            .locator(".agentkit-composer-error")
-            .allTextContents(),
-          runFailures: await page
-            .locator(".agentkit-run-failure")
-            .allTextContents(),
-        },
-        null,
-        2,
-      ),
-    );
-    throw error;
-  }
-  await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
-    state: "visible",
-  });
-  assert.equal(
-    provider.rejectedSteerPromptSeen,
-    false,
-    "rejected steering must not submit the prompt to the provider",
-  );
-
-  await steer.click();
   await waitForLoopbackState(
-    "the exact manually steered prompt",
-    () => provider.rejectedSteerPromptSeen,
-  );
-  assert.equal(
-    provider.requests.filter(
-      (request) => request.prompt === rejectedSteerPrompt,
-    ).length,
-    1,
-    "manual steering must submit the exact queued prompt once after rollback",
+    "automatic queue promotion after run failure",
+    () => provider.failedRunQueuedPromptSeen,
   );
   await page
-    .getByText(
-      "Queue rollback preserved the exact prompt, then steering retried.",
-      { exact: true },
-    )
+    .getByText("Queued message ran after the previous run failed.", {
+      exact: true,
+    })
     .waitFor({ state: "visible" });
-  await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
+  await queue.getByText(failedRunQueuedPrompt, { exact: true }).waitFor({
     state: "detached",
   });
+  assert.equal(
+    provider.requests.filter(
+      (request) => request.prompt === failedRunQueuedPrompt,
+    ).length,
+    1,
+    "failed-run queue promotion must submit the exact prompt once",
+  );
 
   await fillAndSubmitComposer(page, incompleteRetryPrompt);
   await page
@@ -3109,7 +3068,7 @@ async function assertAgentKitChatAcceptance(
     "recovery must not leave stale human-review state",
   );
   assert.equal(
-    await queue.getByText(rejectedSteerPrompt, { exact: true }).count(),
+    await queue.getByText(failedRunQueuedPrompt, { exact: true }).count(),
     0,
     "recovery must not leave the promoted queue item behind",
   );
@@ -3344,7 +3303,7 @@ async function runBrowserSmoke(
     "loopback provider must stream multiple markdown chunks per response",
   );
   assert.equal(provider.queuedPromptSeen, true);
-  assert.equal(provider.rejectedSteerPromptSeen, true);
+  assert.equal(provider.failedRunQueuedPromptSeen, true);
   assert.equal(provider.suggestionPromptSeen, true);
   assert.equal(provider.incompleteAttempts, 3);
   assert.deepEqual(provider.errors, [], "loopback provider runtime errors");

@@ -7785,7 +7785,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           return false;
         }
         var paintStyle = window.getComputedStyle(paintTarget);
-        return paintStyle.fill !== "none" && Number(paintStyle.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget) || paintStyle.stroke !== "none" && parseFloat(paintStyle.strokeWidth) > 0 && Number(paintStyle.strokeOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget);
+        var hasVisibleFill = paintStyle.fill !== "none" && Number(paintStyle.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget);
+        if (hasVisibleFill) return true;
+        if (radiusPrimitiveKind(el) === "polygon") return false;
+        return paintStyle.stroke !== "none" && parseFloat(paintStyle.strokeWidth) > 0 && Number(paintStyle.strokeOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget);
       }
       var style = window.getComputedStyle(el);
       if (cornerRadiusVisibilityIsVisible(el) && (cornerRadiusBackgroundImageHasVisiblePaint(style.backgroundImage) || cornerRadiusColorIsVisible(style.backgroundColor))) {
@@ -13862,18 +13865,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       if (keepCurrentParent && pointerOutsideCurrentParent) {
-        var freeParent = currentParent;
-        while (freeParent && freeParent.parentElement && freeParent.parentElement !== document.body && isAutoLayoutElement(freeParent)) {
-          freeParent = freeParent.parentElement;
-        }
-        if (freeParent !== currentParent) {
-          return {
-            anchor: freeParent,
-            placement: "after",
-            axis: "y",
-            dropMode: "flow-insert"
-          };
-        }
         var retainedSlot = nearestChildInsertionTarget(
           currentParent,
           clientX,
@@ -16117,7 +16108,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
         }, resolveReorderOrFreeTarget2 = function(cx, cy, ignoreTargetAutoLayout, forceNestedAutoLayout) {
-          if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
+          keepCurrentFlowParent = bridgeSpaceKeyPressed;
           return flowMoveTargetForPoint(
             reorderEl,
             cx,
@@ -16546,6 +16537,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             return;
           }
           if (ev.code !== "Space" && ev.key !== " ") return;
+          keepCurrentFlowParent = bridgeSpaceKeyPressed;
           ev.preventDefault();
         }, onReorderUp2 = function(ev) {
           if (!ev || !Number.isFinite(ev.clientX) || !Number.isFinite(ev.clientY)) {

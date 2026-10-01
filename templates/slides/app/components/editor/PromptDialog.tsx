@@ -188,7 +188,7 @@ interface PromptPopoverProps {
     files: File[],
     context?: string,
     attachments?: ReadonlyArray<PromptChatAttachment>,
-    options?: PromptComposerSubmitOptions,
+    options?: SlidesPromptSubmitOptions,
   ) => boolean | void;
   onRetainedAttachmentsAbandoned?: () => void;
   onImport?: (

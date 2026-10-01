@@ -59,7 +59,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     )[key] ?? key,
 }));
 
-vi.mock("@agent-native/core/integrations", () => ({
+vi.mock("@agent-native/core/integrations/catalog", () => ({
   listBuiltInChannelIntegrations: () => [
     {
       id: "slack",

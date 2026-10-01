@@ -62,6 +62,11 @@ export default defineAction({
         : "Created Content database row";
     },
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, context): Promise<ContentDatabaseRowMutationResult> => {
     if (context?.caller === "mcp") agentSchema.parse(args);
     const result = await createDatabaseRow(

@@ -61,6 +61,11 @@ export default defineAction({
       height: 680,
     }),
   },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async ({ designId, fileId, filename }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {

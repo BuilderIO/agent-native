@@ -1,4 +1,4 @@
-import { IconPlus } from "@tabler/icons-react";
+import { IconFile, IconPlus, IconTextRecognition } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -14,7 +14,6 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -23,7 +22,6 @@ import {
 import { Skeleton } from "../ui/skeleton.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
-import { ComposerContextMenuSearch } from "./ComposerContextMenuSearch.js";
 import {
   ComposerContextPicker,
   type ComposerContextPickerConfig,
@@ -83,7 +81,7 @@ export type ComposerContextMenuItem =
   | ComposerContextMenuCategory;
 export interface ComposerContextMenuProps {
   items: readonly ComposerContextMenuItem[];
-  onSearchChange?: (search: string) => void;
+  menuActionItems?: readonly ComposerContextMenuItem[];
   loading?: boolean;
   error?: string;
   onRetry?: () => void;
@@ -121,17 +119,6 @@ function findAction(
     } else if (item.id === id)
       return disabled ? { ...item, disabled: true } : item;
   }
-}
-
-function flattenMenuItems(
-  items: readonly ComposerContextMenuItem[],
-  inheritedDisabled = false,
-): ComposerContextMenuAction[] {
-  return items.flatMap((item) => {
-    const disabled = inheritedDisabled || item.disabled === true;
-    if (item.children) return flattenMenuItems(item.children, disabled);
-    return [disabled ? { ...item, disabled: true } : item];
-  });
 }
 
 export function getComposerContextMenuEntries(
@@ -176,12 +163,14 @@ export function getComposerContextMenuEntries(
 
 function ContextSubmenu({
   label,
+  icon,
   disabled,
   open,
   onOpenChange,
   children,
 }: {
   label: string;
+  icon?: ReactNode;
   disabled?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -191,6 +180,7 @@ function ContextSubmenu({
   return (
     <DropdownMenuSub open={open} onOpenChange={onOpenChange}>
       <DropdownMenuSubTrigger ref={trigger} disabled={disabled}>
+        {icon}
         <span className="min-w-0 truncate">{label}</span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent
@@ -258,7 +248,7 @@ function ContextEntryLabel({ label, description }: ComposerContextMenuEntry) {
 
 export function ComposerContextMenu({
   items,
-  onSearchChange,
+  menuActionItems = [],
   loading,
   error: searchError,
   onRetry,
@@ -274,6 +264,7 @@ export function ComposerContextMenu({
   disabled,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
+  const allItems = [...menuActionItems, ...items];
   const onDisabledFocusRef = useRef(onDisabledFocus);
   onDisabledFocusRef.current = onDisabledFocus;
   const disabledFocusFrame = useRef<number | null>(null);
@@ -285,15 +276,14 @@ export function ComposerContextMenu({
     [],
   );
   const [internalOpen, setInternalOpen] = useState(false);
-  const [search, setSearch] = useState("");
   const open = controlledOpen ?? internalOpen;
   const [triggerTooltipOpen, setTriggerTooltipOpen] = useState(false);
   const [path, setPath] = useState<string[]>([]);
   const pathRef = useRef(path);
   const [page, setPage] = useState<ComposerContextPage | null>(null);
   const pageRef = useRef(page);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
+  const itemsRef = useRef(allItems);
+  itemsRef.current = allItems;
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -305,7 +295,7 @@ export function ComposerContextMenu({
   );
   const dialogRef = useRef(dialog);
   dialogRef.current = dialog;
-  const dialogAction = dialog ? findAction(items, dialog.id) : undefined;
+  const dialogAction = dialog ? findAction(allItems, dialog.id) : undefined;
   const dialogAvailable =
     !dialogAction?.disabled &&
     dialogAction?.picker &&
@@ -361,13 +351,11 @@ export function ComposerContextMenu({
       if (controlledOpen === undefined) setInternalOpen(next);
       onOpenChange?.(next);
       if (!next) {
-        setSearch("");
-        onSearchChange?.("");
         dismissPage();
         updatePath([]);
       }
     },
-    [controlledOpen, dismissPage, onOpenChange, onSearchChange, updatePath],
+    [controlledOpen, dismissPage, onOpenChange, updatePath],
   );
   useEffect(() => {
     if (open || !pendingAttachmentRequest.current) return;
@@ -419,7 +407,7 @@ export function ComposerContextMenu({
     updatePath([...origin, action.id]);
     if (select && !action.picker) selectAction(action);
   };
-  const currentAction = page ? findAction(items, page.id) : undefined;
+  const currentAction = page ? findAction(allItems, page.id) : undefined;
   useEffect(() => {
     if (
       page &&
@@ -432,11 +420,38 @@ export function ComposerContextMenu({
   }, [page, currentAction, dismissPage, updatePath]);
 
   const renderEntries = (
-    entries: readonly ComposerContextMenuAction[],
+    entries: readonly ComposerContextMenuItem[],
     origin: string[],
   ): ReactNode => (
     <>
       {entries.map((entry) => {
+        const branch = [...origin, entry.id];
+        const expanded = branch.every((id, index) => path[index] === id);
+        if (entry.children) {
+          return (
+            <ContextSubmenu
+              key={entry.id}
+              label={entry.label}
+              disabled={entry.disabled}
+              open={expanded}
+              onOpenChange={(next) => {
+                const isOpen = branch.every(
+                  (id, index) => pathRef.current[index] === id,
+                );
+                if (next === isOpen) return;
+                if (!next) {
+                  dismissPage();
+                  updatePath(origin);
+                  return;
+                }
+                setError(null);
+                updatePath(branch);
+              }}
+            >
+              {renderEntries(entry.children, branch)}
+            </ContextSubmenu>
+          );
+        }
         if (entry.picker && typeof entry.picker.presentation === "object") {
           return (
             <DropdownMenuItem
@@ -454,8 +469,6 @@ export function ComposerContextMenu({
             </DropdownMenuItem>
           );
         }
-        const branch = [...origin, entry.id];
-        const expanded = branch.every((id, index) => path[index] === id);
         if (entry.picker || entry.render) {
           const back = () => {
             dismissPage();
@@ -551,23 +564,6 @@ export function ComposerContextMenu({
     </>
   );
 
-  const matches = (entries: readonly ComposerContextMenuItem[]) =>
-    flattenMenuItems(getComposerContextMenuEntries(entries, [], search));
-  const rootEntries = matches(items.filter((item) => !item.children));
-  const groups = items.filter((item): item is ComposerContextMenuCategory =>
-    Boolean(item.children),
-  );
-  const showUpload =
-    (addAttachment || onAttachmentRequest) &&
-    (!search.trim() ||
-      uploadLabel
-        .toLocaleLowerCase()
-        .includes(search.trim().toLocaleLowerCase()));
-  const hasMatches =
-    showUpload ||
-    rootEntries.length > 0 ||
-    groups.some((group) => matches([group]).length > 0);
-
   return (
     <>
       {addAttachment && (
@@ -624,11 +620,9 @@ export function ComposerContextMenu({
           alignOffset={placement.alignOffset}
           collisionPadding={12}
           style={{
-            width: placement.width,
-            maxWidth: "calc(100vw - 24px)",
             maxHeight: placement.maxHeight,
           }}
-          className="@container flex flex-col rounded-xl p-1 [&_[role^=menuitem]]:min-h-10 [&_[role^=menuitem]]:px-3 [&_[role^=menuitem]]:rounded-lg"
+          className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col rounded-xl p-1 [&_[role^=menuitem]]:min-h-10 [&_[role^=menuitem]]:px-3 [&_[role^=menuitem]]:rounded-lg"
           data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
             if (pendingDialog.current) {
@@ -645,24 +639,9 @@ export function ComposerContextMenu({
             restoreFocusOnClose.current = true;
           }}
         >
-          <ComposerContextMenuSearch
-            placeholder={t("agentChat.composer.searchContext", {
-              defaultValue: "Search context…",
-            })}
-            value={search}
-            onValueChange={(value) => {
-              setSearch(value);
-              onSearchChange?.(value);
-            }}
-          />
           <div className="min-h-0 overflow-y-auto">
             <DropdownMenuGroup>
-              {(showUpload || rootEntries.length > 0) && (
-                <DropdownMenuLabel className="px-3 font-normal text-muted-foreground">
-                  {label}
-                </DropdownMenuLabel>
-              )}
-              {showUpload && (
+              {(addAttachment || onAttachmentRequest) && (
                 <DropdownMenuItem
                   onSelect={() => {
                     if (addAttachment) {
@@ -674,57 +653,61 @@ export function ComposerContextMenu({
                     }
                   }}
                 >
+                  <IconFile size={16} />
                   {uploadLabel}
                 </DropdownMenuItem>
               )}
-              {renderEntries(rootEntries, [])}
+              {(items.length > 0 || loading || searchError) && (
+                <ContextSubmenu
+                  label={label}
+                  icon={<IconTextRecognition size={16} />}
+                  open={path[0] === "add-context"}
+                  onOpenChange={(next) => {
+                    if (next === (pathRef.current[0] === "add-context")) return;
+                    if (!next) {
+                      dismissPage();
+                      updatePath([]);
+                      return;
+                    }
+                    setError(null);
+                    updatePath(["add-context"]);
+                  }}
+                >
+                  {renderEntries(items, ["add-context"])}
+                  {loading && (
+                    <div
+                      role="status"
+                      aria-label={t("agentChat.composer.contextPending", {
+                        defaultValue: "Loading context…",
+                      })}
+                      className="grid gap-2 p-3"
+                    >
+                      <Skeleton className="h-5 w-2/3" />
+                      <Skeleton className="h-5 w-1/2" />
+                    </div>
+                  )}
+                  {searchError && (
+                    <div
+                      role="alert"
+                      className="px-3 py-2 text-sm text-destructive"
+                    >
+                      {searchError}
+                    </div>
+                  )}
+                  {searchError && onRetry && (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onRetry();
+                      }}
+                    >
+                      {t("agentChat.common.retry", { defaultValue: "Retry" })}
+                    </DropdownMenuItem>
+                  )}
+                </ContextSubmenu>
+              )}
+              {renderEntries(menuActionItems, [])}
             </DropdownMenuGroup>
-            {groups.map((group) => {
-              const entries = matches([group]);
-              if (!entries.length) return null;
-              return (
-                <DropdownMenuGroup key={group.id}>
-                  <DropdownMenuLabel className="px-3 font-normal text-muted-foreground">
-                    {group.label}
-                  </DropdownMenuLabel>
-                  {renderEntries(entries, [])}
-                </DropdownMenuGroup>
-              );
-            })}
-            {loading && (
-              <div
-                role="status"
-                aria-label={t("agentChat.composer.contextPending", {
-                  defaultValue: "Loading context…",
-                })}
-                className="grid gap-2 p-3"
-              >
-                <Skeleton className="h-5 w-2/3" />
-                <Skeleton className="h-5 w-1/2" />
-              </div>
-            )}
-            {searchError && (
-              <div role="alert" className="px-3 py-2 text-sm text-destructive">
-                {searchError}
-              </div>
-            )}
-            {searchError && onRetry && (
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onRetry();
-                }}
-              >
-                {t("agentChat.common.retry", { defaultValue: "Retry" })}
-              </DropdownMenuItem>
-            )}
-            {!hasMatches && !loading && !searchError && (
-              <div role="status" className="p-3 text-sm text-muted-foreground">
-                {t("agentChat.composer.noContextResults", {
-                  defaultValue: "No matching context.",
-                })}
-              </div>
-            )}
           </div>
         </DropdownMenuContent>
       </DropdownMenu>

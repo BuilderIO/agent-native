@@ -1,10 +1,19 @@
 //! Background poller for upcoming meetings.
 //!
-//! Runs as a tokio task spawned from `lib.rs::run` setup. Every 10s it calls
-//! the backend's `list-meetings` action for the next handful of live Google
-//! Calendar meetings. For any meeting in the Granola-style reminder window
-//! (1 minute before start through 5 minutes after) that we haven't already
-//! alerted on, we fire the in-app banner overlay.
+//! Runs as a tokio task spawned from `lib.rs::run` setup. Every 5 minutes it
+//! calls the backend's `list-meetings` action for the live Google Calendar
+//! meetings in the next hour and caches them. A separate 1s local check fires
+//! the in-app banner overlay for any cached meeting in the Granola-style
+//! reminder window (1 minute before start through 5 minutes after) that we
+//! haven't already alerted on, so alert timing never waits on the network.
+//!
+//! The cache is refreshed early when the lab or meetings setting turns on, the
+//! session or server changes, or the popover opens with a stale cache; a failed
+//! fetch retries after `FETCH_RETRY_SECS`. Fetches are scheduled in wall-clock
+//! time, so one that came due while the Mac slept runs on the first tick after
+//! wake. Each fetch also schedules the next one no later than
+//! `PRE_ALERT_REFRESH_SECS` before the earliest cached start, so a last-minute
+//! move or cancellation lands before the banner fires.
 //!
 //! ## Wire-up (from the popover renderer)
 //!
@@ -46,6 +55,32 @@ use crate::tray_meetings::MeetingItem as TrayMeetingItem;
 
 const MEETING_POLL_LIMIT: u8 = 10;
 
+const FETCH_HORIZON_MIN: i64 = 60;
+
+const FETCH_INTERVAL_SECS: i64 = 5 * 60;
+
+const FETCH_RETRY_SECS: i64 = 30;
+
+/// Opening the popover refetches only a cache older than this, so flipping the
+/// popover open and closed doesn't turn into a request per open.
+const RESUME_REFRESH_MIN_AGE_SECS: i64 = 60;
+
+/// How long before a cached meeting starts the watcher refetches it. Must stay
+/// above `NOTIFY_LEAD_SECS` with room for the 10s request timeout, or the
+/// refreshed list arrives after the banner already fired.
+const PRE_ALERT_REFRESH_SECS: i64 = 2 * 60;
+
+/// A fetch this close to a meeting's pre-alert point already reflects
+/// last-minute changes, so no separate pre-alert fetch is scheduled.
+const PRE_ALERT_FRESH_SECS: i64 = 30;
+
+const ALERT_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+
+/// A scheduled fetch this far past due means the Mac slept through it, so the
+/// cache may predate moves or cancellations and the tick fetches before it
+/// alerts.
+const OVERDUE_FETCH_SECS: i64 = 30;
+
 const NOTIFY_LEAD_SECS: i64 = 60;
 
 const NOTIFY_HOLD_AFTER_START_SECS: i64 = 5 * 60;
@@ -77,6 +112,30 @@ struct MeetingsWatcherInner {
     snoozed_until: HashMap<String, i64>,
     last_calendar_notify_at: HashMap<String, i64>,
     unauthorized: HashMap<Poller, UnauthorizedRetry>,
+    cached_meetings: Vec<MeetingItem>,
+    /// Wall-clock unix seconds; `None` means fetch on the next tick.
+    next_fetch_at: Option<i64>,
+    last_fetch_ok_at: Option<i64>,
+    /// Bumped by `invalidate_cache` so a fetch that was in flight when the
+    /// session, server, or lab changed can't store another identity's result.
+    fetch_generation: u64,
+    /// Set by `invalidate_cache` so the next tick empties the tray menu, which
+    /// otherwise keeps the previous identity's meetings until a fetch succeeds.
+    tray_needs_clear: bool,
+}
+
+impl MeetingsWatcherInner {
+    fn request_refresh(&mut self) {
+        self.next_fetch_at = None;
+    }
+
+    fn invalidate_cache(&mut self) {
+        self.cached_meetings.clear();
+        self.last_fetch_ok_at = None;
+        self.fetch_generation += 1;
+        self.tray_needs_clear = true;
+        self.request_refresh();
+    }
 }
 
 #[derive(Clone, Default)]
@@ -160,13 +219,153 @@ pub(crate) fn should_poll(
 impl MeetingsWatcherState {
     pub fn set_lab_enabled(&self, enabled: bool) -> Result<(), String> {
         let mut g = self.inner.lock().map_err(|e| e.to_string())?;
+        if g.lab_enabled == enabled {
+            return Ok(());
+        }
         g.lab_enabled = enabled;
         if !enabled {
             g.notified.clear();
             g.snoozed_until.clear();
             g.last_calendar_notify_at.clear();
         }
+        g.invalidate_cache();
         Ok(())
+    }
+
+    pub fn invalidate_cache(&self) {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.invalidate_cache();
+    }
+
+    fn fetch_overdue(&self, now_ts: i64) -> bool {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.next_fetch_at
+            .is_some_and(|at| now_ts - at > OVERDUE_FETCH_SECS)
+    }
+
+    fn fetch_due(&self, now_ts: i64) -> Option<u64> {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.next_fetch_at
+            .is_none_or(|at| now_ts >= at)
+            .then_some(g.fetch_generation)
+    }
+
+    /// Stores a fetch result and schedules the next fetch. Returns the tray
+    /// snapshot to emit, or `None` when nothing new was cached (including a
+    /// result dropped because the cache was invalidated while it was in flight).
+    fn finish_fetch(
+        &self,
+        generation: u64,
+        now_ts: i64,
+        outcome: Result<FetchOutcome, ()>,
+    ) -> Option<Vec<TrayMeetingItem>> {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if g.fetch_generation != generation {
+            return None;
+        }
+        match outcome {
+            Ok(FetchOutcome::NotReady) => None,
+            Ok(FetchOutcome::Disabled) => {
+                g.cached_meetings.clear();
+                g.next_fetch_at = Some(now_ts + FETCH_INTERVAL_SECS);
+                None
+            }
+            Ok(FetchOutcome::Fetched(meetings)) => {
+                let pre_alert_at = meetings
+                    .iter()
+                    .filter(|m| is_calendar_reminder_candidate(m))
+                    .filter_map(|m| m.scheduled_start.as_deref())
+                    .filter_map(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|start| start.timestamp() - PRE_ALERT_REFRESH_SECS)
+                    .filter(|at| *at > now_ts + PRE_ALERT_FRESH_SECS)
+                    .min();
+                let next = now_ts + FETCH_INTERVAL_SECS;
+                g.next_fetch_at = Some(pre_alert_at.map_or(next, |at| at.min(next)));
+                g.last_fetch_ok_at = Some(now_ts);
+                g.cached_meetings = meetings;
+                Some(tray_snapshot(&g.cached_meetings))
+            }
+            Err(()) => {
+                g.next_fetch_at = Some(now_ts + FETCH_RETRY_SECS);
+                None
+            }
+        }
+    }
+
+    fn take_tray_clear(&self) -> bool {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut g.tray_needs_clear)
+    }
+
+    /// Returns the cached meetings whose banner is due now, with their seconds
+    /// until start. Callers mark them with `mark_notified` only once they know
+    /// the banner will be delivered, so a skipped one stays due.
+    fn due_alerts(&self, now: chrono::DateTime<chrono::Utc>) -> DueAlerts {
+        let now_ts = now.timestamp();
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let inner = &mut *g;
+        inner
+            .notified
+            .retain(|_, s| parse_secs_until(s, now) > -STALE_AFTER_SECS);
+        inner
+            .snoozed_until
+            .retain(|_, until| *until > now_ts - STALE_AFTER_SECS);
+
+        let mut due = Vec::new();
+        for m in &inner.cached_meetings {
+            if !is_calendar_reminder_candidate(m) {
+                continue;
+            }
+            let Some(start) = m.scheduled_start.as_deref() else {
+                continue;
+            };
+            let secs_until = parse_secs_until(start, now);
+            let in_window =
+                secs_until <= NOTIFY_LEAD_SECS && secs_until >= -NOTIFY_HOLD_AFTER_START_SECS;
+
+            let eligible = match inner.snoozed_until.get(&m.id).copied() {
+                Some(until) if now_ts < until => false, // still snoozed
+                Some(_) => {
+                    inner.snoozed_until.remove(&m.id);
+                    in_window
+                }
+                None => in_window,
+            };
+            // already alerted for this exact start time
+            if !eligible || inner.notified.get(&m.id).map(String::as_str) == Some(start) {
+                continue;
+            }
+            due.push((m.clone(), secs_until));
+        }
+        DueAlerts {
+            generation: inner.fetch_generation,
+            alerts: due,
+        }
+    }
+
+    /// Marks the alerts about to be delivered and returns them. Drops all of
+    /// them if the cache was invalidated after `due_alerts` ran, so a previous
+    /// account's meeting never alerts, and drops any the user snoozed since, so
+    /// the snooze isn't overwritten.
+    fn mark_notified(&self, due: DueAlerts, now_ts: i64) -> Vec<(MeetingItem, i64)> {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if g.fetch_generation != due.generation {
+            return Vec::new();
+        }
+        let mut delivered = Vec::with_capacity(due.alerts.len());
+        for (m, secs_until) in due.alerts {
+            if g.snoozed_until
+                .get(&m.id)
+                .is_some_and(|until| now_ts < *until)
+            {
+                continue;
+            }
+            if let Some(start) = m.scheduled_start.clone() {
+                g.notified.insert(m.id.clone(), start);
+            }
+            delivered.push((m, secs_until));
+        }
+        delivered
     }
 
     pub(crate) fn should_poll(
@@ -213,8 +412,14 @@ impl MeetingsWatcherState {
     }
 
     pub fn resume_polling(&self) {
+        let now_ts = chrono::Utc::now().timestamp();
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         g.unauthorized.clear();
+        if g.last_fetch_ok_at
+            .is_none_or(|at| now_ts - at >= RESUME_REFRESH_MIN_AGE_SECS)
+        {
+            g.request_refresh();
+        }
     }
 
     pub fn lab_enabled(&self) -> Result<bool, String> {
@@ -313,7 +518,10 @@ pub async fn meetings_watcher_set_server_url(
         trimmed
     );
     if let Ok(mut g) = state.inner.lock() {
-        g.server_url = Some(trimmed);
+        if g.server_url.as_deref() != Some(trimmed.as_str()) {
+            g.server_url = Some(trimmed);
+            g.invalidate_cache();
+        }
     }
     Ok(())
 }
@@ -336,16 +544,14 @@ pub async fn meetings_watcher_set_session(
         }
     );
     if let Ok(mut g) = state.inner.lock() {
-        g.session_cookie = if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        };
-        g.auth_token = if trimmed_token.is_empty() {
-            None
-        } else {
-            Some(trimmed_token)
-        };
+        let credentials: SessionCredentials = (
+            (!trimmed.is_empty()).then_some(trimmed),
+            (!trimmed_token.is_empty()).then_some(trimmed_token),
+        );
+        if (g.session_cookie.clone(), g.auth_token.clone()) != credentials {
+            (g.session_cookie, g.auth_token) = credentials;
+            g.invalidate_cache();
+        }
     }
     Ok(())
 }
@@ -379,7 +585,8 @@ pub fn spawn_watcher(app: AppHandle) {
 const MEETINGS_UNAUTHORIZED_RETRY_BASE: Duration = Duration::from_secs(10);
 
 async fn run_watcher(app: AppHandle) {
-    let mut interval = tokio::time::interval(Duration::from_secs(10));
+    let mut interval = tokio::time::interval(ALERT_CHECK_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     interval.tick().await;
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -393,48 +600,93 @@ async fn run_watcher(app: AppHandle) {
     };
     loop {
         let now = interval.tick().await.into_std();
-        if let Err(err) = tick_once(&app, &client, now).await {
+        if let Err(err) = tick_once(&app, &client, now, chrono::Utc::now()).await {
             eprintln!("[clips-tray] meetings_watcher tick failed: {err}");
         }
     }
+}
+
+struct DueAlerts {
+    generation: u64,
+    alerts: Vec<(MeetingItem, i64)>,
+}
+
+enum FetchOutcome {
+    /// No server URL, no credentials, or an unauthorized backoff is active.
+    NotReady,
+    /// Meetings are turned off in the desktop feature config.
+    Disabled,
+    Fetched(Vec<MeetingItem>),
 }
 
 async fn tick_once(
     app: &AppHandle,
     client: &reqwest::Client,
     now: std::time::Instant,
+    now_utc: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
-    let config = feature_config(app);
-    if !config.meetings_enabled {
-        return Ok(());
-    }
-
     let state = app
         .try_state::<MeetingsWatcherState>()
         .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
+    if state.take_tray_clear() {
+        let _ = app.emit("meetings:updated", serde_json::json!({ "meetings": [] }));
+    }
     if !state.lab_enabled()? {
         return Ok(());
     }
 
-    let (server_url, cookie, auth_token) = {
-        let g = state.inner.lock().map_err(|e| e.to_string())?;
-        (
-            g.server_url.clone(),
-            g.session_cookie.clone(),
-            g.auth_token.clone(),
-        )
-    };
+    // Normally alert from the cache before fetching: a fetch can take up to the
+    // 10s request timeout, and the banner must not wait on it. After sleep the
+    // cache is stale, so fetch first; a failed fetch still alerts from it.
+    let fetch_first = state.fetch_overdue(now_utc.timestamp());
+    if !fetch_first {
+        notify_due_meetings(app, &state, state.due_alerts(now_utc)).await;
+    }
+
+    let mut fetch_error = None;
+    if let Some(generation) = state.fetch_due(now_utc.timestamp()) {
+        let outcome = fetch_meetings(app, client, &state, now)
+            .await
+            .map_err(|err| fetch_error = Some(err));
+        if let Some(snapshot) = state.finish_fetch(generation, now_utc.timestamp(), outcome) {
+            let _ = app.emit(
+                "meetings:updated",
+                serde_json::json!({ "meetings": snapshot }),
+            );
+        }
+    }
+
+    if fetch_first {
+        notify_due_meetings(app, &state, state.due_alerts(now_utc)).await;
+    }
+    fetch_error.map_or(Ok(()), Err)
+}
+
+async fn fetch_meetings(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    state: &MeetingsWatcherState,
+    now: std::time::Instant,
+) -> Result<FetchOutcome, String> {
+    let MeetingsSessionSnapshot {
+        server_url,
+        session_cookie: cookie,
+        auth_token,
+    } = state.session_snapshot();
     let Some(server_url) = server_url else {
-        return Ok(());
+        return Ok(FetchOutcome::NotReady);
     };
     let credentials: SessionCredentials = (cookie.clone(), auth_token.clone());
     if !state.should_poll(Poller::Meetings, &credentials, now) {
-        return Ok(());
+        return Ok(FetchOutcome::NotReady);
+    }
+    if !feature_config(app).meetings_enabled {
+        return Ok(FetchOutcome::Disabled);
     }
 
     let url = format!("{}/_agent-native/actions/list-meetings", server_url);
     let limit = MEETING_POLL_LIMIT.to_string();
-    let within_min = ((NOTIFY_LEAD_SECS + NOTIFY_HOLD_AFTER_START_SECS) / 60 + 1).to_string();
+    let within_min = FETCH_HORIZON_MIN.to_string();
     let mut req = client.get(&url).query(&[
         ("view", "upcoming"),
         ("limit", limit.as_str()),
@@ -473,9 +725,13 @@ async fn tick_once(
     }
     state.note_authorized(Poller::Meetings, &credentials);
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    let meetings = parse_meetings(&body);
+    try_parse_meetings(&body)
+        .map(FetchOutcome::Fetched)
+        .ok_or_else(|| "list-meetings returned an unreadable payload".to_string())
+}
 
-    let snapshot: Vec<TrayMeetingItem> = meetings
+fn tray_snapshot(meetings: &[MeetingItem]) -> Vec<TrayMeetingItem> {
+    meetings
         .iter()
         .take(3)
         .map(|m| TrayMeetingItem {
@@ -483,60 +739,20 @@ async fn tick_once(
             title: m.title.clone().unwrap_or_else(|| "Meeting".to_string()),
             when_label: m.scheduled_start.clone(),
         })
-        .collect();
-    let _ = app.emit(
-        "meetings:updated",
-        serde_json::json!({ "meetings": snapshot }),
-    );
+        .collect()
+}
 
-    let now = chrono::Utc::now();
-    let now_ts = now.timestamp();
-    for m in meetings {
-        if !is_calendar_reminder_candidate(&m) {
-            continue;
-        }
-        let Some(start_str) = m.scheduled_start.as_deref() else {
-            continue;
-        };
-        if chrono::DateTime::parse_from_rfc3339(start_str).is_err() {
-            continue;
-        }
-        let current_start = start_str.to_string();
-        let secs_until = parse_secs_until(start_str, now);
-
-        let should_notify = {
-            let state = app.state::<MeetingsWatcherState>();
-            let mut g = state.inner.lock().map_err(|e| e.to_string())?;
-
-            g.notified
-                .retain(|_, s| parse_secs_until(s, now) > -STALE_AFTER_SECS);
-            g.snoozed_until
-                .retain(|_, until| *until > now_ts - STALE_AFTER_SECS);
-
-            let in_window =
-                secs_until <= NOTIFY_LEAD_SECS && secs_until >= -NOTIFY_HOLD_AFTER_START_SECS;
-
-            let eligible = match g.snoozed_until.get(&m.id).copied() {
-                Some(until) if now_ts < until => false, // still snoozed
-                Some(_) => {
-                    g.snoozed_until.remove(&m.id);
-                    in_window
-                }
-                None => in_window,
-            };
-
-            if !eligible {
-                false
-            } else if g.notified.get(&m.id).map(String::as_str) == Some(current_start.as_str()) {
-                false // already alerted for this exact start time
-            } else {
-                g.notified.insert(m.id.clone(), current_start.clone());
-                true
-            }
-        };
-        if !should_notify {
-            continue;
-        }
+async fn notify_due_meetings(app: &AppHandle, state: &MeetingsWatcherState, due: DueAlerts) {
+    if due.alerts.is_empty() {
+        return;
+    }
+    // Read from disk only when a banner is due, not on every 1s tick.
+    let config = feature_config(app);
+    if !config.meetings_enabled {
+        return;
+    }
+    let now_ts = chrono::Utc::now().timestamp();
+    for (m, secs_until) in state.mark_notified(due, now_ts) {
         if config.meeting_transcription_mode == MeetingTranscriptionMode::Manual
             && !config.show_meeting_widget_enabled
         {
@@ -547,9 +763,7 @@ async fn tick_once(
         if config.show_meeting_widget_enabled
             || config.meeting_transcription_mode == MeetingTranscriptionMode::Auto
         {
-            if let Some(state) = app.try_state::<MeetingsWatcherState>() {
-                state.note_calendar_notify(m.platform.as_deref());
-            }
+            state.note_calendar_notify(m.platform.as_deref());
             let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
             if let Err(err) = crate::notifications::notify_meeting_starting(
                 app.clone(),
@@ -583,8 +797,6 @@ async fn tick_once(
             );
         }
     }
-
-    Ok(())
 }
 
 fn is_calendar_reminder_candidate(meeting: &MeetingItem) -> bool {
@@ -657,7 +869,9 @@ mod tests {
 
     use super::{
         find_matching_calendar_meeting, is_calendar_reminder_candidate, parse_meetings,
-        should_poll, MeetingsWatcherState, Poller, UnauthorizedRetry,
+        should_poll, FetchOutcome, MeetingItem, MeetingsWatcherState, Poller, UnauthorizedRetry,
+        FETCH_INTERVAL_SECS, FETCH_RETRY_SECS, OVERDUE_FETCH_SECS, PRE_ALERT_FRESH_SECS,
+        PRE_ALERT_REFRESH_SECS, RESUME_REFRESH_MIN_AGE_SECS,
     };
 
     #[test]
@@ -861,6 +1075,238 @@ mod tests {
         assert!(state.lab_enabled().expect("state lock"));
         state.set_lab_enabled(false).expect("state lock");
         assert!(!state.lab_enabled().expect("state lock"));
+    }
+
+    fn meeting(id: &str, start: Option<chrono::DateTime<Utc>>) -> MeetingItem {
+        MeetingItem {
+            id: id.to_string(),
+            title: None,
+            scheduled_start: start.map(|s| s.to_rfc3339()),
+            scheduled_end: None,
+            join_url: None,
+            platform: None,
+            source: Some("calendar".to_string()),
+        }
+    }
+
+    fn state_with_cache(meetings: Vec<MeetingItem>, fetched_at: i64) -> MeetingsWatcherState {
+        let state = MeetingsWatcherState::default();
+        let generation = state.fetch_due(fetched_at).expect("due");
+        state.finish_fetch(generation, fetched_at, Ok(FetchOutcome::Fetched(meetings)));
+        state
+    }
+
+    fn cached_len(state: &MeetingsWatcherState) -> usize {
+        state
+            .inner
+            .lock()
+            .expect("state lock")
+            .cached_meetings
+            .len()
+    }
+
+    #[test]
+    fn fetches_immediately_then_waits_a_full_interval() {
+        let now_ts = 1_000_000;
+        let state = state_with_cache(vec![meeting("a", None)], now_ts);
+
+        assert_eq!(cached_len(&state), 1);
+        assert!(state.fetch_due(now_ts + FETCH_INTERVAL_SECS - 1).is_none());
+        assert!(state.fetch_due(now_ts + FETCH_INTERVAL_SECS).is_some());
+    }
+
+    #[test]
+    fn a_failed_fetch_keeps_the_cache_and_retries_sooner() {
+        let now_ts = 1_000_000;
+        let state = state_with_cache(vec![meeting("a", None)], now_ts);
+
+        let later = now_ts + FETCH_INTERVAL_SECS;
+        let generation = state.fetch_due(later).expect("due");
+        state.finish_fetch(generation, later, Err(()));
+
+        assert_eq!(cached_len(&state), 1);
+        assert!(state.fetch_due(later + FETCH_RETRY_SECS - 1).is_none());
+        assert!(state.fetch_due(later + FETCH_RETRY_SECS).is_some());
+    }
+
+    #[test]
+    fn an_invalidation_mid_fetch_drops_the_stale_result() {
+        let state = MeetingsWatcherState::default();
+        let now_ts = 1_000_000;
+        let generation = state.fetch_due(now_ts).expect("due");
+
+        state.set_lab_enabled(true).expect("state lock");
+
+        let stale = Ok(FetchOutcome::Fetched(vec![meeting("stale", None)]));
+        assert!(state.finish_fetch(generation, now_ts, stale).is_none());
+        assert_eq!(cached_len(&state), 0);
+        assert!(state.fetch_due(now_ts).is_some());
+    }
+
+    #[test]
+    fn a_refresh_request_keeps_an_in_flight_result() {
+        let state = MeetingsWatcherState::default();
+        let now_ts = 1_000_000;
+        let generation = state.fetch_due(now_ts).expect("due");
+
+        state.resume_polling();
+
+        let fresh = Ok(FetchOutcome::Fetched(vec![meeting("a", None)]));
+        assert!(state.finish_fetch(generation, now_ts, fresh).is_some());
+        assert_eq!(cached_len(&state), 1);
+    }
+
+    #[test]
+    fn disabling_the_lab_clears_the_cache_and_enabling_refetches() {
+        let now_ts = 1_000_000;
+        let state = state_with_cache(vec![meeting("a", None)], now_ts);
+        state.set_lab_enabled(true).expect("state lock");
+        let generation = state.fetch_due(now_ts).expect("due");
+        let fetched = Ok(FetchOutcome::Fetched(vec![meeting("a", None)]));
+        state.finish_fetch(generation, now_ts, fetched);
+
+        state.set_lab_enabled(false).expect("state lock");
+        assert_eq!(cached_len(&state), 0);
+
+        state.set_lab_enabled(true).expect("state lock");
+        assert!(state.fetch_due(now_ts + 1).is_some());
+    }
+
+    #[test]
+    fn popover_open_refetches_only_a_stale_cache() {
+        let now_ts = Utc::now().timestamp();
+        let state = state_with_cache(vec![meeting("a", None)], now_ts);
+        state.resume_polling();
+        assert!(state.fetch_due(now_ts + 1).is_none());
+
+        let stale = state_with_cache(
+            vec![meeting("a", None)],
+            now_ts - RESUME_REFRESH_MIN_AGE_SECS,
+        );
+        stale.resume_polling();
+        assert!(stale
+            .fetch_due(now_ts - RESUME_REFRESH_MIN_AGE_SECS + 1)
+            .is_some());
+    }
+
+    #[test]
+    fn disabled_meetings_clear_the_cache_and_back_off_a_full_interval() {
+        let now_ts = 1_000_000;
+        let state = state_with_cache(vec![meeting("a", None)], now_ts);
+
+        let later = now_ts + FETCH_INTERVAL_SECS;
+        let generation = state.fetch_due(later).expect("due");
+        state.finish_fetch(generation, later, Ok(FetchOutcome::Disabled));
+
+        assert_eq!(cached_len(&state), 0);
+        assert!(state.fetch_due(later + FETCH_INTERVAL_SECS - 1).is_none());
+    }
+
+    #[test]
+    fn schedules_a_refetch_shortly_before_the_next_meeting() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 30, 10, 0, 0).unwrap();
+        let start = now + chrono::Duration::minutes(4);
+        let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
+
+        let pre_alert_at = start.timestamp() - PRE_ALERT_REFRESH_SECS;
+        assert!(state.fetch_due(pre_alert_at - 1).is_none());
+        assert!(state.fetch_due(pre_alert_at).is_some());
+    }
+
+    #[test]
+    fn a_fetch_just_before_the_pre_alert_point_counts_as_it() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 30, 10, 0, 0).unwrap();
+        let start = now + chrono::Duration::seconds(PRE_ALERT_REFRESH_SECS + PRE_ALERT_FRESH_SECS);
+        let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
+
+        assert!(state
+            .fetch_due(now.timestamp() + FETCH_INTERVAL_SECS - 1)
+            .is_none());
+    }
+
+    #[test]
+    fn alerts_once_per_start_time() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 30, 10, 0, 0).unwrap();
+        let start = now + chrono::Duration::seconds(30);
+        let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
+
+        let due = state.due_alerts(now);
+        assert_eq!(due.alerts.len(), 1);
+        assert_eq!(state.mark_notified(due, now.timestamp()).len(), 1);
+        assert!(state.due_alerts(now).alerts.is_empty());
+
+        let moved = start + chrono::Duration::seconds(15);
+        let generation = state.inner.lock().expect("state lock").fetch_generation;
+        state.finish_fetch(
+            generation,
+            now.timestamp(),
+            Ok(FetchOutcome::Fetched(vec![meeting("m", Some(moved))])),
+        );
+        assert_eq!(state.due_alerts(now).alerts.len(), 1);
+    }
+
+    #[test]
+    fn a_snooze_after_the_due_check_wins() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 30, 10, 0, 0).unwrap();
+        let start = now + chrono::Duration::seconds(30);
+        let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
+
+        let due = state.due_alerts(now);
+        state
+            .inner
+            .lock()
+            .expect("state lock")
+            .snoozed_until
+            .insert("m".to_string(), now.timestamp() + 60);
+
+        assert!(state.mark_notified(due, now.timestamp()).is_empty());
+        let later = now + chrono::Duration::seconds(60);
+        assert_eq!(state.due_alerts(later).alerts.len(), 1);
+    }
+
+    #[test]
+    fn an_invalidation_after_the_due_check_drops_the_alert() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 30, 10, 0, 0).unwrap();
+        let start = now + chrono::Duration::seconds(30);
+        let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
+
+        let due = state.due_alerts(now);
+        state.invalidate_cache();
+
+        assert!(state.mark_notified(due, now.timestamp()).is_empty());
+    }
+
+    #[test]
+    fn a_fetch_slept_through_is_overdue_but_one_just_due_is_not() {
+        let now_ts = 1_000_000;
+        let state = state_with_cache(vec![meeting("a", None)], now_ts);
+        let due_at = now_ts + FETCH_INTERVAL_SECS;
+
+        assert!(!state.fetch_overdue(due_at));
+        assert!(!state.fetch_overdue(due_at + OVERDUE_FETCH_SECS));
+        assert!(state.fetch_overdue(due_at + OVERDUE_FETCH_SECS + 1));
+        assert!(!MeetingsWatcherState::default().fetch_overdue(now_ts));
+    }
+
+    #[test]
+    fn an_undelivered_alert_stays_due() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 30, 10, 0, 0).unwrap();
+        let start = now + chrono::Duration::seconds(30);
+        let state = state_with_cache(vec![meeting("m", Some(start))], now.timestamp());
+
+        assert_eq!(state.due_alerts(now).alerts.len(), 1);
+        assert_eq!(state.due_alerts(now).alerts.len(), 1);
+    }
+
+    #[test]
+    fn invalidating_the_cache_clears_the_tray_once() {
+        let state = state_with_cache(vec![meeting("a", None)], 1_000_000);
+        assert!(!state.take_tray_clear());
+
+        state.set_lab_enabled(true).expect("state lock");
+
+        assert!(state.take_tray_clear());
+        assert!(!state.take_tray_clear());
     }
 
     #[test]

@@ -19,6 +19,62 @@
 - Improved native capture lifecycle tracking and session-token storage so
   uploads and companion actions recover cleanly across app restarts.
 
+## 0.1.162
+
+### Patch Changes
+
+- Updated dependencies [5b37ae2]
+- Updated dependencies
+- Updated dependencies [eca03a6]
+  - @agent-native/core@0.198.8
+  - @agent-native/agentkit@0.198.8
+
+## 0.1.161
+
+### Patch Changes
+
+- Updated dependencies [1f2c8d5]
+- Updated dependencies [3ba09b7]
+- Updated dependencies [3ba09b7]
+- Updated dependencies
+- Updated dependencies [52d8c49]
+- Updated dependencies [3ba09b7]
+- Updated dependencies [c3427be]
+  - @agent-native/core@0.198.7
+  - @agent-native/agentkit@0.198.7
+
+## 0.1.160
+
+### Patch Changes
+
+- Updated dependencies
+  - @agent-native/agentkit@0.198.6
+  - @agent-native/core@0.198.6
+
+## 0.1.159
+
+### Patch Changes
+
+- Updated dependencies
+  - @agent-native/agentkit@0.198.5
+  - @agent-native/core@0.198.5
+
+## 0.1.158
+
+### Patch Changes
+
+- Updated dependencies [85a87e6]
+- Updated dependencies [7a25922]
+- Updated dependencies [df67544]
+- Updated dependencies [c82ae28]
+- Updated dependencies
+- Updated dependencies [df67544]
+- Updated dependencies [20d3bb8]
+- Updated dependencies [a24f1d7]
+- Updated dependencies [20d3bb8]
+  - @agent-native/core@0.198.4
+  - @agent-native/agentkit@0.198.4
+
 ## 0.1.157
 
 ### Patch Changes
@@ -1783,42 +1839,5 @@
 
 - Updated dependencies [562194a]
   - @agent-native/core@0.164.25
-
-## 0.1.63
-
-### Patch Changes
-
-- Updated dependencies [14a3f87]
-- Updated dependencies [14a3f87]
-  - @agent-native/core@0.164.24
-
-## 0.1.62
-
-### Patch Changes
-
-- Updated dependencies [b811566]
-  - @agent-native/core@0.164.23
-
-## 0.1.61
-
-### Patch Changes
-
-- Updated dependencies [7bb5be0]
-- Updated dependencies [7bb5be0]
-  - @agent-native/core@0.164.22
-
-## 0.1.60
-
-### Patch Changes
-
-- Updated dependencies [68f299c]
-  - @agent-native/core@0.164.21
-
-## 0.1.59
-
-### Patch Changes
-
-- Updated dependencies [bfe4163]
-  - @agent-native/core@0.164.20
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

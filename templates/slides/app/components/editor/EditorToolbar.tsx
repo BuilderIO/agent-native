@@ -69,11 +69,12 @@ import {
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import {
-  getStaleContentConflictSlideId,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
+  useDeckContentConflicts,
   useDecks,
   useSaveState,
+  type DeckContentConflictChoice,
   type Deck,
   type Slide,
 } from "@/context/DeckContext";
@@ -230,7 +231,7 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
-  const { resolveContentConflict } = useDecks();
+  const { resolveDeckContentConflict } = useDecks();
   const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   const editorUrl =
@@ -258,9 +259,21 @@ export default function EditorToolbar({
   const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
 
   const { saving } = useSaveState();
+  const conflict = useDeckContentConflicts(deckId)[0];
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
-  const contentConflictSlideId = getStaleContentConflictSlideId(deckId);
+  const resolveConflict = useCallback(
+    async (choice: DeckContentConflictChoice) => {
+      if (!conflict) return;
+      const result = await resolveDeckContentConflict(
+        deckId,
+        conflict.slideId,
+        choice,
+      );
+      if (result.status !== "resolved") throw new Error(result.reason);
+    },
+    [conflict, deckId, resolveDeckContentConflict],
+  );
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -772,6 +785,7 @@ export default function EditorToolbar({
       <input
         type="text"
         value={deckTitle}
+        readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
         className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
@@ -802,18 +816,21 @@ export default function EditorToolbar({
           saving={saving}
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
-          contentConflict={contentConflictSlideId !== undefined}
-          onResolveContentConflict={
-            contentConflictSlideId === undefined
-              ? undefined
-              : (resolution) =>
-                  resolveContentConflict(
-                    deckId,
-                    contentConflictSlideId,
-                    resolution,
-                  )
-          }
           offline={offline}
+          conflict={
+            conflict
+              ? {
+                  slideNumber: Math.max(
+                    1,
+                    deck.slides.findIndex(
+                      (slide) => slide.id === conflict.slideId,
+                    ) + 1,
+                  ),
+                  canResolve: conflict.canResolve,
+                }
+              : undefined
+          }
+          onResolveConflict={resolveConflict}
           onDownloadBackup={onDownloadBackup}
           onImportBackup={
             onImportDeckBackup

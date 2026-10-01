@@ -199,6 +199,11 @@ export default defineAction({
     }),
   },
   http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (
     {
       deckId,
