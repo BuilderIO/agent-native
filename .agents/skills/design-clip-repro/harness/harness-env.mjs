@@ -58,7 +58,12 @@ export const PORT = Number(
   process.env.DESIGN_PORT ??
     (FUSION ? 8080 : (PINNED ?? 9300 + (parseInt(SLUG, 16) % 90))),
 );
-export const BASE = process.env.DESIGN_BASE ?? `http://127.0.0.1:${PORT}`;
+// A Fusion branch serves every template behind the dev-lazy gateway on 8080,
+// with Design mounted at /design. Stay on 127.0.0.1: the gateway redirects
+// localhost there, and only gateway traffic keeps Design from being evicted.
+export const BASE =
+  process.env.DESIGN_BASE ??
+  `http://127.0.0.1:${PORT}${FUSION ? "/design" : ""}`;
 export const E2E_PORT = Number(process.env.E2E_PORT ?? PORT + 100);
 export const PGLITE = `pglite:${WORKTREE}/templates/design/.tmp/pglite-${SLUG}`;
 

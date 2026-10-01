@@ -1,6 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -51,13 +57,13 @@ async function authenticate(ctx, base, creds, register) {
         headers: { "Content-Type": "application/json" },
       }),
     );
-  let res = await post("/_agent-native/auth/login");
+  let res = await post("_agent-native/auth/login");
   if (!res.ok() && register) {
-    const reg = await post("/_agent-native/auth/register");
+    const reg = await post("_agent-native/auth/register");
     if (!reg.ok() && reg.status() !== 409) {
       throw new Error(`register failed: ${reg.status()} ${await reg.text()}`);
     }
-    res = await post("/_agent-native/auth/login");
+    res = await post("_agent-native/auth/login");
   }
   if (!res.ok())
     throw new Error(
@@ -72,6 +78,42 @@ const SESSIONS = join(homedir(), ".cache", "design-clip-repro", "sessions");
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
+// Keep request paths relative ("_agent-native/..."): Playwright joins them to
+// baseURL with new URL(), so a leading "/" would drop BASE's /design mount.
+const restBase = (base) => (base.endsWith("/") ? base : `${base}/`);
+
+/**
+ * Playwright's API client never sends a Secure cookie over plain HTTP to a
+ * host other than localhost, and a Fusion dev server sets Secure session
+ * cookies on 127.0.0.1. When it would drop one, send the cookies explicitly.
+ */
+function cookieHeader(base, cookies) {
+  const { protocol, hostname } = new URL(base);
+  const own = cookies.filter((c) => c.domain.replace(/^[.]/, "") === hostname);
+  const dropped =
+    protocol === "http:" &&
+    hostname !== "localhost" &&
+    own.some((c) => c.secure);
+  return dropped ? own.map((c) => `${c.name}=${c.value}`).join("; ") : null;
+}
+
+function sessionContext(base, storageState) {
+  const cookie = cookieHeader(base, storageState.cookies);
+  return request.newContext({
+    baseURL: restBase(base),
+    storageState,
+    timeout: REQUEST_TIMEOUT_MS,
+    ...(cookie ? { extraHTTPHeaders: { cookie } } : {}),
+  });
+}
+
+// An AUTH_DISABLED dev server answers a request without a session as its dev
+// account, so "has a session" does not prove the session is `creds`.
+async function sessionEmail(ctx) {
+  const session = await (await ctx.get("_agent-native/auth/session")).json();
+  return session?.email?.toLowerCase() ?? null;
+}
+
 /**
  * A logged-in REST context. The session is cached and reused while valid, so a
  * run signs in once: production rate-limits sign-in. Only a server on this
@@ -83,27 +125,42 @@ export async function api(base = BASE, creds = CREDS) {
     .digest("hex")
     .slice(0, 16);
   const file = join(SESSIONS, `${key}.json`);
+  const email = creds.email.toLowerCase();
   if (existsSync(file)) {
-    const ctx = await request.newContext({
-      baseURL: base,
-      storageState: file,
-      timeout: REQUEST_TIMEOUT_MS,
+    const ctx = await sessionContext(
+      base,
+      JSON.parse(readFileSync(file, "utf8")),
+    );
+    const seen = await sessionEmail(ctx).catch((err) => {
+      console.error(
+        `cached session check failed, signing in again: ${err.message}`,
+      );
+      return undefined;
     });
-    const session = await ctx
-      .get("/_agent-native/auth/session")
-      .then((r) => r.json())
-      .catch(() => null);
-    if (session && !session.error) return ctx;
+    if (seen === email) return ctx;
     await ctx.dispose();
   }
-  const ctx = await authenticate(
-    await request.newContext({ baseURL: base, timeout: REQUEST_TIMEOUT_MS }),
+  const login = await authenticate(
+    await request.newContext({
+      baseURL: restBase(base),
+      timeout: REQUEST_TIMEOUT_MS,
+    }),
     base,
     creds,
     LOOPBACK.has(new URL(base).hostname),
   );
+  const state = await login.storageState();
+  await login.dispose();
+  const ctx = await sessionContext(base, state);
+  const seen = await sessionEmail(ctx);
+  if (seen !== email) {
+    await ctx.dispose();
+    throw new Error(
+      `signed in to ${base} as ${creds.email}, but its requests run as ${seen ?? "nobody"}: the session cookie is not reaching the server`,
+    );
+  }
   mkdirSync(SESSIONS, { recursive: true, mode: 0o700 });
-  await ctx.storageState({ path: file });
+  writeFileSync(file, JSON.stringify(state), { mode: 0o600 });
   chmodSync(file, 0o600);
   return ctx;
 }
@@ -112,8 +169,8 @@ export async function api(base = BASE, creds = CREDS) {
 export async function action(ctx, name, params = {}, method = "POST") {
   const res = await send(name, () =>
     method === "GET"
-      ? ctx.get(`/_agent-native/actions/${name}?${new URLSearchParams(params)}`)
-      : ctx.post(`/_agent-native/actions/${name}`, {
+      ? ctx.get(`_agent-native/actions/${name}?${new URLSearchParams(params)}`)
+      : ctx.post(`_agent-native/actions/${name}`, {
           data: params,
           headers: { "Content-Type": "application/json" },
         }),
@@ -181,6 +238,17 @@ export async function waitForEditor(
     for (;;) {
       if (await editorReady(page).catch(() => false))
         return Date.now() - started;
+      const blocked = await accessScreen(page).catch(() => null);
+      if (blocked) {
+        const shot = `${SHOTS_DIR}/editor-blocked-${Date.now()}.png`;
+        await page.screenshot({ path: shot }).catch(() => {});
+        throw Object.assign(
+          new Error(
+            `Design editor shows "${blocked}" instead of the design: the browser session cannot open it. ${shot}`,
+          ),
+          { compiling: false },
+        );
+      }
       const now = Date.now();
       const compiling = pending > 0 || now - lastActivity < quietMs;
       if (!compiling || now - started >= maxMs) {
@@ -211,6 +279,16 @@ export async function waitForEditor(
     page.off("requestfailed", onDone);
   }
 }
+
+// DesignAccessState (private, sign in, not found, failed access check) renders
+// only after the access check settles, so waiting longer cannot fix it.
+const accessScreen = (page) =>
+  page.evaluate(() => {
+    const grid = document.querySelector(".design-editor-not-found-grid");
+    if (!grid) return null;
+    const title = grid.parentElement?.querySelector("h1")?.innerText.trim();
+    return title || "the access screen";
+  });
 
 async function editorReady(page) {
   if (
@@ -312,7 +390,7 @@ export async function openEditor(
   }
   const files = async () => {
     const d = await rest
-      .get(`/_agent-native/actions/get-design?id=${designId}`)
+      .get(`_agent-native/actions/get-design?id=${designId}`)
       .then((r) => r.json());
     return Object.fromEntries(d.files.map((f) => [f.filename, f.content]));
   };
