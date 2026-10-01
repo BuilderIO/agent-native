@@ -978,13 +978,9 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await expect
       .poll(async () => {
         const frames = (await designData(request, designId)).canvasFrames;
-        return [
-          frames?.[sourceId]?.z,
-          frames?.[neighborId]?.z,
-          frames?.[fartherId]?.z,
-        ];
+        return [frames?.[sourceId], frames?.[neighborId], frames?.[fartherId]];
       })
-      .toEqual([0, 1, 2]);
+      .toEqual([geometry[sourceId], geometry[neighborId], geometry[fartherId]]);
 
     await page.keyboard.press(`${MOD}+Shift+z`);
     await expect
