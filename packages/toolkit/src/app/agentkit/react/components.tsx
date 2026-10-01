@@ -1093,8 +1093,13 @@ export function AgentActivityGroup({
       event.type === "activity.updated" ||
       event.type === "activity.completed"
     ) {
-      if (excludeAgentActivities && event.activity.agentId) continue;
       const activity = thread.activities[event.activity.id] ?? event.activity;
+      if (
+        excludeAgentActivities &&
+        (event.activity.agentId || activity.agentId)
+      ) {
+        continue;
+      }
       activityMap.set(event.activity.id, activity);
       remember(event.activity.id, event.sequence);
       latestSequence.set(event.activity.id, event.sequence);
@@ -1102,6 +1107,9 @@ export function AgentActivityGroup({
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
       const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
+      if (excludeAgentActivities && (event.toolCall.agentId || tool.agentId)) {
+        continue;
+      }
       toolMap.set(event.toolCall.id, tool);
       remember(event.toolCall.id, event.sequence);
       latestSequence.set(event.toolCall.id, event.sequence);
@@ -1109,6 +1117,7 @@ export function AgentActivityGroup({
     }
     if (event.type === "tool.delta") {
       const tool = thread.tools[event.toolCallId];
+      if (excludeAgentActivities && tool?.agentId) continue;
       if (tool) {
         toolMap.set(tool.id, tool);
         rememberUsefulActivity(toolToActivity(tool), event.sequence);

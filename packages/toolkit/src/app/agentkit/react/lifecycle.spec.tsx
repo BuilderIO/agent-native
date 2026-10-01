@@ -2048,11 +2048,18 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("does not use excluded agent activity as the current label", async () => {
+  it("excludes delegated activity and tool events from the current label", async () => {
     const threadId = "thread-excluded-agent-activity";
     const runId = "run-excluded-agent-activity";
+    const delegatedTool: AgentToolCall = {
+      id: "agent-tool",
+      name: "read-private-data",
+      status: "running",
+      agentId: "subagent-1",
+    };
     const thread = {
       ...createAgentThreadState(threadId),
+      tools: { [delegatedTool.id]: delegatedTool },
       events: [
         {
           id: "agent-activity-started",
@@ -2069,12 +2076,31 @@ describe("AgentChat lifecycle", () => {
             status: "running" as const,
           },
         },
+        {
+          id: "agent-tool-started",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-28T00:00:02.000Z",
+          type: "tool.started" as const,
+          toolCall: delegatedTool,
+        },
+        {
+          id: "agent-tool-delta",
+          threadId,
+          runId,
+          sequence: 3,
+          occurredAt: "2026-09-28T00:00:03.000Z",
+          type: "tool.delta" as const,
+          toolCallId: delegatedTool.id,
+          inputTextDelta: '{"private":true}',
+        },
       ],
       runs: {
         [runId]: {
           id: runId,
           status: "running" as const,
-          lastSequence: 1,
+          lastSequence: 3,
           startedAt: "2026-09-28T00:00:00.000Z",
         },
       },
@@ -2102,6 +2128,7 @@ describe("AgentChat lifecycle", () => {
     expect(tree.container.textContent).not.toContain(
       "Reading private agent state",
     );
+    expect(tree.container.textContent).not.toContain("read-private-data");
     await tree.unmount();
   });
 
