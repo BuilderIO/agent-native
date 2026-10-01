@@ -1236,6 +1236,10 @@ export function useBuilderConnectFlow(
             await confirmConnectSuccessRef.current(connectAttemptId);
             return;
           }
+          if (result.code === "network_error") {
+            retryStatusRef.current();
+            return;
+          }
           connectStartedAtRef.current = null;
           setConnecting(false);
           if (result.code === "account_exists") {

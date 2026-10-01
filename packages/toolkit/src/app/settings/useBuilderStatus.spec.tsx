@@ -791,6 +791,37 @@ describe("useBuilderConnectFlow", () => {
       expect(openSpy).not.toHaveBeenCalled();
     });
 
+    it("reconciles status when the activation response is lost", async () => {
+      let activationAttempts = 0;
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          activationAttempts += 1;
+          throw new TypeError("Failed to fetch");
+        }
+        return jsonResponse(
+          activationAttempts ? connectedBuilderStatus : activationStatus,
+        );
+      });
+      const onConnected = vi.fn();
+
+      await act(async () => {
+        root.render(
+          <BuilderConnectProbe provisionAccount onConnected={onConnected} />,
+        );
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(activationAttempts).toBe(1);
+      expect(container.textContent).toContain("configured idle resolved");
+      expect(container.textContent).not.toContain(
+        "Couldn't start Builder connect.",
+      );
+      expect(onConnected).toHaveBeenCalled();
+      expect(openSpy).not.toHaveBeenCalled();
+    });
+
     it("reports an unreachable activation route instead of waiting", async () => {
       mockActivation(() => new Response("Not found", { status: 404 }));
 
