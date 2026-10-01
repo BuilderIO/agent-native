@@ -114,12 +114,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function DbSyncSetup() {
+export function isPrivateDesignEditorPath(pathname: string): boolean {
+  return pathname.startsWith("/design/");
+}
+
+export function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
   useDbSync({
     queryClient: qc,
     queryKeys: ["designs", "design-systems", "design-files"],
     ignoreSource: getBrowserTabId(),
+    realtime: isPrivateDesignEditorPath(location.pathname)
+      ? { reason: "collaborators can edit this design while it is open" }
+      : undefined,
   });
   return null;
 }

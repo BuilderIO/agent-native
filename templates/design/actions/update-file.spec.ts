@@ -2,7 +2,10 @@ import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
+const collabDocs = vi.hoisted(() => ({
+  docs: new Map<string, unknown>(),
+  mutationSources: [] as Array<string | undefined>,
+}));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
   let doc = collabDocs.docs.get(docId) as
@@ -59,13 +62,14 @@ vi.mock("@agent-native/core/collab", () => ({
   ) => applyTextDiff(doc, text),
   withPreparedYDocMutation: async (
     docId: string,
-    _requestSource: string | undefined,
+    requestSource: string | undefined,
     run: (lease: {
       doc: InstanceType<typeof Y.Doc>;
       baseVersion: number | null;
       persist: (_tx: unknown, text: string) => Promise<void>;
     }) => Promise<unknown>,
   ) => {
+    collabDocs.mutationSources.push(requestSource);
     const base = collabDocs.docs.get(docId) as
       | InstanceType<typeof Y.Doc>
       | undefined;
@@ -298,6 +302,26 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(result).toEqual({ id: FILE_ID, updated: true });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     expect(await hasCollabState(FILE_ID)).toBe(true);
+  });
+
+  it("tags the live-document update with the saving tab so its own tab can ignore the echo and peers see a human edit", async () => {
+    collabDocs.mutationSources.length = 0;
+    await updateFileAction.run(
+      { id: FILE_ID, content: buildDoc(" tab-edit-") } as never,
+      {
+        requestHeaders: new Headers({ "x-request-source": "tab-abc" }),
+      } as never,
+    );
+    expect(collabDocs.mutationSources).toEqual(["tab-abc"]);
+  });
+
+  it("keeps attributing header-less writes, such as the agent's, to the agent", async () => {
+    collabDocs.mutationSources.length = 0;
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" agent-edit-"),
+    } as never);
+    expect(collabDocs.mutationSources).toEqual(["agent"]);
   });
 
   it("2. syncCollab:true (default) + mismatched hash: still throws, not skipped", async () => {

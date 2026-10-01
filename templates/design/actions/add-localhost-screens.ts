@@ -11,6 +11,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { publishesDesignChange } from "../server/lib/design-change-events.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -437,7 +438,7 @@ function metadataMatchesRoute(
   );
 }
 
-export default defineAction({
+const designAction = defineAction({
   description:
     "Create or refresh URL-backed localhost screens in a design project. " +
     "Use after connect-localhost to place local app routes on the overview " +
@@ -1552,4 +1553,8 @@ export default defineAction({
       view: "editor",
     };
   },
+});
+
+export default publishesDesignChange(designAction, {
+  designId: (p) => p.designId,
 });

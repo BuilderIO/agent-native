@@ -4,6 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { publishesDesignChange } from "../server/lib/design-change-events.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
@@ -279,7 +280,7 @@ function validatePersistedDataSnapshot(
   }
 }
 
-export default defineAction({
+const designAction = defineAction({
   description:
     "Update an existing design project. Requires editor access. " +
     "Only provided fields are updated; omitted fields are left unchanged. " +
@@ -577,4 +578,8 @@ export default defineAction({
       "Design data changed while this snapshot was being saved. Re-read the design and retry, or use dataOperations for path-addressed map edits.",
     );
   },
+});
+
+export default publishesDesignChange(designAction, {
+  designId: (p) => p.id,
 });

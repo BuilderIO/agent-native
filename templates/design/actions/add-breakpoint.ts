@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import "../server/db/index.js";
+import { publishesDesignChange } from "../server/lib/design-change-events.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -28,7 +29,7 @@ function readBreakpointSet(
   return { id: fallbackId, breakpoints: [] };
 }
 
-export default defineAction({
+const designAction = defineAction({
   description:
     "Add a breakpoint frame to the design's breakpoint set. " +
     "The breakpoint set is stored in designs.data and controls which side-by-side " +
@@ -115,4 +116,8 @@ export default defineAction({
       breakpointSet: updatedSet,
     };
   },
+});
+
+export default publishesDesignChange(designAction, {
+  designId: (p) => p.designId,
 });

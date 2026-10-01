@@ -4,6 +4,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { publishesDesignChange } from "../server/lib/design-change-events.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -115,7 +116,7 @@ export function screenSourceMetadataForStatic(
   return next;
 }
 
-export default defineAction({
+const designAction = defineAction({
   description:
     "Change one Design screen between static HTML and a live localhost URL. " +
     "URL mode keeps the running app and editable route metadata. Static mode " +
@@ -423,4 +424,8 @@ export default defineAction({
       dataUpdatedAt: persisted.updatedAt,
     };
   },
+});
+
+export default publishesDesignChange(designAction, {
+  designId: (p) => p.designId,
 });
