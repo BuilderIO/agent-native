@@ -375,7 +375,7 @@ describe("ask-brain source answer policy", () => {
     expect(result.citations).toEqual([]);
   });
 
-  it("keeps uncited knowledge out of the answer when a capture citation exists", async () => {
+  it("ignores long uncited knowledge when deciding to search captures and when answering", async () => {
     mocks.knowledgeRows = [
       {
         ...knowledge({
@@ -383,6 +383,7 @@ describe("ask-brain source answer policy", () => {
           sourceId: "source-approved",
           title: "Uncited retailer summary",
         }),
+        body: "Long uncited retailer background. ".repeat(20),
         evidence: [],
       },
     ];

@@ -222,15 +222,18 @@ export default defineAction({
         compareEvaluatedSourcePolicies(left.answerPolicy, right.answerPolicy),
       )
       .slice(0, 6);
+    const answerKnowledge = guidance.retrieval.requireCitations
+      ? knowledge.filter((item) => item.evidence.length > 0)
+      : knowledge;
     const captureFallback: UniversalSearchResult[] = [];
-    const knowledgeTextLength = knowledge.reduce(
+    const knowledgeTextLength = answerKnowledge.reduce(
       (total, item) => total + `${item.summary} ${item.body}`.trim().length,
       0,
     );
     const allowRawCaptureFallback =
       guidance.retrieval.rawCaptureFallback === "allowed-leads" ||
       (guidance.retrieval.rawCaptureFallback === "thin-results" &&
-        (!knowledge.length || knowledgeTextLength < 260));
+        (!answerKnowledge.length || knowledgeTextLength < 260));
     const captureSearchLanes: SearchLaneStatuses = {
       fts: { status: "ok" },
       semantic: { status: "ok" },
@@ -337,9 +340,6 @@ export default defineAction({
       deepLink: captureDeepLink(item.id),
       sourcePolicy: item.answerPolicy,
     }));
-    const answerKnowledge = guidance.retrieval.requireCitations
-      ? knowledge.filter((item) => item.evidence.length > 0)
-      : knowledge;
     const answerSource = answerKnowledge.length
       ? "knowledge"
       : eligibleCaptures.length
