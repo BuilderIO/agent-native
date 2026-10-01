@@ -125,7 +125,16 @@ test("Analytics beta creates, renames, and removes a SQL dashboard", async ({
     try {
       if (createAttempted) {
         await deleteAction(page, "delete-sql-dashboard", { id: dashboardId });
-        const dashboards = await readAction(page, "list-sql-dashboards");
+        const deletedReadback = await page.request.get(
+          `${origin}/_agent-native/actions/get-sql-dashboard`,
+          { params: { id: dashboardId }, headers: ACTION_HEADERS },
+        );
+        expect(deletedReadback.status()).toBe(404);
+
+        const dashboards = await readAction(page, "list-sql-dashboards", {
+          archived: "all",
+          hidden: "all",
+        });
         expect(Array.isArray(dashboards)).toBe(true);
         expect(
           (dashboards as Array<{ id?: string }>).some(

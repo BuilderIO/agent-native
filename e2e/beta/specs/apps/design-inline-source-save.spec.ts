@@ -69,17 +69,17 @@ test("Design inline source visual edits persist through reload and cleanup", asy
   );
   const context = await signedInContext(browser, SITE, { seedModel: false });
   const page = await context.newPage();
-  let designId = "";
+  const designId = crypto.randomUUID();
   let primaryFailure: unknown;
   try {
     await assertSignedInOnBeta(context, SITE);
 
     const created = await postAction(page, "create-design", {
+      id: designId,
       title: runMarker(`Design inline source save ${Date.now()}`),
       projectType: "prototype",
     });
-    designId = String(created?.id ?? created?.data?.id ?? "");
-    if (!designId) throw new Error("create-design returned no id");
+    expect(created.id).toBe(designId);
     await postAction(page, "create-file", {
       designId,
       filename: "index.html",
@@ -134,22 +134,30 @@ test("Design inline source visual edits persist through reload and cleanup", asy
     throw error;
   } finally {
     const cleanupFailures: string[] = [];
-    if (designId) {
-      try {
+    try {
+      const existing = await page.request.get(
+        `${ORIGIN}/_agent-native/actions/get-design`,
+        { params: { id: designId }, headers: ACTION_HEADERS },
+      );
+      if (existing.status() === 200) {
         const deleted = await postAction(page, "delete-design", {
           id: designId,
         });
         expect(deleted).toMatchObject({ id: designId, deleted: true });
-        const readAfterDelete = await page.request.get(
-          `${ORIGIN}/_agent-native/actions/get-design`,
-          { params: { id: designId }, headers: ACTION_HEADERS },
-        );
-        expect(readAfterDelete.status()).toBe(404);
-      } catch (error) {
-        cleanupFailures.push(
-          `delete-design verification failed: ${error instanceof Error ? error.message : String(error)}`,
+      } else if (existing.status() !== 404) {
+        throw new Error(
+          `Could not verify test design before cleanup (${existing.status()})`,
         );
       }
+      const readAfterDelete = await page.request.get(
+        `${ORIGIN}/_agent-native/actions/get-design`,
+        { params: { id: designId }, headers: ACTION_HEADERS },
+      );
+      expect(readAfterDelete.status()).toBe(404);
+    } catch (error) {
+      cleanupFailures.push(
+        `delete-design verification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     try {
       await context.close();
@@ -161,14 +169,9 @@ test("Design inline source visual edits persist through reload and cleanup", asy
     if (cleanupFailures.length > 0) {
       const message = `[beta-e2e] Design source save teardown failures: ${cleanupFailures.join("; ")}`;
       if (primaryFailure) {
-        test.info().annotations.push({
-          type: "cleanup-failure",
-          description: message,
-        });
-        console.error(message);
-      } else {
-        throw new Error(message);
+        throw new AggregateError([primaryFailure, new Error(message)], message);
       }
+      throw new Error(message);
     }
   }
 });
