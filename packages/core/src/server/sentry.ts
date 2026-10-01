@@ -57,19 +57,31 @@ export function initServerSentry(): Promise<boolean> {
             return null;
           }
 
-          const hasSqlQueryFailure = [
-            event.message,
-            event.logentry?.message,
-            ...(event.exception?.values ?? []).map(
-              (exception) => exception.value,
-            ),
-          ].some(
-            (value) =>
-              typeof value === "string" &&
-              /\b(?:failed query|query failed):/i.test(value),
-          );
-          if (hasSqlQueryFailure && event.logentry) {
-            delete event.logentry.params;
+          const serializedException = event.extra?.__serialized__;
+          const hasSerializedSqlParams =
+            serializedException != null &&
+            typeof serializedException === "object" &&
+            !Array.isArray(serializedException) &&
+            "query" in serializedException &&
+            "params" in serializedException;
+          const hasSqlQueryFailure =
+            [
+              event.message,
+              event.logentry?.message,
+              ...(event.exception?.values ?? []).map(
+                (exception) => exception.value,
+              ),
+              typeof serializedException === "string"
+                ? serializedException
+                : JSON.stringify(serializedException),
+            ].some(
+              (value) =>
+                typeof value === "string" &&
+                /\b(?:failed query|query failed):/i.test(value),
+            ) || hasSerializedSqlParams;
+          if (hasSqlQueryFailure) {
+            if (event.logentry) delete event.logentry.params;
+            if (event.extra) delete event.extra.__serialized__;
           }
 
           if (typeof event.message === "string") {

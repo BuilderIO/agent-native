@@ -212,6 +212,34 @@ describe("server/sentry", () => {
       expect(result.logentry.params).toBeUndefined();
     });
 
+    it("drops serialized SQL errors with bound parameters", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "example transcript content";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "Object captured as exception with keys: query, params",
+            },
+          ],
+        },
+        extra: {
+          __serialized__: {
+            query: "insert into dictations (text) values ($1)",
+            params: [privateValue],
+          },
+        },
+      } as never) as { extra?: Record<string, unknown> };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.extra).not.toHaveProperty("__serialized__");
+    });
+
     it("drops ValidationError exceptions", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
