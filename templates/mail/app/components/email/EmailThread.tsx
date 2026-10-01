@@ -3002,8 +3002,12 @@ export function HtmlEmailBody({
       ),
     [iframeCss, processedEmailHtml.bodyHtml, processedEmailHtml.headHtml],
   );
+  // A removed frame's document loses its window, so content that cycles back
+  // (A → B → A) waits for the newly mounted frame instead of the old one.
   const frameDoc =
-    readyFrame?.source === iframeDocument ? readyFrame.doc : null;
+    readyFrame?.source === iframeDocument && readyFrame.doc.defaultView
+      ? readyFrame.doc
+      : null;
   const iframeReady = frameDoc !== null;
 
   const markFrameReady = useCallback(

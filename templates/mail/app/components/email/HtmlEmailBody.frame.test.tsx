@@ -78,6 +78,22 @@ describe("HtmlEmailBody frame", () => {
     );
   });
 
+  it("waits for the new frame when content changes back before the change shows", async () => {
+    const { container, rerender } = render(
+      <HtmlEmailBody html="<p>Version A</p>" />,
+    );
+    await waitFor(() => expect(isShowing(container)).toBe(true));
+    const firstFrame = bodyFrame(container);
+
+    rerender(<HtmlEmailBody html="<p>Version B</p>" />);
+    rerender(<HtmlEmailBody html="<p>Version A</p>" />);
+
+    const remounted = bodyFrame(container);
+    expect(remounted).not.toBe(firstFrame);
+    await waitFor(() => expect(isShowing(container)).toBe(true));
+    expect(remounted.contentDocument?.body.textContent).toContain("Version A");
+  });
+
   it("keeps the open frame when the content is unchanged", async () => {
     const html = "<p>Same content</p>";
     const { container, rerender } = render(<HtmlEmailBody html={html} />);
