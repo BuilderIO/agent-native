@@ -822,6 +822,41 @@ describe("useBuilderConnectFlow", () => {
       expect(openSpy).not.toHaveBeenCalled();
     });
 
+    it("does not treat another scope's connection as activation success", async () => {
+      const personalConnectionStatus = {
+        ...activationStatus,
+        configured: true,
+        grants: { personal: { connectedAt: 1 } },
+      };
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          throw new TypeError("Failed to fetch");
+        }
+        return jsonResponse(personalConnectionStatus);
+      });
+      const onConnected = vi.fn();
+
+      await act(async () => {
+        root.render(
+          <BuilderConnectProbe
+            provisionAccount
+            startScope="org"
+            onConnected={onConnected}
+          />,
+        );
+      });
+      await flushAfterPaint();
+      onConnected.mockClear();
+      await clickConnect();
+
+      expect(container.textContent).toContain("configured idle");
+      expect(container.textContent).toContain(
+        "Couldn't start Builder connect. Refresh this page and try again.",
+      );
+      expect(onConnected).not.toHaveBeenCalled();
+    });
+
     it("reports an unreachable activation route instead of waiting", async () => {
       mockActivation(() => new Response("Not found", { status: 404 }));
 
