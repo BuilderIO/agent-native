@@ -9,10 +9,7 @@ import {
   type AiPriorityEmail,
   type MailSortMode,
 } from "@shared/ai-priority";
-import {
-  gmailCooldownFromError,
-  type GmailReadState,
-} from "@shared/gmail-freshness";
+import { type GmailReadState } from "@shared/gmail-freshness";
 import { mailLabelsInclude } from "@shared/gmail-labels";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage, Label } from "@shared/types";
