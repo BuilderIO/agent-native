@@ -843,6 +843,40 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({ error: "Internal server error" });
   });
 
+  it("echoes a missing-credential message instead of a generic 500", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { FeatureNotConfiguredError } =
+      await import("./credential-provider.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions = {
+      cleanupTranscript: {
+        run: vi.fn().mockRejectedValue(
+          new FeatureNotConfiguredError({
+            requiredCredential: "BUILDER_PRIVATE_KEY",
+            message: "Connect Builder.io or add a fallback AI key.",
+          }),
+        ),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(412);
+    expect(result).toEqual({
+      error: "Connect Builder.io or add a fallback AI key.",
+      errorCode: "feature_not_configured",
+    });
+  });
+
   it("preserves safe action contract metadata for retryable server failures", async () => {
     const { ActionContractError } = await import("../action.js");
     const { mountActionRoutes } = await import("./action-routes.js");
