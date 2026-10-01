@@ -7751,10 +7751,14 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("stops after repeated identical tool errors", async () => {
+  it("stops after repeated tool errors when a cooldown countdown changes", async () => {
     let streamCalls = 0;
+    let attempts = 0;
     const run = vi.fn(async () => {
-      throw new Error("DB failed: token=SENSITIVE_VALUE");
+      attempts += 1;
+      throw new Error(
+        `Email service is briefly busy and will be ready again in about ${24 - attempts * 3}s. token=SENSITIVE_VALUE`,
+      );
     });
     const engine: AgentEngine = {
       name: "test",
