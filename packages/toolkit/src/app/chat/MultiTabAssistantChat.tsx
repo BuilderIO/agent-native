@@ -1157,6 +1157,7 @@ export function MultiTabAssistantChat({
     ? (hostModelListLoading ?? false)
     : discoveredModelsLoading;
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
+  const engineCatalogRequestRef = useRef(0);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
   >(new Map());
@@ -1391,9 +1392,18 @@ export function MultiTabAssistantChat({
 
   const refreshEngines = useCallback(() => {
     if (hostManagedModels) return;
+    const requestId = ++engineCatalogRequestRef.current;
+    const isCurrentRequest = () =>
+      requestId === engineCatalogRequestRef.current;
+    setDiscoveredModels((groups) =>
+      groups.filter(
+        (group) => group.engine !== CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      ),
+    );
     setModelListLoading(true);
     loadChatModelCatalog()
       .then((catalog) => {
+        if (!isCurrentRequest()) return;
         if (catalog.state !== "available") {
           if (catalog.enginesUnavailable) {
             // Leaves `availableModels` empty for the session, so an override
@@ -1407,21 +1417,27 @@ export function MultiTabAssistantChat({
         setDiscoveredModels(catalog.groups);
         setDefaultModel(catalog.defaultModel);
         void catalog.loadLiveGroups().then((liveGroups) => {
-          if (liveGroups) setDiscoveredModels(liveGroups);
+          if (isCurrentRequest() && liveGroups) {
+            setDiscoveredModels(liveGroups);
+          }
         });
       })
       .catch(() => {})
-      .finally(() => setModelListLoading(false));
+      .finally(() => {
+        if (isCurrentRequest()) setModelListLoading(false);
+      });
   }, [hostManagedModels]);
 
   useEffect(() => {
     refreshEngines();
     window.addEventListener("agent-engine:configured-changed", refreshEngines);
-    return () =>
+    return () => {
       window.removeEventListener(
         "agent-engine:configured-changed",
         refreshEngines,
       );
+      engineCatalogRequestRef.current += 1;
+    };
   }, [refreshEngines]);
 
   // Parent-child thread mapping — persisted to localStorage.

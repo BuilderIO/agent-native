@@ -180,7 +180,11 @@ buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limi
 
 Agent-Native は、条件を満たすオープンソース利用に OpenAI 公式の Sign in with ChatGPT トークン共有フローを使います。このフローにより、ログインしたユーザーの ChatGPT プランを使って、ローカルアプリから OpenAI の公開 Responses API に対象リクエストを送信できます。ユーザーの ChatGPT の会話や履歴にはアクセスできません。
 
-OpenAI のセルフサービスフローには、ユーザーのマシン上のループバックアドレス `127.0.0.1` への HTTP OAuth コールバックが必要です。リモートでホストされたアプリでは動作せず、`localhost` は `127.0.0.1` の代わりとして認められません。ホスト型または有料のデプロイではセルフサービスフローは承認されていません。その用途には、[関心フォーム](https://openai.com/form/sign-in-with-chatgpt-interest)から OpenAI の個別承認を受ける必要があります。
+ChatGPT プランのラボはデフォルトでオフです。**設定 → Labs** で有効にしてください。
+
+ローカルで実行するオープンソースアプリでは、OpenAI のパートナー承認も、事前設定されたクライアント ID も必要ありません。初回サインイン時に OpenAI がクライアント ID を発行し、アプリはその ChatGPT アカウント用に再利用します。
+
+この実装では、OAuth コールバックをユーザーのマシン上のループバックアドレス `127.0.0.1` に設定する必要があります。`localhost` は代わりに使えません。このセルフサービスフローは、ホスト型の `*.agent-native.com` サイトでは利用できません。パートナー承認が必要なのは、ホスト型アプリの運営者です。運営者は OpenAI の[関心フォーム](https://openai.com/form/sign-in-with-chatgpt-interest)から申請できます。
 
 <Steps>
 

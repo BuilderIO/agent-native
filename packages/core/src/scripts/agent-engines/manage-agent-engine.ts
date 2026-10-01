@@ -106,8 +106,12 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   if (!engine) return "Error: engine is required";
   if (!model) return "Error: model is required";
 
+  const ctx = currentContext();
   if (engine === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
-    const email = currentContext().userEmail;
+    if (ctx.orgId) {
+      return "Error: ChatGPT plan access is personal and cannot be selected as an organization default.";
+    }
+    const email = ctx.userEmail;
     if (!email) return "Error: Sign in before selecting ChatGPT plan access.";
     try {
       const catalog = await listChatGPTSubscriptionModels(email);
@@ -131,7 +135,6 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
     preserveCustomModels,
   });
 
-  const ctx = currentContext();
   const canUpdate = await canUpdateAgentAppModelDefaultSettings(
     ctx.userEmail,
     ctx.orgId,

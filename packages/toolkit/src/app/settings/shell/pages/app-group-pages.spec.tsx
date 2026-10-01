@@ -442,6 +442,54 @@ describe("app group pages", () => {
       expect(switchFor("Voice dictation")?.disabled).toBe(false);
     });
 
+    it("refreshes the model catalog after a ChatGPT lab change succeeds", async () => {
+      labsActions.query.data = {
+        "chatgpt-subscription": {
+          enabled: false,
+          source: "default",
+          mixed: false,
+        },
+      };
+      const modelConfigChanged = vi.fn();
+      window.addEventListener(
+        "agent-engine:configured-changed",
+        modelConfigChanged,
+      );
+      try {
+        await renderPage(LabsSettingsPage, {
+          input: {
+            labs: [
+              {
+                key: "chatgpt-subscription",
+                displayName: "ChatGPT plan access",
+              },
+            ],
+          },
+        });
+
+        const toggle = switchFor("ChatGPT plan access");
+        expect(toggle?.getAttribute("aria-checked")).toBe("false");
+
+        for (const [index, enabled] of [true, false].entries()) {
+          act(() => toggle?.click());
+          const [variables, options] =
+            labsActions.mutate.mock.calls[index] ?? [];
+          expect(variables).toEqual({ key: "chatgpt-subscription", enabled });
+          expect(modelConfigChanged).toHaveBeenCalledTimes(index);
+          act(() => {
+            (options as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+          });
+          expect(modelConfigChanged).toHaveBeenCalledTimes(index + 1);
+          expect(toggle?.getAttribute("aria-checked")).toBe(String(enabled));
+        }
+      } finally {
+        window.removeEventListener(
+          "agent-engine:configured-changed",
+          modelConfigChanged,
+        );
+      }
+    });
+
     it("offers explicit choices for inherited mixed settings", async () => {
       labsActions.query.data = {
         "clips.meetings": {

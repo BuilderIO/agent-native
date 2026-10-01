@@ -180,7 +180,11 @@ Las filas propias de cada aplicación siguen la misma regla: cada control de `ge
 
 Agent-Native usa el flujo oficial para compartir tokens de Sign in with ChatGPT de OpenAI en los casos de uso de código abierto que cumplen los requisitos. Autoriza a la aplicación local a realizar solicitudes aptas a la Responses API pública de OpenAI usando el plan de ChatGPT del usuario que inició sesión. No concede acceso a las conversaciones ni al historial de ChatGPT del usuario.
 
-El flujo de autoservicio de OpenAI requiere una devolución de llamada OAuth HTTP en `127.0.0.1`, una dirección de bucle local en el equipo del usuario. No funciona con una aplicación alojada de forma remota, y `localhost` no es un sustituto válido de `127.0.0.1`. El flujo de autoservicio no está aprobado para implementaciones alojadas ni de pago. Esos usos requieren una aprobación independiente de OpenAI mediante su [formulario de interés](https://openai.com/form/sign-in-with-chatgpt-interest).
+La opción de Labs para usar el plan de ChatGPT está desactivada de forma predeterminada. Actívala en **Ajustes → Labs**.
+
+Los usuarios locales de código abierto no necesitan aprobación de socio ni un ID de cliente preconfigurado. OpenAI emite el ID de cliente en el primer inicio de sesión y la app lo reutiliza en los siguientes inicios de sesión de esa misma cuenta de ChatGPT.
+
+El flujo de autoservicio de OpenAI requiere una devolución de llamada OAuth HTTP en `127.0.0.1`, una dirección de bucle local en el equipo del usuario. Por eso no se admiten las aplicaciones alojadas, incluidos los sitios alojados de `*.agent-native.com`; `localhost` no es un sustituto válido de `127.0.0.1`. La aprobación de socio corresponde al operador de la aplicación alojada, no a cada usuario, y puede solicitarse mediante su [formulario de interés](https://openai.com/form/sign-in-with-chatgpt-interest).
 
 <Steps>
 

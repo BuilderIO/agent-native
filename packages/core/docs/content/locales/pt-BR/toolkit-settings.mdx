@@ -250,11 +250,17 @@ a fazer solicitações elegíveis à Responses API pública da OpenAI usando o p
 ChatGPT da conta conectada. Isso não concede acesso às conversas nem ao histórico
 do ChatGPT da pessoa.
 
-O fluxo de autoatendimento da OpenAI exige um callback OAuth HTTP em
-`127.0.0.1`, um endereço de loopback na máquina do usuário. Ele não funciona em
-um app hospedado remotamente, e `localhost` não é um substituto aceito para
-`127.0.0.1`. O fluxo de autoatendimento não está aprovado para implantações
-hospedadas ou pagas. Esses usos exigem aprovação separada da OpenAI por meio do
+O laboratório do plano ChatGPT fica desativado por padrão. Para usar o recurso,
+ative-o em **Configurações → Laboratórios**. Pessoas que executam apps de código
+aberto localmente não precisam de aprovação de parceiro nem de um ID de cliente
+preconfigurado: a OpenAI emite o ID no primeiro login, e o app o reutiliza para
+essa conta do ChatGPT.
+
+Esse fluxo exige um callback OAuth HTTP em `127.0.0.1`, o endereço de loopback
+na máquina do usuário. Por isso, ele não funciona em apps hospedados
+remotamente, e `localhost` não substitui `127.0.0.1`. Sites hospedados em
+`*.agent-native.com` não são compatíveis com esse fluxo. A aprovação de parceiro
+é necessária para quem opera o app hospedado e pode ser solicitada pelo
 [formulário de interesse](https://openai.com/form/sign-in-with-chatgpt-interest).
 
 <Steps>

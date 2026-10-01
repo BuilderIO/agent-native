@@ -180,7 +180,9 @@ buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limi
 
 Agent-Native는 자격을 갖춘 오픈 소스 사용에 OpenAI의 공식 Sign in with ChatGPT 토큰 공유 흐름을 사용합니다. 이 흐름은 로그인한 사용자의 ChatGPT 요금제로 로컬 앱이 OpenAI 공개 Responses API에 적격 요청을 보낼 수 있도록 합니다. 사용자의 ChatGPT 대화나 기록에는 접근하지 않습니다.
 
-OpenAI의 셀프 서비스 흐름에는 사용자 컴퓨터의 루프백 주소인 `127.0.0.1`에서 HTTP OAuth 콜백을 받아야 합니다. 원격 호스팅 앱에서는 작동하지 않으며 `localhost`는 `127.0.0.1`을 대신할 수 없습니다. 호스팅 또는 유료 배포에는 셀프 서비스 흐름이 승인되지 않았습니다. 이러한 사용에는 OpenAI의 별도 승인이 필요하며 [관심 양식](https://openai.com/form/sign-in-with-chatgpt-interest)에서 신청할 수 있습니다.
+ChatGPT 요금제 실험실 기능은 기본적으로 꺼져 있습니다. 사용하려면 **설정 → 실험실**에서 켜세요. 개인이 로컬에서 실행하는 오픈 소스 앱에는 파트너 승인이나 미리 설정된 클라이언트 ID가 필요하지 않습니다. 처음 로그인할 때 OpenAI가 클라이언트 ID를 발급하고, 앱은 해당 ChatGPT 계정에 연결해 다음 로그인에도 재사용합니다.
+
+이 흐름은 사용자의 컴퓨터에 있는 루프백 주소 `127.0.0.1`에서 HTTP OAuth 콜백을 받아야 하므로 원격 호스팅 앱에서는 작동하지 않습니다. `localhost`는 `127.0.0.1`을 대신할 수 없습니다. 따라서 `*.agent-native.com`의 호스팅 사이트에서는 이 흐름을 사용할 수 없습니다. 호스팅된 앱의 운영자가 파트너 승인을 받아야 하며 [관심 양식](https://openai.com/form/sign-in-with-chatgpt-interest)에서 신청할 수 있습니다.
 
 <Steps>
 

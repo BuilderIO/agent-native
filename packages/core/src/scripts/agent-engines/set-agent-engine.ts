@@ -24,6 +24,8 @@ import {
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
+import { getUserLabEnabled } from "../../labs/store.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -93,6 +95,16 @@ export async function selectDefaultAgentEngine(
     });
     return { status: "refused", message: authority.message };
   }
+  if (
+    engineName === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+    authority.scope === "org"
+  ) {
+    return {
+      status: "invalid",
+      message:
+        "ChatGPT plan access is personal and cannot be selected as an organization default.",
+    };
+  }
 
   const entry = getAgentEngineEntry(engineName);
   if (!entry) {
@@ -112,8 +124,29 @@ export async function selectDefaultAgentEngine(
     };
   }
 
-  const credentialIdentity = ctx.userEmail
-    ? { userEmail: ctx.userEmail }
+  const chatGPTEmail =
+    entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME
+      ? (ctx.userEmail ?? getRequestUserEmail())
+      : undefined;
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    if (!chatGPTEmail) {
+      return {
+        status: "missing-credentials",
+        message: "A signed-in user is required to use ChatGPT plan access.",
+      };
+    }
+    if (!(await getUserLabEnabled(chatGPTEmail, CHATGPT_SUBSCRIPTION_LAB))) {
+      return {
+        status: "unavailable",
+        message:
+          "Enable ChatGPT plan access in Settings → Labs before selecting this engine.",
+      };
+    }
+  }
+
+  const credentialEmail = chatGPTEmail ?? ctx.userEmail;
+  const credentialIdentity = credentialEmail
+    ? { userEmail: credentialEmail }
     : undefined;
   const needsCredentialIdentity =
     entry.name === "builder" || entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME;
@@ -135,15 +168,8 @@ export async function selectDefaultAgentEngine(
 
   let requestedModel = input.model?.trim() || entry.defaultModel;
   if (engineName === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
-    const email = ctx.userEmail ?? getRequestUserEmail();
-    if (!email) {
-      return {
-        status: "missing-credentials",
-        message: "A signed-in user is required to use ChatGPT plan access.",
-      };
-    }
     try {
-      const catalog = await listChatGPTSubscriptionModels(email);
+      const catalog = await listChatGPTSubscriptionModels(chatGPTEmail!);
       if (!requestedModel) requestedModel = catalog.models[0] ?? "";
       if (!requestedModel || !catalog.models.includes(requestedModel)) {
         return {

@@ -1,4 +1,6 @@
 import { AppConfigurationError, getAppConfig } from "../../app-config/index.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
+import { registerLabs } from "../../labs/registry.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import {
   createAISDKEngine,
@@ -153,6 +155,9 @@ let _appliedSelection: string | undefined;
 
 export function registerBuiltinEngines(): void {
   const selected = resolveBuiltInEngineSelection();
+  if (selected.has(CHATGPT_SUBSCRIPTION_ENGINE_NAME)) {
+    registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
+  }
   const signature = BUILT_IN_ENGINE_NAMES.filter((name) =>
     selected.has(name),
   ).join(",");

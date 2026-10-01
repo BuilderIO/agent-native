@@ -1656,6 +1656,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "Seu gasto estimado",
   "settings.usage.yourCreditSpend": "Seu gasto em créditos do Builder.io",
   "settings.usage.calls": "Chamadas",
+  "settings.usage.chatgptPlanUsage": "Uso do plano do ChatGPT",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Pessoas ativas",
   "settings.usage.history": "Histórico de uso",
@@ -2884,17 +2885,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "Conectando…",
   "settingsModel.chatgptContinue": "Continuar com o ChatGPT",
   "settingsModel.chatgptDisconnect": "Desconectar",
+  "settingsModel.chatgptDisconnectTitle": "Desconectar o ChatGPT?",
+  "settingsModel.chatgptDisconnectDescription":
+    "A conta {{account}} será desconectada deste app e o agente deixará de usar seu plano do ChatGPT. Você pode entrar de novo quando quiser.",
+  "settingsModel.chatgptDisconnecting": "Desconectando…",
   "settingsModel.chatgptRemoveLegacySignIn": "Remover acesso antigo",
   "settingsModel.chatgptLegacySignInDetails":
     "Um login antigo do ChatGPT está salvo aqui. O fluxo oficial não pode usá-lo.",
-  "settingsModel.chatgptManageAccess": "Gerenciar acesso no ChatGPT",
+  "settingsModel.chatgptManageAccess": "Gerenciar no ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "Você saiu daqui, mas a OpenAI não confirmou a revogação remota.",
+    "Desconectado aqui. O acesso pode continuar ativo no ChatGPT.",
   "settingsModel.chatgptLocalOnly":
-    "Este fluxo de login de código aberto exige um app local ou auto-hospedado. Apps hospedados ou pagos precisam de acesso de parceiro da OpenAI.",
+    "Apps de código aberto podem ser usados sem solicitação quando executados localmente com um callback de loopback; não é necessário solicitar acesso de parceiro. Apps hospedados em *.agent-native.com precisam da aprovação do operador e de um callback hospedado.",
   "settingsModel.chatgptNoDirectUse":
     "Reconecte e permita o acesso direto aos modelos para usar esta conta do ChatGPT.",
-  "settingsModel.chatgptPartnerInterest": "Solicitar acesso de parceiro",
   "settingsModel.chatgptReconnect": "Reconectar",
   "settingsModel.chatgptSelectAccount": "Conta do ChatGPT",
   "settingsModel.chatgptUsageLimit":

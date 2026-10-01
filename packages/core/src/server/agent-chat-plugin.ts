@@ -49,6 +49,7 @@ import {
   resetAgentAppModelDefaultSettings,
   writeAgentAppModelDefaultSettings,
 } from "../agent/app-model-defaults.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
@@ -59,6 +60,7 @@ import {
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
+import { listChatGPTSubscriptionModels } from "../agent/engine/chatgpt-subscription-engine.js";
 import {
   resolveEngine,
   createAnthropicEngine,
@@ -182,6 +184,8 @@ import {
 } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
+import { getUserLabEnabled } from "../labs/store.js";
 import {
   mcpToolsToActionEntries,
   mountMcpServersRoutes,
@@ -243,7 +247,11 @@ import {
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
-import { getSession, registerAuthPublicPaths } from "./auth.js";
+import {
+  getSession,
+  isLoopbackRequest,
+  registerAuthPublicPaths,
+} from "./auth.js";
 import { captureError } from "./capture-error.js";
 import { completeText } from "./complete-text.js";
 import {
@@ -4974,13 +4982,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         };
       };
 
-      const listModelDefaultEngineOptions = async (ctx: {
-        userEmail?: string;
-        orgId?: string | null;
-      }) => {
+      const listModelDefaultEngineOptions = async (
+        ctx: { userEmail?: string; orgId?: string | null },
+        event: any,
+      ) => {
         registerBuiltinEngines();
-        // This select writes the organization's default, so it offers the
-        // organization's checked models, not the viewer's personal ones.
+        const availableEngines = listAgentEngines();
+        const chatGPTEnabled =
+          !ctx.orgId &&
+          !!ctx.userEmail &&
+          availableEngines.some(
+            (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+          ) &&
+          (await getUserLabEnabled(ctx.userEmail, CHATGPT_SUBSCRIPTION_LAB));
+        // Provider model selections follow the setting scope. ChatGPT catalogs
+        // are user-scoped, so they are only available for personal defaults.
         const selectionScope = ctx.orgId ? "org" : "user";
         const selections = new Map<
           string,
@@ -5014,10 +5030,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           {
             userEmail: ctx.userEmail,
             orgId: ctx.orgId ?? undefined,
+            requestOrigin: getOrigin(event),
+            isLoopbackRequest: isLoopbackRequest(event),
           },
-          () =>
-            Promise.all(
-              listAgentEngines().map(async (entry) => ({
+          async () => {
+            const chatGPTCatalog =
+              chatGPTEnabled && ctx.userEmail
+                ? await listChatGPTSubscriptionModels(ctx.userEmail)
+                : null;
+            const visibleEngines = availableEngines.flatMap((entry) => {
+              if (entry.name !== CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+                return [entry];
+              }
+              if (!chatGPTCatalog?.models.length) return [];
+              return [{ ...entry, supportedModels: chatGPTCatalog.models }];
+            });
+            return Promise.all(
+              visibleEngines.map(async (entry) => ({
                 name: entry.name,
                 label: entry.label,
                 description: entry.description,
@@ -5031,7 +5060,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   entry,
                 ).catch(() => false),
               })),
-            ),
+            );
+          },
         );
       };
 
@@ -5061,7 +5091,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       : null,
                 }
               : null,
-          engines: await listModelDefaultEngineOptions(ctx),
+          engines: await listModelDefaultEngineOptions(ctx, event),
         };
       };
 
@@ -5138,6 +5168,42 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return {
               error: `Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`,
             };
+          }
+          if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+            if (ctx.orgId) {
+              setResponseStatus(event, 400);
+              return {
+                error:
+                  "ChatGPT plan access cannot be used for organization app model defaults.",
+              };
+            }
+            if (
+              !(await getUserLabEnabled(
+                ctx.userEmail,
+                CHATGPT_SUBSCRIPTION_LAB,
+              ))
+            ) {
+              setResponseStatus(event, 403);
+              return {
+                error: "Enable ChatGPT plan access in Settings → Labs first.",
+              };
+            }
+            const catalog = await runWithRequestContext(
+              {
+                userEmail: ctx.userEmail,
+                orgId: ctx.orgId ?? undefined,
+                requestOrigin: getOrigin(event),
+                isLoopbackRequest: isLoopbackRequest(event),
+              },
+              () => listChatGPTSubscriptionModels(ctx.userEmail),
+            );
+            if (!catalog.models.includes(model)) {
+              setResponseStatus(event, 400);
+              return {
+                error:
+                  "Choose a visible model from the selected ChatGPT account's model list.",
+              };
+            }
           }
           if (
             entry.name === "builder" &&

@@ -1666,6 +1666,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "Tu gasto estimado",
   "settings.usage.yourCreditSpend": "Tu gasto en créditos de Builder.io",
   "settings.usage.calls": "Llamadas",
+  "settings.usage.chatgptPlanUsage": "Uso del plan de ChatGPT",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Personas activas",
   "settings.usage.history": "Historial de uso",
@@ -2892,18 +2893,21 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "Conectando…",
   "settingsModel.chatgptContinue": "Continuar con ChatGPT",
   "settingsModel.chatgptDisconnect": "Desconectar",
+  "settingsModel.chatgptDisconnectTitle": "¿Desconectar ChatGPT?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} cerrará sesión en esta app y el agente dejará de usar tu plan de ChatGPT. Puedes volver a iniciar sesión cuando quieras.",
+  "settingsModel.chatgptDisconnecting": "Desconectando…",
   "settingsModel.chatgptRemoveLegacySignIn":
     "Eliminar el inicio de sesión anterior",
   "settingsModel.chatgptLegacySignInDetails":
     "Hay guardado un inicio de sesión antiguo de ChatGPT. El flujo oficial no puede usarlo.",
-  "settingsModel.chatgptManageAccess": "Gestionar el acceso en ChatGPT",
+  "settingsModel.chatgptManageAccess": "Gestionar en ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "Se ha cerrado la sesión aquí, pero OpenAI no confirmó la revocación remota.",
+    "Desconectado aquí. Es posible que el acceso siga activo en ChatGPT.",
   "settingsModel.chatgptLocalOnly":
-    "Este flujo de inicio de sesión de código abierto requiere una app local o autoalojada. Las apps alojadas o de pago necesitan acceso de socio de OpenAI.",
+    "Puedes usar las apps de código abierto sin solicitar acceso si las ejecutas localmente con un callback de loopback; no necesitas solicitar acceso de socio. Las apps alojadas en *.agent-native.com requieren la aprobación del operador y un callback alojado.",
   "settingsModel.chatgptNoDirectUse":
     "Vuelve a conectar y permite el acceso directo a modelos para usar esta cuenta de ChatGPT.",
-  "settingsModel.chatgptPartnerInterest": "Solicitar acceso de socio",
   "settingsModel.chatgptReconnect": "Volver a conectar",
   "settingsModel.chatgptSelectAccount": "Cuenta de ChatGPT",
   "settingsModel.chatgptUsageLimit":
