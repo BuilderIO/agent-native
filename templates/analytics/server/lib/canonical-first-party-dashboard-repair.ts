@@ -628,13 +628,61 @@ export function repairCanonicalFirstPartyDashboardQueries(
       (replacement) => replacement.source === "first-party",
     ),
   );
-  const repaired = repairFirstPartyObservedRetentionPanels(historical.config, [
-    ...CANONICAL_CUSTOM_PANEL_REPLACEMENTS,
-    ...CANONICAL_CATALOG_PANEL_REPLACEMENTS,
-  ]);
+  const repaired = appendPanelsIntroducedWithRetentionSplit(
+    historical.config,
+    repairFirstPartyObservedRetentionPanels(historical.config, [
+      ...CANONICAL_CUSTOM_PANEL_REPLACEMENTS,
+      ...CANONICAL_CATALOG_PANEL_REPLACEMENTS,
+    ]),
+  );
   return historical.changed && !repaired.changed
     ? { ...repaired, changed: true }
     : repaired;
+}
+
+/**
+ * Panels that shipped with the paid/untagged retention split are added to a
+ * saved canonical dashboard in the same pass that upgrades its retention
+ * panel, which happens once; a later removal is the owner's choice and sticks.
+ */
+const PANELS_INTRODUCED_WITH_RETENTION_SPLIT = ["chat-readiness-by-app"];
+
+function appendPanelsIntroducedWithRetentionSplit(
+  before: Record<string, unknown>,
+  repaired: { config: Record<string, unknown>; changed: boolean },
+): { config: Record<string, unknown>; changed: boolean } {
+  const retentionSql = (config: Record<string, unknown>) =>
+    Array.isArray(config.panels)
+      ? (
+          config.panels.find(
+            (panel) =>
+              (panel as { id?: unknown } | null)?.id === "retention-over-time",
+          ) as { sql?: unknown } | undefined
+        )?.sql
+      : undefined;
+  const previousSql = retentionSql(before);
+  const upgradedNow =
+    typeof previousSql === "string" &&
+    previousSql !== retentionSql(repaired.config) &&
+    retentionSql(repaired.config) === buildPanel("retention-over-time")?.sql;
+  if (!upgradedNow || !Array.isArray(repaired.config.panels)) return repaired;
+  const present = new Set(
+    repaired.config.panels.map((panel) => (panel as { id?: unknown })?.id),
+  );
+  const additions = PANELS_INTRODUCED_WITH_RETENTION_SPLIT.filter(
+    (id) => !present.has(id),
+  ).flatMap((id) => {
+    const panel = buildPanel(id);
+    return panel ? [panel] : [];
+  });
+  if (additions.length === 0) return repaired;
+  return {
+    config: {
+      ...repaired.config,
+      panels: [...repaired.config.panels, ...additions],
+    },
+    changed: true,
+  };
 }
 
 export function repairKnownFirstPartyDashboardQueries(

@@ -189,8 +189,8 @@ describe("dashboard catalog", () => {
 
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent-Native Templates (First-party)");
-    expect(config.panels).toHaveLength(47);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(47);
+    expect(config.panels).toHaveLength(48);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(48);
     for (const id of [
       "activation-funnel",
       "signup-method-conversion",
