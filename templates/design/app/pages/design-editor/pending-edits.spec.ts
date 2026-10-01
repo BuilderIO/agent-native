@@ -526,7 +526,7 @@ describe("formatVisualEditClipboardPrompt", () => {
 });
 
 describe("isVisualEditHandoffAcknowledged", () => {
-  it("clears only the exact acknowledged server revision", () => {
+  it("clears an acknowledged empty handoff at or after the published revision", () => {
     const base = {
       serverRevision: 81,
       pendingEditCount: 3,
@@ -535,12 +535,22 @@ describe("isVisualEditHandoffAcknowledged", () => {
     } as const;
 
     expect(isVisualEditHandoffAcknowledged(base)).toBe(true);
+    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 82 })).toBe(
+      true,
+    );
     expect(isVisualEditHandoffAcknowledged({ ...base, revision: 80 })).toBe(
       false,
     );
     expect(isVisualEditHandoffAcknowledged({ ...base, status: "ready" })).toBe(
       false,
     );
+    expect(
+      isVisualEditHandoffAcknowledged({
+        ...base,
+        status: "ready",
+        revision: 82,
+      }),
+    ).toBe(false);
     expect(
       isVisualEditHandoffAcknowledged({ ...base, pendingEditCount: 0 }),
     ).toBe(false);

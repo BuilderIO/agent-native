@@ -1834,7 +1834,8 @@ export function isVisualEditHandoffAcknowledged(args: {
     args.pendingEditCount > 0 &&
     args.status === "empty" &&
     args.serverRevision !== null &&
-    args.revision === args.serverRevision
+    args.revision !== null &&
+    args.revision >= args.serverRevision
   );
 }
 
