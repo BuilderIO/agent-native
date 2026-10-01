@@ -2802,6 +2802,7 @@ export function createAgentNativeChatRuntime(
 
       const query = new URLSearchParams({ threadId });
       if (input.turnId) query.set("turnId", input.turnId);
+      else query.set("runId", input.runId);
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
       const response = await runtimeFetch(
@@ -2830,9 +2831,6 @@ export function createAgentNativeChatRuntime(
         );
       }
       const runId = latestRun.runId;
-      if (!input.turnId && runId !== input.runId) {
-        return nativeRuntime.resume!(input);
-      }
       const turnId =
         input.turnId ??
         (typeof latestRun.turnId === "string" && latestRun.turnId.trim()
@@ -2852,6 +2850,7 @@ export function createAgentNativeChatRuntime(
           [AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY]: {
             status: latestRun.status,
             dispatchMode: latestRun.dispatchMode,
+            startedAt: latestRun.startedAt,
           },
         },
         events,

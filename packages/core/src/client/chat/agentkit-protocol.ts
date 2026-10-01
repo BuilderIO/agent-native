@@ -2565,18 +2565,24 @@ export function createAgentKitProtocolAdapter(
       resumeState?.status === "running" &&
       typeof resumeState?.dispatchMode === "string" &&
       resumeState.dispatchMode.startsWith("background");
+    const backgroundStartedAt = resumeState?.startedAt;
+    let backgroundResumeDeadlineAtMs: number | undefined;
+    if (isRunningBackgroundRun) {
+      backgroundResumeDeadlineAtMs =
+        typeof backgroundStartedAt === "number" &&
+        Number.isFinite(backgroundStartedAt)
+          ? backgroundStartedAt +
+            BACKGROUND_FUNCTION_WALL_MS -
+            BACKGROUND_FUNCTION_WALL_HEADROOM_MS
+          : Date.now();
+    }
     if (resumed.runId && resumed.runId !== runtimeRunId) {
       run.runtimeSequence = undefined;
       run.resumeAttempts = 0;
       run.continuationStartedAtMs = undefined;
-      run.resumeDeadlineAtMs = isRunningBackgroundRun
-        ? Date.now() +
-          (BACKGROUND_FUNCTION_WALL_MS - BACKGROUND_FUNCTION_WALL_HEADROOM_MS)
-        : undefined;
-    } else if (isRunningBackgroundRun) {
-      run.resumeDeadlineAtMs ??=
-        Date.now() +
-        (BACKGROUND_FUNCTION_WALL_MS - BACKGROUND_FUNCTION_WALL_HEADROOM_MS);
+      run.resumeDeadlineAtMs = backgroundResumeDeadlineAtMs;
+    } else if (backgroundResumeDeadlineAtMs !== undefined) {
+      run.resumeDeadlineAtMs ??= backgroundResumeDeadlineAtMs;
     } else if (resumeState) {
       run.resumeDeadlineAtMs = undefined;
     }
