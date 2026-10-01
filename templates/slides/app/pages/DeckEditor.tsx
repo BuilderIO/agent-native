@@ -16,6 +16,7 @@ import {
 import {
   actionErrorMessage,
   signOut,
+  usePollLoop,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -248,6 +249,8 @@ const OUTPUT_VIEW_STORAGE_KEY = "slides:output-viewed";
 const OUTPUT_VIEW_LEGACY_PREFIX = "slides:output-viewed:";
 const OUTPUT_VIEW_LEGACY_CLEANUP_KEY = "slides:output-viewed-cleanup-v1";
 const OUTPUT_VIEW_DECK_LIMIT = 512;
+const ACCESS_REQUEST_CHECK_INTERVAL_MS = 60_000;
+const ACCESS_REQUEST_MAX_CHECKS = 10;
 
 async function claimOutputView(
   sessionId: string,
@@ -2089,6 +2092,34 @@ export default function DeckEditor() {
       setAccessRequestNotified(false);
     }
   }, [accessRequestSentDeckId, id]);
+
+  // The deck poll stops on 403/404, so a visible tab waiting on an access
+  // request checks back on its own for a while instead of needing a refocus.
+  const waitingOnAccessRequest =
+    !deck &&
+    (accessRequestSentDeckId === id ||
+      deniedPageAccessRequest.isSuccess ||
+      Boolean(deckAccessStatus?.pendingAccessRequest));
+  const accessRequestChecksRef = useRef({ deckId: id, count: 0 });
+  usePollLoop(
+    async () => {
+      if (!id) return;
+      if (accessRequestChecksRef.current.deckId !== id) {
+        accessRequestChecksRef.current = { deckId: id, count: 0 };
+      }
+      if (accessRequestChecksRef.current.count >= ACCESS_REQUEST_MAX_CHECKS) {
+        return;
+      }
+      accessRequestChecksRef.current.count += 1;
+      await refreshOpenDeck(id);
+    },
+    {
+      intervalMs: ACCESS_REQUEST_CHECK_INTERVAL_MS,
+      enabled: Boolean(id) && waitingOnAccessRequest,
+      pauseWhenHidden: true,
+      leading: false,
+    },
+  );
 
   useEffect(() => {
     resetDeniedPageAccessRequest();

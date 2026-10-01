@@ -22,7 +22,12 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => orgQueryState,
 }));
 
-import { DeckProvider, useDecks, type Deck } from "./DeckContext";
+import {
+  DeckProvider,
+  fallbackPollIntervalMs,
+  useDecks,
+  type Deck,
+} from "./DeckContext";
 
 class MockEventSource {
   static lastInstance: MockEventSource | null = null;
@@ -59,13 +64,7 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
 });
 
-function wrapper({ children }: { children: ReactNode }) {
-  return createElement(
-    QueryClientProvider,
-    { client: queryClient },
-    createElement(DeckProvider, { realtimeEnabled: true, children }),
-  );
-}
+const wrapper = routedWrapper();
 
 function noRealtimeWrapper({ children }: { children: ReactNode }) {
   return createElement(
@@ -80,6 +79,8 @@ function setupFetch() {
   let missingDeckDetails = new Set<string>();
   let resolveCreate: (response: Response) => void = () => {};
   let heldListRequestBudget = 0;
+  let listFailureStatus: number | null = null;
+  let deckFailureStatus: number | null = null;
   const pendingListResolves: Array<(response: Response) => void> = [];
 
   const listResponse = (decks: Deck[]) =>
@@ -96,6 +97,9 @@ function setupFetch() {
           : url.url;
 
     if (href.includes("/_agent-native/actions/list-decks")) {
+      if (listFailureStatus !== null) {
+        return Promise.resolve(new Response("", { status: listFailureStatus }));
+      }
       if (heldListRequestBudget > 0) {
         heldListRequestBudget -= 1;
         return new Promise<Response>((resolve) => {
@@ -112,6 +116,9 @@ function setupFetch() {
     }
 
     if (href.includes("/_agent-native/actions/get-deck")) {
+      if (deckFailureStatus !== null) {
+        return Promise.resolve(new Response("", { status: deckFailureStatus }));
+      }
       const id = new URL(href, "http://localhost").searchParams.get("id");
       const found = serverDecks.find((d) => d.id === id);
       return Promise.resolve(
@@ -132,6 +139,12 @@ function setupFetch() {
     },
     setMissingDeckDetails: (ids: string[]) => {
       missingDeckDetails = new Set(ids);
+    },
+    failListReads: (status: number | null) => {
+      listFailureStatus = status;
+    },
+    failDeckReads: (status: number | null) => {
+      deckFailureStatus = status;
     },
     resolveCreate: (response: Response) => resolveCreate(response),
     holdNextList: () => {
@@ -344,6 +357,71 @@ describe("DeckContext optimistic create", () => {
       currentOrgDeck.id,
     ]);
     expect(result.current.getDeck(previousDeckId)).toBeUndefined();
+  });
+});
+
+function openDeck(): Deck {
+  return {
+    id: "open-deck",
+    title: "Open Deck",
+    createdAt: "2026-07-25T00:00:00.000Z",
+    updatedAt: "2026-07-25T00:00:00.000Z",
+    slides: [],
+  };
+}
+
+function routedWrapper(route: { deckId?: string | null } = {}) {
+  return ({ children }: { children: ReactNode }) =>
+    createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(DeckProvider, {
+        realtimeEnabled: true,
+        openDeckId: route.deckId,
+        children,
+      }),
+    );
+}
+
+async function renderOpenDeck(
+  options: { decks?: Deck[]; route?: { deckId?: string | null } } = {},
+) {
+  window.history.pushState({}, "", "/deck/open-deck");
+  const api = setupFetch();
+  api.setServerDecks(options.decks ?? [openDeck()]);
+  const rendered = renderHook(() => useDecks(), {
+    wrapper: routedWrapper(options.route),
+  });
+  await waitFor(() => expect(rendered.result.current.loading).toBe(false));
+  return { api, rerender: rendered.rerender };
+}
+
+describe("fallbackPollIntervalMs", () => {
+  const base = {
+    liveChannelConnected: false,
+    hasOpenDeck: true,
+    hidden: false,
+    consecutiveFailures: 0,
+  };
+  it.each([
+    ["visible open deck, channel down", {}, 5_000],
+    ["visible open deck, channel up", { liveChannelConnected: true }, 60_000],
+    ["visible deck list, channel down", { hasOpenDeck: false }, 15_000],
+    ["hidden open deck, channel down", { hidden: true }, 30_000],
+    [
+      "hidden open deck, channel up",
+      { hidden: true, liveChannelConnected: true },
+      60_000,
+    ],
+    ["hidden deck list", { hidden: true, hasOpenDeck: false }, null],
+    ["visible, 1 failure", { consecutiveFailures: 1 }, 5_000],
+    ["visible, 2 failures", { consecutiveFailures: 2 }, 15_000],
+    ["visible, 3 failures", { consecutiveFailures: 3 }, 60_000],
+    ["visible, 9 failures", { consecutiveFailures: 9 }, 60_000],
+    ["hidden, 1 failure", { hidden: true, consecutiveFailures: 1 }, 60_000],
+    ["hidden, 2 failures", { hidden: true, consecutiveFailures: 2 }, null],
+  ] as const)("%s", (_label, overrides, expected) => {
+    expect(fallbackPollIntervalMs({ ...base, ...overrides })).toBe(expected);
   });
 });
 
@@ -677,19 +755,8 @@ describe("DeckContext fallback polling", () => {
     expect(deckCallCount(api.fetchMock) - deckBefore).toBeGreaterThanOrEqual(2);
   });
 
-  it("keeps reconciling the open deck while the tab is hidden", async () => {
-    const deck: Deck = {
-      id: "open-deck",
-      title: "Open Deck",
-      createdAt: "2026-07-25T00:00:00.000Z",
-      updatedAt: "2026-07-25T00:00:00.000Z",
-      slides: [],
-    };
-    window.history.pushState({}, "", "/deck/open-deck");
-    const api = setupFetch();
-    api.setServerDecks([deck]);
-    const { result } = renderHook(() => useDecks(), { wrapper });
-    await waitFor(() => expect(result.current.loading).toBe(false));
+  it("keeps reconciling the open deck at the hidden cadence while the tab is hidden", async () => {
+    const { api } = await renderOpenDeck();
 
     hideDocument();
     act(() => {
@@ -698,10 +765,190 @@ describe("DeckContext fallback polling", () => {
     const deckBefore = deckCallCount(api.fetchMock);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(25_000);
+    });
+    expect(deckCallCount(api.fetchMock) - deckBefore).toBe(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(deckCallCount(api.fetchMock) - deckBefore).toBe(1);
+  });
+
+  it("stops polling when the open deck is gone, and reads again on focus", async () => {
+    const { api } = await renderOpenDeck();
+
+    api.setServerDecks([]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    const deckAfterStop = deckCallCount(api.fetchMock);
+    const listAfterStop = listCallCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300_000);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(deckAfterStop);
+    expect(listCallCount(api.fetchMock)).toBe(listAfterStop);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(deckAfterStop + 1);
+  });
+
+  it("resumes a stopped deck poll when the route moves to another deck", async () => {
+    const route = { deckId: "open-deck" as string | null };
+    const otherDeck = { ...openDeck(), id: "other-deck" };
+    const { api, rerender } = await renderOpenDeck({
+      decks: [openDeck(), otherDeck],
+      route,
     });
 
-    expect(deckCallCount(api.fetchMock) - deckBefore).toBeGreaterThanOrEqual(2);
+    api.setServerDecks([otherDeck]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(66_000);
+    });
+    const stoppedCallCount = deckCallIds(api.fetchMock).length;
+
+    window.history.pushState({}, "", "/deck/other-deck");
+    route.deckId = "other-deck";
+    await act(async () => {
+      rerender();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(deckCallIds(api.fetchMock).slice(stoppedCallCount)).toContain(
+      "other-deck",
+    );
+  });
+
+  it("stops polling after a 401 and does not resume on a deck switch", async () => {
+    const route = { deckId: "open-deck" as string | null };
+    const { api, rerender } = await renderOpenDeck({ route });
+
+    api.failDeckReads(401);
+    api.failListReads(401);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    const deckAfterStop = deckCallCount(api.fetchMock);
+    const listAfterStop = listCallCount(api.fetchMock);
+
+    window.history.pushState({}, "", "/deck/other-deck");
+    route.deckId = "other-deck";
+    await act(async () => {
+      rerender();
+      await vi.advanceTimersByTimeAsync(300_000);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(deckAfterStop);
+    expect(listCallCount(api.fetchMock)).toBe(listAfterStop);
+  });
+
+  it("backs off a visible open-deck poll on repeated server errors and recovers", async () => {
+    const { api } = await renderOpenDeck();
+
+    api.failDeckReads(500);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_500);
+    });
+    const afterFirstFailure = deckCallCount(api.fetchMock);
+
+    // Failing reads are spaced 5s, then 15s, then 60s apart.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(afterFirstFailure + 1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(14_000);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(afterFirstFailure + 1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(afterFirstFailure + 2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(55_000);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(afterFirstFailure + 2);
+
+    api.failDeckReads(null);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    const afterRecovery = deckCallCount(api.fetchMock);
+    expect(afterRecovery).toBe(afterFirstFailure + 3);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_500);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(afterRecovery + 1);
+  });
+
+  it("joins focus and visibility triggers that land during one poll into a single read", async () => {
+    const { api } = await renderOpenDeck();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 1);
+  });
+
+  it("parks a hidden open-deck poll after repeated server errors until the tab is visible", async () => {
+    const { api } = await renderOpenDeck();
+
+    api.failDeckReads(500);
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(61_000);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300_000);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 2);
+
+    restoreVisibility?.();
+    restoreVisibility = null;
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 3);
+  });
+
+  it("does not hold a failing deck list at the fast interval while the live channel is up", async () => {
+    const { api } = await renderOpenDeck();
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+
+    api.failListReads(500);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    const listBefore = listCallCount(api.fetchMock);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300_000);
+    });
+    // The old load-error branch retried every 5s (60 reads in 5 minutes).
+    expect(listCallCount(api.fetchMock) - listBefore).toBeLessThanOrEqual(6);
   });
 
   it("reads the deck back when a page-local WebMCP write announces itself", async () => {
