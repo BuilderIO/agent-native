@@ -3840,6 +3840,10 @@ export function normalizeToolErrorForBreaker(error: string): string {
       )
       // Bare JSON payloads some providers inline instead of a Received: span.
       .replace(/\{[\s\S]{0,2000}?\}/g, "{}")
+      .replace(
+        /\bready again in about \d+s\b/g,
+        "ready again after the cooldown",
+      )
       .replace(/\s+/g, " ")
       .trim()
   );

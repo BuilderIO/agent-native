@@ -117,11 +117,13 @@ function formattingRuns(source: string): { runs: TextRun[] } | null {
     content: doc.content.map(withMarkers),
   });
   let delta = 0;
+  const markers: string[] = [];
   const restored = withPlaceholders.replace(
     new RegExp(`${markerPrefix}(\\d+)\`*x`, "g"),
     (token, rawIndex: string, position: number) => {
       const index = Number(rawIndex);
       const run = runs[index]!;
+      markers[index] = token;
       if (run.verbatim && !resolveVerbatimRun(run, withPlaceholders, position))
         unmappable = true;
       run.sourceFrom = position + delta;
@@ -130,13 +132,135 @@ function formattingRuns(source: string): { runs: TextRun[] } | null {
       return run.serialized;
     },
   );
+  if (unmappable || runs.some((run) => run.sourceFrom < 0)) return null;
   if (
-    unmappable ||
-    restored !== source ||
-    runs.some((run) => run.sourceFrom < 0)
+    restored !== source &&
+    !mapStoredSourceRuns(source, restored, runs, markers, withPlaceholders)
   )
     return null;
   return { runs };
+}
+
+function normalizedSourceGap(source: string, from: number, to: number): string {
+  const startsLine = from === 0 || /[\r\n]/.test(source[from - 1]!);
+  const prefix = startsLine ? "" : "x";
+  return (prefix + source.slice(from, to))
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n[ \t]*(?=\n)/g, "")
+    .replace(
+      /^(\t*)(?:[-*+] |(\d+)[.)] )/gm,
+      (_marker, indent: string, number: string | undefined) =>
+        `${indent}${number ? "1. " : "- "}`,
+    )
+    .slice(prefix.length);
+}
+
+function mapStoredSourceRuns(
+  source: string,
+  canonical: string,
+  runs: TextRun[],
+  markers: string[],
+  withPlaceholders: string,
+): boolean {
+  // Repeated partial matches must not turn a forward scan into quadratic work.
+  let remainingWork = source.length * 16;
+  const matches = (token: string, position: number) => {
+    for (let index = 0; index < token.length; index += 1) {
+      if (remainingWork-- <= 0) return false;
+      if (source[position + index] !== token[index]) return false;
+    }
+    return true;
+  };
+  const gapMatches = (
+    from: number,
+    to: number,
+    canonicalFrom: number,
+    canonicalTo: number,
+  ) => {
+    let stored = normalizedSourceGap(source, from, to);
+    let expected = normalizedSourceGap(canonical, canonicalFrom, canonicalTo);
+    // Newlines before the first block or after the last carry no syntax.
+    if (from === 0) {
+      stored = stored.replace(/^\n+/, "");
+      expected = expected.replace(/^\n+/, "");
+    }
+    if (to === source.length) {
+      stored = stored.replace(/\n+$/, "");
+      expected = expected.replace(/\n+$/, "");
+    }
+    return stored === expected;
+  };
+  let cursor = 0;
+  let canonicalCursor = 0;
+  const pieces: string[] = [];
+  for (let index = 0; index < runs.length; index += 1) {
+    const run = runs[index]!;
+    const prefix = run.serialized.slice(0, run.textOffsets[0]);
+    const suffix = run.serialized.slice(run.textOffsets[run.text.length]);
+    const tokens = run.text
+      .split("")
+      .map((_character, characterIndex) =>
+        run.serialized.slice(
+          run.textOffsets[characterIndex],
+          run.textOffsets[characterIndex + 1],
+        ),
+      );
+    let found = false;
+    for (let start = cursor; start < source.length; start += 1) {
+      if (remainingWork < 0) return false;
+      if (!matches(prefix, start)) continue;
+      let position = start + prefix.length;
+      const textOffsets = [prefix.length];
+      let valid = true;
+      for (
+        let characterIndex = 0;
+        characterIndex < tokens.length;
+        characterIndex += 1
+      ) {
+        const token = tokens[characterIndex]!;
+        const character = run.text[characterIndex]!;
+        if (matches(token, position)) position += token.length;
+        // Inline math is an atom, so a dollar in a parsed text run is literal.
+        else if (token === "\\$" && matches("$", position)) position += 1;
+        else if (character === "\n" && token.startsWith("\n")) {
+          const indent = token.slice(1);
+          if (matches(`\r\n${indent}`, position)) position += 2 + indent.length;
+          else if (matches(`\r${indent}`, position))
+            position += 1 + indent.length;
+          else valid = false;
+        } else if (
+          character === "\n" &&
+          token === "<br>" &&
+          matches("<br/>", position)
+        )
+          position += 5;
+        else valid = false;
+        if (!valid) break;
+        textOffsets.push(position - start);
+      }
+      if (!valid || !matches(suffix, position)) continue;
+      position += suffix.length;
+      if (!gapMatches(cursor, start, canonicalCursor, run.sourceFrom))
+        return false;
+      canonicalCursor = run.sourceTo;
+      pieces.push(source.slice(cursor, start), markers[index]!);
+      cursor = position;
+      run.sourceFrom = start;
+      run.sourceTo = position;
+      run.textOffsets = textOffsets;
+      found = true;
+      break;
+    }
+    if (!found) return false;
+  }
+  if (!gapMatches(cursor, source.length, canonicalCursor, canonical.length))
+    return false;
+  pieces.push(source.slice(cursor));
+  // Parsing is a second check: empty syntax must already be excluded by the gaps.
+  return (
+    JSON.stringify(nfmToDoc(pieces.join(""))) ===
+    JSON.stringify(nfmToDoc(withPlaceholders))
+  );
 }
 
 function resolveVerbatimRun(
@@ -174,15 +298,21 @@ function structuralGapParts(
   while (offset < to) {
     const breakToken = source.startsWith("<br>", offset)
       ? "<br>"
-      : source[offset] === "\n"
-        ? "\n"
-        : null;
+      : source.startsWith("\r\n", offset)
+        ? "\r\n"
+        : source[offset] === "\r" || source[offset] === "\n"
+          ? source[offset]!
+          : null;
     if (breakToken) {
       parts.push({ type: "break", text: "↵" });
       offset += breakToken.length;
       continue;
     }
-    const lineStart = source.lastIndexOf("\n", offset - 1) + 1;
+    const lineStart =
+      Math.max(
+        source.lastIndexOf("\n", offset - 1),
+        source.lastIndexOf("\r", offset - 1),
+      ) + 1;
     const atLineStart = /^\t*$/.test(source.slice(lineStart, offset));
     if (!atLineStart || source[offset] !== "\t") return null;
     const indentFrom = offset;
