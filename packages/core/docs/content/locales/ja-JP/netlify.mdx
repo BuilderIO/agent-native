@@ -39,6 +39,8 @@ npx @agent-native/core@latest deploy --preset netlify
 
 このワークスペースビルドは、静的アセットを `dist/_workspace_static/` 配下に書き出し、強制的なアセットリダイレクトなしで各アプリを専用の Netlify function にルーティングします。そのため `/mail/assets/...` のようなファイルは、サーバー function がアプリのルートを処理する前に静的に配信されます。
 
+複数のアプリをビルドしますか？ `agent-native.config.ts` で `deployment.workspace.buildConcurrency: "auto"` を設定すると、ビルドマシンのコア数とメモリに合わせて並列にビルドされます。[ワークスペースのデプロイ](/docs/workspace-deployment)を参照してください。
+
 ## Keep-warm とスケールツーゼロデータベース {#netlify-keep-warm}
 
 有効にすると、Netlify のビルドは `/_agent-native/health` を**毎分**リクエストするスケジュール function を出力します。これによりサーバー function とそのデータベースがウォームな状態に保たれ、アイドル期間後の次の訪問者がコールドスタート（Neon では 1〜5 秒）を負担しなくなります。

@@ -3,6 +3,7 @@
 import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -423,7 +424,10 @@ function runBuildStep(
     });
 
     child.on("exit", (code, signal) => {
-      const exitCode = code ?? (signal ? 1 : 0);
+      // Exit 128+N like a shell so callers can tell a killed step from a
+      // failed one: workspace deploy reads 137 (SIGKILL) as out of memory.
+      const exitCode =
+        code ?? (signal ? 128 + (os.constants.signals[signal] ?? 0) : 0);
       if (exitCode === 0) {
         resolve();
         return;
@@ -432,10 +436,16 @@ function runBuildStep(
       const { template, app } = inferBuildContext(cwd);
       const childCommand = `${cmd} ${cmdArgs.join(" ")}`;
       const err = new Error(
-        `Build step "${opts.label}" failed with exit code ${exitCode}` +
+        (signal
+          ? `Build step "${opts.label}" was killed by ${signal}` +
+            (signal === "SIGKILL" ? " (likely out of memory)" : "")
+          : `Build step "${opts.label}" failed with exit code ${exitCode}`) +
           (template ? ` (template=${template})` : "") +
           (app ? ` (app=${app})` : ""),
       );
+      // A killed step prints nothing of its own, so this line is the only
+      // explanation the user sees.
+      if (signal) console.error(`\n${err.message}`);
       void captureOptionalSentryException(err, {
         tags: {
           buildStep: opts.label,
@@ -970,7 +980,9 @@ switch (command) {
       .then((m) => m.runWorkspaceDeploy({ args }))
       .catch((err) => {
         console.error("Deploy failed:", err?.message ?? err);
-        process.exit(1);
+        // An interrupted deploy exits 128+N so CI reports a cancellation,
+        // not a build failure.
+        process.exit(typeof err?.exitCode === "number" ? err.exitCode : 1);
       });
     break;
   }
@@ -1209,6 +1221,7 @@ Options:
   --describe <text>             With migrate, describe URL/prose-only sources
   --preset <name>               Workspace deploy preset: netlify (default) or vercel
   --build-only                  Build workspace deploy artifacts without publishing
+  --concurrency <n|auto>        Workspace deploy app builds to run at once (default 1)
   --eager                       With workspace dev, start every app immediately
   --prewarm                     With workspace dev, warm non-default apps in the background
   --no-prewarm                  With workspace dev, keep non-default apps lazy

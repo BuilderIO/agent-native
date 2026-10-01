@@ -38,6 +38,8 @@ npx @agent-native/core@latest deploy --preset netlify
 
 작업 공간 빌드는 `dist/_workspace_static/` 아래에 정적 자산을 작성하고, 강제 자산 리디렉션 없이 각 앱을 고유한 Netlify 함수로 라우팅합니다. 따라서 `/mail/assets/...` 같은 파일은 서버 함수가 앱 라우트를 처리하기 전에 정적으로 제공됩니다.
 
+여러 앱을 빌드하나요? `agent-native.config.ts`에서 `deployment.workspace.buildConcurrency: "auto"`를 설정하면 빌드 머신의 코어 수와 메모리에 맞춰 병렬로 빌드됩니다. [워크스페이스 배포](/docs/workspace-deployment)를 참고하세요.
+
 ## Keep-warm과 scale-to-zero 데이터베이스 {#netlify-keep-warm}
 
 활성화하면, Netlify 빌드는 **매 분마다** `/_agent-native/health`를 요청하는 예약된 함수를 생성합니다. 이는 서버 함수와 데이터베이스를 계속 warm 상태로 유지해, 유휴 기간 이후 다음 방문자가 콜드 스타트(Neon에서 1~5초)를 겪지 않도록 합니다.
