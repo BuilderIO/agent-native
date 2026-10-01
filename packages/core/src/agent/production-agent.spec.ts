@@ -110,6 +110,9 @@ import type { AgentChatEvent, RunEvent } from "./types.js";
 const mockTryClaimRunSlot = vi.hoisted(() =>
   vi.fn(async () => ({ claimed: true, activeRunId: null })),
 );
+const mockGetSlotHoldingRunId = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | undefined> => undefined),
+);
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -123,6 +126,7 @@ vi.mock("./run-manager.js", async () => ({
     "./run-manager.js",
   )),
   tryClaimRunSlot: mockTryClaimRunSlot,
+  getSlotHoldingRunId: mockGetSlotHoldingRunId,
 }));
 
 describe("runCompletionCallbackWithDatabaseRetry", () => {
@@ -2103,6 +2107,65 @@ describe("createProductionAgentHandler", () => {
     });
     expect(event.res.status).toBe(400);
     expect(systemPrompt).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("refuses a busy thread before uploading the message's attachments", async () => {
+    // The client sends the same message again once the thread frees up, so
+    // uploading before the refusal would store every file again per retry.
+    mockGetSlotHoldingRunId.mockResolvedValueOnce("run-earlier");
+    mockTryClaimRunSlot.mockClear();
+    const stream = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream,
+      },
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Look at this",
+          threadId: "thread-busy",
+          attachments: [
+            {
+              type: "image",
+              name: "shot.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,iVBORw0KGgo=",
+            },
+          ],
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: "alice@example.com", run: {} }, () =>
+        handler(event),
+      ),
+    ).resolves.toEqual({
+      error: "Run already in progress for this thread",
+      code: "run_slot_busy",
+      retryable: true,
+      activeRunId: "run-earlier",
+    });
+    expect(event.res.status).toBe(409);
+    expect(mockGetSlotHoldingRunId).toHaveBeenCalledWith("thread-busy");
+    expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
     expect(stream).not.toHaveBeenCalled();
   });
 
@@ -6345,6 +6408,154 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining(
           "must match exactly one schema in oneOf",
         ),
+      }),
+    );
+  });
+
+  it("validates raw MCP schemas using their declared 2020-12 dialect", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          fromMcpServer: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("uses MCP's 2020-12 default when the schema omits $schema", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          fromMcpServer: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("keeps MCP and legacy validators separate in the schema cache", async () => {
+    const parameters = {
+      type: "object",
+      properties: {
+        primary: { type: "string" },
+        secondary: { type: "string" },
+      },
+      dependentRequired: { primary: ["secondary"] },
+    } as any;
+    const legacyRun = vi.fn(async () => "legacy ran");
+
+    await runToolCallSequence(
+      [{ name: "legacy-tool", input: { primary: "value" } }],
+      {
+        "legacy-tool": {
+          tool: { description: "Validate a legacy schema", parameters },
+          run: legacyRun,
+        },
+      },
+    );
+
+    expect(legacyRun).toHaveBeenCalledOnce();
+
+    const mcpRun = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: { description: "Validate an MCP schema", parameters },
+          fromMcpServer: true,
+          run: mcpRun,
+        },
+      },
+    );
+
+    expect(mcpRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("does not apply MCP's default dialect to a local action just because it is externally exposed", async () => {
+    const run = vi.fn(async () => "local ran");
+    const events = await runToolCallSequence(
+      [{ name: "local-tool", input: { primary: "value" } }],
+      {
+        "local-tool": {
+          tool: {
+            description: "A local action exposed to external MCP callers",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          // `mcpTool` only controls external exposure of a *local* action;
+          // it must not be treated as evidence the schema follows MCP's
+          // 2020-12 default dialect the way `fromMcpServer` does.
+          mcpTool: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "local-tool",
+        result: "local ran",
       }),
     );
   });

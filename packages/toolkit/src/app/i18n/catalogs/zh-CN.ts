@@ -579,6 +579,12 @@ const messages: ToolkitAgentChatTranslation = {
     "工具架构无效，因此模型在请求开始前拒绝了该请求。可以跳过无效工具并重试请求。",
   "errorMessages.malformedRequest":
     "模型提供方认为该请求格式有误并予以拒绝，因此未重试。请重试，若问题持续出现，请开始新的对话。",
+  "errorMessages.runInterrupted": "智能体在完成前停止了。",
+  "errorMessages.runFailed": "智能体运行失败。",
+  "errorMessages.runUnverified":
+    "此对话已无法跟踪智能体，它可能仍在运行。请刷新以查看进度。",
+  "errorMessages.runSignedOut":
+    "您已退出登录，因此此对话无法跟踪智能体。请重新登录，然后刷新。",
   "errorMessages.malformedRequestAttachment":
     "模型拒绝了一个附加文件，因此该消息未发送。请移除附件后重试：PDF、纯文本文件以及 JPEG、PNG、GIF、WebP 图片可直接读取；其他格式需要先上传再以链接形式引用。",
   "errorMessages.noProviderConnected":

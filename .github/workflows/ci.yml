@@ -959,6 +959,12 @@ jobs:
       - name: Test AgentKit stream ownership guard
         run: pnpm test:agentkit-stream-ownership
 
+      - name: Test untracked-imports guard
+        run: pnpm test:no-untracked-imports
+
+      - name: Test mobile build path guard
+        run: pnpm test:mobile-build-paths
+
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert
 
