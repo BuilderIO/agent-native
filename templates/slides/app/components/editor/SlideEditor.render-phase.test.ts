@@ -532,7 +532,7 @@ describe("SlideEditor render-phase safety", () => {
     ).toBeLessThan(clickBody.indexOf("commentPress &&"));
   });
 
-  it("starts a group drag when the pointer is on a selected text member", () => {
+  it("keeps group dragging available with additive modifiers", () => {
     const pointerStart = source.indexOf(
       "// Pointer-down on a member of the current multi-selection",
     );

@@ -53,6 +53,59 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 describe("SlideEditor with a newer version of the edited slide", () => {
+  it("keeps the first image selected when Shift-clicking another image", async () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const noop = () => {};
+    const slide = {
+      id: "slide-image-multiselect",
+      content:
+        '<div class="fmd-slide"><img src="https://example.test/first.svg" alt="First"><img src="https://example.test/second.svg" alt="Second"></div>',
+      layout: "blank",
+    } as Slide;
+    const { container } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+    const slideCanvas = container.querySelector<HTMLElement>(".fmd-slide")!;
+    vi.spyOn(slideCanvas, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 1200, 675),
+    );
+    Object.defineProperty(slideCanvas, "offsetWidth", {
+      configurable: true,
+      value: 1200,
+    });
+    Object.defineProperty(slideCanvas, "offsetHeight", {
+      configurable: true,
+      value: 675,
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+    const [first, second] =
+      container.querySelectorAll<HTMLImageElement>(".slide-content img");
+    fireEvent.pointerDown(first, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(first, { button: 0, pointerId: 1 });
+    fireEvent.click(first);
+    fireEvent.pointerDown(second, {
+      button: 0,
+      pointerId: 2,
+      shiftKey: true,
+    });
+    fireEvent.pointerUp(second, { button: 0, pointerId: 2, shiftKey: true });
+    fireEvent.click(second, { shiftKey: true });
+
+    expect(
+      document.querySelector("[data-multi-select-chip] span")?.textContent,
+    ).toBe("2");
+  });
+
   it("saves a text edit when the page hides before the draft debounce fires", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const onUpdateSlide = vi.fn(
