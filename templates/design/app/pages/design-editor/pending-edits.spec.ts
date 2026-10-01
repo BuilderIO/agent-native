@@ -19,6 +19,7 @@ import {
   pendingVisualStyleRouteMatches,
   pendingVisualStyleGestureIdForPhase,
   resolveOverviewScreenSourceType,
+  updateVisualEditHandoffPublication,
 } from "./pending-edits";
 
 function styleEdit(
@@ -525,16 +526,16 @@ describe("formatVisualEditClipboardPrompt", () => {
 });
 
 describe("isVisualEditHandoffAcknowledged", () => {
-  it("clears only the exact locally pending revision", () => {
+  it("clears only the exact acknowledged server revision", () => {
     const base = {
-      currentRevision: 8,
+      serverRevision: 81,
       pendingEditCount: 3,
       status: "empty",
-      revision: 8,
+      revision: 81,
     } as const;
 
     expect(isVisualEditHandoffAcknowledged(base)).toBe(true);
-    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 7 })).toBe(
+    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 80 })).toBe(
       false,
     );
     expect(isVisualEditHandoffAcknowledged({ ...base, status: "ready" })).toBe(
@@ -543,6 +544,40 @@ describe("isVisualEditHandoffAcknowledged", () => {
     expect(
       isVisualEditHandoffAcknowledged({ ...base, pendingEditCount: 0 }),
     ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, serverRevision: null }),
+    ).toBe(false);
+  });
+
+  it("rechecks an empty response when the matching server revision arrives later", () => {
+    const handoff = { status: "empty", revision: 81 } as const;
+    const queued = updateVisualEditHandoffPublication(null, {
+      status: "queued",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+    const publication = updateVisualEditHandoffPublication(queued, {
+      status: "ready",
+      designId: "design-1",
+      publicationRevision: 4,
+      serverRevision: 81,
+    });
+
+    expect(
+      isVisualEditHandoffAcknowledged({
+        serverRevision: null,
+        pendingEditCount: 3,
+        ...handoff,
+      }),
+    ).toBe(false);
+    expect(publication?.serverRevision).toBe(81);
+    expect(
+      isVisualEditHandoffAcknowledged({
+        serverRevision: publication?.serverRevision ?? null,
+        pendingEditCount: 3,
+        ...handoff,
+      }),
+    ).toBe(true);
   });
 });
 

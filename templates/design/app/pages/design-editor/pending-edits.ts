@@ -1825,7 +1825,7 @@ export function formatVisualEditClipboardPrompt(
 }
 
 export function isVisualEditHandoffAcknowledged(args: {
-  currentRevision: number;
+  serverRevision: number | null;
   pendingEditCount: number;
   revision: number | null;
   status: string;
@@ -1833,7 +1833,8 @@ export function isVisualEditHandoffAcknowledged(args: {
   return (
     args.pendingEditCount > 0 &&
     args.status === "empty" &&
-    args.revision === args.currentRevision
+    args.serverRevision !== null &&
+    args.revision === args.serverRevision
   );
 }
 
