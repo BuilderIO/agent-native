@@ -1446,6 +1446,7 @@ export function createAgentKitProtocolAdapter(
       waitingForContinuation: false,
       listeners: new Set(),
     };
+    setResumedRuntimeTurn(run, run.turn);
     runs.set(input.runId, run);
     append(run, {
       type: "run.started",
@@ -2570,14 +2571,12 @@ export function createAgentKitProtocolAdapter(
       run.continuationStartedAtMs = undefined;
       run.resumeDeadlineAtMs = isRunningBackgroundRun
         ? Date.now() +
-          BACKGROUND_FUNCTION_WALL_MS +
-          BACKGROUND_FUNCTION_WALL_HEADROOM_MS
+          (BACKGROUND_FUNCTION_WALL_MS - BACKGROUND_FUNCTION_WALL_HEADROOM_MS)
         : undefined;
     } else if (isRunningBackgroundRun) {
       run.resumeDeadlineAtMs ??=
         Date.now() +
-        BACKGROUND_FUNCTION_WALL_MS +
-        BACKGROUND_FUNCTION_WALL_HEADROOM_MS;
+        (BACKGROUND_FUNCTION_WALL_MS - BACKGROUND_FUNCTION_WALL_HEADROOM_MS);
     } else if (resumeState) {
       run.resumeDeadlineAtMs = undefined;
     }

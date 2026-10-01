@@ -2796,11 +2796,12 @@ export function createAgentNativeChatRuntime(
     ...nativeRuntime,
     resume: async (input) => {
       const threadId = input.sessionId ?? options.threadId;
-      if (!threadId || !input.turnId || !input.runId) {
+      if (!threadId || !input.runId) {
         return nativeRuntime.resume!(input);
       }
 
-      const query = new URLSearchParams({ threadId, turnId: input.turnId });
+      const query = new URLSearchParams({ threadId });
+      if (input.turnId) query.set("turnId", input.turnId);
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
       const response = await runtimeFetch(
@@ -2815,23 +2816,35 @@ export function createAgentNativeChatRuntime(
       if (!response.ok) throw await readHttpRuntimeError(response);
 
       const latestRun = asRecord(await response.json());
-      if (
-        !latestRun ||
-        typeof latestRun.runId !== "string" ||
-        !latestRun.runId.trim()
-      ) {
+      if (!latestRun) {
+        throw new TypeError(
+          "Agent chat latest-run response must include a run ID.",
+        );
+      }
+      if (typeof latestRun.runId !== "string" || !latestRun.runId.trim()) {
+        if (!input.turnId && latestRun.status === "queued") {
+          return nativeRuntime.resume!(input);
+        }
         throw new TypeError(
           "Agent chat latest-run response must include a run ID.",
         );
       }
       const runId = latestRun.runId;
+      if (!input.turnId && runId !== input.runId) {
+        return nativeRuntime.resume!(input);
+      }
+      const turnId =
+        input.turnId ??
+        (typeof latestRun.turnId === "string" && latestRun.turnId.trim()
+          ? latestRun.turnId
+          : input.runId);
       const events = await nativeRuntime.subscribe!({
         ...input,
         runId,
         after: runId === input.runId ? input.after : 0,
       });
       return {
-        id: input.turnId,
+        id: turnId,
         sessionId: threadId,
         runId,
         metadata: {
