@@ -81,10 +81,12 @@ agent answers about browser recordings in the Analytics template.
   in every sink mode. Lists, did/didn't filters, and the catalog read only
   these tables, never BigQuery. The index write is best-effort and must never
   fail ingest.
-- Sessions that started before a tenant's coverage start are excluded from
-  event filters, so "didn't" never matches a session the index never saw. The
-  retention sweep keeps index rows two days past replay retention. The
-  BigQuery-cutover purge leaves these tables alone.
+- Event filters exclude a session if any of its recordings started before the
+  tenant's coverage start, because one analytics session can span tabs.
+  Coverage starts only after a session write succeeds. "Didn't" also needs at
+  least one index row for the session, so a failed or pruned index write never
+  reads as an event's absence. The retention sweep keeps index rows two days
+  past replay retention. The BigQuery-cutover purge leaves these tables alone.
 
 ## Agent Diagnostics Surface
 

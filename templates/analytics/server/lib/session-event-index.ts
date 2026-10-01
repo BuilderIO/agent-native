@@ -1,4 +1,15 @@
-import { and, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import {
+  and,
+  type AnyColumn,
+  desc,
+  eq,
+  gte,
+  inArray,
+  lt,
+  lte,
+  sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import {
   AUTOMATIC_ANALYTICS_EVENT_NAMES,
@@ -15,8 +26,9 @@ import { getDb, schema } from "../db/index.js";
  * `recordAnalyticsEvents` writes every accepted event here after it persists
  * the event, whatever the storage sink. Session filters, event-name options,
  * and the event catalog read only these Postgres tables, so no view queries
- * BigQuery. Sessions that started before a tenant's index began are excluded
- * from event filters because their coverage is incomplete.
+ * BigQuery. Event filters exclude sessions that started before a tenant's index
+ * began, because their coverage is incomplete. "Didn't" conditions also
+ * exclude sessions the index never saw.
  */
 
 export interface SessionEventIndexInputRow {
@@ -188,6 +200,23 @@ export async function recordSessionEventIndex(
     const t = schema.analyticsSessionEvents;
     const c = schema.analyticsEventCatalogDaily;
 
+    if (sessionEvents.length) {
+      await db
+        .insert(t)
+        .values(sessionEvents)
+        .onConflictDoUpdate({
+          target: [t.tenantKey, t.sessionId, t.eventName],
+          set: {
+            eventCount: sql`${t.eventCount} + excluded.event_count`,
+            firstAt: sql`least(${t.firstAt}, excluded.first_at)`,
+            lastAt: sql`greatest(${t.lastAt}, excluded.last_at)`,
+            app: sql`case when excluded.app <> '' then excluded.app else ${t.app} end`,
+          },
+        });
+    }
+
+    // Coverage starts only once a session write has succeeded, so a failed
+    // first write never opens coverage over sessions the index missed.
     const tenants = new Map<
       string,
       { ownerEmail: string; orgId: string | null }
@@ -213,21 +242,6 @@ export async function recordSessionEventIndex(
         )
         .onConflictDoNothing();
       for (const tenantKey of tenants.keys()) coverageTenants.add(tenantKey);
-    }
-
-    if (sessionEvents.length) {
-      await db
-        .insert(t)
-        .values(sessionEvents)
-        .onConflictDoUpdate({
-          target: [t.tenantKey, t.sessionId, t.eventName],
-          set: {
-            eventCount: sql`${t.eventCount} + excluded.event_count`,
-            firstAt: sql`least(${t.firstAt}, excluded.first_at)`,
-            lastAt: sql`greatest(${t.lastAt}, excluded.last_at)`,
-            app: sql`case when excluded.app <> '' then excluded.app else ${t.app} end`,
-          },
-        });
     }
 
     if (catalog.length) {
@@ -290,16 +304,27 @@ export function sessionEventFilterConditions(filters: SessionEventFilters) {
   if (!didEvents.length && !didNotEvents.length) return [];
 
   const r = schema.sessionRecordings;
+  const sibling = alias(schema.sessionRecordings, "session_event_sibling");
   const se = schema.analyticsSessionEvents;
   const coverage = schema.analyticsSessionEventCoverage;
-  const recordingTenant = sql`(case when ${r.orgId} is not null then 'org:' || ${r.orgId} else 'user:' || ${r.ownerEmail} end)`;
-  const eventExists = (eventName: string) =>
-    sql`exists (select 1 from ${se} where ${se.tenantKey} = ${recordingTenant} and ${se.sessionId} = ${r.sessionId} and ${se.eventName} = ${eventName})`;
+  const tenantOf = (recording: { orgId: AnyColumn; ownerEmail: AnyColumn }) =>
+    sql`(case when ${recording.orgId} is not null then 'org:' || ${recording.orgId} else 'user:' || ${recording.ownerEmail} end)`;
+  const recordingTenant = tenantOf(r);
+  const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${recordingTenant})`;
+  const sessionIndexed = (eventName?: string) =>
+    sql`exists (select 1 from ${se} where ${se.tenantKey} = ${recordingTenant} and ${se.sessionId} = ${r.sessionId}${eventName === undefined ? sql`` : sql` and ${se.eventName} = ${eventName}`})`;
 
   return [
-    sql`${r.startedAt} >= (select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${recordingTenant})`,
-    ...didEvents.map((eventName) => eventExists(eventName)),
-    ...didNotEvents.map((eventName) => sql`not ${eventExists(eventName)}`),
+    sql`${r.startedAt} >= ${coverageStart}`,
+    // One analytics session can span tabs, each with its own recording. A
+    // session that had a recording before coverage began may have events the
+    // index never saw.
+    sql`not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${tenantOf(sibling)} = ${recordingTenant} and ${sibling.startedAt} < ${coverageStart})`,
+    ...didEvents.map((eventName) => sessionIndexed(eventName)),
+    // "Didn't" needs a session the index saw, so a failed or pruned index
+    // write never reads as the event's absence.
+    ...(didNotEvents.length ? [sessionIndexed()] : []),
+    ...didNotEvents.map((eventName) => sql`not ${sessionIndexed(eventName)}`),
   ];
 }
 

@@ -239,7 +239,6 @@ describe("session event index on Postgres", () => {
     await addRecording("r-both", "s-both", "2026-09-20T10:00:30.000Z");
     await addRecording("r-recorded", "s-recorded", "2026-09-20T10:02:30.000Z");
     await addRecording("r-viewed", "s-viewed", "2026-09-20T10:03:30.000Z");
-    await addRecording("r-quiet", "s-quiet", "2026-09-20T10:05:00.000Z");
 
     expect(
       await matchingRecordings({
@@ -251,8 +250,87 @@ describe("session event index on Postgres", () => {
       await matchingRecordings({ didEvents: ["recording_started"] }),
     ).toEqual(["r-both", "r-recorded"]);
     expect(await matchingRecordings({ didNotEvents: ["clip_viewed"] })).toEqual(
-      ["r-quiet", "r-recorded"],
+      ["r-recorded"],
     );
+  });
+
+  it("never treats a session the index never saw as not doing an event", async () => {
+    await recordSessionEventIndex(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-seen",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    await addRecording("r-seen", "s-seen", "2026-09-20T10:00:30.000Z");
+    // Covered by time, but its index write failed or was pruned.
+    await addRecording("r-unseen", "s-unseen", "2026-09-20T10:05:00.000Z");
+
+    expect(await matchingRecordings({ didNotEvents: ["clip_viewed"] })).toEqual(
+      ["r-seen"],
+    );
+  });
+
+  it("excludes a session that had a recording before coverage began", async () => {
+    await recordSessionEventIndex(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-tabs",
+          timestamp: "2026-09-20T10:31:00.000Z",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s-fresh",
+          timestamp: "2026-09-20T10:31:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    // The first tab's events, such as a purchase, predate the index.
+    await addRecording("r-tab-1", "s-tabs", "2026-09-20T09:50:00.000Z");
+    await addRecording("r-tab-2", "s-tabs", "2026-09-20T10:30:00.000Z");
+    await addRecording("r-fresh", "s-fresh", "2026-09-20T10:30:00.000Z");
+    // The same session id under another tenant never excludes this one.
+    await addRecording("r-other", "s-fresh", "2026-09-20T09:00:00.000Z", {
+      ownerEmail: "someone@other.test",
+      orgId: "org_other",
+    });
+
+    expect(await matchingRecordings({ didNotEvents: ["purchase"] })).toEqual([
+      "r-fresh",
+    ]);
+  });
+
+  it("starts coverage only after a session write succeeds", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const realDb = db;
+    getDbMock.mockReturnValueOnce({
+      insert: (table: unknown) => {
+        if (table === schema.analyticsSessionEvents) {
+          throw new Error("session index write failed");
+        }
+        return realDb.insert(table);
+      },
+    });
+    const batch = [
+      event({
+        eventName: "pageview",
+        sessionId: "s1",
+        timestamp: "2026-09-20T10:01:00.000Z",
+      }),
+    ];
+    await recordSessionEventIndex(batch, "2026-09-20T10:00:00.000Z");
+    await recordSessionEventIndex(batch, "2026-09-20T11:00:00.000Z");
+    warn.mockRestore();
+
+    const coverage = await client.query(
+      "SELECT started_at FROM analytics_session_event_coverage",
+    );
+    expect(coverage.rows).toEqual([{ started_at: "2026-09-20T11:00:00.000Z" }]);
   });
 
   it("excludes sessions recorded before the index covered their tenant", async () => {

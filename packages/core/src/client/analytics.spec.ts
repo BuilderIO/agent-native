@@ -1293,6 +1293,11 @@ describe("browser analytics pageviews", () => {
     trackEvent("pageview");
     trackEvent("action.response", { action: "list-clips" });
     trackEvent("session_status", { signed_in: true });
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    replayOptions.onUploadRejectedWithAttemptId(
+      { status: 409, restartAttempted: true, restartSucceeded: true },
+      "opaque-attempt-1",
+    );
     await tick();
 
     const marked = replayMock.emitSessionReplayAnalyticsEvent.mock.calls.map(
@@ -1307,6 +1312,7 @@ describe("browser analytics pageviews", () => {
     expect(marked).not.toContain("pageview");
     expect(marked).not.toContain("action.response");
     expect(marked).not.toContain("session_status");
+    expect(marked).not.toContain("session_replay_upload_rejected");
   });
 
   it("switches content capture before emitting client-side pageviews", async () => {

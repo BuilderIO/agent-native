@@ -2147,6 +2147,8 @@ const REPLAY_UNMARKED_EVENT_NAMES = new Set([
   "action.response",
   "agent_chat_lifecycle",
   "session_replay_started",
+  "session replay upload rejected",
+  "session_replay_upload_rejected",
   AGENT_NATIVE_EXCEPTION_EVENT_NAME,
 ]);
 
