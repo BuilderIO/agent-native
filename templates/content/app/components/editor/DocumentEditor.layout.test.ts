@@ -53,6 +53,7 @@ import {
   sameSuggestionAnchorIds,
   singleSuggestionDecisionLockAfterMismatch,
   suggestionAmendmentTargetIsResolved,
+  suggestionAmendmentResolutionConflicts,
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
   retainThenAdoptDisplacedWinner,
@@ -612,6 +613,57 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "amendmentDraftIsDirty && suggestionAmendmentConflict",
     );
+  });
+
+  it.each(["accepted", "rejected"] as const)(
+    "does not report an own %s single decision as an amendment conflict",
+    (decision) => {
+      expect(
+        suggestionAmendmentResolutionConflicts(
+          "amended",
+          [{ id: "amended", status: decision }],
+          [{ id: "amended", decision }],
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it.each(["accepted", "rejected"] as const)(
+    "does not report an own %s group member decision as an amendment conflict",
+    (decision) => {
+      expect(
+        suggestionAmendmentResolutionConflicts(
+          "amended",
+          [{ id: "amended", status: decision }],
+          [
+            { id: "another-member", decision },
+            { id: "amended", decision },
+          ],
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("retains external, unrelated, stale and mismatched amendment conflicts", () => {
+    for (const status of ["accepted", "rejected", "stale"] as const) {
+      const suggestions = [{ id: "amended", status }];
+      expect(
+        suggestionAmendmentResolutionConflicts("amended", suggestions, []),
+      ).toBe(true);
+      expect(
+        suggestionAmendmentResolutionConflicts("amended", suggestions, [
+          { id: "unrelated", decision: "accepted" },
+        ]),
+      ).toBe(true);
+      expect(
+        suggestionAmendmentResolutionConflicts("amended", suggestions, [
+          {
+            id: "amended",
+            decision: status === "accepted" ? "rejected" : "accepted",
+          },
+        ]),
+      ).toBe(true);
+    }
   });
 
   it("refreshes a remaining insertion anchor after accepting an earlier nearby replacement", () => {
