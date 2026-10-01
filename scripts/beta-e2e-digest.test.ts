@@ -58,6 +58,7 @@ interface FakeTest {
   file?: string;
   project?: string;
   attachments?: Array<{ name: string; path: string }>;
+  annotations?: Array<{ type: string; description: string }>;
 }
 
 /** The shape Playwright's JSON reporter writes, reduced to what the digest reads. */
@@ -86,6 +87,7 @@ function fakeReport(
           status,
           expectedStatus:
             status === "skipped" ? (test.expectedStatus ?? "passed") : "passed",
+          annotations: test.annotations ?? [],
           // Playwright writes no result for a test it never ran.
           results:
             status === "skipped"
@@ -230,6 +232,26 @@ describe("text helpers", () => {
         "Beta session bootstrap for chat resolved to a@b.c, not the expected x@y.z.",
       ),
       "env",
+    );
+    // An engine-less turn whose account resolves elsewhere is the account's
+    // configuration, not a Chat regression.
+    assert.equal(
+      classifyMessage(
+        "Agent chat did not provably run on luna through the dedicated key.\n1 request(s) named no engine, so the server chose it, and nothing proved that engine is ai-sdk:openai: the account resolves to engine builder, not ai-sdk:openai",
+      ),
+      "env",
+    );
+    assert.equal(
+      classifyMessage(
+        "named no engine: the app's default engine is builder, which overrides the account's ai-sdk:openai",
+      ),
+      "env",
+    );
+    assert.equal(
+      classifyMessage(
+        "Agent chat did not provably run on luna through the dedicated key.\nnon-luna models: claude-opus-4-8",
+      ),
+      "product",
     );
     assert.equal(
       classifyMessage(
@@ -442,6 +464,230 @@ describe("digest outcomes", () => {
       renderIssueBody(digest),
       /Advisory findings \(1, non-gating\)/,
     );
+  });
+
+  it("reports tests skipped for the e2e account's setup as not tested, never as failing", () => {
+    const storage =
+      "[env] e2e account has no private storage; connect Builder storage to the e2e account";
+    const report = fakeReport("apps/journey-slides-pdf-import.spec.ts", [
+      {
+        title:
+          "[journey] [slides-import] slides: a PDF upload returns a handle",
+        project: "journeys-flows",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [{ type: "skip", description: storage }],
+      },
+      {
+        title: "[journey] [slides-import] slides: Import > PDF creates a deck",
+        project: "journeys-flows",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [{ type: "skip", description: storage }],
+      },
+      {
+        // Left out of the run on purpose: not an account-setup gap.
+        title: "[journey] [forms] forms: create and publish",
+        project: "journeys-flows",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [
+          { type: "skip", description: "forms is not in this run's selection" },
+        ],
+      },
+      {
+        // A passing test that merely carries an [env] note is not a skip.
+        title: "[journey] [dispatch-apps] dispatch opens each app",
+        project: "journeys-flows",
+        status: "expected",
+        annotations: [{ type: "note", description: "[env] informational" }],
+      },
+    ]);
+    const parsed = slot("authed-journeys-flows", report);
+    assert.equal(parsed.stats.skipped, 3);
+    assert.equal(parsed.envSkipped.length, 2);
+    assert.equal(parsed.envSkipped[0]?.app, "slides");
+    assert.equal(parsed.envSkipped[0]?.project, "journeys-flows");
+    assert.equal(
+      parsed.envSkipped[0]?.reason,
+      "e2e account has no private storage; connect Builder storage to the e2e account",
+    );
+
+    const digest = buildDigest(input({ slots: [parsed] }));
+    assert.equal(digest.status, "green");
+    assert.equal(digest.entries.length, 0);
+    assert.equal(digest.envSkipped.length, 2);
+
+    const body = renderIssueBody(digest);
+    assert.match(
+      body,
+      /- Not tested: 2 tests skipped because the e2e account is not set up for them \(slides\): e2e account has no private storage/,
+    );
+    assert.match(
+      body,
+      /### Skipped: the e2e account is not set up for these \(2, not failing\)/,
+    );
+    assert.match(body, /connect Builder storage to the e2e account/);
+    assert.doesNotMatch(body, /forms is not in this run's selection/);
+    assert.match(
+      renderSlack(digest),
+      /NOT TESTED: 2 tests skipped because the e2e account/,
+    );
+  });
+
+  it("says nothing about account setup when no test skipped for it", () => {
+    const digest = buildDigest(
+      input({
+        slots: [
+          slot(
+            "authed-journeys-core",
+            fakeReport("a.spec.ts", [
+              { title: "passes", status: "expected" },
+              {
+                title: "left out",
+                status: "skipped",
+                expectedStatus: "skipped",
+                annotations: [
+                  { type: "skip", description: "design is not selected" },
+                ],
+              },
+            ]),
+          ),
+        ],
+      }),
+    );
+    assert.equal(digest.envSkipped.length, 0);
+    assert.doesNotMatch(
+      renderIssueBody(digest),
+      /Not tested|account is not set up/,
+    );
+    assert.doesNotMatch(renderSlack(digest), /NOT TESTED/);
+  });
+
+  it("keeps the not-tested line in a red run's Slack message and the issue", () => {
+    const failing = fakeReport("chat.spec.ts", [
+      {
+        describe: ["chat agent chat"],
+        title: "completes",
+        project: "chat",
+        error: "Error: boom",
+      },
+      {
+        title: "[journey] [slides-import] upload",
+        project: "journeys-flows",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [{ type: "skip", description: "[env] no storage" }],
+      },
+    ]);
+    const digest = buildDigest(
+      input({ slots: [slot("authed-chat-chat", failing)] }),
+    );
+    assert.equal(digest.status, "red");
+    const slack = renderSlack(digest).split("\n");
+    assert.ok(slack.length <= 12);
+    assert.ok(slack.some((line) => /^NOT TESTED: 1 test skipped/.test(line)));
+    assert.match(renderIssueBody(digest), /- Not tested: 1 test skipped/);
+  });
+
+  it("reports a test.fixme parked as QUARANTINED with its text, never as a plain skip or a failure", () => {
+    const quarantine =
+      "QUARANTINED steve until 2026-10-15: the Chat app sends the picked engine in request metadata, so the spend guard cannot prove the dedicated key";
+    const report = fakeReport("chat.spec.ts", [
+      {
+        describe: ["chat agent chat"],
+        title: "completes and restores a turn on luna",
+        project: "chat",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [{ type: "fixme", description: quarantine }],
+      },
+      {
+        describe: ["chat agent chat"],
+        title: "clears the stop button when a turn ends",
+        project: "chat",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [{ type: "fixme", description: quarantine }],
+      },
+      {
+        // A fixme with an ordinary reason is a skip, not a quarantine.
+        describe: ["chat agent chat"],
+        title: "keeps the environment badge clear of the send button",
+        project: "chat",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [{ type: "fixme", description: "flaky layout" }],
+      },
+      {
+        describe: ["chat agent chat"],
+        title: "renders the composer",
+        project: "chat",
+        status: "expected",
+      },
+    ]);
+    const parsed = slot("authed-chat-chat", report);
+    assert.equal(parsed.stats.skipped, 3);
+    assert.equal(parsed.quarantined.length, 2);
+    assert.equal(parsed.quarantined[0]?.app, "chat");
+    assert.equal(parsed.quarantined[0]?.project, "chat");
+    assert.equal(
+      parsed.quarantined[0]?.reason,
+      quarantine.replace(/^QUARANTINED /, ""),
+    );
+    assert.equal(parsed.envSkipped.length, 0);
+
+    const digest = buildDigest(input({ slots: [parsed] }));
+    assert.equal(digest.status, "green");
+    assert.equal(digest.entries.length, 0);
+    assert.equal(digest.quarantined.length, 2);
+
+    const body = renderIssueBody(digest);
+    assert.match(
+      body,
+      /- Quarantined: 2 tests not running \(chat\): steve until 2026-10-15: the Chat app sends the picked engine/,
+    );
+    assert.match(body, /### Quarantined: parked on purpose, not running \(2,/);
+    assert.match(body, /completes and restores a turn on luna/);
+    assert.doesNotMatch(body, /flaky layout/);
+    assert.match(
+      renderSlack(digest),
+      /QUARANTINED: 2 tests not running \(chat\): steve until 2026-10-15/,
+    );
+  });
+
+  it("keeps the quarantine line in a red run's Slack message and the issue", () => {
+    const failing = fakeReport("chat.spec.ts", [
+      {
+        describe: ["chat agent chat"],
+        title: "completes",
+        project: "chat",
+        error: "Error: boom",
+      },
+      {
+        describe: ["chat agent chat"],
+        title: "parked",
+        project: "chat",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [
+          {
+            type: "skip",
+            description: "QUARANTINED steve until 2026-10-15: x",
+          },
+        ],
+      },
+    ]);
+    const digest = buildDigest(
+      input({ slots: [slot("authed-chat-chat", failing)] }),
+    );
+    assert.equal(digest.status, "red");
+    const slack = renderSlack(digest).split("\n");
+    assert.ok(slack.length <= 12);
+    assert.ok(
+      slack.some((line) => /^QUARANTINED: 1 test not running/.test(line)),
+    );
+    assert.match(renderIssueBody(digest), /- Quarantined: 1 test not running/);
   });
 
   it("names a killed job that left no results, with the last [beta-e2e] line", () => {

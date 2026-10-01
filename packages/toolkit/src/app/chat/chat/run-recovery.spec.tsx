@@ -106,7 +106,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "agentChat.recovery.reconnectBuilder": "Reconnect Builder.io",
         "agentChat.recovery.connectingBuilder": "Connecting Builder.io",
         "agentChat.error.stopped": "The agent stopped before finishing",
-        "agentChat.error.failed": "The agent hit an error",
+        "agentChat.error.failed": "The agent run failed before it finished.",
         "agentChat.limit.reached": "Step limit reached",
         "agentChat.limit.descriptionWithCount":
           "{{formattedCount}} steps remain for {{scope}}.",
@@ -128,7 +128,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       },
       "de-DE": {
         "agentChat.error.stopped": "The agent stopped before finishing",
-        "agentChat.error.failed": "The agent hit an error",
+        "agentChat.error.failed": "The agent run failed before it finished.",
         "agentChat.recovery.copyDebug": "Debug-Informationen kopieren",
         "agentChat.recovery.copyFailed": "Kopieren fehlgeschlagen",
         "agentChat.common.copied": "Kopiert",

@@ -4,6 +4,11 @@ import type { AgentRunSummary } from "../agent/run-store.js";
 import { CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT } from "../agent/run-store.js";
 import type { ChatThread } from "../chat-threads/store.js";
 import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "../tracking/registry.js";
+import type { TrackingEvent } from "../tracking/types.js";
+import {
   finalizeClaimedAgentChatProcessRunFailure,
   handleSharedThreadRequest,
   isNetlifyRecurringJobsRuntime,
@@ -11,7 +16,90 @@ import {
   resolveAgentCheckpointPaths,
   scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
+  trackAgentChatRunLifecycle,
 } from "./agent-chat-plugin.js";
+
+describe("agent chat run lifecycle tracking", () => {
+  it("keys server run events by durable thread and attempt ids", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-lifecycle-test",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      trackAgentChatRunLifecycle(
+        "run_started",
+        "thread-1",
+        "attempt-1",
+        "owner@example.com",
+        {},
+        "slides",
+      );
+      trackAgentChatRunLifecycle(
+        "run_no_reply",
+        "thread-1",
+        "attempt-1",
+        "owner@example.com",
+        {},
+        "slides",
+      );
+      trackAgentChatRunLifecycle(
+        "run_finished",
+        "thread-1",
+        "attempt-3",
+        "owner@example.com",
+        {
+          status: "errored",
+          failure_code: "missing_credentials",
+          engine: "anthropic",
+        },
+        "slides",
+      );
+      trackAgentChatRunLifecycle("run_started", undefined, "attempt-2");
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-lifecycle-test");
+    }
+
+    expect(events).toMatchObject([
+      {
+        name: "run_started",
+        userId: "owner@example.com",
+        properties: {
+          thread_id: "thread-1",
+          attempt_id: "attempt-1",
+          app_name: "slides",
+          template_name: "slides",
+        },
+      },
+      {
+        name: "run_no_reply",
+        userId: "owner@example.com",
+        properties: {
+          thread_id: "thread-1",
+          attempt_id: "attempt-1",
+          app_name: "slides",
+          template_name: "slides",
+        },
+      },
+      {
+        name: "run_finished",
+        userId: "owner@example.com",
+        properties: {
+          thread_id: "thread-1",
+          attempt_id: "attempt-3",
+          status: "errored",
+          failure_code: "missing_credentials",
+          engine: "anthropic",
+          app_name: "slides",
+          template_name: "slides",
+        },
+      },
+    ]);
+  });
+});
 
 describe("agent checkpoint path provenance", () => {
   const contentSha256 = "a".repeat(64);

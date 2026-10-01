@@ -136,7 +136,7 @@ export function runErrorHeadline(
     terminal: string;
   } = {
     recoverable: "The agent stopped before finishing",
-    terminal: "The agent hit an error",
+    terminal: "The agent run failed before it finished.",
   },
 ): string {
   return info.recoverable === true ? labels.recoverable : labels.terminal;

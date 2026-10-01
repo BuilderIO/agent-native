@@ -229,6 +229,27 @@ describe("createHttpAgentChatRuntime", () => {
     ).toEqual({ type: "text", text: "Done" });
   });
 
+  it("explains oversized requests and marks them non-retryable", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi
+        .fn()
+        .mockResolvedValue(
+          new Response("Payload too large", { status: 413 }),
+        ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession()).startTurn({ prompt: "finish" }),
+    ).rejects.toMatchObject({
+      message:
+        "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+      code: "http_413",
+      status: 413,
+      retryable: false,
+    });
+  });
+
   it("preserves setup error codes from non-streaming HTTP failures", async () => {
     const runtime = createHttpAgentChatRuntime({
       endpoint: "/agent/chat",

@@ -19,6 +19,15 @@ export const FULL_RELIABILITY_APPS: readonly string[] = ["chat", "analytics"];
 export const LONG_ANSWER_LINES = 40;
 
 /**
+ * The Stop test asks for more: luna streamed 40 lines in about 20 seconds, and
+ * Stop cuts the run, so a longer answer widens the window without costing more.
+ */
+export const STOP_ANSWER_LINES = 100;
+
+/** How long a working run may show no Stop control before that is the finding. */
+export const NO_STOP_CONTROL_GRACE_MS = 3_000;
+
+/**
  * Text that means a run ended in a state users have reported as "did not
  * finish". Matched case-insensitively against everything visible on the page.
  */
@@ -247,6 +256,18 @@ export function isIdle(state: ChatState): boolean {
     state.currentActivity.length === 0 &&
     !state.messages.some((message) => message.busy)
   );
+}
+
+export type StopControlState = "shown" | "finished" | "working-without-stop";
+
+/**
+ * What one read of the page says about pressing Stop on a streaming answer:
+ * the control is there, the run is already over, or something says a run is
+ * working yet the composer offers no way to stop it.
+ */
+export function stopControlState(state: ChatState): StopControlState {
+  if (state.stopVisible) return "shown";
+  return isIdle(state) ? "finished" : "working-without-stop";
 }
 
 export function describeState(state: ChatState): string {

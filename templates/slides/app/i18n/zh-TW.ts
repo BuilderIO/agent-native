@@ -735,6 +735,8 @@ const messages = {
     imageAdded: "圖片已新增",
     imageUploadError: "上傳此圖片時出了點問題。",
     exportFailed: "匯出失敗",
+    agentRunFailed:
+      "代理程式在建立任何投影片前執行失敗。請查看聊天中的詳細資訊，然後再試一次。",
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",
     buildingDeck: "正在建置幻燈片",

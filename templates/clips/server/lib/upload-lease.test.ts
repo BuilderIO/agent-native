@@ -4,9 +4,11 @@ import { createRequire } from "node:module";
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
+import { drizzle } from "drizzle-orm/pglite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+let db: ReturnType<typeof drizzle>;
 let client: PGliteClient;
 type SqlStatement = string | { sql: string; args?: unknown[] };
 
@@ -41,20 +43,22 @@ vi.mock("@agent-native/core/db", () => ({
   }),
 }));
 
-vi.mock("../db/index.js", () => ({
-  getDb: () => {
-    throw new Error("renewUploadLease is covered by the route tests");
-  },
-  schema: { recordings: {} },
-}));
+vi.mock("../db/index.js", async () => {
+  const schema = await import("../db/schema.js");
+  return { getDb: () => db, schema };
+});
 
 vi.mock("./resumable-upload-cleanup.js", () => ({
   abortResumableUploadSession: (...args: unknown[]) =>
     mockAbortResumableUploadSession(...args),
 }));
 
-const { reapExpiredUploads, UPLOAD_LEASE_EXPIRED_REASON, uploadLeaseExpiry } =
-  await import("./upload-lease.js");
+const {
+  reapExpiredUploads,
+  renewUploadLease,
+  UPLOAD_LEASE_EXPIRED_REASON,
+  uploadLeaseExpiry,
+} = await import("./upload-lease.js");
 
 const NOW = Date.parse("2026-07-25T12:00:00.000Z");
 const iso = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
@@ -112,6 +116,7 @@ async function statusOf(id: string) {
 describe("upload lease", () => {
   beforeEach(async () => {
     client = await PGlite.create("memory://");
+    db = drizzle(client);
     mockAbortResumableUploadSession.mockResolvedValue(true);
     await execute(
       client,
@@ -124,7 +129,13 @@ describe("upload lease", () => {
       failure_code TEXT,
       failure_reason TEXT,
       upload_lease_expires_at TEXT,
+      upload_progress INTEGER NOT NULL DEFAULT 0,
       upload_generation_id TEXT,
+      loom_import_claim_id TEXT,
+      loom_import_claimed_at TEXT,
+      video_url TEXT,
+      video_size_bytes INTEGER,
+      duration_ms INTEGER,
       updated_at TEXT NOT NULL
     )`,
     );
@@ -134,6 +145,79 @@ describe("upload lease", () => {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     )`,
+    );
+  });
+
+  it("renews only the owned processing Loom claim", async () => {
+    await insertRecording({
+      id: "loom-claim",
+      status: "processing",
+      lease: iso(-1_000),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET loom_import_claim_id = ?, loom_import_claimed_at = ? WHERE id = ?`,
+      args: ["claim-current", iso(-30_000), "loom-claim"],
+    });
+
+    const wrongClaim = await renewUploadLease("loom-claim", {
+      now: NOW,
+      ownerEmail: "owner@example.com",
+      loomImportClaimId: "claim-old",
+    });
+    expect(wrongClaim).toMatchObject({ held: false, status: "processing" });
+
+    const wrongOwner = await renewUploadLease("loom-claim", {
+      now: NOW,
+      ownerEmail: "other@example.com",
+      loomImportClaimId: "claim-current",
+    });
+    expect(wrongOwner).toMatchObject({ held: false, status: null });
+
+    const { rows: unchangedRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at, loom_import_claimed_at FROM recordings WHERE id = ?`,
+      args: ["loom-claim"],
+    });
+    expect(unchangedRows[0]).toMatchObject({
+      upload_lease_expires_at: iso(-1_000),
+      loom_import_claimed_at: iso(-30_000),
+    });
+
+    const renewed = await renewUploadLease("loom-claim", {
+      now: NOW,
+      ownerEmail: "OWNER@example.com",
+      loomImportClaimId: "claim-current",
+    });
+    expect(renewed).toEqual({ held: true });
+    const { rows: renewedRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at, loom_import_claimed_at FROM recordings WHERE id = ?`,
+      args: ["loom-claim"],
+    });
+    expect(renewedRows[0]).toMatchObject({
+      upload_lease_expires_at: uploadLeaseExpiry(NOW),
+      loom_import_claimed_at: iso(0),
+    });
+
+    await insertRecording({
+      id: "loom-uploading",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET loom_import_claim_id = ? WHERE id = ?`,
+      args: ["claim-uploading", "loom-uploading"],
+    });
+    const wrongStatus = await renewUploadLease("loom-uploading", {
+      now: NOW,
+      ownerEmail: "owner@example.com",
+      loomImportClaimId: "claim-uploading",
+    });
+    expect(wrongStatus).toMatchObject({ held: false, status: "uploading" });
+    const { rows: unchangedUploadingRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at FROM recordings WHERE id = ?`,
+      args: ["loom-uploading"],
+    });
+    expect(unchangedUploadingRows[0]?.upload_lease_expires_at).toBe(
+      iso(-1_000),
     );
   });
 

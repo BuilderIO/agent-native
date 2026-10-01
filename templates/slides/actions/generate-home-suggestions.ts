@@ -1,5 +1,6 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { getUserProfile } from "@agent-native/core/user-profile/server";
 import { z } from "zod";
 
@@ -84,7 +85,10 @@ function parseSuggestions(text: string) {
   if (hasTopLevelJson) {
     const result = suggestionsSchema.safeParse(parsedJson);
     if (!result.success) {
-      throw new Error("Home suggestions returned an invalid shape.");
+      fail("Home suggestions returned an invalid shape.", {
+        statusCode: 502,
+        errorCode: "invalid_model_response",
+      });
     }
     return result.data;
   }
@@ -110,9 +114,15 @@ function parseSuggestions(text: string) {
     if (result.success) return result.data;
   }
   if (parsedCandidateJson) {
-    throw new Error("Home suggestions returned an invalid shape.");
+    fail("Home suggestions returned an invalid shape.", {
+      statusCode: 502,
+      errorCode: "invalid_model_response",
+    });
   }
-  throw new Error("Home suggestions returned invalid JSON.");
+  fail("Home suggestions returned invalid JSON.", {
+    statusCode: 502,
+    errorCode: "invalid_model_response",
+  });
 }
 
 export default defineAction({
@@ -132,7 +142,32 @@ export default defineAction({
       maxOutputTokens: 240,
       temperature: 0.7,
       timeoutMs: 10_000,
+    }).catch((error: unknown) => {
+      if (
+        error instanceof Error &&
+        "errorCode" in error &&
+        error.errorCode === "missing_credentials"
+      ) {
+        track(
+          "home_suggestions_unavailable",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            failure_code: "missing_credentials",
+          },
+          ctx,
+        );
+        return null;
+      }
+      throw error;
     });
+    if (!result) return { suggestions: [] };
+    if (result.stopReason === "max_tokens") {
+      fail("Home suggestions were truncated before completion.", {
+        statusCode: 502,
+        errorCode: "model_output_truncated",
+      });
+    }
     return { suggestions: parseSuggestions(result.text) };
   },
 });

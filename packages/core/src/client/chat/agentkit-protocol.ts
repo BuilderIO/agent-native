@@ -1448,7 +1448,7 @@ export function createAgentKitProtocolAdapter(
           runtimeRunId: input.runId,
           runtimeId: runtime.id,
           sessionId: session.id,
-          turnId: turn.id,
+          ...(turn.id !== undefined ? { turnId: turn.id } : {}),
           threadId: input.threadId,
           resumed: true,
         } satisfies AgentNativeProtocolMetadata["observability"],

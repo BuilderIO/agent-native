@@ -6,6 +6,7 @@ import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
+import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
   appendMissingFinalResponseWarning,
   type ContentPart,
@@ -1218,6 +1219,7 @@ function defaultHttpRuntimeRequest(input: {
 }
 
 function runtimeErrorMessage(text: string, status: number): string {
+  if (status === 413) return CHAT_REQUEST_TOO_LARGE_MESSAGE;
   if (!text) return `HTTP ${status}`;
   try {
     const parsed = asRecord(JSON.parse(text));
@@ -1244,6 +1246,14 @@ async function readErrorText(response: Response): Promise<string> {
 }
 
 async function readHttpRuntimeError(response: Response): Promise<Error> {
+  if (response.status === 413) {
+    return Object.assign(new Error(CHAT_REQUEST_TOO_LARGE_MESSAGE), {
+      code: "http_413",
+      status: response.status,
+      retryable: false,
+    });
+  }
+
   let text: string;
   try {
     text = await response.text();

@@ -21,6 +21,7 @@ import {
 } from "@agent-native/agentkit/protocol";
 
 import { agentNativePath } from "../api-path.js";
+import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
   appendChatThreadScopeParams,
@@ -610,6 +611,47 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
   }));
 }
 
+function mergeStoredAndIncomingMessages(
+  stored: AgentMessage[],
+  incoming: AgentMessage[],
+): AgentMessage[] {
+  const messages = new Map(stored.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    messages.set(message.id, message);
+  }
+  return [...messages.values()];
+}
+
+function mergeStoredAndIncomingToolCalls(
+  stored: AgentToolCall[],
+  incoming: AgentToolCall[],
+): AgentToolCall[] {
+  const toolCalls = new Map(stored.map((toolCall) => [toolCall.id, toolCall]));
+  for (const toolCall of incoming) {
+    toolCalls.set(toolCall.id, toolCall);
+  }
+  return [...toolCalls.values()];
+}
+
+function mergeStoredAndIncomingWidgets(
+  stored: AgentWidgetSnapshot[],
+  incoming: AgentWidgetSnapshot[],
+): AgentWidgetSnapshot[] {
+  const widgets = new Map(
+    stored.map((snapshot) => [
+      JSON.stringify([snapshot.messageId, snapshot.widget.id]),
+      snapshot,
+    ]),
+  );
+  for (const snapshot of incoming) {
+    widgets.set(
+      JSON.stringify([snapshot.messageId, snapshot.widget.id]),
+      snapshot,
+    );
+  }
+  return [...widgets.values()];
+}
+
 function persistedActionWidgets(
   widgets: AgentWidgetSnapshot[] = [],
   messageIds: ReadonlySet<string>,
@@ -733,6 +775,14 @@ function storedActionWidgets(value: unknown): {
 }
 
 async function responseError(response: Response): Promise<Error> {
+  if (response.status === 413) {
+    return Object.assign(new Error(CHAT_REQUEST_TOO_LARGE_MESSAGE), {
+      code: "http_413",
+      status: response.status,
+      retryable: false,
+    });
+  }
+
   let body: string;
   try {
     body = await response.text();
@@ -1106,12 +1156,68 @@ export function createAgentNativeAgentKitTransport(
     threadId: string;
     snapshot: AgentThreadSnapshot;
   }): Promise<void> {
-    const stored = await fetchThread(input.threadId);
+    let stored = await fetchThread(input.threadId);
+    let createdByAnotherRequest = false;
     if (!stored) {
-      throw new Error(`Agent chat thread ${input.threadId} does not exist.`);
+      const requestHeaders = await headers({ sessionId: input.threadId });
+      requestHeaders.set("content-type", "application/json");
+      const response = await fetcher(
+        scopedThreadEndpoint(`${apiUrl}/threads`, options),
+        {
+          method: "POST",
+          headers: requestHeaders,
+          body: JSON.stringify({
+            id: input.threadId,
+            title: input.snapshot.title ?? "",
+          }),
+        },
+      );
+      if (response.status === 409) {
+        const racedThread = await fetchThread(input.threadId);
+        if (!racedThread) throw await responseError(response);
+        stored = racedThread;
+        createdByAnotherRequest = true;
+      } else {
+        if (!response.ok) throw await responseError(response);
+        const value = await response.json();
+        if (!asRecord(value)) {
+          throw new TypeError("Agent chat thread response must be an object.");
+        }
+        stored = value as StoredThread;
+      }
     }
     const repository = storedRepository(stored);
     const previousAgentKit = asRecord(repository.agentKit) ?? {};
+    const storedSnapshot = createdByAnotherRequest
+      ? projectThread(input.threadId, stored)
+      : null;
+    const snapshotMessages = storedSnapshot
+      ? mergeStoredAndIncomingMessages(
+          mergeStoredAndIncomingMessages(
+            storedSnapshot.messages,
+            storedMessages(
+              repository.messages,
+              now,
+              options.adapter?.textFormat,
+            ),
+          ),
+          input.snapshot.messages,
+        )
+      : input.snapshot.messages;
+    const snapshotToolCalls = storedSnapshot
+      ? mergeStoredAndIncomingToolCalls(
+          storedSnapshot.toolCalls ?? [],
+          input.snapshot.toolCalls ?? [],
+        )
+      : input.snapshot.toolCalls;
+    const snapshotWidgets = createdByAnotherRequest
+      ? mergeStoredAndIncomingWidgets(
+          Array.isArray(previousAgentKit.widgets)
+            ? (previousAgentKit.widgets as AgentWidgetSnapshot[])
+            : [],
+          input.snapshot.widgets ?? [],
+        )
+      : input.snapshot.widgets;
     const compactEvents = persistedHistoryEvents(input.snapshot.events);
     const compactRunIds = new Set(compactEvents.map((event) => event.runId));
     const eventsById = new Map<string, unknown>();
@@ -1140,7 +1246,7 @@ export function createAgentNativeAgentKitTransport(
       if (typeof record?.id === "string") runsById.set(record.id, run);
     }
     const snapshotMessageIds = new Set(
-      input.snapshot.messages.map((message) => message.id),
+      snapshotMessages.map((message) => message.id),
     );
     const annotations =
       input.snapshot.annotations ??
@@ -1149,12 +1255,9 @@ export function createAgentNativeAgentKitTransport(
         : []);
     const agentKit = {
       ...previousAgentKit,
-      messages: persistedMessages(input.snapshot.messages),
-      widgets: persistedActionWidgets(
-        input.snapshot.widgets,
-        new Set(input.snapshot.messages.map((message) => message.id)),
-      ),
-      toolCalls: persistedToolCalls(input.snapshot.toolCalls),
+      messages: persistedMessages(snapshotMessages),
+      widgets: persistedActionWidgets(snapshotWidgets, snapshotMessageIds),
+      toolCalls: persistedToolCalls(snapshotToolCalls),
       events: [...eventsById.values()],
       runs: [...runsById.values()].map((run) => {
         const record = asRecord(run);
@@ -1184,7 +1287,7 @@ export function createAgentNativeAgentKitTransport(
             input.snapshot.title ??
             (typeof stored.title === "string" ? stored.title : ""),
           preview: typeof stored.preview === "string" ? stored.preview : "",
-          messageCount: input.snapshot.messages.length,
+          messageCount: snapshotMessages.length,
         }),
       },
     );

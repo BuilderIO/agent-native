@@ -401,6 +401,12 @@ describe("AgentKitChat", () => {
     expect(styles).not.toMatch(
       /var\(--(?:background|foreground|card|popover|muted|border|primary|destructive|ring)(?:,|\))/,
     );
+    expect(styles).toContain(
+      '[data-agent-native-mention-popover="true"]\n  > div\n  > div\n  > div:not(:has([data-mention-index]))',
+    );
+    expect(styles).not.toContain(
+      '[data-agent-native-composer-popover="true"]\n  > div\n  > div\n  > div:not(:has([data-mention-index]))',
+    );
     const composerFocusRule = styles.match(
       /\.agentkit-composer\[data-agent-composer-slot="root"\]:focus-within \{([^}]*)\}/,
     )?.[1];

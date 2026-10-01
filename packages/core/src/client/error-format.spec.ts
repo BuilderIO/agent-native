@@ -496,6 +496,18 @@ describe("localizeKnownChatErrorText", () => {
     );
   });
 
+  it("localizes a request-size failure", () => {
+    expect(
+      localizeKnownChatErrorText(
+        "Error: This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+        (key, options) =>
+          key === "agentChat.errorMessages.requestTooLarge"
+            ? "Diese Anfrage ist zu groß."
+            : interpolate(key, options),
+      ),
+    ).toBe("Fehler: Diese Anfrage ist zu groß.");
+  });
+
   it.each([
     [
       "Open Builder space settings",

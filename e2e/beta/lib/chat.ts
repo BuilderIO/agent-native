@@ -60,10 +60,70 @@ export interface ChatRequestLog {
   engines: string[];
   modelless: number;
   count: number;
+  /** One entry per turn POST, in order: what its body named at the top level. */
+  requests: Array<{ model: string | null; engine: string | null }>;
 }
 
 export function formatChatRequestDiagnostics(log: ChatRequestLog): string {
   return `Agent chat requests: ${JSON.stringify(log)}`;
+}
+
+export function readTurnSelection(raw: string | null): {
+  model: string | null;
+  engine: string | null;
+} {
+  if (!raw) return { model: null, engine: null };
+  let body: { model?: unknown; engine?: unknown } | null;
+  try {
+    body = JSON.parse(raw) as typeof body;
+  } catch {
+    // coercion-ok: a body that does not parse names no model, which assertOnlyLuna fails on.
+    return { model: null, engine: null };
+  }
+  const named = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value : null;
+  return { model: named(body?.model), engine: named(body?.engine) };
+}
+
+/**
+ * Everything wrong with the turns a page sent, as lines. A turn that names no
+ * engine is a violation, not a pass: the server then resolves the engine from
+ * the account (possibly the Builder gateway's shared credits), and nothing
+ * readable from outside says which one it picked.
+ */
+export function spendViolations(
+  log: ChatRequestLog,
+  expected: Pick<ModelSelection, "engine">,
+): string[] {
+  const lines: string[] = [];
+  const offenders = log.models.filter(
+    (model) => !LUNA_MODEL_PATTERN.test(model),
+  );
+  if (offenders.length > 0) {
+    lines.push(`non-luna models: ${[...new Set(offenders)].join(", ")}`);
+  }
+  if (log.modelless > 0) {
+    lines.push(
+      `${log.modelless} request(s) carried no model field, so the app fell back to its own default (a message queued behind a running turn is sent this way by a host whose transport has no model of its own)`,
+    );
+  }
+  const wrongEngine = log.engines.filter(
+    (engine) => engine !== MISSING_ENGINE && engine !== expected.engine,
+  );
+  if (wrongEngine.length > 0) {
+    lines.push(
+      `routed through engine(s) ${[...new Set(wrongEngine)].join(", ")} instead of ${expected.engine}, so the turn did not provably bill the dedicated key`,
+    );
+  }
+  const engineless = log.engines.filter(
+    (engine) => engine === MISSING_ENGINE,
+  ).length;
+  if (engineless > 0) {
+    lines.push(
+      `${engineless} request(s) named no engine, so the server chose it and the turn did not provably bill the dedicated key (${expected.engine})`,
+    );
+  }
+  return lines;
 }
 
 export function watchChatRequests(page: Page): {
@@ -75,6 +135,7 @@ export function watchChatRequests(page: Page): {
     engines: [],
     modelless: 0,
     count: 0,
+    requests: [],
   };
   const expected = lunaSelection();
 
@@ -82,26 +143,11 @@ export function watchChatRequests(page: Page): {
     if (request.method() !== "POST") return;
     if (!isChatTurnRequest(request.url())) return;
     log.count += 1;
-    const raw = request.postData();
-    if (!raw) {
-      log.modelless += 1;
-      return;
-    }
-    try {
-      const body = JSON.parse(raw) as { model?: unknown; engine?: unknown };
-      log.engines.push(
-        typeof body.engine === "string" && body.engine.trim()
-          ? body.engine
-          : MISSING_ENGINE,
-      );
-      if (typeof body.model === "string" && body.model.trim()) {
-        log.models.push(body.model);
-      } else {
-        log.modelless += 1;
-      }
-    } catch {
-      log.modelless += 1;
-    }
+    const sent = readTurnSelection(request.postData());
+    log.requests.push(sent);
+    log.engines.push(sent.engine ?? MISSING_ENGINE);
+    if (sent.model) log.models.push(sent.model);
+    else log.modelless += 1;
   });
 
   return {
@@ -112,37 +158,23 @@ export function watchChatRequests(page: Page): {
           "No POST to /_agent-native/agent-chat was observed, so this turn proved nothing about the agent or the model.",
         );
       }
-      const offenders = log.models.filter(
-        (model) => !LUNA_MODEL_PATTERN.test(model),
-      );
-      const wrongEngine = log.engines.filter(
-        (engine) => engine !== expected.engine,
-      );
-      if (offenders.length > 0 || log.modelless > 0 || wrongEngine.length > 0) {
+      const problems = spendViolations(log, expected);
+      if (problems.length > 0) {
         throw new Error(
           [
-            "Agent chat did not run on luna, so this run billed an unbudgeted model.",
+            "Agent chat did not provably run on luna through the dedicated key.",
             `requests=${log.count} luna=${log.models.filter((m) => LUNA_MODEL_PATTERN.test(m)).length}`,
-            offenders.length > 0
-              ? `non-luna models: ${[...new Set(offenders)].join(", ")}`
-              : "",
-            log.modelless > 0
-              ? `${log.modelless} request(s) carried no model field, so the app fell back to its own default`
-              : "",
-            wrongEngine.length > 0
-              ? `routed through engine(s) ${[...new Set(wrongEngine)].join(", ")} instead of ${expected.engine}, so the turn did not provably bill the dedicated key`
-              : "",
+            `sent: ${log.requests.map((sent, index) => `#${index + 1} model=${sent.model ?? "(none)"} engine=${sent.engine ?? "(none)"}`).join(", ")}`,
+            ...problems,
             "The seeded selection is dropped when the app's model picker does not offer it — usually because the org is connected to a different engine, so the requested engine's catalog is not exposed. Check BETA_E2E_ENGINE/BETA_E2E_MODEL against what the app actually lists.",
-          ]
-            .filter(Boolean)
-            .join("\n"),
+          ].join("\n"),
         );
       }
     },
   };
 }
 
-const MISSING_ENGINE = "(none)";
+export const MISSING_ENGINE = "(none)";
 
 export const COMPOSER = {
   input: '[data-agent-composer-slot="editor-input"]',

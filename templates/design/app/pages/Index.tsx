@@ -109,7 +109,6 @@ import {
   writeStoredDesignFilter,
   type DesignFilter,
 } from "@/lib/design-filter";
-import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -202,10 +201,9 @@ export default function Index() {
   const fullAppBuildingEnabled = useLab(FULL_APP_BUILDING_LAB);
   const systemsEnabled = useDesignSystemWorkflows();
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
-  const [chosenDesignSystemId, setNewDesignSystemId] = useState<
-    string | null | undefined
-  >(undefined);
-  const newDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
+  const [chosenDesignSystemId, setNewDesignSystemId] = useState<string | null>(
+    null,
+  );
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
   const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
     "design",
@@ -297,7 +295,6 @@ export default function Index() {
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
     designSystems,
-    defaultSystem,
     isLoading: designSystemsLoading,
     error: designSystemsError,
     refetch: refetchDesignSystems,
@@ -424,6 +421,18 @@ export default function Index() {
   );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
+  const templateDesignSystemId =
+    selectedTemplate?.designSystemId &&
+    designSystems.some(
+      (system) => system.id === selectedTemplate.designSystemId,
+    )
+      ? selectedTemplate.designSystemId
+      : null;
+  const newDesignSystemId = !systemsEnabled
+    ? null
+    : newDesignSystemWasChosenRef.current
+      ? chosenDesignSystemId
+      : templateDesignSystemId;
 
   const showAuthors = designFilter === "all";
   const selectedDesignCount = selectedDesignIds.size;
@@ -439,21 +448,6 @@ export default function Index() {
     setSelectedDesignIds(new Set());
   }, [designsData, page, totalPages]);
 
-  const resolveDefaultDesignSystemId = useCallback(() => {
-    if (!systemsEnabled) return null;
-    if (
-      defaultSystem &&
-      isDesignSystemUsableForGeneration(defaultSystem.data)
-    ) {
-      return defaultSystem.id;
-    }
-    return (
-      designSystems.find((system) =>
-        isDesignSystemUsableForGeneration(system.data),
-      )?.id ?? null
-    );
-  }, [defaultSystem, designSystems, systemsEnabled]);
-
   const syncSelectedTemplate = useCallback(
     (templateId: string | null) => {
       setNewTemplateId(templateId);
@@ -465,35 +459,11 @@ export default function Index() {
     [searchParams, setSearchParams],
   );
 
-  useEffect(() => {
-    if (newDesignSystemId !== undefined || designSystemsLoading) return;
-    setNewDesignSystemId(resolveDefaultDesignSystemId());
-  }, [designSystemsLoading, newDesignSystemId, resolveDefaultDesignSystemId]);
-
   const handleTemplateChange = useCallback(
     (templateId: string | null) => {
       syncSelectedTemplate(templateId);
-      const template = templateOptions.find(
-        (candidate) => candidate.id === templateId,
-      );
-      if (newDesignSystemWasChosenRef.current) return;
-      const linkedSystemId =
-        template?.designSystemId &&
-        designSystems.some((system) => system.id === template.designSystemId)
-          ? template.designSystemId
-          : null;
-      setNewDesignSystemId(
-        linkedSystemId ??
-          (designSystemsLoading ? undefined : resolveDefaultDesignSystemId()),
-      );
     },
-    [
-      designSystems,
-      designSystemsLoading,
-      resolveDefaultDesignSystemId,
-      syncSelectedTemplate,
-      templateOptions,
-    ],
+    [syncSelectedTemplate],
   );
 
   const handleNewDesignSystemChange = useCallback(
@@ -514,6 +484,38 @@ export default function Index() {
     systemsError: designSystemsError,
     retrySystems: () => void refetchDesignSystems(),
   });
+
+  const resolveAppDesignSystemId = useCallback(async () => {
+    const linkedSystemId = selectedTemplate?.designSystemId;
+    if (
+      !linkedSystemId ||
+      newDesignMode !== "app" ||
+      !systemsEnabled ||
+      newDesignSystemWasChosenRef.current ||
+      (!designSystemsLoading && !designSystemsError)
+    ) {
+      return newDesignSystemId;
+    }
+
+    const result = await refetchDesignSystems();
+    if (!result.isSuccess || !result.data) {
+      throw result.error ?? new Error(t("home.failedToCreateDesign"));
+    }
+    return result.data.designSystems.some(
+      (system) => system.id === linkedSystemId,
+    )
+      ? linkedSystemId
+      : null;
+  }, [
+    designSystemsError,
+    designSystemsLoading,
+    newDesignMode,
+    newDesignSystemId,
+    refetchDesignSystems,
+    selectedTemplate,
+    systemsEnabled,
+    t,
+  ]);
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -712,12 +714,16 @@ export default function Index() {
       if (!canChatRef.current) return;
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
-      const designSystemId =
-        newDesignSystemId === undefined
-          ? designSystemsLoading
-            ? undefined
-            : resolveDefaultDesignSystemId()
+      const templateCopyDesignSystemId =
+        selectedTemplate &&
+        newDesignMode === "design" &&
+        !newDesignSystemWasChosenRef.current
+          ? undefined
           : newDesignSystemId;
+      const designSystemId =
+        newDesignMode === "app"
+          ? await resolveAppDesignSystemId()
+          : templateCopyDesignSystemId;
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
@@ -894,9 +900,8 @@ export default function Index() {
       navigate,
       newDesignMode,
       newDesignSystemId,
-      designSystemsLoading,
       queryClient,
-      resolveDefaultDesignSystemId,
+      resolveAppDesignSystemId,
       selectedTemplate,
       t,
     ],
@@ -907,18 +912,15 @@ export default function Index() {
     skipToEditorPendingRef.current = true;
     setNewDesignHandoffPending(true);
 
-    const designSystemId =
-      newDesignSystemId === undefined
-        ? designSystemsLoading
-          ? undefined
-          : resolveDefaultDesignSystemId()
-        : newDesignSystemId;
-    const { id, ready } = createDesign(
-      t("home.untitledDesign"),
-      designSystemId,
-    );
-
     try {
+      const designSystemId =
+        newDesignMode === "app"
+          ? await resolveAppDesignSystemId()
+          : newDesignSystemId;
+      const { id, ready } = createDesign(
+        t("home.untitledDesign"),
+        designSystemId,
+      );
       await ready;
       void navigate(`/design/${id}`);
     } catch (error) {
@@ -930,9 +932,9 @@ export default function Index() {
   }, [
     createDesign,
     navigate,
+    newDesignMode,
     newDesignSystemId,
-    designSystemsLoading,
-    resolveDefaultDesignSystemId,
+    resolveAppDesignSystemId,
     t,
   ]);
 

@@ -149,7 +149,11 @@ that does not survive a reload, and an agent that claims a tool call it did not
 make. `a second message during a run gets no error and both are answered` is
 the regression guard for the 409 "Run already in progress" report; red with that
 message is the finding, not a flake. The slides realtime test does not retry: its
-idle window is 10 minutes.
+idle window is 10 minutes. The Stop test asks for 100 lines so there is time to
+see the control; it fails with a distinct message when the answer finished
+before Stop could be pressed, and when a run was working for three seconds with
+no Stop control in the composer (the Chat app's full-page composer renders
+none, so a user there has no way to stop a run).
 
 `advisory` reports real findings that do not stop a user — beta being
 indexable, third-party pixels that reject beta hosts, beta sharing a database
@@ -271,7 +275,12 @@ the state so it does not come back as NEW, and never counted fixed. NOT RUN
 entries do not make a run red, page anyone, or trigger a comment on their own;
 a slot that stopped early is red because of its own timeout or failure entries.
 A green run closes any open issue, including one that predates the state marker,
-and says how many tests it could not verify.
+and says how many tests it could not verify. A test that skips itself because
+the e2e account is not set up for it (its skip reason starts `[env]`) is
+reported as **NOT TESTED** with that reason, in the issue and in Slack; it never
+fails a run. A test parked with a `test.fixme` or `test.skip` description that
+starts `QUARANTINED` is reported as **QUARANTINED** with that text, in the issue
+and in Slack, so who parked it and until when stays in front of the reader.
 
 ### Slack setup (one time)
 
@@ -306,6 +315,18 @@ signed-out page is not a weaker test, it is a false one — and this repo has
 that exact bug in two template global-setups today, which warn and continue as
 a guest.
 
+**An account-setup gap skips, says so, and shows up in the report.** A
+feature the e2e account was never given is not a product regression and must
+not read as one, but it must not pass silently either. Today that is private
+file storage: when Slides' `/api/uploads/status` says `referenceStorageReady`
+is false, the three `[slides-import]` tests skip with
+`[env] e2e account has no private storage; connect Builder storage to the e2e
+account`. The report lists every skip whose reason starts `[env]` as **NOT
+TESTED** (a line in the issue and in Slack, and a table in the issue), so the
+gap stays visible until someone connects storage to the account. A status that
+cannot be read, or one that says ready while the upload is then refused, still
+fails.
+
 If `BETA_E2E_EMAIL` is not the dedicated `+autoz` identity, keep the run
 failed. The existing recovery command for the fleet run is:
 
@@ -324,6 +345,23 @@ localStorage is a wish until something checks it. Every agent-chat POST is
 inspected and the run fails if anything other than luna was billed, including
 a request that carried no model field at all and therefore fell back to the
 app's default.
+
+**A turn that names no engine fails the spend guard.** Hosts send
+`engine: ai-sdk:openai` with the turn, which is what proves the dedicated
+user-scoped key is billed. A request that names no engine leaves the server to
+choose one from the account, which may be the Builder gateway's shared credits,
+and nothing readable from outside says which it chose, so it fails like a turn
+that names the wrong engine or a non-luna model. The Chat app host's composer
+puts the engine in the request's `metadata`, which the server ignores, so turns
+from `beta.chat` carry the luna model but no engine and cannot be proven to
+bill the dedicated key. The `chat` host's specs that bill a model turn (the two
+in `chat.spec.ts` and the five `[chat-reliability]` tests) are therefore
+quarantined for that host with a `test.fixme` whose description starts
+`QUARANTINED steve until 2026-10-15`, and the report lists them under
+**QUARANTINED** with that text. They stay quarantined until the Chat app sends
+the engine on the wire; then delete `e2e/beta/lib/quarantine.ts` and its calls.
+The other chat hosts run unchanged, and while the `chat` host is quarantined it
+bills no turns, so the per-run spend in the lanes table is lower by its share.
 
 **Certificate errors stay visible.** `ignoreHTTPSErrors` is never set, because
 "the connection isn't private" was a real report and only a browser that still
@@ -381,7 +419,10 @@ lane exists.
 registry, which stores one production URL per app with no beta-aware branch.
 `beta.slides` delegating to "analytics" reaches **production** Analytics. The
 A2A spec is named for that, and a green result there does not clear beta
-Analytics.
+Analytics. The reachability test reads the peer's card through
+`/_agent-native/agents/probe?url=…`, which for a first-party peer verifies that
+it answers and advertises signed (`jwtBearer`) calls but does not verify
+authorization; the delegation test is what proves a signed call is accepted.
 
 ## Adding a host or an app
 
