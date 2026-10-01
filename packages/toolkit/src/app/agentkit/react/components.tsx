@@ -1030,7 +1030,7 @@ export function AgentActivityGroup({
     thread.messages.map((message) => [message.id, message]),
   );
   const firstSequence = new Map<string, number>();
-  const latestSequence = new Map<string, number>();
+  const latestEventOrder = new Map<string, number>();
   const itemOrder: string[] = [];
   const seenItems = new Set<string>();
   const remember = (id: string, sequence: number) => {
@@ -1039,7 +1039,7 @@ export function AgentActivityGroup({
     itemOrder.push(id);
     firstSequence.set(id, sequence);
   };
-  for (const event of runEvents) {
+  for (const [eventOrder, event] of runEvents.entries()) {
     const messageId = reasoningMessageId(event);
     const message = messageId ? messagesById.get(messageId) : undefined;
     if (
@@ -1060,7 +1060,7 @@ export function AgentActivityGroup({
         status: message.status === "streaming" ? "running" : "completed",
       });
       remember(id, event.sequence);
-      latestSequence.set(id, event.sequence);
+      latestEventOrder.set(id, eventOrder);
     }
     if (
       event.type === "activity.started" ||
@@ -1073,7 +1073,7 @@ export function AgentActivityGroup({
         thread.activities[event.activity.id] ?? event.activity,
       );
       remember(event.activity.id, event.sequence);
-      latestSequence.set(event.activity.id, event.sequence);
+      latestEventOrder.set(event.activity.id, eventOrder);
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
       toolMap.set(
@@ -1081,23 +1081,21 @@ export function AgentActivityGroup({
         thread.tools[event.toolCall.id] ?? event.toolCall,
       );
       remember(event.toolCall.id, event.sequence);
-      latestSequence.set(event.toolCall.id, event.sequence);
+      latestEventOrder.set(event.toolCall.id, eventOrder);
     }
     if (event.type === "tool.delta") {
       const tool = thread.tools[event.toolCallId];
       if (tool) toolMap.set(tool.id, tool);
       remember(event.toolCallId, event.sequence);
-      latestSequence.set(event.toolCallId, event.sequence);
+      latestEventOrder.set(event.toolCallId, eventOrder);
     }
   }
-  itemOrder.sort(
-    (left, right) => firstSequence.get(left)! - firstSequence.get(right)!,
-  );
   const items = itemOrder.flatMap((id) => {
     const sequence = firstSequence.get(id);
     if (
       sequence === undefined ||
-      !sequenceInRange(sequence, { afterSequence, throughSequence })
+      (runId !== undefined &&
+        !sequenceInRange(sequence, { afterSequence, throughSequence }))
     ) {
       return [];
     }
@@ -1120,8 +1118,7 @@ export function AgentActivityGroup({
     durableToolResults.map(({ tool }) => tool.id),
   );
   const isInternalActivity = (activity: AgentActivity) =>
-    activity.label === "Starting agent" ||
-    activity.label === "Contacting model";
+    activity.id.startsWith("agentkit:internal:");
   const activityItems = items.filter(
     (activity) =>
       !durableToolResultIds.has(activity.id) && !isInternalActivity(activity),
@@ -1132,8 +1129,8 @@ export function AgentActivityGroup({
         return current;
       }
       if (!current) return activity;
-      return (latestSequence.get(activity.id) ?? -1) >=
-        (latestSequence.get(current.id) ?? -1)
+      return (latestEventOrder.get(activity.id) ?? -1) >=
+        (latestEventOrder.get(current.id) ?? -1)
         ? activity
         : current;
     },
@@ -1141,8 +1138,10 @@ export function AgentActivityGroup({
   );
   const running = items.some((item) => item.status === "running");
   const run = runId ? thread.runs[runId] : undefined;
-  const segmentStartedEvent = firstWorkEvents(runEvents).find((event) =>
-    sequenceInRange(event.sequence, { afterSequence, throughSequence }),
+  const segmentStartedEvent = firstWorkEvents(runEvents).find(
+    (event) =>
+      runId === undefined ||
+      sequenceInRange(event.sequence, { afterSequence, throughSequence }),
   );
   const startedAt =
     afterSequence === undefined && run?.startedAt
@@ -1151,7 +1150,7 @@ export function AgentActivityGroup({
         ? Date.parse(segmentStartedEvent.occurredAt)
         : Number.NaN;
   const responseStartedEvent =
-    throughSequence === undefined
+    runId === undefined || throughSequence === undefined
       ? undefined
       : runEvents.find((event) => event.sequence === throughSequence);
   const completedAt = responseStartedEvent
@@ -1271,29 +1270,38 @@ export function AgentActivityGroup({
             ) : null
           }
         >
-          <div className="agentkit-activities-list">
+          <ol
+            className="agentkit-activities-list"
+            aria-label={labels.activities}
+            role="list"
+          >
             {displayGroups.map((activities) => {
               const activity = activities[0] as AgentActivity;
               const reasoningMessage = reasoningMap.get(activity.id);
               if (reasoningMessage) {
                 return (
-                  <AgentReasoningParts
-                    key={activity.id}
-                    message={reasoningMessage}
-                    threadId={threadId}
-                    active={
-                      activelyWorking && currentActivity?.id === activity.id
-                    }
-                  />
+                  <li key={activity.id} className="agentkit-activity-row">
+                    <AgentReasoningParts
+                      message={reasoningMessage}
+                      threadId={threadId}
+                      active={
+                        activelyWorking && currentActivity?.id === activity.id
+                      }
+                    />
+                  </li>
                 );
               }
               if (activities.length > 1) {
                 return (
-                  <RepeatedActivityCluster
+                  <li
                     key={`cluster:${activity.id}`}
-                    activities={activities}
-                    threadId={threadId}
-                  />
+                    className="agentkit-activity-row"
+                  >
+                    <RepeatedActivityCluster
+                      activities={activities}
+                      threadId={threadId}
+                    />
+                  </li>
                 );
               }
               const sourceTool = toolMap.get(activity.id);
@@ -1302,11 +1310,9 @@ export function AgentActivityGroup({
                 : undefined;
               if (sourceTool && ToolRenderer) {
                 return (
-                  <ToolRenderer
-                    key={sourceTool.id}
-                    value={sourceTool}
-                    threadId={threadId}
-                  />
+                  <li key={sourceTool.id} className="agentkit-activity-row">
+                    <ToolRenderer value={sourceTool} threadId={threadId} />
+                  </li>
                 );
               }
               const Renderer =
@@ -1314,14 +1320,12 @@ export function AgentActivityGroup({
                 slots.activity ??
                 AgentActivityItem;
               return (
-                <Renderer
-                  key={activity.id}
-                  value={activity}
-                  threadId={threadId}
-                />
+                <li key={activity.id} className="agentkit-activity-row">
+                  <Renderer value={activity} threadId={threadId} />
+                </li>
               );
             })}
-          </div>
+          </ol>
         </AgentWorkDisclosure>
       ) : (
         <div className="agentkit-activities-static">
