@@ -6257,7 +6257,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (method === "GET" && url.includes("/runs/latest")) {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
-            const turnId = query.turnId ? String(query.turnId) : undefined;
+            let turnId = query.turnId ? String(query.turnId) : undefined;
+            const runId = query.runId ? String(query.runId) : undefined;
             if (!threadId) {
               setResponseStatus(event, 400);
               return { error: "threadId query parameter is required" };
@@ -6266,7 +6267,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            const { getRunByThread } = await import("../agent/run-store.js");
+            const { getRunByThread, getRunTurnRef } =
+              await import("../agent/run-store.js");
+            if (!turnId && runId) {
+              const runRef = await getRunTurnRef(runId);
+              if (!runRef || runRef.threadId !== threadId) {
+                setResponseStatus(event, 404);
+                return { error: "Run not found" };
+              }
+              turnId = runRef.turnId;
+            }
             const run = await getRunByThread(threadId, {
               includeTerminal: true,
               ...(turnId ? { turnId } : {}),
@@ -6282,6 +6292,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runId: run.id,
               threadId: run.threadId,
               turnId: run.turnId ?? null,
+              startedAt: run.startedAt,
               status: run.status,
               heartbeatAt: run.heartbeatAt,
               completedAt: run.completedAt,
