@@ -535,7 +535,7 @@ interface AgentKitSurfaceContextValue {
     text: string,
     recoveryAction: "continue" | "retry",
     images?: string[],
-    attachments?: AgentChatAttachment[],
+    fileParts?: FilePart[],
     references?: Reference[],
     recoveryOptions?: Pick<
       AgentKitInternalSendOptions,
@@ -2555,7 +2555,7 @@ const AgentKitAssistantChatBody = forwardRef<
       text: string,
       recoveryAction: "continue" | "retry",
       images?: string[],
-      attachments?: AgentChatAttachment[],
+      fileParts?: FilePart[],
       references?: Reference[],
       recoveryOptions?: Pick<
         AgentKitInternalSendOptions,
@@ -2575,13 +2575,16 @@ const AgentKitAssistantChatBody = forwardRef<
           recoveryAction,
           recoveryReferences: references,
           ...recoveryOptions,
-          attachments: [
-            ...(attachments ?? []),
-            ...(images ?? []).map((url) => ({
-              type: "image",
-              name: "image",
-              url,
-            })),
+          deferredFileParts: [
+            ...(fileParts ?? []),
+            ...(images ?? []).map(
+              (url): FilePart => ({
+                type: "file",
+                name: "image",
+                mediaType: "image",
+                url,
+              }),
+            ),
           ],
         },
       );
@@ -4324,19 +4327,11 @@ function AgentKitRunFailure({
     const value = retryMetadata?.[key] ?? retryCustomMetadata?.[key];
     return typeof value === "string" && value.trim() ? value : undefined;
   };
-  const retryAttachments =
-    lastUserMessage?.parts.flatMap((part) =>
-      part.type === "file"
-        ? [
-            {
-              type: "file",
-              name: part.name,
-              ...(part.mediaType ? { contentType: part.mediaType } : {}),
-              ...(part.url ? { url: part.url } : {}),
-            },
-          ]
-        : [],
-    ) ?? [];
+  const retryFileParts =
+    lastUserMessage?.parts.filter((part) => part.type === "file") ?? [];
+  const retryHasUnavailableAttachment = retryFileParts.some(
+    (part) => !part.url && !part.fileId,
+  );
   const retryReferences = Array.isArray(retryMetadata?.references)
     ? (retryMetadata.references as Reference[])
     : [];
@@ -4352,7 +4347,7 @@ function AgentKitRunFailure({
           retryText || "Please retry the last request.",
           "retry",
           undefined,
-          retryAttachments,
+          retryFileParts,
           retryReferences,
           {
             recoveryModel: metadataString("model"),
@@ -4364,6 +4359,7 @@ function AgentKitRunFailure({
           },
         )
       }
+      retryHasUnavailableAttachment={retryHasUnavailableAttachment}
       onFork={async () => {
         if (!lastUserMessage) return surface.props.onForkChat?.();
         const fork = await control.fork(lastUserMessage.id);

@@ -1082,6 +1082,8 @@ const messages = {
   "recovery.connectingBuilder": "Connecting Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
+  "recovery.retryAttachmentUnavailable":
+    "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
   "recovery.deferredSubmissionFailed":
     "This message couldn't be sent. Check your connection or chat setup, then retry.",
   "recovery.credentialRejected":

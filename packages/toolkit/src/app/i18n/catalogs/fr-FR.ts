@@ -788,6 +788,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Connexion à Builder.io",
   "recovery.copyDebug": "Copier les informations de débogage",
   "recovery.copyFailed": "Échec de la copie",
+  "recovery.retryAttachmentUnavailable":
+    "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
   "recovery.deferredSubmissionFailed":
     "Impossible d’envoyer ce message. Vérifiez votre connexion ou la configuration du chat, puis réessayez.",
   "recovery.credentialRejected":

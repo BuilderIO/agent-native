@@ -3921,6 +3921,60 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
+  it("reuses file IDs when retrying a saved request", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry",
+        role: "user",
+        parts: [
+          { type: "text", text: "Retry the export" },
+          {
+            type: "file",
+            name: "source.csv",
+            mediaType: "text/csv",
+            fileId: "file-1",
+          },
+        ],
+      },
+    ];
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.retryHasUnavailableAttachment).toBe(false);
+    await act(async () => {
+      chatMocks.failureProps.onRetry();
+      await Promise.resolve();
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(
+      chatMocks.control.sendMessage.mock.calls[0]?.[0].attachments,
+    ).toEqual([
+      {
+        type: "file",
+        name: "source.csv",
+        mediaType: "text/csv",
+        fileId: "file-1",
+      },
+    ]);
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+  });
+
+  it("marks a saved file without a replay reference as unavailable", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry",
+        role: "user",
+        parts: [
+          { type: "text", text: "Retry the export" },
+          { type: "file", name: "source.csv", mediaType: "text/csv" },
+        ],
+      },
+    ];
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.retryHasUnavailableAttachment).toBe(true);
+  });
+
   it("shows a localized Stop tooltip and bounces the blocked setup card", async () => {
     chatMocks.readiness = {
       canChat: false,

@@ -97,6 +97,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "agentChat.usage.inviteLinkCopied": "Invite link copied",
         "agentChat.recovery.copyDebug": "Copy debug info",
         "agentChat.recovery.copyFailed": "Copy failed",
+        "agentChat.recovery.retryAttachmentUnavailable":
+          "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
         "agentChat.recovery.credentialRejected":
           "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         "agentChat.recovery.newChatHint":
@@ -856,6 +858,35 @@ describe("run recovery surfaces", () => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains when a saved attachment prevents retrying", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The agent stopped before finishing.",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            retryHasUnavailableAttachment
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
+    );
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    expect(container.textContent).toContain("Continue");
   });
 
   it("routes missing-provider errors to API settings and retries on click", async () => {
