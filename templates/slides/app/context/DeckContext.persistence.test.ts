@@ -3327,7 +3327,10 @@ describe("DeckContext deck creation persistence", () => {
 
     act(() => {
       result.current.updateSlides(initial.id, [
-        { slideId: "slide-1", updates: { content: "Local one" } },
+        {
+          slideId: "slide-1",
+          updates: { content: "Local one", notes: "Local notes" },
+        },
         { slideId: "slide-2", updates: { content: "Local two" } },
       ]);
       flushPendingSaves();
@@ -3346,7 +3349,8 @@ describe("DeckContext deck creation persistence", () => {
       {
         op: "patch-slide",
         slideId: "slide-1",
-        fields: { content: "Local one" },
+        fields: { content: "Local one", notes: "Local notes" },
+        baseFields: { notes: { present: true, value: "" } },
         baseContentHash: hashSlideContent("Before one"),
       },
     ]);
@@ -3417,6 +3421,10 @@ describe("DeckContext deck creation persistence", () => {
         op: "patch-slide",
         slideId: "slide-1",
         fields: { notes: "Keep notes", layout: "section" },
+        baseFields: {
+          notes: { present: true, value: "" },
+          layout: { present: true, value: "title" },
+        },
       },
     ]);
     expect(
@@ -3815,6 +3823,7 @@ describe("DeckContext deck creation persistence", () => {
         op: "patch-slide",
         slideId: "slide-1",
         fields: { notes: "Before notes" },
+        baseFields: { notes: { present: true, value: "Local notes" } },
       },
     ]);
   });

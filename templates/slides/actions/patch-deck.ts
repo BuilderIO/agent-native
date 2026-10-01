@@ -47,6 +47,7 @@ import {
 } from "../server/lib/source-import.js";
 import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { stableStringify } from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -159,6 +160,11 @@ const SlideFieldsSchema = z.object({
     ),
 });
 
+const SlideFieldBaselineSchema = z.discriminatedUnion("present", [
+  z.object({ present: z.literal(false) }),
+  z.object({ present: z.literal(true), value: z.unknown() }),
+]);
+
 const PatchSlideOp = z
   .object({
     op: z.literal("patch-slide"),
@@ -170,6 +176,12 @@ const PatchSlideOp = z
       .optional()
       .describe(
         "Content hash from this slide's exact get-deck source. Required whenever fields.content is replaced.",
+      ),
+    baseFields: z
+      .record(z.string(), SlideFieldBaselineSchema)
+      .optional()
+      .describe(
+        "Exact snapshots for every non-content field being replaced: use {present:false} when absent, otherwise {present:true,value}. Stale retries only apply when each field still matches its snapshot or the requested value.",
       ),
     styleOnly: z
       .boolean()
@@ -195,6 +207,32 @@ const PatchSlideOp = z
         path: ["baseContentHash"],
         message: "Content replacement requires the source slide contentHash",
       });
+    }
+    if (operation.baseFields !== undefined) {
+      const touchedFields = Object.keys(operation.fields).filter(
+        (field) =>
+          field !== "content" &&
+          operation.fields[field as keyof typeof operation.fields] !==
+            undefined,
+      );
+      for (const field of touchedFields) {
+        if (!Object.hasOwn(operation.baseFields, field)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["baseFields", field],
+            message: "Snapshot every non-content field being replaced",
+          });
+        }
+      }
+      for (const field of Object.keys(operation.baseFields)) {
+        if (!touchedFields.includes(field)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["baseFields", field],
+            message: "Only snapshot fields included in fields",
+          });
+        }
+      }
     }
     if (!operation.styleOnly) return;
     if (operation.fields.content === undefined) {
@@ -501,6 +539,42 @@ export function applyOperation(
           );
         }
       }
+      const alreadyDesiredFields = new Set<string>();
+      for (const field of Object.keys(fields)) {
+        if (
+          field === "content" ||
+          fields[field as keyof typeof fields] === undefined
+        ) {
+          continue;
+        }
+        const baseline = op.baseFields?.[field];
+        if (!baseline) continue;
+        const currentValue = slide[field];
+        const desiredValue = fields[field as keyof typeof fields];
+        const alreadyDesired =
+          desiredValue === null
+            ? currentValue === undefined
+            : currentValue !== undefined &&
+              stableStringify(currentValue) === stableStringify(desiredValue);
+        if (alreadyDesired) {
+          alreadyDesiredFields.add(field);
+          continue;
+        }
+        const matchesBaseline = baseline.present
+          ? currentValue !== undefined &&
+            stableStringify(currentValue) === stableStringify(baseline.value)
+          : currentValue === undefined;
+        if (!matchesBaseline) {
+          fail(
+            `Slide field ${field} changed since it was read. Re-read the slide and reconcile this field before retrying.`,
+            {
+              errorCode: "slide_field_stale",
+              statusCode: 409,
+              details: { slideId: op.slideId, field },
+            },
+          );
+        }
+      }
       const previousFitFields = {
         content: slide.content,
         layout: slide.layout,
@@ -521,7 +595,9 @@ export function applyOperation(
         assertNoRenderArtifacts(previousContent ?? "", nextContent, op.slideId);
         slide.content = nextContent;
       }
-      if (fields.notes !== undefined) slide.notes = fields.notes;
+      if (fields.notes !== undefined && !alreadyDesiredFields.has("notes")) {
+        slide.notes = fields.notes;
+      }
       for (const key of [
         "background",
         "layout",
@@ -535,6 +611,7 @@ export function applyOperation(
         "splitByParagraph",
         "skipped",
       ] as const) {
+        if (alreadyDesiredFields.has(key)) continue;
         const value = fields[key];
         if (value === null) delete slide[key];
         else if (value !== undefined) slide[key] = value;
@@ -819,7 +896,7 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
 export default defineAction({
   title: "Patch Slides deck",
   description:
-    "Granular deck patch used by the browser editor for concurrent-safe writes. Every patch-slide operation that replaces fields.content must include that slide's exact contentHash as baseContentHash; read targets with get-deck compact=false first. Disjoint patch-slide and add-slide operations rebase against the latest deck. Stale delete-slide, reorder-slides, and patch-deck-fields operations return deck_revision_conflict; re-read and reconcile the deck before retrying those operations. Call get-design-system once for the full linked context. For a short, completed deck, pass all slides to create-deck in one call; use sequential add-slide calls only for long or live in-app generation. Reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
+    "Granular deck patch used by the browser editor for concurrent-safe writes. Every patch-slide operation that replaces fields.content must include that slide's exact contentHash as baseContentHash; read targets with get-deck compact=false first. Stale revision rebases support content-only or metadata-only patch-slide operations. For metadata-only patches, snapshot every replaced non-content field in baseFields; rebase only if each current value still matches its snapshot or the requested value. Put content and metadata changes in separate patch-slide operations. Same-field divergence returns slide_field_stale. Stale delete-slide, reorder-slides, and patch-deck-fields operations return deck_revision_conflict; re-read and reconcile the deck before retrying those operations. Call get-design-system once for the full linked context. For a short, completed deck, pass all slides to create-deck in one call; use sequential add-slide calls only for long or live in-app generation. Reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
     "Each operation touches only the target slide or field — concurrent writers " +
     "on different slides never overwrite each other's work. For a deck-wide " +
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +

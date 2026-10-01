@@ -408,7 +408,13 @@ Le `TAB_ID` importé depuis `app/lib/tab-id.ts` est la valeur `getBrowserTabId()
 | `getNavigationState` — mappe le URL à l'état sémantique           | `navigation` écrit, au niveau des tabulations plus une clé de secours globale                                                          |
 | `getCommandPath` — mapper une commande `navigate` à un itinéraire | interrogation des commandes, suppression après lecture, protection contre les commandes en double, marquage de la source de la requête |
 
-`useAgentRouteState` suppose le routeur React. Lorsque la navigation ne réside pas dans le URL -- une étape de l'assistant, une sélection de canevas, un shell non-routeur -- descendez plutôt vers le niveau inférieur `useSemanticNavigationState` : vous lui donnez une valeur `state` prête à l'emploi plus `navigationKeys`/`commandKeys` et un rappel `onCommand`, et il reste complètement agnostique à propos du routeur React.
+Les chemins renvoyés sous forme de chaînes restent toujours locaux à cette
+application, même s'ils commencent par le point de montage d'une autre
+application de l'espace de travail. Pour naviguer volontairement vers une
+application sœur, renvoyez `{ type: "workspace-app", path:
+"/seo-application/settings" }` avec le chemin de montage complet.
+
+`useAgentRouteState` suppose le routeur React. Lorsque la navigation ne réside pas dans le URL -- une étape de l'assistant, une sélection de canevas, un shell non-routeur -- descendez plutôt vers le niveau inférieur `useSemanticNavigationState` : vous lui donnez une valeur `state` prête à l'emploi plus `navigationKeys`/`commandKeys` et un rappel `onCommand`, et il reste complètement agnostique à propos du routeur React.
 
 ## Prévention de la gigue {#jitter-prevention}
 

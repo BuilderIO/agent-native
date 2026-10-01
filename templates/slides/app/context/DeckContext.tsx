@@ -46,7 +46,10 @@ import { toast } from "sonner";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import { deckContentSignature as stableDeckContentSignature } from "../../shared/deck-content";
-import { isMergeSafeDeckPatchOperations } from "../../shared/deck-write";
+import {
+  isMergeSafeDeckPatchOperations,
+  type SlideFieldBaseline,
+} from "../../shared/deck-write";
 import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
@@ -59,6 +62,7 @@ type GranularOp =
       slideId: string;
       fields: PatchSlideFields;
       baseContentHash?: string;
+      baseFields?: PatchSlideBaselines;
     }
   | { op: "delete-slide"; slideId: string; allowEmpty?: boolean }
   | { op: "reorder-slides"; orderedIds: string[] }
@@ -107,6 +111,14 @@ type PatchSlideFields = Partial<
   skipped?: boolean | null;
 };
 
+type PatchSlideBaselineField = Exclude<
+  keyof PatchSlideFields,
+  "content" | "layoutFitRevision"
+>;
+type PatchSlideBaselines = Partial<
+  Record<PatchSlideBaselineField, SlideFieldBaseline>
+>;
+
 type PatchDeckTopLevelFields = Partial<
   Omit<
     Deck,
@@ -147,6 +159,49 @@ function addSlideFields(
     ...fields,
     content: normalizeSlidePadding(fields.content),
     notes: fields.notes ?? "",
+  };
+}
+
+function slideFieldBaselines(
+  slide: Slide | undefined,
+  fields: PatchSlideFields,
+): PatchSlideBaselines | undefined {
+  if (!slide) return undefined;
+  const baselines: PatchSlideBaselines = {};
+  for (const [field, value] of Object.entries(fields)) {
+    if (
+      field === "content" ||
+      field === "layoutFitRevision" ||
+      value === undefined
+    ) {
+      continue;
+    }
+    const key = field as PatchSlideBaselineField;
+    const baseline = slide[key];
+    baselines[key] =
+      baseline === undefined
+        ? { present: false }
+        : { present: true, value: structuredClone(baseline) };
+  }
+  return Object.keys(baselines).length > 0 ? baselines : undefined;
+}
+
+function mergeSlideFieldBaselines(
+  first: PatchSlideBaselines | undefined,
+  later: PatchSlideBaselines | undefined,
+): PatchSlideBaselines | undefined {
+  const merged = { ...later, ...first };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function withSlideFieldBaselines(deck: Deck, op: PatchDeckOp): PatchDeckOp {
+  if (op.op !== "patch-slide") return op;
+  const slide = deck.slides.find((entry) => entry.id === op.slideId);
+  const captured = slideFieldBaselines(slide, op.fields);
+  if (!captured) return op;
+  return {
+    ...op,
+    baseFields: { ...captured, ...op.baseFields },
   };
 }
 export type DeckReloadStatus = "loaded" | "failed" | "stale";
@@ -1052,12 +1107,22 @@ async function callDeckWriteAction<TResult>(
     const operations = payload.operations;
     const mergeablePatch =
       actionName === "patch-deck" && isMergeSafeDeckPatchOperations(operations);
-    if (mergeablePatch && isDeckRevisionConflict(error)) {
+    const slideFieldConflict =
+      error &&
+      typeof error === "object" &&
+      "errorCode" in error &&
+      error.errorCode === "slide_field_stale";
+    if (
+      mergeablePatch &&
+      (isDeckRevisionConflict(error) || slideFieldConflict)
+    ) {
       const latest = await readDeckFromAPI(deckId);
       if (latest.status === "ok") {
         rememberDeckServerRevision(deckId, latest.deck);
       }
-      throw revisionConflictError(error, latest.status === "ok");
+      if (isDeckRevisionConflict(error)) {
+        throw revisionConflictError(error, latest.status === "ok");
+      }
     }
     throw error;
   }
@@ -1496,9 +1561,14 @@ function drainPendingDeckOps(
                 }
                 const drafts = staleContentDrafts.get(deckId) ?? new Map();
                 const previous = drafts.get(op.slideId);
+                const baseFields = mergeSlideFieldBaselines(
+                  previous?.baseFields,
+                  op.baseFields,
+                );
                 drafts.set(op.slideId, {
                   ...op,
                   fields: { ...previous?.fields, ...op.fields },
+                  ...(baseFields ? { baseFields } : {}),
                 });
                 staleContentDrafts.set(deckId, drafts);
               }
@@ -1598,9 +1668,14 @@ function drainPendingDeckOps(
                 ) {
                   continue;
                 }
+                const baseFields = mergeSlideFieldBaselines(
+                  held?.baseFields,
+                  op.baseFields,
+                );
                 held = {
                   ...op,
                   fields: { ...held?.fields, ...op.fields },
+                  ...(baseFields ? { baseFields } : {}),
                 };
               }
               if (held) drafts.set(slideId, held);
@@ -1621,9 +1696,14 @@ function drainPendingDeckOps(
               continue;
             }
             const previous = rebasedContentOps.get(op.slideId);
+            const baseFields = mergeSlideFieldBaselines(
+              previous?.op.baseFields,
+              op.baseFields,
+            );
             const rebasedOp = {
               ...op,
               fields: { ...previous?.op.fields, ...op.fields },
+              ...(baseFields ? { baseFields } : {}),
               baseContentHash: safeToRebase.get(op.slideId),
             };
             const remoteContent = remoteSlides.get(op.slideId)?.content;
@@ -1910,9 +1990,14 @@ function collapseKeepaliveSlidePatches(ops: GranularOp[]): GranularOp[] {
         firstContentHashBySlide.set(op.slideId, op.baseContentHash);
       }
     }
+    const baseFields = mergeSlideFieldBaselines(
+      previous?.baseFields,
+      op.baseFields,
+    );
     const merged = {
       ...op,
       fields: { ...previous?.fields, ...op.fields },
+      ...(baseFields ? { baseFields } : {}),
       ...(typeof op.fields.content === "string" ||
       typeof previous?.fields.content === "string"
         ? {
@@ -2047,9 +2132,14 @@ function enqueueDeckOp(
   ) {
     const drafts = staleContentDrafts.get(deckId) ?? new Map();
     const previous = drafts.get(op.slideId);
+    const baseFields = mergeSlideFieldBaselines(
+      previous?.baseFields,
+      op.baseFields,
+    );
     drafts.set(op.slideId, {
       ...op,
       fields: { ...previous?.fields, ...op.fields },
+      ...(baseFields ? { baseFields } : {}),
     });
     staleContentDrafts.set(deckId, drafts);
     notifySaveListeners();
@@ -2482,7 +2572,21 @@ function undoOpsWithoutRemoteFieldConflicts(
           delete fields[field as keyof PatchSlideFields];
         }
       }
-      return Object.keys(fields).length > 0 ? [{ ...op, fields }] : [];
+      const baseFields = Object.fromEntries(
+        Object.entries(op.baseFields ?? {}).filter(
+          ([field]) => field !== "content" && field in fields,
+        ),
+      ) as PatchSlideBaselines;
+      const { baseFields: _baseFields, ...withoutBaseFields } = op;
+      return Object.keys(fields).length > 0
+        ? [
+            {
+              ...withoutBaseFields,
+              fields,
+              ...(Object.keys(baseFields).length > 0 ? { baseFields } : {}),
+            },
+          ]
+        : [];
     }
 
     if (op.op === "patch-deck-fields") {
@@ -2539,7 +2643,30 @@ export function deriveInverseOp(
         }
       }
       if (Object.keys(priorFields).length === 0) return null;
-      return [{ op: "patch-slide", slideId: op.slideId, fields: priorFields }];
+      const baseFields: PatchSlideBaselines = {};
+      for (const key of Object.keys(priorFields)) {
+        if (key === "content") continue;
+        const field = key as PatchSlideBaselineField;
+        const requestedValue = (op.fields as Record<string, unknown>)[field];
+        const baseline =
+          requestedValue === undefined
+            ? prior[field]
+            : requestedValue === null
+              ? undefined
+              : requestedValue;
+        baseFields[field] =
+          baseline === undefined
+            ? { present: false }
+            : { present: true, value: structuredClone(baseline) };
+      }
+      return [
+        {
+          op: "patch-slide",
+          slideId: op.slideId,
+          fields: priorFields,
+          ...(Object.keys(baseFields).length > 0 ? { baseFields } : {}),
+        },
+      ];
     }
     case "delete-slide": {
       const prior = before.slides.find((s) => s.id === op.slideId);
@@ -3724,11 +3851,12 @@ export function DeckProvider({
       redoOp: PatchDeckOp,
       opts?: { label?: string; coalesceKey?: string },
     ) => {
-      const inverseOps = deriveInverseOp(before, redoOp);
+      const redo = withSlideFieldBaselines(before, redoOp);
+      const inverseOps = deriveInverseOp(before, redo);
       if (!inverseOps || inverseOps.length === 0) return;
       const entry: LocalOpUndoEntry<DeckUndoOp> = {
         undo: inverseOps.map((o) => ({ deckId: before.id, ...o })),
-        redo: [{ deckId: before.id, ...redoOp }],
+        redo: [{ deckId: before.id, ...redo }],
         label: opts?.label,
         coalesceKey: opts?.coalesceKey,
       };
@@ -3741,16 +3869,19 @@ export function DeckProvider({
     (before: Deck, redoOps: PatchDeckOp[], label: string) => {
       let state = before;
       const undoOps: PatchDeckOp[] = [];
+      const normalizedRedoOps: PatchDeckOp[] = [];
       for (const redoOp of redoOps) {
-        const nextState = applyOpToDeck(state, redoOp);
-        const inverseOps = deriveInverseOp(state, redoOp);
+        const normalizedRedo = withSlideFieldBaselines(state, redoOp);
+        const nextState = applyOpToDeck(state, normalizedRedo);
+        const inverseOps = deriveInverseOp(state, normalizedRedo);
         if (inverseOps) undoOps.unshift(...inverseOps);
+        normalizedRedoOps.push(normalizedRedo);
         state = nextState;
       }
       if (undoOps.length === 0) return;
       undoControllerForDeck(before.id).push({
         undo: undoOps.map((op) => ({ deckId: before.id, ...op })),
-        redo: redoOps.map((op) => ({ deckId: before.id, ...op })),
+        redo: normalizedRedoOps.map((op) => ({ deckId: before.id, ...op })),
         label,
       });
     },
@@ -5136,6 +5267,7 @@ export function DeckProvider({
       ) {
         return storedContent;
       }
+      const baseFields = slideFieldBaselines(previousSlide, normalizedUpdates);
       const optimisticSlideFitChange =
         !options?.preserveLocalState &&
         !options?.recordUndoOnly &&
@@ -5152,6 +5284,7 @@ export function DeckProvider({
         op: "patch-slide",
         slideId,
         fields: normalizedUpdates,
+        ...(baseFields ? { baseFields } : {}),
         ...(typeof normalizedUpdates.content === "string" && previousSlide
           ? {
               baseContentHash: hashSlideContent(
@@ -5262,19 +5395,23 @@ export function DeckProvider({
           rememberConfirmedSlideContent(deckId, slideId, previousSlide.content);
         }
       }
-      const ops: PatchDeckOp[] = changedUpdates.map(({ slideId, updates }) => ({
-        op: "patch-slide",
-        slideId,
-        fields: updates,
-        ...(typeof updates.content === "string"
-          ? {
-              baseContentHash: hashSlideContent(
-                before.slides.find((slide) => slide.id === slideId)?.content ??
-                  "",
-              ),
-            }
-          : {}),
-      }));
+      const ops: PatchDeckOp[] = changedUpdates.map(({ slideId, updates }) => {
+        const previousSlide = before.slides.find(
+          (slide) => slide.id === slideId,
+        );
+        const baseFields = slideFieldBaselines(previousSlide, updates);
+        return {
+          op: "patch-slide",
+          slideId,
+          fields: updates,
+          ...(baseFields ? { baseFields } : {}),
+          ...(typeof updates.content === "string"
+            ? {
+                baseContentHash: hashSlideContent(previousSlide?.content ?? ""),
+              }
+            : {}),
+        };
+      });
       const applyUpdates = (d: Deck) => {
         if (d.id !== deckId) return d;
         return {

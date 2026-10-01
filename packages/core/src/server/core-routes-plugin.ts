@@ -93,6 +93,7 @@ import {
 } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { getOrgContext } from "../org/context.js";
+import { isMissingOrganizationTableError } from "../org/membership.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
 import {
@@ -501,17 +502,18 @@ function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry>
  * Resolve the identity the status answer depends on. Both lookups memoize per
  * request inside their own helpers, so repeating them here stays cheap.
  */
-async function resolveAgentEngineStatusIdentity(
+export async function resolveAgentEngineStatusIdentity(
   event: H3Event,
 ): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   const userEmail = session?.email;
   if (!userEmail) return { userEmail: undefined, orgId: undefined };
   try {
     const orgCtx = await getOrgContext(event);
     return { userEmail, orgId: orgCtx.orgId ?? undefined };
-  } catch {
+  } catch (error) {
     /* org module not present in this template */
+    if (!isMissingOrganizationTableError(error)) throw error;
     return { userEmail, orgId: undefined };
   }
 }
