@@ -332,8 +332,8 @@ export default defineAction({
         "Deck title — defaults to the title extracted from the presentation",
       ),
   }),
-  run: async ({ filePath, deckId, title, designSystemId }) => {
-    const { data: fileBuffer } = await readUserUploadedFile(filePath);
+  run: async ({ filePath, deckId, title, designSystemId }, ctx) => {
+    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx);
     return importPptxBufferToDeck({
       fileBuffer,
       deckId,

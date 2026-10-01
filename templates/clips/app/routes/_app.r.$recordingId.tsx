@@ -1999,7 +1999,7 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (playerDataQ.isLoading || playerDataForbidden) {
+  if (playerDataQ.isPending || playerDataForbidden) {
     return <RecordingWorkspaceSkeleton />;
   }
 

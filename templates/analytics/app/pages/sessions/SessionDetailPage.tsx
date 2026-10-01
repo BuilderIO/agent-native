@@ -566,12 +566,16 @@ function ReplayPlayer({
     [errorSignatures],
   );
   const recordingId = response.recording.id;
+  const recordingApp = response.recording.app;
   const issueMatchQuery = useQuery({
     queryKey: ["match-error-issues", recordingId, errorSignaturesKey],
     queryFn: () =>
       callAction<Record<string, SessionIssueMatch>>(
         "match-error-issues",
-        { signatures: errorSignatures },
+        {
+          signatures: errorSignatures,
+          ...(recordingApp ? { app: recordingApp } : {}),
+        },
         { method: "POST" },
       ),
     enabled: devToolsOpen && errorSignatures.length > 0,

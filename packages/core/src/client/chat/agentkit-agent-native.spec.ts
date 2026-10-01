@@ -1752,6 +1752,19 @@ describe("createAgentNativeAgentKitTransport", () => {
             }),
           });
         }
+        if (
+          url.includes("/runs/latest?threadId=thread-resume&runId=run-durable")
+        ) {
+          return json({
+            runId: "run-durable",
+            threadId: "thread-resume",
+            turnId: "turn-resume",
+            startedAt: Date.now(),
+            status: "running",
+            dispatchMode: "background-processing",
+            terminalReason: null,
+          });
+        }
         if (url.includes("/runs/active?threadId=thread-resume")) {
           return json({
             active: true,
@@ -1837,6 +1850,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                   role: "assistant",
                   status: "streaming",
                   parts: [{ type: "text", text: "Slow stream" }],
+                  metadata: { runId: "run-replay" },
                 },
               ],
             },
@@ -1883,6 +1897,9 @@ describe("createAgentNativeAgentKitTransport", () => {
         "completed",
       ),
     );
+    expect(client.getThread(threadId).runs["run-replay"]).toMatchObject({
+      status: "completed",
+    });
 
     expect(requestUrls).toContain(
       "/_agent-native/agent-chat/runs/run-replay/events?after=0",
@@ -1899,7 +1916,138 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("discovers active runs when the chat surface supplies its default runtime", async () => {
+  it("keeps a prior assistant projection when another run replays from sequence zero", async () => {
+    const threadId = "thread-prior-assistant-replay";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: true, status: "running", runId: "run-new" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "server-prior-assistant",
+                  role: "assistant",
+                  content: [{ type: "text", text: "Prior answer" }],
+                  status: { type: "complete" },
+                  metadata: { runId: "run-prior" },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "snapshot-prior-assistant",
+                  role: "assistant",
+                  status: "streaming",
+                  parts: [{ type: "text", text: "Prior answer" }],
+                  metadata: { runId: "run-prior" },
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "snapshot-prior-assistant",
+    ]);
+    await transport.dispose();
+  });
+
+  it("clears partial projections for paused runs replayed from sequence zero", async () => {
+    for (const status of ["awaiting_approval", "awaiting_input"] as const) {
+      const threadId = `thread-${status}-replay`;
+      const runId = `run-${status}`;
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) => {
+          if (String(input).includes("/runs/active")) {
+            return json({ active: true, status, runId });
+          }
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [],
+              agentKit: {
+                messages: [
+                  {
+                    id: "assistant-partial",
+                    role: "assistant",
+                    status: "streaming",
+                    parts: [
+                      { type: "text", text: "Partial approval response" },
+                    ],
+                    metadata: { runId },
+                  },
+                ],
+              },
+            }),
+          });
+        }) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+      expect(snapshot?.activeRunIds).toContain(runId);
+      expect(snapshot?.messages.map((message) => message.id)).not.toContain(
+        "assistant-partial",
+      );
+      await transport.dispose();
+    }
+  });
+
+  it("preserves run_timeout failures without ending a pending redispatch", async () => {
+    for (const awaitingRedispatch of [false, true]) {
+      const threadId = `thread-timeout-${awaitingRedispatch}`;
+      const runId = `run-timeout-${awaitingRedispatch}`;
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) => {
+          if (String(input).includes("/runs/active")) {
+            return json({
+              active: true,
+              status: "completed",
+              runId,
+              terminalReason: "run_timeout",
+              awaitingRedispatch,
+            });
+          }
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [],
+              agentKit: { messages: [] },
+            }),
+          });
+        }) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+      expect(snapshot?.runs?.find((run) => run.id === runId)?.status).toBe(
+        awaitingRedispatch ? "running" : "failed",
+      );
+      if (awaitingRedispatch) {
+        expect(snapshot?.activeRunIds).toContain(runId);
+      } else {
+        expect(
+          snapshot?.runs?.find((run) => run.id === runId)?.error,
+        ).toMatchObject({
+          code: "run_timeout",
+          retryable: true,
+        });
+        expect(snapshot?.activeRunIds).not.toContain(runId);
+      }
+      await transport.dispose();
+    }
+  });
+
+  it("discovers active runs with the default Agent-Native runtime", async () => {
     const requestUrls: string[] = [];
     const fetcher = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -2068,6 +2216,131 @@ describe("createAgentNativeAgentKitTransport", () => {
       expect.objectContaining({ id: "run-finished", status: "completed" }),
     );
     expect(snapshot?.activeRunIds).not.toContain("run-finished");
+    await transport.dispose();
+  });
+
+  it("does not append a second copy of an attachment-bearing prompt", async () => {
+    const threadId = "thread-attachment-prompt-reconcile";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "server-user-attachment-prompt",
+                  role: "user",
+                  content: [{ type: "text", text: "Read this report" }],
+                  attachments: [
+                    {
+                      id: "server-attachment-1",
+                      type: "file",
+                      name: "report.pdf",
+                      contentType: "application/pdf",
+                      content: [
+                        {
+                          type: "file",
+                          url: "https://files.example/report.pdf",
+                          mimeType: "application/pdf",
+                          filename: "report.pdf",
+                        },
+                      ],
+                    },
+                  ],
+                  metadata: {
+                    custom: { submittedRunId: "run-attachment-prompt" },
+                  },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "snapshot-user-attachment-prompt",
+                  role: "user",
+                  parts: [
+                    { type: "text", text: "Read this report" },
+                    {
+                      type: "file",
+                      name: "report.pdf",
+                      url: "https://files.example/report.pdf",
+                      mediaType: "application/pdf",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "snapshot-user-attachment-prompt",
+    ]);
+    await transport.dispose();
+  });
+
+  it("keeps text-file attachment bodies out of the transcript projection", async () => {
+    const threadId = "thread-text-attachment-projection";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "server-user-text-attachment",
+                  role: "user",
+                  content: [{ type: "text", text: "Review this file" }],
+                  attachments: [
+                    {
+                      id: "server-attachment-text",
+                      type: "file",
+                      name: "notes.txt",
+                      contentType: "text/plain",
+                      content: [
+                        {
+                          type: "text",
+                          text: '<attachment name="notes.txt">private body</attachment>',
+                        },
+                      ],
+                    },
+                  ],
+                  metadata: {
+                    custom: { submittedRunId: "run-text-attachment" },
+                  },
+                },
+              },
+            ],
+            agentKit: { messages: [] },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages[0]?.parts).toEqual([
+      { type: "text", text: "Review this file" },
+      {
+        type: "file",
+        name: "notes.txt",
+        fileId: "server-attachment-text",
+        mediaType: "text/plain",
+      },
+    ]);
+    expect(JSON.stringify(snapshot?.messages)).not.toContain("private body");
     await transport.dispose();
   });
 
@@ -2268,6 +2541,52 @@ describe("createAgentNativeAgentKitTransport", () => {
       "snapshot-prompt-unmatched",
       "durable-prompt-one",
       "durable-prompt-two",
+    ]);
+    await transport.dispose();
+  });
+
+  it("reconciles repeated prompts when snapshot and durable turns have matching counts", async () => {
+    const threadId = "thread-repeated-prompt-reconcile";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: ["run-one", "run-two"].map((runId, index) => ({
+              message: {
+                id: `durable-prompt-${index + 1}`,
+                role: "user",
+                content: [{ type: "text", text: "Retry this prompt" }],
+                metadata: { custom: { submittedRunId: runId } },
+              },
+            })),
+            agentKit: {
+              messages: [
+                {
+                  id: "snapshot-prompt-one",
+                  role: "user",
+                  parts: [{ type: "text", text: "Retry this prompt" }],
+                },
+                {
+                  id: "snapshot-prompt-two",
+                  role: "user",
+                  parts: [{ type: "text", text: "Retry this prompt" }],
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "snapshot-prompt-one",
+      "snapshot-prompt-two",
     ]);
     await transport.dispose();
   });

@@ -3,7 +3,12 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 
-export type JobLastStatus = "success" | "error" | "running" | "skipped";
+export type JobLastStatus =
+  | "success"
+  | "error"
+  | "running"
+  | "skipped"
+  | "paused";
 export type JobTriggerType = "schedule" | "event" | "webhook";
 export type JobExecutionMode = "agentic" | "deterministic";
 
@@ -18,6 +23,18 @@ export interface JobFrontmatter {
   lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
+  /** Typed code of the last failure; `consecutiveFailures` counts this code. */
+  lastErrorCode?: string;
+  consecutiveFailures?: number;
+  /** The event whose failure the streak last counted; its retries do not count again. */
+  lastFailedEventId?: string;
+  /**
+   * Set together with `enabled: false` when the framework paused the
+   * automation after repeated identical failures. Absent for a pause the
+   * owner chose.
+   */
+  pausedReason?: string;
+  pausedAt?: string;
   nextRun?: string;
   originScopeId?: string;
   deliveryPlatform?: string;
@@ -136,6 +153,11 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "lastCheck",
   "lastStatus",
   "lastError",
+  "lastErrorCode",
+  "consecutiveFailures",
+  "lastFailedEventId",
+  "pausedReason",
+  "pausedAt",
   "nextRun",
   "originScopeId",
   "deliveryPlatform",
@@ -317,6 +339,21 @@ function parseKnownField(
       break;
     case "lastError":
       meta.lastError = value;
+      break;
+    case "lastErrorCode":
+      meta.lastErrorCode = value || undefined;
+      break;
+    case "consecutiveFailures":
+      meta.consecutiveFailures = parsePositiveInteger(value);
+      break;
+    case "lastFailedEventId":
+      meta.lastFailedEventId = value || undefined;
+      break;
+    case "pausedReason":
+      meta.pausedReason = value || undefined;
+      break;
+    case "pausedAt":
+      meta.pausedAt = value || undefined;
       break;
     case "nextRun":
       meta.nextRun = value;
@@ -531,6 +568,13 @@ export function buildJobResourceContent(
   pushString(lines, "lastCheck", meta.lastCheck);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
   pushString(lines, "lastError", meta.lastError);
+  pushString(lines, "lastErrorCode", meta.lastErrorCode);
+  if (meta.consecutiveFailures !== undefined) {
+    lines.push(`consecutiveFailures: ${meta.consecutiveFailures}`);
+  }
+  pushString(lines, "lastFailedEventId", meta.lastFailedEventId);
+  pushString(lines, "pausedReason", meta.pausedReason);
+  pushString(lines, "pausedAt", meta.pausedAt);
   pushString(lines, "nextRun", meta.nextRun);
   pushString(lines, "originScopeId", meta.originScopeId);
   pushString(lines, "deliveryPlatform", meta.deliveryPlatform);
@@ -562,6 +606,11 @@ export type JobExecutionFrontmatterPatch = {
   lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
+  lastErrorCode?: string;
+  consecutiveFailures?: number;
+  lastFailedEventId?: string;
+  pausedReason?: string;
+  pausedAt?: string;
   nextRun?: string;
   remoteRequestId?: string;
   remoteCommandId?: string;

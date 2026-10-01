@@ -19,6 +19,7 @@ import {
   parseAgentThreadSnapshot,
 } from "@agent-native/agentkit/protocol";
 
+import { BACKGROUND_FUNCTION_WALL_MS } from "../../app-config/run-lifecycle-invariants.js";
 import { agentNativePath } from "../api-path.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
@@ -32,6 +33,7 @@ import {
   type AgentKitProtocolAdapter,
   type CreateAgentKitProtocolAdapterOptions,
 } from "./agentkit-protocol.js";
+import { trackRunOutcome } from "./run-outcome-telemetry.js";
 import {
   createAgentNativeChatRuntime,
   type AgentChatRuntime,
@@ -64,11 +66,15 @@ interface ActiveRunStatus {
   status?: unknown;
   runId?: unknown;
   awaitingRedispatch?: unknown;
+  terminalReason?: unknown;
 }
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
 const RUN_SLOT_MAX_POLLS = RUN_SLOT_STABLE_POLLS * 2;
+// A message sent while an earlier run still owns the thread waits for that run
+// instead of failing; no single run outlives one background function wall.
+const BUSY_THREAD_POLL_INTERVAL_MS = 1_000;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -203,6 +209,87 @@ function messagePart(
   };
 }
 
+function attachmentReferenceUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? value
+      : undefined;
+  } catch {
+    return value.startsWith("/") && !value.startsWith("//") ? value : undefined;
+  }
+}
+
+function storedAttachmentPart(value: unknown): AgentMessagePart | null {
+  const attachment = asRecord(value);
+  if (
+    !attachment ||
+    (attachment.type !== "file" && attachment.type !== "image")
+  ) {
+    return null;
+  }
+  const contentParts = Array.isArray(attachment.content)
+    ? attachment.content.map(asRecord).filter((part) => part !== null)
+    : [];
+  const reference = contentParts.find(
+    (part) =>
+      (part.type === "file" && typeof part.url === "string") ||
+      (part.type === "image" && typeof part.image === "string"),
+  );
+  const metadata = asRecord(attachment.metadata);
+  const url =
+    attachmentReferenceUrl(metadata?.uploadUrl) ??
+    attachmentReferenceUrl(reference?.url ?? reference?.image);
+  const name =
+    (typeof attachment.name === "string" && attachment.name) ||
+    (typeof reference?.filename === "string" && reference.filename) ||
+    attachment.type;
+  const fileId =
+    (typeof attachment.id === "string" && attachment.id) ||
+    (typeof reference?.fileId === "string" && reference.fileId);
+  const mediaType =
+    (typeof attachment.contentType === "string" && attachment.contentType) ||
+    (typeof reference?.mimeType === "string" && reference.mimeType);
+  return {
+    type: "file",
+    name,
+    ...(url ? { url } : {}),
+    ...(fileId ? { fileId } : {}),
+    ...(mediaType ? { mediaType } : {}),
+  };
+}
+
+function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
+  if (
+    left.role !== "user" ||
+    right.role !== "user" ||
+    left.parts.length !== right.parts.length
+  ) {
+    return false;
+  }
+  return left.parts.every((part, index) => {
+    const other = right.parts[index];
+    if (!other || part.type !== other.type) return false;
+    if (part.type === "text" && other.type === "text") {
+      return part.text === other.text;
+    }
+    if (part.type !== "file" || other.type !== "file") return false;
+    const sameReference =
+      (part.fileId && other.fileId && part.fileId === other.fileId) ||
+      (part.url && other.url && part.url === other.url);
+    if (sameReference) return true;
+    if ((part.fileId && other.fileId) || (part.url && other.url)) {
+      return false;
+    }
+    return (
+      Boolean(part.name) &&
+      part.name === other.name &&
+      part.mediaType === other.mediaType
+    );
+  });
+}
+
 function storedMessages(
   value: unknown,
   now: () => string,
@@ -244,22 +331,9 @@ function storedMessages(
               .filter((part) => part !== null)
           : [];
     const attachmentParts = Array.isArray(message.attachments)
-      ? message.attachments.flatMap((entry) => {
-          const attachment = asRecord(entry);
-          return Array.isArray(attachment?.content)
-            ? attachment.content
-                .map((part) => {
-                  const value = asRecord(part);
-                  return messagePart(
-                    value?.type === "image" && typeof value.image === "string"
-                      ? { ...value, url: value.image }
-                      : part,
-                    textFormat,
-                  );
-                })
-                .filter((part) => part !== null)
-            : [];
-        })
+      ? message.attachments
+          .map(storedAttachmentPart)
+          .filter((part) => part !== null)
       : [];
     return [
       {
@@ -304,13 +378,6 @@ function reconcileDurableMessages(
     const value = asRecord(asRecord(message.metadata)?.custom)?.submittedRunId;
     return typeof value === "string" ? value : undefined;
   };
-  const userText = (message: AgentMessage) =>
-    message.parts.some((part) => part.type !== "text")
-      ? undefined
-      : message.parts
-          .filter((part) => part.type === "text")
-          .map((part) => part.text)
-          .join("") || undefined;
   const submittedUsers = durable.filter(
     (message) =>
       message.role === "user" &&
@@ -322,19 +389,12 @@ function reconcileDurableMessages(
     durable.map((message, index) => [message.id, index]),
   );
   const submittedUsersByRun = new Map<string, AgentMessage | null>();
-  const submittedUsersByText = new Map<string, AgentMessage[]>();
   for (const stored of submittedUsers) {
     const runId = submittedRunId(stored)!;
     submittedUsersByRun.set(
       runId,
       submittedUsersByRun.has(runId) ? null : stored,
     );
-    const text = userText(stored);
-    if (text) {
-      const candidates = submittedUsersByText.get(text) ?? [];
-      candidates.push(stored);
-      submittedUsersByText.set(text, candidates);
-    }
   }
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
@@ -363,7 +423,7 @@ function reconcileDurableMessages(
   }
 
   const representedSubmittedUserIds = new Set<string>();
-  const unmatchedSnapshotUsersByText = new Map<string, AgentMessage[]>();
+  const unmatchedSnapshotUsers: AgentMessage[] = [];
   const representedAssistantIds = new Set(
     messages.flatMap((message) =>
       message.role === "assistant" ? [message.id] : [],
@@ -384,12 +444,7 @@ function reconcileDurableMessages(
       if (represented?.role === "user") {
         representedSubmittedUserIds.add(represented.id);
       } else if (!runId) {
-        const text = userText(message);
-        if (text) {
-          const candidates = unmatchedSnapshotUsersByText.get(text) ?? [];
-          candidates.push(message);
-          unmatchedSnapshotUsersByText.set(text, candidates);
-        }
+        unmatchedSnapshotUsers.push(message);
       }
     } else if (message.role === "assistant") {
       const metadataRunId = asRecord(message.metadata)?.runId;
@@ -401,13 +456,46 @@ function reconcileDurableMessages(
       if (runId && stored) representedAssistantRunIds.add(runId);
     }
   }
-  for (const [text, snapshotUsers] of unmatchedSnapshotUsersByText) {
-    const candidates = (submittedUsersByText.get(text) ?? []).filter(
-      (message) => !representedSubmittedUserIds.has(message.id),
+  const matchedSnapshotUserIds = new Set<string>();
+  for (const snapshotUser of unmatchedSnapshotUsers) {
+    const candidates = submittedUsers.filter(
+      (message) =>
+        !representedSubmittedUserIds.has(message.id) &&
+        sameUserPrompt(snapshotUser, message),
     );
-    if (snapshotUsers.length !== 1 || candidates.length !== 1) continue;
+    if (candidates.length !== 1) continue;
     const stored = candidates[0]!;
+    const matchingSnapshots = unmatchedSnapshotUsers.filter(
+      (message) =>
+        !matchedSnapshotUserIds.has(message.id) &&
+        sameUserPrompt(message, stored),
+    );
+    if (matchingSnapshots.length !== 1) continue;
     representedSubmittedUserIds.add(stored.id);
+    matchedSnapshotUserIds.add(snapshotUser.id);
+  }
+  // ponytail: only collapse balanced indistinguishable prompt groups; use
+  // stable message IDs when the client exposes them for unequal groups.
+  for (const snapshotUser of unmatchedSnapshotUsers) {
+    if (matchedSnapshotUserIds.has(snapshotUser.id)) continue;
+    const candidates = submittedUsers.filter(
+      (message) =>
+        !representedSubmittedUserIds.has(message.id) &&
+        sameUserPrompt(snapshotUser, message),
+    );
+    if (candidates.length < 2) continue;
+    const matchingSnapshots = unmatchedSnapshotUsers.filter(
+      (message) =>
+        !matchedSnapshotUserIds.has(message.id) &&
+        candidates.every((candidate) => sameUserPrompt(message, candidate)),
+    );
+    if (matchingSnapshots.length !== candidates.length) continue;
+    for (const candidate of candidates) {
+      representedSubmittedUserIds.add(candidate.id);
+    }
+    for (const message of matchingSnapshots) {
+      matchedSnapshotUserIds.add(message.id);
+    }
   }
 
   const missingMessages: AgentMessage[] = submittedUsers.filter(
@@ -1001,6 +1089,8 @@ export function createAgentNativeAgentKitTransport(
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
   let transport: AgentKitProtocolAdapter;
+  /** Queued messages a send on this page is still waiting to deliver itself. */
+  const parkedMessageIds = new Set<string>();
 
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
     const configured =
@@ -1187,7 +1277,18 @@ export function createAgentNativeAgentKitTransport(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
     const stored = await fetchThread(threadId);
-    return stored ? projectThread(threadId, stored) : null;
+    if (!stored) return null;
+    const thread = projectThread(threadId, stored);
+    // A message parked by a send still waiting on this page is delivered by
+    // that wait; listing it as queued here would let a promotion race it.
+    return parkedMessageIds.size === 0
+      ? thread
+      : {
+          ...thread,
+          queuedMessages: thread.queuedMessages?.filter(
+            (message) => !parkedMessageIds.has(message.id),
+          ),
+        };
   }
 
   async function activeRunSnapshot(
@@ -1212,7 +1313,20 @@ export function createAgentNativeAgentKitTransport(
     }
     let runStatus: AgentRunSnapshot["status"];
     let error: AgentRunSnapshot["error"];
-    if (status === "complete" || status === "completed") {
+    const legacyTimeout =
+      value.terminalReason === "run_timeout" &&
+      ["complete", "completed", "truncated"].includes(String(status));
+    if (legacyTimeout && value.awaitingRedispatch === true) {
+      runStatus = "running";
+    } else if (legacyTimeout) {
+      runStatus = "failed";
+      error = {
+        code: "run_timeout",
+        message:
+          "The run reached its time limit before completion was confirmed.",
+        retryable: true,
+      };
+    } else if (status === "complete" || status === "completed") {
       runStatus = "completed";
     } else if (status === "failed" || status === "errored") {
       runStatus = "failed";
@@ -1315,11 +1429,11 @@ export function createAgentNativeAgentKitTransport(
       thread.events,
       runs,
     );
-    const replayFromStart = discoveredRun?.status === "running";
-    const streamingAssistants = messages.filter(
-      (message) =>
-        message.role === "assistant" && message.status === "streaming",
-    );
+    const replayFromStart = [
+      "running",
+      "awaiting_approval",
+      "awaiting_input",
+    ].includes(discoveredRun?.status ?? "");
     const replayedMessageIds = new Set<string>();
     for (const event of thread.events ?? []) {
       if (
@@ -1338,9 +1452,7 @@ export function createAgentNativeAgentKitTransport(
           }
           const runId = asRecord(message.metadata)?.runId;
           return !(
-            runId === discoveredRun?.id ||
-            replayedMessageIds.has(message.id) ||
-            streamingAssistants.length === 1
+            runId === discoveredRun?.id || replayedMessageIds.has(message.id)
           );
         })
       : messages;
@@ -1491,13 +1603,23 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  async function waitForRunSlot(threadId: string): Promise<void> {
+  async function waitForRunSlot(
+    threadId: string,
+    wait: { maxPolls: number; intervalMs: number; signal?: AbortSignal } = {
+      maxPolls: RUN_SLOT_MAX_POLLS,
+      intervalMs: RUN_SLOT_POLL_INTERVAL_MS,
+    },
+  ): Promise<void> {
     let consecutiveClearPolls = 0;
     let activeRunId: string | undefined;
-    for (let poll = 0; poll < RUN_SLOT_MAX_POLLS; poll += 1) {
+    for (let poll = 0; poll < wait.maxPolls; poll += 1) {
+      wait.signal?.throwIfAborted();
       const response = await fetcher(
         `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-        { headers: await headers({ sessionId: threadId }) },
+        {
+          headers: await headers({ sessionId: threadId }),
+          ...(wait.signal ? { signal: wait.signal } : {}),
+        },
       );
       if (!response.ok) throw await responseError(response);
       const status = asRecord(await response.json()) as ActiveRunStatus | null;
@@ -1518,15 +1640,167 @@ export function createAgentNativeAgentKitTransport(
           status.status === "aborted");
       consecutiveClearPolls = clear ? consecutiveClearPolls + 1 : 0;
       if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
-      if (poll + 1 < RUN_SLOT_MAX_POLLS) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, RUN_SLOT_POLL_INTERVAL_MS),
-        );
+      if (poll + 1 < wait.maxPolls) {
+        await new Promise((resolve) => setTimeout(resolve, wait.intervalMs));
       }
     }
     const error = new AgentKitRunSlotBusyError();
     if (activeRunId) Object.assign(error, { activeRunId });
     throw error;
+  }
+
+  /** Waits for the thread to free up; a failed poll is not a failed send. */
+  async function waitForFreeThread(
+    threadId: string,
+    deadline: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    for (let failures = 0; ; failures += 1) {
+      try {
+        return await waitForRunSlot(threadId, {
+          maxPolls: Math.max(
+            RUN_SLOT_STABLE_POLLS,
+            Math.ceil((deadline - Date.now()) / BUSY_THREAD_POLL_INTERVAL_MS),
+          ),
+          intervalMs: BUSY_THREAD_POLL_INTERVAL_MS,
+          signal,
+        });
+      } catch (error) {
+        if (
+          signal?.aborted ||
+          asRecord(error)?.retryable === false ||
+          Date.now() >= deadline
+        ) {
+          throw error;
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(1_000 * 2 ** failures, 15_000)),
+        );
+      }
+    }
+  }
+
+  /**
+   * The server refuses (409 `run_slot_busy`) a message sent while an earlier
+   * run still owns the thread, before saving it. Park it in the thread's
+   * server-side queue, so leaving the page cannot lose it (the next page
+   * promotes it like any queued message), and deliver it from here once the
+   * thread is free. Giving up while still on the page takes it back out, and
+   * the send fails where the user can see it.
+   */
+  async function startRunWhenThreadIsFree(
+    input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
+    context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+  ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
+    try {
+      return await startRun(input, context);
+    } catch (error) {
+      if (asRecord(error)?.code !== "run_slot_busy") throw error;
+    }
+    const message = [...input.messages]
+      .reverse()
+      .find((candidate) => candidate.role === "user");
+    if (!message) throw new AgentKitRunSlotBusyError();
+    const parked: AgentQueuedMessage = {
+      id: message.id,
+      threadId: input.threadId,
+      text: message.parts
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join(""),
+      createdAt: message.createdAt ?? now(),
+      attachments: message.parts.filter((part) => part.type === "file"),
+      ...(message.metadata ? { metadata: message.metadata } : {}),
+    };
+    await persistQueueMutation(input.threadId, {
+      type: "append",
+      message: parked,
+    });
+    parkedMessageIds.add(parked.id);
+    const deadline = Date.now() + BACKGROUND_FUNCTION_WALL_MS;
+    try {
+      for (;;) {
+        await waitForFreeThread(input.threadId, deadline, context?.signal);
+        const claim = await persistQueueMutation(input.threadId, {
+          type: "claim",
+          messageId: parked.id,
+        });
+        if (!claim.removedMessage || typeof claim.index !== "number") {
+          throw new TypeError("Agent chat queue claim response is invalid.");
+        }
+        try {
+          return await startRun(input, context);
+        } catch (error) {
+          if (
+            asRecord(error)?.code !== "run_slot_busy" ||
+            Date.now() >= deadline
+          ) {
+            throw error;
+          }
+          await persistQueueMutation(input.threadId, {
+            type: "restore",
+            message: claim.removedMessage,
+            index: claim.index,
+          });
+        }
+      }
+    } catch (error) {
+      // Leaving the page keeps the parked copy queued for the next one.
+      if (!context?.signal?.aborted) {
+        await persistQueueMutation(input.threadId, {
+          type: "remove",
+          messageId: parked.id,
+        }).catch((removeError: unknown) => {
+          // coercion-ok: the send still fails with its own error below; a copy left queued is delivered later, never lost.
+          console.warn(
+            "[agent-chat] could not take a failed send out of the queue:",
+            removeError,
+          );
+        });
+      }
+      throw error;
+    } finally {
+      parkedMessageIds.delete(parked.id);
+    }
+  }
+
+  /**
+   * Queue promotion has its own busy-slot retry, so it fails fast ("fail")
+   * instead of holding the thread's queue mutations while it waits.
+   */
+  async function startRunTrackingRunningState(
+    input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
+    context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+    onBusyThread: "wait" | "fail",
+  ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
+    dispatchAgentChatRunning({
+      isRunning: true,
+      phase: "working",
+      threadId: input.threadId,
+      tabId: input.threadId,
+    });
+    try {
+      const run =
+        onBusyThread === "wait"
+          ? await startRunWhenThreadIsFree(input, context)
+          : await startRun(input, context);
+      dispatchAgentChatRunning({
+        isRunning: true,
+        phase: "working",
+        threadId: input.threadId,
+        tabId: input.threadId,
+        runId: run.runId,
+      });
+      return run;
+    } catch (error) {
+      dispatchAgentChatRunning({
+        isRunning: false,
+        phase: "idle",
+        threadId: input.threadId,
+        tabId: input.threadId,
+        reason: "start_failed",
+      });
+      throw error;
+    }
   }
 
   async function readQueue(threadId: string): Promise<AgentQueuedMessage[]> {
@@ -1544,6 +1818,7 @@ export function createAgentNativeAgentKitTransport(
     options.feedbackUrl ??
     agentNativePath("/_agent-native/observability/feedback");
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
+    onRunOutcome: trackRunOutcome,
     ...options.adapter,
     metadata: adapterMetadata(options),
     capabilities: {
@@ -1619,23 +1894,31 @@ export function createAgentNativeAgentKitTransport(
           throw new TypeError("Agent chat queue claim response is invalid.");
         }
         try {
-          return await transport.startRun({
-            threadId,
-            messages: [
-              ...thread.messages,
-              {
-                id: queued.id,
-                role: "user",
-                parts: [
-                  { type: "text", text: queued.text },
-                  ...(queued.attachments ?? []),
-                ],
-                createdAt: queued.createdAt,
-                metadata: queued.metadata,
-              },
-            ],
-            metadata: queued.metadata,
-          });
+          return await startRunTrackingRunningState(
+            {
+              threadId,
+              messages: [
+                // A send parked while it waited may already sit in the saved
+                // history (a snapshot saved during the wait); send it once.
+                ...thread.messages.filter(
+                  (message) => message.id !== queued.id,
+                ),
+                {
+                  id: queued.id,
+                  role: "user",
+                  parts: [
+                    { type: "text", text: queued.text },
+                    ...(queued.attachments ?? []),
+                  ],
+                  createdAt: queued.createdAt,
+                  metadata: queued.metadata,
+                },
+              ],
+              metadata: queued.metadata,
+            },
+            undefined,
+            "fail",
+          );
         } catch (error) {
           try {
             await persistQueueMutation(threadId, {
@@ -1794,34 +2077,8 @@ export function createAgentNativeAgentKitTransport(
     protocolTransport.subscribeToRun.bind(protocolTransport);
   transport = {
     ...protocolTransport,
-    async startRun(input, context) {
-      dispatchAgentChatRunning({
-        isRunning: true,
-        phase: "working",
-        threadId: input.threadId,
-        tabId: input.threadId,
-      });
-      try {
-        const run = await startRun(input, context);
-        dispatchAgentChatRunning({
-          isRunning: true,
-          phase: "working",
-          threadId: input.threadId,
-          tabId: input.threadId,
-          runId: run.runId,
-        });
-        return run;
-      } catch (error) {
-        dispatchAgentChatRunning({
-          isRunning: false,
-          phase: "idle",
-          threadId: input.threadId,
-          tabId: input.threadId,
-          reason: "start_failed",
-        });
-        throw error;
-      }
-    },
+    startRun: (input, context) =>
+      startRunTrackingRunningState(input, context, "wait"),
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({
         isRunning: true,

@@ -611,6 +611,12 @@ const messages = {
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
   "errorMessages.malformedRequest":
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.runInterrupted": "The agent stopped before finishing.",
+  "errorMessages.runFailed": "The agent run failed.",
+  "errorMessages.runUnverified":
+    "This chat lost track of the agent, which may still be running. Reload to see its progress.",
+  "errorMessages.runSignedOut":
+    "You're signed out, so this chat can't follow the agent. Sign in again, then reload.",
   "errorMessages.malformedRequestAttachment":
     "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
   "errorMessages.noProviderConnected":

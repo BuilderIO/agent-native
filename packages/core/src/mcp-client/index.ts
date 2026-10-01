@@ -217,6 +217,7 @@ function mcpToolToActionEntry(
       parameters: tool.inputSchema as any,
     },
     http: false,
+    fromMcpServer: true,
     planMode: {
       effect: (args) =>
         evaluateMcpToolCallPolicy({ mode: "read-only" }, tool, args).effect,

@@ -42,11 +42,20 @@ export default defineAction({
       )
       .max(100)
       .describe("Session console error lines to resolve to issues."),
+    app: z
+      .string()
+      .optional()
+      .describe(
+        "The recording's app. Issues are filed per app, so lines only match issues filed under it.",
+      ),
   }),
   http: { method: "POST" },
   readOnly: true,
   grounding: true,
   run: async (args) => {
-    return matchErrorIssuesBySignatures(resolveScope(), args.signatures);
+    return matchErrorIssuesBySignatures(
+      resolveScope(),
+      args.signatures.map((signature) => ({ ...signature, app: args.app })),
+    );
   },
 });

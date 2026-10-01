@@ -19,7 +19,10 @@ import {
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
+  McpDirectoryProfileValidationError,
   validateMcpDirectoryProfile,
+  validateMcpDirectoryWidgetDomain,
+  selectMcpActionSurface,
   type MCPConfig,
   type MCPCallerIdentity,
   type MCPRequestMeta,
@@ -201,6 +204,29 @@ function buildUnauthorizedBody(
   };
 }
 
+const loggedDirectoryProfileFailures = new Set<string>();
+
+function directoryProfileUnavailable(
+  event: H3Event,
+  validationError: McpDirectoryProfileValidationError,
+): { error: string; message: string } {
+  const failureKey = `${validationError.code}\0${validationError.message}`;
+  if (!loggedDirectoryProfileFailures.has(failureKey)) {
+    loggedDirectoryProfileFailures.add(failureKey);
+    console.error(
+      "[mcp] MCP directory profile validation failed:",
+      validationError,
+    );
+  }
+  setResponseStatus(event, 503);
+  setResponseHeader(event, "Cache-Control", "no-store");
+  return {
+    error: "MCP_DIRECTORY_PROFILE_INVALID",
+    message:
+      "The MCP directory is unavailable because its profile or widget origin is invalid.",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // handleMcpRequest — runtime-agnostic MCP request handler
 // ---------------------------------------------------------------------------
@@ -318,6 +344,18 @@ export async function handleMcpRequest(
         : undefined,
     ...(authResult.fullCatalog === true ? { fullCatalog: true } : {}),
   };
+  if (directoryProfile) {
+    try {
+      validateMcpDirectoryProfile(
+        requestConfig,
+        selectMcpActionSurface(requestConfig, serverRequestMeta),
+      );
+      validateMcpDirectoryWidgetDomain(requestConfig.widgetDomain);
+    } catch (error) {
+      if (!(error instanceof McpDirectoryProfileValidationError)) throw error;
+      return directoryProfileUnavailable(event, error);
+    }
+  }
   if (initializeRequest) {
     const clientInfo = initializeRequest.params?.clientInfo;
     const protocolVersion = initializeRequest.params?.protocolVersion;
@@ -367,7 +405,6 @@ export function mountMCP(
   config: MCPConfig,
   routePrefix = "/_agent-native",
 ): void {
-  if (config.directoryProfile) validateMcpDirectoryProfile(config);
   const routePaths =
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]

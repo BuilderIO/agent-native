@@ -1242,6 +1242,12 @@ const messages: ToolkitAgentChatTranslation = {
     "El esquema de una herramienta no era válido, así que el modelo rechazó la solicitud antes de iniciarla. Puedes omitir la herramienta no válida y volver a intentarlo.",
   "errorMessages.malformedRequest":
     "El proveedor del modelo rechazó esta solicitud por estar mal formada, así que no se reintentó. Vuelve a intentarlo o inicia un chat nuevo si sigue ocurriendo.",
+  "errorMessages.runInterrupted": "El agente se detuvo antes de terminar.",
+  "errorMessages.runFailed": "La ejecución del agente falló.",
+  "errorMessages.runUnverified":
+    "Este chat perdió el rastro del agente, que puede seguir ejecutándose. Recarga para ver su progreso.",
+  "errorMessages.runSignedOut":
+    "Cerraste sesión, así que este chat no puede seguir al agente. Vuelve a iniciar sesión y recarga.",
   "errorMessages.malformedRequestAttachment":
     "El modelo rechazó un archivo adjunto, así que este mensaje nunca se envió. Quita el adjunto y vuelve a intentarlo: un PDF, un archivo de texto plano o una imagen JPEG, PNG, GIF o WebP se leen directamente; los demás formatos deben subirse y enlazarse.",
   "errorMessages.noProviderConnected":

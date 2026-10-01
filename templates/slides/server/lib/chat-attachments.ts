@@ -3,6 +3,11 @@ import path from "path";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readBoundedResponseBytes } from "@agent-native/core/ingestion";
 import {
+  ATTACHMENT_REF_MAX_CHARS,
+  describeAttachmentFailure,
+  isAttachmentError,
+} from "@agent-native/core/private-blob";
+import {
   getRequestRunContext,
   type AgentChatAttachment,
 } from "@agent-native/core/server";
@@ -41,7 +46,7 @@ export function buildSlidesDeckGenerationContext(
         .flatMap((file) => {
           if (!isRecord(file)) return [];
           const name = boundedString(file.originalName, 160) ?? "reference";
-          const path = boundedString(file.path, 2_000);
+          const path = boundedString(file.path, ATTACHMENT_REF_MAX_CHARS);
           const url = boundedString(file.url, 2_000);
           if (!path && !url) return [];
           const locations = [
@@ -170,6 +175,13 @@ async function downloadHostedReferenceFile(
   };
 }
 
+function describeSaveFailure(error: unknown, fallback: string): string {
+  if (isAttachmentError(error)) {
+    return describeAttachmentFailure(error.failure, "save").message;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
 function attachmentDataUrl(attachment: AgentChatAttachment): string | null {
   if (typeof attachment.data !== "string") return null;
   if (
@@ -269,10 +281,7 @@ export async function prepareSlidesChatAttachments(args: {
           } catch (error) {
             failed.push({
               name: attachment.name,
-              reason:
-                error instanceof Error
-                  ? error.message
-                  : "download or upload failed",
+              reason: describeSaveFailure(error, "download or upload failed"),
             });
           }
         }
@@ -307,7 +316,7 @@ export async function prepareSlidesChatAttachments(args: {
     } catch (error) {
       failed.push({
         name: attachment.name,
-        reason: error instanceof Error ? error.message : "upload failed",
+        reason: describeSaveFailure(error, "upload failed"),
       });
     }
   }
@@ -343,6 +352,7 @@ export async function prepareSlidesChatAttachments(args: {
           fileList,
           "",
           "File handling rules:",
+          "- Pass `filePath` exactly as listed above, or use the attachment's file name. Never shorten, edit, or re-type the path.",
           '- Attachments are reference context by default. When the user explicitly asks to import or convert an attached PDF or PPTX into the current or visible deck, call `view-screen` when the deckId is not already known, then call `import-file` with `{ filePath: "<path>", format: "pdf" or "pptx", deckId: "<deckId>", importIntoDeck: true }`. Verify the result reports `imported: true` and a positive `slideCount`; do not use extraction-only mode or recreate the imported pages with `add-slide`.',
           "- An attachment alone never imports. Use `import-pptx` with `deckId` only for an explicit whole-deck replacement because it replaces all slides.",
           "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
