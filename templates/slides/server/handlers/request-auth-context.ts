@@ -2,6 +2,7 @@ import { getOrgContext } from "@agent-native/core/org";
 import {
   getMcpOAuthBearerSession,
   getSession,
+  isCredentialMembershipUnavailable,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import type { H3Event } from "h3";
@@ -46,6 +47,13 @@ export async function resolveSlidesRequestAuthContext(
     } catch (err) {
       throw new SlidesSessionLookupError(err);
     }
+  }
+  // A bearer token that verified but whose organization membership could not
+  // be checked is not an anonymous caller. Answer the retryable 503.
+  if (!session?.email && isCredentialMembershipUnavailable(event)) {
+    throw new SlidesSessionLookupError(
+      new Error("Organization membership could not be verified"),
+    );
   }
 
   let orgId: string | undefined;

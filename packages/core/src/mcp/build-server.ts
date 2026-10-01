@@ -2484,14 +2484,28 @@ async function isConnectTokenAllowed(
 ): Promise<boolean> {
   if (!jti) return false;
   try {
-    const { isJtiRevoked, touchTokenUsed } = await import("./connect-store.js");
+    const { isJtiRevoked } = await import("./connect-store.js");
     if (await isJtiRevoked(jti)) return false;
-    void touchTokenUsed(jti);
   } catch {
     // Store import / lookup failed — fail open. Signature verification already
     // passed; this only gates explicit revokes.
   }
   return true;
+}
+
+/**
+ * Records a connect token's use once the request is admitted, so a refused
+ * call (revoked, removed member, membership check unavailable) never moves
+ * `last_used_at`.
+ */
+async function markConnectTokenUsed(jti: string | undefined): Promise<void> {
+  if (!jti) return;
+  try {
+    const { touchTokenUsed } = await import("./connect-store.js");
+    void touchTokenUsed(jti);
+  } catch {
+    // last_used_at is informational only.
+  }
 }
 
 type ConnectTokenOrgResolution =
@@ -2537,9 +2551,10 @@ export type VerifyAuthResult = {
   fullSurface?: boolean;
   fullCatalog?: boolean;
   /**
-   * The token verified, but its organization membership could not be checked
-   * (database or identity-authority error). Answer with a retryable error, not
-   * an auth challenge: signing in again would not help.
+   * The token verified, but its organization could not be checked: the
+   * connect-token org lookup or the membership check hit a database or
+   * identity-authority error. Answer with a retryable error, not an auth
+   * challenge: signing in again would not help.
    */
   unavailable?: true;
 };
@@ -2632,10 +2647,10 @@ export async function verifyAuth(
         oauthIdentity.orgId,
       );
       if (orgResolution.status === "unavailable") {
-        return { authed: false };
+        return { authed: false, unavailable: true };
       }
       const orgId = orgIdFromConnectTokenResolution(orgResolution);
-      return admitIssuedCredential(
+      const admitted = await admitIssuedCredential(
         {
           authed: true,
           identity: {
@@ -2650,6 +2665,13 @@ export async function verifyAuth(
         },
         options.requestOrigin,
       );
+      if (
+        admitted.authed &&
+        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
+      ) {
+        await markConnectTokenUsed(oauthIdentity.jti);
+      }
+      return admitted;
     }
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {
@@ -2694,7 +2716,7 @@ export async function verifyAuth(
       orgIdClaim.orgId,
     );
     if (orgResolution.status === "unavailable") {
-      return { authed: false };
+      return { authed: false, unavailable: true };
     }
     const orgId = orgIdFromConnectTokenResolution(orgResolution);
     const firstPartyMcp = payload.agent_native_first_party_mcp === true;
@@ -2714,9 +2736,14 @@ export async function verifyAuth(
     };
     // First-party MCP tokens share the connect scope but are minted by a
     // sibling app per call, so they are cross-app A2A tokens.
-    return tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp
-      ? admitIssuedCredential(verified, options.requestOrigin)
-      : verified;
+    const admitted =
+      tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp
+        ? await admitIssuedCredential(verified, options.requestOrigin)
+        : verified;
+    if (admitted.authed && tokenScope === MCP_CONNECT_SCOPE) {
+      await markConnectTokenUsed(payload.jti as string | undefined);
+    }
+    return admitted;
   }
 
   if (accessTokens.length === 0 && !hasA2ASecret) {

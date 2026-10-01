@@ -22,8 +22,9 @@ import {
 
 /**
  * `unavailable` means the check could not run (database or identity-authority
- * error). It is neither answer: callers must refuse the request with a
- * retryable error, and must not revoke anything on it.
+ * error, or organization tables that don't exist yet). It is neither answer:
+ * callers must refuse the request with a retryable error, and must not revoke
+ * anything on it.
  */
 export type CredentialOrgMembership = "member" | "not-member" | "unavailable";
 
@@ -54,8 +55,15 @@ export async function checkCredentialOrgMembership(input: {
           );
     return member ? "member" : "not-member";
   } catch (error) {
-    // No organization tables means no organization to belong to.
-    if (isMissingOrganizationTableError(error)) return "not-member";
+    // Missing organization tables mean a partial migration or a fresh
+    // database, not a removal. Refuse with a retryable error; revoking a
+    // refresh token on this could not be undone.
+    if (isMissingOrganizationTableError(error)) {
+      console.error(
+        "[mcp] Organization tables are missing; refusing the credential without revoking it.",
+      );
+      return "unavailable";
+    }
     console.error(
       "[mcp] Organization membership check failed; refusing the credential:",
       error,

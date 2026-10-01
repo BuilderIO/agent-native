@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockGetMcpOAuthBearerSession = vi.hoisted(() => vi.fn());
 const mockGetOrgContext = vi.hoisted(() => vi.fn());
+const mockIsCredentialMembershipUnavailable = vi.hoisted(() =>
+  vi.fn(() => false),
+);
 const mockRunWithRequestContext = vi.hoisted(() =>
   vi.fn(async (_ctx: unknown, fn: () => unknown) => fn()),
 );
@@ -11,6 +14,8 @@ vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
   getMcpOAuthBearerSession: (...args: unknown[]) =>
     mockGetMcpOAuthBearerSession(...args),
+  isCredentialMembershipUnavailable: (...args: unknown[]) =>
+    mockIsCredentialMembershipUnavailable(...args),
   runWithRequestContext: (ctx: unknown, fn: () => unknown) =>
     mockRunWithRequestContext(ctx, fn),
 }));
@@ -42,6 +47,16 @@ describe("resolveSlidesRequestAuthContext", () => {
 
   it("throws SlidesSessionLookupError instead of returning a fake anonymous context when the lookup itself fails", async () => {
     mockGetSession.mockRejectedValue(new Error("db unavailable"));
+
+    await expect(
+      resolveSlidesRequestAuthContext({} as any),
+    ).rejects.toBeInstanceOf(SlidesSessionLookupError);
+  });
+
+  it("refuses with a retryable error, not as anonymous, when a bearer token's org membership could not be checked", async () => {
+    mockGetMcpOAuthBearerSession.mockResolvedValue(null);
+    mockGetSession.mockResolvedValue(null);
+    mockIsCredentialMembershipUnavailable.mockReturnValueOnce(true);
 
     await expect(
       resolveSlidesRequestAuthContext({} as any),

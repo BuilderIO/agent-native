@@ -69,7 +69,10 @@ describe("checkCredentialOrgMembership", () => {
     consoleError.mockRestore();
   });
 
-  it("treats a database without organization tables as no membership", async () => {
+  it("reports missing organization tables as unavailable, so nothing is revoked", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     isOrgMemberMock.mockRejectedValue(
       new Error('relation "org_members" does not exist'),
     );
@@ -78,7 +81,8 @@ describe("checkCredentialOrgMembership", () => {
         orgId: "org-1",
         email: "alice@example.test",
       }),
-    ).resolves.toBe("not-member");
+    ).resolves.toBe("unavailable");
+    consoleError.mockRestore();
   });
 
   it("runs the lookup with the app origin so federated orgs can be validated", async () => {

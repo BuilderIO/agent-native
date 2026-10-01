@@ -86,6 +86,7 @@ export {
   type VerifyEmbedSessionTokenResult,
 } from "./embed-session.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
+export { isCredentialMembershipUnavailable } from "./credential-membership-unavailable.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
