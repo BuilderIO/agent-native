@@ -70,6 +70,7 @@ export function samplePropertyKeys(properties: string): string[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(properties);
+    // coercion-ok: unparseable properties only mean no sample keys; the event still indexes.
   } catch {
     return [];
   }

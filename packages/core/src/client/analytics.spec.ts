@@ -1292,7 +1292,7 @@ describe("browser analytics pageviews", () => {
     trackEvent("share_link_copied", { clip_id: "clip-1" });
     trackEvent("pageview");
     trackEvent("action.response", { action: "list-clips" });
-    trackEvent("session status", { signed_in: true });
+    trackEvent("session_status", { signed_in: true });
     await tick();
 
     const marked = replayMock.emitSessionReplayAnalyticsEvent.mock.calls.map(
@@ -1306,7 +1306,6 @@ describe("browser analytics pageviews", () => {
     expect(marked).not.toContain("output_shared");
     expect(marked).not.toContain("pageview");
     expect(marked).not.toContain("action.response");
-    expect(marked).not.toContain("session status");
     expect(marked).not.toContain("session_status");
   });
 

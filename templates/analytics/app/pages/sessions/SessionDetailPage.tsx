@@ -1297,7 +1297,9 @@ function ReplayScrubber({
                 aria-label={`${marker.label} ${formatClock(marker.offsetMs)}`}
                 className={cn(
                   "pointer-events-auto absolute top-1/2 h-3 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-sm ring-1 ring-background/80 transition-transform hover:scale-y-125",
-                  marker.severity === "error" ? "bg-red-500" : "bg-indigo-500",
+                  marker.severity === "error"
+                    ? "bg-destructive"
+                    : "bg-indigo-500",
                 )}
                 style={{ left: `${left}%` }}
                 onClick={() => onMarkerSeek(marker.offsetMs)}
@@ -1517,7 +1519,7 @@ function ReplayTimeline({
                             "border-indigo-500/35 bg-indigo-500/10 text-indigo-500",
                           marker.kind === "event" &&
                             marker.severity === "error" &&
-                            "border-red-500/35 bg-red-500/10 text-red-500",
+                            "border-destructive/35 bg-destructive/10 text-destructive",
                         )}
                       >
                         <MarkerIcon kind={marker.kind} />
