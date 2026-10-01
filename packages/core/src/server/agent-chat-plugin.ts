@@ -7339,6 +7339,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       ) => {
         let body: Record<string, unknown>;
         try {
+          // coercion-ok: an empty body has no thread or turn, so nothing is recorded
           body = (await readBody(event)) ?? {};
         } catch (readError) {
           console.error(

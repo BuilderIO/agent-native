@@ -607,6 +607,7 @@ const RETENTION_CHANNEL_CTES = `channel_cohort_sizes AS (
   WHERE acq.channel IN ('paid', 'untagged')
   GROUP BY cw.date, acq.channel
 )`;
+// guard:allow-unbounded-read — joins the date-bounded anchor and cohort CTEs, not a table.
 const RETENTION_CHANNEL_SELECT = `SELECT a.date, '1-7d return (' || c.channel || ')' AS period,
   CASE WHEN a.date <= ${daysAgoSql(7)} AND ccs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(cr.retained, 0) ELSE NULL END AS retained_users,
   COALESCE(ccs.users, 0) AS cohort_users,
@@ -1338,6 +1339,7 @@ const CHAT_READINESS_SCOPE_FILTER = `${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL} A
  * `llm_chat_eligible`, the same predicate the server's setup gate uses) and
  * how many of them got no reply (`run_no_reply`, refused turns included).
  */
+// guard:allow-unbounded-read — the final select groups the date-bounded submits CTE, not a table.
 const CHAT_READINESS_BY_APP_SQL = `WITH submits AS (
   SELECT ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS app,
     MAX(CASE WHEN properties::jsonb ->> 'llm_chat_eligible' = 'true' THEN 1 ELSE 0 END) AS eligible,
