@@ -2432,6 +2432,48 @@ describe("createAgentKitProtocolAdapter", () => {
     }
   });
 
+  it("caps restored background retries when the start time is unavailable", async () => {
+    vi.useFakeTimers();
+    try {
+      let latestReads = 0;
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost");
+        if (url.pathname.endsWith("/runs/latest")) {
+          latestReads += 1;
+          return Response.json({
+            runId: "run-1",
+            turnId: "turn-1",
+            status: "running",
+            dispatchMode: "background-processing",
+          });
+        }
+        return new Response("", {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }) as typeof fetch;
+      const transport = createAgentKitProtocolAdapter(
+        createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetchMock,
+        }),
+      );
+
+      const resultPromise = drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId: "run-1" }),
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(latestReads).toBe(4);
+      expect(result.find((event) => event.type === "run.failed")).toMatchObject(
+        { error: { code: "stream_ended" } },
+      );
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("deduplicates compatibility activity mirrors and closes activity on completion", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       for (const label of ["Starting agent", "Contacting model"]) {
