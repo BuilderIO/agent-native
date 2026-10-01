@@ -939,11 +939,8 @@ describe("AgentChat lifecycle", () => {
       revision: 2,
     });
     await flush();
-    expect(
-      tree.container.querySelector(
-        ".agentkit-activities-summary .agentkit-activities-label",
-      )?.textContent,
-    ).toBe("Worked for 4s");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+    expect(tree.container.textContent).not.toContain("Worked for");
     expect(
       tree.container
         .querySelector('[data-message-id="assistant-1"]')
@@ -1430,18 +1427,12 @@ describe("AgentChat lifecycle", () => {
           <AgentKitChat composer={false} />
         </AgentKitProvider>,
       );
-    const expectActivityBeforeOutput = (selector = "[data-rendered-data]") => {
+    const expectGenericActivityHidden = (selector = "[data-rendered-data]") => {
       const work = tree.container.querySelector(".agentkit-activities");
       const output = tree.container.querySelector(selector);
-      expect(work).not.toBeNull();
+      expect(work).toBeNull();
       expect(output).not.toBeNull();
-      expect(
-        work!.compareDocumentPosition(output!) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
-      expect(
-        tree.container.querySelector("[data-agentkit-current-activity]"),
-      ).toBeNull();
+      expect(tree.container.textContent).not.toContain("Contacting model");
     };
 
     await render();
@@ -1453,7 +1444,7 @@ describe("AgentChat lifecycle", () => {
     await render({
       slots: { data: () => <span data-rendered-data>Visible data</span> },
     });
-    expectActivityBeforeOutput();
+    expectGenericActivityHidden();
 
     await render();
     await render({
@@ -1466,7 +1457,7 @@ describe("AgentChat lifecycle", () => {
     expect(
       tree.container.querySelector("[data-rendered-data]")?.textContent,
     ).toBe("Registered data");
-    expectActivityBeforeOutput();
+    expectGenericActivityHidden();
 
     await render({
       slots: {
@@ -1476,7 +1467,7 @@ describe("AgentChat lifecycle", () => {
     expect(
       tree.container.querySelector("[data-rendered-data]")?.textContent,
     ).toBe("Message renderer output");
-    expectActivityBeforeOutput();
+    expectGenericActivityHidden();
 
     await render({
       slots: {
@@ -1486,12 +1477,9 @@ describe("AgentChat lifecycle", () => {
     expect(
       tree.container.querySelector("[data-rendered-text]")?.textContent,
     ).toBe("Rendered blank text");
-    const work = tree.container.querySelector(".agentkit-activities")!;
+    const work = tree.container.querySelector(".agentkit-activities");
     const textOutput = tree.container.querySelector("[data-rendered-text]")!;
-    expect(
-      work.compareDocumentPosition(textOutput) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(work).toBeNull();
     expect(
       tree.container.querySelector("[data-agentkit-current-activity]"),
     ).toBeNull();
@@ -1506,7 +1494,7 @@ describe("AgentChat lifecycle", () => {
     expect(
       tree.container.querySelector("[data-rendered-text]")?.textContent,
     ).toBe("Registered blank text");
-    expectActivityBeforeOutput("[data-rendered-text]");
+    expectGenericActivityHidden("[data-rendered-text]");
 
     await render();
     expect(
@@ -1592,15 +1580,12 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector(".agentkit-activities")!;
+    const work = tree.container.querySelector(".agentkit-activities");
     const messageOutput = tree.container.querySelector(
       "[data-whitespace-message]",
     )!;
     expect(messageOutput.textContent).toBe(" ");
-    expect(
-      work.compareDocumentPosition(messageOutput) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(work).toBeNull();
 
     await tree.render(
       <AgentKitProvider
@@ -1615,6 +1600,7 @@ describe("AgentChat lifecycle", () => {
     );
     const textOutput = tree.container.querySelector("[data-whitespace-delta]")!;
     expect(textOutput.textContent).toBe("Custom text output");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
     await tree.unmount();
   });
 
@@ -1867,7 +1853,7 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("falls back to Thinking when the newest activity has completed", async () => {
+  it("keeps the latest useful activity when only generic status remains", async () => {
     const threadId = "thread-completed-latest-activity";
     const runId = "run-completed-latest-activity";
     const thread = {
@@ -1902,12 +1888,26 @@ describe("AgentChat lifecycle", () => {
             completedAt: "2026-09-28T00:00:02.000Z",
           },
         },
+        {
+          id: "contacting-model",
+          threadId,
+          runId,
+          sequence: 3,
+          occurredAt: "2026-09-28T00:00:03.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "model-status",
+            kind: "model",
+            label: "Contacting model",
+            status: "running" as const,
+          },
+        },
       ],
       runs: {
         [runId]: {
           id: runId,
           status: "running" as const,
-          lastSequence: 2,
+          lastSequence: 3,
           startedAt: "2026-09-28T00:00:00.000Z",
         },
       },
@@ -1931,11 +1931,11 @@ describe("AgentChat lifecycle", () => {
     const current = tree.container.querySelector(
       "[data-agentkit-current-activity]",
     );
-    expect(current?.textContent).toBe("Thinking");
+    expect(current?.textContent).toBe("Reading components.tsx");
     expect(current?.querySelector(".agent-running-shimmer")).not.toBeNull();
     expect(
       tree.container.querySelector(".agentkit-activities-summary")?.textContent,
-    ).not.toContain("Reading components.tsx");
+    ).toContain("Reading components.tsx");
     await tree.unmount();
   });
 
@@ -2266,9 +2266,10 @@ describe("AgentChat lifecycle", () => {
     });
 
     expect(work?.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
-    const other = work?.querySelector('[data-activity-bucket="other"]');
-    expect(other?.textContent).toContain("Claude Sonnet 5");
-    expect(other?.textContent).toContain("Updated the active slide");
+    const activityList = work?.querySelector(".agentkit-activities-list");
+    expect(activityList?.textContent).toContain("Claude Sonnet 5");
+    expect(activityList?.textContent).toContain("Updated the active slide");
+    expect(activityList?.textContent).not.toContain("Other");
     expect(work?.textContent).not.toContain("Private reasoning text");
 
     const failedToolRow = Array.from(
@@ -2416,7 +2417,8 @@ describe("AgentChat lifecycle", () => {
           work?.querySelectorAll("[data-activity-bucket]") ?? [],
           (bucket) => bucket.getAttribute("data-activity-bucket"),
         ),
-      ).toEqual(["research", "other"]);
+      ).toEqual(["research"]);
+      expect(work?.textContent).not.toContain("Other");
       expect(cluster?.open).toBe(false);
       expect(cluster?.querySelector("summary")?.textContent).toContain(
         "Docs search×3",
@@ -2443,9 +2445,9 @@ describe("AgentChat lifecycle", () => {
       ).toHaveLength(3);
       expect(
         work?.querySelectorAll(
-          '[data-activity-bucket="other"] [data-status="running"]',
+          '.agentkit-activities-list [data-status="running"]',
         ),
-      ).toHaveLength(1);
+      ).toHaveLength(2);
 
       await act(async () => {
         vi.advanceTimersByTime(1_000);
@@ -2821,28 +2823,48 @@ describe("AgentChat lifecycle", () => {
     ).toBe(false);
   });
 
-  it("keeps internal activity labels out of a restored summary without run state", async () => {
-    const threadId = "thread-activity-without-run";
-    const runId = "run-activity-without-run";
+  it("hides startup-only activity rows and duration summaries", async () => {
+    const threadId = "thread-startup-only-activity";
+    const runId = "run-startup-only-activity";
     const events: AgentEvent[] = [
-      "Starting agent",
-      "Contacting model",
-      "Preparing action",
-    ].map((label, index) => ({
-      id: `event-${index}`,
-      threadId,
-      runId,
-      sequence: index + 1,
-      occurredAt: `2026-08-31T00:00:0${index}.000Z`,
-      type: "activity.completed",
-      activity: {
-        id: `activity-${index}`,
-        kind: "tool",
-        label,
-        status: "completed",
+      ...["Starting agent", "Contacting model"].map(
+        (label, index): AgentEvent => ({
+          id: `event-${index}`,
+          threadId,
+          runId,
+          sequence: index + 1,
+          occurredAt: `2026-08-31T00:00:0${index}.000Z`,
+          type: "activity.completed",
+          activity: {
+            id: `activity-${index}`,
+            kind: "tool",
+            label,
+            status: "completed",
+          },
+        }),
+      ),
+      {
+        id: "event-completed",
+        threadId,
+        runId,
+        sequence: 3,
+        occurredAt: "2026-08-31T00:00:03.000Z",
+        type: "run.completed",
       },
-    }));
-    const thread = { ...createAgentThreadState(threadId), events };
+    ];
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events,
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 3,
+          startedAt: "2026-08-31T00:00:00.000Z",
+          completedAt: "2026-08-31T00:00:03.000Z",
+        },
+      },
+    };
     const observable = observableController({
       connection: "connected",
       capabilities: {},
@@ -2858,13 +2880,11 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const summary = tree.container.querySelector(
-      ".agentkit-activities-summary",
-    );
-    expect(summary?.textContent).toBe("Worked");
-    expect(summary?.textContent).not.toContain("Starting agent");
-    expect(summary?.textContent).not.toContain("Contacting model");
-    expect(summary?.textContent).not.toContain("3");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+    expect(tree.container.textContent).not.toContain("Worked");
+    expect(tree.container.textContent).not.toContain("Starting agent");
+    expect(tree.container.textContent).not.toContain("Contacting model");
+    expect(tree.container.textContent).not.toContain("Other");
     await tree.unmount();
   });
 
