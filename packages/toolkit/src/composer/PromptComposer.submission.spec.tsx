@@ -74,6 +74,18 @@ function send() {
 }
 
 describe("composer submission ownership", () => {
+  it("sends the current draft through the handle as if send were pressed", async () => {
+    const onSubmit = vi.fn();
+    await render({ onSubmit });
+
+    await act(async () => {
+      expect(await composerRef.current!.submit!()).toBe(true);
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).toBe("Original draft");
+  });
+
   it("clears at local acceptance while transport is unresolved and never clears the next draft", async () => {
     const transport = deferred();
     let options!: PromptComposerSubmitOptions;
