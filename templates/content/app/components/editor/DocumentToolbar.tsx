@@ -940,6 +940,7 @@ export function DocumentToolbar({
   >(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const suggestFocusTimeoutRef = useRef<number | undefined>(undefined);
   const pageActionsPreservationFrameRef = useRef<number | null>(null);
   const pageActionsRestoreFrameRef = useRef<number | null>(null);
   const pageActionsTriggerClosingRef = useRef(false);
@@ -947,6 +948,9 @@ export function DocumentToolbar({
 
   useEffect(
     () => () => {
+      if (suggestFocusTimeoutRef.current != null) {
+        window.clearTimeout(suggestFocusTimeoutRef.current);
+      }
       if (pageActionsPreservationFrameRef.current != null) {
         cancelAnimationFrame(pageActionsPreservationFrameRef.current);
       }
@@ -1654,7 +1658,8 @@ export function DocumentToolbar({
                   <DropdownMenuItem
                     onSelect={() => {
                       onSuggestingChange?.(!suggesting);
-                      window.setTimeout(() => {
+                      suggestFocusTimeoutRef.current = window.setTimeout(() => {
+                        suggestFocusTimeoutRef.current = undefined;
                         document
                           .querySelector<HTMLElement>(
                             ".notion-editor[contenteditable='true'], .notion-editor [contenteditable='true']",

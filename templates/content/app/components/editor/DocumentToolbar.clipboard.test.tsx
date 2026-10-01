@@ -276,7 +276,7 @@ describe("DocumentToolbar clipboard behavior", () => {
       container.querySelector('[aria-label="editor.toolbar.copyLink"]'),
     ).toBeNull();
   });
-  it("captures the editor selection before pointer-opening Suggest edits", async () => {
+  it("captures selection and cancels deferred focus when Suggest edits unmounts", async () => {
     const editor = document.createElement("div");
     editor.tabIndex = 0;
     document.body.append(editor);
@@ -308,9 +308,25 @@ describe("DocumentToolbar clipboard behavior", () => {
       candidate.textContent?.includes("editor.toolbar.suggestEdits"),
     );
     expect(item).not.toBeUndefined();
-    await act(async () => item!.click());
-    expect(mocks.suggestingChange).toHaveBeenCalledWith(true);
-    expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
+    const setTimeout = vi.spyOn(window, "setTimeout");
+    const clearTimeout = vi.spyOn(window, "clearTimeout");
+    try {
+      await act(async () => item!.click());
+      expect(mocks.suggestingChange).toHaveBeenCalledWith(true);
+      expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+      const focusTimeoutIndex = setTimeout.mock.calls.findIndex(
+        ([, delay]) => delay === 50,
+      );
+      expect(focusTimeoutIndex).toBeGreaterThanOrEqual(0);
+      const focusTimeout = setTimeout.mock.results[focusTimeoutIndex]?.value;
+
+      await act(async () => root.render(null));
+
+      expect(clearTimeout).toHaveBeenCalledWith(focusTimeout);
+    } finally {
+      vi.useRealTimers();
+    }
 
     editor.remove();
   });
