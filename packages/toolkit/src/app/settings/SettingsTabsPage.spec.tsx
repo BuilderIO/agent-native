@@ -258,7 +258,7 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Integration content");
   });
 
-  it("indexes app labs without adding the experimental ChatGPT lab", async () => {
+  it("indexes the core ChatGPT lab alongside app labs", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -304,18 +304,21 @@ describe("SettingsTabsPage", () => {
     ).toContain("Meetings and transcription");
     expect(
       container.querySelector("[data-testid=labs-content]")?.textContent,
-    ).not.toContain("ChatGPT subscription");
+    ).toContain("ChatGPT plan access");
 
     await act(async () => {
       root.unmount();
       root = createRoot(container);
       root.render(
-        <MemoryRouter initialEntries={["/settings"]}>
+        <MemoryRouter initialEntries={["/settings/labs"]}>
           <SettingsTabsPage general={<div>General content</div>} />
         </MemoryRouter>,
       );
     });
-    expect(container.querySelector("#settings-tab-labs")).toBeNull();
+    expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid=labs-content]")?.textContent,
+    ).toContain("ChatGPT plan access");
   });
 
   it("places labs after app-specific tabs such as notifications", () => {

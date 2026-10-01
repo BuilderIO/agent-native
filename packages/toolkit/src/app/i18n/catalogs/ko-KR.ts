@@ -2705,10 +2705,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "여기서는 연결을 해제했습니다. ChatGPT에서는 액세스가 계속 유지될 수 있습니다.",
   "settingsModel.chatgptLocalOnly":
-    "호스팅 앱에는 OpenAI 파트너 액세스가 필요합니다.",
+    "오픈 소스 앱은 loopback callback을 사용해 로컬에서 실행하면 신청 없이 이용할 수 있으며, 파트너 신청은 필요하지 않습니다. *.agent-native.com에서 호스팅되는 앱에는 운영자 승인과 호스팅 callback이 필요합니다.",
   "settingsModel.chatgptNoDirectUse":
     "이 ChatGPT 계정을 사용하려면 다시 연결하고 모델 직접 액세스를 허용하세요.",
-  "settingsModel.chatgptPartnerInterest": "파트너 액세스 요청",
   "settingsModel.chatgptReconnect": "다시 연결",
   "settingsModel.chatgptSelectAccount": "ChatGPT 계정",
   "settingsModel.chatgptUsageLimit": "ChatGPT 요금제 사용 한도에 도달했습니다.",

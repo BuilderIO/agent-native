@@ -253,6 +253,26 @@ function stubCatalog(
   );
 }
 
+function chatgptCatalog(model: string) {
+  const groups = buildChatModelGroups({
+    engines: [
+      {
+        name: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+        label: "ChatGPT plan access",
+        supportedModels: [model],
+        requiredEnvVars: [],
+        configured: true,
+      },
+    ],
+  });
+  return {
+    state: "available" as const,
+    groups,
+    defaultModel: model,
+    loadLiveGroups: async () => null,
+  };
+}
+
 async function mountWithCatalog(
   engines: unknown[],
   configuredKeys: string[],
@@ -304,7 +324,11 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         selectedModel?: string;
         selectedEngine?: string;
         selectedEffort?: string;
-        availableModels?: Array<{ engine: string; configured: boolean }>;
+        availableModels?: Array<{
+          engine: string;
+          configured: boolean;
+          models?: string[];
+        }>;
         composerDisabled?: boolean;
         composerDisabledPlaceholder?: string;
         isActiveComposer?: boolean;
@@ -342,6 +366,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           data-reasoning-effort={props.selectedEffort}
           data-model-catalog={props.availableModels
             ?.map((group) => `${group.engine}:${group.configured}`)
+            .join(",")}
+          data-model-options={props.availableModels
+            ?.flatMap((group) => group.models ?? [])
             .join(",")}
           data-composer-disabled={props.composerDisabled ? "true" : "false"}
           data-composer-submission-disabled={
@@ -1016,6 +1043,66 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(view.engineOf()).toBe(CHATGPT_SUBSCRIPTION_ENGINE_NAME);
     expect(view.modelOf()).toBe("model-on-current-account");
     await view.cleanup();
+  });
+
+  it("keeps the selected account catalog when an older ChatGPT read finishes late", async () => {
+    await act(async () => root.unmount());
+    stubCatalog([], []);
+    modelCatalogMocks.load = async () =>
+      chatgptCatalog("model-from-previous-account");
+
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-options"),
+    ).toBe("model-from-previous-account");
+
+    const pendingCatalogs: Array<(value: unknown) => void> = [];
+    modelCatalogMocks.load = () =>
+      new Promise((resolve) => pendingCatalogs.push(resolve));
+
+    act(() => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    });
+    expect(pendingCatalogs).toHaveLength(1);
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-options"),
+    ).toBe("");
+
+    act(() => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    });
+    expect(pendingCatalogs).toHaveLength(2);
+
+    await act(async () => {
+      pendingCatalogs[1](chatgptCatalog("model-on-selected-account"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-options"),
+    ).toBe("model-on-selected-account");
+
+    await act(async () => {
+      pendingCatalogs[0](chatgptCatalog("model-from-superseded-read"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-options"),
+    ).toBe("model-on-selected-account");
   });
 
   it("applies a submitted model override sent without an engine", () => {

@@ -2756,10 +2756,10 @@ const messages = {
   "settingsModel.chatgptManageAccess": "Manage in ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "Disconnected here. Access may remain active in ChatGPT.",
-  "settingsModel.chatgptLocalOnly": "Hosted apps need OpenAI partner access.",
+  "settingsModel.chatgptLocalOnly":
+    "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnect and allow direct model access to use this ChatGPT account.",
-  "settingsModel.chatgptPartnerInterest": "Request partner access",
   "settingsModel.chatgptReconnect": "Reconnect",
   "settingsModel.chatgptSelectAccount": "ChatGPT account",
   "settingsModel.chatgptUsageLimit":

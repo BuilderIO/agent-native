@@ -2879,10 +2879,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "Hier getrennt. Der Zugriff kann in ChatGPT weiterhin aktiv sein.",
   "settingsModel.chatgptLocalOnly":
-    "Gehostete Apps benötigen Partnerzugriff von OpenAI.",
+    "Open-Source-Apps kannst du selbstständig nutzen, wenn du sie lokal mit einem Loopback-Callback startest; ein Partnerantrag ist nicht nötig. Gehostete Apps auf *.agent-native.com benötigen die Freigabe des Betreibers und einen gehosteten Callback.",
   "settingsModel.chatgptNoDirectUse":
     "Verbinde dich erneut und erlaube den direkten Modellzugriff, um dieses ChatGPT-Konto zu verwenden.",
-  "settingsModel.chatgptPartnerInterest": "Partnerzugriff anfragen",
   "settingsModel.chatgptReconnect": "Erneut verbinden",
   "settingsModel.chatgptSelectAccount": "ChatGPT-Konto",
   "settingsModel.chatgptUsageLimit":

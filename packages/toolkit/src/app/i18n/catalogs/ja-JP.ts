@@ -2745,10 +2745,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "ここでは接続を解除しました。ChatGPT ではアクセスが有効なままの場合があります。",
   "settingsModel.chatgptLocalOnly":
-    "ホスト型アプリにはOpenAIのパートナーアクセスが必要です。",
+    "オープンソースアプリは、loopback callback を使ってローカルで実行すれば申請なしで利用できます。パートナー申請は不要です。*.agent-native.com 上のホスト型アプリには、運営者の承認とホスト型 callback が必要です。",
   "settingsModel.chatgptNoDirectUse":
     "このChatGPTアカウントを使用するには、再接続してモデルへの直接アクセスを許可してください。",
-  "settingsModel.chatgptPartnerInterest": "パートナーアクセスをリクエスト",
   "settingsModel.chatgptReconnect": "再接続",
   "settingsModel.chatgptSelectAccount": "ChatGPTアカウント",
   "settingsModel.chatgptUsageLimit": "ChatGPTプランの使用上限に達しました。",

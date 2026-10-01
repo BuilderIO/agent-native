@@ -49,6 +49,7 @@ import {
   resetAgentAppModelDefaultSettings,
   writeAgentAppModelDefaultSettings,
 } from "../agent/app-model-defaults.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
@@ -59,6 +60,7 @@ import {
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
+import { listChatGPTSubscriptionModels } from "../agent/engine/chatgpt-subscription-engine.js";
 import {
   resolveEngine,
   createAnthropicEngine,
@@ -182,6 +184,8 @@ import {
 } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
+import { getUserLabEnabled } from "../labs/store.js";
 import {
   mcpToolsToActionEntries,
   mountMcpServersRoutes,
@@ -243,7 +247,11 @@ import {
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
-import { getSession, registerAuthPublicPaths } from "./auth.js";
+import {
+  getSession,
+  isLoopbackRequest,
+  registerAuthPublicPaths,
+} from "./auth.js";
 import { captureError } from "./capture-error.js";
 import { completeText } from "./complete-text.js";
 import {
@@ -4979,6 +4987,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         orgId?: string | null;
       }) => {
         registerBuiltinEngines();
+        const availableEngines = listAgentEngines();
+        const chatGPTEnabled =
+          !!ctx.userEmail &&
+          availableEngines.some(
+            (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+          ) &&
+          (await getUserLabEnabled(ctx.userEmail, CHATGPT_SUBSCRIPTION_LAB));
+        const visibleEngines = availableEngines.filter(
+          (entry) =>
+            entry.name !== CHATGPT_SUBSCRIPTION_ENGINE_NAME || chatGPTEnabled,
+        );
         // This select writes the organization's default, so it offers the
         // organization's checked models, not the viewer's personal ones.
         const selectionScope = ctx.orgId ? "org" : "user";
@@ -5017,7 +5036,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           },
           () =>
             Promise.all(
-              listAgentEngines().map(async (entry) => ({
+              visibleEngines.map(async (entry) => ({
                 name: entry.name,
                 label: entry.label,
                 description: entry.description,
@@ -5138,6 +5157,35 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return {
               error: `Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`,
             };
+          }
+          if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+            if (
+              !(await getUserLabEnabled(
+                ctx.userEmail,
+                CHATGPT_SUBSCRIPTION_LAB,
+              ))
+            ) {
+              setResponseStatus(event, 403);
+              return {
+                error: "Enable ChatGPT plan access in Settings → Labs first.",
+              };
+            }
+            const catalog = await runWithRequestContext(
+              {
+                userEmail: ctx.userEmail,
+                orgId: ctx.orgId ?? undefined,
+                requestOrigin: getOrigin(event),
+                isLoopbackRequest: isLoopbackRequest(event),
+              },
+              () => listChatGPTSubscriptionModels(ctx.userEmail),
+            );
+            if (!catalog.models.includes(model)) {
+              setResponseStatus(event, 400);
+              return {
+                error:
+                  "Choose a visible model from the selected ChatGPT account's model list.",
+              };
+            }
           }
           if (
             entry.name === "builder" &&

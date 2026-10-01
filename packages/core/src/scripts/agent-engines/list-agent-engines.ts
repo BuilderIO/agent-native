@@ -26,6 +26,8 @@ import {
 } from "../../agent/provider-model-selection.js";
 import type { ActionTool } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
+import { getUserLabEnabled } from "../../labs/store.js";
 import {
   prefetchSecrets,
   readProviderCredentialRejections,
@@ -76,11 +78,22 @@ async function readSavedKeyRejections(
 export async function run(args: Record<string, string> = {}): Promise<string> {
   registerBuiltinEngines();
 
-  const registeredEngines = listAgentEngines();
+  const availableEngines = listAgentEngines();
+  const requestEmail = getRequestUserEmail();
+  const chatGPTLabEnabled =
+    requestEmail &&
+    availableEngines.some(
+      (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+    )
+      ? await getUserLabEnabled(requestEmail, CHATGPT_SUBSCRIPTION_LAB)
+      : false;
+  const registeredEngines = availableEngines.filter(
+    (entry) =>
+      entry.name !== CHATGPT_SUBSCRIPTION_ENGINE_NAME || chatGPTLabEnabled,
+  );
   const chatGPTEntry = registeredEngines.find(
     (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
   );
-  const requestEmail = getRequestUserEmail();
   let chatGPTCatalog:
     | Awaited<ReturnType<typeof listChatGPTSubscriptionModels>>
     | undefined;

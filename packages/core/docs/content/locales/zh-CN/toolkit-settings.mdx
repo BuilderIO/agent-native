@@ -181,7 +181,9 @@ buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limi
 
 Agent-Native 为符合条件的开源用途采用 OpenAI 官方的 Sign in with ChatGPT 令牌共享流程。该流程授权本地应用使用已登录用户的 ChatGPT 方案，向 OpenAI 的公开 Responses API 发出符合条件的请求。它不会授予应用访问用户 ChatGPT 对话或历史记录的权限。
 
-OpenAI 的自助流程要求 OAuth 使用 HTTP 回调，并且回调地址必须是 `127.0.0.1`，即用户设备上的环回地址。远程托管的应用无法使用此流程，`localhost` 也不能替代 `127.0.0.1`。该自助流程尚未获准用于托管或付费部署。这些用途需要通过 OpenAI 的[意向申请表](https://openai.com/form/sign-in-with-chatgpt-interest)另行获得批准。
+ChatGPT 方案实验室功能默认关闭。要使用此功能，请前往**设置 → 实验室**开启。个人在本地运行开源应用无需申请合作伙伴批准，也无需预先配置客户端 ID：OpenAI 会在首次登录时签发客户端 ID，应用会将其与该 ChatGPT 账户关联并在之后复用。
+
+此流程需要 OAuth 通过用户设备上的环回地址 `127.0.0.1` 接收 HTTP 回调，因此不适用于远程托管的应用；`localhost` 也不能替代 `127.0.0.1`。托管在 `*.agent-native.com` 上的网站无法使用此流程。需要合作伙伴批准的是托管应用的运营方，可通过 OpenAI 的[意向申请表](https://openai.com/form/sign-in-with-chatgpt-interest)申请。
 
 <Steps>
 

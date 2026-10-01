@@ -1,7 +1,19 @@
 import * as jose from "jose";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
+import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
+
+const mocks = vi.hoisted(() => ({
+  getUserLabEnabled: vi.fn(),
+}));
+
+vi.mock("../labs/store.js", () => mocks);
 
 import {
+  getChatGPTSubscriptionAccess,
+  getChatGPTSubscriptionStatus,
+  hasChatGPTSubscriptionCredential,
   isChatGPTSubscriptionLoopbackCallbackUri,
   parseChatGPTSubscriptionRevocationEndpoint,
   parseChatGPTSubscriptionScopes,
@@ -9,11 +21,78 @@ import {
   tokenCredential,
   verifyChatGPTSubscriptionIdToken,
 } from "./chatgpt-subscription-oauth.js";
+import { runWithRequestContext } from "./request-context.js";
 
 const CLIENT_ID = "oaiapp_test-client";
 const NONCE = "fresh-test-nonce";
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.getUserLabEnabled.mockResolvedValue(false);
+  _resetLabRegistryForTests();
+  registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
+});
+
 describe("ChatGPT subscription OAuth contract", () => {
+  it("keeps ChatGPT credentials unavailable until the lab is enabled", async () => {
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        requestOrigin: "http://127.0.0.1:1455",
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).resolves.toBe(false);
+        await expect(
+          getChatGPTSubscriptionAccess("alice@example.com"),
+        ).rejects.toThrow(
+          "Enable ChatGPT plan access in Settings → Labs first.",
+        );
+      },
+    );
+    expect(mocks.getUserLabEnabled).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces lab preference read failures instead of treating them as off", async () => {
+    const error = new Error("settings unavailable");
+    mocks.getUserLabEnabled.mockRejectedValue(error);
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        requestOrigin: "http://127.0.0.1:1455",
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).rejects.toBe(error);
+      },
+    );
+  });
+
+  it("reports unsupported when the app did not register the ChatGPT lab", async () => {
+    _resetLabRegistryForTests();
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        requestOrigin: "http://127.0.0.1:1455",
+      },
+      async () => {
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          supportReason: "requires_lab",
+          connected: false,
+          accounts: [],
+        });
+      },
+    );
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+  });
+
   it("accepts only the fixed HTTP 127.0.0.1 callback URI", () => {
     expect(
       isChatGPTSubscriptionLoopbackCallbackUri(

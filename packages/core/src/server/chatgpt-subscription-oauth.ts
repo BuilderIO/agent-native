@@ -28,6 +28,9 @@ import {
   CHATGPT_SUBSCRIPTION_TOKEN_ENDPOINT,
 } from "../agent/chatgpt-subscription-contract.js";
 import { getAppConfig } from "../app-config/index.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
+import { getLabDefinition } from "../labs/registry.js";
+import { getUserLabEnabled } from "../labs/store.js";
 import {
   listOAuthAccountsByOwner,
   markOAuthReconnectRequired,
@@ -75,6 +78,11 @@ const RESOURCE_SUFFIX = `:resource:${crypto
   .createHash("sha256")
   .update(CHATGPT_SUBSCRIPTION_RESOURCE)
   .digest("hex")}`;
+
+async function chatGPTSubscriptionLabEnabled(email: string): Promise<boolean> {
+  const lab = getLabDefinition(CHATGPT_SUBSCRIPTION_LAB.key);
+  return lab ? getUserLabEnabled(email, lab) : false;
+}
 
 interface ChatGPTSubscriptionCredential extends OAuthCredential {
   clientId: string;
@@ -149,7 +157,7 @@ export interface ChatGPTSubscriptionAccountSummary {
 export interface ChatGPTSubscriptionStatus {
   supported: boolean;
   localLoopback: boolean;
-  supportReason: "requires_local_loopback" | null;
+  supportReason: "requires_local_loopback" | "requires_lab" | null;
   connected: boolean;
   reconnectRequired: boolean;
   /** Retained for callers that used the former ChatGPT account header value. */
@@ -815,7 +823,12 @@ async function activeAccount(
 export async function hasChatGPTSubscriptionCredential(
   email: string,
 ): Promise<boolean> {
-  if (!currentRequestIsLocalLoopback()) return false;
+  if (
+    !currentRequestIsLocalLoopback() ||
+    !(await chatGPTSubscriptionLabEnabled(email))
+  ) {
+    return false;
+  }
   const selected = await activeAccount(email);
   if (!selected) return false;
   return selected.connected && selected.planUsageEnabled;
@@ -825,6 +838,21 @@ export async function getChatGPTSubscriptionStatus(
   email: string,
 ): Promise<ChatGPTSubscriptionStatus> {
   const localLoopback = currentRequestIsLocalLoopback();
+  const labEnabled = await chatGPTSubscriptionLabEnabled(email);
+  if (!labEnabled) {
+    return {
+      supported: false,
+      localLoopback,
+      supportReason: localLoopback ? "requires_lab" : "requires_local_loopback",
+      connected: false,
+      reconnectRequired: false,
+      accountId: null,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+  }
   const [accounts, legacyRegistrationCleanupAvailable] = await Promise.all([
     accountSummaries(email),
     hasLegacyCredential(email),
@@ -846,12 +874,19 @@ export async function getChatGPTSubscriptionStatus(
     active: account.id === activeAccountId,
   }));
   const connected = Boolean(
-    localLoopback && selected?.connected && selected.planUsageEnabled,
+    localLoopback &&
+    labEnabled &&
+    selected?.connected &&
+    selected.planUsageEnabled,
   );
   return {
-    supported: localLoopback,
+    supported: localLoopback && labEnabled,
     localLoopback,
-    supportReason: localLoopback ? null : "requires_local_loopback",
+    supportReason: !localLoopback
+      ? "requires_local_loopback"
+      : !labEnabled
+        ? "requires_lab"
+        : null,
     connected,
     reconnectRequired: Boolean(selected?.reconnectRequired),
     accountId: activeCredential?.chatgptAccountId ?? null,
@@ -942,6 +977,9 @@ export async function listChatGPTSubscriptionAccounts(email: string): Promise<{
   accounts: ChatGPTSubscriptionAccountSummary[];
   activeAccountId: string | null;
 }> {
+  if (!(await chatGPTSubscriptionLabEnabled(email))) {
+    throw new Error("Enable ChatGPT plan access in Settings → Labs first.");
+  }
   const accounts = await accountSummaries(email);
   const selected = await activeAccount(email, accounts);
   const activeAccountId = selected?.id ?? null;
@@ -958,6 +996,9 @@ export async function selectChatGPTSubscriptionAccount(
   email: string,
   accountId: string,
 ): Promise<{ activeAccountId: string; connected: boolean }> {
+  if (!(await chatGPTSubscriptionLabEnabled(email))) {
+    throw new Error("Enable ChatGPT plan access in Settings → Labs first.");
+  }
   if (!CHATGPT_ACCOUNT_ID_RE.test(accountId)) {
     throw new Error("Choose a valid ChatGPT account.");
   }
@@ -989,6 +1030,9 @@ export async function getChatGPTSubscriptionAccess(email: string): Promise<{
     throw new Error(
       "Sign in with ChatGPT plan access is available only from a local app at http://127.0.0.1.",
     );
+  }
+  if (!(await chatGPTSubscriptionLabEnabled(email))) {
+    throw new Error("Enable ChatGPT plan access in Settings → Labs first.");
   }
   const selected = await activeAccount(email);
   if (!selected) {
@@ -1441,6 +1485,19 @@ export function createChatGPTSubscriptionOAuthStartHandler() {
       return failure(event, 500, "Unable to read authentication session.");
     }
     if (!session?.email) return failure(event, 401, "Authentication required.");
+    let labEnabled: boolean;
+    try {
+      labEnabled = await chatGPTSubscriptionLabEnabled(session.email);
+    } catch {
+      return failure(event, 500, "Unable to read ChatGPT Labs setting.");
+    }
+    if (!labEnabled) {
+      return failure(
+        event,
+        403,
+        "Enable ChatGPT plan access in Settings → Labs first.",
+      );
+    }
     const query = getQuery(event) as Record<string, unknown>;
     let requestedAccountId: string | undefined;
     try {
@@ -1643,6 +1700,19 @@ export function createChatGPTSubscriptionOAuthCallbackHandler() {
     deleteCookie(event, CHATGPT_OAUTH_FLOW_COOKIE, {
       path: CHATGPT_SUBSCRIPTION_CALLBACK_PATH,
     });
+    let labEnabled: boolean;
+    try {
+      labEnabled = await chatGPTSubscriptionLabEnabled(session.email);
+    } catch {
+      return failure(event, 500, "Unable to read ChatGPT Labs setting.");
+    }
+    if (!labEnabled) {
+      return failure(
+        event,
+        403,
+        "Enable ChatGPT plan access in Settings → Labs first.",
+      );
+    }
     if (providerError) {
       return failure(event, 400, "ChatGPT authorization was not completed.");
     }

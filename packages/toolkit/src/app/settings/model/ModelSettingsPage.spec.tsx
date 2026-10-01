@@ -16,6 +16,9 @@ const state = vi.hoisted(() => ({
   listing: undefined as unknown,
   models: undefined as unknown,
   chatgpt: undefined as unknown,
+  chatgptLabEnabled: true,
+  chatgptStatusError: false,
+  chatgptStatusRefetch: vi.fn(),
   modelsError: false,
   modelsRefetch: vi.fn(),
   builder: {} as Record<string, unknown>,
@@ -48,14 +51,28 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           : name === "get-chatgpt-subscription-status"
             ? state.chatgpt
             : undefined,
-    isError: name === "get-provider-models" ? state.modelsError : false,
-    refetch: name === "get-provider-models" ? state.modelsRefetch : vi.fn(),
+    isError:
+      name === "get-provider-models"
+        ? state.modelsError
+        : name === "get-chatgpt-subscription-status"
+          ? state.chatgptStatusError
+          : false,
+    refetch:
+      name === "get-provider-models"
+        ? state.modelsRefetch
+        : name === "get-chatgpt-subscription-status"
+          ? state.chatgptStatusRefetch
+          : vi.fn(),
   }),
   callAction: callActionMock,
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: { orgName: "Acme" }, isLoading: false }),
+}));
+
+vi.mock("@agent-native/core/client/labs/use-lab", () => ({
+  useLabState: () => ({ enabled: state.chatgptLabEnabled }),
 }));
 
 vi.mock("../useBuilderStatus.js", () => ({
@@ -287,6 +304,7 @@ function listed(selector: string): string[] {
 describe("ModelSettingsPage", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let queryClient: QueryClient;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -294,6 +312,9 @@ describe("ModelSettingsPage", () => {
     state.models = models();
     state.modelsError = false;
     state.modelsRefetch = vi.fn();
+    state.chatgptStatusError = false;
+    state.chatgptStatusRefetch = vi.fn();
+    state.chatgptLabEnabled = true;
     state.chatgpt = {
       supported: true,
       supportReason: null,
@@ -305,6 +326,7 @@ describe("ModelSettingsPage", () => {
     };
     state.builder = builderFlow();
     state.header = null;
+    queryClient = new QueryClient();
     state.loop = { ...state.loop, canUpdate: true };
     callActionMock.mockReset();
     callActionMock.mockResolvedValue({ engines: [] });
@@ -326,7 +348,7 @@ describe("ModelSettingsPage", () => {
   async function render() {
     await act(async () => {
       root.render(
-        <QueryClientProvider client={new QueryClient()}>
+        <QueryClientProvider client={queryClient}>
           <ModelSettingsPage
             pageId="model"
             sub={null}
@@ -749,12 +771,24 @@ describe("ModelSettingsPage", () => {
     expect(row("provider-org-builder")).toBeTruthy();
   });
 
-  it("offers official local ChatGPT plan access without a Labs opt-in", async () => {
+  it("shows official local ChatGPT plan access when its Lab is enabled", async () => {
     await render();
     const chatgpt = row("chatgpt-subscription");
     expect(chatgpt.textContent).toContain("ChatGPT plan access");
     expect(chatgpt.textContent).not.toContain("Labs");
     expect(buttons(chatgpt)).toEqual(["Continue with ChatGPT"]);
+  });
+
+  it("hides ChatGPT and its models while the Lab is off", async () => {
+    state.listing = listing({ canManageOrg: true, canUpdateDefault: true });
+    state.chatgpt = connectedChatGPT();
+    state.chatgptLabEnabled = false;
+    await render();
+
+    expect(document.getElementById("chatgpt-subscription")).toBeNull();
+    expect(callActionMock).not.toHaveBeenCalledWith("manage-agent-engine", {
+      action: "list",
+    });
   });
 
   it("counts a connected ChatGPT plan as a provider and offers its models as the default", async () => {
@@ -843,6 +877,106 @@ describe("ModelSettingsPage", () => {
       );
     });
     expect(defaultRow.querySelector('[role="combobox"]')).not.toBeNull();
+  });
+
+  it("keeps ChatGPT status unknown when its read fails", async () => {
+    state.listing = listing({ hasOrganization: false });
+    state.builder = builderFlow({
+      configured: false,
+      grants: null,
+      canConnect: { org: false, personal: false },
+    });
+    state.chatgpt = undefined;
+    state.chatgptStatusError = true;
+    await render();
+
+    expect(container.textContent).not.toContain("Add a model provider");
+    expect(
+      row("default-model").querySelector('[role="alert"]')?.textContent,
+    ).toContain("Couldn't load this setting.");
+    expect(callActionMock).not.toHaveBeenCalledWith("manage-agent-engine", {
+      action: "list",
+    });
+  });
+
+  it("loads a fresh ChatGPT catalog after switching accounts", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      canUpdateDefault: true,
+      defaultModel: null,
+    });
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    const second = {
+      ...ACCOUNT,
+      id: "siwc_second",
+      label: "second@example.test",
+    };
+    let activeAccountId = ACCOUNT.id;
+    state.chatgpt = connectedChatGPT([ACCOUNT, second]);
+    callActionMock.mockImplementation(async (name: string) =>
+      name === "manage-agent-engine"
+        ? {
+            engines: [
+              {
+                name: "chatgpt-subscription",
+                supportedModels:
+                  activeAccountId === ACCOUNT.id ? ["gpt-5.5"] : ["gpt-5.4"],
+              },
+            ],
+          }
+        : {},
+    );
+
+    await render();
+    const defaultRow = row("default-model");
+    const select = await vi.waitFor(() => {
+      const found =
+        defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]');
+      if (!found) throw new Error("No default model selector yet");
+      return found;
+    });
+    await act(async () => pointerDown(select));
+    await vi.waitFor(() => {
+      expect(listed('[role="option"]')).toContain("gpt-5.5 · ChatGPT");
+    });
+    await act(async () => {
+      select.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    const firstAccountFetches = callActionMock.mock.calls.filter(
+      ([name]) => name === "manage-agent-engine",
+    ).length;
+
+    activeAccountId = second.id;
+    state.chatgpt = {
+      ...connectedChatGPT([ACCOUNT, second]),
+      activeAccountId: second.id,
+      activeAccount: second,
+    };
+    await render();
+    const updatedSelect = await vi.waitFor(() => {
+      const found =
+        row("default-model").querySelector<HTMLButtonElement>(
+          '[role="combobox"]',
+        );
+      if (!found) throw new Error("No default model selector after switch");
+      return found;
+    });
+    await act(async () => pointerDown(updatedSelect));
+    await vi.waitFor(() => {
+      expect(
+        callActionMock.mock.calls.filter(
+          ([name]) => name === "manage-agent-engine",
+        ).length,
+      ).toBeGreaterThan(firstAccountFetches);
+      expect(listed('[role="option"]')).toContain("gpt-5.4 · ChatGPT");
+    });
+    expect(listed('[role="option"]')).not.toContain("gpt-5.5 · ChatGPT");
   });
 
   it("doesn't flash the empty state before the ChatGPT status answers", async () => {
@@ -1098,7 +1232,7 @@ describe("ModelSettingsPage", () => {
     );
   });
 
-  it("points hosted apps to the ChatGPT partner access path", async () => {
+  it("explains hosted ChatGPT approval needs without a request link", async () => {
     state.chatgpt = {
       supported: false,
       supportReason: "requires_local_loopback",
@@ -1111,11 +1245,10 @@ describe("ModelSettingsPage", () => {
     await render();
     const chatgpt = row("chatgpt-subscription");
     expect(chatgpt.textContent).toContain(
-      "Hosted apps need OpenAI partner access.",
+      "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
     );
-    expect((chatgpt.querySelector("a") as HTMLAnchorElement).href).toBe(
-      "https://openai.com/form/sign-in-with-chatgpt-interest/",
-    );
+    expect(chatgpt.querySelector("a")).toBeNull();
+    expect(buttons(chatgpt)).toEqual([]);
   });
 
   it("saves Max iterations for admins and refuses a value out of range", async () => {

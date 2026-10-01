@@ -217,14 +217,13 @@ An app's own rows follow the same rule: every control on `generalGroups`,
 
 ## Sign in with ChatGPT for open-source apps {#chatgpt-subscription-lab}
 
-Agent-Native uses OpenAI's official Sign in with ChatGPT token-sharing flow for
-eligible open-source use. It authorizes the local app to make eligible requests
-to OpenAI's public Responses API with the signed-in user's ChatGPT plan. It does
-not grant access to the user's ChatGPT conversations or history.
+Agent-Native, योग्य ओपन-सोर्स उपयोग के लिए OpenAI के आधिकारिक Sign in with ChatGPT टोकन-शेयरिंग फ़्लो का उपयोग करता है। इससे स्थानीय ऐप, साइन-इन किए गए उपयोगकर्ता की ChatGPT योजना के साथ OpenAI के सार्वजनिक Responses API को योग्य अनुरोध भेज सकता है। यह उपयोगकर्ता की ChatGPT बातचीत या इतिहास का ऐक्सेस नहीं देता।
 
-OpenAI's self-serve flow requires an HTTP OAuth callback on `127.0.0.1`, a
-loopback address on the user's machine. It does not work for a remotely hosted
-app, and `localhost` is not an accepted substitute for `127.0.0.1` का स्वीकार्य विकल्प नहीं है। hosted या paid deployment के लिए स्वयं-सेवा प्रक्रिया स्वीकृत नहीं है। ऐसे उपयोगों के लिए [रुचि फ़ॉर्म](https://openai.com/form/sign-in-with-chatgpt-interest) के ज़रिए OpenAI की अलग मंज़ूरी चाहिए।
+ChatGPT योजना वाला लैब डिफ़ॉल्ट रूप से बंद है। इसे **सेटिंग्स → Labs** में चालू करें।
+
+स्थानीय रूप से चलाए गए ओपन-सोर्स ऐप के लिए OpenAI की पार्टनर मंज़ूरी या पहले से कॉन्फ़िगर किया हुआ क्लाइंट ID ज़रूरी नहीं है। पहली बार साइन-इन पर OpenAI क्लाइंट ID जारी करता है, और ऐप उस ChatGPT खाते के लिए इसे दोबारा इस्तेमाल करता है।
+
+इस इम्प्लीमेंटेशन के लिए OAuth callback उपयोगकर्ता की मशीन के loopback पते `127.0.0.1` पर होना चाहिए; `localhost` इसका स्वीकार्य विकल्प नहीं है। यह स्वयं-सेवा फ़्लो होस्टेड `*.agent-native.com` साइटों पर समर्थित नहीं है। पार्टनर मंज़ूरी होस्टेड ऐप चलाने वाले ऑपरेटर के लिए है; वह OpenAI के [रुचि फ़ॉर्म](https://openai.com/form/sign-in-with-chatgpt-interest) से अनुरोध कर सकता है।
 
 <Steps>
 

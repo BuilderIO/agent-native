@@ -181,7 +181,9 @@ buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limi
 
 Agent-Native 會在符合資格的開放原始碼用途上，使用 OpenAI 官方的「使用 ChatGPT 登入」權杖分享流程。此流程會授權本機應用程式，使用已登入使用者的 ChatGPT 方案向 OpenAI 公開的 Responses API 發出符合資格的請求。它不會授予應用程式讀取使用者 ChatGPT 對話或歷史紀錄的權限。
 
-OpenAI 的自助流程要求 OAuth 回呼使用 `127.0.0.1` 上的 HTTP 位址，也就是使用者裝置上的迴路位址。此流程不適用於遠端託管的應用程式，而且 `localhost` 不能取代 `127.0.0.1`。此自助流程尚未核准用於託管或付費部署。這些用途需要透過 OpenAI 的[意願表單](https://openai.com/form/sign-in-with-chatgpt-interest)另外取得核准。
+ChatGPT 方案實驗室功能預設為關閉。若要使用此功能，請前往**設定 → 實驗室**開啟。個人在本機執行開放原始碼應用程式，不需要申請合作夥伴核准，也不需要預先設定用戶端 ID：OpenAI 會在首次登入時簽發用戶端 ID，應用程式會將它與該 ChatGPT 帳戶連結，並在之後重複使用。
+
+此流程需要透過使用者裝置上的迴路位址 `127.0.0.1` 接收 HTTP OAuth 回呼，因此不適用於遠端託管的應用程式；`localhost` 不能取代 `127.0.0.1`。託管於 `*.agent-native.com` 的網站無法使用此流程。需要申請合作夥伴核准的是託管應用程式的營運者，可透過 OpenAI 的[意願表單](https://openai.com/form/sign-in-with-chatgpt-interest)提出申請。
 
 <Steps>
 

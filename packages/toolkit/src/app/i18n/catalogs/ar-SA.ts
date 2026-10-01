@@ -2885,10 +2885,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "تم قطع الاتصال هنا. قد يظل الوصول نشطًا في ChatGPT.",
   "settingsModel.chatgptLocalOnly":
-    "تحتاج التطبيقات المستضافة إلى وصول الشركاء من OpenAI.",
+    "يمكن استخدام تطبيقات المصدر المفتوح ذاتيًا عند تشغيلها محليًا باستخدام loopback callback، ولا حاجة إلى تقديم طلب شراكة. تحتاج التطبيقات المستضافة على *.agent-native.com إلى موافقة المشغّل وإلى hosted callback.",
   "settingsModel.chatgptNoDirectUse":
     "أعِد الاتصال واسمح بالوصول المباشر إلى النماذج لاستخدام حساب ChatGPT هذا.",
-  "settingsModel.chatgptPartnerInterest": "طلب وصول الشركاء",
   "settingsModel.chatgptReconnect": "إعادة الاتصال",
   "settingsModel.chatgptSelectAccount": "حساب ChatGPT",
   "settingsModel.chatgptUsageLimit": "تم بلوغ حد الاستخدام لخطة ChatGPT.",

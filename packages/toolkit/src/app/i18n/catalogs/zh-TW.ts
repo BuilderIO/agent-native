@@ -2521,10 +2521,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "已在此處中斷連線。在 ChatGPT 中，存取權可能仍然有效。",
-  "settingsModel.chatgptLocalOnly": "託管應用程式需要 OpenAI 合作夥伴存取權。",
+  "settingsModel.chatgptLocalOnly":
+    "開源應用在本機使用 loopback callback 執行時，無須申請合作夥伴資格即可使用 ChatGPT 方案。託管於 *.agent-native.com 的應用需要營運方核准，並設定託管 callback。",
   "settingsModel.chatgptNoDirectUse":
     "重新連線並允許模型直接存取，才能使用此 ChatGPT 帳戶。",
-  "settingsModel.chatgptPartnerInterest": "申請合作夥伴存取權",
   "settingsModel.chatgptReconnect": "重新連線",
   "settingsModel.chatgptSelectAccount": "ChatGPT 帳戶",
   "settingsModel.chatgptUsageLimit": "已達到您的 ChatGPT 方案使用上限。",

@@ -5,6 +5,7 @@ import {
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+import { CHATGPT_SUBSCRIPTION_LAB } from "@agent-native/core/labs/core-labs";
 import type { LabDefinition } from "@agent-native/core/labs/registry";
 import {
   buildSettingsEntryRoute,
@@ -463,9 +464,13 @@ function SettingsTabsPageContent({
         ),
         searchEntries: labs.map((lab) => ({
           id: `lab:${lab.key}`,
-          label: lab.displayName ?? lab.key,
+          label: lab.displayNameKey
+            ? t(lab.displayNameKey)
+            : (lab.displayName ?? lab.key),
           keywords: `${lab.key} ${lab.keywords ?? ""}`,
-          description: lab.description,
+          description: lab.descriptionKey
+            ? t(lab.descriptionKey)
+            : lab.description,
           hash: `lab-${lab.key}`,
         })),
       });
@@ -1051,11 +1056,18 @@ function RedesignedSettingsTabsPage(props: SettingsTabsPageProps) {
 }
 
 export function SettingsTabsPage(props: SettingsTabsPageProps) {
+  const labs = [
+    CHATGPT_SUBSCRIPTION_LAB,
+    ...(props.labs ?? []).filter(
+      (lab) => lab.key !== CHATGPT_SUBSCRIPTION_LAB.key,
+    ),
+  ];
+  const settingsProps = { ...props, labs };
   // No query client means no action surface to read the flag from, so the
   // flag fails closed exactly as it does for a signed-out viewer.
   const queryClient = useContext(QueryClientContext);
   if (props.redesign === false || !queryClient) {
-    return <LegacySettingsTabsPage {...props} />;
+    return <LegacySettingsTabsPage {...settingsProps} />;
   }
-  return <RedesignedSettingsTabsPage {...props} />;
+  return <RedesignedSettingsTabsPage {...settingsProps} />;
 }

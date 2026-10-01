@@ -180,7 +180,11 @@ Les lignes propres à l’application suivent la même règle : chaque contrôle
 
 Agent-Native utilise le flux officiel de partage de jetons Sign in with ChatGPT d’OpenAI pour les usages open source éligibles. Il autorise l’application locale à envoyer des requêtes admissibles à la Responses API publique d’OpenAI avec le forfait ChatGPT de l’utilisateur connecté. Il ne donne pas accès aux conversations ni à l’historique ChatGPT de l’utilisateur.
 
-Le flux en libre-service d’OpenAI nécessite un rappel OAuth HTTP sur `127.0.0.1`, une adresse de bouclage sur l’ordinateur de l’utilisateur. Il ne fonctionne pas avec une application hébergée à distance, et `localhost` ne peut pas remplacer `127.0.0.1`. Ce flux n’est pas approuvé pour les déploiements hébergés ou payants. Ces usages nécessitent une approbation distincte d’OpenAI via son [formulaire d’intérêt](https://openai.com/form/sign-in-with-chatgpt-interest).
+Le labo du forfait ChatGPT est désactivé par défaut. Activez-le dans **Paramètres → Labs**.
+
+Pour une application open source exécutée localement, vous n’avez besoin ni d’une approbation partenaire d’OpenAI ni d’un identifiant client préconfiguré. OpenAI attribue l’identifiant client lors de la première connexion, puis l’application le réutilise pour ce compte ChatGPT.
+
+Cette implémentation nécessite un rappel OAuth HTTP sur `127.0.0.1`, l’adresse de bouclage sur l’ordinateur de l’utilisateur ; `localhost` ne peut pas la remplacer. Ce flux en libre-service ne fonctionne pas sur les sites hébergés `*.agent-native.com`. L’approbation partenaire concerne l’opérateur de l’application hébergée, qui peut la demander via le [formulaire d’intérêt d’OpenAI](https://openai.com/form/sign-in-with-chatgpt-interest).
 
 <Steps>
 

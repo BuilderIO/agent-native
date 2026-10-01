@@ -16,6 +16,7 @@ import {
 import type { ChatModelEngineEntry } from "@agent-native/core/client/chat-model-groups";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useLabState } from "@agent-native/core/client/labs/use-lab";
 import { useOrg } from "@agent-native/core/client/org";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
@@ -52,10 +53,7 @@ import {
   type BuilderConnectFlow,
   type BuilderConnectionScope,
 } from "../useBuilderStatus.js";
-import {
-  ChatGPTSubscriptionRow,
-  useChatGPTSubscriptionStatus,
-} from "./ChatGPTSubscriptionRow.js";
+import { ChatGPTSubscriptionRow } from "./ChatGPTSubscriptionRow.js";
 import {
   addableProviders,
   defaultModelGroups,
@@ -91,6 +89,11 @@ type DialogState =
   | { mode: "add" }
   | { mode: "manage"; provider: AgentProviderId; scope: AgentEngineKeyScope };
 
+type ChatGPTSubscriptionStatusRead = {
+  connected: boolean;
+  activeAccountId: string | null;
+};
+
 /** `get-provider-models`, kept apart so a failed read never reads as "no models". */
 type ModelsReadState =
   | { status: "loading" }
@@ -104,10 +107,15 @@ type ChatGPTModelsState =
   | { status: "error"; retry: () => void }
   | { status: "ready"; catalog: ChatGPTModelCatalog };
 
-function useChatGPTModels(connected: boolean): ChatGPTModelsState {
+function useChatGPTModels(
+  connected: boolean,
+  accountId: string | null,
+  statusError: boolean,
+  retryStatus: () => void,
+): ChatGPTModelsState {
   const query = useQuery({
-    queryKey: ENGINES_QUERY_KEY,
-    enabled: connected,
+    queryKey: [...ENGINES_QUERY_KEY, accountId],
+    enabled: connected && accountId !== null && !statusError,
     queryFn: () =>
       callAction<{ engines?: ChatModelEngineEntry[] }>(
         "manage-agent-engine" as never,
@@ -128,7 +136,9 @@ function useChatGPTModels(connected: boolean): ChatGPTModelsState {
       };
     },
   });
+  if (statusError) return { status: "error", retry: retryStatus };
   if (!connected) return { status: "off" };
+  if (!accountId) return { status: "loading" };
   if (query.data) return { status: "ready", catalog: query.data };
   if (query.isError) {
     return { status: "error", retry: () => void query.refetch() };
@@ -158,14 +168,28 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [removing, setRemoving] = useState<ProviderKeyRow | null>(null);
 
-  const chatgptStatus = useChatGPTSubscriptionStatus();
-  // Null until the status read answers, so the empty state doesn't flash.
-  const chatgptConnected = chatgptStatus.data
-    ? chatgptStatus.data.connected
+  const chatgptLab = useLabState("chatgpt-subscription");
+  const chatgptStatus = useActionQuery<ChatGPTSubscriptionStatusRead>(
+    "get-chatgpt-subscription-status" as never,
+    undefined,
+    { enabled: chatgptLab.enabled },
+  );
+  // A failed read leaves status unknown, even when React Query has old data.
+  const chatgptConnected = !chatgptLab.enabled
+    ? false
     : chatgptStatus.isError
-      ? false
-      : null;
-  const chatgptModels = useChatGPTModels(chatgptConnected === true);
+      ? null
+      : (chatgptStatus.data?.connected ?? null);
+  const chatgptAccountId =
+    !chatgptLab.enabled || chatgptStatus.isError
+      ? null
+      : (chatgptStatus.data?.activeAccountId ?? null);
+  const chatgptModels = useChatGPTModels(
+    chatgptLab.enabled && chatgptConnected === true,
+    chatgptAccountId,
+    chatgptLab.enabled && chatgptStatus.isError,
+    () => void chatgptStatus.refetch(),
+  );
 
   const canAdd = listing.data
     ? addableProviders(listing.data).length > 0

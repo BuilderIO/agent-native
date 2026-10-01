@@ -180,7 +180,11 @@ Die eigenen Zeilen einer App folgen derselben Regel: Jedes Steuerelement in `gen
 
 Agent-Native verwendet für geeignete Open-Source-Nutzung den offiziellen Token-Sharing-Ablauf „Sign in with ChatGPT“ von OpenAI. Damit darf die lokale App berechtigte Anfragen an die öffentliche Responses API von OpenAI mit dem ChatGPT-Plan des angemeldeten Nutzers senden. Der Ablauf gewährt keinen Zugriff auf ChatGPT-Unterhaltungen oder den Chatverlauf des Nutzers.
 
-Der Self-Service-Ablauf von OpenAI erfordert einen HTTP-OAuth-Callback unter `127.0.0.1`, einer Loopback-Adresse auf dem Rechner des Nutzers. Er funktioniert nicht mit einer remote gehosteten App; `localhost` ist kein zulässiger Ersatz für `127.0.0.1`. Der Self-Service-Ablauf ist für gehostete oder kostenpflichtige Deployments nicht freigegeben. Dafür ist eine separate Genehmigung von OpenAI über das [Interessenformular](https://openai.com/form/sign-in-with-chatgpt-interest) erforderlich.
+Das Lab zur Nutzung des ChatGPT-Plans ist standardmäßig deaktiviert. Aktiviere es unter **Einstellungen → Labs**.
+
+Lokale Open-Source-Nutzer benötigen weder eine Partnerfreigabe noch eine vorab konfigurierte Client-ID. OpenAI stellt die Client-ID bei der ersten Anmeldung aus; die App verwendet sie bei weiteren Anmeldungen mit demselben ChatGPT-Konto erneut.
+
+Der Self-Service-Ablauf von OpenAI erfordert einen HTTP-OAuth-Callback unter `127.0.0.1`, einer Loopback-Adresse auf dem Rechner des Nutzers. Deshalb werden gehostete Apps nicht unterstützt, einschließlich der Websites unter `*.agent-native.com`; `localhost` ist kein zulässiger Ersatz für `127.0.0.1`. Die Partnerfreigabe beantragt der Betreiber der gehosteten App, nicht der einzelne Nutzer, über das [Interessenformular](https://openai.com/form/sign-in-with-chatgpt-interest).
 
 <Steps>
 

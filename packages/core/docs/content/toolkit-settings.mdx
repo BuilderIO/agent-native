@@ -238,12 +238,19 @@ eligible open-source use. It authorizes the local app to make eligible requests
 to OpenAI's public Responses API with the signed-in user's ChatGPT plan. It does
 not grant access to the user's ChatGPT conversations or history.
 
-OpenAI's self-serve flow requires an HTTP OAuth callback on `127.0.0.1`, a
-loopback address on the user's machine. It does not work for a remotely hosted
-app, and `localhost` is not an accepted substitute for `127.0.0.1`. The
-self-serve flow is not approved for hosted or paid deployments. Those uses need
-separate OpenAI approval through its
-[interest form](https://openai.com/form/sign-in-with-chatgpt-interest).
+ChatGPT plan access is off by default. Enable the **ChatGPT plan access** lab
+in **Settings → Labs** before connecting ChatGPT.
+
+Open-source apps running locally need neither OpenAI partner approval nor a
+preconfigured client ID. At first sign-in, OpenAI issues a client ID, and the
+app saves it for later sign-ins with that ChatGPT account.
+
+The OAuth callback must use `http://127.0.0.1` on the user's machine.
+`localhost` is not an accepted substitute. The self-serve flow does not support
+hosted `*.agent-native.com` sites or paid deployments. Supporting ChatGPT plan
+access on a hosted site requires both OpenAI partner approval for the app
+operator and a hosted implementation. The operator can request approval through
+OpenAI's [interest form](https://openai.com/form/sign-in-with-chatgpt-interest).
 
 <Steps>
 

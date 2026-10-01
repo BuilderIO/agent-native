@@ -16,11 +16,11 @@ const messages = {
         "{{account}} will be signed out of this app and the agent will stop using your ChatGPT plan. You can sign in again anytime.",
       chatgptDisconnectTitle: "Disconnect ChatGPT?",
       chatgptDisconnecting: "Disconnecting…",
-      chatgptLocalOnly: "Hosted apps need OpenAI partner access.",
+      chatgptLocalOnly:
+        "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
       chatgptManageAccess: "Manage in ChatGPT",
       chatgptNoDirectUse:
         "Reconnect and allow direct model access to use this ChatGPT account.",
-      chatgptPartnerInterest: "Request partner access",
       chatgptReconnect: "Reconnect",
       chatgptRemoteRevocationUnconfirmed:
         "Disconnected here. Access may remain active in ChatGPT.",

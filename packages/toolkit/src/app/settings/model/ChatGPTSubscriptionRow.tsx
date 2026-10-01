@@ -1,6 +1,7 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabState } from "@agent-native/core/client/labs/use-lab";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import {
   AlertDialog,
@@ -50,7 +51,7 @@ const POPUP_POLL_MS = 500;
 
 export interface ChatGPTSubscriptionStatus {
   supported: boolean;
-  supportReason: "requires_local_loopback" | null;
+  supportReason: "requires_local_loopback" | "requires_lab" | null;
   connected: boolean;
   reconnectRequired: boolean;
   activeAccountId: string | null;
@@ -71,8 +72,11 @@ interface ChatGPTSubscriptionAccount {
 
 /** The viewer's ChatGPT plan access, shared by the row and the Model page. */
 export function useChatGPTSubscriptionStatus() {
+  const lab = useLabState("chatgpt-subscription");
   return useActionQuery<ChatGPTSubscriptionStatus>(
     "get-chatgpt-subscription-status" as never,
+    undefined,
+    { enabled: lab.enabled },
   );
 }
 
@@ -80,6 +84,7 @@ export function useChatGPTSubscriptionStatus() {
 export function ChatGPTSubscriptionRow() {
   const t = useT();
   const queryClient = useQueryClient();
+  const lab = useLabState("chatgpt-subscription");
   const status = useChatGPTSubscriptionStatus();
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -209,20 +214,7 @@ export function ChatGPTSubscriptionRow() {
   if (!data) {
     control = status.isError ? null : <Skeleton className="h-8 w-40" />;
   } else if (!supported) {
-    control = (
-      <div className="flex flex-wrap items-center gap-2">
-        <Button asChild variant="outline" size="sm">
-          <a
-            href="https://openai.com/form/sign-in-with-chatgpt-interest/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            {t(`${K}chatgptPartnerInterest`)}
-          </a>
-        </Button>
-        {removeLegacyButton}
-      </div>
-    );
+    control = removeLegacyButton;
   } else if (connected) {
     control = (
       <div className="flex min-w-0 items-center gap-2">
@@ -321,6 +313,8 @@ export function ChatGPTSubscriptionRow() {
     !activeAccount.planUsageEnabled;
   const legacySignIn = data?.legacyRegistrationCleanupAvailable === true;
   const failed = !!error || status.isError;
+
+  if (!lab.enabled) return null;
 
   return (
     <>

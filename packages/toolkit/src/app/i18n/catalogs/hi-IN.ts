@@ -2694,10 +2694,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptManageAccess": "ChatGPT में प्रबंधित करें",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
     "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
-  "settingsModel.chatgptLocalOnly": "होस्टेड ऐप्स के लिए OpenAI पार्टनर ऐक्सेस चाहिए।",
+  "settingsModel.chatgptLocalOnly":
+    "ओपन-सोर्स ऐप्स को लोकल रूप से loopback callback के साथ चलाने पर बिना आवेदन के इस्तेमाल किया जा सकता है; पार्टनरशिप के लिए आवेदन की ज़रूरत नहीं है। *.agent-native.com पर होस्ट किए गए ऐप्स के लिए ऑपरेटर की मंज़ूरी और hosted callback ज़रूरी है।",
   "settingsModel.chatgptNoDirectUse":
     "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
-  "settingsModel.chatgptPartnerInterest": "पार्टनर ऐक्सेस का अनुरोध करें",
   "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",
   "settingsModel.chatgptSelectAccount": "ChatGPT खाता",
   "settingsModel.chatgptUsageLimit":
