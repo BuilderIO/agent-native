@@ -1031,6 +1031,8 @@ export function AgentActivityGroup({
   );
   const firstSequence = new Map<string, number>();
   const latestSequence = new Map<string, number>();
+  const delegatedActivityIds = new Set<string>();
+  const delegatedToolIds = new Set<string>();
   const itemOrder: string[] = [];
   const seenItems = new Set<string>();
   const isInternalActivity = (activity: AgentActivity) => {
@@ -1094,9 +1096,12 @@ export function AgentActivityGroup({
       event.type === "activity.completed"
     ) {
       const activity = thread.activities[event.activity.id] ?? event.activity;
+      if (event.activity.agentId || activity.agentId) {
+        delegatedActivityIds.add(event.activity.id);
+      }
       if (
         excludeAgentActivities &&
-        (event.activity.agentId || activity.agentId)
+        delegatedActivityIds.has(event.activity.id)
       ) {
         continue;
       }
@@ -1107,7 +1112,10 @@ export function AgentActivityGroup({
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
       const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
-      if (excludeAgentActivities && (event.toolCall.agentId || tool.agentId)) {
+      if (event.toolCall.agentId || tool.agentId) {
+        delegatedToolIds.add(event.toolCall.id);
+      }
+      if (excludeAgentActivities && delegatedToolIds.has(event.toolCall.id)) {
         continue;
       }
       toolMap.set(event.toolCall.id, tool);
@@ -1117,7 +1125,10 @@ export function AgentActivityGroup({
     }
     if (event.type === "tool.delta") {
       const tool = thread.tools[event.toolCallId];
-      if (excludeAgentActivities && tool?.agentId) continue;
+      if (tool?.agentId) delegatedToolIds.add(event.toolCallId);
+      if (excludeAgentActivities && delegatedToolIds.has(event.toolCallId)) {
+        continue;
+      }
       if (tool) {
         toolMap.set(tool.id, tool);
         rememberUsefulActivity(toolToActivity(tool), event.sequence);

@@ -2057,9 +2057,22 @@ describe("AgentChat lifecycle", () => {
       status: "running",
       agentId: "subagent-1",
     };
+    const untaggedTool: AgentToolCall = {
+      id: delegatedTool.id,
+      name: delegatedTool.name,
+      status: "running",
+    };
     const thread = {
       ...createAgentThreadState(threadId),
-      tools: { [delegatedTool.id]: delegatedTool },
+      activities: {
+        "agent-activity": {
+          id: "agent-activity",
+          kind: "tool",
+          label: "Reading private agent state",
+          status: "running" as const,
+        },
+      },
+      tools: { [untaggedTool.id]: untaggedTool },
       events: [
         {
           id: "agent-activity-started",
@@ -2077,20 +2090,43 @@ describe("AgentChat lifecycle", () => {
           },
         },
         {
-          id: "agent-tool-started",
+          id: "agent-activity-updated",
           threadId,
           runId,
           sequence: 2,
           occurredAt: "2026-09-28T00:00:02.000Z",
+          type: "activity.updated" as const,
+          activity: {
+            id: "agent-activity",
+            kind: "tool",
+            label: "Reading private agent state",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "agent-tool-started",
+          threadId,
+          runId,
+          sequence: 3,
+          occurredAt: "2026-09-28T00:00:03.000Z",
           type: "tool.started" as const,
           toolCall: delegatedTool,
+        },
+        {
+          id: "agent-tool-updated",
+          threadId,
+          runId,
+          sequence: 4,
+          occurredAt: "2026-09-28T00:00:04.000Z",
+          type: "tool.updated" as const,
+          toolCall: untaggedTool,
         },
         {
           id: "agent-tool-delta",
           threadId,
           runId,
-          sequence: 3,
-          occurredAt: "2026-09-28T00:00:03.000Z",
+          sequence: 5,
+          occurredAt: "2026-09-28T00:00:05.000Z",
           type: "tool.delta" as const,
           toolCallId: delegatedTool.id,
           inputTextDelta: '{"private":true}',
@@ -2100,7 +2136,7 @@ describe("AgentChat lifecycle", () => {
         [runId]: {
           id: runId,
           status: "running" as const,
-          lastSequence: 3,
+          lastSequence: 5,
           startedAt: "2026-09-28T00:00:00.000Z",
         },
       },
