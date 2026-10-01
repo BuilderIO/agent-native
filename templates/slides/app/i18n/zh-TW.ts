@@ -46,7 +46,7 @@ const messages = {
     designSystems: "設計系統",
   },
   settings: {
-    agentObservability: "代理可觀測性",
+    agentObservability: "可觀測性",
     title: "設定",
     labs: "實驗室",
     labsIntro: "在正式發布前預覽實驗性功能。",
