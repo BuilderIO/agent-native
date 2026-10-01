@@ -22,6 +22,9 @@
  *   - A test that skips itself because the e2e account is not set up for it
  *     (skip reason starting `[env]`) is reported as NOT TESTED with that
  *     reason, so an account-setup gap is visible without reading as a failure.
+ *   - A test the suite parked on purpose (skip or fixme description starting
+ *     `QUARANTINED`) is reported as QUARANTINED with that text, so a parked
+ *     test is named in every report instead of vanishing into a skip count.
  *
  * Runs under `tsx` and under `node --experimental-strip-types` (the workflow's
  * report job has no install step), so: node built-ins only, no enums, no
@@ -121,6 +124,15 @@ export interface EnvSkip {
 
 const ENV_SKIP_PREFIX = /^\[env\]\s*/i;
 
+/**
+ * A test the suite parked on purpose: its skip or fixme description starts
+ * `QUARANTINED`. It never fails a run, but it is not testing anything, so every
+ * report names it with the text it carries (who parked it, until when, why).
+ */
+export type QuarantinedTest = EnvSkip;
+
+const QUARANTINE_PREFIX = /^quarantined\b\s*/i;
+
 export interface SlotResults {
   slot: string;
   artifactName: string;
@@ -141,6 +153,8 @@ export interface SlotResults {
   skipped: string[];
   /** The skipped tests whose reason is the e2e account's setup. */
   envSkipped: EnvSkip[];
+  /** The skipped tests parked with a `QUARANTINED` description. */
+  quarantined: QuarantinedTest[];
 }
 
 export interface UnreadableResults {
@@ -248,6 +262,8 @@ export interface Digest {
   flaky: FlakyTest[];
   /** Skipped for the e2e account's setup: reported, never failing. */
   envSkipped: EnvSkip[];
+  /** Parked on purpose with a `QUARANTINED` description: reported, never failing. */
+  quarantined: QuarantinedTest[];
   advisory: Array<TestFailure | SetupError | JobFact>;
   failedJobs: Array<{ job: RunJob; fact: JobFact | null; failing: number }>;
   totals: {
@@ -567,6 +583,7 @@ export function parseResults(
   const passed: string[] = [];
   const skipped: string[] = [];
   const envSkipped: EnvSkip[] = [];
+  const quarantined: QuarantinedTest[] = [];
   let notRun = 0;
 
   const walk = (suite: RawSuite, titles: string[]): void => {
@@ -604,6 +621,23 @@ export function parseResults(
                 line,
                 title,
                 reason: truncate(reason.replace(ENV_SKIP_PREFIX, ""), 240),
+              });
+            }
+            // test.fixme records a `fixme` annotation, test.skip a `skip` one.
+            const parked = (test.annotations ?? []).find(
+              (note) =>
+                (note.type === "fixme" || note.type === "skip") &&
+                QUARANTINE_PREFIX.test(note.description ?? ""),
+            )?.description;
+            if (parked) {
+              quarantined.push({
+                slot,
+                app,
+                project,
+                file,
+                line,
+                title,
+                reason: truncate(parked.replace(QUARANTINE_PREFIX, ""), 400),
               });
             }
           } else notRun += 1;
@@ -664,6 +698,7 @@ export function parseResults(
     passed,
     skipped,
     envSkipped,
+    quarantined,
   };
 }
 
@@ -1106,6 +1141,7 @@ export function buildDigest(input: DigestInput): Digest {
     fixed,
     flaky,
     envSkipped: input.slots.flatMap((result) => result.envSkipped),
+    quarantined: input.slots.flatMap((result) => result.quarantined),
     advisory,
     failedJobs,
     totals,
@@ -1207,6 +1243,14 @@ function envSkippedSummary(digest: Digest): string | null {
   return `${skips.length} test${skips.length === 1 ? "" : "s"} skipped because the e2e account is not set up for ${skips.length === 1 ? "it" : "them"} (${apps}): ${reasons.slice(0, 2).join("; ")}${reasons.length > 2 ? `; +${reasons.length - 2} more` : ""}`;
 }
 
+function quarantinedSummary(digest: Digest): string | null {
+  const parked = digest.quarantined;
+  if (parked.length === 0) return null;
+  const reasons = [...new Set(parked.map((test) => test.reason))];
+  const apps = [...new Set(parked.map((test) => test.app))].join(", ");
+  return `${parked.length} test${parked.length === 1 ? "" : "s"} not running (${apps}): ${reasons.slice(0, 2).join("; ")}${reasons.length > 2 ? `; +${reasons.length - 2} more` : ""}`;
+}
+
 function artifactLinks(digest: Digest, slot: string) {
   const name = artifactNameForSlot(slot, digest.input.runId);
   const artifact = digest.input.artifacts.find((entry) => entry.name === name);
@@ -1276,6 +1320,8 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
   );
   const envSkipped = envSkippedSummary(digest);
   if (envSkipped) push(`- Not tested: ${envSkipped}`);
+  const quarantined = quarantinedSummary(digest);
+  if (quarantined) push(`- Quarantined: ${quarantined}`);
   if (input.slackNote) push(`- Slack: ${input.slackNote}`);
   for (const note of input.notes ?? []) push(`- Report note: ${note}`);
   if (digest.stoppedEarly.length > 0) {
@@ -1456,6 +1502,21 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
     push("");
   }
 
+  if (digest.quarantined.length > 0) {
+    push(
+      `### Quarantined: parked on purpose, not running (${digest.quarantined.length}, not failing)`,
+      "",
+      "| App | Lane / project | Test | Quarantine |",
+      "| --- | --- | --- | --- |",
+    );
+    for (const test of digest.quarantined.slice(0, options.rowLimit)) {
+      push(
+        `| ${plainCell(test.app)} | ${codeCell(`${test.slot} / ${test.project}`)} | ${codeCell(test.title)} | ${plainCell(test.reason)} |`,
+      );
+    }
+    push("");
+  }
+
   if (digest.advisory.length > 0) {
     push(`### Advisory findings (${digest.advisory.length}, non-gating)`, "");
     for (const item of digest.advisory.slice(0, 10)) {
@@ -1590,6 +1651,7 @@ export function renderSlack(digest: Digest): string {
     ? ` · <${input.issueUrl}|issue${input.issueNumber ? ` #${input.issueNumber}` : ""}>`
     : "";
   const envSkipped = envSkippedSummary(digest);
+  const quarantined = quarantinedSummary(digest);
 
   if (digest.status === "green") {
     const prev = input.previous;
@@ -1602,6 +1664,7 @@ export function renderSlack(digest: Digest): string {
         ? [`NOT RUN: ${notRunSummary(digest.counts.notRun)}.`]
         : []),
       ...(envSkipped ? [`NOT TESTED: ${slackEscape(envSkipped)}.`] : []),
+      ...(quarantined ? [`QUARANTINED: ${slackEscape(quarantined)}.`] : []),
     ].join("\n");
   }
 
@@ -1618,6 +1681,7 @@ export function renderSlack(digest: Digest): string {
     `New ${digest.counts.newFailures} · still failing ${digest.counts.stillFailing} · fixed ${digest.counts.fixed} · NOT RUN ${digest.counts.notRun} · flaky (not paged) ${digest.counts.flaky}`,
   );
   if (envSkipped) lines.push(`NOT TESTED: ${slackEscape(envSkipped)}.`);
+  if (quarantined) lines.push(`QUARANTINED: ${slackEscape(quarantined)}.`);
   const ranked = [...digest.entries].sort(
     (a, b) => Number(b.state === "new") - Number(a.state === "new"),
   );
@@ -1874,6 +1938,7 @@ export function writeOutputs(digest: Digest, outDir: string): void {
         notRun: digest.counts.notRun,
         flaky: digest.counts.flaky,
         envSkipped: digest.envSkipped.length,
+        quarantined: digest.quarantined.length,
       },
       null,
       2,

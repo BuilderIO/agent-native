@@ -66,7 +66,7 @@ test.describe("slides -> analytics delegation", () => {
         { turnTimeoutMs: 420_000 },
       );
 
-      await chat.assertOnlyLuna();
+      chat.assertOnlyLuna();
 
       // The work disclosure is a <details>/<summary>, which has no button role,
       // and its steps are not in the page text until it is open.

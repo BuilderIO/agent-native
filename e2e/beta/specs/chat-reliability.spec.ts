@@ -14,6 +14,7 @@ import {
   toolCallMutatesData,
 } from "../lib/chat-reliability-flows";
 import { chatSites, type BetaSite } from "../lib/fleet";
+import { quarantineChatHostSpend } from "../lib/quarantine";
 
 /**
  * Agent chat runs that "did not finish" are the most-reported beta breakage:
@@ -36,6 +37,7 @@ async function withSession(
   name: string,
   body: (session: ChatReliabilitySession) => Promise<void>,
 ): Promise<void> {
+  quarantineChatHostSpend(site.id);
   const session = await ChatReliabilitySession.create(browser, site, name);
   try {
     await session.run(async () => {

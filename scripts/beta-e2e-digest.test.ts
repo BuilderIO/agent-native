@@ -590,6 +590,106 @@ describe("digest outcomes", () => {
     assert.match(renderIssueBody(digest), /- Not tested: 1 test skipped/);
   });
 
+  it("reports a test.fixme parked as QUARANTINED with its text, never as a plain skip or a failure", () => {
+    const quarantine =
+      "QUARANTINED steve until 2026-10-15: the Chat app sends the picked engine in request metadata, so the spend guard cannot prove the dedicated key";
+    const report = fakeReport("chat.spec.ts", [
+      {
+        describe: ["chat agent chat"],
+        title: "completes and restores a turn on luna",
+        project: "chat",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [{ type: "fixme", description: quarantine }],
+      },
+      {
+        describe: ["chat agent chat"],
+        title: "clears the stop button when a turn ends",
+        project: "chat",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [{ type: "fixme", description: quarantine }],
+      },
+      {
+        // A fixme with an ordinary reason is a skip, not a quarantine.
+        describe: ["chat agent chat"],
+        title: "keeps the environment badge clear of the send button",
+        project: "chat",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [{ type: "fixme", description: "flaky layout" }],
+      },
+      {
+        describe: ["chat agent chat"],
+        title: "renders the composer",
+        project: "chat",
+        status: "expected",
+      },
+    ]);
+    const parsed = slot("authed-chat-chat", report);
+    assert.equal(parsed.stats.skipped, 3);
+    assert.equal(parsed.quarantined.length, 2);
+    assert.equal(parsed.quarantined[0]?.app, "chat");
+    assert.equal(parsed.quarantined[0]?.project, "chat");
+    assert.equal(
+      parsed.quarantined[0]?.reason,
+      quarantine.replace(/^QUARANTINED /, ""),
+    );
+    assert.equal(parsed.envSkipped.length, 0);
+
+    const digest = buildDigest(input({ slots: [parsed] }));
+    assert.equal(digest.status, "green");
+    assert.equal(digest.entries.length, 0);
+    assert.equal(digest.quarantined.length, 2);
+
+    const body = renderIssueBody(digest);
+    assert.match(
+      body,
+      /- Quarantined: 2 tests not running \(chat\): steve until 2026-10-15: the Chat app sends the picked engine/,
+    );
+    assert.match(body, /### Quarantined: parked on purpose, not running \(2,/);
+    assert.match(body, /completes and restores a turn on luna/);
+    assert.doesNotMatch(body, /flaky layout/);
+    assert.match(
+      renderSlack(digest),
+      /QUARANTINED: 2 tests not running \(chat\): steve until 2026-10-15/,
+    );
+  });
+
+  it("keeps the quarantine line in a red run's Slack message and the issue", () => {
+    const failing = fakeReport("chat.spec.ts", [
+      {
+        describe: ["chat agent chat"],
+        title: "completes",
+        project: "chat",
+        error: "Error: boom",
+      },
+      {
+        describe: ["chat agent chat"],
+        title: "parked",
+        project: "chat",
+        status: "skipped",
+        expectedStatus: "skipped",
+        annotations: [
+          {
+            type: "skip",
+            description: "QUARANTINED steve until 2026-10-15: x",
+          },
+        ],
+      },
+    ]);
+    const digest = buildDigest(
+      input({ slots: [slot("authed-chat-chat", failing)] }),
+    );
+    assert.equal(digest.status, "red");
+    const slack = renderSlack(digest).split("\n");
+    assert.ok(slack.length <= 12);
+    assert.ok(
+      slack.some((line) => /^QUARANTINED: 1 test not running/.test(line)),
+    );
+    assert.match(renderIssueBody(digest), /- Quarantined: 1 test not running/);
+  });
+
   it("names a killed job that left no results, with the last [beta-e2e] line", () => {
     const killed = job("Authenticated chat-slides", "cancelled", [
       { name: "Run actions/checkout", conclusion: "success" },

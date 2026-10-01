@@ -278,7 +278,9 @@ A green run closes any open issue, including one that predates the state marker,
 and says how many tests it could not verify. A test that skips itself because
 the e2e account is not set up for it (its skip reason starts `[env]`) is
 reported as **NOT TESTED** with that reason, in the issue and in Slack; it never
-fails a run.
+fails a run. A test parked with a `test.fixme` or `test.skip` description that
+starts `QUARANTINED` is reported as **QUARANTINED** with that text, in the issue
+and in Slack, so who parked it and until when stays in front of the reader.
 
 ### Slack setup (one time)
 
@@ -344,22 +346,22 @@ inspected and the run fails if anything other than luna was billed, including
 a request that carried no model field at all and therefore fell back to the
 app's default.
 
-**An engine the request does not name is proven, not assumed.** Most hosts
-send `engine: ai-sdk:openai` with the turn, which is what proves the dedicated
-user-scoped key is billed. The Chat app's composer puts the engine only in the
-request's `metadata`, which the server ignores, so its turns carry the luna
-model and no engine, and the server picks one. Such a turn passes only if, after
-the turn, two reads through the e2e session agree that the pick is the expected
-engine: `GET /_agent-native/agent-engine/status` says the account resolves to
-`ai-sdk:openai`, and `GET /_agent-native/agent-model-defaults` says the app has
-no default engine of its own (or the same one). A Builder gateway or a
-shared-credit account, an app default pointing at another engine, an HTTP
-error, or an answer that cannot be read all fail with the reason; "no engine
-field" is never accepted on its own. A turn that names a different engine
-still fails, and so does a turn that names no model: a message queued behind a
-running turn is sent that way by the Chat app, so the second-message test
-there stays red until the transport forwards the picker's model. The run logs
-a `[beta-e2e]` line whenever it relies on the proof.
+**A turn that names no engine fails the spend guard.** Hosts send
+`engine: ai-sdk:openai` with the turn, which is what proves the dedicated
+user-scoped key is billed. A request that names no engine leaves the server to
+choose one from the account, which may be the Builder gateway's shared credits,
+and nothing readable from outside says which it chose, so it fails like a turn
+that names the wrong engine or a non-luna model. The Chat app host's composer
+puts the engine in the request's `metadata`, which the server ignores, so turns
+from `beta.chat` carry the luna model but no engine and cannot be proven to
+bill the dedicated key. The `chat` host's specs that bill a model turn (the two
+in `chat.spec.ts` and the five `[chat-reliability]` tests) are therefore
+quarantined for that host with a `test.fixme` whose description starts
+`QUARANTINED steve until 2026-10-15`, and the report lists them under
+**QUARANTINED** with that text. They stay quarantined until the Chat app sends
+the engine on the wire; then delete `e2e/beta/lib/quarantine.ts` and its calls.
+The other chat hosts run unchanged, and while the `chat` host is quarantined it
+bills no turns, so the per-run spend in the lanes table is lower by its share.
 
 **Certificate errors stay visible.** `ignoreHTTPSErrors` is never set, because
 "the connection isn't private" was a real report and only a browser that still

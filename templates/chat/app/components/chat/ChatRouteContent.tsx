@@ -49,6 +49,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -501,7 +502,9 @@ function ChatCanvas({
 }) {
   const t = useT();
   const thread = useAgentThread();
-  const stopButton = useAgentKitStopButton();
+  const stopButton = useAgentKitStopButton({
+    onError: (error) => toast.error(error.message),
+  });
   const hasConversation = thread.messages.length > 0;
 
   useEffect(() => {

@@ -1,10 +1,4 @@
-import type {
-  APIRequestContext,
-  BrowserContext,
-  Locator,
-  Page,
-  Request,
-} from "@playwright/test";
+import type { BrowserContext, Locator, Page, Request } from "@playwright/test";
 
 import { renderedText } from "./app";
 
@@ -68,9 +62,6 @@ export interface ChatRequestLog {
   count: number;
   /** One entry per turn POST, in order: what its body named at the top level. */
   requests: Array<{ model: string | null; engine: string | null }>;
-  origin: string | null;
-  /** Set once an engine-less turn was proven to run on the expected engine. */
-  engineProof: string | null;
 }
 
 export function formatChatRequestDiagnostics(log: ChatRequestLog): string {
@@ -94,142 +85,15 @@ export function readTurnSelection(raw: string | null): {
   return { model: named(body?.model), engine: named(body?.engine) };
 }
 
-/** What a GET said, with "could not read it" kept apart from "it said nothing". */
-export type ApiProbe =
-  | { kind: "response"; status: number; json: unknown }
-  | { kind: "unreadable"; reason: string };
-
-export type EngineProof =
-  | { proven: true; detail: string }
-  | { proven: false; reason: string };
-
-const ENGINE_STATUS_ROUTE = "/_agent-native/agent-engine/status";
-const APP_MODEL_DEFAULT_ROUTE = "/_agent-native/agent-model-defaults";
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function probeBody(
-  route: string,
-  probe: ApiProbe,
-): { body: Record<string, unknown> } | { reason: string } {
-  if (probe.kind === "unreadable") {
-    return { reason: `GET ${route} was unreadable (${probe.reason})` };
-  }
-  if (probe.status < 200 || probe.status >= 300) {
-    return { reason: `GET ${route} answered HTTP ${probe.status}` };
-  }
-  const body = asRecord(probe.json);
-  return body
-    ? { body }
-    : { reason: `GET ${route} did not answer with a JSON object` };
-}
-
-/**
- * Whether a turn that names no engine runs on `expectedEngine`. The server
- * picks the engine for such a turn: the app's own default for this account if
- * it has one, else the account's saved engine, else whatever credential it
- * finds. Both reads below are that resolution, so a Builder gateway or a
- * shared-credit account fails here instead of passing on the model name alone.
- */
-export function judgeResolvedEngine(
-  read: { status: ApiProbe; appDefault: ApiProbe },
-  expectedEngine: string,
-): EngineProof {
-  const status = probeBody(ENGINE_STATUS_ROUTE, read.status);
-  if ("reason" in status) return { proven: false, reason: status.reason };
-  const { configured, engine, source } = status.body;
-  if (configured !== true || typeof engine !== "string") {
-    return {
-      proven: false,
-      reason: `GET ${ENGINE_STATUS_ROUTE} says configured=${String(configured)} engine=${String(engine)}`,
-    };
-  }
-  if (engine !== expectedEngine) {
-    return {
-      proven: false,
-      reason: `the account resolves to engine ${engine}, not ${expectedEngine}`,
-    };
-  }
-
-  const appDefault = probeBody(APP_MODEL_DEFAULT_ROUTE, read.appDefault);
-  if ("reason" in appDefault) {
-    return { proven: false, reason: appDefault.reason };
-  }
-  const defaultEngine = appDefault.body.engine;
-  if (defaultEngine !== null && typeof defaultEngine !== "string") {
-    return {
-      proven: false,
-      reason: `GET ${APP_MODEL_DEFAULT_ROUTE} carried no engine field (got ${JSON.stringify(defaultEngine)}), so it is unknown whether the app overrides the account's engine`,
-    };
-  }
-  if (defaultEngine !== null && defaultEngine !== expectedEngine) {
-    return {
-      proven: false,
-      reason: `the app's default engine is ${defaultEngine}, which overrides the account's ${engine}`,
-    };
-  }
-  return {
-    proven: true,
-    detail: `account engine ${engine} (source ${String(source)}), app default ${defaultEngine ?? "none"}`,
-  };
-}
-
-async function readApi(
-  request: APIRequestContext,
-  url: string,
-): Promise<ApiProbe> {
-  try {
-    const response = await request.get(url, {
-      headers: { accept: "application/json" },
-      timeout: 20_000,
-    });
-    const text = await response.text();
-    try {
-      return {
-        kind: "response",
-        status: response.status(),
-        json: JSON.parse(text),
-      };
-    } catch {
-      return {
-        kind: "unreadable",
-        reason: `HTTP ${response.status()} was not JSON: ${text.slice(0, 120)}`,
-      };
-    }
-  } catch (error) {
-    return {
-      kind: "unreadable",
-      reason: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-export async function proveResolvedEngine(
-  request: APIRequestContext,
-  origin: string,
-  expectedEngine: string,
-): Promise<EngineProof> {
-  const [status, appDefault] = await Promise.all([
-    readApi(request, `${origin}${ENGINE_STATUS_ROUTE}`),
-    readApi(request, `${origin}${APP_MODEL_DEFAULT_ROUTE}`),
-  ]);
-  return judgeResolvedEngine({ status, appDefault }, expectedEngine);
-}
-
 /**
  * Everything wrong with the turns a page sent, as lines. A turn that names no
- * engine passes only with `proof`: the Chat template's composer puts the engine
- * in request `metadata`, which the server ignores, so those turns run on the
- * engine the server resolves for the account.
+ * engine is a violation, not a pass: the server then resolves the engine from
+ * the account (possibly the Builder gateway's shared credits), and nothing
+ * readable from outside says which one it picked.
  */
 export function spendViolations(
   log: ChatRequestLog,
   expected: Pick<ModelSelection, "engine">,
-  proof: EngineProof | null,
 ): string[] {
   const lines: string[] = [];
   const offenders = log.models.filter(
@@ -254,9 +118,9 @@ export function spendViolations(
   const engineless = log.engines.filter(
     (engine) => engine === MISSING_ENGINE,
   ).length;
-  if (engineless > 0 && !proof?.proven) {
+  if (engineless > 0) {
     lines.push(
-      `${engineless} request(s) named no engine, so the server chose it, and nothing proved that engine is ${expected.engine}: ${proof ? proof.reason : "no engine proof was read"}`,
+      `${engineless} request(s) named no engine, so the server chose it and the turn did not provably bill the dedicated key (${expected.engine})`,
     );
   }
   return lines;
@@ -264,7 +128,7 @@ export function spendViolations(
 
 export function watchChatRequests(page: Page): {
   log: ChatRequestLog;
-  assertOnlyLuna: () => Promise<void>;
+  assertOnlyLuna: () => void;
 } {
   const log: ChatRequestLog = {
     models: [],
@@ -272,8 +136,6 @@ export function watchChatRequests(page: Page): {
     modelless: 0,
     count: 0,
     requests: [],
-    origin: null,
-    engineProof: null,
   };
   const expected = lunaSelection();
 
@@ -281,7 +143,6 @@ export function watchChatRequests(page: Page): {
     if (request.method() !== "POST") return;
     if (!isChatTurnRequest(request.url())) return;
     log.count += 1;
-    log.origin ??= new URL(request.url()).origin;
     const sent = readTurnSelection(request.postData());
     log.requests.push(sent);
     log.engines.push(sent.engine ?? MISSING_ENGINE);
@@ -291,24 +152,13 @@ export function watchChatRequests(page: Page): {
 
   return {
     log,
-    async assertOnlyLuna() {
+    assertOnlyLuna() {
       if (log.count === 0) {
         throw new Error(
           "No POST to /_agent-native/agent-chat was observed, so this turn proved nothing about the agent or the model.",
         );
       }
-      const engineless = log.engines.filter(
-        (engine) => engine === MISSING_ENGINE,
-      ).length;
-      const proof =
-        engineless > 0 && log.origin
-          ? await proveResolvedEngine(
-              page.context().request,
-              log.origin,
-              expected.engine,
-            )
-          : null;
-      const problems = spendViolations(log, expected, proof);
+      const problems = spendViolations(log, expected);
       if (problems.length > 0) {
         throw new Error(
           [
@@ -316,14 +166,8 @@ export function watchChatRequests(page: Page): {
             `requests=${log.count} luna=${log.models.filter((m) => LUNA_MODEL_PATTERN.test(m)).length}`,
             `sent: ${log.requests.map((sent, index) => `#${index + 1} model=${sent.model ?? "(none)"} engine=${sent.engine ?? "(none)"}`).join(", ")}`,
             ...problems,
-            "A seeded selection is dropped when the app's model picker does not offer it, and a turn that names no engine runs on whatever the account resolves to; either happens when the org is connected to a different engine. Check BETA_E2E_ENGINE/BETA_E2E_MODEL against what the app lists and the account's engine in Settings.",
+            "The seeded selection is dropped when the app's model picker does not offer it — usually because the org is connected to a different engine, so the requested engine's catalog is not exposed. Check BETA_E2E_ENGINE/BETA_E2E_MODEL against what the app actually lists.",
           ].join("\n"),
-        );
-      }
-      if (proof?.proven) {
-        log.engineProof = proof.detail;
-        console.log(
-          `[beta-e2e] ${log.origin} sent no engine on ${engineless} turn(s); resolved engine proven ${expected.engine}: ${proof.detail}`,
         );
       }
     },

@@ -23,8 +23,10 @@ vi.mock("../../agentkit/react/context.js", () => ({
   useAgentKitControl: () => ({ cancel: mocks.cancel }),
 }));
 
+const onError = vi.fn();
+
 function Harness() {
-  return <>{useAgentKitStopButton()}</>;
+  return <>{useAgentKitStopButton({ onError })}</>;
 }
 
 describe("useAgentKitStopButton", () => {
@@ -34,7 +36,9 @@ describe("useAgentKitStopButton", () => {
   afterEach(async () => {
     await act(async () => root?.unmount());
     container?.remove();
-    mocks.cancel.mockClear();
+    mocks.cancel.mockReset();
+    mocks.cancel.mockResolvedValue(undefined);
+    onError.mockClear();
   });
 
   async function render() {
@@ -63,5 +67,19 @@ describe("useAgentKitStopButton", () => {
     expect(mocks.cancel).toHaveBeenCalledTimes(2);
     expect(mocks.cancel).toHaveBeenCalledWith("run-1");
     expect(mocks.cancel).toHaveBeenCalledWith("run-2");
+  });
+
+  it("reports a failed stop instead of dropping it", async () => {
+    mocks.activeRunIds = ["run-1"];
+    mocks.cancel.mockRejectedValue(new Error("cancel refused"));
+    await render();
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="stop-button"]',
+    );
+    await act(async () => button!.click());
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]![0]).toMatchObject({
+      message: "cancel refused",
+    });
   });
 });
