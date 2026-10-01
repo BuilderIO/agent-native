@@ -85,8 +85,9 @@ agent answers about browser recordings in the Analytics template.
   tenant's coverage start, because one analytics session can span tabs.
   Coverage starts only after a session write succeeds. "Didn't" also needs at
   least one index row for the session, so a failed or pruned index write never
-  reads as an event's absence. The retention sweep keeps index rows two days
-  past replay retention. The BigQuery-cutover purge leaves these tables alone.
+  reads as an event's absence. The retention sweep removes a session's index
+  rows together, once all of them are two days past replay retention. The
+  BigQuery-cutover purge leaves these tables alone.
 
 ## Agent Diagnostics Surface
 

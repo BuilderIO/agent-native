@@ -550,10 +550,19 @@ export async function pruneSessionEventIndex(
   )
     .toISOString()
     .slice(0, 10);
+  const se = schema.analyticsSessionEvents;
+  const recent = alias(schema.analyticsSessionEvents, "session_event_recent");
+  // A session's rows go together: dropping only its old rows would make
+  // "didn't" match events the session did.
   // guard:allow-unscoped -- retention intentionally sweeps expired index rows across tenants.
   const sessionResult = await db
-    .delete(schema.analyticsSessionEvents)
-    .where(lt(schema.analyticsSessionEvents.lastAt, sessionCutoff));
+    .delete(se)
+    .where(
+      and(
+        lt(se.lastAt, sessionCutoff),
+        sql`not exists (select 1 from ${se} as ${recent} where ${recent.tenantKey} = ${se.tenantKey} and ${recent.sessionId} = ${se.sessionId} and ${recent.lastAt} >= ${sessionCutoff})`,
+      ),
+    );
   // guard:allow-unscoped -- retention intentionally sweeps expired catalog days across tenants.
   const catalogResult = await db
     .delete(schema.analyticsEventCatalogDaily)

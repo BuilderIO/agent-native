@@ -529,6 +529,38 @@ describe("session event index on Postgres", () => {
     expect(catalog.rows).toEqual([{ event_name: "new_event" }]);
   });
 
+  it("keeps a session's rows together until all of them expire", async () => {
+    await recordSessionEventIndex(
+      [
+        event({
+          eventName: "purchase",
+          sessionId: "s-long",
+          timestamp: "2026-08-01T10:00:00.000Z",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s-long",
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+      ],
+      "2026-07-01T00:00:00.000Z",
+    );
+    await addRecording("r-long", "s-long", "2026-08-01T09:59:00.000Z");
+
+    await pruneSessionEventIndex(30, new Date("2026-09-24T00:00:00.000Z"));
+
+    const sessions = await client.query(
+      "SELECT event_name FROM analytics_session_events ORDER BY event_name",
+    );
+    expect(sessions.rows).toEqual([
+      { event_name: "pageview" },
+      { event_name: "purchase" },
+    ]);
+    expect(await matchingRecordings({ didNotEvents: ["purchase"] })).toEqual(
+      [],
+    );
+  });
+
   it("never throws when the index write fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     getDbMock.mockReturnValue({
