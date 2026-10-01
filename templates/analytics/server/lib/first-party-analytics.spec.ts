@@ -102,6 +102,8 @@ vi.mock("./first-party-analytics-backend.js", () => ({
   queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
 }));
 
+import { lexAgentSql } from "@agent-native/core/agent-sql";
+
 import {
   isMarketingWebsiteSessionEvent,
   normalizeAnalyticsTimestamp,
@@ -109,6 +111,7 @@ import {
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
+  SESSION_RECORDING_FILTER_TABLES,
   touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
@@ -676,6 +679,49 @@ describe("validateFirstPartyAnalyticsSql", () => {
         "WITH session_replay_chunks AS (SELECT id FROM analytics_events) SELECT COUNT(*) FROM session_replay_chunks",
       ),
     ).toThrow("session replay chunks");
+  });
+
+  it.each([
+    "WITH session_recording_shares AS (SELECT id AS resource_id FROM session_recordings) SELECT id FROM session_recordings",
+    'WITH "session_recording_shares" AS (SELECT id AS resource_id FROM session_recordings) SELECT id FROM session_recordings',
+    "WITH Session_Recording_Shares (resource_id) AS (SELECT id FROM session_recordings) SELECT id FROM session_recordings",
+  ])(
+    "rejects recording SQL that names the table the sharing filter reads: %s",
+    (sql) => {
+      expect(() => validateFirstPartyAnalyticsSql(sql)).toThrow(
+        "cannot reference session_recording_shares",
+      );
+    },
+  );
+
+  it("rejects recording SQL the core lexer cannot read", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql('SELECT U&"id" FROM session_recordings'),
+    ).toThrow("U&");
+  });
+
+  it("names every table the injected recording filter reads", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT id FROM session_recordings",
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      "2026-07-01",
+    );
+    const tokens = lexAgentSql(scoped.sql, { dialect: "postgres" });
+    const filterTables = new Set<string>();
+    tokens.forEach((token, index) => {
+      const previous = tokens[index - 1];
+      if (
+        previous?.kind === "word" &&
+        (previous.value === "from" || previous.value === "join") &&
+        (token.kind === "word" || token.kind === "quoted-identifier") &&
+        token.value !== "session_recordings"
+      ) {
+        filterTables.add(token.value);
+      }
+    });
+    expect([...filterTables].sort()).toEqual(
+      [...SESSION_RECORDING_FILTER_TABLES].sort(),
+    );
   });
 
   it("rejects comma-separated sources instead of leaving the extra table unscoped", () => {

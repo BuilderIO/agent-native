@@ -2,7 +2,7 @@ import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, getTableName, isNull, lt, or, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
@@ -1227,6 +1227,9 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): void {
       "First-party analytics queries cannot read session replay chunks",
     );
   }
+  if (/session_recordings/i.test(sql)) {
+    assertNoSessionRecordingFilterTables(sql);
+  }
   const { cteNames, sources } = collectAnalyticsSqlSources(sql);
   let usesAllowedTable = false;
   for (const source of sources) {
@@ -1332,10 +1335,34 @@ function scopedTableSource(
 const pgDialect = new PgDialect();
 
 /**
+ * Tables the injected session-recording filter reads by bare name. A CTE with
+ * one of these names would stand in for the real table inside the filter, so
+ * SQL that reads recordings may not name them at all.
+ */
+export const SESSION_RECORDING_FILTER_TABLES: ReadonlySet<string> = new Set([
+  getTableName(schema.sessionRecordingShares),
+]);
+
+function assertNoSessionRecordingFilterTables(sql: string): void {
+  // The core lexer resolves quoted and unquoted names as Postgres does, and
+  // refuses spellings it cannot read, such as U& escapes.
+  for (const token of lexAgentSql(sql, { dialect: "postgres" })) {
+    if (
+      (token.kind === "word" || token.kind === "quoted-identifier") &&
+      SESSION_RECORDING_FILTER_TABLES.has(token.value)
+    ) {
+      throw new Error(
+        `First-party analytics queries cannot reference ${token.value}`,
+      );
+    }
+  }
+}
+
+/**
  * Recordings are shareable resources, so agent SQL reads them through the
- * same rule as the app: the caller's own recordings, org-visible recordings
- * in their org, and recordings shared with them or their org. An org
- * credential additionally keeps the read on the organization's rows.
+ * same rule as the app: the caller's own recordings, plus recordings in their
+ * active org that are org-visible or shared with them or with that org. An
+ * org credential additionally keeps the read on the organization's rows.
  */
 function scopedSessionRecordingSource(
   scope: AnalyticsScope,
@@ -1358,7 +1385,9 @@ function scopedSessionRecordingSource(
     return value;
   });
   // Re-emit the compiled filter token by token: binds move past the
-  // parameters already used, and layout whitespace collapses to one space.
+  // parameters already used, and layout whitespace collapses to one space,
+  // so the filter stays on one line even where the rewrite lands inside a
+  // `--` comment.
   let accessSql = "";
   let previousEnd: number | null = null;
   for (const token of lexAgentSql(access.sql, { dialect: "postgres" })) {

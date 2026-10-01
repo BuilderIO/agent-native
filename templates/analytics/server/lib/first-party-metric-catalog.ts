@@ -225,7 +225,7 @@ const {
   REPLAY_CHUNKS_OVER_TIME_SQL,
   RECENT_REPLAY_SESSIONS_SQL,
 } = (() => {
-  // guard:allow-unscoped — queryFirstPartyAnalytics rewrites every session_recordings source to the recordings the caller can access before execution.
+  // guard:allow-unscoped — queryFirstPartyAnalytics rewrites session_recordings sources to the recordings the caller can access before execution.
   return {
     REPLAY_SESSIONS_SQL: `SELECT COUNT(*) AS count FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER}`,
     REPLAY_CHUNKS_OVER_TIME_SQL: `SELECT ${REPLAY_RECORDING_DATE_SQL} AS date, SUM(chunk_count) AS count FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER} GROUP BY ${REPLAY_RECORDING_DATE_SQL} ORDER BY date`,

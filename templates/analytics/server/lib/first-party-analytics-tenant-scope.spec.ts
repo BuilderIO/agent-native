@@ -172,6 +172,47 @@ describe("first-party session recording reads follow the app's sharing rules (PG
     ).toEqual(["carol-org-visible"]);
   });
 
+  it("keeps recordings outside the active org out, even when shared or public", async () => {
+    await client.exec(`
+      INSERT INTO session_recordings (id, session_id, started_at, owner_email, org_id, visibility) VALUES
+        ('carol-private-shared-with-bob', 's8', '2026-01-17T00:00:00Z', 'carol@example.test', 'org_b', 'private'),
+        ('carol-private-shared-with-org-a', 's9', '2026-01-18T00:00:00Z', 'carol@example.test', 'org_b', 'private'),
+        ('carol-public', 's10', '2026-01-19T00:00:00Z', 'carol@example.test', 'org_b', 'public'),
+        ('alice-personal-shared-with-bob', 's11', '2026-01-20T00:00:00Z', 'alice@example.test', NULL, 'private');
+      INSERT INTO session_recording_shares (id, resource_id, principal_type, principal_id) VALUES
+        ('share-carol-bob', 'carol-private-shared-with-bob', 'user', 'bob@example.test'),
+        ('share-carol-org-a', 'carol-private-shared-with-org-a', 'org', 'org_a'),
+        ('share-alice-personal-bob', 'alice-personal-shared-with-bob', 'user', 'bob@example.test');
+    `);
+    expect(
+      await recordingIds("SELECT id FROM session_recordings ORDER BY id", BOB),
+    ).toEqual([
+      "alice-org-visible",
+      "alice-private-shared-with-bob",
+      "alice-private-shared-with-org",
+      "bob-private",
+    ]);
+  });
+
+  it("gives an org-credential reader from outside the org only its org-visible and org-shared recordings", async () => {
+    expect(
+      await recordingIds("SELECT id FROM session_recordings ORDER BY id", {
+        userEmail: "reviewer@example.test",
+        orgId: "org_a",
+        credentialScope: "org",
+      }),
+    ).toEqual(["alice-org-visible", "alice-private-shared-with-org"]);
+  });
+
+  it("refuses SQL that defines its own session_recording_shares", async () => {
+    await expect(
+      recordingIds(
+        "WITH session_recording_shares AS (SELECT 'alice-private' AS resource_id, 'user' AS principal_type, 'bob@example.test' AS principal_id) SELECT id FROM session_recordings ORDER BY id",
+        BOB,
+      ),
+    ).rejects.toThrow("cannot reference session_recording_shares");
+  });
+
   it("does not serve one member's cached recordings to another, cold or warm", async () => {
     const sql = "SELECT id FROM session_recordings AS cached_cold ORDER BY id";
     const orgCredentialAlice = { ...ALICE, credentialScope: "org" as const };
