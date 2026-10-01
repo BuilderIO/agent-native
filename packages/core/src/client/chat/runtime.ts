@@ -1270,7 +1270,12 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
     (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
     (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
   Object.assign(error, {
-    code: typeof code === "string" ? code : fallbackCode,
+    code:
+      typeof code === "string"
+        ? code
+        : status === 409 && activeRunId
+          ? "run_slot_busy"
+          : fallbackCode,
     ...(activeRunId ? { activeRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&

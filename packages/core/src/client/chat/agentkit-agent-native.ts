@@ -765,17 +765,19 @@ async function responseError(response: Response): Promise<Error> {
     (typeof data?.activeRunId === "string" && data.activeRunId) ||
     (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
     (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
+  const code =
+    (typeof data?.code === "string" && data.code) ||
+    (typeof payload?.code === "string" && payload.code) ||
+    (typeof payload?.errorCode === "string" && payload.errorCode) ||
+    (typeof nestedError?.code === "string" && nestedError.code) ||
+    (response.status === 409 && activeRunId ? "run_slot_busy" : undefined) ||
+    httpErrorCode(response.status);
   const error = new Error(
     nestedMessage ??
       (body.trim() || `Agent chat request failed with ${response.status}.`),
   );
   Object.assign(error, {
-    code:
-      (typeof data?.code === "string" && data.code) ||
-      (typeof payload?.code === "string" && payload.code) ||
-      (typeof payload?.errorCode === "string" && payload.errorCode) ||
-      (typeof nestedError?.code === "string" && nestedError.code) ||
-      httpErrorCode(response.status),
+    code,
     status: response.status,
     retryable:
       typeof explicitRetryable === "boolean"

@@ -2139,7 +2139,6 @@ describe("createAgentNativeAgentKitTransport", () => {
     const conflict = () =>
       json(
         {
-          code: "run_slot_busy",
           message: "Run already in progress",
           activeRunId: "run-active",
           retryable: true,
