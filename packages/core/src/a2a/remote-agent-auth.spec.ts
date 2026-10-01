@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { credentialStateForErrorCode } from "../agent/engine/credential-state.js";
 import { resetAppConfigForTests } from "../app-config/index.js";
 
 const resolveCredentialMock = vi.hoisted(() => vi.fn());
@@ -187,6 +188,11 @@ describe("remote hosted-agent auth", () => {
         status,
         statusCode: status,
       });
+      // Relay and hosted-agent 401s read as the shared typed state, not prose.
+      expect(credentialStateForErrorCode(error.errorCode)).toEqual({
+        kind: "rejected",
+        credential: "agent",
+      });
     },
   );
 
@@ -200,6 +206,10 @@ describe("remote hosted-agent auth", () => {
 
     expect(error).toBeInstanceOf(RemoteAgentAuthError);
     expect(error).toMatchObject({ code: "credential_missing" });
+    expect(credentialStateForErrorCode(error.errorCode)).toEqual({
+      kind: "missing",
+      credential: "agent",
+    });
     expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
   });
 });

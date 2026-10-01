@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { installVisibilityControl, setPageVisibility } from "../lib/app";
 import {
   assertSignedInOnBeta,
   signedInContext,
@@ -26,6 +27,9 @@ const MAIN_SLIDE_CANVAS = '[data-main-slide-canvas="true"]';
 
 test.describe("Slides realtime editor", () => {
   test.skip(!selected.has("slides"), "slides is not in this run's selection");
+  // The idle window alone is 10 minutes, so a retry would overrun the
+  // chat-slides slot's global timeout and leave its later tests unrun.
+  test.describe.configure({ retries: 0 });
 
   test("shows a chat edit live in two pages and records idle transport traffic", async ({
     browser,
@@ -61,6 +65,7 @@ test.describe("Slides realtime editor", () => {
       const editorUrl = `${origin}/deck/${deckId}`;
       await openEditor(pageA, `${editorUrl}?agentSidebar=open`, sourceText);
       pageB = await context.newPage();
+      await installVisibilityControl(pageB);
       const transportRequests = { poll: 0, events: 0, stream: 0 };
       let streamEverConnected = false;
       pageB.on("request", (request) => {
@@ -92,6 +97,9 @@ test.describe("Slides realtime editor", () => {
       await expect
         .poll(() => pageA!.evaluate(() => document.visibilityState))
         .toBe("visible");
+      // Headless Chromium never hides the other page of a context, so the
+      // background tab is made hidden the way the app observes it.
+      await setPageVisibility(pageB, "hidden");
       await expect
         .poll(() => pageB!.evaluate(() => document.visibilityState))
         .toBe("hidden");
@@ -144,6 +152,7 @@ test.describe("Slides realtime editor", () => {
 
       const pageBCanvas = pageB.locator(MAIN_SLIDE_CANVAS);
       await pageB.bringToFront();
+      await setPageVisibility(pageB, "visible");
       await expect
         .poll(() => pageB!.evaluate(() => document.visibilityState))
         .toBe("visible");

@@ -1740,10 +1740,12 @@ describe("createAgentNativeAgentKitTransport", () => {
         ) {
           return json({
             runId: "run-durable",
+            threadId: "thread-resume",
             turnId: "turn-resume",
             startedAt: Date.now(),
             status: "running",
             dispatchMode: "background-processing",
+            terminalReason: null,
           });
         }
         if (url.includes("/runs/active?threadId=thread-resume")) {

@@ -6,6 +6,12 @@ import {
 } from "@playwright/test";
 
 import {
+  attemptsFor,
+  describeActionFailure,
+  isSuccessStatus,
+  postActionWithRetry,
+} from "../../lib/action-retry";
+import {
   assertSignedInOnBeta,
   signedInContext,
   skipUnlessAuthed,
@@ -31,20 +37,16 @@ async function postAction(
   name: string,
   input: Record<string, unknown>,
 ): Promise<any> {
-  const response = await request.post(
+  const { final, history } = await postActionWithRetry(
+    request,
     `${origin}/_agent-native/actions/${name}`,
-    {
-      data: input,
-      headers: { "Content-Type": "application/json" },
-      timeout: 60_000,
-    },
+    input,
+    { attempts: attemptsFor(name) },
   );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
+  if (!isSuccessStatus(final.status)) {
+    throw new Error(describeActionFailure(name, history));
   }
-  return response.json();
+  return JSON.parse(final.body);
 }
 
 async function createCullingDesign(
@@ -81,7 +83,7 @@ async function createCullingDesign(
 }
 
 async function previewIframeIds(page: Page): Promise<string[]> {
-  return page
+  const ids = await page
     .locator("iframe[data-design-preview-iframe]")
     .evaluateAll((iframes) =>
       iframes.map(
@@ -89,6 +91,31 @@ async function previewIframeIds(page: Page): Promise<string[]> {
           iframe.getAttribute("data-screen-iframe-id") ?? `board-${index}`,
       ),
     );
+  return ids.sort();
+}
+
+/**
+ * Previews are admitted a few per frame, so the first frame with an iframe in
+ * it holds one of them, not the pool. A "before" taken there makes any later
+ * state look unchanged, so wait until the same set has held for two seconds.
+ */
+async function settledPreviewIframeIds(page: Page): Promise<string[]> {
+  const deadline = Date.now() + 45_000;
+  let previous: string[] = [];
+  let stableSince = Date.now();
+  while (Date.now() < deadline) {
+    const ids = await previewIframeIds(page);
+    if (ids.length > 0 && ids.join() === previous.join()) {
+      if (Date.now() - stableSince >= 2_000) return ids;
+    } else {
+      previous = ids;
+      stableSince = Date.now();
+    }
+    await page.waitForTimeout(250);
+  }
+  throw new Error(
+    `The preview iframe pool never held one set for 2s within 45s; it last held ${previous.length} iframe(s).`,
+  );
 }
 
 async function installChurnObserver(page: Page): Promise<void> {
@@ -171,10 +198,8 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
       })
       .toBeGreaterThan(0);
 
-    const initialIframes = await page
-      .locator("iframe[data-design-preview-iframe]")
-      .count();
-    const initialIframeIds = await previewIframeIds(page);
+    const initialIframeIds = await settledPreviewIframeIds(page);
+    const initialIframes = initialIframeIds.length;
     const placeholders = await page
       .locator('[data-screen-content][data-cull-tier="placeholder"]')
       .count();
@@ -265,11 +290,12 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
       `[beta-design-culling] gesture-end ${JSON.stringify({ finalZoomLabel, finalTransform })}`,
     );
 
-    const afterIframes = await page
-      .locator("iframe[data-design-preview-iframe]")
-      .count();
     const afterIframeIds = await previewIframeIds(page);
-    expect(afterIframeIds).not.toEqual(initialIframeIds);
+    const afterIframes = afterIframeIds.length;
+    expect(
+      afterIframeIds,
+      `the preview pool held the same ${initialIframes} iframe(s) after the camera moved (zoom ${initialZoomLabel} -> ${finalZoomLabel}, transform ${initialTransform} -> ${finalTransform}); before ${JSON.stringify(initialIframeIds)}, after ${JSON.stringify(afterIframeIds)}`,
+    ).not.toEqual(initialIframeIds);
     const perf = await page.evaluate(
       () =>
         (

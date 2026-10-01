@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
+import {
+  GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "../agent/engine/credential-errors.js";
+import { CREDENTIAL_ERROR_CODES } from "../agent/engine/credential-state.js";
+import {
+  RUN_FAILED_MESSAGE,
+  RUN_INTERRUPTED_MESSAGE,
+  RUN_SIGNED_OUT_MESSAGE,
+  RUN_UNVERIFIED_MESSAGE,
+} from "./chat/run-outcome.js";
 import {
   BUILDER_SPACE_SETTINGS_URL,
   NEW_CHAT_ACTION_HREF,
+  PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+  SERVER_AUTHORED_CREDENTIAL_CODES,
   formatChatErrorText,
+  isProviderAuthenticationError,
   localizeKnownChatErrorText,
   normalizeChatError,
 } from "./error-format.js";
@@ -519,5 +532,114 @@ describe("localizeKnownChatErrorText", () => {
   it("leaves raw provider details unchanged", () => {
     const raw = "401 status code (no body)";
     expect(localizeKnownChatErrorText(raw, interpolate)).toBe(raw);
+  });
+});
+
+describe("credential failures map on the typed code", () => {
+  const translateKnown = (key: string) => `localized:${key}`;
+
+  it("gives every credential code user-facing text the chat card can show", () => {
+    const raw = "upstream said something provider-specific";
+    for (const code of Object.keys(CREDENTIAL_ERROR_CODES)) {
+      const { message } = normalizeChatError(raw, code);
+      if (SERVER_AUTHORED_CREDENTIAL_CODES.has(code)) {
+        expect(message, code).toBe(raw);
+        continue;
+      }
+      expect(message, code).not.toBe(raw);
+      expect(
+        localizeKnownChatErrorText(message, translateKnown),
+        `${code} must map to localized copy`,
+      ).toMatch(/^localized:/);
+    }
+  });
+
+  it("reads a missing provider from its code, not the English text", () => {
+    expect(
+      normalizeChatError("ANTHROPIC_API_KEY is not set", "missing_credentials"),
+    ).toEqual({
+      message: LLM_MISSING_CREDENTIALS_MESSAGE,
+      details: "ANTHROPIC_API_KEY is not set",
+    });
+  });
+
+  it("does not call a hosted agent's rejected credential the model provider's", () => {
+    const text = "Hosted agent credentials were rejected (HTTP 401).";
+    expect(normalizeChatError(text, "credential_rejected").message).toBe(text);
+    expect(isProviderAuthenticationError(text, "credential_rejected")).toBe(
+      false,
+    );
+  });
+
+  it("lets a code override English that looks like a provider rejection", () => {
+    expect(
+      isProviderAuthenticationError(
+        "Missing authentication header",
+        "missing_credentials",
+      ),
+    ).toBe(false);
+    expect(isProviderAuthenticationError("anything", "http_401")).toBe(true);
+  });
+
+  it("keeps the English match only for failures that carry no code", () => {
+    expect(isProviderAuthenticationError("Missing authentication header")).toBe(
+      true,
+    );
+    expect(
+      isProviderAuthenticationError("Missing authentication header", "timeout"),
+    ).toBe(true);
+  });
+
+  it("does not tell a signed-out user to update their provider key", () => {
+    // The browser codes every 401 without a body code `unauthorized`; the
+    // chat POST and framework auth both answer a signed-out session that way.
+    const normalized = normalizeChatError("Unauthorized", "unauthorized");
+    expect(normalized.message).not.toBe(PROVIDER_CREDENTIAL_REJECTED_MESSAGE);
+    expect(isProviderAuthenticationError("Unauthorized", "unauthorized")).toBe(
+      false,
+    );
+    // A provider's own rejection still reads as one.
+    expect(
+      normalizeChatError("invalid x-api-key", "authentication_error").message,
+    ).toBe(PROVIDER_CREDENTIAL_REJECTED_MESSAGE);
+    expect(
+      isProviderAuthenticationError(
+        "invalid x-api-key",
+        "authentication_error",
+      ),
+    ).toBe(true);
+  });
+
+  it("reads a bare 401/403 status as a rate limit when its text says so", () => {
+    for (const code of ["http_403", "http_401"]) {
+      const normalized = normalizeChatError("Rate limit exceeded", code);
+      expect(normalized.message, code).toBe(
+        "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+      );
+      expect(
+        isProviderAuthenticationError("Rate limit exceeded", code),
+        code,
+      ).toBe(false);
+    }
+    expect(normalizeChatError("Forbidden", "http_403").message).toBe(
+      PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+    );
+  });
+});
+
+describe("run outcomes the browser reads from the server's record", () => {
+  it("has localized copy for every terminal message", () => {
+    for (const message of [
+      RUN_INTERRUPTED_MESSAGE,
+      RUN_FAILED_MESSAGE,
+      RUN_UNVERIFIED_MESSAGE,
+      RUN_SIGNED_OUT_MESSAGE,
+    ]) {
+      const formatted = formatChatErrorText(message);
+      expect(
+        localizeKnownChatErrorText(formatted, (key) => `localized:${key}`),
+        message,
+      ).toMatch(/^localized:agentChat\.errorMessages\./);
+    }
   });
 });

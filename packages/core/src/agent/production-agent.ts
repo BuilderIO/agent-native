@@ -15,7 +15,10 @@ import type { EventHandler as H3EventHandler } from "h3";
 import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
-import { actionCallIsReadOnly } from "../action-call-classification.js";
+import {
+  actionCallEmitsChange,
+  actionCallIsReadOnly,
+} from "../action-call-classification.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -257,6 +260,7 @@ import {
   abortRunDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
+  getSlotHoldingRunId,
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
@@ -907,6 +911,54 @@ export async function resolveOwnerEngineApiKey(input: {
 }
 
 /**
+ * The engine a chat request runs on. Anything that tells the user what their
+ * chat will run on (the sidebar credit notice) asks this too, so it cannot
+ * disagree with the chat.
+ */
+export async function resolveChatEngine(input: {
+  engineOption?: ResolveEngineConfig["engineOption"];
+  ownerKey: ResolvedOwnerApiKey;
+  model?: string;
+  appId?: string;
+  credentialIdentity: ResolveEngineConfig["credentialIdentity"];
+}): Promise<AgentEngine> {
+  const key = {
+    apiKey: input.ownerKey.apiKey,
+    apiKeyEnvVar: input.ownerKey.apiKeyEnvVar,
+    apiKeyProvenance: input.ownerKey.credentialProvenance,
+    appId: input.appId,
+    credentialIdentity: input.credentialIdentity,
+  };
+  try {
+    return await resolveEngine({
+      ...key,
+      engineOption: input.engineOption,
+      model: input.model,
+    });
+  } catch (error) {
+    if (error instanceof CredentialEndpointMismatchError) throw error;
+    return resolveEngine(key);
+  }
+}
+
+/**
+ * A message sent while another run holds the thread. It is not saved yet; the
+ * client delivers it once that run ends instead of showing the user an error.
+ */
+function runSlotBusy(
+  event: Parameters<typeof setResponseStatus>[0],
+  activeRunId: string | null,
+) {
+  setResponseStatus(event, 409);
+  return {
+    error: "Run already in progress for this thread",
+    code: "run_slot_busy",
+    retryable: true,
+    activeRunId,
+  };
+}
+
+/**
  * The error a chat turn answers with when no model credential is usable. A
  * member whose org restricts personal API keys can't fix that by adding a key,
  * so they get the restriction instead of the connect-a-provider prompt.
@@ -981,6 +1033,7 @@ export interface ActionEntry {
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
+  changeEvents?: boolean;
   parallelSafe?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -6903,7 +6956,7 @@ export async function runAgentLoop(opts: {
           try {
             const { notifyActionChangeInBackground } =
               await import("../server/action-change.js");
-            if (!actionIsReadOnly) {
+            if (actionCallEmitsChange(actionEntry, toolCall.input, false)) {
               const owner =
                 opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
               const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
@@ -8385,8 +8438,11 @@ export async function chainServerDrivenContinuation(opts: {
             ? lastDispatchErr.message
             : lastDispatchErr,
         );
+        // The turn continues in the pre-inserted successor, so this chunk is
+        // truncated, never completed, and its stream ends with the same
+        // continuation signal a dispatched handoff sends.
         const statusUpdated = await d
-          .updateRunStatusIfRunning(runId, "completed")
+          .updateRunStatusIfRunning(runId, "truncated")
           .catch(() => false);
         if (statusUpdated) {
           await d
@@ -8396,6 +8452,10 @@ export async function chainServerDrivenContinuation(opts: {
             )
             .catch(() => {});
         }
+        run.continuationTerminalEvent = {
+          type: "auto_continue",
+          reason: continuationReason,
+        };
         return;
       }
       throw lastDispatchErr instanceof Error
@@ -8950,6 +9010,13 @@ export function createProductionAgentHandler(
           (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
+      // A busy thread refuses this message (409) and the client sends it again
+      // once the thread frees up; uploading first would store every
+      // attachment again on each refusal.
+      if (threadId && !isBackgroundWorker) {
+        const activeRunId = await getSlotHoldingRunId(threadId);
+        if (activeRunId) return runSlotBusy(event, activeRunId);
+      }
       try {
         const preUpload = await preUploadAttachments({
           attachments: requestAttachments,
@@ -8996,16 +9063,13 @@ export function createProductionAgentHandler(
 
     workerStep("apikey_start");
     const engineOption = requestEngine ?? options.engine;
-    const {
-      apiKey: effectiveApiKey,
-      apiKeyEnvVar: effectiveApiKeyEnvVar,
-      credentialProvenance: apiKeyProvenance,
-    } = await resolveOwnerEngineApiKey({
+    const ownerKey = await resolveOwnerEngineApiKey({
       engineOption,
       ownerEmail,
       anthropicFallback:
         options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"),
     });
+    const effectiveApiKey = ownerKey.apiKey;
     workerStep("apikey_done");
 
     workerStep("engine_start");
@@ -9013,27 +9077,13 @@ export function createProductionAgentHandler(
       userEmail: ownerEmail,
       orgId: getRequestOrgId(),
     };
-    let engine: AgentEngine;
-    try {
-      engine = await resolveEngine({
-        engineOption,
-        apiKey: effectiveApiKey,
-        apiKeyEnvVar: effectiveApiKeyEnvVar,
-        apiKeyProvenance,
-        model: configuredModel,
-        appId: options.appId,
-        credentialIdentity,
-      });
-    } catch (error) {
-      if (error instanceof CredentialEndpointMismatchError) throw error;
-      engine = await resolveEngine({
-        apiKey: effectiveApiKey,
-        apiKeyEnvVar: effectiveApiKeyEnvVar,
-        apiKeyProvenance,
-        appId: options.appId,
-        credentialIdentity,
-      });
-    }
+    const engine = await resolveChatEngine({
+      engineOption,
+      ownerKey,
+      model: configuredModel,
+      appId: options.appId,
+      credentialIdentity,
+    });
     workerStep("engine_done");
 
     workerStep("model_start");
@@ -9727,13 +9777,7 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
-      if (!slot.claimed) {
-        setResponseStatus(event, 409);
-        return {
-          error: "Run already in progress for this thread",
-          activeRunId: slot.activeRunId,
-        };
-      }
+      if (!slot.claimed) return runSlotBusy(event, slot.activeRunId);
       foregroundRunRowInserted = true;
     }
 

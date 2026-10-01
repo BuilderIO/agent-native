@@ -12,6 +12,7 @@ import {
 
 import "../authorization/check-action.js";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
+import { actionCallEmitsChange } from "../action-call-classification.js";
 import {
   ActionContractError,
   isActionContractError,
@@ -20,6 +21,11 @@ import {
   validateActionArgs,
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
+import {
+  LLM_CREDENTIAL_KEYS,
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "../agent/engine/credential-errors.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
@@ -30,6 +36,10 @@ import {
   resolveOrgIdForEmail,
 } from "../org/context.js";
 import {
+  LLM_PROVIDER_MISSING_ERROR_CODE,
+  LLM_PROVIDER_MISSING_STATUS,
+} from "../shared/action-error-codes.js";
+import {
   agentNativeMcpInstructions,
   agentNativeToolTitle,
 } from "../shared/agent-mcp-metadata.js";
@@ -39,7 +49,11 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
-import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
+import {
+  countActionFailure,
+  countCredentialState,
+} from "../tracking/failure-counters.js";
+import { notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
   readBrowserTabIdHeader,
@@ -367,6 +381,55 @@ async function storedActiveOrgId(email: string): Promise<string | undefined> {
     }
     return undefined;
   }
+}
+
+const NO_LLM_PROVIDER_RE = /\bno (?:llm |ai |model )?provider\b/i;
+const ABSENT_CREDENTIAL_RE =
+  /\b(?:missing|not set|not configured|not connected)\b/i;
+const LLM_CREDENTIAL_TERM_RE =
+  /\b(?:llm|model provider|ai engine)\b.*\b(?:api[\s_-]*key|credentials?|provider key)\b|\b(?:api[\s_-]*key|credentials?|provider key)\b.*\b(?:llm|model provider|ai engine)\b/i;
+
+/**
+ * Whether a thrown error means "the user has not connected an LLM provider".
+ * An error the thrower made user-facing (`fail()`, a stop, the `expected`
+ * marker) keeps its own message and status. Any other typed code counts only
+ * when it is `missing_credentials`, so a credential store outage stays loud. A
+ * code-less error counts only when it names an LLM credential and says it is
+ * absent: the agent engine's broader `isLlmCredentialError` also matches "LLM
+ * response missing required field", a real bug that must stay a captured 500.
+ */
+function isLlmProviderMissingError(error: unknown): boolean {
+  if (
+    isActionContractError(error) ||
+    isAgentActionStopError(error) ||
+    isMarkedExpectedError(error)
+  ) {
+    return false;
+  }
+  const code = (error as { errorCode?: unknown } | null | undefined)?.errorCode;
+  if (typeof code === "string") {
+    return code === LLM_MISSING_CREDENTIALS_ERROR_CODE;
+  }
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  if (NO_LLM_PROVIDER_RE.test(message)) return true;
+  const namesCredential =
+    [...LLM_CREDENTIAL_KEYS].some((key) => message.includes(key)) ||
+    LLM_CREDENTIAL_TERM_RE.test(message);
+  return namesCredential && ABSENT_CREDENTIAL_RE.test(message);
+}
+
+/** Opt-in marker for domain errors that are an expected user state. */
+function isMarkedExpectedError(error: unknown): boolean {
+  const marked = error as
+    | { expected?: unknown; errorCode?: unknown }
+    | null
+    | undefined;
+  return marked?.expected === true && typeof marked.errorCode === "string";
 }
 
 function isAuthResolutionFailure(error: unknown): boolean {
@@ -893,12 +956,7 @@ function mountActionRoutesInternal(
               }
               const result = await entry.run(params, runContext);
 
-              const isReadOnly = actionCallIsReadOnly(
-                entry,
-                params,
-                method === "GET",
-              );
-              if (!isReadOnly) {
+              if (actionCallEmitsChange(entry, params, method === "GET")) {
                 try {
                   await notifyActionChange({
                     actionName: name,
@@ -936,8 +994,40 @@ function mountActionRoutesInternal(
                 typeof err?.statusCode === "number"
                   ? err.statusCode
                   : undefined;
-              const status = isValidationError ? 400 : (explicitStatus ?? 500);
+              const llmProviderMissing = isLlmProviderMissingError(err);
+              const markedExpected = isMarkedExpectedError(err);
+              const status = isValidationError
+                ? 400
+                : llmProviderMissing
+                  ? LLM_PROVIDER_MISSING_STATUS
+                  : (explicitStatus ?? (markedExpected ? 409 : 500));
               setResponseStatus(event, status);
+
+              const failureCaller =
+                options?.caller ??
+                (resolvedCaller
+                  ? "a2a"
+                  : isFrontendActionRequest(event)
+                    ? "frontend"
+                    : "http");
+              countActionFailure({
+                action: name,
+                status,
+                caller: failureCaller,
+                errorCode: llmProviderMissing
+                  ? LLM_PROVIDER_MISSING_ERROR_CODE
+                  : typeof err?.errorCode === "string"
+                    ? err.errorCode
+                    : isValidationError
+                      ? "validation"
+                      : undefined,
+              });
+              if (llmProviderMissing) {
+                countCredentialState(
+                  { kind: "missing", credential: "provider" },
+                  "action_route",
+                );
+              }
 
               const errorDetails =
                 err?.details &&
@@ -965,17 +1055,30 @@ function mountActionRoutesInternal(
               //    (explicitly safe on every transport)
               //  - AgentActionStopError (an explicit user-facing stop)
               //  - errors with an explicit statusCode < 500 (client errors)
+              //  - errors marked `expected: true` with a typed errorCode
               // A bare `throw new Error(...)` is deliberately absent: it is
               // indistinguishable from a driver or upstream blowup, so it stays
               // a generic 500 and the real detail — which can contain DB/
-              // driver/upstream text — never leaves the server.
+              // driver/upstream text — never leaves the server. Expected user
+              // states must be thrown with `fail()` so they are typed.
+              if (llmProviderMissing) {
+                // Canonical text, not err.message: the match is heuristic, so
+                // the raw message is not known to be safe to echo.
+                return {
+                  error: LLM_MISSING_CREDENTIALS_MESSAGE,
+                  errorCode: LLM_PROVIDER_MISSING_ERROR_CODE,
+                };
+              }
               const isUserFacing =
                 isValidationError ||
                 isActionContractError(err) ||
                 isAgentActionStopError(err) ||
+                markedExpected ||
                 (explicitStatus !== undefined && explicitStatus < 500);
               if (isUserFacing) {
-                return isActionContractError(err) || isAgentActionStopError(err)
+                return isActionContractError(err) ||
+                  isAgentActionStopError(err) ||
+                  markedExpected
                   ? {
                       error: msg,
                       ...(typeof err.errorCode === "string"
@@ -1004,13 +1107,7 @@ function mountActionRoutesInternal(
                 method: reqMethod,
                 tags: {
                   action: name,
-                  caller:
-                    options?.caller ??
-                    (resolvedCaller
-                      ? "a2a"
-                      : isFrontendActionRequest(event)
-                        ? "frontend"
-                        : "http"),
+                  caller: failureCaller,
                   status_code: String(status),
                 },
                 ...(requestId ? { extra: { request_id: requestId } } : {}),

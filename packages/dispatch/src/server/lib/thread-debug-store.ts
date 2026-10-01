@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   classifyAgentFailure,
   type AgentFailureRegime,
@@ -365,6 +366,8 @@ function resolveSourceConfig(sourceId = "current"): ThreadDebugSourceConfig {
   const direct = sourceConfigs().find((source) => source.id === normalized);
   if (direct) {
     if (direct.kind !== "current" && !direct.databaseUrl) {
+      // A configured source whose URL env var is unset is a deploy
+      // misconfiguration: untyped on purpose, so the boundary captures it.
       throw new Error(
         `Thread debug source "${normalized}" is configured but disconnected.`,
       );
@@ -376,7 +379,10 @@ function resolveSourceConfig(sourceId = "current"): ThreadDebugSourceConfig {
   const databaseUrlEnv = `${prefix}_DATABASE_URL`;
   const databaseUrl = process.env[databaseUrlEnv];
   if (!databaseUrl) {
-    throw new Error(`Thread debug source "${normalized}" is not configured.`);
+    fail(`Thread debug source "${normalized}" is not configured.`, {
+      errorCode: "thread_debug_source_not_configured",
+      statusCode: 404,
+    });
   }
   return {
     id: normalized,
@@ -490,9 +496,10 @@ function ownerScope(
         (email) => email.toLowerCase() === requested.toLowerCase(),
       )
     ) {
-      throw new Error(
-        "The requested owner is not a member of the current organization.",
-      );
+      fail("The requested owner is not a member of the current organization.", {
+        errorCode: "forbidden",
+        statusCode: 403,
+      });
     }
     return {
       sql: `${column} = ?`,
@@ -936,7 +943,10 @@ export async function getAgentThreadDebug(input: {
   const scope = ownerScope(access, input.ownerEmail);
   const requestedId = input.runId?.trim() || input.threadId?.trim() || "";
   if (!requestedId) {
-    throw new Error("A thread ID or request/run ID is required.");
+    fail("A thread ID or request/run ID is required.", {
+      errorCode: "thread_id_required",
+      statusCode: 400,
+    });
   }
 
   let rows = await queryRows<ChatThreadRow>(
@@ -976,7 +986,10 @@ export async function getAgentThreadDebug(input: {
 
   const row = rows[0];
   if (!row) {
-    throw new Error(`Thread or request/run ID "${requestedId}" was not found.`);
+    fail(`Thread or request/run ID "${requestedId}" was not found.`, {
+      errorCode: "not_found",
+      statusCode: 404,
+    });
   }
 
   const threadData = safeJsonParse<Record<string, unknown>>(

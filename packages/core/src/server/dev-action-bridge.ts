@@ -28,12 +28,13 @@ import path from "node:path";
 import { defineEventHandler, getHeader, readBody, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 
+import { actionCallEmitsChange } from "../action-call-classification.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
-import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
+import { notifyActionChange } from "./action-change.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
   DEV_ACTION_DISCOVERY_PATH,
@@ -306,7 +307,7 @@ export function mountDevActionForwardRoute(
             actionName: name,
           };
           const result = await entry.run(params, ctx);
-          if (!actionCallIsReadOnly(entry, params, false)) {
+          if (actionCallEmitsChange(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }
           const devHandoffUrl = devActionHandoffUrl(result);
