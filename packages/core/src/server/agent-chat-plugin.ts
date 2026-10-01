@@ -4528,6 +4528,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.threadId = threadId;
                   runCtx.runId = runId;
                 }
+                trackAgentChatRunLifecycle(
+                  "run_started",
+                  threadId,
+                  runId,
+                  runCtx?.owner,
+                  {},
+                  options?.appId,
+                );
               },
               onRunComplete: async (
                 run: ActiveRun,
@@ -4793,6 +4801,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.threadId = threadId;
               runCtx.runId = runId;
             }
+            trackAgentChatRunLifecycle(
+              "run_started",
+              threadId,
+              runId,
+              runCtx?.owner,
+              {},
+              options?.appId,
+            );
             await runPreAgentTurnAutosave(
               options?.onAgentTurnStart,
               runCtx?.chatScope,

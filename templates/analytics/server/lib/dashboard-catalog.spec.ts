@@ -407,7 +407,7 @@ describe("dashboard catalog", () => {
     expect(panel.sql).toBe(current.sql);
   });
 
-  it("repairs the materialized one-day retention self-join to one analytics scan", () => {
+  it("repairs one-day retention with a separate canonical identity lookup", () => {
     const current = requiredFirstPartyPanel("one-day-retention-by-template");
     const repaired = repairFirstPartyObservedRetentionPanels({
       panels: [
@@ -421,7 +421,8 @@ describe("dashboard catalog", () => {
     expect(repaired.changed).toBe(true);
     const sql = (repaired.config.panels as Array<{ sql: string }>)[0]?.sql;
     expect(sql).toBe(current.sql);
-    expect(sql?.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(sql?.match(/FROM analytics_events/g)).toHaveLength(2);
+    expect(sql).toContain("identity_emails AS");
     expect(sql).toContain("FIRST_VALUE(template) OVER");
     expect(sql).toContain("MAX(CASE WHEN event_date > cohort_date");
     expect(sql).not.toContain("JOIN base");

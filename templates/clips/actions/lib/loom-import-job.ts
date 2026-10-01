@@ -38,7 +38,7 @@ const LOOM_IMPORT_LEASE_LOST_REASON =
 const LOOM_IMPORT_LEASE_UNCONFIRMED_REASON =
   "The Loom import lease could not be confirmed before media was saved.";
 
-function startLoomImportLeaseRenewal(input: {
+async function startLoomImportLeaseRenewal(input: {
   recordingId: string;
   ownerEmail: string;
   claimId: string;
@@ -48,32 +48,38 @@ function startLoomImportLeaseRenewal(input: {
   let stopped = false;
   let renewalInFlight: Promise<void> | null = null;
 
-  const timer = setInterval(() => {
-    if (stopped || lost || renewalInFlight) return;
-
-    renewalInFlight = (async () => {
-      try {
-        const result = await renewUploadLease(input.recordingId, {
-          ownerEmail: input.ownerEmail,
-          loomImportClaimId: input.claimId,
-        });
-        if (!result.held) {
-          lost = true;
-        } else {
-          renewalFailed = false;
-        }
-      } catch (err) {
-        renewalFailed = true;
-        console.warn("[clips] Loom import lease renewal failed", {
-          recordingId: input.recordingId,
-          claimId: input.claimId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+  const renew = async () => {
+    try {
+      const result = await renewUploadLease(input.recordingId, {
+        ownerEmail: input.ownerEmail,
+        loomImportClaimId: input.claimId,
+      });
+      if (!result.held) {
+        lost = true;
+      } else {
+        renewalFailed = false;
       }
-    })().finally(() => {
-      renewalInFlight = null;
-    });
-  }, LOOM_IMPORT_LEASE_RENEWAL_MS);
+    } catch (err) {
+      renewalFailed = true;
+      console.warn("[clips] Loom import lease renewal failed", {
+        recordingId: input.recordingId,
+        claimId: input.claimId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  await renew();
+  const timer =
+    lost || renewalFailed
+      ? null
+      : setInterval(() => {
+          if (stopped || lost || renewalInFlight) return;
+
+          renewalInFlight = renew().finally(() => {
+            renewalInFlight = null;
+          });
+        }, LOOM_IMPORT_LEASE_RENEWAL_MS);
 
   return {
     get failureReason() {
@@ -83,7 +89,7 @@ function startLoomImportLeaseRenewal(input: {
     async stop() {
       if (!stopped) {
         stopped = true;
-        clearInterval(timer);
+        if (timer) clearInterval(timer);
       }
       await renewalInFlight;
     },
@@ -223,11 +229,14 @@ export async function runLoomImportJob({
 
   console.log("[loom-import] job started", { recordingId, claimId });
 
-  const lease = startLoomImportLeaseRenewal({
+  const lease = await startLoomImportLeaseRenewal({
     recordingId,
     ownerEmail,
     claimId,
   });
+  if (lease.failureReason) {
+    return { status: "failed", failureReason: lease.failureReason };
+  }
   let media: Awaited<ReturnType<typeof downloadLoomVideo>> | null = null;
   try {
     try {

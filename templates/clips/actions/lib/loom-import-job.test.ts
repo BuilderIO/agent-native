@@ -128,6 +128,34 @@ describe("runLoomImportJob", () => {
     vi.clearAllMocks();
   });
 
+  it("confirms its claim before starting Loom media work", async () => {
+    mockSelectRows.queue.push([
+      {
+        id: "rec_start_lease",
+        durationMs: 5_000,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_start_lease",
+      },
+    ]);
+    mockReturning.mockResolvedValueOnce([]);
+
+    const result = await runLoomImportJob({
+      recordingId: "rec_start_lease",
+      ownerEmail: "owner@example.com",
+      claimId: "claim_start_lease",
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      failureReason: "The Loom import lease was lost before media was saved.",
+    });
+    expect(mockDownloadLoomVideo).not.toHaveBeenCalled();
+    expect(mockUploadFile).not.toHaveBeenCalled();
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
   it("renews its claim during media work and refuses ready after lease loss", async () => {
     vi.useFakeTimers();
     mockSelectRows.queue.push([

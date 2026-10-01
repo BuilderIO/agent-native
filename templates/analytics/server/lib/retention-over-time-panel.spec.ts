@@ -95,6 +95,51 @@ describe("retention-over-time panel SQL", () => {
     expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain("ARRAY_AGG(");
   });
 
+  it("uses canonical identity email filtering for all retention panels", () => {
+    const postgresQueries = [
+      "retention-over-time",
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+    ].map((key) => buildPanel(key)!.sql);
+
+    for (const sql of [
+      ...postgresQueries,
+      FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    ]) {
+      expect(sql).toContain("identity_emails AS");
+      expect(sql).toContain("identity_emails.email");
+      expect(sql).toContain("'exclude_builder'");
+      expect(sql).toContain("'only_builder'");
+    }
+    for (const sql of postgresQueries) {
+      expect(sql).not.toContain("lower(coalesce(user_id, '')");
+      expect(sql).toContain(
+        "ROW_NUMBER() OVER (PARTITION BY NULLIF(properties::jsonb ->> 'auth_user_id', '') ORDER BY timestamp DESC, user_id DESC)",
+      );
+    }
+    for (const panelId of [
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+    ]) {
+      const sql = buildPanel(panelId)!.sql;
+      const identityStart = sql.indexOf("identity_emails AS");
+      const baseStart = sql.indexOf("), base AS", identityStart);
+      const baseEnds = [
+        sql.indexOf("), observed AS", baseStart),
+        sql.indexOf("), ranked_first_seen AS", baseStart),
+      ].filter((index) => index >= 0);
+      const baseEnd = Math.min(...baseEnds);
+
+      expect(identityStart).toBeGreaterThanOrEqual(0);
+      expect(baseStart).toBeGreaterThan(identityStart);
+      expect(sql.slice(identityStart, baseStart)).not.toContain(
+        "{{appFilter}}",
+      );
+      expect(baseEnd).toBeGreaterThan(baseStart);
+      expect(sql.slice(baseStart, baseEnd)).toContain("{{appFilter}}");
+    }
+  });
+
   it("emits a full date spine with independently maturing 1-7d/7-14d rates instead of zero-filling immature days", async () => {
     client = await PGlite.create("memory://");
     await createAnalyticsEventsTable(client);
@@ -316,6 +361,66 @@ describe("retention-over-time panel SQL", () => {
       ),
     ).toMatchObject({ cohort_users: 5, retained_users: 1 });
   });
+
+  it.each([
+    { panelId: "one-day-retention-by-template", returnDays: 3 },
+    { panelId: "seven-day-retention-by-template", returnDays: 10 },
+  ])(
+    "filters $panelId by the latest email on its canonical identity",
+    async ({ panelId, returnDays }) => {
+      client = await PGlite.create("memory://");
+      await createAnalyticsEventsTable(client);
+      const today = (
+        (await client.query(
+          "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+        )) as { rows: Array<{ today: string }> }
+      ).rows[0]!.today;
+      const cohortDate = offsetDate(today, 20);
+      const returnDate = offsetDate(cohortDate, -returnDays);
+
+      for (let index = 0; index < 21; index++) {
+        await seedFirstSeenEvent(
+          client,
+          `user-${index}`,
+          cohortDate,
+          "chat",
+          `auth-${index}`,
+        );
+      }
+      await seedFirstSeenEvent(
+        client,
+        "changed-email",
+        returnDate,
+        "slides",
+        "auth-0",
+        "person@builder.io",
+      );
+
+      const sql = interpolate(buildPanel(panelId)!.sql, {
+        timeRange: "",
+        emailFilter: "exclude_builder",
+        appFilter: "chat",
+      });
+      const rows = (
+        (await client.query(sql)) as {
+          rows: Array<{
+            template: string;
+            cohort_users: number;
+            retained_users: number;
+          }>;
+        }
+      ).rows;
+
+      expect(rows).toEqual([
+        {
+          template: "chat",
+          cohort_users: 20,
+          retained_users: 0,
+          rate: 0,
+        },
+      ]);
+    },
+  );
 
   it("requires auth_user_id and uses it as the cohort key", async () => {
     client = await PGlite.create("memory://");

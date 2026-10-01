@@ -114,18 +114,24 @@ const ORIGIN_MAIN_PANEL_SQL_PATCHES = {
       "base AS (\n  SELECT NULLIF(user_key, '') AS user_key, event_date AS event_date, user_id\n  FROM analytics_events\n  CROSS JOIN date_spine_bounds\n  WHERE ((event_name IN ('session status', 'session_status') AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND NULLIF(user_key, '') IS NOT NULL AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) <> 'docs' AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides') AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) <> 'www' AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) = lower('{{appFilter}}'))\n    AND date_spine_bounds.start_date <= date_spine_bounds.end_date\n    AND (\n      ('{{timeRange}}' = 'custom' AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD'))\n      OR ('{{timeRange}}' <> 'custom' AND event_date >= to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD'))\n    )\n    AND event_date <= to_char(LEAST(date_spine_bounds.end_date + INTERVAL '14 days', CURRENT_DATE)::date, 'YYYY-MM-DD')\n), cohort_history AS (\n  SELECT NULLIF(user_key, '') AS user_key, event_date AS event_date, user_id\n  FROM analytics_events\n  CROSS JOIN date_spine_bounds\n  WHERE '{{timeRange}}' = 'custom'\n    AND ((event_name IN ('session status', 'session_status') AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND NULLIF(user_key, '') IS NOT NULL AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) <> 'docs' AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides') AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) <> 'www' AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')",
   },
   oneDayRetentionByTemplate: {
+    prefix: "WITH base AS (SELECT NULLIF(",
     prefixLength: 28,
-    suffixLength: 3415,
+    suffixLength: 3186,
     length: 4448,
     sha256: "84049de619edfca2a8ce10f2da0f6acf674aa504eca65c242a4e76ffd0b22bf1",
+    middleTail:
+      " AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io",
     middle:
       "user_key, '') AS user_key, COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown') AS template, event_date AS event_date FROM analytics_events WHERE ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) = lower('{{appFilter}}')) AND ((event_name IN ('session status', 'session_status') AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND NULLIF(user_key, '') IS NOT NULL",
   },
   sevenDayRetentionByTemplate: {
+    prefix: "WITH base AS (SELECT NULLIF(",
     prefixLength: 28,
-    suffixLength: 3573,
+    suffixLength: 3347,
     length: 4598,
     sha256: "3e8993b8d56fd33a3883bb57f832bbb539ee9750a563fe1b21eb10e12aec7966",
+    middleTail:
+      ", '') IS NOT NULL AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')",
     middle:
       "user_key, '') AS user_key, COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown') AS template, event_date AS event_date, user_id FROM analytics_events WHERE ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) = lower('{{appFilter}}')) AND ((event_name IN ('session status', 'session_status') AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND NULLIF(user_key",
   },
@@ -161,8 +167,11 @@ function originMainPanelSql(
 ): string {
   const patch = ORIGIN_MAIN_PANEL_SQL_PATCHES[key];
   const sql =
-    currentSql.slice(0, patch.prefixLength) +
+    ("prefix" in patch
+      ? patch.prefix
+      : currentSql.slice(0, patch.prefixLength)) +
     patch.middle +
+    ("middleTail" in patch ? patch.middleTail : "") +
     currentSql.slice(currentSql.length - patch.suffixLength);
   expect(sql).toHaveLength(patch.length);
   expect(
@@ -1049,7 +1058,8 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       [{ config: string }]
     >;
     const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
-    expect(panel.sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(panel.sql.match(/FROM analytics_events/g)).toHaveLength(2);
+    expect(panel.sql).toContain("LEFT JOIN identity_emails");
     expect(panel.sql).toContain("FIRST_VALUE(template) OVER");
     expect(panel.sql).not.toContain("JOIN base");
   });

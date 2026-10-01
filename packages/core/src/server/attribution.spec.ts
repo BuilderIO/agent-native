@@ -191,6 +191,17 @@ describe("deriveSignupAttribution", () => {
     });
   });
 
+  it("marks when first-touch cookie packing retained only priority fields", () => {
+    expect(
+      signupAttributionFromCookieHeader(
+        ftCookie({ gclid: "click-id", capture_truncated: "1" }),
+      ),
+    ).toMatchObject({
+      gclid: "click-id",
+      attribution_truncated: "true",
+    });
+  });
+
   it("defaults to direct with no input and omits undefined fields", () => {
     expect(deriveSignupAttribution(null)).toEqual({
       referral_source: "direct",

@@ -569,8 +569,23 @@ export const MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL =
     KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER,
     `${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER}`,
   );
+const TEMPLATE_RETENTION_IDENTITY_EMAILS_CTE = `identity_emails AS (
+  SELECT user_key, email
+  FROM (
+    SELECT ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} AS user_key,
+      lower(NULLIF(user_id, '')) AS email,
+      ROW_NUMBER() OVER (PARTITION BY ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} ORDER BY timestamp DESC, user_id DESC) AS email_rank
+    FROM analytics_events
+    WHERE ${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL}
+      AND ${FIRST_PARTY_TEMPLATE_FILTER}
+      AND NULLIF(user_id, '') IS NOT NULL
+      AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER}
+      AND event_date <= ${todaySql()}
+  ) email_candidates
+  WHERE email_rank = 1
+)`;
 // guard:allow-unbounded-read — observed reads the explicitly bounded activity base CTE.
-const ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date FROM analytics_events WHERE ${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL} AND ${CONTENT_OR_CHAT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} GROUP BY 1, 2, 3), observed AS (SELECT user_key, event_date, FIRST_VALUE(template) OVER (PARTITION BY user_key ORDER BY event_date, template) AS starting_template, MIN(event_date) OVER (PARTITION BY user_key ORDER BY event_date, template) AS cohort_date FROM base), cohorts AS (SELECT user_key, starting_template AS template, cohort_date, MAX(CASE WHEN event_date > cohort_date AND event_date <= to_char(cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') THEN 1 ELSE 0 END) AS retained FROM observed WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")} GROUP BY user_key, starting_template, cohort_date) SELECT template, SUM(retained) AS retained_users, COUNT(*) AS cohort_users, SUM(retained)::float / NULLIF(COUNT(*), 0) AS rate FROM cohorts GROUP BY template HAVING COUNT(*) >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cohort_users DESC, template`;
+const ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH ${TEMPLATE_RETENTION_IDENTITY_EMAILS_CTE}, base AS (SELECT ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date FROM analytics_events LEFT JOIN identity_emails ON identity_emails.user_key = ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} WHERE ${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL} AND ${CONTENT_OR_CHAT_ACTIVITY_FILTER} AND ${AUTHENTICATED_ACTIVITY_EMAIL_FILTER_SQL} AND ${DASHBOARD_APP_FILTER} AND ${FIRST_PARTY_KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} GROUP BY 1, 2, 3), observed AS (SELECT user_key, event_date, FIRST_VALUE(template) OVER (PARTITION BY user_key ORDER BY event_date, template) AS starting_template, MIN(event_date) OVER (PARTITION BY user_key ORDER BY event_date, template) AS cohort_date FROM base), cohorts AS (SELECT user_key, starting_template AS template, cohort_date, MAX(CASE WHEN event_date > cohort_date AND event_date <= to_char(cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') THEN 1 ELSE 0 END) AS retained FROM observed WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")} GROUP BY user_key, starting_template, cohort_date) SELECT template, SUM(retained) AS retained_users, COUNT(*) AS cohort_users, SUM(retained)::float / NULLIF(COUNT(*), 0) AS rate FROM cohorts GROUP BY template HAVING COUNT(*) >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cohort_users DESC, template`;
 export const PRE_MARKETING_SITE_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL =
   LEGACY_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL.replace(
     `${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen`,
@@ -586,7 +601,16 @@ const SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL =
       KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER,
       `${FIRST_PARTY_KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER}`,
     )
-    .replace(SIGNED_IN_ACTIVITY_KEY_SQL, AUTHENTICATED_ACTIVITY_USER_KEY_SQL);
+    .replace(SIGNED_IN_ACTIVITY_KEY_SQL, AUTHENTICATED_ACTIVITY_USER_KEY_SQL)
+    .replace(
+      "WITH base AS (",
+      `WITH ${TEMPLATE_RETENTION_IDENTITY_EMAILS_CTE}, base AS (`,
+    )
+    .replace(
+      "FROM analytics_events WHERE ",
+      `FROM analytics_events LEFT JOIN identity_emails ON identity_emails.user_key = ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} WHERE ${DASHBOARD_APP_FILTER} AND `,
+    )
+    .replace(DASHBOARD_EMAIL_FILTER, AUTHENTICATED_ACTIVITY_EMAIL_FILTER_SQL);
 export const PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_SQL = `WITH first_seen AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, MIN(${EVENT_DATE_SQL}) AS first_date FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} GROUP BY 1), activity AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER} AND ${LEGACY_DASHBOARD_TIME_RANGE_FILTER}) SELECT a.event_date AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM activity a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' GROUP BY 1, 2 ORDER BY date, template`;
 export const DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL =
   PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_SQL.replace(

@@ -38,6 +38,7 @@ export interface FirstTouchAttribution {
   landing_path?: string;
   landing_referrer?: string;
   landed_at?: string;
+  capture_truncated?: string;
 }
 
 export type SignupOrigin =
@@ -72,6 +73,7 @@ const STRING_FIELDS: Array<keyof FirstTouchAttribution> = [
   "landing_path",
   "landing_referrer",
   "landed_at",
+  "capture_truncated",
 ];
 
 /**
@@ -203,6 +205,7 @@ export function deriveSignupAttribution(
   setIf("vector_source", ft.vector_source);
   setIf("first_touch_path", ft.landing_path);
   setIf("landing_referrer", ft.landing_referrer);
+  if (ft.capture_truncated === "1") out.attribution_truncated = "true";
 
   return out;
 }

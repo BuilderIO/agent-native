@@ -234,6 +234,21 @@ const FIRST_TOUCH_QUERY_FIELDS = [
   "msclkid",
   "vector_source",
 ] as const;
+const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "ref",
+  "via",
+  "utm_content",
+  "utm_term",
+  "landing_path",
+  "landing_referrer",
+  "landed_at",
+] as const satisfies readonly (keyof FirstTouchAttribution)[];
 
 let _firstTouchCaptured = false;
 
@@ -251,6 +266,7 @@ export interface FirstTouchAttribution {
   landing_path?: string;
   landing_referrer?: string;
   landed_at?: string;
+  capture_truncated?: string;
 }
 
 function safeStorageGet(key: string): string | null {
@@ -573,14 +589,64 @@ function readFirstTouchCookie(): string | null {
   return null;
 }
 
-function writeFirstTouchCookie(encodedValue: string): void {
-  if (typeof document === "undefined") return;
-  const cookie =
+function firstTouchCookieAssignment(encodedValue: string): string {
+  return (
     `${FIRST_TOUCH_COOKIE_NAME}=${encodedValue}; path=/; ` +
-    `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
-  if (cookie.length > FIRST_TOUCH_MAX_COOKIE_BYTES) return;
+    `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`
+  );
+}
+
+function fitFirstTouchCookieValue(value: string): string {
+  const source = JSON.parse(value) as FirstTouchAttribution;
+  const compact: FirstTouchAttribution = {};
+  let truncated = false;
+
+  for (const field of FIRST_TOUCH_COOKIE_FIELD_PRIORITY) {
+    const rawValue = source[field];
+    if (typeof rawValue !== "string" || !rawValue) continue;
+    const candidate = {
+      ...compact,
+      [field]: rawValue.slice(0, FIRST_TOUCH_MAX_FIELD_LENGTH),
+    };
+    const encoded = encodeURIComponent(JSON.stringify(candidate));
+    if (
+      firstTouchCookieAssignment(encoded).length <= FIRST_TOUCH_MAX_COOKIE_BYTES
+    ) {
+      Object.assign(compact, { [field]: candidate[field] });
+    } else {
+      truncated = true;
+    }
+  }
+
+  if (truncated) {
+    compact.capture_truncated = "1";
+    // Keep the auth handoff under its 4 KB header limit after re-encoding.
+    for (const field of [...FIRST_TOUCH_COOKIE_FIELD_PRIORITY].reverse()) {
+      const encoded = encodeURIComponent(JSON.stringify(compact));
+      if (
+        firstTouchCookieAssignment(encoded).length <=
+        FIRST_TOUCH_MAX_COOKIE_BYTES
+      ) {
+        return encoded;
+      }
+      delete compact[field];
+    }
+  }
+
+  const encoded = encodeURIComponent(JSON.stringify(compact));
+  if (
+    firstTouchCookieAssignment(encoded).length > FIRST_TOUCH_MAX_COOKIE_BYTES
+  ) {
+    throw new Error("First-touch attribution exceeded the cookie budget");
+  }
+  return encoded;
+}
+
+function writeFirstTouchCookie(value: string): void {
+  if (typeof document === "undefined") return;
+  const encodedValue = fitFirstTouchCookieValue(value);
   try {
-    document.cookie = cookie;
+    document.cookie = firstTouchCookieAssignment(encodedValue);
   } catch {
     // best-effort
   }
@@ -605,7 +671,7 @@ function captureFirstTouchAttribution(): void {
       // never overwrite the stored value itself (first-write-wins).
       if (!readFirstTouchCookie()) {
         try {
-          writeFirstTouchCookie(encodeURIComponent(existing));
+          writeFirstTouchCookie(existing);
         } catch {
           // ignore
         }
@@ -615,7 +681,7 @@ function captureFirstTouchAttribution(): void {
     const attribution = buildFirstTouchAttribution();
     const json = JSON.stringify(attribution);
     safeStorageSet(FIRST_TOUCH_STORAGE_KEY, json);
-    writeFirstTouchCookie(encodeURIComponent(json));
+    writeFirstTouchCookie(json);
   } catch {
     // Attribution is best-effort telemetry; never let it break boot.
   }
