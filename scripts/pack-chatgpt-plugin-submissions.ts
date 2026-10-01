@@ -12,9 +12,9 @@ import {
   MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../packages/core/src/mcp/route-paths.js";
-import { CHATGPT_DIRECTORY_TOOL_NAMES as contentTools } from "../templates/content/server/plugins/chatgpt-directory-tools.js";
-import { CHATGPT_DIRECTORY_TOOL_NAMES as designTools } from "../templates/design/server/plugins/chatgpt-directory-tools.js";
-import { CHATGPT_DIRECTORY_TOOL_NAMES as slidesTools } from "../templates/slides/server/plugins/chatgpt-directory-tools.js";
+import { CHATGPT_DIRECTORY_TOOL_NAMES as contentTools } from "../templates/content/server/lib/chatgpt-directory-tools.js";
+import { CHATGPT_DIRECTORY_TOOL_NAMES as designTools } from "../templates/design/server/lib/chatgpt-directory-tools.js";
+import { CHATGPT_DIRECTORY_TOOL_NAMES as slidesTools } from "../templates/slides/server/lib/chatgpt-directory-tools.js";
 
 interface SourceManifest {
   id: string;
