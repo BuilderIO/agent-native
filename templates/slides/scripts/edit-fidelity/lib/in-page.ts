@@ -57,7 +57,10 @@ export interface SnapRecord {
   flexCrossAlignment?: {
     context: string;
     axis: "x" | "y";
-    centerOffset: number;
+    containerPosition: number;
+    containerSize: number;
+    itemSize: number;
+    editedItemSize: number;
   };
   tag?: string;
   inlineStyle?: string;
@@ -936,9 +939,8 @@ export function installInPageHelpers(chromeSelector: string) {
           const axis: "x" | "y" = isRow ? "y" : "x";
           const parentRect = parent.getBoundingClientRect();
           const itemRect = followingBranch.getBoundingClientRect();
-          const extent = axis === "x" ? "width" : "height";
-          const parentCenter = parentRect[axis] + parentRect[extent] / 2;
-          const itemCenter = itemRect[axis] + itemRect[extent] / 2;
+          const editedRect = editedBranch.getBoundingClientRect();
+          const size = axis === "x" ? "width" : "height";
           const path: number[] = [];
           for (
             let node: Element | null = parent;
@@ -953,7 +955,10 @@ export function installInPageHelpers(chromeSelector: string) {
             flexCrossAlignment: {
               context: path.join(".") || "root",
               axis,
-              centerOffset: itemCenter - parentCenter,
+              containerPosition: parentRect[axis] - origin[axis],
+              containerSize: parentRect[size],
+              itemSize: itemRect[size],
+              editedItemSize: editedRect[size],
             },
           };
         }

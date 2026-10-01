@@ -3316,6 +3316,7 @@ async function runAuthoringCorpusQa(
                 beforeRecords.get(change.key),
                 afterRecords.get(change.key),
                 change.prop,
+                actualShift,
               )
             );
           };
