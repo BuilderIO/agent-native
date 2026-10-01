@@ -1892,6 +1892,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
       const leanRunCodeTool: Record<string, ActionEntry> =
@@ -1902,6 +1903,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
 
@@ -1940,6 +1942,7 @@ export function createAgentChatPlugin(
             {
               bridgeTools: options?.codeExecution?.bridgeTools,
               evaluator: "node",
+              appActionNames: Object.keys(templateScriptsAll),
             },
           )
         : {};

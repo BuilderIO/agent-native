@@ -18,6 +18,16 @@ describe("loadRunCodeToolEntries (code execution registration)", () => {
     ]);
   });
 
+  it("leaves names the app defines itself to the app's own actions", async () => {
+    const entries = await loadRunCodeToolEntries(() => ({}), {
+      appActionNames: ["list-data-programs", "get-data-program", "unrelated"],
+    });
+    expect(entries).not.toHaveProperty("list-data-programs");
+    expect(entries).not.toHaveProperty("get-data-program");
+    expect(entries).toHaveProperty("run-code");
+    expect(entries).toHaveProperty("save-data-program");
+  });
+
   it("registers tool-orchestration as a bounded Act-mode read-only tool", async () => {
     const entries = await loadRunCodeToolEntries(() => ({}));
     const entry = entries["tool-orchestration"];
