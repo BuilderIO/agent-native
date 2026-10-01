@@ -6349,6 +6349,154 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("validates raw MCP schemas using their declared 2020-12 dialect", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          fromMcpServer: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("uses MCP's 2020-12 default when the schema omits $schema", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          fromMcpServer: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("keeps MCP and legacy validators separate in the schema cache", async () => {
+    const parameters = {
+      type: "object",
+      properties: {
+        primary: { type: "string" },
+        secondary: { type: "string" },
+      },
+      dependentRequired: { primary: ["secondary"] },
+    } as any;
+    const legacyRun = vi.fn(async () => "legacy ran");
+
+    await runToolCallSequence(
+      [{ name: "legacy-tool", input: { primary: "value" } }],
+      {
+        "legacy-tool": {
+          tool: { description: "Validate a legacy schema", parameters },
+          run: legacyRun,
+        },
+      },
+    );
+
+    expect(legacyRun).toHaveBeenCalledOnce();
+
+    const mcpRun = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: { description: "Validate an MCP schema", parameters },
+          fromMcpServer: true,
+          run: mcpRun,
+        },
+      },
+    );
+
+    expect(mcpRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("does not apply MCP's default dialect to a local action just because it is externally exposed", async () => {
+    const run = vi.fn(async () => "local ran");
+    const events = await runToolCallSequence(
+      [{ name: "local-tool", input: { primary: "value" } }],
+      {
+        "local-tool": {
+          tool: {
+            description: "A local action exposed to external MCP callers",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          // `mcpTool` only controls external exposure of a *local* action;
+          // it must not be treated as evidence the schema follows MCP's
+          // 2020-12 default dialect the way `fromMcpServer` does.
+          mcpTool: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "local-tool",
+        result: "local ran",
+      }),
+    );
+  });
+
   it("rejects null raw JSON Schema parameters instead of validating as an empty object", async () => {
     const run = vi.fn(async () => "should not run");
     const engine: AgentEngine = {

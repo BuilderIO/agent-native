@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
 import {
   defineEventHandler,
   getHeader,
@@ -964,6 +965,15 @@ export interface ActionEntry {
   uiOnly?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
+  /** True when this entry's raw tool schema was authored by an external MCP
+   *  server (imported via the MCP client), not a local action. Distinct
+   *  from `mcpTool`, which controls whether a *local* action is exposed to
+   *  external agents — reusing that flag here would both misclassify local
+   *  actions that opt into external exposure and (via `declaredMcpToolNames`)
+   *  auto-add imported server tools to this app's own outbound MCP/A2A
+   *  catalog. Only used to pick the MCP protocol's default 2020-12 JSON
+   *  Schema dialect when the schema omits `$schema`. */
+  fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
@@ -4255,7 +4265,19 @@ const rawToolInputAjv = new Ajv({
   verbose: true,
 });
 
-const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
+const rawToolInputAjv2020 = new Ajv2020({
+  strict: false,
+  allErrors: true,
+  coerceTypes: true,
+  useDefaults: false,
+  removeAdditional: false,
+  verbose: true,
+});
+
+const rawToolInputValidatorCache = new WeakMap<
+  object,
+  Map<boolean, ValidateFunction>
+>();
 
 const optionalPlaceholderAjv = new Ajv({
   strict: false,
@@ -4470,11 +4492,28 @@ function coerceStringifiedJsonToolValues(
     : { input, changed: false };
 }
 
-function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
-  const cached = rawToolInputValidatorCache.get(schema);
+function getRawToolInputValidator(
+  schema: RawJsonSchema,
+  useMcpDefaultDialect = false,
+): ValidateFunction {
+  const cached = rawToolInputValidatorCache
+    .get(schema)
+    ?.get(useMcpDefaultDialect);
   if (cached) return cached;
-  const validator = rawToolInputAjv.compile(schema);
-  rawToolInputValidatorCache.set(schema, validator);
+  const declaredDialect = (schema as { $schema?: unknown }).$schema;
+  const normalizedDialect =
+    typeof declaredDialect === "string"
+      ? declaredDialect.replace(/#$/, "")
+      : undefined;
+  const ajv =
+    normalizedDialect === "https://json-schema.org/draft/2020-12/schema" ||
+    (declaredDialect === undefined && useMcpDefaultDialect)
+      ? rawToolInputAjv2020
+      : rawToolInputAjv;
+  const validator = ajv.compile(schema);
+  const validators = rawToolInputValidatorCache.get(schema) ?? new Map();
+  validators.set(useMcpDefaultDialect, validator);
+  rawToolInputValidatorCache.set(schema, validators);
   return validator;
 }
 
@@ -4526,7 +4565,10 @@ function validateRawToolInput(
   if (!parameters) return null;
   let validator: ValidateFunction;
   try {
-    validator = getRawToolInputValidator(parameters);
+    validator = getRawToolInputValidator(
+      parameters,
+      entry.fromMcpServer === true,
+    );
   } catch (err) {
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }
