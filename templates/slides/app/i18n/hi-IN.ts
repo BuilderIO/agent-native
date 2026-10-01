@@ -46,7 +46,7 @@ const messages = {
     designSystems: "डिज़ाइन सिस्टम",
   },
   settings: {
-    agentObservability: "एजेंट अवलोकन",
+    agentObservability: "अवलोकनक्षमता",
     title: "सेटिंग्स",
     labs: "लैब्स",
     labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
@@ -446,6 +446,7 @@ const messages = {
     retry: "फिर कोशिश करें",
     clickToAddComment: "टिप्पणी जोड़ने के लिए क्लिक करें",
     selectSlideToAdd: "एक टिप्पणी जोड़ने के लिए स्लाइड चुनें",
+    filters: "टिप्पणी फ़िल्टर",
     scope: "टिप्पणी का दायरा",
     thisSlide: "यह स्लाइड",
     allComments: "सभी स्लाइड",

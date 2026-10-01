@@ -1,3 +1,15 @@
+## 0.8.3
+
+### Patch Changes
+
+- 5c78d2d: Fix cramped calendar day grid under Tailwind v4 and make the date picker responsive: smaller cell size on mobile, 20% smaller on desktop, and a viewport-bounded popover width.
+
+## 0.8.2
+
+### Patch Changes
+
+- dcd0810: Add clear creation actions to empty resource views and improve collaboration usage feedback.
+
 ## 0.8.1
 
 ### Patch Changes

@@ -4,6 +4,7 @@ import {
   assertAuthoringPersistence,
   assertByteIdenticalHtml,
   assertSlideIsScaled,
+  canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
   runAuthoringFuzz,
@@ -56,6 +57,27 @@ it("requires corpus authoring output to be changed, saved, and reloaded", () => 
       reloadedHtml: "source",
     }),
   ).toThrow("reloaded slide HTML differed from the saved HTML");
+  expect(() =>
+    assertAuthoringPersistence({
+      originalHtml: "source",
+      liveHtml: '<p class="a b">edited</p>',
+      savedHtml: '<p class="b a">edited</p>',
+      reloadedHtml: '<p class="b a">edited</p>',
+    }),
+  ).toThrow("saved HTML differed from the post-edit live slide");
+});
+
+it("canonicalizes every rendered and stored persistence snapshot", async () => {
+  const persistence = await canonicalizeAuthoringFuzzPersistence(
+    {
+      originalHtml: '<p data-slide-text-block="true">before</p>',
+      liveHtml: '<p data-slide-text-block="true">after</p>',
+      savedHtml: "<p>after</p>",
+      reloadedHtml: '<p data-slide-text-block="true">after</p>',
+    },
+    (html) => html.replaceAll(' data-slide-text-block="true"', ""),
+  );
+  expect(() => assertAuthoringPersistence(persistence)).not.toThrow();
 });
 
 it("requires byte-identical HTML for undo and redo snapshots", () => {

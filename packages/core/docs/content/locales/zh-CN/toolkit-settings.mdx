@@ -1,0 +1,202 @@
+---
+title: "设置工具包"
+description: "每个应用都提供一个可搜索的设置页面，包含相同的账户、连接、代理和组织分组，以及一个专属于该应用的分组。"
+---
+
+# 设置工具包
+
+设置工具包让每个应用都拥有结构一致的设置页面。设置所在的位置代表它会影响什么：**账户**、**连接**、**代理**和**组织**在每个应用中都相同，另外还有一个以应用名称命名的分组，用于存放仅影响该应用的设置。用户无需再猜测模型密钥究竟在应用页面、代理侧栏还是提供商设置卡片中。
+
+可以从账户菜单（侧栏底部的头像和姓名）打开设置，也可以在应用中的任何位置按 **⌘,**（Windows 和 Linux 上为 **Ctrl+,**）打开。命令菜单（⌘K）中也有 **设置**命令。所有页面默认都可搜索：输入“语言”、“S3”或“API 密钥”，即可跳转到查看者有权限访问的任意页面中的对应行。
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:3px'><div class='wf-muted' style='display:flex;align-items:center;gap:6px;margin-bottom:6px'><span data-icon='chevronLeft'></span> 返回邮件</div><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>搜索</span><span class='wf-pill'>/</span></div><small class='wf-muted'>账户</small><div style='padding:4px 9px'>个人资料</div><div style='padding:4px 9px'>偏好设置</div><small class='wf-muted' style='margin-top:6px'>连接</small><div style='padding:4px 9px'>集成</div><div style='padding:4px 9px'>API 密钥</div><small class='wf-muted' style='margin-top:6px'>代理</small><div style='padding:4px 9px;border-radius:8px;background:var(--wf-accent-soft)'>模型</div><div style='padding:4px 9px'>说明</div><div style='padding:4px 9px'>子代理</div><small class='wf-muted' style='margin-top:6px'>组织</small><div style='padding:4px 9px'>成员</div><div style='padding:4px 9px'>用量</div><small class='wf-muted' style='margin-top:6px'>邮件</small><div style='padding:4px 9px'>常规</div><div style='padding:4px 9px'>频道</div><div style='flex:1'></div><div class='wf-muted' style='padding:4px 9px'>实验室 · 新功能</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>模型</h2><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>组织提供商</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Builder.io</div><span class='wf-pill'>已连接</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Anthropic</div><button>管理</button></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>个人提供商</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>OpenAI</div><button>添加</button></div></div><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>默认模型</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Claude Sonnet</div><span data-icon='chevronDown'></span></div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## 分组和页面 {#groups-and-pages}
+
+页面 ID 是稳定的 URL 路径片段（`/settings/<page>` 和
+`/settings/<page>/<sub>`），也是搜索目标和代理对页面的称呼。
+
+| 分组     | 页面（ID）                                                                                                                                 | 可见对象       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| 账户     | 个人资料（`profile`）、偏好设置（`preferences`）、安全（`security`）                                                                       | 所有人         |
+| 连接     | 集成（`integrations`，其中 Builder 的页面为 `integrations/builder`）、API 密钥（`api-keys`）                                               | 所有人         |
+| 代理     | 模型（`model`）、说明（`instructions`）、记忆（`memory`）、技能（`skills`）、文件（`files`）、子代理（`sub-agents`）                       | 所有人         |
+| 组织     | 常规（`org`）、成员（`members`）、用量（`usage`）                                                                                          | 所有人         |
+| 组织     | 身份验证（`auth`）、应用（`apps`）、基础设施（`infra`）、审计日志（`audit`）                                                               | 所有者和管理员 |
+| 应用名称 | 常规（`app`）、通知（`notifications`）、自动化（`automations`）、频道（`channels`）、MCP 服务器（`mcp`）、创意上下文（`creative-context`） | 所有人         |
+| 页脚     | 实验室（`labs`）、新功能（`whats-new`）                                                                                                    | 所有人         |
+
+应用分组使用应用自己的名称和图标。只有应用传入通知设置时才会显示“通知”页面；只有对应实验室功能已启用时才会显示“创意上下文”。查看者无权访问的页面会打开“个人资料”。除非链接指定页面，否则设置默认打开“个人资料”。隐藏页面只影响展示：页面背后的每个操作都会在服务器上检查查看者的角色。
+
+## 页面约定 {#page-contract}
+
+每个应用都公开 `/settings` 和一个通配子路由（`settings.$.tsx` 重新导出设置路由），以便解析 `/settings/<page>/<sub>`。路由会渲染 `<SettingsTabsPage>`；core 负责账户、连接、代理和组织页面，应用只需提供自己的内容。
+
+```tsx
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+
+  return (
+    <div className="h-dvh">
+      <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
+        generalGroups={<RecordingDefaults />}
+        appAreas={[
+          { id: "meetings", label: "会议", content: <MeetingSettings /> },
+        ]}
+        notifications={<EmailNotificationSettings />}
+        mcpAbout="从任何 MCP 主机录制、搜索和分享片段。"
+        whatsNewMarkdown={changelog}
+      />
+    </div>
+  );
+}
+```
+
+设置页面自带返回应用的链接、导航和页面标题，因此应用布局会在设置路由上隐藏侧栏和标题栏（`isSettingsPathname(pathname)`）。
+
+| 属性                                          | 显示位置                                                                                                                     |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `generalGroups`                               | 应用自己的 `SettingsGroup`，位于“应用 › 常规”中，排在 core 的“代理 › 默认模型”和“此浏览器 › 演示模式”之间。                  |
+| `appAreas`                                    | “应用 › 常规”中的标签页，路由为 `/settings/app/<id>`：`{ id, label, content, visible?, icon?, keywords?, searchEntries? }`。 |
+| `notifications`、`notificationsSearchEntries` | “应用 › 通知”。仅在传入 `notifications` 时显示该页面。                                                                       |
+| `mcpAbout`                                    | “应用 › MCP 服务器”中经过翻译的简介，说明 MCP 主机能在该应用中执行什么操作。                                                 |
+| `labs`                                        | 实验室页面上的实验室定义。                                                                                                   |
+| `whatsNewMarkdown` 或 `whatsNew`              | “新功能”页面。尚未访问的页面会显示未读标记。                                                                                 |
+| `appName`、`appIcon`、`appId`                 | 应用分组的标签和图标。默认使用模板自身的值。                                                                                 |
+| `extraTabs`                                   | 其他应用标签页。每个标签都会在应用分组中成为独立页面；`settingsPlacement: "app-area"` 会让它成为“应用 › 常规”中的标签页。    |
+
+当实验室功能关闭时，对应的应用区域应设置 `visible: false`。`useLab(ref)` 和 `useLabState(ref)` 接受 `LabReference`，可以是键，也可以是 `{ key, defaultEnabled? }`。传入实验室定义，而不是单独的键，这样加载实验室状态时会先按其 `defaultEnabled` 值显示。不要在应用分组中添加默认模型、语言或演示模式行：core 已经负责渲染这些设置。
+
+### 注册页面 {#registering-a-page}
+
+应用页面通常从一个 `extraTabs` 条目开始，该条目会成为应用分组中的独立页面。如需更多控制，可在模块作用域调用 `registerSettingsPages`，注册一个 `SettingsPageDefinition`（包含 `id`、`group`、`order`、`label`、`icon`、`component`，以及可选的 `visible`、`subpages` 和 `searchEntries`）。如果定义的 ID 与现有页面相同，就会替换该页面。Dispatch 就是这样在“成员”页面中加入应用角色列的：
+
+```tsx
+import { OrgMembersPage } from "@agent-native/core/client/org";
+import {
+  CORE_SETTINGS_PAGES,
+  registerSettingsPages,
+} from "@agent-native/toolkit/app/settings";
+
+const coreMembersPage = CORE_SETTINGS_PAGES.find(
+  (page) => page.id === "members",
+)!;
+
+registerSettingsPages([
+  {
+    ...coreMembersPage,
+    component: () => <OrgMembersPage appRoles={dispatchAccessDescriptor} />,
+  },
+]);
+```
+
+页面组件会收到 `{ pageId, sub, context, bridge }`，其中 `context` 包含查看者角色、实验室状态和功能标记。在页面内，`useSettingsPageHeader({ title?, action?, badge? })` 可设置子页面面包屑、标题栏主操作，或标题旁的标记。
+
+应用可以通过在设置路由旁的模块作用域调用 `registerChannelSettingsExtensions([{ id, platform, component }])`，为某个频道页面添加区块。Clips 和 Mail 用它来显示各自的 Slack 分组。
+
+## 链接 {#links}
+
+不要手写 `/settings/...` 字符串。请使用路由辅助函数构建链接：
+
+```ts
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+
+buildSettingsRoute("integrations", "builder"); // /settings/integrations/builder
+buildSettingsRoute("app", "recordings"); // /settings/app/recordings
+buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limits
+```
+
+旧链接仍然有效。较早的标签页 ID（`agent`、`keys`、`team`）、嵌套 ID（`agent:resources:memory`）、区块锚点（`#llm`、`#secrets:OPENAI_API_KEY`）以及 `agent-panel:open-settings` 区块，都会通过 `packages/core/src/navigation/settings-redirects.ts` 中的一张重定向表解析。要迁移旧链接，请在那里修改对应行，并在 `settings-redirects.spec.ts` 中添加用例。
+
+`@agent-native/core/client/navigation` 中的 `openSettingsPage(page?)` 可以从任何位置（包括路由器外部）打开设置。`AppProviders` 已通过 `useSettingsShortcut()` 绑定 ⌘,，因此应用不应再次绑定该快捷键。
+
+## 搜索 {#search}
+
+搜索会索引页面名称以及每个页面声明的 `searchEntries`，不会渲染页面本身。搜索结果会显示行标签及其位置（“代理 › 模型”）。按 Enter 可打开该结果并高亮对应行。
+
+- 在页面定义中，搜索条目的 `anchor` 是对应 `SettingsRow` 的 ID。
+- 在应用区域或 `notificationsSearchEntries` 中，条目的 `hash` 是对应 `SettingsRow` 的 ID。
+- 对标签中未包含的同义词和提供商名称添加 `keywords`，例如，为文件存储添加“S3”、“R2”和“存储桶”。
+
+为每个可搜索的 `SettingsRow` 或 `SettingsGroup` 设置稳定的 `id`。这些 ID 同时也是链接锚点，因此不要重命名。
+
+## 代理功能对等 {#agent-parity}
+
+代理可以通过操作读取和更改这些页面上的所有设置，也知道用户当前打开了哪个页面：
+
+- 设置页面框架会将 `settings-view` 应用状态写入当前浏览器标签页，值为 `{ page, sub, label }`；`<current-url>` 会将其显示为 `settingsPage: integrations/builder (Connections › Integrations › Builder.io)`。
+- 内置的 `open-settings-page` 工具可按 ID 打开任意页面，并可选传入 `sub` 和 `anchor`。它也支持较早的标签页和区块 ID。
+
+| 页面              | 操作                                                                                                                                               |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 个人资料          | `get-user-profile`、`update-user-profile`                                                                                                          |
+| 集成 › Builder.io | `manage-builder-connection`                                                                                                                        |
+| API 密钥          | `list-api-keys`、`preview-secret-removal`、`delete-api-key`                                                                                        |
+| 模型              | `list-model-providers`、`check-provider-key`、`get-provider-models`、`manage-provider-models`、`manage-provider-key-policy`、`manage-agent-engine` |
+| 用量              | `get-usage-metrics`、`manage-usage-alert`                                                                                                          |
+| 身份验证          | `list-sign-in-methods`                                                                                                                             |
+| 应用              | `list-workspace-app-access`、`set-workspace-app-access`                                                                                            |
+| 基础设施          | `get-infrastructure-status`、`get-file-storage`、`manage-file-storage`、`manage-service-providers`                                                 |
+| 审计日志          | `list-audit-events`、`get-audit-event`、`export-audit-events`                                                                                      |
+| 应用 › 自动化     | `manage-automations`                                                                                                                               |
+| 应用 › 频道       | `list-messaging-channels`、`manage-messaging-channel`                                                                                              |
+
+应用自己的行也遵循相同规则：`generalGroups`、`appAreas` 或 `notifications` 中的每个控件都会通过代理可调用的应用操作保存数据。
+
+## 角色 {#roles}
+
+| 权限                                                  | 成员             | 管理员                                  | 所有者       |
+| ----------------------------------------------------- | ---------------- | --------------------------------------- | ------------ |
+| 账户页面、为自己连接集成                              | 是               | 是                                      | 是           |
+| 个人提供商和个人 Builder.io 连接                      | 是，除非受到限制 | 可管理自己的密钥；Builder.io 为组织连接 | 与管理员相同 |
+| 组织提供商、默认模型、最大迭代次数、限制个人 API 密钥 | 只读             | 是                                      | 是           |
+| 组织说明、记忆、技能和文件                            | 只读             | 是                                      | 是           |
+| 邀请成员                                              | 否               | 成员                                    | 成员和管理员 |
+| 更改成员角色                                          | 否               | 否                                      | 是           |
+| 身份验证、应用、基础设施、审计日志                    | 隐藏             | 是                                      | 是           |
+| 共享 A2A 密钥、删除组织                               | 否               | 否                                      | 是           |
+
+## UX 标准 {#ux-standard}
+
+- 持久设置放在“设置”中。代理侧栏应链接到相应页面，而不是在侧栏内直接渲染设置。
+- 无论从哪个页面打开，添加、更改或移除提供商密钥都使用同一个对话框。
+- 只读行会通过锁图标显示值，并用提示说明谁能更改它（`ReadOnlySettingValue`）。移除密钥、断开 Builder.io 连接或限制个人密钥时，会打开确认对话框并列出将停止工作的功能。
+- 每一行由标签、可选说明和一个控件组成。不要添加页面副标题、眉题或计数条。
+- 为每个有意义的行注册搜索条目。
+
+## 开源应用中的 Sign in with ChatGPT {#chatgpt-subscription-lab}
+
+Agent-Native 为符合条件的开源用途采用 OpenAI 官方的 Sign in with ChatGPT 令牌共享流程。该流程授权本地应用使用已登录用户的 ChatGPT 方案，向 OpenAI 的公开 Responses API 发出符合条件的请求。它不会授予应用访问用户 ChatGPT 对话或历史记录的权限。
+
+ChatGPT 方案实验室功能默认关闭。要使用此功能，请前往**设置 → 实验室**开启。个人在本地运行开源应用无需申请合作伙伴批准，也无需预先配置客户端 ID：OpenAI 会在首次登录时签发客户端 ID，应用会将其与该 ChatGPT 账户关联并在之后复用。
+
+此流程需要 OAuth 通过用户设备上的环回地址 `127.0.0.1` 接收 HTTP 回调，因此不适用于远程托管的应用；`localhost` 也不能替代 `127.0.0.1`。托管在 `*.agent-native.com` 上的网站无法使用此流程。需要合作伙伴批准的是托管应用的运营方，可通过 OpenAI 的[意向申请表](https://openai.com/form/sign-in-with-chatgpt-interest)申请。
+
+<Steps>
+
+### 连接 ChatGPT
+
+打开 **设置 → 代理 → 模型**，然后在个人提供商列表中连接 ChatGPT。使用你希望采用其方案的 ChatGPT 账户登录，然后批准所请求的访问权限。连接后，在聊天的模型选择器中选择一个可用模型。你可以在同一设置行中断开 ChatGPT。如果 OpenAI 无法确认远程撤销，系统仍会清除本地令牌；请使用警告链接，在 ChatGPT“设置 → 使用情况”中管理此应用的访问权限。
+
+</Steps>
+
+推理只能使用公开的 Responses API。ChatGPT 的私有后端端点和 ChatGPT 对话数据均不在此授权范围内。OpenAI 将令牌共享流程标记为预览版，因此可用模型、使用限制和支持的 API 功能都可能发生变化。请查看 OpenAI 的 [Sign in with ChatGPT 概览](https://developers.openai.com/siwc/token-sharing-open-source)、[注册和登录](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)、[账户和会话](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)、[模型和推理](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)、[预览版限制](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)、[错误恢复](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery)以及 [UI/UX 指南](https://developers.openai.com/siwc/ui-ux-guidelines)。
+
+## 接下来
+
+- [**国际化**](/docs/internationalization) — 本地化应用中的设置文案。
+- [**引导流程**](/docs/onboarding) — 注册设置深层链接会引导用户完成的配置步骤。
+- [**工作区连接**](/docs/workspace-connections) — 了解提供商就绪状态背后的共享连接模型。

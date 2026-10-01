@@ -53,14 +53,26 @@ export type AuthoringFuzzOperation =
     };
 
 export interface AuthoringFuzzPersistence {
-  /** Canonical inner HTML of the full slide before editing. */
+  /** Exact inner HTML of the full slide before editing. */
   originalHtml: string;
-  /** Canonical inner HTML of the full live slide after editing ends. */
+  /** Exact inner HTML of the full live slide after editing ends. */
   liveHtml: string;
-  /** Canonical inner HTML of the full slide returned by persistence. */
+  /** Exact inner HTML of the full slide returned by persistence. */
   savedHtml: string;
-  /** Canonical inner HTML of the full slide after a fresh reload. */
+  /** Exact inner HTML of the full slide after a fresh reload. */
   reloadedHtml: string;
+}
+
+export async function canonicalizeAuthoringFuzzPersistence(
+  persistence: AuthoringFuzzPersistence,
+  canonicalize: (html: string) => string | Promise<string>,
+): Promise<AuthoringFuzzPersistence> {
+  return {
+    originalHtml: await canonicalize(persistence.originalHtml),
+    liveHtml: await canonicalize(persistence.liveHtml),
+    savedHtml: await canonicalize(persistence.savedHtml),
+    reloadedHtml: await canonicalize(persistence.reloadedHtml),
+  };
 }
 
 export interface AuthoringFuzzOptions {

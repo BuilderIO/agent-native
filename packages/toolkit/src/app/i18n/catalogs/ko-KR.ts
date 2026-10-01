@@ -380,6 +380,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "자동",
   "composer.builderModelCredits": "Claude, OpenAI 및 Gemini 무료 크레딧",
   "composer.chatGptSubscription": "ChatGPT 구독",
+  "composer.chatgptManageUsage": "사용량 관리",
+  "composer.chatgptPlanUsing": "ChatGPT 요금제 사용 중",
   "composer.closePreview": "미리보기 닫기",
   "composer.configureProviderKeys": "Anthropic, OpenAI 또는 다른 제공업체 설정",
   "composer.connectAbove": "계속하려면 위에서 AI를 연결하세요...",
@@ -577,6 +579,9 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "채팅을 불러오는 중...",
   "empty.prompt": "무엇을 도와드릴까요?",
   "error.afterDuration": "{{duration}} 후 {{headline}}",
+  "error.chatgptPlanUsageLimit": "ChatGPT 요금제 사용 한도에 도달했습니다.",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI에서 이 ChatGPT 요금제의 사용 한도를 확인하지 못했습니다. ChatGPT 사용량을 확인하거나 다른 모델을 사용해 보세요.",
   "error.failed": "에이전트에서 오류가 발생했습니다",
   "error.render": "이 콘텐츠를 표시할 수 없습니다.",
   "error.stopped": "에이전트가 완료 전에 중지되었습니다",
@@ -1076,6 +1081,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io에 연결 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
+  "recovery.retryAttachmentUnavailable":
+    "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
   "recovery.deferredSubmissionFailed":
     "이 메시지를 보내지 못했습니다. 연결 또는 채팅 설정을 확인한 다음 다시 시도하세요.",
   "recovery.credentialRejected":
@@ -1525,6 +1532,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "내 예상 비용",
   "settings.usage.yourCreditSpend": "내 Builder.io 크레딧 사용량",
   "settings.usage.calls": "호출",
+  "settings.usage.chatgptPlanUsage": "ChatGPT 요금제 사용량",
   "settings.usage.tokens": "토큰",
   "settings.usage.activePeople": "활성 사용자",
   "settings.usage.history": "사용 기록",
@@ -2678,10 +2686,31 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "변경",
   "settingsModel.chatgptConnected": "연결됨",
   "settingsModel.chatgptDescription":
-    "ChatGPT 요금제로 Codex 엔진을 사용합니다.",
+    "ChatGPT 요금제로 사용 가능한 OpenAI 모델을 이용하세요.",
   "settingsModel.chatgptPopupBlocked":
     "이 사이트의 팝업을 허용한 다음 다시 시도하세요.",
-  "settingsModel.chatgptTitle": "ChatGPT 구독",
+  "settingsModel.chatgptTitle": "ChatGPT 요금제 액세스",
+  "settingsModel.chatgptAddAccount": "다른 계정 추가",
+  "settingsModel.chatgptConnecting": "연결 중…",
+  "settingsModel.chatgptContinue": "ChatGPT로 계속",
+  "settingsModel.chatgptDisconnect": "연결 해제",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT 연결을 해제할까요?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} 계정이 이 앱에서 로그아웃되고 에이전트가 ChatGPT 요금제를 더 이상 사용하지 않습니다. 언제든 다시 로그인할 수 있습니다.",
+  "settingsModel.chatgptDisconnecting": "연결 해제하는 중…",
+  "settingsModel.chatgptRemoveLegacySignIn": "이전 로그인 삭제",
+  "settingsModel.chatgptLegacySignInDetails":
+    "이전 ChatGPT 로그인이 저장되어 있습니다. 공식 흐름에서는 사용할 수 없습니다.",
+  "settingsModel.chatgptManageAccess": "ChatGPT에서 관리",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "여기서는 연결을 해제했습니다. ChatGPT에서는 액세스가 계속 유지될 수 있습니다.",
+  "settingsModel.chatgptLocalOnly":
+    "오픈 소스 앱은 loopback callback을 사용해 로컬에서 실행하면 신청 없이 이용할 수 있으며, 파트너 신청은 필요하지 않습니다. *.agent-native.com에서 호스팅되는 앱에는 운영자 승인과 호스팅 callback이 필요합니다.",
+  "settingsModel.chatgptNoDirectUse":
+    "이 ChatGPT 계정을 사용하려면 다시 연결하고 모델 직접 액세스를 허용하세요.",
+  "settingsModel.chatgptReconnect": "다시 연결",
+  "settingsModel.chatgptSelectAccount": "ChatGPT 계정",
+  "settingsModel.chatgptUsageLimit": "ChatGPT 요금제 사용 한도에 도달했습니다.",
   "settingsModel.checkAgain": "다시 확인",
   "settingsModel.checkedJustNow": "방금 확인했습니다.",
   "settingsModel.checkedOn": "{{date}}에 확인했습니다.",

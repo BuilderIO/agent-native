@@ -71,6 +71,8 @@ async function open() {
     container.querySelector('button[aria-label="Add context"]')!,
     "ArrowDown",
   );
+  await click("Add context");
+  await click("Category");
   await click("Source");
 }
 async function search(value: string, placeholder = "Search source") {
@@ -167,7 +169,7 @@ describe("declarative context picker", () => {
     expect(select).not.toHaveBeenCalled();
     await click("Clear selection");
     expect(clear).toHaveBeenCalledOnce();
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(4);
   });
   it("retries a failed selection and closes only on success", async () => {
     const onSelect = vi
@@ -192,7 +194,7 @@ describe("declarative context picker", () => {
     await render({ ...config, scopeKey: "account-b" });
     expect(onSelect.mock.calls[0][1].signal.aborted).toBe(true);
     await act(async () => pending.resolve());
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(4);
   });
   it("keeps link, search and page on sync refresh, and aborts a dismissed load", async () => {
     const pending = deferred<{ items: { id: string; title: string }[] }>();
@@ -231,16 +233,16 @@ describe("declarative context picker", () => {
     await act(async () =>
       pending.resolve({ items: [{ id: "late", title: "Late" }] }),
     );
-    expect(menus()).toHaveLength(1);
+    expect(menus()).toHaveLength(3);
     expect(document.body.textContent).not.toContain("Late");
   });
   it("keeps connected panels, integrated headers and source search autofocus", async () => {
     await render(local());
     await open();
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(4);
     expect(menus().at(-1)?.classList.contains("w-64")).toBe(true);
     const searches = document.querySelectorAll('input[role="searchbox"]');
-    expect(searches).toHaveLength(2);
+    expect(searches).toHaveLength(1);
     expect(document.querySelector('[role="combobox"]')).toBeNull();
     for (const input of searches)
       expect(input.hasAttribute("aria-controls")).toBe(false);
@@ -270,7 +272,7 @@ describe("declarative context picker", () => {
         signal: expect.any(AbortSignal),
       }),
     );
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(4);
   });
   it("routes typing and arrows through the root item and picker submenu", async () => {
     await render(local());
@@ -285,10 +287,10 @@ describe("declarative context picker", () => {
     await key(row("One"), "ArrowDown");
     expect(document.activeElement).toBe(row("Two"));
     await key(row("Two"), "ArrowLeft");
-    expect(menus()).toHaveLength(1);
+    expect(menus()).toHaveLength(3);
     expect(document.activeElement).toBe(row("Source"));
     await key(row("Source"), "Escape");
-    expect(menus()).toHaveLength(0);
+    expect(menus()).toHaveLength(2);
   });
   it("loads pages with cursor history and preserves location on refresh without descriptor loops", async () => {
     const load = vi
@@ -388,7 +390,7 @@ describe("declarative context picker", () => {
     expect(signal.aborted).toBe(true);
     await click("Source");
     await act(async () => pending.resolve());
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(4);
   });
   it("validates links before reading, searches results, and returns to the populated link stage", async () => {
     const load = vi
@@ -433,19 +435,19 @@ describe("declarative context picker", () => {
         'input[placeholder="Source URL"]',
       )?.value,
     ).toBe("https://example.com/source");
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(4);
     await key(
       document.querySelector('input[placeholder="Source URL"]')!,
       "ArrowLeft",
     );
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(4);
     await key(
       document.querySelector('input[placeholder="Source URL"]')!,
       "ArrowRight",
     );
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(4);
     await key(row("Read link"), "ArrowLeft");
-    expect(menus()).toHaveLength(1);
+    expect(menus()).toHaveLength(3);
   });
   it("keeps a genuine link footer present in empty and populated states", async () => {
     const config = {
@@ -512,6 +514,6 @@ describe("declarative context picker", () => {
     await click("Retry");
     expect(footer).toHaveBeenCalledTimes(2);
     expect(load).not.toHaveBeenCalled();
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(4);
   });
 });

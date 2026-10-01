@@ -11,6 +11,8 @@ import {
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FOCUS_COMPOSE_DRAFT_EVENT } from "@/hooks/use-compose-state";
+
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
 const mockSendEmailAsync = vi.hoisted(() => vi.fn());
 const mockArchiveEmail = vi.hoisted(() => vi.fn());
@@ -241,6 +243,48 @@ describe("ComposeModal scheduling", () => {
         name: "mail.compose.fullScreenCompose",
       }).getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  it("restores a minimized saved draft when the agent focuses it", () => {
+    const savedDraft: ComposeState = {
+      ...draft,
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+    };
+    const { container, getByRole } = render(
+      <ComposeModal
+        drafts={[savedDraft]}
+        activeId={savedDraft.id}
+        activeDraft={savedDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.minimizeCompose" }),
+    );
+    expect(container.querySelector('[data-recipient-field="to"]')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(FOCUS_COMPOSE_DRAFT_EVENT, {
+          detail: { id: savedDraft.id },
+        }),
+      );
+    });
+
+    expect(
+      container.querySelector('[data-recipient-field="to"]'),
+    ).not.toBeNull();
   });
 
   it("focuses the initial unsaved draft when the modal mounts", async () => {

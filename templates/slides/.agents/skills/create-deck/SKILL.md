@@ -58,8 +58,8 @@ Before authoring slide HTML, make a compact deck brief with the audience, job,
 narrative thesis, one-sentence visual direction, active design-system tokens,
 reference-deck composition pattern, image treatment, and known fit risks. The
 linked Agent-Native design system controls tokens, typography, spacing, imagery,
-and slide chrome. Impeccable-inspired advice about hierarchy, subtraction,
-contrast, rhythm, and polish is a review lens, not a competing theme. If the
+and slide chrome. Read `slide-design` for visual craft; it works inside the
+active system and reference deck, never as a competing theme. If the
 request is open-ended and no approved direction exists, ask one targeted guided
 question or present a bounded choice before writing; do not silently pick a new
 brand language.

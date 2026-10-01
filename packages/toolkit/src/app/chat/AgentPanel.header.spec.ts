@@ -308,6 +308,15 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(true);
   });
 
+  it("can keep the page history menu visible for an empty chat", () => {
+    expect(
+      shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0, true),
+    ).toBe(true);
+    expect(
+      shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 0),
+    ).toBe(false);
+  });
+
   it("keeps new chat out of the page canvas header by default", () => {
     expect(
       shouldDefaultAgentChatSurfacePageNewChatButton("page", undefined),
@@ -907,47 +916,45 @@ describe("AgentSidebar toggle routing", () => {
 });
 
 describe("AgentPanel header overflow actions", () => {
-  it("closes the menu before opening a sibling overlay", () => {
-    const requestAnimationFrame = window.requestAnimationFrame;
-    const frames: Array<() => void> = [];
-    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-      frames.push(() => callback(0));
-      return frames.length;
-    }) as typeof window.requestAnimationFrame;
+  it("opens a sibling overlay only after the menu closes", () => {
+    const pendingOverlayRef = { current: null as (() => void) | null };
+    const event = { preventDefault: vi.fn() };
+    const focusRestoreEvent = { preventDefault: vi.fn() };
+    const events: string[] = [];
 
-    try {
-      const event = { preventDefault: vi.fn() };
-      const events: string[] = [];
+    deferAgentPanelOverlayOpen(
+      event,
+      () => events.push("menu closed"),
+      () => events.push("overlay opened"),
+      pendingOverlayRef,
+    );
 
-      deferAgentPanelOverlayOpen(
-        event,
-        () => events.push("menu closed"),
-        () => events.push("overlay opened"),
-      );
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(events).toEqual(["menu closed"]);
+    expect(pendingOverlayRef.current).toBeTypeOf("function");
 
-      expect(event.preventDefault).toHaveBeenCalledOnce();
-      expect(events).toEqual(["menu closed"]);
-      expect(frames).toHaveLength(1);
+    consumeAgentPanelOverlayFocusRestore(pendingOverlayRef, focusRestoreEvent);
 
-      frames[0]!();
-      expect(events).toEqual(["menu closed", "overlay opened"]);
-    } finally {
-      window.requestAnimationFrame = requestAnimationFrame;
-    }
+    expect(focusRestoreEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(events).toEqual(["menu closed", "overlay opened"]);
+    expect(pendingOverlayRef.current).toBeNull();
   });
 
   it("consumes the pending menu focus restore for the sibling overlay", () => {
-    const pendingOverlayRef = { current: true };
+    const openOverlay = vi.fn();
+    const pendingOverlayRef = { current: openOverlay };
     const event = { preventDefault: vi.fn() };
 
     consumeAgentPanelOverlayFocusRestore(pendingOverlayRef, event);
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(pendingOverlayRef.current).toBe(false);
+    expect(openOverlay).toHaveBeenCalledOnce();
+    expect(pendingOverlayRef.current).toBeNull();
 
     const secondEvent = { preventDefault: vi.fn() };
     consumeAgentPanelOverlayFocusRestore(pendingOverlayRef, secondEvent);
     expect(secondEvent.preventDefault).not.toHaveBeenCalled();
+    expect(openOverlay).toHaveBeenCalledOnce();
   });
 
   it("keeps width and full-view actions out of the icon row", () => {
@@ -978,7 +985,7 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
     expect(source).toContain("event.preventDefault();");
     expect(overflowMenu).toContain(
-      'toggleHistory,\n                    "timeout"',
+      "toggleHistory,\n                    pendingHeaderOverlayRef",
     );
     expect(overflowMenu).toContain("onCloseAutoFocus");
     expect(
@@ -1024,7 +1031,7 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
     expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
     expect(overflowMenu).toContain(
-      'setShareFromMenuOpen(true),\n                        "timeout"',
+      "setShareFromMenuOpen(true),\n                        pendingHeaderOverlayRef",
     );
   });
 

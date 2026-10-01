@@ -51,6 +51,33 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.8
+
+### Patch Changes
+
+- 5b37ae2: Expose app actions to dev-mode sub-agents.
+- Release all public npm packages with a patch version bump.
+- eca03a6: Keep optional migration codemods out of application build graphs.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.8
+  - @agent-native/recap-cli@0.5.58
+
+## 0.198.7
+
+### Patch Changes
+
+- 1f2c8d5: Scope workspace dependency checks to Core apps, resolve Dispatch admin email settings through typed app config, and require Core 0.198.6 or newer for Dispatch.
+- 3ba09b7: Stop an agent from retrying a typed provider rate-limit error in the same turn.
+- 3ba09b7: Refresh chat readiness after a provider connection so chat unlocks immediately.
+- Release all public npm packages with a patch version bump.
+- 52d8c49: Include Drizzle ORM in generated app dependencies so production server bundles can resolve database modules.
+- 3ba09b7: Copy complete Visual Edit instructions by default and show Builder.io for Builder credit connections.
+- c3427be: `agent-native dev` no longer crashes in headless environments when no browser opener is installed. Workspace dev skips browser auto-open in CI, remote containers, and Linux without a display, and accepts `--no-open`.
+- Updated dependencies
+- Updated dependencies [3ba09b7]
+  - @agent-native/agentkit@0.198.7
+  - @agent-native/recap-cli@0.5.57
+
 ## 0.198.6
 
 ### Patch Changes
@@ -3653,18 +3680,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
 - 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
-
-## 0.164.23
-
-### Patch Changes
-
-- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
-
-## 0.164.22
-
-### Patch Changes
-
-- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
-- 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

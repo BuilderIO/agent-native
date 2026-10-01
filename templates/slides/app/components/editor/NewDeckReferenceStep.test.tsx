@@ -143,6 +143,7 @@ async function renderStep(
     open: true,
     designSystems: [{ id: "ds-1", title: "Builder" }],
     decks: [] as Deck[],
+    referenceOptionsLoaded: true,
     defaultDesignSystemId: "ds-1",
     defaultReferenceDeckId: null,
     onSelect,
@@ -226,6 +227,7 @@ describe("<NewDeckReferenceStep>", () => {
     expect(onSelect).toHaveBeenCalledWith({
       designSystemId: null,
       referenceDeckId: "deck-pptx",
+      referenceDeckIdSource: "selection",
       referenceSource: null,
       referenceFilePaths: ["/uploads/reference.pptx"],
     });
@@ -451,17 +453,100 @@ describe("<NewDeckReferenceStep>", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("disables Continue when no reference or design system is selected", async () => {
-    await renderStep({ designSystems: [], defaultDesignSystemId: null });
+  it("continues without references when the workspace has no design systems or decks", async () => {
+    const { onSelect } = await renderStep({
+      designSystems: [],
+      defaultDesignSystemId: null,
+    });
 
     expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
       "disabled",
-      true,
+      false,
     );
     expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
       "disabled",
       false,
     );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designSystemId: null,
+        referenceDeckId: null,
+      }),
+    );
+  });
+
+  it("waits for reference options to load before continuing without a selection", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: false,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    rerender({
+      designSystems: [{ id: "ds-1", title: "Builder" }],
+      decks: [],
+      referenceOptionsLoaded: true,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("disables Continue while empty reference options are being refreshed", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: true,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+
+    rerender({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: false,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("waits for reference options before continuing with a preselected design system", async () => {
+    const { onSelect, rerender } = await renderStep({
+      referenceOptionsLoaded: false,
+    });
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+
+    expect(continueButton).toHaveProperty("disabled", true);
+    fireEvent.click(continueButton);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    rerender({ referenceOptionsLoaded: true });
+
+    expect(continueButton).toHaveProperty("disabled", false);
+    await act(async () => fireEvent.click(continueButton));
+    expect(onSelect).toHaveBeenCalled();
   });
 
   it("keeps Continue disabled for an invalid Figma link and enables it for a valid one", async () => {
@@ -588,7 +673,7 @@ describe("<NewDeckReferenceStep>", () => {
   });
 
   it("shows the last selected reference deck when the step opens", async () => {
-    await renderStep({
+    const { onSelect } = await renderStep({
       decks: [
         {
           id: "deck-last-used",
@@ -604,6 +689,14 @@ describe("<NewDeckReferenceStep>", () => {
     expect(
       screen.getByRole("combobox", { name: "Reference deck" }).textContent,
     ).toContain("Last used deck");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceDeckIdSource: "automatic" }),
+    );
   });
 
   it("hydrates the default design system when the list resolves after opening", async () => {
@@ -718,7 +811,7 @@ describe("<NewDeckReferenceStep>", () => {
   });
 
   it("shows the deck name in the trigger after selecting a deck", async () => {
-    await renderStep({
+    const { onSelect } = await renderStep({
       decks: [
         {
           id: "deck-1",
@@ -733,8 +826,15 @@ describe("<NewDeckReferenceStep>", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
     fireEvent.click(screen.getByRole("option", { name: "Some deck" }));
 
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
     expect(
       screen.getByRole("combobox", { name: "Reference deck" }).textContent,
     ).toBe("Some deck");
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceDeckIdSource: "selection" }),
+    );
   });
 });

@@ -173,6 +173,7 @@
     "sync:netlify-env": "tsx scripts/sync-template-netlify-env.ts",
     "sync:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts",
     "sync:config-docs": "tsx scripts/sync-config-docs.ts",
+    "pack:chatgpt-plugins": "tsx scripts/pack-chatgpt-plugin-submissions.ts",
     "sync:plan-marketplace": "tsx scripts/sync-plan-marketplace.ts",
     "sync:plan-skills": "tsx scripts/sync-plan-skills.ts",
     "changeset": "changeset",

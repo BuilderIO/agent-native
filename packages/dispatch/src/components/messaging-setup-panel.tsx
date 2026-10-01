@@ -24,7 +24,7 @@ import {
 import {
   listBuiltInChannelIntegrations,
   type IntegrationCatalogEntry,
-} from "@agent-native/core/integrations";
+} from "@agent-native/core/integrations/catalog";
 import { channelIcon } from "@agent-native/toolkit/app/integrations";
 import {
   IconBrandSlack,

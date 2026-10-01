@@ -6060,7 +6060,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("adds stop-and-report guidance to provider rate-limit tool errors", async () => {
+  it("adds stop-and-report guidance to typed provider rate-limit errors", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -6111,7 +6111,10 @@ describe("runAgentLoop", () => {
         "provider-api-request": {
           ...actionEntry({ readOnly: true }),
           run: async () => {
-            throw new Error("Provider request failed (429): quota exceeded");
+            throw Object.assign(new Error("Email service is briefly busy."), {
+              statusCode: 429,
+              errorCode: "gmail_quota_cooldown",
+            });
           },
         },
       },

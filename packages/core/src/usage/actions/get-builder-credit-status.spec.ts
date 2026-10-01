@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getBuilderCreditUsage: vi.fn(),
   getRequestOrgId: vi.fn(),
   clearBuilderCreditLimitNotice: vi.fn(),
+  canViewWorkspaceUsage: vi.fn(),
 }));
 
 vi.mock("../../action.js", () => ({
@@ -18,6 +19,9 @@ vi.mock("../../server/fusion-app.js", () => ({
 vi.mock("../builder-credit-notice.js", () => ({
   clearBuilderCreditLimitNotice: mocks.clearBuilderCreditLimitNotice,
 }));
+vi.mock("../metrics-store.js", () => ({
+  canViewWorkspaceUsage: mocks.canViewWorkspaceUsage,
+}));
 
 import getBuilderCreditStatus from "./get-builder-credit-status.js";
 
@@ -29,6 +33,7 @@ const context = {
 
 describe("get-builder-credit-status action", () => {
   beforeEach(() => {
+    mocks.canViewWorkspaceUsage.mockResolvedValue(false);
     mocks.getBuilderCreditUsage.mockResolvedValue({
       plan: "paid",
       balance: 10,
@@ -90,6 +95,31 @@ describe("get-builder-credit-status action", () => {
       "person@example.com",
       "org-1",
     );
+  });
+
+  it("returns the live balance and quota only to workspace admins", async () => {
+    mocks.canViewWorkspaceUsage.mockResolvedValue(true);
+
+    await expect(
+      getBuilderCreditStatus.run({ orgId: "org-1" }, context),
+    ).resolves.toEqual({
+      exhausted: false,
+      period: "monthly",
+      balance: 10,
+      quota: { period: "monthly", limit: 100, used: 90, remaining: 10 },
+    });
+    expect(mocks.canViewWorkspaceUsage).toHaveBeenCalledWith({
+      ownerEmail: "person@example.com",
+      orgId: "org-1",
+    });
+  });
+
+  it("keeps member status limited to exhaustion and period", async () => {
+    mocks.canViewWorkspaceUsage.mockResolvedValue(false);
+
+    await expect(
+      getBuilderCreditStatus.run({ orgId: "org-1" }, context),
+    ).resolves.toEqual({ exhausted: false, period: "monthly" });
   });
 
   it("preserves unreadable upstream status as an error", async () => {

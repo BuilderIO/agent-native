@@ -28,6 +28,7 @@ import {
 } from "../export-fidelity/resolve-pkg.ts";
 import {
   assertAuthoringPersistence,
+  canonicalizeAuthoringFuzzPersistence,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
@@ -44,6 +45,7 @@ import {
 import {
   diffPngs,
   diffSnapshots,
+  followsCenteredFlexReflow,
   findBaselineProblems,
   hardFailures,
   isDraftRevert,
@@ -147,6 +149,8 @@ const headed = argv.includes("--headed");
 const typingChatOnly = argv.includes("--typing-chat");
 const imeEscapeOnly = argv.includes("--ime-escape");
 const textSurfaceQaOnly = argv.includes("--text-surface-qa");
+const lineStartKey = process.platform === "darwin" ? "Meta+ArrowLeft" : "Home";
+const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
 const authoringOnly = argv.includes("--authoring");
 const authoringCorpusOnly = argv.includes("--authoring-corpus");
 const authoringFuzzOnly = argv.includes("--authoring-fuzz");
@@ -212,8 +216,15 @@ interface CorpusCase {
 
 interface CorpusAuthoringSource {
   id: string;
-  kind: "absolute" | "flex-grid" | "styled-list" | "scaled" | "largest";
-  testTarget: "absolute" | "flex-grid" | "list" | "any";
+  kind:
+    | "absolute"
+    | "flex-grid"
+    | "styled-list"
+    | "styled-flex-bullet-row"
+    | "styled-paragraph-bullet-row"
+    | "scaled"
+    | "largest";
+  testTarget: "absolute" | "flex-grid" | "list" | "bullet-row" | "any";
   corpusCase: CorpusCase;
   slide: CorpusSlide;
 }
@@ -278,12 +289,34 @@ function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
       content.matchAll(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi),
       (match) => match[1] ?? match[2] ?? "",
     );
-  const absolute = find((content) =>
-    inlineStyles(content).some((style) =>
-      /position\s*:\s*absolute\b/i.test(style),
-    ),
-  );
+  const hasAbsoluteTextBox = (content: string, expectedClass: string) => {
+    const visit = (node: P5.Node): boolean => {
+      if (!("childNodes" in node)) return false;
+      if ("tagName" in node) {
+        const element = node as P5.Element;
+        const className =
+          element.attrs.find((attribute) => attribute.name === "class")
+            ?.value ?? "";
+        const style =
+          element.attrs.find((attribute) => attribute.name === "style")
+            ?.value ?? "";
+        if (
+          className.split(/\s+/).includes(expectedClass) &&
+          /position\s*:\s*absolute\b/i.test(style) &&
+          visibleTextOf(element).trim()
+        ) {
+          return true;
+        }
+      }
+      return (node as P5.ParentNode).childNodes.some(visit);
+    };
+    return parse(content).childNodes.some(visit);
+  };
+  const absolute =
+    find((content) => hasAbsoluteTextBox(content, "fmd-pptx-text")) ??
+    find((content) => hasAbsoluteTextBox(content, "fmd-text-box"));
   const flexGrid = find((content) => {
+    if (/text-transform\s*:\s*uppercase\b/i.test(content)) return false;
     const styles = inlineStyles(content);
     return (
       styles.some((style) => /display\s*:\s*flex\b/i.test(style)) &&
@@ -301,7 +334,74 @@ function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
         content,
       ),
   );
-  const selected = [absolute, flexGrid, styledList].filter(Boolean);
+  const styledBulletRows = (content: string) => {
+    const rows: { tag: string; flex: boolean; glyph: boolean }[] = [];
+    const visit = (node: P5.Node): void => {
+      if (!("childNodes" in node)) return;
+      if ("tagName" in node) {
+        const element = node as P5.Element;
+        if (/^(?:div|li|p)$/i.test(element.tagName)) {
+          const marker = element.childNodes.find(
+            (child) => "tagName" in child,
+          ) as P5.Element | undefined;
+          if (marker?.tagName === "span") {
+            const markerText = visibleTextOf(marker).trim();
+            const style =
+              marker.attrs.find((attribute) => attribute.name === "style")
+                ?.value ?? "";
+            const glyphMarker = /^[-*•●◦▪‣·⁃–—]+$/u.test(markerText);
+            const width = Number(
+              /(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)(?:px)?/i.exec(style)?.[1],
+            );
+            const height = Number(
+              /(?:^|;)\s*height\s*:\s*(\d+(?:\.\d+)?)(?:px)?/i.exec(style)?.[1],
+            );
+            const shapeMarker =
+              !markerText &&
+              width > 0 &&
+              width <= 48 &&
+              height > 0 &&
+              height <= 48 &&
+              width / height >= 0.5 &&
+              width / height <= 2 &&
+              /(?:border|background|border-radius)\s*:/i.test(style);
+            const rowText = visibleTextOf(element).trim();
+            if (
+              (glyphMarker && rowText.slice(markerText.length).trim()) ||
+              (shapeMarker && rowText)
+            ) {
+              rows.push({
+                tag: element.tagName.toLowerCase(),
+                glyph: glyphMarker || shapeMarker,
+                flex: /display\s*:\s*flex\b/i.test(
+                  element.attrs.find((attribute) => attribute.name === "style")
+                    ?.value ?? "",
+                ),
+              });
+            }
+          }
+        }
+      }
+      (node as P5.ParentNode).childNodes.forEach(visit);
+    };
+    parse(content).childNodes.forEach(visit);
+    return rows;
+  };
+  const styledFlexBulletRow = find((content) =>
+    styledBulletRows(content).some(
+      (row) => row.tag === "div" && row.flex && row.glyph,
+    ),
+  );
+  const styledParagraphBulletRow = find((content) =>
+    styledBulletRows(content).some((row) => row.tag === "p" && row.glyph),
+  );
+  const selected = [
+    absolute,
+    flexGrid,
+    styledList,
+    styledFlexBulletRow,
+    styledParagraphBulletRow,
+  ].filter(Boolean);
   const scaled =
     orderedEligible.find(
       (entry) =>
@@ -337,6 +437,8 @@ function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
     ["absolute", "absolute", absolute],
     ["flex-grid", "flex-grid", flexGrid],
     ["styled-list", "list", styledList],
+    ["styled-flex-bullet-row", "bullet-row", styledFlexBulletRow],
+    ["styled-paragraph-bullet-row", "bullet-row", styledParagraphBulletRow],
     ["scaled", "any", scaled],
     ["largest", "any", largest],
   ];
@@ -488,12 +590,15 @@ async function action<T = any>(
     },
     { name, body, method },
   );
-  if (!res.ok)
-    throw new Error(`${name} ${res.status}: ${res.text.slice(0, 400)}`);
-  return JSON.parse(res.text);
+  if (!res.ok) throw new Error(`${name} returned HTTP ${res.status}`);
+  try {
+    return JSON.parse(res.text);
+  } catch {
+    throw new Error(`${name} returned a non-JSON response`);
+  }
 }
 
-async function getSlideContent(page: Page, deckId: string, slideId: string) {
+async function getSlideState(page: Page, deckId: string, slideId: string) {
   const deck = await action(
     page,
     "get-deck",
@@ -501,8 +606,14 @@ async function getSlideContent(page: Page, deckId: string, slideId: string) {
     "GET",
   );
   const slide = deck.slides?.find((s: any) => s.id === slideId);
-  if (!slide) throw new Error(`get-deck returned no slide ${slideId}`);
-  return String(slide.content);
+  if (!slide || typeof slide.contentHash !== "string") {
+    throw new Error(`get-deck returned no hashed slide ${slideId}`);
+  }
+  return { content: String(slide.content), contentHash: slide.contentHash };
+}
+
+async function getSlideContent(page: Page, deckId: string, slideId: string) {
+  return (await getSlideState(page, deckId, slideId)).content;
 }
 
 async function ensureSignedIn(page: Page) {
@@ -978,7 +1089,7 @@ async function runImeEscapeRegression(
     const selector = `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
     const editor = page.locator(selector);
     await editor.focus();
-    await page.keyboard.press("End");
+    await page.keyboard.press(lineEndKey);
     const cdp = await page.context().newCDPSession(page);
     detach = () => cdp.detach();
     await cdp.send("Input.imeSetComposition", {
@@ -1099,7 +1210,6 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
   const problems: string[] = [];
   const usesChromiumIme = browserName === "chromium";
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
-  const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
   const normalizeText = (text: string) =>
     text
       .replace(/\u200b/g, "")
@@ -1507,6 +1617,23 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     if ((await editor.innerText()) !== expectedSlideText) {
       problems.push(
         "slide text: rapid typing and debounce pause changed the text",
+      );
+    }
+    const beforeCaretKeys = expectedSlideText;
+    await editor.press(lineStartKey);
+    await editor.pressSequentially("Caret start ");
+    expectedSlideText = `Caret start ${beforeCaretKeys}`;
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: line-start key did not put the caret at the line start",
+      );
+    }
+    await editor.press(lineEndKey);
+    await editor.pressSequentially(" caret end");
+    expectedSlideText += " caret end";
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: line-end key did not put the caret at the line end",
       );
     }
     const titleInput = page
@@ -1986,9 +2113,6 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
     { id: "authoring-soft-break-slash", kind: "soft-break-slash" as const },
   ];
   const cases = allCases;
-  const lineStartKey =
-    process.platform === "darwin" ? "Meta+ArrowLeft" : "Home";
-  const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
 
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
@@ -2456,6 +2580,21 @@ async function runAuthoringCorpusQa(
     }, selector);
   const normalized = (value: string) =>
     value.replace(/[\s\u200b\ufeff]+/g, " ").trim();
+  const editorDetails = async (editor: any) =>
+    editor.evaluate((element: HTMLElement) => ({
+      textLength: element.textContent?.length ?? 0,
+      renderedTextLength: element.innerText?.length ?? 0,
+      htmlLength: element.innerHTML.length,
+      tags: Array.from(element.querySelectorAll<HTMLElement>("*"))
+        .map((child) => child.tagName.toLowerCase())
+        .slice(0, 20),
+    }));
+  const editorText = async (editor: any) =>
+    normalized(
+      await editor.evaluate(
+        (element: HTMLElement) => element.textContent ?? "",
+      ),
+    );
   const canonicalMarkup = async (html: string) =>
     page.evaluate(
       (value: string) => JSON.stringify(window.__editFidelity.canonical(value)),
@@ -2560,6 +2699,90 @@ async function runAuthoringCorpusQa(
         if (!root) throw new Error(`canvas not found: ${selector}`);
         const normalizeText = (value: string | null) =>
           (value ?? "").replace(/[\s\u200b\ufeff]+/g, " ").trim();
+        const isStyledBulletRow = (element: HTMLElement) => {
+          if (!/^(DIV|LI|P)$/.test(element.tagName)) return false;
+          const marker = element.firstElementChild as HTMLElement | null;
+          if (!marker || marker.tagName !== "SPAN") return false;
+          const text = marker.textContent?.trim() ?? "";
+          if (text) return /^[-*•●◦▪‣·⁃–—]+$/u.test(text);
+          const style = getComputedStyle(marker);
+          const width = Number.parseFloat(style.width);
+          const height = Number.parseFloat(style.height);
+          const colorParts = style.backgroundColor
+            .replace(/[(),/]/g, " ")
+            .trim()
+            .split(/\s+/);
+          const alpha =
+            colorParts.length === 4 ? Number(colorParts[3]) : undefined;
+          return (
+            width > 0 &&
+            height > 0 &&
+            width <= 48 &&
+            height <= 48 &&
+            (Number.parseFloat(style.borderTopWidth) > 0 ||
+              Number.parseFloat(style.borderLeftWidth) > 0 ||
+              (style.backgroundColor !== "transparent" && alpha !== 0) ||
+              Number.parseFloat(style.borderRadius) > 0)
+          );
+        };
+        const textPoint = (
+          element: HTMLElement,
+          excluded: HTMLElement | null = null,
+        ) => {
+          const walker = document.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT,
+          );
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const text = node as Text;
+            if (excluded?.contains(text)) continue;
+            const offset = text.data.search(/\S/);
+            if (offset < 0) continue;
+            const range = document.createRange();
+            range.setStart(text, offset);
+            range.setEnd(text, offset + 1);
+            const rect = range.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+              };
+            }
+          }
+          return null;
+        };
+        const rowTextPoint = (row: HTMLElement) => {
+          const marker = isStyledBulletRow(row)
+            ? (row.firstElementChild as HTMLElement)
+            : null;
+          const content = marker
+            ? Array.from(row.children).find(
+                (child) =>
+                  child !== marker && normalizeText(child.textContent) !== "",
+              )
+            : null;
+          return textPoint(
+            (content as HTMLElement | undefined) ?? row,
+            content ? null : marker,
+          );
+        };
+        const listItemFor = (element: HTMLElement) =>
+          element.closest<HTMLElement>("li") ??
+          element.querySelector<HTMLElement>("li");
+        const bulletRowFor = (element: HTMLElement) => {
+          for (
+            let ancestor: HTMLElement | null = element;
+            ancestor && root.contains(ancestor);
+            ancestor = ancestor.parentElement
+          ) {
+            if (isStyledBulletRow(ancestor)) return ancestor;
+          }
+          return (
+            Array.from(element.querySelectorAll<HTMLElement>("div,li,p")).find(
+              isStyledBulletRow,
+            ) ?? null
+          );
+        };
         return Array.from(
           root.querySelectorAll<HTMLElement>('[data-slide-text-block="true"]'),
         )
@@ -2576,7 +2799,8 @@ async function runAuthoringCorpusQa(
           .map((element, index) => {
             let absolute = false;
             let grid = false;
-            let list = false;
+            const listItem = listItemFor(element);
+            const bulletRow = bulletRowFor(element);
             for (
               let ancestor: HTMLElement | null = element;
               ancestor && root.contains(ancestor);
@@ -2585,15 +2809,17 @@ async function runAuthoringCorpusQa(
               const style = getComputedStyle(ancestor);
               absolute ||= style.position === "absolute";
               grid ||= style.display === "grid";
-              list ||=
-                ancestor.tagName === "LI" || /^(UL|OL)$/.test(ancestor.tagName);
             }
             return {
               index,
-              text: normalizeText(element.textContent),
+              textLength: normalizeText(element.textContent).length,
+              textTransform: getComputedStyle(element).textTransform,
               absolute,
               grid,
-              list,
+              list: !!listItem,
+              bulletRow: !!bulletRow,
+              listPoint: listItem ? rowTextPoint(listItem) : null,
+              bulletPoint: bulletRow ? rowTextPoint(bulletRow) : null,
             };
           });
       },
@@ -2607,15 +2833,29 @@ async function runAuthoringCorpusQa(
     const hints = await targetHints(slideId);
     const hint = hints.find(
       (candidate: any) =>
-        candidate.text.length >= 4 &&
+        candidate.textLength >= 4 &&
+        !(
+          requirement === "flex-grid" && candidate.textTransform === "uppercase"
+        ) &&
         (requirement === "any" ||
           (requirement === "absolute" && candidate.absolute) ||
           (requirement === "flex-grid" && candidate.grid) ||
-          (requirement === "list" && candidate.list)),
+          (requirement === "list" && candidate.list && candidate.listPoint) ||
+          (requirement === "bullet-row" &&
+            candidate.bulletRow &&
+            candidate.bulletPoint)),
     );
-    return hint
+    const target = hint
       ? targets.find((candidate) => candidate.index === hint.index)
       : undefined;
+    if (!target) return undefined;
+    const point =
+      requirement === "list"
+        ? hint.listPoint
+        : requirement === "bullet-row"
+          ? hint.bulletPoint
+          : null;
+    return point ? { ...target, point } : target;
   };
   const assertReloadMarkup = async (
     slideId: string,
@@ -2658,7 +2898,7 @@ async function runAuthoringCorpusQa(
 
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
-  for (const source of sources.slice(0, 4)) {
+  for (const source of sources.filter((source) => source.kind !== "largest")) {
     const slideId = slideIdFor(source);
     let deckId: string | null = null;
     let original = "";
@@ -2706,26 +2946,60 @@ async function runAuthoringCorpusQa(
           if (!target) {
             throw new Error(`no visible ${source.testTarget} text target`);
           }
-          const before = await snapshot(page, slideId, {
-            targetIndex: target.index,
-          });
           if (!(await enterEdit(page, slideId, target.point, []))) {
             throw new Error("could not enter in-place text editing");
           }
           const editor = page.locator(selectorFor(slideId));
+          const editedBuilderId =
+            (await editor.getAttribute("data-builder-id")) ??
+            target.builderId ??
+            undefined;
+          const before = await snapshot(page, slideId, {
+            targetIndex: target.index,
+            targetBuilderId: editedBuilderId,
+          });
           if (flow === "shortcut") {
-            await editor.press("Home");
-            await editor.pressSequentially("**bold**");
+            await editor.press(lineStartKey);
+            await editor.pressSequentially("**bold** next");
+            const shortcutState = await editor.evaluate(
+              (element: HTMLElement) => {
+                const marks = Array.from(
+                  element.querySelectorAll<HTMLElement>(
+                    'strong, b, span[style*="font-weight"]',
+                  ),
+                ).filter((mark) => mark.textContent === "bold");
+                const mark = marks[0];
+                const next = mark?.nextSibling;
+                const nextText =
+                  next?.nodeType === Node.TEXT_NODE
+                    ? (next.textContent ?? "")
+                    : "";
+                return {
+                  markCount: marks.length,
+                  computedBold:
+                    Number.parseInt(
+                      mark ? getComputedStyle(mark).fontWeight : "",
+                      10,
+                    ) >= 600,
+                  nextText,
+                  nextIsOutside: Boolean(mark && next && !mark.contains(next)),
+                };
+              },
+            );
             if (
-              !(await editorHas(editor, "strong")) &&
-              !(await editorHas(editor, 'span[style*="font-weight"]'))
+              shortcutState.markCount !== 1 ||
+              !shortcutState.computedBold ||
+              !shortcutState.nextIsOutside ||
+              !shortcutState.nextText
+                .replaceAll("\u00a0", " ")
+                .startsWith(" next")
             ) {
               throw new Error(
-                "the strong Markdown shortcut did not create a mark",
+                `the strong Markdown shortcut did not bold the inserted run and leave following text outside it: ${JSON.stringify(shortcutState)}`,
               );
             }
           } else if (flow === "slash") {
-            await editor.press("Home");
+            await editor.press(lineStartKey);
             await editor.pressSequentially("/heading 2");
             const options = page.locator('[role="listbox"] [role="option"]');
             await options.first().waitFor({ state: "visible" });
@@ -2748,8 +3022,11 @@ async function runAuthoringCorpusQa(
               );
             }
           } else if (flow === "paste") {
-            await editor.press("Home");
-            const beforePaste = await editor.innerHTML();
+            await editor.press(lineStartKey);
+            const slideContent = page.locator(
+              `${canvasSelector(slideId)} .slide-content`,
+            );
+            const beforePaste = await slideContent.innerHTML();
             await editor.evaluate((element: HTMLElement) => {
               const clipboard = new DataTransfer();
               clipboard.setData(
@@ -2773,115 +3050,202 @@ async function runAuthoringCorpusQa(
                 );
               }
             });
-            const pasted = await editor.innerHTML();
-            const pastedText = normalized(await editor.innerText());
+            const pasted = await slideContent.innerHTML();
+            const pastedText = await slideContent.innerText();
             for (const token of [
               "Docs paragraph",
               "Second paragraph",
               "Docs list item",
             ]) {
               if (!pastedText.includes(token)) {
-                throw new Error(`Docs-shaped paste lost ${token}`);
+                throw new Error(
+                  `Docs-shaped paste lost ${token}: ${JSON.stringify(await editorDetails(editor))}`,
+                );
               }
             }
-            const pastedStructure = await editor.evaluate(
-              (element: HTMLElement) => ({
-                paragraphs: Array.from(element.querySelectorAll("p")).filter(
-                  (paragraph) =>
+            const pastedStructure = await slideContent.evaluate(
+              (element: HTMLElement) => {
+                const walker = document.createTreeWalker(
+                  element,
+                  NodeFilter.SHOW_TEXT,
+                );
+                let pastedText: Text | null = null;
+                for (
+                  let node = walker.nextNode();
+                  node;
+                  node = walker.nextNode()
+                ) {
+                  if (node.textContent?.trim() === "Docs list item") {
+                    pastedText = node as Text;
+                    break;
+                  }
+                }
+                const pastedItem = pastedText?.parentElement?.closest("li");
+                const pastedRun = pastedText?.parentElement;
+                return {
+                  paragraphCount: Array.from([
+                    ...(element.tagName === "P" ? [element] : []),
+                    ...Array.from(element.querySelectorAll("p")),
+                  ]).filter((paragraph) =>
                     /Docs paragraph|Second paragraph/.test(
                       paragraph.textContent ?? "",
                     ),
-                ).length,
-                listItem: Array.from(element.querySelectorAll("ul > li")).some(
-                  (item) => item.textContent?.includes("Docs list item"),
-                ),
-                foreignStyle: Array.from(
-                  element.querySelectorAll<HTMLElement>("[style]"),
-                ).some(
-                  (styled) =>
-                    styled.textContent?.includes("Docs list item") &&
-                    /(?:color|font-size)\s*:/i.test(
-                      styled.getAttribute("style") ?? "",
-                    ),
-                ),
-              }),
+                  ).length,
+                  unorderedListItem:
+                    pastedItem?.closest("ul, ol")?.tagName === "UL",
+                  foreignStyle:
+                    !pastedRun ||
+                    Boolean(pastedRun.style.color || pastedRun.style.fontSize),
+                };
+              },
             );
             if (
-              pastedStructure.paragraphs !== 2 ||
-              !pastedStructure.listItem ||
+              pastedStructure.paragraphCount !== 2 ||
+              !pastedStructure.unorderedListItem ||
               pastedStructure.foreignStyle
             ) {
               throw new Error(
                 `Docs-shaped paste structure/style mismatch: ${JSON.stringify(pastedStructure)}`,
               );
             }
-            await page.screenshot({
-              path: path.join(outRoot, "slide-authoring-docs-paste.png"),
-              fullPage: true,
-            });
+            if (corpusDir === path.join(HERE, "corpus")) {
+              await page.screenshot({
+                path: path.join(outRoot, "slide-authoring-docs-paste.png"),
+                fullPage: true,
+              });
+            }
             await page.keyboard.press(
               `${process.platform === "darwin" ? "Meta" : "Control"}+Z`,
             );
-            if ((await editor.innerHTML()) !== beforePaste) {
+            if (
+              (await canonicalMarkup(await slideContent.innerHTML())) !==
+              (await canonicalMarkup(beforePaste))
+            ) {
               throw new Error("undo did not restore the pre-paste markup");
             }
             await page.keyboard.press(
               `${process.platform === "darwin" ? "Meta" : "Control"}+Shift+Z`,
             );
-            if ((await editor.innerHTML()) !== pasted) {
+            if (
+              (await canonicalMarkup(await slideContent.innerHTML())) !==
+              (await canonicalMarkup(pasted))
+            ) {
               throw new Error("redo did not restore the Docs-shaped paste");
             }
           } else {
-            const inList = (await targetHints(slideId)).find(
+            const listHint = (await targetHints(slideId)).find(
               (candidate: any) => candidate.index === target.index,
-            )?.list;
+            );
+            const inList = listHint?.list || listHint?.bulletRow;
             if (inList) {
-              await editor.press("End");
+              await editor.press(lineEndKey);
               await editor.press("Enter");
               await editor.pressSequentially("Corpus row");
             } else {
-              await editor.press("Home");
+              await editor.press(lineStartKey);
               await editor.pressSequentially("- ");
-              await editor.press("End");
+              await editor.press(lineEndKey);
               await editor.press("Enter");
               await editor.pressSequentially("Corpus row");
             }
             const hasListStructure = await editor.evaluate(
-              (element: HTMLElement) =>
-                Boolean(
-                  element.querySelector("ul, ol") ||
-                  Array.from(
-                    element.querySelectorAll<HTMLElement>("div,span"),
-                  ).some((child) => getComputedStyle(child).display === "flex"),
-                ),
+              (element: HTMLElement) => {
+                const normalizeText = (value: string | null) =>
+                  (value ?? "").replace(/[\s\u200b\ufeff]+/g, " ").trim();
+                const listElements = [
+                  ...(element.matches("ul, ol") ? [element] : []),
+                  ...Array.from(
+                    element.querySelectorAll<HTMLElement>("ul, ol"),
+                  ),
+                ];
+                const isStyledBulletRow = (row: HTMLElement) => {
+                  if (!/^(DIV|LI|P)$/.test(row.tagName)) return false;
+                  const marker = row.firstElementChild as HTMLElement | null;
+                  if (!marker || marker.tagName !== "SPAN") return false;
+                  const text = marker.textContent?.trim() ?? "";
+                  if (text) return /^[-*•●◦▪‣·⁃–—]+$/u.test(text);
+                  const style = getComputedStyle(marker);
+                  const width = Number.parseFloat(style.width);
+                  const height = Number.parseFloat(style.height);
+                  const colorParts = style.backgroundColor
+                    .replace(/[(),/]/g, " ")
+                    .trim()
+                    .split(/\s+/);
+                  const alpha =
+                    colorParts.length === 4 ? Number(colorParts[3]) : undefined;
+                  return (
+                    width > 0 &&
+                    height > 0 &&
+                    width <= 48 &&
+                    height <= 48 &&
+                    (Number.parseFloat(style.borderTopWidth) > 0 ||
+                      Number.parseFloat(style.borderLeftWidth) > 0 ||
+                      (style.backgroundColor !== "transparent" &&
+                        alpha !== 0) ||
+                      Number.parseFloat(style.borderRadius) > 0)
+                  );
+                };
+                const bulletRows = [
+                  ...(isStyledBulletRow(element) ? [element] : []),
+                  ...Array.from(
+                    element.querySelectorAll<HTMLElement>("div,li,p"),
+                  ).filter(isStyledBulletRow),
+                ];
+                const corpusListRow = listElements.some((list) =>
+                  Array.from(list.children).some(
+                    (row) =>
+                      row.tagName === "LI" &&
+                      normalizeText(row.textContent).includes("Corpus row"),
+                  ),
+                );
+                const corpusBulletRow = bulletRows.some((row) =>
+                  normalizeText(row.textContent).includes("Corpus row"),
+                );
+                return {
+                  hasStructure:
+                    listElements.length > 0 || bulletRows.length > 0,
+                  hasCorpusRow: corpusListRow || corpusBulletRow,
+                  listCount: listElements.length,
+                  bulletRowCount: bulletRows.length,
+                };
+              },
             );
-            if (!hasListStructure) {
-              throw new Error("list entry did not create a list row");
+            if (
+              !hasListStructure.hasStructure ||
+              !hasListStructure.hasCorpusRow
+            ) {
+              throw new Error(
+                `list entry did not create the Corpus row: ${JSON.stringify(hasListStructure)}`,
+              );
             }
             await editor.press("Tab");
             await editor.press("Shift+Tab");
-            await editor.press("Home");
+            await editor.press(lineStartKey);
             await editor.press("Backspace");
             await editor.press("Backspace");
-            const joined = normalized(await editor.innerText());
+            const joined = await editorText(editor);
             if (!joined.includes("Corpus row")) {
               throw new Error(
-                "Backspace after list indentation lost the new row",
+                `Backspace after list indentation lost the new row: ${JSON.stringify(await editorDetails(editor))}`,
               );
             }
-            await editor.press("End");
+            await editor.press(lineEndKey);
             await editor.press("Enter");
             await editor.press("Enter");
             await editor.pressSequentially("Plain");
-            if (!normalized(await editor.innerText()).includes("Plain")) {
-              throw new Error("empty-list exit lost the plain text row");
+            if (!(await editorText(editor)).includes("Plain")) {
+              throw new Error(
+                `empty-list exit lost the plain text row: ${JSON.stringify(await editorDetails(editor))}`,
+              );
             }
           }
           const mutationMarker = `authoring-${flow}-${Date.now()}`;
-          await editor.press("End");
+          await editor.press(lineEndKey);
           await editor.pressSequentially(` ${mutationMarker}`);
-          if (!normalized(await editor.innerText()).includes(mutationMarker)) {
-            throw new Error(`${flow} marker did not enter the edited slide`);
+          if (!(await editorText(editor)).includes(mutationMarker)) {
+            throw new Error(
+              `${flow} marker did not enter the edited slide: ${JSON.stringify(await editorDetails(editor))}`,
+            );
           }
           if (!(await exitEdit(page, slideId, "escape"))) {
             throw new Error("Escape did not leave in-place text editing");
@@ -2906,18 +3270,114 @@ async function runAuthoringCorpusQa(
             );
           }
           const after = await snapshot(page, slideId, {
-            targetIndex: target.index,
+            marker: mutationMarker,
+            targetBuilderId: editedBuilderId,
           });
           const outside = diffSnapshots(before, after);
+          const targetResized =
+            before.editedRect !== null &&
+            after.editedRect !== null &&
+            (Math.abs(before.editedRect.width - after.editedRect.width) > 1 ||
+              Math.abs(before.editedRect.height - after.editedRect.height) > 1);
+          const naturalReflow =
+            targetResized && before.editedInFlow && after.editedInFlow;
+          const beforeRecords = new Map(
+            before.records.map((record) => [record.key, record]),
+          );
+          const afterRecords = new Map(
+            after.records.map((record) => [record.key, record]),
+          );
+          const followsNaturalReflow = (
+            change: (typeof outside.geometry)[number],
+          ) => {
+            if (
+              !naturalReflow ||
+              (change.prop !== "x" && change.prop !== "y") ||
+              !beforeRecords.get(change.key)?.downstreamFlow ||
+              !afterRecords.get(change.key)?.downstreamFlow ||
+              !before.editedRect ||
+              !after.editedRect
+            ) {
+              return false;
+            }
+            const position =
+              change.prop === "x" ? ("x" as const) : ("y" as const);
+            const extent =
+              change.prop === "x" ? ("width" as const) : ("height" as const);
+            const expectedShift =
+              after.editedRect[position] +
+              after.editedRect[extent] -
+              before.editedRect[position] -
+              before.editedRect[extent];
+            const actualShift = Number(change.b) - Number(change.a);
+            return (
+              Math.abs(actualShift - expectedShift) <= 1 ||
+              followsCenteredFlexReflow(
+                beforeRecords.get(change.key),
+                afterRecords.get(change.key),
+                change.prop,
+                actualShift,
+              )
+            );
+          };
           const outsideChanges = [
             ...outside.deltas,
-            ...outside.geometry,
+            ...outside.geometry.filter(
+              (change) => !followsNaturalReflow(change),
+            ),
             ...outside.missing,
             ...outside.added,
           ].filter((change) => !change.inside);
           if (outsideChanges.length) {
+            const records = new Map(
+              [...before.records, ...after.records].map((record) => [
+                record.key,
+                record,
+              ]),
+            );
+            const describe = (key: string) => {
+              const record = records.get(key);
+              const tag =
+                record?.kind === "box"
+                  ? /^box:([^.#]+)/.exec(key)?.[1]
+                  : undefined;
+              const index = /#(\d+)$/.exec(key)?.[1];
+              return {
+                element: record?.kind ?? "unknown",
+                tag,
+                index: index === undefined ? undefined : Number(index),
+              };
+            };
+            const outsideSamples = [
+              ...outside.geometry
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(({ key, prop, a, b }) => ({
+                  kind: "geometry",
+                  ...describe(key),
+                  prop,
+                  a,
+                  b,
+                })),
+              ...outside.deltas
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(({ key, prop }) => ({
+                  kind: "style",
+                  ...describe(key),
+                  prop,
+                })),
+              ...outside.missing
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(() => ({ kind: "missing" })),
+              ...outside.added
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(() => ({ kind: "added" })),
+            ].slice(0, 12);
             throw new Error(
-              `${outsideChanges.length} style/geometry records changed outside the edited block`,
+              `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect })}): ${JSON.stringify(outsideSamples)}`,
             );
           }
           console.log(
@@ -2977,7 +3437,7 @@ async function runAuthoringCorpusQa(
       throw new Error("could not edit the viewport-edge text target");
     }
     const editor = page.locator(selectorFor(edgeSlideId));
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.pressSequentially("/");
     await page
       .locator('[role="listbox"] [role="option"]')
@@ -3047,14 +3507,20 @@ async function runAuthoringCorpusQa(
       throw new Error("could not enter the largest corpus text target");
     }
     const editor = page.locator(selectorFor(latencySlideId));
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.evaluate((element: HTMLElement) => {
       const metrics = {
         mode: "first-rAF-layout-proxy" as
           | "first-rAF-layout-proxy"
           | "event-timing",
         keydowns: 0,
-        eventSamples: [] as number[],
+        sampleWindow: null as { start: number; end: number } | null,
+        eventSamples: [] as Array<{
+          duration: number;
+          inputDelay: number;
+          handlerDuration: number;
+          presentationDelay: number;
+        }>,
         frameSamples: [] as number[],
         observer: null as PerformanceObserver | null,
       };
@@ -3066,14 +3532,26 @@ async function runAuthoringCorpusQa(
             for (const entry of list.getEntries()) {
               const event = entry as PerformanceEntry & {
                 duration: number;
+                processingStart: number;
+                processingEnd: number;
                 target: Node | null;
               };
+              const sampleWindow = metrics.sampleWindow;
               if (
                 entry.name === "keydown" &&
                 event.target &&
-                (event.target === element || element.contains(event.target))
+                (event.target === element || element.contains(event.target)) &&
+                sampleWindow &&
+                entry.startTime >= sampleWindow.start &&
+                entry.startTime < sampleWindow.end
               ) {
-                metrics.eventSamples.push(event.duration);
+                metrics.eventSamples.push({
+                  duration: event.duration,
+                  inputDelay: event.processingStart - entry.startTime,
+                  handlerDuration: event.processingEnd - event.processingStart,
+                  presentationDelay:
+                    entry.startTime + event.duration - event.processingEnd,
+                });
               }
             }
           });
@@ -3094,7 +3572,6 @@ async function runAuthoringCorpusQa(
         (event) => {
           if (event.key.length !== 1) return;
           metrics.keydowns += 1;
-          if (metrics.mode === "event-timing") return;
           const started = performance.now();
           requestAnimationFrame(() => {
             element.getBoundingClientRect();
@@ -3103,6 +3580,13 @@ async function runAuthoringCorpusQa(
         },
         true,
       );
+    });
+    await page.evaluate(() => {
+      const metrics = (window as any).__slideKeyPaintMetrics;
+      metrics.sampleWindow = {
+        start: performance.now(),
+        end: Number.POSITIVE_INFINITY,
+      };
     });
     for (let index = 0; index < 64; index += 1) {
       await editor.press("x");
@@ -3113,6 +3597,10 @@ async function runAuthoringCorpusQa(
           ),
       );
     }
+    await page.evaluate(() => {
+      const metrics = (window as any).__slideKeyPaintMetrics;
+      if (metrics.sampleWindow) metrics.sampleWindow.end = performance.now();
+    });
     await page.waitForTimeout(50);
     const metrics = (await page.evaluate(() => {
       const value = (window as any).__slideKeyPaintMetrics;
@@ -3121,14 +3609,24 @@ async function runAuthoringCorpusQa(
         ? {
             mode: value.mode as string,
             keydowns: value.keydowns as number,
-            eventSamples: value.eventSamples as number[],
+            eventSamples: value.eventSamples as Array<{
+              duration: number;
+              inputDelay: number;
+              handlerDuration: number;
+              presentationDelay: number;
+            }>,
             frameSamples: value.frameSamples as number[],
           }
         : null;
     })) as {
       mode: string;
       keydowns: number;
-      eventSamples: number[];
+      eventSamples: Array<{
+        duration: number;
+        inputDelay: number;
+        handlerDuration: number;
+        presentationDelay: number;
+      }>;
       frameSamples: number[];
     } | null;
     if (!metrics || metrics.keydowns < 32) {
@@ -3137,20 +3635,30 @@ async function runAuthoringCorpusQa(
       );
     }
     if (metrics.mode === "event-timing") {
+      const sortedFrames = [...metrics.frameSamples].sort((a, b) => a - b);
+      if (sortedFrames.length < 32) {
+        throw new Error(
+          `only captured ${sortedFrames.length} frame-layout proxy samples`,
+        );
+      }
+      const frameP95 = sortedFrames[Math.ceil(sortedFrames.length * 0.95) - 1];
       const slow = metrics.eventSamples
-        .filter((sample) => sample > 16)
-        .sort((a, b) => a - b);
+        .filter((sample) => sample.duration > 16)
+        .sort((a, b) => a.duration - b.duration);
       const p95Rank = Math.ceil(metrics.keydowns * 0.95);
       const p95IsOverThreshold = slow.length >= metrics.keydowns - p95Rank + 1;
-      const p95 = p95IsOverThreshold
+      const p95Event = p95IsOverThreshold
         ? slow[slow.length - (metrics.keydowns - p95Rank + 1)]
         : null;
       console.log(
-        `[edit-fidelity] largest corpus slide keydown-to-render p95=${p95 === null ? "<=16" : `${p95.toFixed(2)}ms`} (Event Timing, observed=${metrics.eventSamples.length}/${metrics.keydowns}, threshold=16ms)`,
+        `[edit-fidelity] largest corpus slide Event Timing p95=${p95Event === null ? "<=16" : `${p95Event.duration.toFixed(2)}ms`} (input-to-paint diagnostic, input=${p95Event?.inputDelay.toFixed(2) ?? "n/a"}ms handler=${p95Event?.handlerDuration.toFixed(2) ?? "n/a"}ms presentation=${p95Event?.presentationDelay.toFixed(2) ?? "n/a"}ms, observed=${metrics.eventSamples.length}/${metrics.keydowns})`,
       );
-      if (p95IsOverThreshold) {
+      console.log(
+        `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
+      );
+      if (frameP95 > 16) {
         problems.push(
-          `largest corpus slide keydown-to-render p95 ${p95?.toFixed(2)}ms exceeds 16ms`,
+          `largest corpus slide keydown-to-first-rAF-plus-layout p95 ${frameP95.toFixed(2)}ms exceeds 16ms`,
         );
       }
     } else {
@@ -3165,8 +3673,8 @@ async function runAuthoringCorpusQa(
         `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${p95.toFixed(2)}ms (proxy, not paint; Event Timing unavailable, n=${sorted.length})`,
       );
       if (p95 > 16) {
-        console.warn(
-          `[edit-fidelity] latency proxy exceeds 16ms (${p95.toFixed(2)}ms); this browser has no Event Timing paint measurement`,
+        problems.push(
+          `largest corpus slide keydown-to-first-rAF-plus-layout p95 ${p95.toFixed(2)}ms exceeds 16ms`,
         );
       }
     }
@@ -3199,16 +3707,27 @@ async function runAuthoringFuzzQa(
     ...sources.filter((source) => source.kind === "absolute"),
     ...sources.filter((source) => source.kind === "flex-grid"),
     ...sources.filter((source) => source.kind === "styled-list"),
+    ...sources.filter((source) => source.kind === "styled-flex-bullet-row"),
+    ...sources.filter(
+      (source) => source.kind === "styled-paragraph-bullet-row",
+    ),
     ...sources.filter((source) => source.kind === "scaled"),
   ];
-  if (profiles.length !== 4) {
+  if (profiles.length !== 6) {
     throw new CouldNotRun(
-      "authoring fuzz requires committed absolute, flex/grid, styled-list, and scaled slides",
+      "authoring fuzz requires committed absolute, flex/grid, semantic-list, flex bullet-row, paragraph bullet-row, and scaled slides",
     );
   }
 
   const selectorFor = (slideId: string) =>
     `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+  const canonicalMarkup = async (html: string) =>
+    JSON.stringify(
+      await page.evaluate(
+        (value: string) => window.__editFidelity.canonical(value),
+        html,
+      ),
+    );
   const profileFor = (round: number) =>
     round % 2 === 0 ? null : profiles[Math.floor(round / 2) % profiles.length];
   const sourceTarget = async (
@@ -3221,6 +3740,37 @@ async function runAuthoringFuzzQa(
       ({ selector, chrome }: { selector: string; chrome: string }) => {
         const canvas = document.querySelector(selector);
         if (!canvas) return [];
+        const isStyledBulletRow = (element: HTMLElement) => {
+          if (!/^(DIV|LI|P)$/.test(element.tagName)) return false;
+          const marker = element.firstElementChild as HTMLElement | null;
+          if (!marker || marker.tagName !== "SPAN") return false;
+          const text = marker.textContent?.trim() ?? "";
+          if (text) return /^[-*•●◦▪‣·⁃–—]+$/u.test(text);
+          const style = getComputedStyle(marker);
+          const width = Number.parseFloat(style.width);
+          const height = Number.parseFloat(style.height);
+          const colorParts = style.backgroundColor
+            .replace(/[(),/]/g, " ")
+            .trim()
+            .split(/\s+/);
+          const alpha =
+            colorParts.length === 4 ? Number(colorParts[3]) : undefined;
+          return (
+            width > 0 &&
+            height > 0 &&
+            width <= 48 &&
+            height <= 48 &&
+            (Number.parseFloat(style.borderTopWidth) > 0 ||
+              Number.parseFloat(style.borderLeftWidth) > 0 ||
+              (style.backgroundColor !== "transparent" && alpha !== 0) ||
+              Number.parseFloat(style.borderRadius) > 0)
+          );
+        };
+        const containsStyledBulletRow = (element: HTMLElement) =>
+          isStyledBulletRow(element) ||
+          Array.from(element.querySelectorAll<HTMLElement>("div,li,p")).some(
+            isStyledBulletRow,
+          );
         return Array.from(
           canvas.querySelectorAll<HTMLElement>(
             '[data-slide-text-block="true"]',
@@ -3239,7 +3789,10 @@ async function runAuthoringFuzzQa(
           .map((element, index) => {
             let absolute = false;
             let grid = false;
-            let list = false;
+            let list =
+              /^(LI|UL|OL)$/.test(element.tagName) ||
+              element.querySelector("li,ul,ol") !== null;
+            let bulletRow = containsStyledBulletRow(element);
             for (
               let ancestor: HTMLElement | null = element;
               ancestor && canvas.contains(ancestor);
@@ -3250,8 +3803,9 @@ async function runAuthoringFuzzQa(
               grid ||= style.display === "grid";
               list ||=
                 ancestor.tagName === "LI" || /^(UL|OL)$/.test(ancestor.tagName);
+              bulletRow ||= isStyledBulletRow(ancestor);
             }
-            return { index, absolute, grid, list };
+            return { index, absolute, grid, list, bulletRow };
           });
       },
       { selector: canvasSelector(slideId), chrome: CHROME_SELECTOR },
@@ -3263,7 +3817,9 @@ async function runAuthoringFuzzQa(
           ? candidate.grid
           : source.testTarget === "list"
             ? candidate.list
-            : true,
+            : source.testTarget === "bullet-row"
+              ? candidate.bulletRow
+              : true,
     );
     return targets.find((target) => target.index === hint?.index);
   };
@@ -3332,12 +3888,6 @@ async function runAuthoringFuzzQa(
         throw new Error("could not enter in-place text editing");
       }
       const slideHtml = () => page.locator(rootSelector).innerHTML();
-      const canonical = (html: string) =>
-        page.evaluate(
-          (value: string) =>
-            JSON.stringify(window.__editFidelity.canonical(value)),
-          html,
-        );
       const result = await runAuthoringFuzz(page, {
         seed,
         steps,
@@ -3363,12 +3913,15 @@ async function runAuthoringFuzzQa(
           );
           await openSlide(page, base, deckId!, 0, slideId);
           const reloadedHtml = await slideHtml();
-          return {
-            originalHtml: await canonical(originalSlideHtml),
-            liveHtml: await canonical(liveHtml),
-            savedHtml: await canonical(stored),
-            reloadedHtml: await canonical(reloadedHtml),
-          };
+          return canonicalizeAuthoringFuzzPersistence(
+            {
+              originalHtml: originalSlideHtml,
+              liveHtml,
+              savedHtml: stored,
+              reloadedHtml,
+            },
+            canonicalMarkup,
+          );
         },
       });
       console.log(
@@ -3446,10 +3999,18 @@ async function restoreSlide(
   slideId: string,
   stored: string,
 ) {
-  if ((await getSlideContent(page, deckId, slideId)) === stored) return;
+  const current = await getSlideState(page, deckId, slideId);
+  if (current.content === stored) return;
   await action(page, "patch-deck", {
     deckId,
-    operations: [{ op: "patch-slide", slideId, fields: { content: stored } }],
+    operations: [
+      {
+        op: "patch-slide",
+        slideId,
+        fields: { content: stored },
+        baseContentHash: current.contentHash,
+      },
+    ],
   });
   if ((await getSlideContent(page, deckId, slideId)) !== stored) {
     throw new Error(
@@ -3461,7 +4022,12 @@ async function restoreSlide(
 async function snapshot(
   page: Page,
   slideId: string,
-  edited: { targetIndex?: number; text?: string },
+  edited: {
+    targetIndex?: number;
+    text?: string;
+    marker?: string;
+    targetBuilderId?: string;
+  },
 ): Promise<Snapshot> {
   return page.evaluate(
     ({ sel, edited }: any) => window.__editFidelity.snapshot(sel, edited),
@@ -3870,10 +4436,10 @@ async function runScenario(
       await page.keyboard.type("x");
       await page.keyboard.press("Backspace");
     } else if (scenario === "append") {
-      await page.keyboard.press("End");
+      await page.keyboard.press(lineEndKey);
       await page.keyboard.type(" ok");
     } else if (scenario === "enter3") {
-      await page.keyboard.press("End");
+      await page.keyboard.press(lineEndKey);
       let prevPng = editing;
       // End keeps the caret's line, but at a soft wrap a Range measures the
       // next line; read after End only when entry left no measurable caret.
@@ -4297,7 +4863,12 @@ async function runScenario(
         v.push(
           `no element on the reloaded slide has the typed text line for line (closest: ${JSON.stringify((snapReload.editedText ?? "none").slice(0, 160))})`,
         );
-      const restyled = restyledAddedText(snapView, snapReload);
+      // Heading Enter and list exit intentionally create a plain paragraph.
+      const restyled = restyledAddedText(
+        snapView,
+        snapReload,
+        scenario === "enter3" ? state0.caretConvertibleTag : null,
+      );
       if (restyled.length)
         v.push(
           `typed text on the reloaded slide has a style no text of the element had (${restyled.slice(0, 3).join("; ")})`,

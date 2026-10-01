@@ -72,7 +72,10 @@ export function isContentRecentContextChanged(error: unknown): boolean {
   );
 }
 
-export function useContentRecent(spaceId?: string) {
+export function useContentRecent(
+  spaceId?: string,
+  options: { enabled?: boolean } = {},
+) {
   const org = useOrg();
   const queryClient = useQueryClient();
   const scopeKey = contentRecentScopeKey(org.data, spaceId);
@@ -81,7 +84,7 @@ export function useContentRecent(spaceId?: string) {
     [scopeKey, spaceId],
   );
   const query = useActionQuery("get-content-recent", args, {
-    enabled: Boolean(scopeKey) && !org.isFetching,
+    enabled: (options.enabled ?? true) && Boolean(scopeKey) && !org.isFetching,
     placeholderData: undefined,
   });
   const [refreshingScopes, setRefreshingScopes] = useState<Set<string>>(

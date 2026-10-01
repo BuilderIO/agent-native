@@ -197,6 +197,33 @@ afterEach(() => {
 });
 
 describe("<EditorToolbar>", () => {
+  it("keeps the deck title read-only for viewers", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          canEdit={false}
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByDisplayValue("Test deck")).toHaveProperty(
+      "readOnly",
+      true,
+    );
+    expect(screen.getByText("editorToolbar.viewOnly")).toBeTruthy();
+  });
+
   it.each([
     [200, { slideCount: 2 }],
     [500, { error: "Import failed" }],

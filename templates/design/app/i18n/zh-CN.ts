@@ -1229,6 +1229,7 @@ export default {
       verifying: "正在验证源文件和运行时…",
       retryWithAgent: "重试源文件验证",
       copyPrompt: "将提示复制给你的代理",
+      copyAgentPrompt: "复制代理提示",
       copyFullPrompt: "复制完整提示",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",

@@ -1272,6 +1272,7 @@ export default {
       verifying: "Verificando el código y el runtime…",
       retryWithAgent: "Reintentar verificación del código",
       copyPrompt: "Copiar prompt a tu agente",
+      copyAgentPrompt: "Copiar prompt del agente",
       copyFullPrompt: "Copiar el prompt completo",
       abortPreview: "Cancelar vista previa e interactuar",
       agentMessage:

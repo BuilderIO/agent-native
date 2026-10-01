@@ -27,6 +27,8 @@ vi.mock("../../db/client.js", () => ({
 }));
 
 const isStoredEngineUsableForRequest = vi.hoisted(() => vi.fn());
+const getUserLabEnabled = vi.hoisted(() => vi.fn());
+const listChatGPTSubscriptionModels = vi.hoisted(() => vi.fn());
 
 vi.mock("../../agent/engine/index.js", () => {
   const entry = {
@@ -39,10 +41,24 @@ vi.mock("../../agent/engine/index.js", () => {
     requiredEnvVars: ["OPENAI_API_KEY"],
     create: vi.fn(),
   };
+  const chatGPTEntry = {
+    name: "chatgpt-subscription",
+    label: "ChatGPT plan access",
+    description: "",
+    capabilities: {},
+    defaultModel: "personal-model",
+    supportedModels: ["personal-model"],
+    requiredEnvVars: [],
+    create: vi.fn(),
+  };
   return {
-    listAgentEngines: () => [entry],
+    listAgentEngines: () => [entry, chatGPTEntry],
     getAgentEngineEntry: (name: string) =>
-      name === "ai-sdk:openai" ? entry : undefined,
+      name === "ai-sdk:openai"
+        ? entry
+        : name === "chatgpt-subscription"
+          ? chatGPTEntry
+          : undefined,
     isAgentEnginePackageInstalled: () => true,
     isStoredEngineUsableForRequest: (...args: unknown[]) =>
       isStoredEngineUsableForRequest(...args),
@@ -53,8 +69,19 @@ vi.mock("../../agent/engine/index.js", () => {
   };
 });
 
+vi.mock("../../agent/engine/chatgpt-subscription-engine.js", () => ({
+  listChatGPTSubscriptionModels: (...args: unknown[]) =>
+    listChatGPTSubscriptionModels(...args),
+}));
+
+vi.mock("../../labs/store.js", () => ({
+  getUserLabEnabled: (...args: unknown[]) => getUserLabEnabled(...args),
+}));
+
 const { run: runManage } = await import("./manage-agent-engine.js");
 const { run: runSet } = await import("./set-agent-engine.js");
+const { readAgentAppModelDefaultSettings } =
+  await import("../../agent/app-model-defaults.js");
 const { readDefaultAgentEngineSettingDetailed } =
   await import("../../agent/default-agent-engine.js");
 const { runWithRequestContext } =
@@ -78,6 +105,13 @@ beforeEach(async () => {
   __resetAuditInitForTests();
   isStoredEngineUsableForRequest.mockReset();
   isStoredEngineUsableForRequest.mockResolvedValue(true);
+  getUserLabEnabled.mockReset();
+  getUserLabEnabled.mockResolvedValue(true);
+  listChatGPTSubscriptionModels.mockReset();
+  listChatGPTSubscriptionModels.mockResolvedValue({
+    models: ["personal-model"],
+    modelDisplayNames: { "personal-model": "Personal model" },
+  });
   await pglite.exec(`CREATE TABLE settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -189,6 +223,103 @@ describe("manage-agent-engine set", () => {
     await expect(
       readDefaultAgentEngineSettingDetailed({ userEmail: "solo@example.test" }),
     ).resolves.toMatchObject({ source: "user" });
+  });
+
+  it("rejects ChatGPT plan access as an organization default", async () => {
+    const result = await as("admin@a.test", "org-a", () =>
+      runSet({ engine: "chatgpt-subscription", model: "personal-model" }),
+    );
+
+    expect(result).toBe(
+      "Error: ChatGPT plan access is personal and cannot be selected as an organization default.",
+    );
+    await expect(
+      readDefaultAgentEngineSettingDetailed({
+        userEmail: "admin@a.test",
+        orgId: "org-a",
+      }),
+    ).resolves.toEqual({ source: "none", value: null });
+    expect(isStoredEngineUsableForRequest).not.toHaveBeenCalled();
+  });
+
+  it("lets a user without an organization select their ChatGPT personal default", async () => {
+    const result = JSON.parse(
+      await as("solo@example.test", undefined, () =>
+        runSet({
+          engine: "chatgpt-subscription",
+          model: "personal-model",
+        }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      engine: "chatgpt-subscription",
+      model: "personal-model",
+    });
+    await expect(
+      readDefaultAgentEngineSettingDetailed({
+        userEmail: "solo@example.test",
+      }),
+    ).resolves.toMatchObject({
+      source: "user",
+      value: { engine: "chatgpt-subscription", model: "personal-model" },
+    });
+  });
+
+  it("rejects ChatGPT plan access as an organization app default before loading its catalog", async () => {
+    const result = await as("admin@a.test", "org-a", () =>
+      runManage({
+        action: "set-app-default",
+        appId: "mail",
+        engine: "chatgpt-subscription",
+        model: "personal-model",
+      }),
+    );
+
+    expect(result).toBe(
+      "Error: ChatGPT plan access is personal and cannot be selected as an organization default.",
+    );
+    expect(listChatGPTSubscriptionModels).not.toHaveBeenCalled();
+    await expect(
+      readAgentAppModelDefaultSettings(
+        { userEmail: "admin@a.test", orgId: "org-a" },
+        "mail",
+      ),
+    ).resolves.toMatchObject({ engine: null, model: null, source: "default" });
+  });
+
+  it("lets a user without an organization set their ChatGPT app default", async () => {
+    const result = JSON.parse(
+      await as("solo@example.test", undefined, () =>
+        runManage({
+          action: "set-app-default",
+          appId: "mail",
+          engine: "chatgpt-subscription",
+          model: "personal-model",
+        }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      engine: "chatgpt-subscription",
+      model: "personal-model",
+      source: "user",
+    });
+    expect(listChatGPTSubscriptionModels).toHaveBeenCalledWith(
+      "solo@example.test",
+    );
+    await expect(
+      readAgentAppModelDefaultSettings(
+        { userEmail: "solo@example.test" },
+        "mail",
+      ),
+    ).resolves.toMatchObject({
+      engine: "chatgpt-subscription",
+      model: "personal-model",
+      source: "user",
+    });
   });
 
   it("warns without saving when required credentials are unreachable", async () => {

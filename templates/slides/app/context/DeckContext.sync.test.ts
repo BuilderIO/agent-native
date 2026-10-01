@@ -77,6 +77,7 @@ function noRealtimeWrapper({ children }: { children: ReactNode }) {
 
 function setupFetch() {
   let serverDecks: Deck[] = [];
+  let missingDeckDetails = new Set<string>();
   let resolveCreate: (response: Response) => void = () => {};
   let heldListRequestBudget = 0;
   const pendingListResolves: Array<(response: Response) => void> = [];
@@ -114,7 +115,7 @@ function setupFetch() {
       const id = new URL(href, "http://localhost").searchParams.get("id");
       const found = serverDecks.find((d) => d.id === id);
       return Promise.resolve(
-        found
+        found && !missingDeckDetails.has(id ?? "")
           ? new Response(JSON.stringify(found), { status: 200 })
           : new Response("", { status: 404 }),
       );
@@ -128,6 +129,9 @@ function setupFetch() {
     fetchMock,
     setServerDecks: (decks: Deck[]) => {
       serverDecks = decks;
+    },
+    setMissingDeckDetails: (ids: string[]) => {
+      missingDeckDetails = new Set(ids);
     },
     resolveCreate: (response: Response) => resolveCreate(response),
     holdNextList: () => {
@@ -565,6 +569,78 @@ describe("DeckContext fallback polling", () => {
         "Renamed Elsewhere",
       ),
     );
+  });
+
+  it("exposes an in-flight home deck-list refresh", async () => {
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() =>
+      expect(listCallCount(api.fetchMock)).toBeGreaterThan(1),
+    );
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    api.holdNextList();
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(api.listRequestPending()).toBe(true));
+    expect(result.current.deckListRefreshing).toBe(true);
+
+    await act(async () => {
+      api.releaseList([]);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.deckListRefreshing).toBe(false));
+  });
+
+  it("keeps an incomplete deck-list hydration in an error state until it recovers", async () => {
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() =>
+      expect(listCallCount(api.fetchMock)).toBeGreaterThan(1),
+    );
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    const newDeck: Deck = {
+      id: "unhydrated-deck",
+      title: "Unhydrated Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    api.setServerDecks([newDeck]);
+    api.setMissingDeckDetails([newDeck.id]);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.loadError).toBe(true));
+    await waitFor(() => expect(result.current.deckListRefreshing).toBe(false));
+
+    expect(result.current.decks).toEqual([]);
+
+    api.setMissingDeckDetails([]);
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.decks).toEqual([newDeck]));
+    expect(result.current.loadError).toBe(false);
   });
 
   it("takes over at the fast interval when the live channel drops", async () => {

@@ -19,6 +19,7 @@ import {
   pendingVisualStyleRouteMatches,
   pendingVisualStyleGestureIdForPhase,
   resolveOverviewScreenSourceType,
+  updateVisualEditHandoffPublication,
 } from "./pending-edits";
 
 function styleEdit(
@@ -432,6 +433,23 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
 });
 
 describe("formatVisualEditClipboardPrompt", () => {
+  it("copies the full source instructions by default", () => {
+    const prompt = "Apply the exact source edits from this canvas.";
+    const copied = formatVisualEditClipboardPrompt(
+      prompt,
+      "claude",
+      undefined,
+      "design-1",
+    );
+
+    expect(copied).toContain("Design ID: design-1");
+    expect(copied).toContain("idiomatic code changes");
+    expect(copied).toContain(prompt);
+    expect(copied).not.toContain(
+      "Use the Agent-Native Design MCP tool get-visual-edit-pending with",
+    );
+  });
+
   it("uses the hosted MCP handoff across detected and unknown hosts", () => {
     const prompt = "Apply the exact source edits from this canvas.";
     for (const host of [
@@ -485,7 +503,7 @@ describe("formatVisualEditClipboardPrompt", () => {
   it("uses the design id from the URL when it is not passed", () => {
     const copied = formatVisualEditClipboardPrompt("Apply these edits.", null);
     expect(copied).toContain("get-visual-edit-pending");
-    expect(copied).toContain("using the design ID from this URL");
+    expect(copied).toContain("Use the design ID from this URL.");
   });
 
   it("copies full implementation instructions and the detailed handoff", () => {
@@ -508,16 +526,16 @@ describe("formatVisualEditClipboardPrompt", () => {
 });
 
 describe("isVisualEditHandoffAcknowledged", () => {
-  it("clears only the exact locally pending revision", () => {
+  it("clears only the exact acknowledged server revision", () => {
     const base = {
-      currentRevision: 8,
+      serverRevision: 81,
       pendingEditCount: 3,
       status: "empty",
-      revision: 8,
+      revision: 81,
     } as const;
 
     expect(isVisualEditHandoffAcknowledged(base)).toBe(true);
-    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 7 })).toBe(
+    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 80 })).toBe(
       false,
     );
     expect(isVisualEditHandoffAcknowledged({ ...base, status: "ready" })).toBe(
@@ -526,6 +544,40 @@ describe("isVisualEditHandoffAcknowledged", () => {
     expect(
       isVisualEditHandoffAcknowledged({ ...base, pendingEditCount: 0 }),
     ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, serverRevision: null }),
+    ).toBe(false);
+  });
+
+  it("rechecks an empty response when the matching server revision arrives later", () => {
+    const handoff = { status: "empty", revision: 81 } as const;
+    const queued = updateVisualEditHandoffPublication(null, {
+      status: "queued",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+    const publication = updateVisualEditHandoffPublication(queued, {
+      status: "ready",
+      designId: "design-1",
+      publicationRevision: 4,
+      serverRevision: 81,
+    });
+
+    expect(
+      isVisualEditHandoffAcknowledged({
+        serverRevision: null,
+        pendingEditCount: 3,
+        ...handoff,
+      }),
+    ).toBe(false);
+    expect(publication?.serverRevision).toBe(81);
+    expect(
+      isVisualEditHandoffAcknowledged({
+        serverRevision: publication?.serverRevision ?? null,
+        pendingEditCount: 3,
+        ...handoff,
+      }),
+    ).toBe(true);
   });
 });
 

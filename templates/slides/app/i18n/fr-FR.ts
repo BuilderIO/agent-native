@@ -46,7 +46,7 @@ const messages = {
     designSystems: "Systèmes de design",
   },
   settings: {
-    agentObservability: "Observabilité de l’agent",
+    agentObservability: "Observabilité",
     title: "Paramètres",
     labs: "Labs",
     labsIntro:
@@ -462,6 +462,7 @@ const messages = {
     retry: "Réessayer",
     clickToAddComment: "Cliquez pour ajouter un commentaire",
     selectSlideToAdd: "Sélectionnez une diapositive pour en ajouter un",
+    filters: "Filtres des commentaires",
     scope: "Portée des commentaires",
     thisSlide: "Cette diapositive",
     allComments: "Toutes les diapositives",

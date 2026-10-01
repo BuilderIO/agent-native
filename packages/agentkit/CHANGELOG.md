@@ -1,5 +1,18 @@
 # @agent-native/agentkit
 
+## 0.198.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 3ba09b7: Copy complete Visual Edit instructions by default and show Builder.io for Builder credit connections.
+
 ## 0.198.6
 
 ### Patch Changes

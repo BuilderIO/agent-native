@@ -366,6 +366,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "自動",
   "composer.builderModelCredits": "Claude、OpenAI 與 Gemini 的免費額度",
   "composer.chatGptSubscription": "ChatGPT 訂閱",
+  "composer.chatgptManageUsage": "管理使用量",
+  "composer.chatgptPlanUsing": "正在使用 ChatGPT 方案",
   "composer.closePreview": "關閉預覽",
   "composer.configureProviderKeys": "設定 Anthropic、OpenAI 或其他供應商",
   "composer.connectAbove": "請在上方連線 AI 以繼續...",
@@ -553,6 +555,9 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "正在載入聊天...",
   "empty.prompt": "我能如何協助您？",
   "error.afterDuration": "{{duration}} 後{{headline}}",
+  "error.chatgptPlanUsageLimit": "已達到您的 ChatGPT 方案使用上限。",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI 無法檢查此 ChatGPT 方案的使用上限。請查看 ChatGPT 使用量，或嘗試其他模型。",
   "error.failed": "代理發生錯誤",
   "error.render": "無法顯示此內容。",
   "error.stopped": "代理在完成前已停止",
@@ -1022,6 +1027,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "正在連線至 Builder.io",
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
+  "recovery.retryAttachmentUnavailable":
+    "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
   "recovery.deferredSubmissionFailed":
     "無法傳送這則訊息。請檢查連線或聊天設定，然後再試一次。",
   "recovery.credentialRejected":
@@ -1453,6 +1460,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "你的預估費用",
   "settings.usage.yourCreditSpend": "你的 Builder.io 點數用量",
   "settings.usage.calls": "呼叫",
+  "settings.usage.chatgptPlanUsage": "ChatGPT 方案用量",
   "settings.usage.tokens": "Token",
   "settings.usage.activePeople": "活躍成員",
   "settings.usage.history": "用量紀錄",
@@ -2494,10 +2502,32 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "取消",
   "settingsModel.change": "變更",
   "settingsModel.chatgptConnected": "已連線",
-  "settingsModel.chatgptDescription": "透過您的 ChatGPT 方案使用 Codex 引擎。",
+  "settingsModel.chatgptDescription":
+    "透過您的 ChatGPT 方案使用符合資格的 OpenAI 模型。",
   "settingsModel.chatgptPopupBlocked":
     "請允許此網站的彈出式視窗，然後再試一次。",
-  "settingsModel.chatgptTitle": "ChatGPT 訂閱",
+  "settingsModel.chatgptTitle": "ChatGPT 方案存取",
+  "settingsModel.chatgptAddAccount": "新增另一個帳戶",
+  "settingsModel.chatgptConnecting": "正在連線…",
+  "settingsModel.chatgptContinue": "繼續使用 ChatGPT",
+  "settingsModel.chatgptDisconnect": "中斷連線",
+  "settingsModel.chatgptDisconnectTitle": "要中斷 ChatGPT 連線嗎？",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} 將登出此應用程式，代理程式也將不再使用你的 ChatGPT 方案。你可以隨時重新登入。",
+  "settingsModel.chatgptDisconnecting": "正在中斷連線…",
+  "settingsModel.chatgptRemoveLegacySignIn": "移除舊版登入",
+  "settingsModel.chatgptLegacySignInDetails":
+    "此處儲存了舊版 ChatGPT 登入資訊，官方流程無法使用。",
+  "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "已在此處中斷連線。在 ChatGPT 中，存取權可能仍然有效。",
+  "settingsModel.chatgptLocalOnly":
+    "開源應用在本機使用 loopback callback 執行時，無須申請合作夥伴資格即可使用 ChatGPT 方案。託管於 *.agent-native.com 的應用需要營運方核准，並設定託管 callback。",
+  "settingsModel.chatgptNoDirectUse":
+    "重新連線並允許模型直接存取，才能使用此 ChatGPT 帳戶。",
+  "settingsModel.chatgptReconnect": "重新連線",
+  "settingsModel.chatgptSelectAccount": "ChatGPT 帳戶",
+  "settingsModel.chatgptUsageLimit": "已達到您的 ChatGPT 方案使用上限。",
   "settingsModel.checkAgain": "重新檢查",
   "settingsModel.checkedJustNow": "剛剛已檢查。",
   "settingsModel.checkedOn": "已於 {{date}} 檢查。",

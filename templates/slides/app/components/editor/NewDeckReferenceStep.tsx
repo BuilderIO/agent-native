@@ -51,7 +51,9 @@ export interface NewDeckReferenceSelection {
   composerContext?: SlidesComposerContext;
   contextItems?: readonly AgentChatContextItem[];
   designSystemId?: string | null;
+  automaticReferenceDeckId?: string | null;
   referenceDeckId?: string | null;
+  referenceDeckIdSource?: "prompt" | "selection" | "automatic";
   referenceFilePaths?: string[];
   importedReferenceFilePath?: string;
   referenceSource?: {
@@ -127,6 +129,7 @@ interface NewDeckReferenceStepProps {
   open: boolean;
   designSystems: DesignSystemOption[];
   decks: Deck[];
+  referenceOptionsLoaded: boolean;
   defaultDesignSystemId: string | null;
   defaultReferenceDeckId: string | null;
   onSelect: (selection: NewDeckReferenceSelection) => void | Promise<void>;
@@ -152,6 +155,7 @@ export function NewDeckReferenceStep({
   open,
   designSystems,
   decks,
+  referenceOptionsLoaded,
   defaultDesignSystemId,
   defaultReferenceDeckId,
   onSelect,
@@ -210,8 +214,15 @@ export function NewDeckReferenceStep({
     isValidReferenceSourceValue(selectedSource.kind, selectedSource.value),
   );
   const hasSelection = Boolean(
-    selectedDesignSystemId || selectedReferenceDeckId || selectedSourceValid,
+    selectedDesignSystemId ||
+    selectedReferenceDeckId ||
+    selectedSourceValid ||
+    (referenceOptionsLoaded &&
+      !selectedSource &&
+      designSystems.length === 0 &&
+      decks.length === 0),
   );
+  const canContinue = referenceOptionsLoaded && hasSelection;
 
   useEffect(() => {
     if (!open) return;
@@ -275,7 +286,7 @@ export function NewDeckReferenceStep({
   };
 
   const handleContinue = async () => {
-    if (busy || !hasSelection) return;
+    if (busy || !canContinue) return;
     const trimmedSource =
       selectedSource && selectedSource.value.trim()
         ? { ...selectedSource, value: selectedSource.value.trim() }
@@ -292,6 +303,9 @@ export function NewDeckReferenceStep({
       await onSelect({
         designSystemId: selectedDesignSystemId,
         referenceDeckId: selectedReferenceDeckId,
+        referenceDeckIdSource: referenceDeckAutoRef.current
+          ? "automatic"
+          : "selection",
         referenceSource: trimmedSource,
         ...(importedReference?.referenceFilePaths?.length
           ? { referenceFilePaths: importedReference.referenceFilePaths }
@@ -673,7 +687,7 @@ export function NewDeckReferenceStep({
           aria-busy={busy}
           disabled={
             busy ||
-            !hasSelection ||
+            !canContinue ||
             Boolean(selectedSource && !selectedSourceValid)
           }
         >
