@@ -1605,6 +1605,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     const handoff = handoffResponse?.result?.structuredContent as
       | { revision?: number; status?: string }
       | undefined;
+    if (!handoff) throw new Error("MCP returned no structured pending handoff");
     expect(handoff.status).toBe("ready");
     expect(handoff.revision).toEqual(expect.any(Number));
 
