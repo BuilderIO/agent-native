@@ -7,6 +7,7 @@ import {
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
+  lineNavigationKeys,
   runAuthoringFuzz,
 } from "./authoring-fuzz.ts";
 
@@ -143,6 +144,14 @@ it("creates reproducible authoring plans with full command coverage", () => {
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
   ).toThrow("safe integer");
   expect(() => createAuthoringFuzzPlan(42, 0)).toThrow("positive integer");
+});
+
+it.each([
+  ["darwin", "Meta+ArrowLeft", "Meta+ArrowRight"],
+  ["linux", "Home", "End"],
+  ["win32", "Home", "End"],
+])("uses platform line navigation keys on %s", (platform, start, end) => {
+  expect(lineNavigationKeys(platform)).toEqual({ start, end });
 });
 
 it("requires the scaled profile to render below 0.99 after viewport setup", async () => {

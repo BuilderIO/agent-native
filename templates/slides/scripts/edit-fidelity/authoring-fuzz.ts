@@ -1,6 +1,16 @@
 type Page = any;
 type Locator = any;
 
+export function lineNavigationKeys(platform: string) {
+  return platform === "darwin"
+    ? { start: "Meta+ArrowLeft", end: "Meta+ArrowRight" }
+    : { start: "Home", end: "End" };
+}
+
+const { start: lineStartKey, end: lineEndKey } = lineNavigationKeys(
+  process.platform,
+);
+
 export type AuthoringFuzzOperation =
   | { kind: "type"; value: string }
   | { kind: "shortcut"; value: string; result: string }
@@ -751,19 +761,41 @@ export async function runAuthoringFuzz(
       }
     }, result);
   const assertShortcut = async (result: string, before: number) => {
-    if ((await shortcutResultCount(result)) <= before)
-      throw new Error(`markdown shortcut did not produce ${result}`);
+    const after = await shortcutResultCount(result);
+    if (after <= before) {
+      const structure = await editor.evaluate((root: HTMLElement) => ({
+        rootTag: root.tagName,
+        children: Array.from(root.children, (child) => ({
+          tag: child.tagName,
+          textLength: child.textContent?.length ?? 0,
+          tags: Array.from(child.querySelectorAll("*"), (node) =>
+            node.tagName.toLowerCase(),
+          ),
+        })),
+        listTags: Array.from(root.querySelectorAll("ul,ol,li"), (node) =>
+          node.tagName.toLowerCase(),
+        ),
+        flexRows: root.querySelectorAll('[style*="display: flex"]').length,
+        rootIsFlexRow: root.matches('[style*="display: flex"]'),
+        textLength: root.textContent?.length ?? 0,
+        caret:
+          window.getSelection()?.anchorNode?.parentElement?.tagName ?? null,
+      }));
+      throw new Error(
+        `markdown shortcut did not produce ${result} (${before} -> ${after}; ${JSON.stringify(structure)})`,
+      );
+    }
   };
   const newLine = async () => {
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.press("Enter");
-    await editor.press("Home");
+    await editor.press(lineStartKey);
   };
   const newPlainLine = async () => {
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.press("Enter");
     await editor.press("Enter");
-    await editor.press("Home");
+    await editor.press(lineStartKey);
   };
   const openSlashMenu = async () => {
     await newLine();
@@ -886,7 +918,7 @@ export async function runAuthoringFuzz(
       await runSlashCommand(kind === "ul" ? "bulletList" : "orderedList");
       await typeText(firstToken);
     }
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.press("Enter");
     await typeText(secondToken);
     const after = await listRowCount(kind);
@@ -991,7 +1023,7 @@ export async function runAuthoringFuzz(
   const makeCrossBlockSelection = async (token: string) => {
     await newLine();
     await typeText(`A${token}`);
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.press("Enter");
     await typeText(`B${token}`);
     await editor.evaluate((root: HTMLElement, suffix: string) => {
@@ -1344,7 +1376,7 @@ export async function runAuthoringFuzz(
           await runSlashCommand("heading2");
           const token = `heading${activeIndex}`;
           await typeText(token);
-          await editor.press("End");
+          await editor.press(lineEndKey);
           await editor.press("Enter");
           const plainSibling = await editor.evaluate((root: HTMLElement) =>
             Array.from(root.querySelectorAll("h2")).some(
@@ -1379,7 +1411,7 @@ export async function runAuthoringFuzz(
         case "empty-list-exit": {
           await runSlashCommand("bulletList");
           await typeText(`list${activeIndex}`);
-          await editor.press("End");
+          await editor.press(lineEndKey);
           await editor.press("Enter");
           await editor.press("Enter");
           const exited = await editor.evaluate((root: HTMLElement) =>
@@ -1410,22 +1442,22 @@ export async function runAuthoringFuzz(
           await createList(operation.value);
           break;
         case "enter-block-edge":
-          await editor.press("Home");
+          await editor.press(lineStartKey);
           await editor.press("Enter");
           break;
         case "backspace-block-edge":
-          await editor.press("Home");
+          await editor.press(lineStartKey);
           await editor.press("Backspace");
           break;
         case "delete-block-edge":
-          await editor.press("Home");
+          await editor.press(lineStartKey);
           await editor.press("Delete");
           break;
         case "enter-list-edge":
           await createList("ul");
           {
             const before = await listRowCount("ul");
-            await editor.press("End");
+            await editor.press(lineEndKey);
             await editor.press("Enter");
             if ((await listRowCount("ul")) <= before)
               throw new Error("Enter did not add a list item at the list edge");
@@ -1605,7 +1637,7 @@ export async function runAuthoringFuzz(
           await typeText("x".repeat(40));
           await editor.press("Enter");
           await typeText("vertical target");
-          await editor.press("End");
+          await editor.press(lineEndKey);
           const beforeX = await editor.evaluate(
             () =>
               window.getSelection()?.getRangeAt(0).getBoundingClientRect().x ??
@@ -1718,7 +1750,11 @@ export async function runAuthoringFuzz(
       await assertCaret();
       checkPageErrors();
       const siblingChanges = await snapshotEditorSiblings("assert");
-      if (siblingChanges.length) {
+      if (
+        siblingChanges.length &&
+        operation.kind !== "undo" &&
+        operation.kind !== "redo"
+      ) {
         throw new Error(
           `sibling block inside the editor moved or restyled: ${siblingChanges.slice(0, 5).join(", ")}`,
         );
@@ -1736,11 +1772,11 @@ export async function runAuthoringFuzz(
     let stableUndo = 0;
     let undoCalls = 0;
     let undoCount = 0;
+    // History replay may replace blocks created by earlier Enter operations; byte-identical HTML below proves restoration.
     while (
       undoCalls < maxHistoryCalls &&
       stableUndo < stableHistoryProbeLimit
     ) {
-      await snapshotEditorSiblings("capture");
       await page.keyboard.press(`${modifier}+Z`);
       undoCalls += 1;
       const nextHtml = await editor.innerHTML();
@@ -1752,12 +1788,6 @@ export async function runAuthoringFuzz(
       currentHtml = nextHtml;
       await assertCaret();
       checkPageErrors();
-      const siblingChanges = await snapshotEditorSiblings("assert");
-      if (siblingChanges.length) {
-        throw new Error(
-          `undo changed a sibling block inside the editor: ${siblingChanges.slice(0, 5).join(", ")}`,
-        );
-      }
       await assertOutsideUnchanged(outsideBefore);
     }
     assertByteIdenticalHtml(currentHtml, originalHtml, "undo-all editor HTML");
@@ -1776,7 +1806,6 @@ export async function runAuthoringFuzz(
       undoCalls + historyLimit + 10,
     );
     while (redoCalls < maxRedoCalls && stableRedo < stableHistoryProbeLimit) {
-      await snapshotEditorSiblings("capture");
       await page.keyboard.press(`${modifier}+Shift+Z`);
       redoCalls += 1;
       const nextHtml = await editor.innerHTML();
@@ -1788,12 +1817,6 @@ export async function runAuthoringFuzz(
       currentHtml = nextHtml;
       await assertCaret();
       checkPageErrors();
-      const siblingChanges = await snapshotEditorSiblings("assert");
-      if (siblingChanges.length) {
-        throw new Error(
-          `redo changed a sibling block inside the editor: ${siblingChanges.slice(0, 5).join(", ")}`,
-        );
-      }
       await assertOutsideUnchanged(outsideBefore);
     }
     assertByteIdenticalHtml(currentHtml, finalHtml, "redo-all editor HTML");

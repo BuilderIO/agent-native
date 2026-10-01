@@ -2250,14 +2250,23 @@ describe("in-place text session: commands", () => {
   });
 
   it("turns '- ' after Enter into a bullet on that line", () => {
-    const el = mount('<div id="t">First line</div>');
+    const el = mount('<p id="t">First line</p>');
     session = startInPlaceTextSession(el);
     caret(el.firstChild!, "First line".length);
     beforeInput(el, "insertParagraph");
-    type(el, "- ");
+    type(session.element, "- ");
 
-    expect(el.lastElementChild?.textContent).toContain("●");
-    expect(el.textContent).toBe("First line●");
+    expect(session.element.lastElementChild?.textContent).toContain("●");
+    const row = session.element.querySelector(
+      ':scope > div[style*="display: flex"]',
+    );
+    expect(
+      row?.lastElementChild?.contains(
+        window.getSelection()?.anchorNode ?? null,
+      ),
+    ).toBe(true);
+    type(session.element, "Tail");
+    expect(session.element.textContent).toBe("First line●Tail");
   });
 
   it("turns '---' into a divider without requiring a trailing space", () => {

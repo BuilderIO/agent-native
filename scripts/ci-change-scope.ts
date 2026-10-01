@@ -83,6 +83,8 @@ const CHECK_NAMES = [
   "agentkit_acceptance",
   "neon_query_budget",
   "neon_connection_budget",
+  "slides_chat_e2e",
+  "slides_authoring_e2e",
   "changeset",
 ] as const;
 
@@ -472,6 +474,12 @@ function buildChecks(
     measuresEveryQueryBudgetApp(changedPaths) ||
     hasPath(changedPaths, "packages/creative-context/") ||
     changedQueryBudgetApps(changedPaths).length > 0;
+  const slidesE2eChanged =
+    hasPath(changedPaths, "templates/slides/") ||
+    coreChanged ||
+    toolkitChanged ||
+    hasPath(changedPaths, "packages/creative-context/");
+  const slidesChatE2eChanged = slidesE2eChanged || agentkitChanged;
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
@@ -509,6 +517,8 @@ function buildChecks(
     // The probe imports only core's database client, so templates cannot
     // move it.
     neon_connection_budget: coreChanged,
+    slides_chat_e2e: slidesChatE2eChanged,
+    slides_authoring_e2e: slidesE2eChanged,
     changeset: changedPaths.some(isChangesetPath),
   };
 }

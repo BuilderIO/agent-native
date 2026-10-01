@@ -29,6 +29,7 @@ import {
 import {
   assertAuthoringPersistence,
   canonicalizeAuthoringFuzzPersistence,
+  lineNavigationKeys,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
@@ -147,10 +148,12 @@ const update = argv.includes("--update");
 const acceptFailing = argv.includes("--accept-failing");
 const headed = argv.includes("--headed");
 const typingChatOnly = argv.includes("--typing-chat");
+const caretQaOnly = argv.includes("--caret-qa");
 const imeEscapeOnly = argv.includes("--ime-escape");
 const textSurfaceQaOnly = argv.includes("--text-surface-qa");
-const lineStartKey = process.platform === "darwin" ? "Meta+ArrowLeft" : "Home";
-const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
+const { start: lineStartKey, end: lineEndKey } = lineNavigationKeys(
+  process.platform,
+);
 const authoringOnly = argv.includes("--authoring");
 const authoringCorpusOnly = argv.includes("--authoring-corpus");
 const authoringFuzzOnly = argv.includes("--authoring-fuzz");
@@ -169,14 +172,18 @@ if (!["chromium", "webkit", "firefox"].includes(browserName)) {
 }
 if (
   browserName !== "chromium" &&
+  !caretQaOnly &&
   !textSurfaceQaOnly &&
   !authoringOnly &&
   !authoringCorpusOnly &&
   !authoringFuzzOnly
 ) {
   fatal(
-    "--browser webkit|firefox is supported with --authoring, --authoring-corpus, --authoring-fuzz, or --text-surface-qa",
+    "--browser webkit|firefox is supported with --caret-qa, --authoring, --authoring-corpus, --authoring-fuzz, or --text-surface-qa",
   );
+}
+if (caretQaOnly && browserName !== "chromium") {
+  fatal("--caret-qa is supported in Chromium only");
 }
 for (const s of scenarios) {
   if (!SCENARIOS.includes(s))
@@ -500,6 +507,7 @@ async function startServer(): Promise<{
       "dev",
       "--port",
       String(port),
+      "--inspect=0",
     ],
     { cwd: WORKTREE_ROOT, detached: true, stdio: ["ignore", log, log] },
   );
@@ -1206,7 +1214,12 @@ async function runImeEscapeRegression(
   }
 }
 
-async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
+async function runTextSurfaceQa(
+  page: Page,
+  base: string,
+  browserName: string,
+  caretOnly = false,
+) {
   const problems: string[] = [];
   const usesChromiumIme = browserName === "chromium";
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
@@ -1628,6 +1641,16 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
         "slide text: line-start key did not put the caret at the line start",
       );
     }
+    const caretInside = async () =>
+      editor.evaluate((element: HTMLElement) => {
+        const focus = window.getSelection()?.focusNode;
+        return Boolean(focus && element.contains(focus));
+      });
+    if (!(await caretInside())) {
+      problems.push(
+        "slide text: line-start key moved the caret outside the editor",
+      );
+    }
     await editor.press(lineEndKey);
     await editor.pressSequentially(" caret end");
     expectedSlideText += " caret end";
@@ -1636,6 +1659,12 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
         "slide text: line-end key did not put the caret at the line end",
       );
     }
+    if (!(await caretInside())) {
+      problems.push(
+        "slide text: line-end key moved the caret outside the editor",
+      );
+    }
+    if (caretOnly) return problems;
     const titleInput = page
       .locator('[data-slides-editor-root="true"] input[type="text"]')
       .first();
@@ -3016,9 +3045,20 @@ async function runAuthoringCorpusQa(
             }
             if (scaled) await assertSlashPopoverGeometry(editor);
             await page.keyboard.press("Enter");
-            if (!(await editorHas(editor, "h2"))) {
+            const expectedTag = target.tag.toLowerCase() === "h2" ? "p" : "h2";
+            if (!(await editorHas(editor, expectedTag))) {
+              const actualTag = await editor.evaluate(
+                (element: HTMLElement) => ({
+                  root: element.tagName.toLowerCase(),
+                  descendants: Array.from(
+                    element.querySelectorAll<HTMLElement>("*"),
+                  )
+                    .map((child) => child.tagName.toLowerCase())
+                    .slice(0, 20),
+                }),
+              );
               throw new Error(
-                "the Heading 2 slash command did not create an H2",
+                `the Heading 2 slash command expected <${expectedTag}> from <${target.tag}>; got ${JSON.stringify(actualTag)}`,
               );
             }
           } else if (flow === "paste") {
@@ -3352,13 +3392,27 @@ async function runAuthoringCorpusQa(
               ...outside.geometry
                 .filter((change) => !change.inside)
                 .slice(0, 4)
-                .map(({ key, prop, a, b }) => ({
-                  kind: "geometry",
-                  ...describe(key),
-                  prop,
-                  a,
-                  b,
-                })),
+                .map(({ key, prop, a, b }) => {
+                  const beforeRecord = beforeRecords.get(key);
+                  const afterRecord = afterRecords.get(key);
+                  return {
+                    kind: "geometry",
+                    ...describe(key),
+                    prop,
+                    a,
+                    b,
+                    beforeFlow: beforeRecord?.downstreamFlow,
+                    afterFlow: afterRecord?.downstreamFlow,
+                    beforeDisplay: beforeRecord?.props.display,
+                    afterDisplay: afterRecord?.props.display,
+                    beforeRect: beforeRecord?.rect,
+                    afterRect: afterRecord?.rect,
+                    beforeFlex: beforeRecord?.flexCrossAlignment,
+                    afterFlex: afterRecord?.flexCrossAlignment,
+                    beforeLayout: beforeRecord?.layoutPath?.slice(0, 5),
+                    afterLayout: afterRecord?.layoutPath?.slice(0, 5),
+                  };
+                }),
               ...outside.deltas
                 .filter((change) => !change.inside)
                 .slice(0, 4)
@@ -3377,7 +3431,7 @@ async function runAuthoringCorpusQa(
                 .map(() => ({ kind: "added" })),
             ].slice(0, 12);
             throw new Error(
-              `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect })}): ${JSON.stringify(outsideSamples)}`,
+              `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect, beforeInFlow: before.editedInFlow, afterInFlow: after.editedInFlow, beforeLayout: before.editedLayoutPath?.slice(0, 5), afterLayout: after.editedLayoutPath?.slice(0, 5) })}): ${JSON.stringify(outsideSamples)}`,
             );
           }
           console.log(
@@ -3642,20 +3696,26 @@ async function runAuthoringCorpusQa(
         );
       }
       const frameP95 = sortedFrames[Math.ceil(sortedFrames.length * 0.95) - 1];
-      const slow = metrics.eventSamples
-        .filter((sample) => sample.duration > 16)
-        .sort((a, b) => a.duration - b.duration);
-      const p95Rank = Math.ceil(metrics.keydowns * 0.95);
-      const p95IsOverThreshold = slow.length >= metrics.keydowns - p95Rank + 1;
-      const p95Event = p95IsOverThreshold
-        ? slow[slow.length - (metrics.keydowns - p95Rank + 1)]
-        : null;
+      const sortedEvents = [...metrics.eventSamples].sort(
+        (a, b) => a.duration - b.duration,
+      );
+      if (sortedEvents.length < 32) {
+        throw new Error(
+          `only captured ${sortedEvents.length} Event Timing samples`,
+        );
+      }
+      const p95Event = sortedEvents[Math.ceil(sortedEvents.length * 0.95) - 1];
       console.log(
-        `[edit-fidelity] largest corpus slide Event Timing p95=${p95Event === null ? "<=16" : `${p95Event.duration.toFixed(2)}ms`} (input-to-paint diagnostic, input=${p95Event?.inputDelay.toFixed(2) ?? "n/a"}ms handler=${p95Event?.handlerDuration.toFixed(2) ?? "n/a"}ms presentation=${p95Event?.presentationDelay.toFixed(2) ?? "n/a"}ms, observed=${metrics.eventSamples.length}/${metrics.keydowns})`,
+        `[edit-fidelity] largest corpus slide keydown-to-paint p95=${p95Event.duration.toFixed(2)}ms (input=${p95Event.inputDelay.toFixed(2)}ms handler=${p95Event.handlerDuration.toFixed(2)}ms presentation=${p95Event.presentationDelay.toFixed(2)}ms, observed=${metrics.eventSamples.length}/${metrics.keydowns}, threshold=16ms)`,
       );
       console.log(
         `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
       );
+      if (p95Event.duration > 16) {
+        problems.push(
+          `largest corpus slide keydown-to-paint p95 ${p95Event.duration.toFixed(2)}ms exceeds 16ms`,
+        );
+      }
       if (frameP95 > 16) {
         problems.push(
           `largest corpus slide keydown-to-first-rAF-plus-layout p95 ${frameP95.toFixed(2)}ms exceeds 16ms`,
@@ -5293,6 +5353,20 @@ async function main() {
       }
       console.log(
         "[edit-fidelity] selection direction and chat typing regressions passed",
+      );
+      return 0;
+    }
+
+    if (caretQaOnly) {
+      const page = await context.newPage();
+      const problems = await runTextSurfaceQa(page, base, browserName, true);
+      await page.close();
+      if (problems.length) {
+        console.error(`[edit-fidelity] text caret QA: ${problems.join("; ")}`);
+        return 1;
+      }
+      console.log(
+        `[edit-fidelity] slide text caret stayed at line edges and in the editor in ${browserName}`,
       );
       return 0;
     }

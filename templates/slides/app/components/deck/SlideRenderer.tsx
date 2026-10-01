@@ -394,7 +394,6 @@ function useSlideAutofit(
 
     let raf = 0;
     let disposed = false;
-    let editingMarkup: string | null = null;
     // Measuring costs a full-document reflow per slide (every descendant is
     // read with getBoundingClientRect, interleaved with style writes). A deck
     // with dozens of slides mounts that many renderers at once, so off-screen
@@ -428,12 +427,6 @@ function useSlideAutofit(
       if (disposed) return;
 
       const isEditing = !!root.querySelector('[contenteditable="true"]');
-      const currentEditingMarkup = isEditing ? root.innerHTML : null;
-      const shouldMeasureEditedMarkup =
-        isEditing &&
-        editingMarkup !== null &&
-        currentEditingMarkup !== editingMarkup;
-      editingMarkup = currentEditingMarkup;
       const rawTargets = ensureRawHtmlFitLayers(root);
       const targets =
         rawTargets.length > 0
@@ -445,10 +438,7 @@ function useSlideAutofit(
       let worstInfo: SlideOverflowInfo | null = null;
 
       for (const target of targets) {
-        if (isEditing && !shouldMeasureEditedMarkup) {
-          // Keep the transform on entry, then fit changed markup before exit.
-          continue;
-        }
+        if (isEditing) continue;
 
         resetTarget(target);
         const bounds = measureContentBounds(target);

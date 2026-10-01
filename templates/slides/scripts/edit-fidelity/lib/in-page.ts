@@ -62,6 +62,7 @@ export interface SnapRecord {
     itemSize: number;
     editedItemSize: number;
   };
+  layoutPath?: string[];
   tag?: string;
   inlineStyle?: string;
   props: Record<string, string>;
@@ -86,6 +87,7 @@ export interface Snapshot {
   editedInFlow?: boolean;
   /** Rendered lines of the element the edit is matched to, in full. */
   editedText: string | null;
+  editedLayoutPath?: string[];
 }
 
 export interface EditorState {
@@ -182,6 +184,13 @@ export function installInPageHelpers(chromeSelector: string) {
     "display",
     "opacity",
     "visibility",
+    "position",
+    ...SIDES,
+    "transform",
+    "transform-origin",
+    "translate",
+    "rotate",
+    "scale",
     ...SIDES.map((s) => `margin-${s}`),
     ...SIDES.map((s) => `padding-${s}`),
     ...SIDES.flatMap((s) => [
@@ -310,6 +319,14 @@ export function installInPageHelpers(chromeSelector: string) {
   // moves whenever a flex sibling grows; the computed value stays `auto`.
   const boxProps = (el: Element, cs: CSSStyleDeclaration) => {
     const out = pick(cs, BOX_PROPS);
+    if (el.hasAttribute("data-fmd-autofit-content")) {
+      out["--fmd-fit-scale"] = cs.getPropertyValue("--fmd-fit-scale").trim();
+      out["--fmd-fit-x"] = cs.getPropertyValue("--fmd-fit-x").trim();
+      out["--fmd-fit-y"] = cs.getPropertyValue("--fmd-fit-y").trim();
+      out["data-fmd-autofit-active"] = String(
+        el.hasAttribute("data-fmd-autofit-active"),
+      );
+    }
     const map = el.computedStyleMap();
     for (const s of SIDES) {
       if (String(map.get(`margin-${s}`)) === "auto")
@@ -879,9 +896,7 @@ export function installInPageHelpers(chromeSelector: string) {
         !editedBox ||
         editedBox === el ||
         editedBox.contains(el) ||
-        el.contains(editedBox) ||
-        !isInNormalFlow(editedBox) ||
-        !isInNormalFlow(el)
+        el.contains(editedBox)
       ) {
         return false;
       }
@@ -902,6 +917,56 @@ export function installInPageHelpers(chromeSelector: string) {
       const parent = editedBranch.parentElement;
       if (!parent || followingBranch.parentElement !== parent) return false;
       const parentStyle = getComputedStyle(parent);
+      const flexDirection = parentStyle.flexDirection;
+      const isRow = flexDirection.startsWith("row");
+      const isColumn = flexDirection.startsWith("column");
+      const itemStyle = getComputedStyle(followingBranch);
+      const align =
+        itemStyle.alignSelf === "auto"
+          ? parentStyle.alignItems
+          : itemStyle.alignSelf;
+      if (
+        parentStyle.display.includes("flex") &&
+        parentStyle.flexWrap === "nowrap" &&
+        (isRow || isColumn) &&
+        align === "center"
+      ) {
+        const axis: "x" | "y" = isRow ? "y" : "x";
+        const parentRect = parent.getBoundingClientRect();
+        const itemRect = followingBranch.getBoundingClientRect();
+        const editedRect = editedBranch.getBoundingClientRect();
+        const editedItemStyle = getComputedStyle(editedBranch);
+        const isFlexItem = (style: CSSStyleDeclaration) =>
+          style.position !== "absolute" &&
+          style.position !== "fixed" &&
+          style.position !== "sticky" &&
+          style.cssFloat === "none";
+        if (!isFlexItem(editedItemStyle) || !isFlexItem(itemStyle)) {
+          return false;
+        }
+        const size = axis === "x" ? "width" : "height";
+        const path: number[] = [];
+        for (
+          let node: Element | null = parent;
+          node && node !== root && node.parentElement;
+          node = node.parentElement
+        ) {
+          path.unshift(
+            Array.prototype.indexOf.call(node.parentElement!.children, node),
+          );
+        }
+        return {
+          flexCrossAlignment: {
+            context: path.join(".") || "root",
+            axis,
+            containerPosition: parentRect[axis] - origin[axis],
+            containerSize: parentRect[size],
+            itemSize: itemRect[size],
+            editedItemSize: editedRect[size],
+          },
+        };
+      }
+      if (!isInNormalFlow(editedBox) || !isInNormalFlow(el)) return false;
       const editedOrder = Number.parseInt(
         getComputedStyle(editedBranch).order,
         10,
@@ -922,46 +987,6 @@ export function installInPageHelpers(chromeSelector: string) {
         editedBranch.compareDocumentPosition(followingBranch) &
         Node.DOCUMENT_POSITION_FOLLOWING
       ) {
-        const flexDirection = parentStyle.flexDirection;
-        const isRow = flexDirection.startsWith("row");
-        const isColumn = flexDirection.startsWith("column");
-        const itemStyle = getComputedStyle(followingBranch);
-        const align =
-          itemStyle.alignSelf === "auto"
-            ? parentStyle.alignItems
-            : itemStyle.alignSelf;
-        if (
-          parentStyle.display.includes("flex") &&
-          parentStyle.flexWrap === "nowrap" &&
-          (isRow || isColumn) &&
-          align === "center"
-        ) {
-          const axis: "x" | "y" = isRow ? "y" : "x";
-          const parentRect = parent.getBoundingClientRect();
-          const itemRect = followingBranch.getBoundingClientRect();
-          const editedRect = editedBranch.getBoundingClientRect();
-          const size = axis === "x" ? "width" : "height";
-          const path: number[] = [];
-          for (
-            let node: Element | null = parent;
-            node && node !== root && node.parentElement;
-            node = node.parentElement
-          ) {
-            path.unshift(
-              Array.prototype.indexOf.call(node.parentElement!.children, node),
-            );
-          }
-          return {
-            flexCrossAlignment: {
-              context: path.join(".") || "root",
-              axis,
-              containerPosition: parentRect[axis] - origin[axis],
-              containerSize: parentRect[size],
-              itemSize: itemRect[size],
-              editedItemSize: editedRect[size],
-            },
-          };
-        }
         return {};
       }
       return false;
@@ -972,6 +997,23 @@ export function installInPageHelpers(chromeSelector: string) {
 
     const records: SnapRecord[] = [];
     const seen = new Map<string, number>();
+    const layoutPathOf = (el: Element) => {
+      const path: string[] = [];
+      const editedObject = editedBox?.closest("[data-slide-object-id]");
+      for (
+        let node: Element | null = el;
+        node && node !== root;
+        node = node.parentElement
+      ) {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        const object = node.closest("[data-slide-object-id]");
+        path.push(
+          `${node.tagName.toLowerCase()}[sameObject=${Boolean(object && object === editedObject)};block=${node.hasAttribute("data-slide-text-block")};editing=${node.hasAttribute("data-editing-block")};${style.display};${style.position};${style.top},${style.right},${style.bottom},${style.left};${style.transform};${style.alignSelf};${style.alignItems};${style.alignContent};${style.flexDirection};${style.justifyContent};${style.gridTemplateRows};${style.gridTemplateColumns};${style.gridRowStart},${style.gridRowEnd};${rect.x},${rect.y},${rect.width},${rect.height}]`,
+        );
+      }
+      return path;
+    };
     const push = (
       base: string,
       kind: SnapRecord["kind"],
@@ -980,6 +1022,7 @@ export function installInPageHelpers(chromeSelector: string) {
       rect: Rect,
       flow: ReturnType<typeof followsEditedFlow> = false,
       textElement?: Pick<SnapRecord, "tag" | "inlineStyle">,
+      layoutPath?: string[],
     ) => {
       const n = seen.get(base) ?? 0;
       seen.set(base, n + 1);
@@ -991,6 +1034,7 @@ export function installInPageHelpers(chromeSelector: string) {
         ...(flow && flow.flexCrossAlignment
           ? { flexCrossAlignment: flow.flexCrossAlignment }
           : {}),
+        ...(layoutPath ? { layoutPath } : {}),
         props,
         rect,
         ...textElement,
@@ -1030,9 +1074,14 @@ export function installInPageHelpers(chromeSelector: string) {
             tag: el.tagName.toLowerCase(),
             inlineStyle: el.getAttribute("style") ?? "",
           },
+          layoutPathOf(el),
         );
       }
-      if (paints(el, cs)) {
+      if (
+        paints(el, cs) ||
+        cs.transform !== "none" ||
+        el.hasAttribute("data-fmd-autofit-content")
+      ) {
         push(
           boxKey(el),
           "box",
@@ -1040,6 +1089,8 @@ export function installInPageHelpers(chromeSelector: string) {
           boxProps(el, cs),
           rectOf(el.getBoundingClientRect(), origin),
           flow,
+          undefined,
+          layoutPathOf(el),
         );
       }
       for (const pseudo of ["::before", "::after"]) {
@@ -1053,6 +1104,9 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           { ...pick(ps, BOX_PROPS), content: ps.content },
           { x: 0, y: 0, width: 0, height: 0 },
+          false,
+          undefined,
+          layoutPathOf(el),
         );
       }
       if (el.tagName.toUpperCase() === "SVG") return;
@@ -1085,6 +1139,7 @@ export function installInPageHelpers(chromeSelector: string) {
       editedRect: editedBox ? rectOf(paintedRect(editedBox), origin) : null,
       editedInFlow: isInNormalFlow(editedBox),
       editedText: editedEl ? lines(editedEl) : null,
+      editedLayoutPath: editedBox ? layoutPathOf(editedBox) : undefined,
     };
   }
 

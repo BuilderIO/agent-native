@@ -78,6 +78,39 @@ test("selects Slides caret CI for exact package roots and Creative Context", () 
   );
 });
 
+test("selects Slides caret and authoring E2E for their dependency closure", () => {
+  for (const path of [
+    "templates/slides/app/components/editor/Editor.tsx",
+    "packages/core/src/index.ts",
+    "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
+    "packages/creative-context/src/index.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_chat_e2e, true, path);
+    assert.equal(scope.checks.slides_authoring_e2e, true, path);
+  }
+
+  const agentkit = classifyChangedPaths([
+    "packages/agentkit/src/client/index.ts",
+  ]);
+  assert.equal(agentkit.checks.slides_chat_e2e, true);
+  assert.equal(agentkit.checks.slides_authoring_e2e, false);
+
+  for (const path of [
+    "templates/content/app/routes/index.tsx",
+    "templates/chat/app/routes/index.tsx",
+    "packages/core-corpus/src/index.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_chat_e2e, false, path);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
+
+  const full = classifyChangedPaths(["pnpm-lock.yaml"]);
+  assert.equal(full.checks.slides_chat_e2e, true);
+  assert.equal(full.checks.slides_authoring_e2e, true);
+});
+
 test("fails closed for empty and unknown root change sets", () => {
   const empty = classifyChangedPaths([]);
   assert.equal(empty.docsOnly, false);

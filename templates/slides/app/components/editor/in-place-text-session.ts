@@ -681,6 +681,20 @@ function graphemeAt(data: string, offset: number, backward: boolean) {
 }
 
 function retag(element: HTMLElement, tagName: string): HTMLElement {
+  const selection = window.getSelection();
+  const anchor = selection?.anchorNode;
+  const focus = selection?.focusNode;
+  const points =
+    selection?.rangeCount &&
+    anchor &&
+    focus &&
+    element.contains(anchor) &&
+    element.contains(focus)
+      ? ([
+          [anchor, selection.anchorOffset],
+          [focus, selection.focusOffset],
+        ] as const)
+      : null;
   const next = document.createElement(tagName);
   for (const attribute of Array.from(element.attributes)) {
     next.setAttribute(attribute.name, attribute.value);
@@ -692,6 +706,12 @@ function retag(element: HTMLElement, tagName: string): HTMLElement {
   }
   next.append(...Array.from(element.childNodes));
   element.replaceWith(next);
+  if (points && selection) {
+    const point = ([node, offset]: (typeof points)[number]) =>
+      node === element ? ([next, offset] as const) : ([node, offset] as const);
+    const [start, end] = points.map(point);
+    selection.setBaseAndExtent(start[0], start[1], end[0], end[1]);
+  }
   return next;
 }
 
