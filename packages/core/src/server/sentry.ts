@@ -3,6 +3,7 @@ import {
   isSqlQueryFailureText,
   isSqlStatementText,
   redact,
+  redactErrorStack,
 } from "../tracking/redaction.js";
 import type { AuthSession } from "./auth.js";
 import {
@@ -69,11 +70,16 @@ function redactSentryEventPayload(
         Object.values(record).some(
           (child) => typeof child === "string" && isSqlQueryFailureText(child),
         )));
+  const stackContext = { name: record.name, message: record.message };
   for (const [key, child] of Object.entries(record)) {
     if (redactSqlParams && key.toLowerCase() === "params") {
       record[key] = "<redacted>";
     } else if (typeof child === "string") {
-      record[key] = redact(child);
+      record[key] =
+        key.toLowerCase() === "stack"
+          ? (redactErrorStack({ ...stackContext, stack: child }) ??
+            redact(child))
+          : redact(child);
     } else {
       redactSentryEventPayload(child, redactSqlParams, false, seen);
     }

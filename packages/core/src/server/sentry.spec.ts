@@ -354,6 +354,49 @@ describe("server/sentry", () => {
       ).toContain("\tparams: <redacted>");
     });
 
+    it("preserves serialized stack frames after redacting SQL params", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const name = "DrizzleQueryError";
+      const query = "values ($1)";
+      const message = `Failed query: ${query}\n\tparams: ${privateValue}`;
+      const stack = `${name}: ${message}\n    at loadTranscript (server/db.ts:5:7)`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "Object captured as exception with keys: cause",
+            },
+          ],
+        },
+        extra: {
+          __serialized__: {
+            cause: {
+              name,
+              message,
+              query,
+              params: [privateValue],
+              stack,
+            },
+          },
+        },
+      } as never) as { extra?: Record<string, unknown> };
+
+      const cause = (
+        result.extra?.__serialized__ as {
+          cause: { stack: string };
+        }
+      ).cause;
+      expect(cause.stack).toContain("params: <redacted>");
+      expect(cause.stack).toContain("at loadTranscript");
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
     it("redacts SQL parameters in breadcrumbs and context data", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
