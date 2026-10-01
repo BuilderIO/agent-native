@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  appStatePut,
   readAppStateForCurrentTab,
-  writeAppState,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { localhostConsentRequestStateAddress } from "./localhost-consent-request-state.js";
 
 export default defineAction({
   description:
@@ -94,13 +95,19 @@ export default defineAction({
       };
     }
 
-    await writeAppState(`design-localhost-write-consent-request:${designId}`, {
-      designId,
-      connectionId,
-      rootPath: connection.rootPath,
-      files: files ?? [],
-      requestedAt: new Date().toISOString(),
-    });
+    const { key, sessionId } = localhostConsentRequestStateAddress(designId);
+    await appStatePut(
+      sessionId,
+      key,
+      {
+        designId,
+        connectionId,
+        rootPath: connection.rootPath,
+        files: files ?? [],
+        requestedAt: new Date().toISOString(),
+      },
+      { requestSource: "agent" },
+    );
 
     const navigation = await readAppStateForCurrentTab("navigation").catch(
       () => null,
