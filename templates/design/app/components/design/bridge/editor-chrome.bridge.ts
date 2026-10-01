@@ -6632,6 +6632,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceId: string;
     sourceProvenance?: { versionHash?: string; uniqueNodeId?: string };
   } | null = null;
+
+  function postCrossScreenModifierState(
+    ignoreAutoLayout: boolean,
+    event: { timeStamp?: number },
+  ): void {
+    if (!activeCrossScreenDragIdentity) return;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:cross-screen-modifiers",
+        ignoreAutoLayout,
+        changedAt: eventEpochMilliseconds(event),
+      },
+      "*",
+    );
+  }
+
   var spacingDrag: {
     handle: { key: string; groupKey: string; kind: string };
     currentValue: number;
@@ -22272,7 +22288,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           modifiers: {
             metaKey: !!ev.metaKey,
             ctrlKey: !!ev.ctrlKey,
-            ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
+            ignoreAutoLayout: isIgnoreAutoLayoutChordForDragPoint(ev),
             forceNestedAutoLayout: isPlatformPrimaryChord(ev),
           },
         });
@@ -24603,7 +24619,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function (e) {
       if (interactionMode) return;
       if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
         bridgeIgnoreAutoLayoutKeyPressed = true;
+        if (!wasIgnoreAutoLayoutPressed) {
+          postCrossScreenModifierState(true, e);
+        }
       }
       if (
         e.key === " " &&
@@ -24782,7 +24802,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "keyup",
     function (e) {
       if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
         bridgeIgnoreAutoLayoutKeyPressed = false;
+        if (wasIgnoreAutoLayoutPressed) {
+          postCrossScreenModifierState(false, e);
+        }
       }
       if (e.key !== " " || e.code !== "Space") return;
       bridgeSpaceKeyPressed = false;

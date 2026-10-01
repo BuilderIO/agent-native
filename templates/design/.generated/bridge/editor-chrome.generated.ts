@@ -5636,6 +5636,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeCrossScreenComputedSize;
     var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
+    function postCrossScreenModifierState(ignoreAutoLayout, event) {
+      if (!activeCrossScreenDragIdentity) return;
+      window.parent.postMessage(
+        {
+          type: "agent-native:cross-screen-modifiers",
+          ignoreAutoLayout,
+          changedAt: eventEpochMilliseconds(event)
+        },
+        "*"
+      );
+    }
     var spacingDrag = null;
     var lockedSelectors = [];
     var hiddenSelectors = [];
@@ -17284,7 +17295,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             modifiers: {
               metaKey: !!ev.metaKey,
               ctrlKey: !!ev.ctrlKey,
-              ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
+              ignoreAutoLayout: isIgnoreAutoLayoutChordForDragPoint(ev),
               forceNestedAutoLayout: isPlatformPrimaryChord(ev)
             }
           });
@@ -19279,7 +19290,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       function(e) {
         if (interactionMode) return;
         if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = true;
+          if (!wasIgnoreAutoLayoutPressed) {
+            postCrossScreenModifierState(true, e);
+          }
         }
         if (e.key === " " && e.code === "Space" && !activeTextEditEl && !isEditorTypingTarget(e.target)) {
           bridgeSpaceKeyPressed = true;
@@ -19424,7 +19439,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keyup",
       function(e) {
         if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = false;
+          if (wasIgnoreAutoLayoutPressed) {
+            postCrossScreenModifierState(false, e);
+          }
         }
         if (e.key !== " " || e.code !== "Space") return;
         bridgeSpaceKeyPressed = false;
