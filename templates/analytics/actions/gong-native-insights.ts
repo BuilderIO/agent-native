@@ -1,10 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { listVisibleMcpTools } from "@agent-native/core/mcp-client";
 import { z } from "zod";
 
 import {
   gongNativeOperationName,
-  gongNativeTools,
+  listGongNativeTools,
 } from "../server/lib/gong-native-operations";
 
 export default defineAction({
@@ -27,7 +26,7 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   http: false,
   run: async () => {
-    const tools = gongNativeTools(await listVisibleMcpTools());
+    const tools = await listGongNativeTools();
     return {
       connected: tools.length > 0,
       creditRequests: 0,

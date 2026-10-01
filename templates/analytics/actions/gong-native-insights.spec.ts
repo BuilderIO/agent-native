@@ -49,6 +49,9 @@ describe("gong-native-insights", () => {
         },
       ],
     });
+    expect(listVisibleMcpToolsMock).toHaveBeenCalledWith({
+      providerId: "gong",
+    });
     expect(callMcpToolMock).not.toHaveBeenCalled();
     expect(readGongNativeInsightsPolicy).not.toHaveBeenCalled();
   });

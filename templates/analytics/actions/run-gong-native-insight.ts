@@ -1,14 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
-import {
-  callMcpTool,
-  listVisibleMcpTools,
-} from "@agent-native/core/mcp-client";
+import { callMcpTool } from "@agent-native/core/mcp-client";
 import { z } from "zod";
 
 import {
+  GONG_MCP_PROVIDER_ID,
   GONG_NATIVE_OPERATIONS,
   gongNativeOperationName,
-  gongNativeTools,
+  listGongNativeTools,
   selectGongNativeTool,
 } from "../server/lib/gong-native-operations";
 import { readGongNativeInsightsPolicy } from "../server/lib/gong-native-policy";
@@ -42,7 +40,7 @@ export default defineAction({
   http: false,
   grounding: true,
   run: async ({ operation, allowCreditRequest, arguments: args }) => {
-    const tools = gongNativeTools(await listVisibleMcpTools());
+    const tools = await listGongNativeTools();
 
     if (!allowCreditRequest) {
       return {
@@ -89,7 +87,7 @@ export default defineAction({
         error:
           tools.length === 0
             ? "No official Gong semantic MCP operations are connected in this request scope."
-            : `The ${operation} operation is missing or ambiguous across connected MCP servers.`,
+            : `The ${operation} operation is missing or ambiguous across connected Gong MCP servers.`,
         availableOperations: tools.map((candidate) => ({
           operation: gongNativeOperationName(candidate.name),
           serverId: candidate.serverId,
@@ -99,7 +97,9 @@ export default defineAction({
     }
 
     const startedAt = Date.now();
-    const result = await callMcpTool(tool.serverId, tool.name, args);
+    const result = await callMcpTool(tool.serverId, tool.name, args, {
+      providerId: GONG_MCP_PROVIDER_ID,
+    });
     return {
       connected: true,
       source: "gong-native-mcp",

@@ -79,11 +79,35 @@ describe("run-gong-native-insight", () => {
       creditRequests: 1,
       result: { answer: "Renewal risk is pricing." },
     });
-    expect(callMcpToolMock).toHaveBeenCalledOnce();
-    expect(callMcpToolMock).toHaveBeenCalledWith("org_gong", "ask_account", {
-      account: "Acme",
-      question: "Summarize renewal risk",
+    expect(listVisibleMcpToolsMock).toHaveBeenCalledWith({
+      providerId: "gong",
     });
+    expect(callMcpToolMock).toHaveBeenCalledOnce();
+    expect(callMcpToolMock).toHaveBeenCalledWith(
+      "org_gong",
+      "ask_account",
+      { account: "Acme", question: "Summarize renewal risk" },
+      { providerId: "gong" },
+    );
+  });
+
+  it("does not spend a request when the operation is ambiguous across Gong servers", async () => {
+    listVisibleMcpToolsMock.mockResolvedValue([
+      askAccountTool,
+      { ...askAccountTool, serverId: "user_abc_gong" },
+    ]);
+
+    await expect(
+      action.run({
+        operation: "ask_account",
+        allowCreditRequest: true,
+        arguments: { account: "Acme" },
+      }),
+    ).resolves.toMatchObject({
+      creditRequests: 0,
+      error: expect.stringContaining("ambiguous"),
+    });
+    expect(callMcpToolMock).not.toHaveBeenCalled();
   });
 
   it("does not spend a request without explicit credit authorization", async () => {
