@@ -517,6 +517,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     updateDeck,
     loading,
     loadError,
+    deckListRefreshing,
     reloadDecks,
     catchUpStaleDeckList,
   } = useDecks();
@@ -2673,6 +2674,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         referenceOptionsLoaded={
           systemsFlag.status === "ready" &&
           !loading &&
+          !deckListRefreshing &&
           !loadError &&
           (!systemsEnabled ||
             (!designSystemsLoading &&

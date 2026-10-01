@@ -222,6 +222,7 @@ export function NewDeckReferenceStep({
       designSystems.length === 0 &&
       decks.length === 0),
   );
+  const canContinue = referenceOptionsLoaded && hasSelection;
 
   useEffect(() => {
     if (!open) return;
@@ -285,7 +286,7 @@ export function NewDeckReferenceStep({
   };
 
   const handleContinue = async () => {
-    if (busy || !hasSelection) return;
+    if (busy || !canContinue) return;
     const trimmedSource =
       selectedSource && selectedSource.value.trim()
         ? { ...selectedSource, value: selectedSource.value.trim() }
@@ -686,7 +687,7 @@ export function NewDeckReferenceStep({
           aria-busy={busy}
           disabled={
             busy ||
-            !hasSelection ||
+            !canContinue ||
             Boolean(selectedSource && !selectedSourceValid)
           }
         >

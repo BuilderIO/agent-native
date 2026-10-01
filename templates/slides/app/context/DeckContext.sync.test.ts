@@ -567,6 +567,35 @@ describe("DeckContext fallback polling", () => {
     );
   });
 
+  it("exposes an in-flight home deck-list refresh", async () => {
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() =>
+      expect(listCallCount(api.fetchMock)).toBeGreaterThan(1),
+    );
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    api.holdNextList();
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(api.listRequestPending()).toBe(true));
+    expect(result.current.deckListRefreshing).toBe(true);
+
+    await act(async () => {
+      api.releaseList([]);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.deckListRefreshing).toBe(false));
+  });
+
   it("takes over at the fast interval when the live channel drops", async () => {
     const deck: Deck = {
       id: "open-deck",

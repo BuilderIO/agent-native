@@ -412,6 +412,7 @@ function renderHome(
     decks: [],
     loading: false,
     loadError: false,
+    deckListRefreshing: false,
     reloadDecks,
     createDeck,
     catchUpStaleDeckList: vi.fn(),
@@ -541,6 +542,16 @@ describe("Slides prompt-led home", () => {
     expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(false);
 
     systemFlag.status = "ready";
+    rerenderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(true);
+
+    useDecks.mockReturnValue({ ...useDecks(), deckListRefreshing: true });
+    rerenderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(false);
+
+    useDecks.mockReturnValue({ ...useDecks(), deckListRefreshing: false });
     rerenderHome();
 
     expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(true);
@@ -1245,6 +1256,7 @@ describe("Slides prompt-led home", () => {
       decks: [ownDeck],
       loading: false,
       loadError: false,
+      deckListRefreshing: false,
       reloadDecks,
       createDeck,
       catchUpStaleDeckList: vi.fn(),

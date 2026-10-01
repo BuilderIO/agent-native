@@ -532,6 +532,23 @@ describe("<NewDeckReferenceStep>", () => {
     );
   });
 
+  it("waits for reference options before continuing with a preselected design system", async () => {
+    const { onSelect, rerender } = await renderStep({
+      referenceOptionsLoaded: false,
+    });
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+
+    expect(continueButton).toHaveProperty("disabled", true);
+    fireEvent.click(continueButton);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    rerender({ referenceOptionsLoaded: true });
+
+    expect(continueButton).toHaveProperty("disabled", false);
+    await act(async () => fireEvent.click(continueButton));
+    expect(onSelect).toHaveBeenCalled();
+  });
+
   it("keeps Continue disabled for an invalid Figma link and enables it for a valid one", async () => {
     await renderStep();
 

@@ -293,6 +293,7 @@ interface DeckContextType {
   decks: Deck[];
   loading: boolean;
   loadError: boolean;
+  deckListRefreshing: boolean;
   createDeck: (
     title?: string,
     options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
@@ -2902,6 +2903,7 @@ export function DeckProvider({
   >(undefined);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [deckListRefreshCount, setDeckListRefreshCount] = useState(0);
   const loadErrorRef = useRef(loadError);
   loadErrorRef.current = loadError;
   const decksRef = useRef<Deck[]>([]);
@@ -3646,7 +3648,7 @@ export function DeckProvider({
     [clearDeckDeleteTombstones],
   );
 
-  const refetchDeckListIfChanged = useCallback(async () => {
+  const refreshDeckListIfChanged = useCallback(async () => {
     const requestId = ++deckListRequestIdRef.current;
     const createSeqAtRequest = localCreateSeqRef.current;
     const includePreview = currentOpenDeckIdFromWindow() === null;
@@ -3749,6 +3751,15 @@ export function DeckProvider({
       setLoadError(false);
     }
   }, [isNewerThanSnapshot]);
+
+  const refetchDeckListIfChanged = useCallback(async () => {
+    setDeckListRefreshCount((count) => count + 1);
+    try {
+      await refreshDeckListIfChanged();
+    } finally {
+      setDeckListRefreshCount((count) => count - 1);
+    }
+  }, [refreshDeckListIfChanged]);
 
   const runHomeGridListRefresh = useCallback(() => {
     if (syncListRefreshInFlightRef.current) {
@@ -5424,6 +5435,7 @@ export function DeckProvider({
         decks: scopedDecks,
         loading: loading || !deckScopeMatchesOrg,
         loadError,
+        deckListRefreshing: deckListRefreshCount > 0,
         createDeck,
         ensureDeckPersisted,
         duplicateDeck,
