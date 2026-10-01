@@ -449,6 +449,35 @@ describe("AgentKit composer context submission", () => {
     expect(runtime.queueMessage).not.toHaveBeenCalled();
   });
 
+  it("rejects a submit that reaches a disabled composer so the draft is kept", async () => {
+    const runtime = transport();
+    client = new AgentKitClient({ transport: runtime });
+    const onSubmit = vi.fn();
+    const onDisabledClick = vi.fn();
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer
+            disabled
+            onDisabledClick={onDisabledClick}
+            onSubmit={onSubmit}
+            autoFocus={false}
+          />
+        </AgentKitProvider>,
+      ),
+    );
+    // The host can disable the composer while an async onBeforeSubmit runs;
+    // the composer clears its draft whenever onSubmit resolves.
+    await act(async () => {
+      await expect(
+        capture.props!.onSubmit("Keep me", [], [], {}),
+      ).rejects.toThrow();
+    });
+    expect(onDisabledClick).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(runtime.startRun).not.toHaveBeenCalled();
+  });
+
   it("preserves mode instructions when resubmitting an edited message on a fork", async () => {
     const runtime = {
       ...transport(),

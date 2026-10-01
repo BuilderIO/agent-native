@@ -104,7 +104,11 @@ export interface PromptComposerProps {
     references: Reference[],
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
-  /** Return false to stop a submit before it reaches the host runtime. */
+  /**
+   * Return false to stop a submit before it reaches the host runtime. The submit
+   * can still stop after this resolves, so do not start work here that only
+   * `onSubmit` finishes.
+   */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */

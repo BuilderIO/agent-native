@@ -3813,7 +3813,8 @@ export function AgentKitComposer({
         onSubmit={async (text, files, references, options) => {
           if (disabled) {
             onDisabledClick?.();
-            return;
+            // Returning reads as success and clears a draft that was never sent.
+            throw new Error();
           }
           focusComposer();
           try {

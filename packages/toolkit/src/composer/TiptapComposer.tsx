@@ -916,7 +916,11 @@ export interface TiptapComposerProps {
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
   ) => void | Promise<void>;
-  /** Return false to stop a submit before it enters the chat runtime. */
+  /**
+   * Return false to stop a submit before it enters the chat runtime. The submit
+   * can still stop after this resolves (empty draft, changed scope, a disabled
+   * host), so do not start work here that only `onSubmit` finishes.
+   */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
