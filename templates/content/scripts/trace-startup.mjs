@@ -11,9 +11,29 @@ import { mkdirSync, writeFileSync } from "node:fs";
 //     --email perf-owner@example.local --password '...' \
 //     --state cached --path /home --runs 10 [--out .tmp/trace.json]
 //
-// States: cached (same browser profile, warm HTTP cache), warm-network (a fresh
-// profile per run), in-app (load --path, then click the sidebar row that links
-// to --click-path and time the new document).
+// States: cached (same browser profile, warm HTTP cache), hard (the same warm
+// profile with the HTTP cache bypassed, like a hard refresh), warm-network (a
+// fresh profile per run), in-app (load --path, then click the sidebar row that
+// links to --click-path and time the new document).
+//
+// Layout stability: --stability follows every element marked
+// `data-startup-anchor` (the title, the body, the sidebar's Search row, section
+// headers, and first Files row, on placeholders and real elements alike) on
+// every animation frame from the first frame it appears, and reports how far
+// each moved. A run fails when any anchor moves more than --max-shift pixels
+// (default 2). The layout-shift score cannot replace this: it ignores
+// placeholders that are removed and replaced, which is most loading jank.
+//
+//   --frames <dir>         save every screencast frame per run, with an index
+//                          and an ffmpeg concat list, for frame-by-frame review
+//   --latency-ms <n>       delay each framework request by n ms, plus up to
+//   --jitter-ms <n>        n ms at random, so reads land in different orders on
+//                          a local server (request routing also bypasses the
+//                          HTTP cache, so keep these off for hosted runs)
+//   --viewport 1440x900    the browser viewport
+//   --local-storage <json> local storage entries written before every load,
+//                          like '{"sidebar-width":"320"}' or
+//                          '{"content.sidebar.collapsed":"true"}'
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 
@@ -39,7 +59,19 @@ const runs = Number(args.get("runs") ?? 10);
 const settleMs = Number(args.get("settle-ms") ?? 8000);
 const timeoutMs = Number(args.get("timeout-ms") ?? 30000);
 const outPath = args.get("out");
-if (!["cached", "warm-network", "in-app"].includes(state)) {
+const stability = args.get("stability") === "true";
+const maxShift = Number(args.get("max-shift") ?? 2);
+const framesDir = args.get("frames");
+const latencyMs = Number(args.get("latency-ms") ?? 0);
+const jitterMs = Number(args.get("jitter-ms") ?? 0);
+const localStorageEntries = JSON.parse(args.get("local-storage") ?? "{}");
+const [viewportWidth, viewportHeight] = (args.get("viewport") ?? "1440x900")
+  .split("x")
+  .map(Number);
+if (!viewportWidth || !viewportHeight) {
+  throw new Error("--viewport must look like 1440x900");
+}
+if (!["cached", "hard", "warm-network", "in-app"].includes(state)) {
   throw new Error(`Unknown --state ${state}`);
 }
 if (state === "in-app" && !clickPath) {
@@ -100,10 +132,48 @@ function toPlaywrightCookies(header) {
 }
 
 // Runs in the page before any of its own scripts.
-function installProbe() {
+function installProbe(options) {
   performance.setResourceTimingBufferSize(5000);
-  const trace = { elements: [] };
+  const trace = { elements: [], anchors: {} };
   window.__startupTrace = trace;
+  if (options?.stability) {
+    // Animation-frame callbacks run just before each paint, so each sample is
+    // where the anchor is drawn in that frame. The first sample is the anchor's
+    // reference position; the placeholder and the real element share a name.
+    const sample = () => {
+      const now = Math.round(performance.now());
+      const seen = new Set();
+      for (const element of document.querySelectorAll(
+        "[data-startup-anchor]",
+      )) {
+        const name = element.getAttribute("data-startup-anchor");
+        if (seen.has(name)) continue;
+        const rect = element.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue;
+        seen.add(name);
+        const x = Math.round(rect.left);
+        const y = Math.round(rect.top);
+        let anchor = trace.anchors[name];
+        if (!anchor) {
+          anchor = { firstAt: now, x, y, lastX: x, lastY: y, maxShift: 0 };
+          anchor.moves = [];
+          trace.anchors[name] = anchor;
+        }
+        if (x !== anchor.lastX || y !== anchor.lastY) {
+          anchor.moves.push({ t: now, x, y });
+          anchor.lastX = x;
+          anchor.lastY = y;
+        }
+        anchor.maxShift = Math.max(
+          anchor.maxShift,
+          Math.abs(x - anchor.x),
+          Math.abs(y - anchor.y),
+        );
+      }
+      if (now < 30000) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  }
   try {
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
@@ -198,6 +268,20 @@ function collect([since, documentId]) {
     sidebarDom: at(mark("sidebar-files-rows-dom")),
     sidebarObserved: at(mark("trace:sidebar-dom")),
     editable: at(mark("content-editable")),
+    anchors: Object.fromEntries(
+      Object.entries(trace.anchors).map(([name, anchor]) => [
+        name,
+        {
+          firstAt: at(anchor.firstAt),
+          first: [anchor.x, anchor.y],
+          maxShift: anchor.maxShift,
+          moves: anchor.moves.map((move) => ({
+            t: at(move.t),
+            to: [move.x, move.y],
+          })),
+        },
+      ]),
+    ),
     requests,
   };
 }
@@ -250,6 +334,35 @@ function summarizeRun(result) {
     listDocumentsPaged,
     redirectOffset: result.redirectOffset ?? 0,
     visibility: result.visibility,
+    ...(stability ? summarizeStability(result.anchors) : {}),
+  };
+}
+
+function summarizeStability(anchors) {
+  const shifts = Object.fromEntries(
+    Object.entries(anchors)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, anchor]) => [name, anchor.maxShift]),
+  );
+  const moved = Object.entries(anchors)
+    .filter(([, anchor]) => anchor.maxShift > maxShift)
+    .map(([name]) => name);
+  return { stable: moved.length === 0, moved, shifts };
+}
+
+function summarizeStabilityRuns(results) {
+  const worst = {};
+  for (const result of results) {
+    for (const [name, shift] of Object.entries(result.summary.shifts ?? {})) {
+      worst[name] = Math.max(worst[name] ?? 0, shift);
+    }
+  }
+  return {
+    maxShift,
+    stableRuns: results.filter((result) => result.summary.stable).length,
+    worst: Object.fromEntries(
+      Object.entries(worst).sort(([a], [b]) => a.localeCompare(b)),
+    ),
   };
 }
 
@@ -302,24 +415,99 @@ const results = [];
 
 async function newContext() {
   const context = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
+    viewport: { width: viewportWidth, height: viewportHeight },
   });
+  context.setDefaultNavigationTimeout(timeoutMs);
   await context.addCookies(toPlaywrightCookies(cookieHeader));
-  await context.addInitScript(installProbe);
+  await context.addInitScript(installProbe, { stability });
+  if (Object.keys(localStorageEntries).length) {
+    await context.addInitScript((entries) => {
+      for (const [key, value] of Object.entries(entries)) {
+        window.localStorage.setItem(key, value);
+      }
+    }, localStorageEntries);
+  }
+  if (latencyMs > 0 || jitterMs > 0) {
+    await context.route(`${baseUrl}/_agent-native/**`, async (route) => {
+      await new Promise((done) =>
+        setTimeout(done, latencyMs + Math.random() * jitterMs),
+      );
+      await route.continue();
+    });
+  }
   return context;
 }
 
-let shared = state === "cached" ? await newContext() : null;
+// A hard refresh bypasses the HTTP cache, and frame capture records every
+// compositor frame with its wall-clock time. Both start before navigation.
+async function instrumentPage(page) {
+  if (state !== "hard" && !framesDir) return null;
+  const cdp = await page.context().newCDPSession(page);
+  if (state === "hard") {
+    await cdp.send("Network.enable");
+    await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
+  }
+  const frames = [];
+  if (framesDir) {
+    cdp.on("Page.screencastFrame", (frame) => {
+      frames.push({ at: frame.metadata.timestamp * 1000, data: frame.data });
+      void cdp
+        .send("Page.screencastFrameAck", { sessionId: frame.sessionId })
+        .catch(() => {});
+    });
+    await cdp.send("Page.startScreencast", {
+      format: "png",
+      everyNthFrame: 1,
+      maxWidth: viewportWidth,
+      maxHeight: viewportHeight,
+    });
+  }
+  return { cdp, frames };
+}
+
+// Writes the run's frames, their times from navigation start, and an ffmpeg
+// concat list that holds each frame until the next one:
+//   ffmpeg -f concat -safe 0 -i concat.txt -vf fps=60 -pix_fmt yuv420p run.mp4
+async function saveFrames(instrumented, run, timeOrigin) {
+  if (!framesDir || !instrumented) return;
+  await instrumented.cdp.send("Page.stopScreencast").catch(() => {});
+  const dir = resolve(framesDir, `run-${run + 1}`);
+  mkdirSync(dir, { recursive: true });
+  const index = instrumented.frames.map((frame, i) => {
+    const name = `f${String(i).padStart(4, "0")}.png`;
+    writeFileSync(resolve(dir, name), Buffer.from(frame.data, "base64"));
+    return { name, t: Math.round(frame.at - timeOrigin) };
+  });
+  writeFileSync(
+    resolve(dir, "frames.json"),
+    `${JSON.stringify(index, null, 2)}\n`,
+  );
+  const concat = index.flatMap((frame, i) => {
+    const next = index[i + 1]?.t ?? frame.t + 500;
+    return [
+      `file '${frame.name}'`,
+      `duration ${(Math.max(1, next - frame.t) / 1000).toFixed(3)}`,
+    ];
+  });
+  if (index.length) concat.push(`file '${index.at(-1).name}'`);
+  writeFileSync(resolve(dir, "concat.txt"), `${concat.join("\n")}\n`);
+}
+
+let shared = state === "cached" || state === "hard" ? await newContext() : null;
 if (shared) {
   const warm = await shared.newPage();
   await warm.goto(`${baseUrl}${path}`, { waitUntil: "load" });
   await waitForBody(warm, 0);
+  // A returning user's last visit finished loading, sidebar included, so the
+  // layout it left behind is there to restore.
+  await warm.waitForTimeout(settleMs);
   await warm.close();
 }
 
 for (let run = 0; run < runs; run += 1) {
   const context = shared ?? (await newContext());
   const page = await context.newPage();
+  const instrumented = await instrumentPage(page);
   let result;
   if (state === "in-app") {
     await page.goto(`${baseUrl}${path}`, { waitUntil: "load" });
@@ -362,8 +550,14 @@ for (let run = 0; run < runs; run += 1) {
       if (result[key] != null) result[key] += offset;
     }
   }
+  await saveFrames(instrumented, run, result.timeOrigin);
   const summary = summarizeRun(result);
-  results.push({ run, summary, requests: result.requests });
+  results.push({
+    run,
+    summary,
+    requests: result.requests,
+    ...(stability ? { anchors: result.anchors } : {}),
+  });
   console.log(
     `[trace] ${state} ${path} run ${run + 1}/${runs}: ${JSON.stringify(summary)}`,
   );
@@ -396,6 +590,7 @@ const report = {
     getDocumentRequests: Math.max(...metric("getDocumentRequests")),
     listDocumentsPaged: Math.max(...metric("listDocumentsPaged")),
   },
+  ...(stability ? { stability: summarizeStabilityRuns(results) } : {}),
   results,
 };
 console.log(JSON.stringify({ ...report, results: undefined }, null, 2));

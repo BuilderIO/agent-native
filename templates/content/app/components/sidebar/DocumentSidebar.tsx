@@ -147,6 +147,13 @@ import {
   markDocumentCreationPending,
   shouldCreateDocumentOptimistically,
 } from "@/lib/optimistic-document";
+import {
+  readSidebarLayoutHint,
+  rememberSidebarLayout,
+  type SidebarLayoutHint,
+  type SidebarRowsHint,
+} from "@/lib/sidebar-layout-hint";
+import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import {
@@ -173,6 +180,7 @@ import {
   toggleExpandedWorkspaceIds,
 } from "./select-content-space";
 import { type SidebarReorderLabels } from "./sidebar-reorder";
+import { SidebarRowsSkeleton } from "./SidebarNavigationRow";
 import { sidebarRowClassName } from "./SidebarNavigationRow";
 import {
   SidebarPageActionsProvider,
@@ -435,6 +443,8 @@ function WorkspaceSidebarItem({
   onDeleteItem,
   onToggleFavorite,
   compact = false,
+  filesPlaceholder,
+  onFilesRootShown,
 }: {
   space: ContentSpaceSummary;
   selected: boolean;
@@ -464,6 +474,8 @@ function WorkspaceSidebarItem({
   onDeleteItem: (item: ContentDatabaseItem) => void;
   onToggleFavorite: (item: ContentDatabaseItem) => void;
   compact?: boolean;
+  filesPlaceholder?: SidebarRowsHint;
+  onFilesRootShown?: (shown: SidebarRowsHint) => void;
 }) {
   const t = useT();
   const [localWorkingCopies, setLocalWorkingCopies] = useState<
@@ -972,6 +984,8 @@ function WorkspaceSidebarItem({
               onToggleFavorite={onToggleFavorite}
               navigationLabel={`${space.name} ${t("sidebar.files")}`}
               untitledLabel={t("sidebar.untitled")}
+              rootPlaceholder={filesPlaceholder}
+              onRootPageShown={onFilesRootShown}
             />
           )}
         </div>
@@ -1050,6 +1064,22 @@ export function DocumentSidebar({
     spaces: contentSpaces,
     storedSpaceId,
   });
+  const selectedSpaceId = selectedSpace?.id ?? null;
+  // Read once per space: the hint sizes this load's placeholders, and what
+  // this load draws is remembered for the next one.
+  const sidebarLayoutHint = useMemo(
+    () => readSidebarLayoutHint(filesRootScope, selectedSpaceId),
+    [filesRootScope, selectedSpaceId],
+  );
+  const rememberLayout = useCallback(
+    (shown: SidebarLayoutHint) =>
+      rememberSidebarLayout(filesRootScope, selectedSpaceId, shown),
+    [filesRootScope, selectedSpaceId],
+  );
+  const rememberFilesRoot = useCallback(
+    (files: SidebarRowsHint) => rememberLayout({ files }),
+    [rememberLayout],
+  );
   const favoritesDatabaseId =
     contentSpacesQuery.data?.favoritesDatabaseId ?? null;
   const favoritesDatabase = useContentDatabaseById(favoritesDatabaseId, {
@@ -1171,6 +1201,17 @@ export function DocumentSidebar({
     provisioningPending: ensureContentSpaces.isPending,
     provisioningError: ensureContentSpaces.isError,
   });
+  // Null while Pinned is still on its way; a failure or a missing space shows
+  // its own state instead of a placeholder.
+  const pinnedCount =
+    favoritesDatabase.isError ||
+    favoritesPersonalView.isError ||
+    (contentSpacesQuery.isSuccess && !favoritesDatabaseId) ||
+    (!selectedSpace && contentSpaceState !== "loading")
+      ? 0
+      : favoritesData && !favoritesPersonalView.isLoading
+        ? favoritesData.items.length
+        : null;
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
       attemptedSpaceReconciliationKeyRef.current = null;
@@ -2316,6 +2357,7 @@ export function DocumentSidebar({
   );
   const searchButton = (
     <Button
+      {...startupAnchor("sidebar-search")}
       ref={searchTriggerRef}
       type="button"
       variant="ghost"
@@ -2332,7 +2374,10 @@ export function DocumentSidebar({
     </Button>
   );
   const contentSpaceSelector = selectedSpace ? (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2">
+    <div
+      {...startupAnchor("sidebar-space")}
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2"
+    >
       <WorkspaceSourceMenu
         onCreated={handleWorkspaceCreated}
         contentClassName="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)]"
@@ -2398,6 +2443,16 @@ export function DocumentSidebar({
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+  ) : contentSpaceState === "loading" ? (
+    <div
+      {...startupAnchor("sidebar-space")}
+      aria-hidden="true"
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2"
+    >
+      <div className="flex h-8 items-center ps-2">
+        <Skeleton className="h-3.5 w-24 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
+      </div>
+    </div>
   ) : null;
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
@@ -2412,17 +2467,20 @@ export function DocumentSidebar({
     });
   };
 
+  // The Files list's own boxes, holding the rows it last drew.
   const renderTreeSkeleton = () => (
-    <div aria-hidden="true" className="grid gap-1 px-3 py-1">
-      {[70, 55, 85, 60, 45].map((w, i) => (
-        <div key={i} className="flex items-center gap-2 px-1 py-1.5">
-          <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
-          <Skeleton
-            className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
-            style={{ width: `${w}%` }}
-          />
-        </div>
-      ))}
+    <div className="min-w-0 pb-1">
+      <div
+        aria-hidden="true"
+        className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
+      >
+        <SidebarRowsSkeleton
+          framed={false}
+          rows={sidebarLayoutHint.files?.rows ?? 3}
+          more={sidebarLayoutHint.files?.more}
+          firstRowProps={startupAnchor("sidebar-files-first-row")}
+        />
+      </div>
     </div>
   );
 
@@ -2495,6 +2553,8 @@ export function DocumentSidebar({
       onToggleFavorite={(item) =>
         handleToggleFavorite(item.document.id, !item.document.isFavorite)
       }
+      filesPlaceholder={compact ? sidebarLayoutHint.files : undefined}
+      onFilesRootShown={compact ? rememberFilesRoot : undefined}
     />
   );
 
@@ -2803,106 +2863,110 @@ export function DocumentSidebar({
       <SidebarPageActionsProvider value={sidebarPageActions}>
         <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
           <div className="w-full min-w-0 py-2">
-            {selectedSpace ? (
-              <PersonalSidebarSections
-                spaceId={selectedSpace.id}
-                pinnedCount={favoritesData?.items.length ?? 0}
-                renderFiles={renderWorkspaceNavigation}
-                activeDocumentId={sidebarActiveDocumentId}
-                onNavigate={onNavigate}
-                onToggleFavorite={handleToggleFavorite}
-                reorderLabels={sidebarReorderLabels}
-                seeAllHrefs={{
-                  pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
-                  recent: `/favorites?view=recent&spaceId=${encodeURIComponent(selectedSpace.id)}`,
-                  files: `/page/${selectedSpace.filesDocumentId}`,
-                }}
-                renderPinned={(limit) => {
-                  const serverOrdered = favoritesOrder.order.mode !== "custom";
-                  const renderedItems = (
-                    serverOrdered
-                      ? (favoritesData?.items ?? [])
-                      : contentSidebarOrderedItems(
-                          favoritesData?.items ?? [],
-                          favoritesOrder.order,
-                        )
-                  ).slice(0, limit);
-                  return favoritesDatabase.isError ||
-                    favoritesPersonalView.isError ? (
-                    <QueryErrorState
-                      compact
-                      onRetry={() => {
-                        void favoritesDatabase.refetch();
-                        void favoritesPersonalView.refetch();
-                      }}
-                    />
-                  ) : (
-                    <ContentFilesSidebarView
-                      data={
-                        favoritesData
-                          ? {
-                              ...favoritesData,
-                              items: renderedItems,
-                            }
-                          : undefined
-                      }
-                      overrides={favoritesPersonalView.data?.overrides}
-                      sidebarOrder={favoritesOrder.order}
-                      serverOrdered={serverOrdered}
-                      isLoading={
-                        favoritesDatabase.isLoading ||
-                        favoritesPersonalView.isLoading
-                      }
-                      activeDocumentId={sidebarActiveDocumentId}
-                      manualReorder={{
-                        labels: sidebarReorderLabels,
-                        onReorder: (itemIds) =>
-                          handlePinnedReorder(
-                            itemIds,
-                            renderedItems.map((item) => item.id),
-                          ),
-                      }}
-                      onOpenItem={(item) => {
-                        const space = contentSpaces.find(
-                          (candidate) =>
-                            candidate.filesDatabaseId ===
-                            item.workspaceFilesDatabaseId,
-                        );
-                        if (!space || selectedSpace?.id === space.id) {
-                          onNavigate?.();
-                          return false;
-                        }
-                        void handleSelectContentSpace(space, item.document.id);
+            <PersonalSidebarSections
+              spaceId={selectedSpaceId}
+              pinnedCount={pinnedCount}
+              renderFiles={renderWorkspaceNavigation}
+              activeDocumentId={sidebarActiveDocumentId}
+              onNavigate={onNavigate}
+              onToggleFavorite={handleToggleFavorite}
+              reorderLabels={sidebarReorderLabels}
+              layoutHint={sidebarLayoutHint}
+              onLayoutShown={rememberLayout}
+              seeAllHrefs={
+                selectedSpace
+                  ? {
+                      pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                      recent: `/favorites?view=recent&spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                      files: `/page/${selectedSpace.filesDocumentId}`,
+                    }
+                  : null
+              }
+              renderPinned={(limit) => {
+                const serverOrdered = favoritesOrder.order.mode !== "custom";
+                const renderedItems = (
+                  serverOrdered
+                    ? (favoritesData?.items ?? [])
+                    : contentSidebarOrderedItems(
+                        favoritesData?.items ?? [],
+                        favoritesOrder.order,
+                      )
+                ).slice(0, limit);
+                return favoritesDatabase.isError ||
+                  favoritesPersonalView.isError ? (
+                  <QueryErrorState
+                    compact
+                    onRetry={() => {
+                      void favoritesDatabase.refetch();
+                      void favoritesPersonalView.refetch();
+                    }}
+                  />
+                ) : (
+                  <ContentFilesSidebarView
+                    data={
+                      favoritesData
+                        ? {
+                            ...favoritesData,
+                            items: renderedItems,
+                          }
+                        : undefined
+                    }
+                    overrides={favoritesPersonalView.data?.overrides}
+                    sidebarOrder={favoritesOrder.order}
+                    serverOrdered={serverOrdered}
+                    isLoading={
+                      favoritesDatabase.isLoading ||
+                      favoritesPersonalView.isLoading
+                    }
+                    activeDocumentId={sidebarActiveDocumentId}
+                    manualReorder={{
+                      labels: sidebarReorderLabels,
+                      onReorder: (itemIds) =>
+                        handlePinnedReorder(
+                          itemIds,
+                          renderedItems.map((item) => item.id),
+                        ),
+                    }}
+                    onOpenItem={(item) => {
+                      const space = contentSpaces.find(
+                        (candidate) =>
+                          candidate.filesDatabaseId ===
+                          item.workspaceFilesDatabaseId,
+                      );
+                      if (!space || selectedSpace?.id === space.id) {
                         onNavigate?.();
-                        return true;
-                      }}
-                      onCreateChildPage={(item) =>
-                        void handleCreatePage(item.document.id)
+                        return false;
                       }
-                      onCreateChildDatabase={(item) =>
-                        void handleCreateDatabase(item.document.id)
-                      }
-                      onDeleteItem={(item) =>
-                        requestDelete(
-                          item.document.id,
-                          item.document.title || t("sidebar.untitled"),
-                        )
-                      }
-                      onToggleFavorite={(item) =>
-                        handleToggleFavorite(item.document.id, false)
-                      }
-                      scroll={false}
-                      labels={{
-                        noMatchesLabel: t("database.noRowsMatchThisView"),
-                        clearLabel: t("database.clearSearchAndFilters"),
-                        navigationLabel: t("sidebar.pinned"),
-                        untitledLabel: t("sidebar.untitled"),
-                      }}
-                    />
-                  );
-                }}
-              />
-            ) : null}
+                      void handleSelectContentSpace(space, item.document.id);
+                      onNavigate?.();
+                      return true;
+                    }}
+                    onCreateChildPage={(item) =>
+                      void handleCreatePage(item.document.id)
+                    }
+                    onCreateChildDatabase={(item) =>
+                      void handleCreateDatabase(item.document.id)
+                    }
+                    onDeleteItem={(item) =>
+                      requestDelete(
+                        item.document.id,
+                        item.document.title || t("sidebar.untitled"),
+                      )
+                    }
+                    onToggleFavorite={(item) =>
+                      handleToggleFavorite(item.document.id, false)
+                    }
+                    scroll={false}
+                    labels={{
+                      noMatchesLabel: t("database.noRowsMatchThisView"),
+                      clearLabel: t("database.clearSearchAndFilters"),
+                      navigationLabel: t("sidebar.pinned"),
+                      untitledLabel: t("sidebar.untitled"),
+                    }}
+                  />
+                );
+              }}
+            />
           </div>
         </ScrollArea>
       </SidebarPageActionsProvider>

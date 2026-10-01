@@ -75,11 +75,11 @@ describe("document sidebar layout", () => {
   });
 
   it("keeps deeply nested page rows within the sidebar viewport", () => {
-    const layout = readSidebarSource("../layout/Layout.tsx");
+    const preferences = readSidebarSource("../layout/sidebar-preferences.ts");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 
-    expect(layout).toContain("const MIN_SIDEBAR_WIDTH = 240");
+    expect(preferences).toContain("export const MIN_SIDEBAR_WIDTH = 240");
     expect(sidebar).toContain(
       "[&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden",
     );
@@ -426,8 +426,12 @@ describe("document sidebar layout", () => {
 
     expect(sidebar).toContain("contentSpaceActionArgs(selectedSpace?.id)");
     expect(sidebar).toContain("enabled: Boolean(sidebarStateArgs)");
-    expect(sidebar).toContain("{selectedSpace ? (");
-    expect(sidebar).toContain("spaceId={selectedSpace.id}");
+    // The sections draw their placeholders without a space; their reads wait.
+    expect(sidebar).toContain("spaceId={selectedSpaceId}");
+    expect(sections).toContain("enabled: Boolean(stateArgs)");
+    expect(sections).toMatch(
+      /useContentRecent\(spaceId \?\? undefined, \{\s+enabled: Boolean\(spaceId\),/,
+    );
     expect(sidebar).not.toContain("key={selectedSpace.id}");
     expect(sidebar).toContain('t("sidebar.contentSpace")');
     expect(sections).toContain("contentSpaceActionArgs(spaceId)");
@@ -467,7 +471,7 @@ describe("document sidebar layout", () => {
       'className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"',
     );
     expect(databaseSidebar).toMatch(
-      /key=\{navigationItem\.membershipId\}\s+className="grid min-w-0 gap-0\.5"/,
+      /key=\{navigationItem\.membershipId\}[\s\S]{0,160}?className="grid min-w-0 gap-0\.5"/,
     );
     expect(rowActions).toContain("pointer-events-none absolute end-0 top-1/2");
     expect(databaseSidebar).toContain("<SidebarRowActions>");
@@ -729,7 +733,7 @@ describe("document sidebar layout", () => {
     );
     expect(menuTrigger).not.toContain("aria-label={reorderLabels.drag(label)}");
     expect(sections).toContain("seeAllHrefs:");
-    expect(sections).toContain("seeAllHref={seeAllHrefs[id]}");
+    expect(sections).toContain("seeAllHref={seeAllHrefs?.[id]}");
     expect(sections).toContain(
       '<Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>',
     );

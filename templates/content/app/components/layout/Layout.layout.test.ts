@@ -41,7 +41,12 @@ describe("app layout", () => {
 
     expect(source).toContain("usePersistentSidebarCollapsed");
     expect(source).toContain("storageKey: SIDEBAR_COLLAPSED_KEY");
-    expect(source).toContain('"content.sidebar.collapsed"');
+    expect(
+      readFileSync(
+        new URL("./sidebar-preferences.ts", import.meta.url),
+        "utf8",
+      ),
+    ).toContain('"content.sidebar.collapsed"');
     expect(source).toContain("defaultCollapsed: false");
     expect(source).toContain("collapsed={false}");
     expect(source).toContain(

@@ -22,7 +22,7 @@ const {
   },
   searchParams: new URLSearchParams(),
   useLastLocationTitleHint: vi.fn(
-    () => null as null | { documentId: string; title: string },
+    () => null as null | undefined | { documentId: string; title: string },
   ),
 }));
 const landingOptions = vi.hoisted(() => ({
@@ -58,6 +58,10 @@ vi.mock("@/hooks/use-optimistic-document-title", () => ({
 vi.mock("@/hooks/use-documents", () => ({
   LIST_DOCUMENTS_QUERY_KEY: ["action", "list-documents", undefined],
   startPageOpenDocumentReads,
+}));
+
+vi.mock("@/components/layout/Header", () => ({
+  Header: () => <header data-testid="app-header" />,
 }));
 
 vi.mock("sonner", () => ({
@@ -184,6 +188,34 @@ describe("home landing route optimistic title", () => {
       { pathname: "/page/doc-1", search: "", hash: "" },
       { replace: true },
     );
+  });
+
+  it("holds the body placeholder until the saved title has loaded", () => {
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+    useLastLocationTitleHint.mockReturnValue(undefined);
+    renderHome(root);
+    expect(
+      container.querySelector('[data-startup-anchor="title"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-startup-anchor="body"]')).toBeNull();
+
+    useLastLocationTitleHint.mockReturnValue(null);
+    renderHome(root);
+    expect(
+      container.querySelector('[data-startup-anchor="body"]'),
+    ).not.toBeNull();
+  });
+
+  it("draws the page placeholder without the app header, which messages get back", () => {
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+    renderHome(root);
+    expect(container.querySelector('[data-testid="app-header"]')).toBeNull();
+
+    resolveLanding.isError = true;
+    renderHome(root);
+    expect(
+      container.querySelector('[data-testid="app-header"]'),
+    ).not.toBeNull();
   });
 
   it("paints the persisted title immediately and hands it to the editor", async () => {
