@@ -35,6 +35,7 @@ export interface Rect {
 
 export interface TextTarget {
   index: number;
+  builderId: string | null;
   tag: string;
   className: string;
   text: string;
@@ -72,6 +73,8 @@ export interface Snapshot {
   inventory: Inventory;
   text: string;
   editedRect: Rect | null;
+  /** The edited target moves siblings through normal document flow. */
+  editedInFlow?: boolean;
   /** Rendered lines of the element the edit is matched to, in full. */
   editedText: string | null;
 }
@@ -429,6 +432,7 @@ export function installInPageHelpers(chromeSelector: string) {
       const hit = document.elementFromPoint(point.x, point.y);
       return {
         index,
+        builderId: el.getAttribute("data-builder-id"),
         tag: el.tagName,
         className: el.getAttribute("class") ?? "",
         text: norm(el.textContent),
@@ -796,7 +800,12 @@ export function installInPageHelpers(chromeSelector: string) {
 
   function snapshot(
     canvasSel: string,
-    edited: { targetIndex?: number; text?: string; marker?: string },
+    edited: {
+      targetIndex?: number;
+      text?: string;
+      marker?: string;
+      targetBuilderId?: string;
+    },
   ): Snapshot {
     const root = document.querySelector(canvasSel);
     if (!root) throw new Error(`canvas not found: ${canvasSel}`);
@@ -816,8 +825,22 @@ export function installInPageHelpers(chromeSelector: string) {
     } else if (edited.text) {
       editedEl = findByText(root, edited.text);
     }
+    const stableEditedTarget = edited.targetBuilderId
+      ? (Array.from(
+          root.querySelectorAll<HTMLElement>("[data-builder-id]"),
+        ).find(
+          (el) => el.getAttribute("data-builder-id") === edited.targetBuilderId,
+        ) ?? null)
+      : null;
+    const editedOwner =
+      stableEditedTarget ??
+      (editedEl
+        ? (editedEl.closest("[data-slide-object-id]") ??
+          editedEl.closest("ul, ol") ??
+          editedEl)
+        : null);
     const targetBlock =
-      editedEl ??
+      editedOwner ??
       (edited.targetIndex === undefined && !edited.marker
         ? editingBlock
         : null);
@@ -925,12 +948,25 @@ export function installInPageHelpers(chromeSelector: string) {
       img: root.querySelectorAll("img").length,
       style: root.querySelectorAll("style").length,
     };
-    const editedBox = editingBlock ?? editedEl;
+    const editedBox = editingBlock ?? targetBlock;
+    let editedInFlow = Boolean(editedBox);
+    for (
+      let ancestor = editedBox;
+      ancestor && ancestor !== root;
+      ancestor = ancestor.parentElement
+    ) {
+      const position = getComputedStyle(ancestor).position;
+      if (position === "absolute" || position === "fixed") {
+        editedInFlow = false;
+        break;
+      }
+    }
     return {
       records,
       inventory,
       text: norm((root as HTMLElement).innerText),
       editedRect: editedBox ? rectOf(paintedRect(editedBox), origin) : null,
+      editedInFlow,
       editedText: editedEl ? lines(editedEl) : null,
     };
   }
