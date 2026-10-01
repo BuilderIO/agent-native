@@ -527,6 +527,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     refetch: refetchDesignSystems,
     error: designSystemsError,
     isLoading: designSystemsLoading,
+    isFetching: designSystemsFetching,
   } = useDesignSystems(systemsEnabled && isHome);
   const {
     referenceDeck: workspaceReferenceDeck,
@@ -2669,7 +2670,11 @@ export default function Index({ active = true }: { active?: boolean }) {
         designSystems={designSystems}
         decks={decks}
         referenceOptionsLoaded={
-          !loading && !loadError && !designSystemsLoading && !designSystemsError
+          !loading &&
+          !loadError &&
+          !designSystemsLoading &&
+          !designSystemsFetching &&
+          !designSystemsError
         }
         defaultDesignSystemId={
           pendingDeck?.composerContext

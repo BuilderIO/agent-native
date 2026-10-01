@@ -506,6 +506,32 @@ describe("<NewDeckReferenceStep>", () => {
     );
   });
 
+  it("disables Continue while empty reference options are being refreshed", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: true,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+
+    rerender({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: false,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
   it("keeps Continue disabled for an invalid Figma link and enables it for a valid one", async () => {
     await renderStep();
 
