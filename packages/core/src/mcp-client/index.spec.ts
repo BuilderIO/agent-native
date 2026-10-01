@@ -143,7 +143,7 @@ describe("mcpToolsToActionEntries", () => {
 
   it("flattens text content blocks into the tool result string", async () => {
     serverFixtures["x-bin"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: () => ({
         content: [
           { type: "text", text: "line one" },
@@ -166,6 +166,75 @@ describe("mcpToolsToActionEntries", () => {
         { type: "text", text: "line two" },
       ],
     });
+  });
+
+  it("prefers full structured content for read-only MCP tools", async () => {
+    const content = "Full source content ".repeat(250);
+    const structuredContent = {
+      id: "source-1",
+      content,
+      provenance: { contentSha256: "abc123" },
+    };
+    serverFixtures["x-bin"] = {
+      tools: [
+        {
+          name: "get-source",
+          annotations: { readOnlyHint: true },
+        },
+      ],
+      callImpl: () => ({
+        content: [
+          {
+            type: "text",
+            text: `${JSON.stringify(structuredContent).slice(0, 1999)}…`,
+          },
+          {
+            type: "resource_link",
+            uri: "https://example.test/source-1",
+            mimeType: "text/markdown",
+          },
+          { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+        ],
+        structuredContent,
+        _meta: { authorization: "private metadata" },
+      }),
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const result = await mcpToolsToActionEntries(mgr)["mcp__x__get-source"].run(
+      {},
+    );
+
+    expect(isMcpActionResult(result)).toBe(true);
+    if (!isMcpActionResult(result)) throw new Error("Expected MCP result");
+    expect(result.text).toContain(content);
+    expect(result.text).toContain('"contentSha256": "abc123"');
+    expect(result.text).toContain(
+      "[resource: text/markdown https://example.test/source-1]",
+    );
+    expect(result.text).toContain("[image: image/png]");
+    expect(result.text).not.toContain("private metadata");
+  });
+
+  it("keeps text content for non-read-only MCP tools with structured content", async () => {
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "write" }],
+      callImpl: () => ({
+        content: [{ type: "text", text: "Mutation completed" }],
+        structuredContent: { status: "ok" },
+      }),
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const result = await mcpToolsToActionEntries(mgr)["mcp__x__write"].run({});
+
+    expect(isMcpActionResult(result)).toBe(true);
+    if (!isMcpActionResult(result)) throw new Error("Expected MCP result");
+    expect(result.text).toBe("Mutation completed");
   });
 
   it("threads MCP readOnlyHint annotations into ActionEntry metadata", async () => {
@@ -272,9 +341,10 @@ describe("mcpToolsToActionEntries", () => {
 
   it("prefixes error-flagged results with 'Error:'", async () => {
     serverFixtures["x-bin"] = {
-      tools: [{ name: "boom" }],
+      tools: [{ name: "boom", annotations: { readOnlyHint: true } }],
       callImpl: () => ({
         content: [{ type: "text", text: "server exploded" }],
+        structuredContent: { status: "unexpected structured result" },
         isError: true,
       }),
     };

@@ -454,7 +454,9 @@ function moveAppBuildIntoWorkspaceOutput(
     const target = path.join(distDir, NETLIFY_WORKSPACE_STATIC_DIR, app);
     fs.mkdirSync(target, { recursive: true });
     copyDir(staticSrc, target);
-    fs.rmSync(path.join(target, app), { recursive: true, force: true });
+    if (app !== "assets") {
+      fs.rmSync(path.join(target, app), { recursive: true, force: true });
+    }
     copyNetlifyFunctionIntoWorkspace(
       workspaceRoot,
       appsDir,
