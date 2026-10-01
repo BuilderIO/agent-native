@@ -175,16 +175,16 @@ export function BuilderCreditNotice({
         .join(" · ")
     : t("agentChat.usage.builderCredits");
   const balance = usage?.balance.toLocaleString(undefined, {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 3,
   });
   const used = usage?.quota.used.toLocaleString(undefined, {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 3,
   });
   const limit = usage?.quota.limit.toLocaleString(undefined, {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 3,
   });
   const remaining = usage?.quota.remaining.toLocaleString(undefined, {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 3,
   });
   const balanceLabel = t("agentChat.usage.creditBalance");
   const usedLabel = usage

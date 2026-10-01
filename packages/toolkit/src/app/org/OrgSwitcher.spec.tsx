@@ -485,6 +485,29 @@ describe("OrgSwitcher (account menu)", () => {
     expect(container.textContent).not.toContain("$");
   });
 
+  it("preserves supported fractional Builder credits", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery
+      .mockReturnValueOnce({
+        data: { email: ownerOrg.email, name: "Olivia Owner" },
+      })
+      .mockReturnValueOnce({
+        data: {
+          exhausted: false,
+          period: "monthly",
+          balance: 0.001,
+          quota: { period: "monthly", limit: 1, used: 0.999, remaining: 0.001 },
+        },
+        isError: false,
+      });
+
+    render(<OrgSwitcher />);
+
+    expect(container.textContent).toContain("Workspace balance: 0.001");
+    expect(container.textContent).toContain("0.999 of 1 used");
+    expect(container.textContent).toContain("0.001 remaining");
+  });
+
   it("includes the credit summary in the compact sidebar tooltip", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
     mocks.useActionQuery
