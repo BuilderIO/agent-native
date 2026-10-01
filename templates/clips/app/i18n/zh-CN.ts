@@ -1388,6 +1388,8 @@ const messages = {
     builderTimeout: "5 分钟内未收到 Builder 响应。请检查弹出窗口并重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",
+    createBuilderAccount: "创建 Builder.io 账户",
+    signInWithBuilderAccount: "使用 Builder.io 账户登录",
     free: "免费",
     whyPrompt: "为什么会看到这个？",
     whyDescription:

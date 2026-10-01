@@ -2,6 +2,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   BuilderConnectPopover,
+  hasBuilderOAuthCredential,
   useBuilderConnectFlow,
 } from "@agent-native/toolkit/app/settings";
 import { IconLoader2 } from "@tabler/icons-react";
@@ -29,7 +30,7 @@ export interface StorageSetupCardProps {
 export function StorageSetupCard({
   onConfigured,
   title = "Connect storage",
-  description = "Builder.io's free tier includes video storage and AI credits.",
+  description = "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
@@ -167,6 +168,12 @@ export function StorageSetupCard({
     },
     [builderConnect.start],
   );
+  const hasBuilderAccount =
+    builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
+  const provisionAccount =
+    !hasBuilderAccount &&
+    builderConnect.statusResolved &&
+    builderConnect.agentNativeProvisioningEnabled;
   const handleBuilderCancel = useCallback(() => {
     connectRequestedRef.current = false;
     builderConnect.cancel();
@@ -219,7 +226,11 @@ export function StorageSetupCard({
               ? t("storageSetup.builderConnected")
               : actionConnecting
                 ? t("storageSetup.waitingForBuilder")
-                : t("agentChat.setup.connectBuilder")}
+                : provisionAccount
+                  ? t("storageSetup.createBuilderAccount")
+                  : hasBuilderAccount
+                    ? t("storageSetup.signInWithBuilderAccount")
+                    : t("agentChat.setup.connectBuilder")}
           </Button>
         </BuilderConnectPopover>
         {!connected && storageSetupHref ? (

@@ -1494,6 +1494,8 @@ const messages = {
       "Aucune réponse de Builder après 5 minutes. Vérifiez la fenêtre contextuelle et réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
+    createBuilderAccount: "Créer un compte Builder.io",
+    signInWithBuilderAccount: "Se connecter avec un compte Builder.io",
     free: "Gratuit",
     whyPrompt: "Pourquoi vois-je ceci ?",
     whyDescription:

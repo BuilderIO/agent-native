@@ -1483,6 +1483,8 @@ const messages = {
       "Não houve resposta do Builder em 5 minutos. Verifique o pop-up e tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
+    createBuilderAccount: "Criar conta do Builder.io",
+    signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
     free: "Grátis",
     whyPrompt: "Por que estou vendo isso?",
     whyDescription:

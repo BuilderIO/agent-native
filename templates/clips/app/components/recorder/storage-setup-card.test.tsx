@@ -133,10 +133,34 @@ describe("StorageSetupCard", () => {
   it("shows one Builder action and no inline terms or icons", async () => {
     await renderCard();
 
-    expect(container.textContent).toContain("agentChat.setup.connectBuilder");
+    expect(container.textContent).toContain(
+      "storageSetup.createBuilderAccount",
+    );
+    expect(container.textContent).toContain(
+      "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
+    );
     expect(container.textContent).not.toContain(CONSENT);
     expect(container.querySelector('a[href*="builder.io/legal"]')).toBeNull();
     expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("labels the button for what it will do", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ agentNativeProvisioningEnabled: false }),
+    );
+    await renderCard();
+    expect(container.textContent).toContain("agentChat.setup.connectBuilder");
+    expect(container.textContent).not.toContain(
+      "storageSetup.createBuilderAccount",
+    );
+
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ accountExists: true }),
+    );
+    await renderCard();
+    expect(container.textContent).toContain(
+      "storageSetup.signInWithBuilderAccount",
+    );
   });
 
   it("creates an account only from the consent popover", async () => {

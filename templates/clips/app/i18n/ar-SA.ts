@@ -1459,6 +1459,8 @@ const messages = {
       "لم يصل رد من Builder خلال 5 دقائق. تحقق من النافذة المنبثقة وحاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
+    createBuilderAccount: "إنشاء حساب Builder.io",
+    signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
     free: "مجاني",
     whyPrompt: "لماذا أرى هذا؟",
     whyDescription:

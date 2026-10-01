@@ -1471,6 +1471,8 @@ const messages = {
       "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
+    createBuilderAccount: "Builder.io アカウントを作成",
+    signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",
     whyPrompt: "なぜこれが表示されていますか？",
     whyDescription:

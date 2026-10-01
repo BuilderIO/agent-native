@@ -1433,6 +1433,8 @@ const messages = {
       "5 मिनट में Builder से जवाब नहीं मिला। पॉपअप जांचें और फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
+    createBuilderAccount: "Builder.io खाता बनाएँ",
+    signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
     free: "मुफ्त",
     whyPrompt: "मैं यह क्यों देख रहा हूं?",
     whyDescription:

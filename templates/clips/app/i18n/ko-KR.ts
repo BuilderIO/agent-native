@@ -1452,6 +1452,8 @@ const messages = {
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
+    createBuilderAccount: "Builder.io 계정 만들기",
+    signInWithBuilderAccount: "Builder.io 계정으로 로그인",
     free: "무료",
     whyPrompt: "왜 이 화면이 보이나요?",
     whyDescription:
