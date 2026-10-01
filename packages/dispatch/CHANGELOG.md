@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.40.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [4e85ccd]
+- Updated dependencies
+  - @agent-native/toolkit@0.198.8
+
 ## 0.40.8
 
 ### Patch Changes
@@ -1074,18 +1083,5 @@
 - 81fb79e: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
 - Updated dependencies [81fb79e]
   - @agent-native/toolkit@0.16.3
-
-## 0.27.2
-
-### Patch Changes
-
-- 43fa797: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
-- 43fa797: Avoid querying admin-only vault grants from workspace member key panels and
-  return a proper forbidden response for unauthorized grant requests.
-- 43fa797: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
-- 43fa797: Keep selected chat-first apps visible and open granted external apps from Dispatch.
-- 43fa797: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
-- Updated dependencies [43fa797]
-  - @agent-native/toolkit@0.16.2
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

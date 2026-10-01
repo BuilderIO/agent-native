@@ -51,6 +51,17 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.8
+
+### Patch Changes
+
+- 5b37ae2: Expose app actions to dev-mode sub-agents.
+- Release all public npm packages with a patch version bump.
+- eca03a6: Keep optional migration codemods out of application build graphs.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.8
+  - @agent-native/recap-cli@0.5.58
+
 ## 0.198.7
 
 ### Patch Changes
@@ -3669,11 +3680,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
 - 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
-
-## 0.164.23
-
-### Patch Changes
-
-- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

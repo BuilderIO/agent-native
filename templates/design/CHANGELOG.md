@@ -14,6 +14,14 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Applied visual edits clear from the canvas after your agent acknowledges them
+- Design shows pending local file write requests in the editor
+- Holding Space while dragging a layer keeps it in its current auto-layout parent.
+- Local file write approvals stay available when an editor handoff needs a retry
+- Outline-only vector polygons no longer show corner-radius handles
+- Releasing Space before a drop resumes normal layer reparenting
+- Signed-in Design editors see pending local file write approvals.
+- The editor reliably surfaces local file-write consent requests.
 - Design preserves positions explicitly requested for localhost screens.
 - Fix selected-screen PNG and PDF exports for external previews.
 - New localhost screens avoid overlapping existing screens
