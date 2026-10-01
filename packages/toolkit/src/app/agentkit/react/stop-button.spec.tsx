@@ -12,11 +12,16 @@ import { useAgentKitStopButton } from "./stop-button.js";
 
 const mocks = vi.hoisted(() => ({
   activeRunIds: [] as string[],
+  runs: {} as Record<string, { status: string }>,
   cancel: vi.fn(async () => undefined),
 }));
 
 vi.mock("./context.js", () => ({
-  useAgentThread: () => ({ activeRunIds: mocks.activeRunIds }),
+  useAgentThread: () => ({
+    activeRunIds: mocks.activeRunIds,
+    runs: mocks.runs,
+    events: [],
+  }),
   useAgentKitControl: () => ({ cancel: mocks.cancel }),
 }));
 
@@ -31,6 +36,7 @@ describe("useAgentKitStopButton", () => {
   let root: Root;
 
   afterEach(async () => {
+    mocks.runs = {};
     await act(async () => root?.unmount());
     container?.remove();
     mocks.cancel.mockReset();
@@ -76,5 +82,12 @@ describe("useAgentKitStopButton", () => {
     expect(onError.mock.calls[0]![0]).toMatchObject({
       message: "cancel refused",
     });
+  });
+
+  it("hides Stop once every retained run is terminal", async () => {
+    mocks.activeRunIds = ["run-1"];
+    mocks.runs = { "run-1": { status: "completed" } };
+    await render();
+    expect(container.querySelector("button")).toBeNull();
   });
 });

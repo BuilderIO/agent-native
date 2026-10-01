@@ -1,3 +1,4 @@
+import { hasActiveAgentRuns } from "@agent-native/agentkit";
 import { IconPlayerStopFilled } from "@tabler/icons-react";
 
 import { useAgentKitControl, useAgentThread } from "./context.js";
@@ -15,7 +16,7 @@ export function useAgentKitStopButton(options: {
 }) {
   const thread = useAgentThread();
   const control = useAgentKitControl();
-  if (thread.activeRunIds.length === 0) return undefined;
+  if (!hasActiveAgentRuns(thread)) return undefined;
   const { label } = options;
   return (
     <button
