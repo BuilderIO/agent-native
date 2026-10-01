@@ -785,6 +785,7 @@ export default function EditorToolbar({
       <input
         type="text"
         value={deckTitle}
+        readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
         className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
