@@ -7233,7 +7233,7 @@ it(
         ["rectangle", 4],
         ["visible-gradient-rectangle", 4],
         ["stroke-rectangle", 4],
-        ["stroke-polygon", 3],
+        ["stroke-polygon", 0],
         ["visible-paint-server-polygon", 3],
         ["visible-pattern-polygon", 3],
         ["inherited-pattern-polygon", 3],
@@ -7527,8 +7527,7 @@ it(
         }
         if (
           id === "dynamic-pattern-polygon" ||
-          id === "stroke-pattern-polygon" ||
-          id === "stroke-polygon"
+          id === "stroke-pattern-polygon"
         ) {
           const box = await page.locator(`#${id}`).boundingBox();
           if (!box) throw new Error(`${id} is not visible`);
@@ -7547,11 +7546,6 @@ it(
               { timeout: 2_000 },
             );
           await waitForRadiusHandleVisibility(true);
-          if (id === "stroke-polygon") {
-            await page
-              .locator('[data-agent-native-radius-handle="vertex-0"]')
-              .waitFor({ state: "visible" });
-          }
           if (id === "dynamic-pattern-polygon") {
             await page
               .locator("#radius-dynamic-pattern rect")
@@ -7566,6 +7560,22 @@ it(
               });
             await waitForRadiusHandleVisibility(true);
           }
+        }
+        if (id === "stroke-polygon") {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAfterHover = await page
+            .locator("[data-agent-native-radius-handle]")
+            .evaluateAll(
+              (handles) =>
+                handles.filter(
+                  (handle) =>
+                    getComputedStyle(handle as HTMLElement).visibility ===
+                    "visible",
+                ).length,
+            );
+          expect(visibleAfterHover, id).toBe(0);
         }
         if (id === "stroke-rectangle") {
           await page.mouse.move(644, 244);

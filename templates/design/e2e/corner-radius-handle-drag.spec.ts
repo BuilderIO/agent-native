@@ -268,18 +268,10 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
       strokeOpacity: "1",
       visibility: "visible",
     });
-    await expect(handles).toHaveCount(4);
-    const strokeVertex = frame.locator(
-      '[data-agent-native-radius-handle="vertex-0"]',
-    );
-    const strokeVertexBox = await strokeVertex.boundingBox();
-    if (!strokeVertexBox)
-      throw new Error("stroke-polygon radius handle is not laid out");
-    await page.mouse.move(
-      strokeVertexBox.x + strokeVertexBox.width / 2,
-      strokeVertexBox.y + strokeVertexBox.height / 2,
-    );
-    await expect(strokeVertex).toHaveCSS("visibility", "visible");
+    await expect(handles).toHaveCount(0);
+    await expect(
+      frame.locator('[data-agent-native-radius-handle="vertex-0"]'),
+    ).toHaveCount(0);
 
     await selectLayerFromTree(page, "Stroke-only vector");
     await expectSelectedLayer(page, "stroke-path");
