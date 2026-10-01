@@ -956,7 +956,7 @@ import { runObserveCollabText } from "./design-editor/effects/observe-collab-tex
 import { runPublishAgentSelectionContext } from "./design-editor/effects/publish-agent-selection-context";
 import { runResumePendingGeneration } from "./design-editor/effects/resume-pending-generation";
 import { runSeedCollabContent } from "./design-editor/effects/seed-collab-content";
-import { syncLatestActiveContentFromRender } from "./design-editor/effects/sync-latest-active-content";
+import { useSyncLatestActiveContent } from "./design-editor/effects/sync-latest-active-content";
 import { isCurrentRuntimeLayerSnapshot } from "./design-editor/export-snapshot-frame";
 import { resolveFigmaPasteScene } from "./design-editor/figma-paste-scene";
 import {
@@ -8183,14 +8183,12 @@ function DesignEditor() {
       hasActiveCanvasContent: Boolean(activeFile && activeContent.trim()),
       pendingGenerationActive,
     });
-  useLayoutEffect(() => {
-    syncLatestActiveContentFromRender({
-      activeContent,
-      activeFile,
-      latestActiveContentRef,
-      pendingLocalFileContents: pendingLocalFileContentsRef.current,
-    });
-  }, [activeContent, activeFile?.id, activeFile?.fileType]);
+  useSyncLatestActiveContent({
+    activeContent,
+    activeFile,
+    latestActiveContentRef,
+    pendingLocalFileContents: pendingLocalFileContentsRef.current,
+  });
   useEffect(() => {
     if (!initialGenerationChromeLimited) return;
     setActiveLeftPanel("agent");
