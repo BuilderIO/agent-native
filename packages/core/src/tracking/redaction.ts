@@ -8,7 +8,7 @@ const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
 const SQL_PARAMS_RE = /^([\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
 const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):\s*/i;
 const SQL_STATEMENT_RE =
-  /^(?:select|insert|update|delete|merge|with|values|explain|call)\b/i;
+  /^(?:select|insert|update|delete|merge|with|values|explain|call|execute|copy)\b/i;
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
@@ -154,11 +154,56 @@ export interface ExceptionParts {
   type: string;
   message: string;
   stack?: string;
+  diagnostics?: Record<string, unknown>;
 }
 
-export function exceptionParts(error: unknown): ExceptionParts {
+const SAFE_ERROR_DIAGNOSTIC_KEYS = [
+  "code",
+  "errno",
+  "severity",
+  "constraint",
+  "schema",
+  "table",
+  "column",
+  "routine",
+  "position",
+] as const;
+
+function exceptionDiagnostics(
+  error: unknown,
+  causeDepth: number,
+): Record<string, unknown> | undefined {
+  if (error == null || typeof error !== "object") return undefined;
+
+  const source = error as Record<string, unknown>;
+  const diagnostics: Record<string, unknown> = {};
+  for (const key of SAFE_ERROR_DIAGNOSTIC_KEYS) {
+    const value = source[key];
+    if (typeof value === "string") {
+      diagnostics[key] = boundedText(value, 200);
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      diagnostics[key] = value;
+    }
+  }
+
+  if (causeDepth > 0 && "cause" in source && source.cause != null) {
+    const cause = source.cause;
+    diagnostics.cause =
+      typeof cause === "object"
+        ? exceptionPartsWithDiagnostics(cause, causeDepth - 1)
+        : boundedText(cause, MAX_MESSAGE_LENGTH);
+  }
+
+  return Object.keys(diagnostics).length ? diagnostics : undefined;
+}
+
+function exceptionPartsWithDiagnostics(
+  error: unknown,
+  causeDepth: number,
+): ExceptionParts {
   if (error instanceof Error) {
     const stack = redactErrorStack(error);
+    const diagnostics = exceptionDiagnostics(error, causeDepth);
     return {
       type: boundedText(error.name || "Error", 200),
       message: boundedText(
@@ -166,12 +211,20 @@ export function exceptionParts(error: unknown): ExceptionParts {
         MAX_MESSAGE_LENGTH,
       ),
       ...(stack ? { stack } : {}),
+      ...(diagnostics ? { diagnostics } : {}),
     };
   }
   const stack = redactErrorStack(error);
+  const diagnostics = exceptionDiagnostics(error, causeDepth);
   return {
     type: "Error",
     message: boundedText(error, MAX_MESSAGE_LENGTH),
     ...(stack ? { stack } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
   };
+}
+
+export function exceptionParts(error: unknown): ExceptionParts {
+  // ponytail: Limit nested causes to two; raise this if production failures need deeper chains.
+  return exceptionPartsWithDiagnostics(error, 2);
 }

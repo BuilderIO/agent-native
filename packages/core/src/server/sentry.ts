@@ -127,6 +127,15 @@ export function initServerSentry(): Promise<boolean> {
 
           const hasSqlLogEntryFailure = isSqlLogEntryFailure(event.logentry);
           redactSentryEventPayload(event, false, true);
+          if (
+            typeof event.message === "string" &&
+            isSqlStatementText(event.message) &&
+            event.extra &&
+            typeof event.extra === "object"
+          ) {
+            const extra = event.extra as Record<string, unknown>;
+            if ("params" in extra) extra.params = "<redacted>";
+          }
           if (hasSqlLogEntryFailure && event.logentry) {
             delete event.logentry.params;
           }

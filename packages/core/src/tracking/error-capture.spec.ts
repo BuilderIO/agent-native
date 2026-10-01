@@ -132,6 +132,24 @@ describe("tracking captureException", () => {
     expect(event.properties.exceptionStack).not.toContain(privateValue);
   });
 
+  it.each([
+    ["EXECUTE", "EXECUTE prepared_statement($1)"],
+    ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
+  ])("redacts PostgreSQL %s bind parameters", (_statement, query) => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    const privateValue = "private customer value";
+    captureException(
+      new Error(`Failed query: ${query}\nparams: ${privateValue}`),
+    );
+
+    const [event] = track.mock.calls[0];
+    expect(event.properties.exceptionMessage).toContain(query);
+    expect(event.properties.exceptionMessage).not.toContain(privateValue);
+    expect(event.properties.exceptionStack).not.toContain(privateValue);
+  });
+
   it("redacts standalone VALUES bind parameters", () => {
     const track = vi.fn();
     registerTrackingProvider({ name: "qa-exception", track });

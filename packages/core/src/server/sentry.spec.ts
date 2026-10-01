@@ -358,6 +358,64 @@ describe("server/sentry", () => {
       expect(JSON.stringify(result)).not.toContain(privateValue);
     });
 
+    it.each([
+      ["EXECUTE", "EXECUTE prepared_statement($1)"],
+      ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
+    ])(
+      "redacts parameterized PostgreSQL %s statements",
+      async (_statement, query) => {
+        process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+        const { initServerSentry } = await import("./sentry.js");
+        await initServerSentry();
+
+        const privateValue = "private customer value";
+        const message = `Failed query: ${query}\n\tparams: ${privateValue}`;
+        const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+        const result = beforeSend({
+          message,
+          logentry: { message, params: [privateValue] },
+          exception: {
+            values: [{ type: "DrizzleQueryError", value: message }],
+          },
+        } as never) as {
+          message: string;
+          logentry: { message: string; params?: unknown[] };
+          exception: { values: Array<{ value: string }> };
+        };
+
+        expect(result.message).toContain("params: <redacted>");
+        expect(result.logentry.message).toContain("params: <redacted>");
+        expect(result.logentry.params).toBeUndefined();
+        expect(result.exception.values[0]?.value).toContain(
+          "params: <redacted>",
+        );
+        expect(JSON.stringify(result)).not.toContain(privateValue);
+      },
+    );
+
+    it("redacts extra params associated with a root SQL failure", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const message = `DrizzleQueryError: Failed query: SELECT email FROM users WHERE email = $1\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message,
+        extra: {
+          params: [privateValue],
+          unrelated: { params: ["diagnostic"] },
+        },
+      } as never) as {
+        extra: { params: unknown; unrelated: { params: string[] } };
+      };
+
+      expect(result.extra.params).toBe("<redacted>");
+      expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
     it("redacts structured params associated with raw SQL messages", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
