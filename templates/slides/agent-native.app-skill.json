@@ -76,7 +76,7 @@
       "displayName": "Agent-Native Slides",
       "shortDescription": "On-brand presentations",
       "longDescription": "Create and revise on-brand presentations in your Agent-Native Slides workspace. Start from a brief, inspect decks and design systems, add slides, update existing slide content, and duplicate a deck for a new draft. This connection edits presentations in Agent-Native Slides; it does not directly change PowerPoint or Google Slides files. It can access only decks and design systems available to your connected account.",
-      "developerName": "Agent-Native",
+      "developerName": "Builder.io",
       "category": "Productivity",
       "capabilities": [
         "Create presentations from a brief",
