@@ -337,7 +337,10 @@ export default defineAction({
       deepLink: captureDeepLink(item.id),
       sourcePolicy: item.answerPolicy,
     }));
-    const answerSource = knowledge.length
+    const answerKnowledge = guidance.retrieval.requireCitations
+      ? knowledge.filter((item) => item.evidence.length > 0)
+      : knowledge;
+    const answerSource = answerKnowledge.length
       ? "knowledge"
       : eligibleCaptures.length
         ? "captures"
@@ -361,9 +364,9 @@ export default defineAction({
       };
     }
     const answerParts = [];
-    if (knowledge.length) {
+    if (answerKnowledge.length) {
       answerParts.push(
-        knowledge
+        answerKnowledge
           .map((item) => `${item.title}: ${item.summary || item.body}`)
           .join("\n\n"),
       );

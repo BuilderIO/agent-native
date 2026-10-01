@@ -375,6 +375,41 @@ describe("ask-brain source answer policy", () => {
     expect(result.citations).toEqual([]);
   });
 
+  it("keeps uncited knowledge out of the answer when a capture citation exists", async () => {
+    mocks.knowledgeRows = [
+      {
+        ...knowledge({
+          id: "uncited-knowledge",
+          sourceId: "source-approved",
+          title: "Uncited retailer summary",
+        }),
+        evidence: [],
+      },
+    ];
+    mocks.captures = [
+      capture({
+        id: "raw-retailer-lead",
+        sourceId: "source-slack",
+        title: "Retailer demo lead",
+        snippet: "Nick is demoing to a national grocery retailer next week.",
+      }),
+    ];
+    mocks.policies.set("source-approved", policy("source-approved"));
+    mocks.policies.set("source-slack", policy("source-slack"));
+
+    const result = await action.run({
+      question: "What retailer is Nick Nestle demoing to?",
+      mode: "cited",
+    });
+
+    expect(result.answer).not.toContain("Uncited retailer summary");
+    expect(result.answer).toContain("national grocery retailer");
+    expect(result.answerSource).toBe("captures");
+    expect(result.citations).toEqual([
+      expect.objectContaining({ captureId: "raw-retailer-lead" }),
+    ]);
+  });
+
   it("reports an incomplete search when a capture search lane fails", async () => {
     mocks.lanes = {
       fts: { status: "ok" },
