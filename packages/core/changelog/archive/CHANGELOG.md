@@ -1,3 +1,65 @@
+## 0.164.24
+
+### Patch Changes
+
+- 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
+- 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
+
+## 0.164.23
+
+### Patch Changes
+
+- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
+
+## 0.164.22
+
+### Patch Changes
+
+- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
+- 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
+
+## 0.164.21
+
+### Patch Changes
+
+- 68f299c: Clarify deployment targets and document Agent-Native app configuration.
+
+## 0.164.20
+
+### Patch Changes
+
+- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
+## 0.164.19
+
+### Patch Changes
+
+- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
+
+## 0.164.18
+
+### Patch Changes
+
+- b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
+## 0.164.17
+
+### Patch Changes
+
+- d492462: Support TipTap mark rule helpers in generated SSR stubs.
+
+## 0.164.16
+
+### Patch Changes
+
+- 7d72340: Keep desktop Google exchanges alive through longer passkey ceremonies while retaining one-time verifier binding.
+
+## 0.164.15
+
+### Patch Changes
+
+- 3f1cf50: Send signed-out users directly to the shared sign-in journey after logout so private app data queries cannot flash before the session gate redirects.
+
 ## 0.164.14
 
 ### Patch Changes

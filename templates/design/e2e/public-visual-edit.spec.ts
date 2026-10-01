@@ -32,6 +32,7 @@ const AUTH_STATE_PATH = process.env.E2E_AUTH_DIR
   ? path.join(path.resolve(process.env.E2E_AUTH_DIR), "state.json")
   : path.join(import.meta.dirname, ".auth", "state.json");
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
+const SIGNED_OUT_BASE_URL = BASE_URL.replace("127.0.0.1", "localhost");
 const SHORTCUT = process.platform === "darwin" ? "Meta+k" : "Control+k";
 const UNDO_SHORTCUT = process.platform === "darwin" ? "Meta+z" : "Control+z";
 const REDO_SHORTCUT =
@@ -108,7 +109,12 @@ test.describe.serial("public visual edit", () => {
     });
     visualEditBridge = await startDesignConnectBridge(manifest, {
       bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
-      allowedOrigins: [new URL(BASE_URL).origin],
+      allowedOrigins: [
+        ...new Set([
+          new URL(BASE_URL).origin,
+          new URL(SIGNED_OUT_BASE_URL).origin,
+        ]),
+      ],
     });
     designId = await readSeedDesignId();
     linkedScreenId = await createLinkedScreen(browser, designId);
@@ -137,10 +143,17 @@ test.describe.serial("public visual edit", () => {
   test("loads the public /visual-edit route without a session and stays crash-free", async ({
     browser,
   }) => {
-    const signedOut = await openSignedOutPage(browser, "/visual-edit");
+    const signedOut = await openSignedOutPage(
+      browser,
+      "/visual-edit",
+      undefined,
+      SIGNED_OUT_BASE_URL,
+    );
     try {
       await expect(signedOut.page).toHaveURL(
-        new RegExp(`${escapeRegExp(appUrl("/visual-edit"))}(?:[?#].*)?$`),
+        new RegExp(
+          `${escapeRegExp(appUrl("/visual-edit", SIGNED_OUT_BASE_URL))}(?:[?#].*)?$`,
+        ),
       );
       await expect(
         signedOut.page.getByRole("heading", { level: 1 }).first(),
@@ -182,9 +195,14 @@ test.describe.serial("public visual edit", () => {
         readyAt: null as number | null,
         loadAt: null as number | null,
       };
+      const sourceWarningState = { visibleWhilePreparing: false };
       Object.defineProperty(window, "__visualEditFrameTiming", {
         configurable: false,
         value: timing,
+      });
+      Object.defineProperty(window, "__visualEditSourceWarningState", {
+        configurable: false,
+        value: sourceWarningState,
       });
       const mountTimes = new WeakMap<HTMLIFrameElement, number>();
       const watchedFrames = new WeakSet<HTMLIFrameElement>();
@@ -209,6 +227,27 @@ test.describe.serial("public visual edit", () => {
           .querySelectorAll("iframe[data-design-preview-iframe]")
           .forEach(watchFrame);
       };
+      const checkSourceWarning = () => {
+        const frame = document.querySelector<HTMLIFrameElement>(
+          'iframe[data-design-preview-iframe][src*="slow"]',
+        );
+        const wrapper = frame?.closest(".design-canvas-iframe-wrapper");
+        const isPreparing = /preparing (?:the )?live editor/i.test(
+          wrapper?.textContent ?? "",
+        );
+        const warningIsVisible = [
+          ...document.querySelectorAll('[role="status"]'),
+        ].some(
+          (element) =>
+            element.textContent?.trim() ===
+              "No source locations available for this app." &&
+            element.getClientRects().length > 0 &&
+            getComputedStyle(element).visibility !== "hidden",
+        );
+        if (isPreparing && warningIsVisible) {
+          sourceWarningState.visibleWhilePreparing = true;
+        }
+      };
       new MutationObserver((records) => {
         for (const record of records) {
           record.addedNodes.forEach(scan);
@@ -219,12 +258,15 @@ test.describe.serial("public visual edit", () => {
             watchFrame(record.target);
           }
         }
+        checkSourceWarning();
       }).observe(document, {
         attributes: true,
         attributeFilter: ["src"],
         childList: true,
         subtree: true,
+        characterData: true,
       });
+      checkSourceWarning();
       window.addEventListener("message", (event) => {
         if (
           event.data?.type !== "agent-native:editor-chrome-ready" ||
@@ -297,7 +339,18 @@ test.describe.serial("public visual edit", () => {
           .locator("#delayed-image")
           .evaluate((image) => !(image as HTMLImageElement).complete),
       ).toBe(true);
-      await expect(page.getByText(/prepar.*live editor/i)).toBeHidden();
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as Window & {
+                __visualEditSourceWarningState?: {
+                  visibleWhilePreparing: boolean;
+                };
+              }
+            ).__visualEditSourceWarningState?.visibleWhilePreparing,
+        ),
+      ).toBe(false);
 
       const screenshotPath = path.resolve(
         import.meta.dirname,
@@ -469,7 +522,91 @@ test.describe.serial("public visual edit", () => {
   test("signed-out /visual-edit capability can publish, pull, and acknowledge edits", async ({
     browser,
   }) => {
-    const signedOut = await openSignedOutPage(browser, "/visual-edit");
+    const signedOut = await openSignedOutPage(
+      browser,
+      "/visual-edit",
+      undefined,
+      SIGNED_OUT_BASE_URL,
+    );
+    const unauthorizedResponses: string[] = [];
+    const updateFileRequests: string[] = [];
+    const bridgeResponses: string[] = [];
+    const routeResponses: string[] = [];
+    const pageErrors: string[] = [];
+    signedOut.page.on("request", (request) => {
+      const requestUrl = new URL(request.url());
+      if (requestUrl.pathname.endsWith("/_agent-native/actions/update-file")) {
+        updateFileRequests.push(`${request.method()} ${requestUrl.pathname}`);
+      }
+    });
+    signedOut.page.on("response", (response) => {
+      const responseUrl = new URL(response.url());
+      if (
+        response.request().resourceType() === "document" ||
+        responseUrl.pathname.endsWith(".data") ||
+        response.status() >= 400
+      ) {
+        routeResponses.push(
+          `${response.status()} ${response.request().resourceType()} ${responseUrl.pathname}`,
+        );
+      }
+      if (response.url().includes("live-edit-bridge")) {
+        bridgeResponses.push(
+          `${response.status()} ${new URL(response.url()).pathname}`,
+        );
+      }
+      if (response.status() === 401 || response.status() === 403) {
+        const requestHeaders = response.request().headers();
+        const embedTarget =
+          requestHeaders["x-agent-native-embed-target"] ?? "<missing>";
+        const requestUrl = new URL(response.url());
+        const targetQuery =
+          requestUrl.searchParams.get("__an_embed_target") ?? "<missing>";
+        const urlHasEmbedToken =
+          requestUrl.searchParams.has("__an_embed_token");
+        void response
+          .json()
+          .then((body: unknown) => {
+            const details =
+              body && typeof body === "object"
+                ? ((body as { error?: unknown; hint?: unknown }).error ??
+                  (body as { hint?: unknown }).hint)
+                : undefined;
+            unauthorizedResponses.push(
+              `${response.status()} ${response.request().resourceType()} ${requestUrl.pathname} auth=${Boolean(requestHeaders.authorization)} tokenQuery=${urlHasEmbedToken} target=${embedTarget} targetQuery=${targetQuery}${details ? ` (${String(details).slice(0, 160)})` : ""}`,
+            );
+          })
+          .catch(() => {
+            unauthorizedResponses.push(
+              `${response.status()} ${response.request().resourceType()} ${requestUrl.pathname} auth=${Boolean(requestHeaders.authorization)} tokenQuery=${urlHasEmbedToken} target=${embedTarget} targetQuery=${targetQuery}`,
+            );
+          });
+      }
+    });
+    signedOut.page.on("pageerror", (error) => {
+      pageErrors.push(`${error.name}: ${error.message}`);
+    });
+    signedOut.page.on("console", (message) => {
+      if (message.type() === "error" && /ErrorBoundary/.test(message.text())) {
+        const args = message.args();
+        void args[1]
+          ?.jsonValue()
+          .then((value: unknown) => {
+            const error =
+              value && typeof value === "object"
+                ? (value as {
+                    status?: unknown;
+                    statusText?: unknown;
+                    data?: unknown;
+                  })
+                : {};
+            pageErrors.push(
+              `${String(error.status ?? "")} ${String(error.statusText ?? "")} ${String(error.data ?? "").slice(0, 200)}`,
+            );
+          })
+          .catch(() => pageErrors.push(message.text().slice(0, 300)));
+      }
+    });
     try {
       if (!visualEditBridge)
         throw new Error("visual-edit bridge is not running");
@@ -543,6 +680,24 @@ test.describe.serial("public visual edit", () => {
         preflight as { result?: Record<string, unknown> }
       ).result;
       expect(preflightResult?.designId).toEqual(expect.any(String));
+      expect(preflightResult?.connectionId).toEqual(expect.any(String));
+      expect(preflightResult?.publicReadOnly).toBe(true);
+
+      const publicDesignResponse = await signedOut.page
+        .context()
+        .request.get(
+          appUrl("/_agent-native/actions/get-design", SIGNED_OUT_BASE_URL),
+          { params: { id: String(preflightResult?.designId) } },
+        );
+      expect(
+        publicDesignResponse.status(),
+        await publicDesignResponse.text(),
+      ).toBe(200);
+      expect(await publicDesignResponse.json()).toMatchObject({
+        id: preflightResult?.designId,
+        visibility: "public",
+        accessRole: "viewer",
+      });
 
       await signedOut.page.evaluate(
         ({ designId, devServerUrl, bridgeInput }) => {
@@ -583,6 +738,13 @@ test.describe.serial("public visual edit", () => {
             .includes("/_agent-native/actions/migrate-board-objects-to-file"),
         { timeout: 30_000 },
       );
+      const previewCredentialResponse = signedOut.page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith(
+            "/actions/refresh-localhost-preview-token",
+          ),
+        { timeout: 30_000 },
+      );
 
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: /open visual edit/i }).click();
@@ -598,6 +760,20 @@ test.describe.serial("public visual edit", () => {
       expect(migrationResponse.status(), await migrationResponse.text()).toBe(
         200,
       );
+      const credentialResponse = await previewCredentialResponse;
+      expect(credentialResponse.status()).toBe(200);
+      const credentialBody = await credentialResponse.json();
+      const credentialPayload =
+        credentialBody.result ?? credentialBody.data ?? credentialBody;
+      const openedConnectionId = String(preflightResult?.connectionId);
+      const previewCredentials =
+        credentialPayload.connections?.[openedConnectionId] ??
+        credentialPayload;
+      expect(previewCredentials.previewToken).toBeTruthy();
+      expect(
+        previewCredentials.liveEditCapability ??
+          previewCredentials.liveEditRegistrationCapability,
+      ).toBeTruthy();
       const capabilityDesignId = new URL(signedOut.page.url()).pathname
         .split("/")
         .pop();
@@ -616,7 +792,7 @@ test.describe.serial("public visual edit", () => {
       // Exercise the MCP compatibility endpoint with the exact editor capability
       // issued by open-visual-edit, not a synthetic owner session.
       const manifestResponse = await mcpRequest.get(
-        appUrl("/_agent-native/webmcp/manifest"),
+        appUrl("/_agent-native/webmcp/manifest", SIGNED_OUT_BASE_URL),
         { headers: capabilityHeaders },
       );
       const manifestTools = await manifestResponse.json();
@@ -629,37 +805,117 @@ test.describe.serial("public visual edit", () => {
           "get-visual-edit-pending",
         ]),
       );
-      const publishResponse = await mcpRequest.post(
-        appUrl("/_agent-native/actions/publish-visual-edit-pending"),
-        {
-          headers: {
-            ...capabilityHeaders,
-            origin: new URL(BASE_URL).origin,
-            "sec-fetch-site": "same-origin",
-            "x-agent-native-frontend": "1",
-          },
-          data: {
-            designId: capabilityDesignId,
-            publisherId: "11111111-1111-4111-8111-111111111111",
-            revision: 1,
-            pending: {
-              designId: capabilityDesignId,
-              pendingEditCount: 1,
-              status: "ready",
-              prompt: "Apply the capability-scoped visual edit fixture.",
-            },
-          },
-        },
-      );
-      const published = await publishResponse.json();
-      expect(publishResponse.status(), JSON.stringify(published)).toBe(200);
-      expect(published).toMatchObject({
-        status: "ready",
-        pendingEditCount: 1,
+      const publicationStatuses: number[] = [];
+      signedOut.page.on("response", (response) => {
+        if (response.url().includes("/publish-visual-edit-pending")) {
+          publicationStatuses.push(response.status());
+        }
       });
+      await installBridge(signedOut.page);
+      let selected;
+      try {
+        selected = await selectByText(signedOut.page, "Local visual edit");
+      } catch (error) {
+        const iframeDiagnostics = await signedOut.page
+          .locator("iframe[data-design-preview-iframe]")
+          .evaluateAll((frames) =>
+            frames.map((element) => {
+              const frame = element as HTMLIFrameElement;
+              const url = new URL(frame.src, location.href);
+              return {
+                screenId: frame.dataset.screenIframeId,
+                sourceType: frame.dataset.designSourceType,
+                src: `${url.origin}${url.pathname}`,
+              };
+            }),
+          )
+          .catch(() => []);
+        const childFrameDiagnostics = await Promise.all(
+          signedOut.page
+            .frames()
+            .filter((frame) => frame !== signedOut.page.mainFrame())
+            .map(async (frame) => ({
+              url: (() => {
+                try {
+                  const url = new URL(frame.url());
+                  return `${url.origin}${url.pathname}`;
+                } catch {
+                  return "unavailable";
+                }
+              })(),
+              body: await frame
+                .locator("body")
+                .innerText()
+                .then((text) => text.slice(0, 160))
+                .catch(() => "unavailable"),
+              chromeHosts: await frame
+                .locator("[data-agent-native-editor-chrome-host]")
+                .count()
+                .catch(() => 0),
+            })),
+        );
+        throw new Error(
+          `${String(error)}\nEditor URL flags: ${JSON.stringify(
+            await signedOut.page.evaluate(() => {
+              const url = new URL(window.location.href);
+              return {
+                pathname: url.pathname,
+                embedded: url.searchParams.get("embedded"),
+                embedChrome: url.searchParams.get("embedChrome"),
+                agentSidebar: url.searchParams.get("agentSidebar"),
+                embedTokenQuery: url.searchParams.has("__an_embed_token"),
+                storedEmbedToken: Boolean(
+                  sessionStorage.getItem("agent-native:embed-auth-token"),
+                ),
+              };
+            }),
+          )}\nRoute responses: ${routeResponses.join(", ")}\nBridge responses: ${bridgeResponses.join(", ")}\nUnauthorized responses: ${unauthorizedResponses.join(", ")}\nPage errors: ${pageErrors.join(" | ")}\nIframes: ${JSON.stringify(iframeDiagnostics)}\nChild frames: ${JSON.stringify(childFrameDiagnostics)}\nPage: ${await signedOut.page
+            .locator("body")
+            .innerText()
+            .catch(() => "unavailable")}`,
+        );
+      }
+      expect(selected.textContent).toContain("Local visual edit");
+      const liveFrame = signedOut.page
+        .locator("iframe[data-design-preview-iframe]")
+        .last()
+        .contentFrame();
+      const heading = liveFrame.getByRole("heading", {
+        name: "Local visual edit",
+      });
+      const before = await heading.boundingBox();
+      expect(before).toBeTruthy();
+      const resizeHandle = liveFrame.locator(
+        '[data-agent-native-edge-handle="s"]',
+      );
+      await expect(resizeHandle).toBeVisible({ timeout: 15_000 });
+      const resizeBox = await resizeHandle.boundingBox();
+      expect(resizeBox).toBeTruthy();
+      await signedOut.page.mouse.move(
+        (resizeBox?.x ?? 0) + (resizeBox?.width ?? 0) / 2,
+        (resizeBox?.y ?? 0) + (resizeBox?.height ?? 0) / 2,
+      );
+      await signedOut.page.mouse.down();
+      await signedOut.page.mouse.move(
+        (resizeBox?.x ?? 0) + (resizeBox?.width ?? 0) / 2,
+        (resizeBox?.y ?? 0) + (resizeBox?.height ?? 0) / 2 + 16,
+        { steps: 8 },
+      );
+      await signedOut.page.mouse.up();
+      await waitForBridge(signedOut.page, "visual-style-change");
+      await expect
+        .poll(async () => (await heading.boundingBox())?.height ?? 0)
+        .toBeGreaterThan((before?.height ?? 0) + 1);
+      await expect
+        .poll(() => publicationStatuses, { timeout: 15_000 })
+        .toContain(200);
+      expect(
+        updateFileRequests,
+        "signed-out capability edits must stay DOM-only",
+      ).toEqual([]);
       const pull = async () => {
         const response = await mcpRequest.post(
-          appUrl("/mcp/tool/get-visual-edit-pending"),
+          appUrl("/mcp/tool/get-visual-edit-pending", SIGNED_OUT_BASE_URL),
           {
             headers: capabilityHeaders,
             data: { designId: capabilityDesignId },
@@ -669,15 +925,52 @@ test.describe.serial("public visual edit", () => {
       };
       const { response: pullResponse, body: pulled } = await pull();
       expect(pullResponse.status(), JSON.stringify(pulled)).toBe(200);
-      expect(pulled).toMatchObject({
+      expect(pulled.status).toBe("ready");
+      expect(pulled.pendingEditCount).toBeGreaterThan(0);
+      expect(pulled.prompt).toMatch(/Local visual edit|height|resize/i);
+      const evidenceDirectory = path.resolve(
+        import.meta.dirname,
+        "../../../.tmp/visual-edit-evidence",
+      );
+      await mkdir(evidenceDirectory, { recursive: true });
+      await signedOut.page.screenshot({
+        path: path.join(evidenceDirectory, "pending-before-reload.png"),
+      });
+
+      await liveFrame.locator("body").evaluate(() => window.location.reload());
+      await expect(heading).toBeVisible({ timeout: 30_000 });
+      await expect
+        .poll(async () => (await heading.boundingBox())?.height ?? 0, {
+          timeout: 30_000,
+        })
+        .toBeCloseTo(before?.height ?? 0, 0);
+      await expect(
+        signedOut.page.getByRole("button", {
+          name: /copy prompt to your agent|apply design update/i,
+        }),
+      ).toHaveCount(0, { timeout: 30_000 });
+      const { response: reloadPullResponse, body: reloadPulled } = await pull();
+      expect(reloadPullResponse.status(), JSON.stringify(reloadPulled)).toBe(
+        200,
+      );
+      expect(reloadPulled).toMatchObject({
         status: "ready",
-        prompt: "Apply the capability-scoped visual edit fixture.",
+        revision: pulled.revision,
+      });
+      await signedOut.page.screenshot({
+        path: path.join(evidenceDirectory, "pending-cleared-after-reload.png"),
       });
       const acknowledgeResponse = await mcpRequest.post(
-        appUrl("/mcp/tool/acknowledge-visual-edit-pending"),
+        appUrl(
+          "/mcp/tool/acknowledge-visual-edit-pending",
+          SIGNED_OUT_BASE_URL,
+        ),
         {
           headers: capabilityHeaders,
-          data: { designId: capabilityDesignId, revision: pulled.revision },
+          data: {
+            designId: capabilityDesignId,
+            revision: reloadPulled.revision,
+          },
         },
       );
       const acknowledged = await acknowledgeResponse.json();
@@ -695,14 +988,90 @@ test.describe.serial("public visual edit", () => {
         pendingEditCount: 0,
       });
 
+      const reloadedHeadingBox = await heading.boundingBox();
+      expect(reloadedHeadingBox).toBeTruthy();
+      await signedOut.page.mouse.click(
+        (reloadedHeadingBox?.x ?? 0) + (reloadedHeadingBox?.width ?? 0) / 2,
+        (reloadedHeadingBox?.y ?? 0) + (reloadedHeadingBox?.height ?? 0) / 2,
+      );
+      await expect(resizeHandle).toBeVisible({ timeout: 15_000 });
+      const nextResizeBox = await resizeHandle.boundingBox();
+      expect(nextResizeBox).toBeTruthy();
+      await signedOut.page.mouse.move(
+        (nextResizeBox?.x ?? 0) + (nextResizeBox?.width ?? 0) / 2,
+        (nextResizeBox?.y ?? 0) + (nextResizeBox?.height ?? 0) / 2,
+      );
+      await signedOut.page.mouse.down();
+      await signedOut.page.mouse.move(
+        (nextResizeBox?.x ?? 0) + (nextResizeBox?.width ?? 0) / 2,
+        (nextResizeBox?.y ?? 0) + (nextResizeBox?.height ?? 0) / 2 + 8,
+        { steps: 4 },
+      );
+      await signedOut.page.mouse.up();
+      await waitForBridge(signedOut.page, "visual-style-change");
+      await expect(
+        signedOut.page.getByRole("button", {
+          name: /copy prompt to your agent|apply design update/i,
+        }),
+      ).toBeVisible();
+
+      await signedOut.page
+        .locator("[data-screen-shell]")
+        .first()
+        .locator("[data-frame-title]")
+        .click();
+      const capabilityScreenUrl = signedOut.page.getByRole("textbox", {
+        name: "Screen URL",
+      });
+      await expect(capabilityScreenUrl).toBeEnabled();
+      await capabilityScreenUrl.fill(
+        `${visualEditTargetUrl}/?e2eRoute=account`,
+      );
+      const updateSourceResponse = signedOut.page.waitForResponse(
+        (response) =>
+          response.url().includes("/actions/update-screen-source") &&
+          response.request().method() === "POST",
+      );
+      await signedOut.page.getByRole("button", { name: "Update" }).click();
+      const updateSourceResult = await updateSourceResponse;
+      const updateSourceBody = await updateSourceResult.json();
+      expect(
+        updateSourceResult.status(),
+        JSON.stringify(updateSourceBody),
+      ).toBe(200);
+      expect(JSON.stringify(updateSourceBody)).toContain("e2eRoute=account");
+      const updatedPreview = signedOut.page
+        .locator("iframe[data-screen-iframe-id]")
+        .first();
+      await expect
+        .poll(async () => {
+          const src = await updatedPreview.getAttribute("src");
+          return src ? new URL(src).searchParams.get("url") : null;
+        })
+        .toContain("e2eRoute=account");
+      await expect
+        .poll(
+          () =>
+            signedOut.page
+              .frames()
+              .some((frame) => frame.url().includes("e2eRoute=account")),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await signedOut.page.screenshot({
+        path: test.info().outputPath("visual-edit-url-updated.png"),
+      });
+
       const direct = await openSignedOutPage(
         browser,
         `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview`,
+        undefined,
+        SIGNED_OUT_BASE_URL,
       );
       try {
         await expect(direct.page).toHaveURL(
           new RegExp(
-            `${escapeRegExp(appUrl(`/visual-edit/${preflightResult?.designId}`))}\\?editorView=overview$`,
+            `${escapeRegExp(appUrl(`/visual-edit/${preflightResult?.designId}`, SIGNED_OUT_BASE_URL))}\\?editorView=overview$`,
           ),
           { timeout: 30_000 },
         );
@@ -714,6 +1083,7 @@ test.describe.serial("public visual edit", () => {
           .request.get(
             appUrl(
               `/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(String(preflightResult?.designId))}`,
+              SIGNED_OUT_BASE_URL,
             ),
           );
         expect([401, 403]).toContain(unauthorizedPending.status());
@@ -821,6 +1191,8 @@ test.describe.serial("public visual edit", () => {
       const modeMarkerDirect = await openSignedOutPage(
         browser,
         `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview&embedChrome=1&embedded=1`,
+        undefined,
+        SIGNED_OUT_BASE_URL,
       );
       try {
         await expect(modeMarkerDirect.page).toHaveURL(
@@ -843,7 +1215,10 @@ test.describe.serial("public visual edit", () => {
         await modeMarkerDirect.close();
       }
       const consentResponse = await mcpRequest.post(
-        appUrl("/mcp/tool/request-localhost-write-consent"),
+        appUrl(
+          "/mcp/tool/request-localhost-write-consent",
+          SIGNED_OUT_BASE_URL,
+        ),
         {
           headers: capabilityHeaders,
           data: {
@@ -1630,6 +2005,7 @@ async function openSignedOutPage(
   browser: Browser,
   pathname: string,
   beforeLoad?: (page: Page) => void,
+  baseUrl = BASE_URL,
 ): Promise<SignedOutPage> {
   const context = await browser.newContext({
     storageState: { cookies: [], origins: [] },
@@ -1658,7 +2034,7 @@ async function openSignedOutPage(
   });
   beforeLoad?.(page);
 
-  await page.goto(appUrl(pathname), {
+  await page.goto(appUrl(pathname, baseUrl), {
     waitUntil: "domcontentloaded",
   });
 
@@ -1748,8 +2124,8 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function appUrl(pathname: string): string {
-  return new URL(appPath(pathname), BASE_URL).toString();
+function appUrl(pathname: string, baseUrl = BASE_URL): string {
+  return new URL(appPath(pathname), baseUrl).toString();
 }
 
 function appReturnPath(pathname: string): string {

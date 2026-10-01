@@ -1,4 +1,5 @@
 export const MCP_PUBLIC_ROUTE_PREFIX = "/mcp";
+export const MCP_DIRECTORY_ROUTE_PREFIX = "/mcp/directory";
 export const MCP_LEGACY_ROUTE_PREFIX = "/_agent-native/mcp";
 
 export const MCP_ROUTE_PREFIXES = [
@@ -22,7 +23,9 @@ export function isMcpProtocolPath(pathname: string): boolean {
   return (
     pathname === MCP_PUBLIC_ROUTE_PREFIX ||
     pathname === MCP_LEGACY_ROUTE_PREFIX ||
+    pathname === MCP_DIRECTORY_ROUTE_PREFIX ||
     pathname === `${MCP_PUBLIC_ROUTE_PREFIX}/` ||
-    pathname === `${MCP_LEGACY_ROUTE_PREFIX}/`
+    pathname === `${MCP_LEGACY_ROUTE_PREFIX}/` ||
+    pathname === `${MCP_DIRECTORY_ROUTE_PREFIX}/`
   );
 }

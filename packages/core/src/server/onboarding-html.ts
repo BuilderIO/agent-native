@@ -2080,6 +2080,17 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
+  .auth-fallback {
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+    gap: 0.5rem;
+    padding: 2rem;
+    text-align: center;
+  }
+  .auth-fallback p { opacity: 0.65; font-size: 0.8125rem; }
   .auth-centered {
     display: flex;
     justify-content: center;
@@ -2392,6 +2403,17 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     text-decoration: underline;
     text-underline-offset: 0.125rem;
   }
+  .auth-marketing-home .auth-marketing-signup-wave {
+    height: clamp(10rem, 24vh, 15rem);
+    margin-top: 1.25rem;
+    opacity: 0.6;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .auth-marketing-home .auth-marketing-signup-wave-canvas {
+    width: 100%;
+    height: 100%;
+  }
   body.has-marketing .locale-picker {
     top: auto;
     bottom: max(1.25rem, env(safe-area-inset-bottom));
@@ -2468,6 +2490,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .auth-marketing-home .card h1 {
       font-size: clamp(1.625rem, 6vw, 2rem);
       line-height: 1.15;
+      margin-top: 1.875rem;
       margin-bottom: 0.5rem;
     }
     .auth-marketing-home .card .subtitle {

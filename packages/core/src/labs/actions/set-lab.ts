@@ -11,7 +11,7 @@ const schema = z.object({
 
 export default defineAction({
   description:
-    "Opt the current user into or out of one registered lab. Unset preferences use the app-defined default; labs may expose new or unstable features.",
+    "Opt the current user into or out of one registered lab. Unset preferences inherit declared legacy flags or use the app-defined default; labs may expose new or unstable features.",
   schema,
   http: { method: "POST" },
   run: async (args, ctx) => {
@@ -20,7 +20,9 @@ export default defineAction({
     if (!getLabDefinition(args.key)) {
       fail(`Unknown lab: ${args.key}`, { statusCode: 404 });
     }
-    const values = await setUserLab(email, args.key, args.enabled);
+    const values = await setUserLab(email, args.key, args.enabled, {
+      orgId: ctx?.orgId,
+    });
     return { key: args.key, enabled: values[args.key] === true, values };
   },
 });

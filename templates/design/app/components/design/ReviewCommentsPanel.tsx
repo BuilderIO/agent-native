@@ -1,18 +1,18 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgMembers } from "@agent-native/core/client/org";
 import {
-  ReviewThreadPanel,
   useResolveReviewThread,
   useReviewComments,
   useSetReviewThreadUnread,
   useSetReviewThreadsUnread,
-  type ReviewThread,
 } from "@agent-native/core/client/review";
 import type {
   ReviewComment,
   ReviewMention,
   ReviewThreadPreference,
 } from "@agent-native/core/review";
+import { type ReviewThread } from "@agent-native/toolkit/app/review";
+import { ReviewThreadPanel } from "@agent-native/toolkit/app/review";
 import {
   IconAdjustmentsHorizontal,
   IconMail,
@@ -237,7 +237,7 @@ export function ReviewCommentsPanel({
         className,
       )}
     >
-      {!canComment && signInHref ? (
+      {!canComment && !normalizedUserEmail && signInHref ? (
         <Button
           asChild
           variant="outline"

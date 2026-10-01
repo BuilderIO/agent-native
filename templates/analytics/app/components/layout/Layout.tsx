@@ -1,24 +1,25 @@
 import {
-  AgentSidebar,
-  GuidedQuestionFlow,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useGuidedQuestionFlow,
   isAssistantChatHistoryVersion,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import {
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -92,7 +93,7 @@ function InteractiveLayout({ children }: LayoutProps) {
                 : undefined;
             return Array.isArray(revisions)
               ? revisions.filter(isAssistantChatHistoryVersion)
-              : [];
+              : null;
           },
         },
         restore: {
@@ -117,7 +118,7 @@ function InteractiveLayout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(revisions)
             ? revisions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {

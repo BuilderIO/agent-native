@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "इंटीग्रेशन" } },
   creativeContext: {
     title: "लाइब्रेरी",
     description:
@@ -165,6 +166,12 @@ export default {
     openAgentSettings: "एजेंट प्रबंधित करें",
     labTweaks: "डिज़ाइन ट्वीक",
     labTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
+    labFullAppBuilding: "पूरे ऐप बनाएँ",
+    labFullAppBuildingDescription:
+      "Builder से अपने डिज़ाइन के आधार पर काम करने वाले ऐप बनाने की कोशिश करें।",
+    labDesignReviewTools: "डिज़ाइन समीक्षा टूल",
+    labDesignReviewToolsDescription:
+      "अपने डिज़ाइन में सुगम्यता संबंधी समस्याएँ जाँचें और दृश्य बदलावों की तुलना करें।",
     mcpAbout:
       "Design को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Design में काम कर सकता है: डिज़ाइन बनाना और उन्हें संपादित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
@@ -183,8 +190,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "AI कनेक्शन की जाँच हो रही है…",
-      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+      providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },
     common: { retry: "फिर से प्रयास करें" },
   },
@@ -1247,6 +1253,7 @@ export default {
       verifying: "Source और runtime सत्यापित हो रहे हैं…",
       retryWithAgent: "Source verification फिर करें",
       copyPrompt: "Prompt अपने agent को कॉपी करें",
+      copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
       copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",
@@ -1401,6 +1408,7 @@ export default {
         "यह लेयर सोर्स में नहीं मिली। ऐप लोड होने के बाद फिर से कोशिश करें, या एजेंट से यह बदलाव करने को कहें।",
       reactSourceAnchorsUnavailable:
         "यह ऐप एडिटर को सोर्स लोकेशन नहीं देता, इसलिए इस लेयर को किसी लाइन से नहीं जोड़ा जा सकता। यह बदलाव एजेंट से कराएँ।",
+      sourceLocationSnapshotFailed: "इस पूर्वावलोकन के स्रोत स्थान जाँचे नहीं जा सके।",
       screenSourceUpdated: "स्क्रीन स्रोत अपडेट किया गया",
       screenSourceUpdateFailed: "स्क्रीन स्रोत अपडेट नहीं किया जा सका",
       vectorEditUnsupported: "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
@@ -1462,7 +1470,7 @@ export default {
         "लाइव एडिटिंग चालू करने के लिए Chrome के प्रॉम्प्ट में “अनुमति दें” चुनें।",
       permissionPromptNoPrompt: "Chrome का प्रॉम्प्ट नहीं दिख रहा?",
       permissionPromptSettingsInstructions:
-        "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर अपने डिवाइस पर ऐप्स को ऐक्सेस करने की अनुमति दें।",
+        "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर लोकल नेटवर्क को ‘अनुमति दें’ पर सेट करें।",
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
     },
   },
@@ -1678,7 +1686,7 @@ export default {
     design: "डिज़ाइन",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
-    figmaReference: "Figma संलग्न करें",
+    figmaReference: "Figma जोड़ें",
     referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
     quickSaas: "SaaS लैंडिंग पेज बनाएँ",
     quickDashboard: "डैशबोर्ड बनाएँ",

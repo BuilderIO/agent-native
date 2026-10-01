@@ -96,7 +96,7 @@ description: "エージェント トレース、評価、フィードバック�
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -123,7 +123,7 @@ export default function ObservabilityPage() {
 
 会話タブには記録された実行が表示されます。実行を選ぶとスパンを確認でき、各スパンを展開すると、記録されたツールの入力、出力、エラー、メタデータを表示できます。**会話全体を開く**を選ぶと、対応するチャットスレッドに移動します。
 
-ツールの引数と結果は既定では記録されません。保存するには `observability` 設定で `captureToolArgs` と `captureToolResults` を有効にしてください。機密フィールドとツールのエラーメッセージは保存前にマスキングされます。
+ツールの引数、結果、完全なエラー本文は既定では記録されません。`observability` 設定で、引数を保存するには `captureToolArgs` を、結果と完全なエラー本文を保存するには `captureToolResults` を有効にしてください。機密フィールドは保存前にマスキングされます。失敗したツールは、`captureToolResults` が無効でも障害を診断できるよう、認証情報、メールアドレス、長い不透明な ID をマスキングしたうえで、エラーの先頭行を長さを制限して常に保持します。
 
 ### 人によるレビュー {#review}
 
@@ -290,7 +290,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+コンテンツは**既定でマスキングされます**。保存されるのはトークン数、コスト、タイミングに加え、失敗したツールについては、認証情報、メールアドレス、長い不透明な ID をマスキングした、長さ制限付きのエラー先頭行です。プロンプト、ツールの入力、ツールの結果、完全なエラー本文は、`capturePrompts`、`captureToolArgs`、`captureToolResults` を有効にしない限り記録されません。デバッグでプロンプトや引数の内容が必要なときにのみ有効にしてください。
 
 </Callout>
 

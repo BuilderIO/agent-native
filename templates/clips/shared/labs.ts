@@ -34,8 +34,24 @@ export const CLIPS_WISPRFLOW = defineLab({
   keywords: "dictate dictation voice speech microphone",
 });
 
+export const CLIPS_RESILIENT_RECORDING = defineLab({
+  key: "clips.resilient-recording",
+  displayName: "Resilient recording",
+  description:
+    "Try faster recording uploads and improved recovery after interruptions.",
+  inheritedMixedDescription:
+    "Previous recording settings are still active. Choose On or Off to use one setting.",
+  keywords: "recording upload recovery desktop",
+  legacyFlagKeys: [
+    "useCustomSCKPipeline",
+    "customSCKPipelineLiveUploadEnabled",
+    "uploadRetryResume",
+  ],
+});
+
 export const CLIPS_LABS = defineLabs([
   CLIPS_VIDEO_EDITING,
   CLIPS_MEETINGS,
   CLIPS_WISPRFLOW,
+  CLIPS_RESILIENT_RECORDING,
 ]);

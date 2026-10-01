@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
@@ -949,8 +950,12 @@ describe("buildAssistantMessage", () => {
 
     const message = buildAssistantMessage(events, "run-missing-key");
 
+    // Persisted from the typed code, so the stored row reads as actionable copy.
     expect(message?.content).toEqual([
-      { type: "text", text: "checking...\n\nError: Missing API key" },
+      {
+        type: "text",
+        text: `checking...\n\nError: ${LLM_MISSING_CREDENTIALS_MESSAGE}`,
+      },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
   });

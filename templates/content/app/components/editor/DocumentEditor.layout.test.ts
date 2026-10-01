@@ -5,6 +5,12 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { cn } from "@/lib/utils";
+
+import {
+  DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
+  DOCUMENT_EDITOR_TITLE_CLASS_NAME,
+} from "./document-editor-layout";
 import {
   databaseConversionRequest,
   databaseMembershipDatabaseTitle,
@@ -277,12 +283,12 @@ describe("document editor layout", () => {
     ).toBe(false);
   });
   it("leaves room for title descenders", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
+    const title = cn(
+      DOCUMENT_EDITOR_TITLE_CLASS_NAME,
+      DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
     );
-    expect(source).toContain("font-bold leading-normal text-foreground");
-    expect(source).not.toContain("font-bold leading-tight text-foreground");
+    expect(title).not.toContain("leading-tight");
+    expect(title).toContain("md:pb-0.5");
   });
 
   it("keeps inline comments outside the independent reading column", () => {
@@ -2089,14 +2095,14 @@ describe("document editor layout", () => {
       },
     );
 
-    expect(source).toContain("const documentQuery = useDocument(documentId, {");
+    expect(source).toContain("usePageOpenDocument(");
     expect(source).toContain("databaseId,");
     expect(source).toContain("databaseDocumentId,");
     expect(source).toContain("isFetchedAfterMount");
     expect(source).toContain("queriedDocument?.id === documentId");
     expect(source).toContain("documentEditorLoadState");
-    expect(source).toContain(
-      "return <DocumentEditorSkeleton title={optimisticTitle} />",
+    expect(source).toMatch(
+      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}/,
     );
   });
 

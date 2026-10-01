@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "整合" } },
   templatesPage: {
     actions: "{{title}} 的範本操作",
     previewAction: "預覽",
@@ -45,7 +46,7 @@ const messages = {
     designSystems: "設計系統",
   },
   settings: {
-    agentObservability: "代理可觀測性",
+    agentObservability: "可觀測性",
     title: "設定",
     labs: "實驗室",
     labsIntro: "在正式發布前預覽實驗性功能。",
@@ -164,6 +165,14 @@ const messages = {
     saveReconnect: "重新連線時會儲存變更",
     saveFailedDescription:
       "你最近的編輯內容僅儲存在此裝置上。離開前請下載備份。",
+    slideConflictReview: "檢視",
+    slideConflictTitle: "此投影片已在其他位置變更",
+    slideConflictDescription:
+      "其他編輯者已儲存較新的版本。保留草稿會取代已儲存的投影片內容，也可以使用最新版本。",
+    slideConflictUseLatest: "使用最新版本",
+    slideConflictKeepDraft: "保留我的草稿",
+    slideConflictKeepEditing: "繼續編輯",
+    slideConflictResolutionFailed: "無法解決衝突。你的草稿仍保留在此。",
     offline: "離線",
     selected: "已選取",
     chooseDesignSystem: "選取設計系統",
@@ -233,6 +242,9 @@ const messages = {
     media: "媒體",
     generateImage: "產生圖片",
     assetLibrary: "素材庫",
+    imageOptions: "圖片選項",
+    cropImage: "裁切圖片",
+    cropHandle: "裁切圖片{{position}}",
     diagrams: "圖表",
     insertMermaidDiagram: "插入 Mermaid 圖表",
     insertMermaidFailed: "插入圖表失敗",
@@ -280,6 +292,18 @@ const messages = {
     importing: "正在匯入...",
     importFile: "匯入檔案",
     downloadBackup: "下載備份",
+    conflictStatus: "文字衝突",
+    conflictStatusDescription: "請先檢查衝突的文字，再儲存其他變更。",
+    reviewConflict: "檢視衝突",
+    conflictTitle: "第 {{number}} 張投影片有文字衝突",
+    conflictDescription: "編輯文字時，另一個版本變更了這張投影片。",
+    conflictChoicesDescription:
+      "保留我的文字會將它儲存到最新版本。使用已儲存的文字只會取代這張投影片的本機草稿。",
+    conflictBackupDescription:
+      "這份完整簡報草稿無法逐張投影片解決。請先下載備份以保留草稿。",
+    conflictResolveFailed: "無法解決衝突。此裝置上仍保留你的草稿。",
+    conflictKeepMine: "保留我的文字",
+    conflictUseLatest: "使用已儲存的文字",
     importBackup: "匯入備份",
     backupDownloaded: "備份已下載",
     backupDownloadFailed: "無法下載備份",
@@ -376,6 +400,8 @@ const messages = {
     orderedList: "有序清單",
     quote: "引用",
     blockquote: "塊引用",
+    divider: "分隔線",
+    horizontalRule: "水平線",
   },
   comments: {
     deleteComment: "刪除評論",
@@ -409,6 +435,7 @@ const messages = {
     retry: "重試",
     clickToAddComment: "點選新增評論",
     selectSlideToAdd: "選取幻燈片以新增評論",
+    filters: "評論篩選",
     scope: "評論範圍",
     thisSlide: "此幻燈片",
     allComments: "所有幻燈片",
@@ -586,8 +613,11 @@ const messages = {
     slideNumber: "幻燈片 {{number}}",
     noSlidesInSnapshot: "此快照中沒有幻燈片。",
     restoreThisVersion: "恢復此版本",
+    retry: "重試",
     noSavedVersions: "還沒有已儲存版本",
     noSavedVersionsDescription: "以後編輯幻燈片前會自動儲存版本。",
+    loadFailed: "無法載入已儲存的版本。",
+    snapshotLoadFailed: "無法載入此已儲存版本。",
   },
   editorSidebar: {
     selectSlide: "選取幻燈片 {{number}}",
@@ -824,7 +854,7 @@ const messages = {
     },
     importDeck: "匯入簡報",
     context: {
-      websiteReference: "附加網站",
+      websiteReference: "新增網站",
       websiteUrlLabel: "網站 URL",
       websiteUrl: "貼上網站 URL",
       figmaUrlLabel: "Figma 連結",
@@ -837,7 +867,7 @@ const messages = {
       searchPresentations: "搜尋簡報…",
       menu: {
         system: "使用設計系統",
-        figma: "附加 Figma",
+        figma: "新增 Figma",
         design: "參考設計",
         deck: "參考簡報",
         searchDesign: "搜尋設計…",
@@ -1010,7 +1040,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "無法檢查 AI 連線。",
+      providerStatusUnavailable: "無法確認 AI 是否已就緒。",
     },
   },
 };

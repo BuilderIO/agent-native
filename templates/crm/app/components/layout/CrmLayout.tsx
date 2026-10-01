@@ -1,20 +1,20 @@
 import {
-  AgentSidebar,
-  AgentToggleButton,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import {
-  buildSettingsRoute,
-  openCommandMenu,
-} from "@agent-native/core/client/navigation";
+  AgentSidebar,
+  AgentToggleButton,
+} from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconMenu2, IconSearch } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -53,7 +53,7 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
         getVersions: (result: unknown) =>
           Array.isArray(result)
             ? result.filter(isAssistantChatHistoryVersion)
-            : [],
+            : null,
       },
       restore: {
         action: "restore-crm-dashboard-revision",

@@ -42,6 +42,8 @@ let previousWorkspaceGatewayUrl: string | undefined;
 let previousWorkspaceOAuthOrigin: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
 let previousOrgDirectoryUrl: string | undefined;
+let previousFrameworkRoutePrefix: string | undefined;
+let previousDurableBackground: string | undefined;
 let execFile: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -96,6 +98,9 @@ beforeEach(() => {
   previousWorkspaceOAuthOrigin = process.env.WORKSPACE_OAUTH_ORIGIN;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
   previousOrgDirectoryUrl = process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+  previousFrameworkRoutePrefix =
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+  previousDurableBackground = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   delete process.env.APP_BASE_PATH;
   delete process.env.APP_URL;
   delete process.env.A2A_SECRET;
@@ -124,6 +129,8 @@ beforeEach(() => {
   delete process.env.WORKSPACE_OAUTH_ORIGIN;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+  delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+  delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
 });
 
 afterEach(() => {
@@ -185,6 +192,11 @@ afterEach(() => {
   restoreEnv("WORKSPACE_OAUTH_ORIGIN", previousWorkspaceOAuthOrigin);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
   restoreEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", previousOrgDirectoryUrl);
+  restoreEnv(
+    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+    previousFrameworkRoutePrefix,
+  );
+  restoreEnv("AGENT_CHAT_DURABLE_BACKGROUND", previousDurableBackground);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -204,6 +216,119 @@ describe("workspace deploy", () => {
       VITE_AGENT_NATIVE_FEEDBACK_URL:
         "https://feedback.example.com/f/workspace/form-id",
     });
+  });
+
+  it("omits an empty framework route prefix and forwards a configured prefix", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+
+    let importId = 0;
+    const assertRuntimePrefix = async (
+      entry: string,
+      expectedPrefix: string | undefined,
+    ) => {
+      if (expectedPrefix) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = "";
+      }
+      await import(
+        `${pathToFileURL(entry).href}?t=${Date.now()}-${importId++}`
+      );
+      if (expectedPrefix) {
+        expect(
+          process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX,
+        ).toBe(expectedPrefix);
+      } else {
+        expect(process.env).not.toHaveProperty(
+          "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        );
+      }
+    };
+
+    const netlifyEntries = [
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "dispatch-server",
+        "dispatch-server.mjs",
+      ),
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "dispatch-agent-background",
+        "dispatch-agent-background.mjs",
+      ),
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "dispatch-integration-recovery",
+        "dispatch-integration-recovery.mjs",
+      ),
+    ];
+
+    for (const configuredPrefix of ["  ", " /_platform "]) {
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+        configuredPrefix;
+      const expectedPrefix = configuredPrefix.trim() || undefined;
+      execFile.mockClear();
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+
+      const netlifyBuildEnv = buildCallForApp("dispatch")?.env;
+      if (expectedPrefix) {
+        expect(
+          netlifyBuildEnv?.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX,
+        ).toBe(expectedPrefix);
+      } else {
+        expect(netlifyBuildEnv).not.toHaveProperty(
+          "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        );
+      }
+      for (const entry of netlifyEntries) {
+        await assertRuntimePrefix(entry, expectedPrefix);
+      }
+
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+        configuredPrefix;
+      execFile.mockClear();
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "vercel",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+
+      const vercelBuildEnv = buildCallForApp("dispatch")?.env;
+      if (expectedPrefix) {
+        expect(
+          vercelBuildEnv?.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX,
+        ).toBe(expectedPrefix);
+      } else {
+        expect(vercelBuildEnv).not.toHaveProperty(
+          "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        );
+      }
+      await assertRuntimePrefix(
+        path.join(
+          tmpDir,
+          ".vercel",
+          "output",
+          "functions",
+          "dispatch-server.func",
+          "index.mjs",
+        ),
+        expectedPrefix,
+      );
+    }
   });
 
   it("builds direct-child apps with isolated workspace auth", async () => {
@@ -257,6 +382,57 @@ describe("workspace deploy", () => {
       ),
     ).toContain('AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated"');
   });
+
+  it.each([
+    { app: "assets", mounted: true },
+    { app: "starter", mounted: true },
+    { app: "starter", mounted: false },
+  ])(
+    "preserves Netlify client files for $app (mounted=$mounted)",
+    async ({ app, mounted }) => {
+      makeWorkspaceApp(tmpDir, app);
+      execFile.mockImplementation(((_cmd, args) => {
+        const name = String(args[1]);
+        writeAppBuildOutput(tmpDir, name);
+        if (!mounted) {
+          const dist = path.join(tmpDir, "apps", name, "dist");
+          const unmounted = path.join(tmpDir, "unmounted-output");
+          fs.rmSync(path.join(dist, name, name), {
+            recursive: true,
+            force: true,
+          });
+          fs.renameSync(path.join(dist, name), unmounted);
+          fs.rmSync(dist, { recursive: true, force: true });
+          fs.renameSync(unmounted, dist);
+        }
+        return Buffer.from("");
+      }) as typeof execFileSync);
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=netlify", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      });
+
+      const target = path.join(tmpDir, "dist", "_workspace_static", app);
+      for (const file of ["app.js", "app-aB12_cdE.js"]) {
+        expect(fs.readFileSync(path.join(target, "assets", file), "utf8")).toBe(
+          "export {};",
+        );
+      }
+      expect(fs.readFileSync(path.join(target, "favicon.svg"), "utf8")).toBe(
+        "<svg></svg>",
+      );
+      expect(
+        fs.readFileSync(path.join(tmpDir, "dist", "_redirects"), "utf8"),
+      ).toContain(
+        `/${app}/assets/* /_workspace_static/${app}/assets/:splat 200`,
+      );
+      if (app !== "assets") {
+        expect(fs.existsSync(path.join(target, app))).toBe(false);
+      }
+    },
+  );
 
   it("collects Netlify static assets, functions, and redirects for a workspace", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");

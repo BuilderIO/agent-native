@@ -1,5 +1,4 @@
 import {
-  AgentToggleButton,
   insertAgentComposerReference,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
@@ -34,6 +33,7 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import {
   IconAlertTriangle,
   IconArrowUpRight,

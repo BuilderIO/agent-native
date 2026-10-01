@@ -1339,7 +1339,10 @@ export function EmailThread({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
-              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
+              <h1
+                data-an-mask
+                className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2"
+              >
                 {threadSubject}
               </h1>
               {displayLabels.map((labelId) => {
@@ -1347,6 +1350,7 @@ export function EmailThread({
                 return (
                   <span
                     key={labelId}
+                    data-an-mask
                     className={cn(
                       "label-badge shrink-0 mt-1",
                       style.bg,
@@ -1513,6 +1517,7 @@ export function EmailThread({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <a
+                        data-an-block
                         href={githubPrUrl}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -1762,7 +1767,10 @@ function ThreadLoadingState({
 
           <div className="flex-1 min-w-0">
             {preview ? (
-              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
+              <h1
+                data-an-mask
+                className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2"
+              >
                 {threadSubject}
               </h1>
             ) : (
@@ -1780,7 +1788,10 @@ function ThreadLoadingState({
       <div className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4">
         <div className="mx-auto max-w-3xl space-y-3 pt-1.5">
           {preview ? (
-            <div className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
+            <div
+              data-an-mask
+              className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4"
+            >
               <div className="flex items-start gap-3">
                 <Skeleton className="h-9 w-9 rounded-full shrink-0" />
                 <div className="flex-1 min-w-0 space-y-3">
@@ -1879,6 +1890,7 @@ const CollapsedMessageRow = forwardRef<
   return (
     <div
       ref={ref}
+      data-an-mask
       onClick={onClick}
       className={cn(
         "flex items-center gap-2 sm:gap-3 px-3 py-3 sm:py-2 cursor-pointer rounded transition-colors",
@@ -1961,6 +1973,7 @@ const ExpandedMessageCard = forwardRef<
   return (
     <div
       ref={ref}
+      data-an-mask
       onClick={onFocus}
       className={cn(
         "rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden cursor-pointer",
@@ -2125,7 +2138,7 @@ const ExpandedMessageCard = forwardRef<
       )}
 
       {/* Body */}
-      <div className="px-3 sm:px-4 pb-5 pt-1 overflow-x-hidden">
+      <div data-an-block className="px-3 sm:px-4 pb-5 pt-1 overflow-x-hidden">
         {email.bodyHtml ? (
           <HtmlEmailBody
             html={email.bodyHtml}
@@ -2153,7 +2166,7 @@ const ExpandedMessageCard = forwardRef<
 
       {/* Attachments */}
       {email.attachments && email.attachments.length > 0 && (
-        <div className="px-3 sm:px-4 pb-4">
+        <div data-an-block className="px-3 sm:px-4 pb-4">
           {/* Image thumbnails */}
           {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
             <div className="flex flex-wrap gap-2 mb-2">
@@ -2182,7 +2195,9 @@ const ExpandedMessageCard = forwardRef<
                           />
                         </a>
                       </TooltipTrigger>
-                      <TooltipContent>{att.filename}</TooltipContent>
+                      <TooltipContent data-an-block>
+                        {att.filename}
+                      </TooltipContent>
                     </Tooltip>
                   );
                 })}
@@ -2919,7 +2934,15 @@ function measureEmailDocumentHeight(doc: Document): number {
   );
 }
 
-function HtmlEmailBody({
+// Ready once parsed, not on load: load waits for every remote image, so one
+// tracking pixel that never responds would hide the email indefinitely.
+function parsedEmailFrameDocument(iframe: HTMLIFrameElement | null) {
+  const doc = iframe?.contentDocument;
+  if (!doc?.body || doc.URL !== "about:srcdoc") return null;
+  return doc.readyState === "loading" ? null : doc;
+}
+
+export function HtmlEmailBody({
   html,
   senderEmail,
   searchTerm,
@@ -2934,8 +2957,10 @@ function HtmlEmailBody({
   const frameHostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
-  const [iframeReady, setIframeReady] = useState(false);
-  const [iframeLoadVersion, setIframeLoadVersion] = useState(0);
+  const [readyFrame, setReadyFrame] = useState<{
+    source: string;
+    doc: Document;
+  } | null>(null);
   const { resolvedTheme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
@@ -2992,6 +3017,37 @@ function HtmlEmailBody({
       ),
     [iframeCss, processedEmailHtml.bodyHtml, processedEmailHtml.headHtml],
   );
+  // A removed frame's document loses its window, so content that cycles back
+  // (A → B → A) waits for the newly mounted frame instead of the old one.
+  const frameDoc =
+    readyFrame?.source === iframeDocument && readyFrame.doc.defaultView
+      ? readyFrame.doc
+      : null;
+  const iframeReady = frameDoc !== null;
+
+  const markFrameReady = useCallback(
+    (iframe: HTMLIFrameElement | null) => {
+      const doc = parsedEmailFrameDocument(iframe);
+      if (!doc) return false;
+      setReadyFrame((current) =>
+        current?.doc === doc ? current : { source: iframeDocument, doc },
+      );
+      return true;
+    },
+    [iframeDocument],
+  );
+
+  useEffect(() => {
+    if (frameDoc) return;
+    let frame = 0;
+    const check = () => {
+      if (!markFrameReady(iframeRef.current)) {
+        frame = requestAnimationFrame(check);
+      }
+    };
+    check();
+    return () => cancelAnimationFrame(frame);
+  }, [frameDoc, markFrameReady]);
 
   const handleAlwaysTrust = () => {
     if (!senderDomain) return;
@@ -3004,10 +3060,7 @@ function HtmlEmailBody({
   };
 
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-
-    const doc = iframe.contentDocument;
+    const doc = frameDoc;
     if (!doc) return;
     const head = doc.head;
     if (!head) return;
@@ -3480,20 +3533,11 @@ function HtmlEmailBody({
       window.removeEventListener("resize", resize);
       if (ownsThemeStyle) themeStyle.remove();
     };
-  }, [
-    processedEmailHtml.bodyHtml,
-    processedEmailHtml.headHtml,
-    isDark,
-    useDarkIframeCss,
-    IFRAME_BG,
-    iframeCss,
-    iframeLoadVersion,
-  ]);
+  }, [frameDoc, iframeCss, useDarkIframeCss]);
 
   useEffect(() => {
     const injectHighlights = () => {
-      const iframe = iframeRef.current;
-      const doc = iframe?.contentDocument;
+      const doc = frameDoc;
       if (!doc?.body) return;
 
       doc.querySelectorAll("mark[data-search]").forEach((mark) => {
@@ -3548,11 +3592,10 @@ function HtmlEmailBody({
 
     const timer = setTimeout(injectHighlights, 60);
     return () => clearTimeout(timer);
-  }, [searchTerm, processedEmailHtml.bodyHtml, iframeLoadVersion]);
+  }, [searchTerm, frameDoc]);
 
   useEffect(() => {
-    const iframe = iframeRef.current;
-    const doc = iframe?.contentDocument;
+    const doc = frameDoc;
     if (!doc?.body) return;
 
     doc.querySelectorAll("mark[data-search]").forEach((m) => {
@@ -3568,7 +3611,7 @@ function HtmlEmailBody({
       active.style.color = "#000";
       active.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [activeLocalIdx, searchTerm, iframeLoadVersion]);
+  }, [activeLocalIdx, searchTerm, frameDoc]);
 
   const showBanner =
     effectivePolicy === "block-all" &&
@@ -3614,7 +3657,7 @@ function HtmlEmailBody({
       >
         {!iframeReady && (
           <div
-            className="pointer-events-none absolute inset-0 z-10 space-y-2 px-1 pt-1"
+            className="pointer-events-none absolute inset-0 z-10 space-y-2 bg-background px-1 pt-1"
             aria-hidden="true"
           >
             <Skeleton className="h-3 w-full" />
@@ -3625,16 +3668,17 @@ function HtmlEmailBody({
             <Skeleton className="h-3 w-[84%]" />
           </div>
         )}
+        {/* A new document gets a new frame: Safari can leave a srcdoc frame
+            blank after navigating it in place. The frame stays opaque and the
+            placeholder covers it, because Safari can skip painting a frame
+            that fades in from opacity 0 until the window resizes. */}
         <iframe
+          key={iframeDocument}
           ref={iframeRef}
           data-agent-native-session-replay=""
           srcDoc={iframeDocument}
           sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
           scrolling="no"
-          className={cn(
-            "transition-opacity duration-150 motion-reduce:transition-none",
-            iframeReady ? "opacity-100" : "opacity-0",
-          )}
           style={{
             width: "100%",
             height: `${height}px`,
@@ -3644,10 +3688,7 @@ function HtmlEmailBody({
             borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
           }}
           title={t("mail.thread.emailContent")}
-          onLoad={() => {
-            setIframeReady(true);
-            setIframeLoadVersion((version) => version + 1);
-          }}
+          onLoad={(event) => markFrameReady(event.currentTarget)}
         />
       </div>
     </div>

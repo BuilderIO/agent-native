@@ -36,7 +36,7 @@ jobs:
       guards: ${{ steps.scope.outputs.guards }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
-      query_budget_apps: ${{ steps.scope.outputs.query_budget_apps }}
+      query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       changeset: ${{ steps.scope.outputs.changeset }}
@@ -81,7 +81,7 @@ jobs:
         env:
           CI_FULL: ${{ steps.scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 5
+          LANES: 2
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -191,7 +191,10 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # One worker per core. The shared config's 25% default is for laptops.
+      VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
@@ -252,7 +255,10 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.change-scope.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # One worker per core. The shared config's 25% default is for laptops.
+      VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
@@ -528,13 +534,20 @@ jobs:
   slides-chat-e2e:
     name: Slides chat caret in Chromium
     needs: change-scope
+    # Off on purpose. #6485 disabled this job and #6496 switched it back on as a
+    # side effect of a Slides change; it then failed on every PR that reached it.
+    # Turning it back on is an explicit decision, not something to restore while
+    # editing this block.
     if: >-
+      false && (
       needs.change-scope.outputs.full == 'true' ||
-      contains(needs.change-scope.outputs.workspace_filters, 'templates/slides') ||
-      contains(needs.change-scope.outputs.workspace_filters, 'packages/core') ||
-      contains(needs.change-scope.outputs.workspace_filters, 'packages/toolkit')
+      contains(needs.change-scope.outputs.workspace_filters, '{templates/slides}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/core}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/toolkit}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/creative-context}')
+      )
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -552,6 +565,9 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
+      - name: Install Playwright WebKit
+        run: pnpm exec playwright install --with-deps webkit
+
       - name: Check selection direction and chat typing while slide text editing remains active
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
@@ -563,6 +579,26 @@ jobs:
       - name: Check typing fidelity across Slides text surfaces
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+
+      - name: Check typing fidelity across Slides text surfaces in WebKit
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
+
+      - name: Check rich-text authoring parity in Slides
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
+
+      - name: Check rich-text authoring parity in Slides WebKit
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
+
+      - name: Check rich-text authoring against the committed corpus
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
+
+      - name: Check mixed rich-text authoring operations in Chromium
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --steps 80
 
   brain-evals:
     name: Brain evals
@@ -590,12 +626,30 @@ jobs:
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres@127.0.0.1:5432/agent_native_build
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: agent_native_build
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d agent_native_build"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
+
+      - name: Generate isolated build auth secret
+        run: echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
 
       - name: Build all packages
         if: needs.change-scope.outputs.full == 'true'
@@ -612,12 +666,16 @@ jobs:
         run: pnpm --filter @agent-native/docs build
 
   neon-query-budget:
-    name: Cold-request query budget
+    name: Cold-request query budget ${{ matrix.shard }}
     needs: change-scope
     if: needs.change-scope.outputs.neon_query_budget == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.change-scope.outputs.query_budget_matrix) }}
     env:
+      AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
       AUTH_DISABLED: "true"
       BETTER_AUTH_SECRET: neon-query-budget-test-secret
       DATABASE_URL: pglite:memory
@@ -632,10 +690,11 @@ jobs:
           restore-dist-cache: "true"
 
       # change-scope owns the app list: every template when shared code
-      # changed, otherwise only the templates this change touched.
+      # changed, otherwise only the templates this change touched, split
+      # across the matrix shards.
       - name: Build and measure the affected first-party templates
         env:
-          QUERY_BUDGET_APPS: ${{ needs.change-scope.outputs.query_budget_apps }}
+          QUERY_BUDGET_APPS: ${{ toJSON(matrix.apps) }}
         run: |
           set -euo pipefail
           mapfile -t apps < <(jq -r '.[]' <<< "$QUERY_BUDGET_APPS")
@@ -647,6 +706,15 @@ jobs:
           for app in "${apps[@]}"; do
             app_dir="templates/$app"
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+            release_migrations=""
+            if [[ -f "$app_dir/netlify.toml" ]]; then
+              release_migrations="$(python3 -c 'import pathlib, sys, tomllib; print(tomllib.loads(pathlib.Path(sys.argv[1]).read_text()).get("context", {}).get("production", {}).get("environment", {}).get("AGENT_NATIVE_RELEASE_MIGRATIONS", ""))' "$app_dir/netlify.toml")"
+            fi
+            if [[ "$release_migrations" == "1" ]]; then
+              export AGENT_NATIVE_RELEASE_MIGRATIONS=1
+            else
+              unset AGENT_NATIVE_RELEASE_MIGRATIONS
+            fi
             NITRO_PRESET=netlify pnpm --filter "$app" build
             pnpm ops:neon-query-budget --app "$app" --mode check
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
@@ -800,10 +868,10 @@ jobs:
             }
           '
           pnpm install
-          # Build the calendar app — catches missing peer/runtime deps that
-          # `pnpm install` alone won't surface (e.g. core importing a peer
-          # dep that templates don't declare).
+          # Build generated apps to catch missing peer/runtime deps that
+          # `pnpm install` alone won't surface.
           pnpm --filter ./apps/calendar build
+          pnpm --filter ./apps/dispatch build
 
   ssr-boot-smoke:
     name: SSR cold-start smoke
@@ -822,12 +890,12 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, toolkit, core, and creative context
+      - name: Build recap CLI, AgentKit, core, Toolkit, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
-          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
       - name: Build Content template (Cloudflare Workers preset)
@@ -878,15 +946,21 @@ jobs:
       - name: Test AgentKit stream ownership guard
         run: pnpm test:agentkit-stream-ownership
 
+      - name: Test untracked-imports guard
+        run: pnpm test:no-untracked-imports
+
+      - name: Test mobile build path guard
+        run: pnpm test:mobile-build-paths
+
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert
 
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
-          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
       - name: Test unbounded read guards

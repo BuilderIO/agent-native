@@ -5,6 +5,7 @@ import {
   QUERY_BUDGET_APPS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
+  shardQueryBudgetApps,
   isDocsPath,
   isGuardScopedScriptPath,
   isInstructionPath,
@@ -48,6 +49,32 @@ test("normalizes paths from git output", () => {
   assert.equal(
     normalizeChangedPath("packages\\docs\\README.md"),
     "packages/docs/README.md",
+  );
+});
+
+test("selects Slides caret CI for exact package roots and Creative Context", () => {
+  const filtersFor = (path: string) =>
+    JSON.stringify(workspaceFiltersForPaths([path]));
+  const selectsRoot = (filters: string, root: string) =>
+    filters.includes(`{${root}}`);
+
+  assert.equal(
+    selectsRoot(filtersFor("packages/core/src/index.ts"), "packages/core"),
+    true,
+  );
+  assert.equal(
+    selectsRoot(
+      filtersFor("packages/core-corpus/src/index.ts"),
+      "packages/core",
+    ),
+    false,
+  );
+  assert.equal(
+    selectsRoot(
+      filtersFor("packages/creative-context/src/index.ts"),
+      "packages/creative-context",
+    ),
+    true,
   );
 });
 
@@ -116,12 +143,23 @@ test("runs guards for a docs-app cache-header change", () => {
 
 test("runs cold-request query budgets for framework and template changes", () => {
   const core = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+  const creativeContext = classifyChangedPaths([
+    "packages/creative-context/src/jobs/server-worker.ts",
+  ]);
   const template = classifyChangedPaths([
     "templates/forms/actions/list-forms.ts",
   ]);
   const docs = classifyChangedPaths(["docs/guide.md"]);
 
   assert.equal(core.checks.neon_query_budget, true);
+  assert.equal(creativeContext.checks.neon_query_budget, true);
+  assert.deepEqual(creativeContext.queryBudgetApps, [
+    "analytics",
+    "assets",
+    "content",
+    "design",
+    "slides",
+  ]);
   assert.equal(template.checks.neon_query_budget, true);
   assert.equal(docs.checks.neon_query_budget, false);
 });
@@ -137,19 +175,55 @@ test("measures only the changed templates for a template-only change", () => {
   assert.deepEqual(scope.queryBudgetApps, ["forms", "mail"]);
 });
 
-test("measures every template when shared code or the budget changes", () => {
+test("measures every template for Core and budget changes, and Creative Context consumers", () => {
   const core = classifyChangedPaths([
     "packages/core/src/db/client.ts",
     "templates/forms/actions/list-forms.ts",
+  ]);
+  const creativeContext = classifyChangedPaths([
+    "packages/creative-context/src/jobs/server-worker.ts",
   ]);
   const budget = classifyChangedPaths(["scripts/neon-query-budgets.json"]);
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
 
   assert.deepEqual(core.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+  assert.equal(creativeContext.checks.neon_query_budget, true);
+  assert.deepEqual(creativeContext.queryBudgetApps, [
+    "analytics",
+    "assets",
+    "content",
+    "design",
+    "slides",
+  ]);
   assert.equal(budget.checks.neon_query_budget, true);
   assert.deepEqual(budget.queryBudgetApps, [...QUERY_BUDGET_APPS]);
   assert.equal(full.full, true);
   assert.deepEqual(full.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+});
+
+test("splits every query budget template across two shards", () => {
+  const scope = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+
+  assert.deepEqual(
+    scope.queryBudgetShards.map((shard) => shard.shard),
+    ["1/2", "2/2"],
+  );
+  const [first, second] = scope.queryBudgetShards.map((shard) => shard.apps);
+  assert.ok(Math.abs(first.length - second.length) <= 1);
+  assert.deepEqual([...first, ...second].sort(), [...QUERY_BUDGET_APPS].sort());
+});
+
+test("runs one query budget job for a one-template change and none when off", () => {
+  const template = classifyChangedPaths([
+    "templates/forms/actions/list-forms.ts",
+  ]);
+  const docs = classifyChangedPaths(["docs/guide.md"]);
+
+  assert.deepEqual(template.queryBudgetShards, [
+    { shard: "1/1", apps: ["forms"] },
+  ]);
+  assert.deepEqual(docs.queryBudgetShards, []);
+  assert.deepEqual(shardQueryBudgetApps([]), []);
 });
 
 test("skips the query budget for a template it does not measure", () => {
@@ -473,6 +547,22 @@ test("still runs changed root script tests when the change set is full", () => {
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
   ]);
+});
+
+test("runs the change-scope test when the selector or its test changes", () => {
+  for (const path of [
+    "scripts/ci-change-scope.ts",
+    "scripts/ci-change-scope.test.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+
+    assert.equal(scope.full, true, path);
+    assert.deepEqual(scope.scriptTests, ["scripts/ci-change-scope.test.ts"]);
+    if (path === "scripts/ci-change-scope.ts") {
+      assert.equal(scope.checks.neon_query_budget, true);
+      assert.deepEqual(scope.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+    }
+  }
 });
 
 test("selects the changeset check for package, changeset, and checker changes", () => {

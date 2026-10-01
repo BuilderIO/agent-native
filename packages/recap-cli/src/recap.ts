@@ -3219,10 +3219,14 @@ type PlaywrightModule = { chromium: import("playwright").BrowserType };
 
 async function defaultImportPlaywright(): Promise<PlaywrightModule> {
   try {
-    return (await import("playwright")) as unknown as PlaywrightModule;
+    return (await import(
+      /* @vite-ignore */ "playwright"
+    )) as unknown as PlaywrightModule;
   } catch (err) {
     try {
-      return (await import("@playwright/test")) as unknown as PlaywrightModule;
+      return (await import(
+        /* @vite-ignore */ "@playwright/test"
+      )) as unknown as PlaywrightModule;
     } catch {
       throw err;
     }

@@ -1,12 +1,12 @@
 import { setAgentChatContextItem } from "@agent-native/core/client/agent-chat";
-import type { ToolRendererProps } from "@agent-native/core/client/agentkit-chat";
-import { ActionCard } from "@agent-native/core/client/chat";
 import {
   actionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ActionCard } from "@agent-native/toolkit/app/chat";
+import type { ToolRendererProps } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import {
   projectAssetVariationResult,
   type AssetVariationCardImage,

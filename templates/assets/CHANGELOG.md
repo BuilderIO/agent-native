@@ -3,11 +3,23 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Fixed
+
+- A generation that was deleted is no longer checked over and over in the background
+
 ## 2026-09-29
 
 ### Improved
 
 - Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 
 ## 2026-09-28
 

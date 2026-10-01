@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrações" } },
   templatesPage: {
     actions: "Ações do modelo {{title}}",
     previewAction: "Prévia",
@@ -45,7 +46,7 @@ const messages = {
     designSystems: "Sistemas de design",
   },
   settings: {
-    agentObservability: "Observabilidade do agente",
+    agentObservability: "Observabilidade",
     title: "Configurações",
     labs: "Labs",
     labsIntro: "Confira recursos experimentais antes do lançamento.",
@@ -170,6 +171,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "Suas alterações mais recentes estão apenas neste dispositivo. Baixe um backup antes de sair.",
+    slideConflictReview: "Revisar",
+    slideConflictTitle: "Este slide foi alterado em outro lugar",
+    slideConflictDescription:
+      "Outra pessoa salvou uma versão mais recente. Manter seu rascunho substituirá o conteúdo salvo deste slide, ou use a versão mais recente.",
+    slideConflictUseLatest: "Usar a versão mais recente",
+    slideConflictKeepDraft: "Manter meu rascunho",
+    slideConflictKeepEditing: "Continuar editando",
+    slideConflictResolutionFailed:
+      "Não foi possível resolver o conflito. Seu rascunho continua aqui.",
     offline: "Offline",
     selected: "selecionado",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -243,6 +253,9 @@ const messages = {
     media: "Mídia",
     generateImage: "Gerar imagem",
     assetLibrary: "Biblioteca de assets",
+    imageOptions: "Opções da imagem",
+    cropImage: "Cortar imagem",
+    cropHandle: "Cortar imagem {{position}}",
     diagrams: "Diagramas",
     insertMermaidDiagram: "Inserir diagrama Mermaid",
     insertMermaidFailed: "Falha ao inserir o diagrama",
@@ -291,6 +304,21 @@ const messages = {
     importing: "Importando...",
     importFile: "Importar arquivo",
     downloadBackup: "Baixar backup",
+    conflictStatus: "Conflito de texto",
+    conflictStatusDescription:
+      "Revise o texto em conflito antes de salvar outras alterações.",
+    reviewConflict: "Revisar conflito",
+    conflictTitle: "Conflito de texto no slide {{number}}",
+    conflictDescription:
+      "Outra versão alterou este slide enquanto você editava o texto.",
+    conflictChoicesDescription:
+      "Manter seu texto o salva sobre a versão mais recente. Usar o texto salvo substitui apenas o rascunho local deste slide.",
+    conflictBackupDescription:
+      "Este rascunho da apresentação inteira não pode ser resolvido slide por slide. Baixe um backup para guardá-lo.",
+    conflictResolveFailed:
+      "Não foi possível resolver o conflito. Seu rascunho continua disponível neste dispositivo.",
+    conflictKeepMine: "Manter meu texto",
+    conflictUseLatest: "Usar o texto salvo",
     importBackup: "Importar backup",
     backupDownloaded: "Backup baixado",
     backupDownloadFailed: "Não foi possível baixar o backup",
@@ -389,6 +417,8 @@ const messages = {
     orderedList: "Lista ordenada",
     quote: "Citação",
     blockquote: "Bloco de citação",
+    divider: "Separador",
+    horizontalRule: "Linha horizontal",
   },
   comments: {
     deleteComment: "Excluir comentário",
@@ -422,6 +452,7 @@ const messages = {
     retry: "Tentar novamente",
     clickToAddComment: "Clique para adicionar um comentário",
     selectSlideToAdd: "Selecione um slide para adicionar um",
+    filters: "Filtros de comentários",
     scope: "Escopo dos comentários",
     thisSlide: "Este slide",
     allComments: "Todos os slides",
@@ -609,9 +640,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "Tentar novamente",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "Não foi possível carregar as versões salvas.",
+    snapshotLoadFailed: "Não foi possível carregar esta versão salva.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",
@@ -869,7 +903,7 @@ const messages = {
     },
     importDeck: "Importar apresentação",
     context: {
-      websiteReference: "Anexar site",
+      websiteReference: "Adicionar site",
       websiteUrlLabel: "URL do site",
       websiteUrl: "Cole a URL de um site",
       figmaUrlLabel: "Link do Figma",
@@ -884,7 +918,7 @@ const messages = {
       searchPresentations: "Buscar apresentações…",
       menu: {
         system: "Usar um sistema de design",
-        figma: "Anexar Figma",
+        figma: "Adicionar Figma",
         design: "Usar um design como referência",
         deck: "Usar uma apresentação como referência",
         searchDesign: "Pesquisar design…",
@@ -1067,7 +1101,7 @@ const messages = {
   agentChat: {
     setup: {
       providerStatusUnavailable:
-        "Não foi possível verificar a conexão com a IA.",
+        "Não foi possível confirmar se a IA está pronta.",
     },
   },
 };

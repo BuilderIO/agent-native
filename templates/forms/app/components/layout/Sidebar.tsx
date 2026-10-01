@@ -1,16 +1,14 @@
-import {
-  focusAgentChat,
-  navigateWithAgentChatViewTransition,
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
+import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
-  FeedbackButton,
   type AppSidebarItemDefinition,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import {
   IconArrowUp,
   IconForms,

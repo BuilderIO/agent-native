@@ -2,24 +2,24 @@ import {
   navigateWithAgentChatViewTransition,
   sendToAgentChat,
   useChatThreads,
-  useSendToAgentChat,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
   AppSidebarNavItem,
   AgentNativeIcon,
-  buildSignInReturnHref,
-  FeedbackButton,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -64,9 +64,11 @@ import { planReturnPathFromLocation } from "@/lib/plan-return-path";
 import { cn } from "@/lib/utils";
 
 const loadPlanBrandingComposer = () =>
-  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
-    default: PromptComposer,
-  }));
+  import("@agent-native/toolkit/app/chat/composer/index").then(
+    ({ PromptComposer }) => ({
+      default: PromptComposer,
+    }),
+  );
 const LazyPlanBrandingComposer = lazy(loadPlanBrandingComposer);
 
 function preloadPlanBrandingComposer() {

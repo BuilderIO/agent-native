@@ -1,19 +1,23 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import { useOrg } from "@agent-native/core/client/org";
-import {
-  AccountSettingsCard,
-  SettingsTabsPage,
-  useAgentSettingsTabs,
-  type SettingsTabItem,
-} from "@agent-native/core/client/settings";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import {
   createCreativeContextAgentTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
-import { DESIGN_LABS } from "@shared/labs";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
+import {
+  AccountSettingsCard,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+  type SettingsTabItem,
+} from "@agent-native/toolkit/app/settings";
+import {
+  DESIGN_REVIEW_TOOLS_LAB,
+  DESIGN_TWEAKS,
+  FULL_APP_BUILDING_LAB,
+} from "@shared/labs";
 import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 
@@ -69,11 +73,21 @@ export default function SettingsRoute() {
   const settingsTabs = [...agentSettingsTabs, ...observabilityTabs];
   const labs = useMemo(
     () => [
-      ...DESIGN_LABS.map((lab) => ({
-        ...lab,
+      {
+        ...DESIGN_TWEAKS,
         displayName: t("settings.labTweaks"),
         description: t("settings.labTweaksDescription"),
-      })),
+      },
+      {
+        ...FULL_APP_BUILDING_LAB,
+        displayName: t("settings.labFullAppBuilding"),
+        description: t("settings.labFullAppBuildingDescription"),
+      },
+      {
+        ...DESIGN_REVIEW_TOOLS_LAB,
+        displayName: t("settings.labDesignReviewTools"),
+        description: t("settings.labDesignReviewToolsDescription"),
+      },
       {
         ...CREATIVE_CONTEXT_LIBRARY_LAB,
         displayName: t("creativeContext.share.title"),

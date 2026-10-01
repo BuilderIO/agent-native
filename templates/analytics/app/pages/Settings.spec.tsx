@@ -67,7 +67,7 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   buildSettingsRoute: (section: string) => `/settings/${section}`,
 }));
 
-vi.mock("@agent-native/core/client/observability", () => ({
+vi.mock("@agent-native/toolkit/app/observability", () => ({
   ObservabilityDashboard: ({
     routeBasePath,
     showHumanReview,
@@ -92,7 +92,7 @@ vi.mock("../components/AnalyticsReviewArtifactPreview", () => ({
   AnalyticsReviewArtifactPreview: () => null,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => <div>settings-user@example.com</div>,
   SettingsGroup: ({ children }: { children: React.ReactNode }) => (
     <section>{children}</section>
@@ -151,7 +151,7 @@ vi.mock("@agent-native/core/client/settings", () => ({
           ))}
         </nav>
         {props.labs?.map((lab) => (
-          <div key={lab.key} data-testid="creative-context-lab">
+          <div key={lab.key} data-testid={lab.key}>
             {lab.displayName}
             {lab.description}
             <span data-default-enabled={String(lab.defaultEnabled === true)} />
@@ -312,10 +312,20 @@ describe("Analytics Settings", () => {
     expect(container.textContent).toContain("creativeContext.description");
     expect(
       container.querySelector(
-        '[data-testid="creative-context-lab"] [data-default-enabled="false"]',
+        '[data-testid="creative-context.library"] [data-default-enabled="false"]',
       ),
     ).not.toBeNull();
     expect(container.querySelector("#creative-context-agent-tab")).toBeNull();
+  });
+
+  it("does not expose the reserved Sessions Lab before its gated features ship", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="analytics.sessions-triage"]'),
+    ).toBeNull();
   });
 
   it("shows the Creative Context settings tab when its Lab is enabled", async () => {

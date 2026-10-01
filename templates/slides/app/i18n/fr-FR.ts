@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Intégrations" } },
   templatesPage: {
     actions: "Actions du modèle {{title}}",
     previewAction: "Aperçu",
@@ -45,7 +46,7 @@ const messages = {
     designSystems: "Systèmes de design",
   },
   settings: {
-    agentObservability: "Observabilité de l’agent",
+    agentObservability: "Observabilité",
     title: "Paramètres",
     labs: "Labs",
     labsIntro:
@@ -174,6 +175,15 @@ const messages = {
     saveReconnect: "Les changements seront enregistrés à la reconnexion",
     saveFailedDescription:
       "Vos dernières modifications sont uniquement sur cet appareil. Téléchargez une sauvegarde avant de partir.",
+    slideConflictReview: "Examiner",
+    slideConflictTitle: "Cette diapositive a été modifiée ailleurs",
+    slideConflictDescription:
+      "Une autre personne a enregistré une version plus récente. Garder votre brouillon remplacera le contenu enregistré de cette diapositive, ou utilisez la dernière version.",
+    slideConflictUseLatest: "Utiliser la dernière version",
+    slideConflictKeepDraft: "Garder mon brouillon",
+    slideConflictKeepEditing: "Continuer la modification",
+    slideConflictResolutionFailed:
+      "Impossible de résoudre le conflit. Votre brouillon est toujours ici.",
     offline: "Hors ligne",
     selected: "sélectionné",
     chooseDesignSystem: "Choisir un système de design",
@@ -251,6 +261,9 @@ const messages = {
     media: "Média",
     generateImage: "Générer une image",
     assetLibrary: "Bibliothèque de ressources",
+    imageOptions: "Options de l’image",
+    cropImage: "Recadrer l’image",
+    cropHandle: "Recadrer l’image {{position}}",
     diagrams: "Diagrammes",
     insertMermaidDiagram: "Insérer un diagramme Mermaid",
     insertMermaidFailed: "Échec de l'insertion du diagramme",
@@ -299,6 +312,21 @@ const messages = {
     importing: "Importation...",
     importFile: "Importer un fichier",
     downloadBackup: "Télécharger la sauvegarde",
+    conflictStatus: "Conflit de texte",
+    conflictStatusDescription:
+      "Vérifiez le texte en conflit avant d’enregistrer d’autres modifications.",
+    reviewConflict: "Examiner le conflit",
+    conflictTitle: "Conflit de texte sur la diapositive {{number}}",
+    conflictDescription:
+      "Une autre version a modifié cette diapositive pendant la modification du texte.",
+    conflictChoicesDescription:
+      "Conserver votre texte l’enregistre sur la version la plus récente. Utiliser le texte enregistré remplace uniquement le brouillon local de cette diapositive.",
+    conflictBackupDescription:
+      "Ce brouillon de présentation complète ne peut pas être résolu diapositive par diapositive. Téléchargez une sauvegarde pour le conserver.",
+    conflictResolveFailed:
+      "Impossible de résoudre le conflit. Votre brouillon est toujours disponible sur cet appareil.",
+    conflictKeepMine: "Conserver mon texte",
+    conflictUseLatest: "Utiliser le texte enregistré",
     importBackup: "Importer la sauvegarde",
     backupDownloaded: "Sauvegarde téléchargée",
     backupDownloadFailed: "Impossible de télécharger la sauvegarde",
@@ -399,6 +427,8 @@ const messages = {
     orderedList: "Liste ordonnée",
     quote: "Citation",
     blockquote: "Bloc de citation",
+    divider: "Séparateur",
+    horizontalRule: "Ligne horizontale",
   },
   comments: {
     deleteComment: "Supprimer le commentaire",
@@ -432,6 +462,7 @@ const messages = {
     retry: "Réessayer",
     clickToAddComment: "Cliquez pour ajouter un commentaire",
     selectSlideToAdd: "Sélectionnez une diapositive pour en ajouter un",
+    filters: "Filtres des commentaires",
     scope: "Portée des commentaires",
     thisSlide: "Cette diapositive",
     allComments: "Toutes les diapositives",
@@ -619,9 +650,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "Réessayer",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "Impossible de charger les versions enregistrées.",
+    snapshotLoadFailed: "Impossible de charger cette version enregistrée.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",
@@ -879,7 +913,7 @@ const messages = {
     },
     importDeck: "Importer une présentation",
     context: {
-      websiteReference: "Joindre un site web",
+      websiteReference: "Ajouter un site web",
       websiteUrlLabel: "URL du site web",
       websiteUrl: "Collez l’URL d’un site web",
       figmaUrlLabel: "Lien Figma",
@@ -894,7 +928,7 @@ const messages = {
       searchPresentations: "Rechercher des présentations…",
       menu: {
         system: "Utiliser un système de design",
-        figma: "Joindre Figma",
+        figma: "Ajouter Figma",
         design: "Utiliser un design comme référence",
         deck: "Utiliser une présentation comme référence",
         searchDesign: "Rechercher dans Design…",
@@ -1080,7 +1114,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+      providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
     },
   },
 };

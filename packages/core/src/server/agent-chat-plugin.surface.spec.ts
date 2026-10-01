@@ -532,10 +532,14 @@ describe("request-scoped action surface", () => {
     const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
+    const actionsStart = source.indexOf("const buildSubAgentActions");
+    const actionsEnd = source.indexOf("const teamTools", actionsStart);
+    const subAgentActions = source.slice(actionsStart, actionsEnd);
 
     expect(source).toMatch(
       /getActions:\s*\(\) =>\s*filterRuntimeActionsToSurface\(buildSubAgentActions\(\)\),/,
     );
+    expect(subAgentActions.match(/\.\.\.templateScripts,/g)).toHaveLength(2);
     expect(source).toMatch(
       /baseSystemPrompt: filterFrameworkPromptToSurface\(\s*basePrompt,\s*prodActions,\s*payload\.allowedActionNames,/,
     );

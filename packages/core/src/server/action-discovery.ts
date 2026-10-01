@@ -150,6 +150,16 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
   if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
+  if (
+    entry.mcpAnnotations &&
+    typeof entry.mcpAnnotations === "object" &&
+    !Array.isArray(entry.mcpAnnotations) &&
+    typeof entry.mcpAnnotations.readOnlyHint === "boolean" &&
+    typeof entry.mcpAnnotations.destructiveHint === "boolean" &&
+    typeof entry.mcpAnnotations.openWorldHint === "boolean"
+  ) {
+    out.mcpAnnotations = entry.mcpAnnotations;
+  }
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }
@@ -168,6 +178,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     !Array.isArray(entry.planMode)
   ) {
     out.planMode = entry.planMode;
+  }
+  if (typeof entry.changeEvents === "boolean") {
+    out.changeEvents = entry.changeEvents;
   }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
@@ -451,6 +464,7 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
+  "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
   "set-tool-approval-policy",
@@ -498,6 +512,10 @@ export async function mergeCoreSharingActions(
       () => import("../org/actions/list-workspace-app-access.js"),
     ],
     [
+      "list-workspace-icons",
+      () => import("../org/actions/list-workspace-icons.js"),
+    ],
+    [
       "set-workspace-app-access",
       () => import("../org/actions/set-workspace-app-access.js"),
     ],
@@ -507,6 +525,10 @@ export async function mergeCoreSharingActions(
     ],
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
+    [
+      "get-agentkit-capabilities",
+      () => import("../agent/actions/get-agentkit-capabilities.js"),
+    ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "get-file-storage",
@@ -606,6 +628,7 @@ export async function mergeCoreSharingActions(
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
     ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["get-lab-states", () => import("../labs/actions/get-lab-states.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
       "get-chatgpt-subscription-status",
@@ -614,6 +637,14 @@ export async function mergeCoreSharingActions(
     [
       "disconnect-chatgpt-subscription",
       () => import("../agent/actions/disconnect-chatgpt-subscription.js"),
+    ],
+    [
+      "list-chatgpt-subscription-accounts",
+      () => import("../agent/actions/list-chatgpt-subscription-accounts.js"),
+    ],
+    [
+      "select-chatgpt-subscription-account",
+      () => import("../agent/actions/select-chatgpt-subscription-account.js"),
     ],
     [
       "preview-secret-removal",
@@ -694,6 +725,11 @@ export async function mergeCoreSharingActions(
       "get-usage-metrics",
       () => import("../usage/actions/get-usage-metrics.js"),
     ],
+    [
+      "get-usage-insights",
+      () => import("../usage/actions/get-usage-insights.js"),
+    ],
+    ["get-usage-run", () => import("../usage/actions/get-usage-run.js")],
     [
       "get-builder-credit-usage",
       () => import("../usage/actions/get-builder-credit-usage.js"),

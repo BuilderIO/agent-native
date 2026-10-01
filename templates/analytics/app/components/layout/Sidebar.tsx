@@ -1,7 +1,7 @@
 import {
   AppSidebarFooter,
   AppSidebarHeader,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import {
   IconChartBar,
   IconChevronDown,
@@ -92,15 +92,15 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   callAction,
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -2618,12 +2618,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70 pt-3">
+            <div className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70">
               <AppSidebarFooter
                 collapsed={false}
                 collapsible={false}
                 feedback={footerFeedback}
-                className="space-y-1 px-2"
+                className="space-y-1 border-t-0 px-2"
                 orgSwitcher={
                   <OrgSwitcher className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
                 }

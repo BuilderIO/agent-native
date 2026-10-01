@@ -58,7 +58,7 @@ Organization pages, and the app supplies only its own content.
 import {
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 
 export default function SettingsRoute() {
   const agentSettingsTabs = useAgentSettingsTabs();
@@ -116,7 +116,7 @@ import { OrgMembersPage } from "@agent-native/core/client/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 
 const coreMembersPage = CORE_SETTINGS_PAGES.find(
   (page) => page.id === "members",
@@ -231,36 +231,51 @@ An app's own rows follow the same rule: every control on `generalGroups`,
   subtitles, eyebrows, or count strips.
 - Register a search entry for every meaningful row.
 
-## ChatGPT subscription lab {#chatgpt-subscription-lab}
+## Sign in with ChatGPT for open-source apps {#chatgpt-subscription-lab}
 
-The Model page includes an experimental way to use Codex through a user's
-ChatGPT subscription. It is a lab, not a general OpenAI API provider, and it
-exposes a fixed set of supported Codex models.
+Agent-Native uses OpenAI's official Sign in with ChatGPT token-sharing flow for
+eligible open-source use. It authorizes the local app to make eligible requests
+to OpenAI's public Responses API with the signed-in user's ChatGPT plan. It does
+not grant access to the user's ChatGPT conversations or history.
+
+ChatGPT plan access is off by default. Enable the **ChatGPT plan access** lab
+in **Settings → Labs** before connecting ChatGPT.
+
+Open-source apps running locally need neither OpenAI partner approval nor a
+preconfigured client ID. At first sign-in, OpenAI issues a client ID, and the
+app saves it for later sign-ins with that ChatGPT account.
+
+The OAuth callback must use `http://127.0.0.1` on the user's machine.
+`localhost` is not an accepted substitute. The self-serve flow does not support
+hosted `*.agent-native.com` sites or paid deployments. Supporting ChatGPT plan
+access on a hosted site requires both OpenAI partner approval for the app
+operator and a hosted implementation. The operator can request approval through
+OpenAI's [interest form](https://openai.com/form/sign-in-with-chatgpt-interest).
 
 <Steps>
 
-### Enable the lab
+### Connect ChatGPT
 
-Open **Settings → Labs** and enable **ChatGPT subscription**. The connection
-row stays hidden until the lab is enabled.
-
-### Connect the subscription
-
-Open **Settings → Agent → Model** and select **Connect** in the **ChatGPT
-subscription** row. Finish sign-in in the popup. After it connects, anyone who
-connected can pick its models in the chat's model picker.
+Open **Settings → Agent → Model** and connect ChatGPT in the personal providers
+list. Sign in with the ChatGPT account whose plan you want to use, then approve
+the requested access. After connecting, choose an available model in the chat's
+model picker. You can disconnect ChatGPT from the same settings row. If
+OpenAI cannot confirm remote revocation, local tokens are still cleared; use the
+warning link to manage this app's access in ChatGPT Settings → Usage.
 
 </Steps>
 
-<Callout tone="warning">
-
-This is an experimental Labs feature. Your mileage may vary. Availability,
-model access, limits, and behavior can change as the upstream ChatGPT/Codex
-service changes. It is not intended for critical or production work. Use the
-app's **Feedback** control to tell us what worked or what failed, especially
-if connection or model access is inconsistent.
-
-</Callout>
+Use only the public Responses API for inference. ChatGPT's private backend
+endpoints and ChatGPT conversation data are outside this authorization. OpenAI
+marks the token-sharing flow as a preview, so model availability, limits, and
+supported API features can change. Review OpenAI's [Sign in with ChatGPT
+overview](https://developers.openai.com/siwc/token-sharing-open-source),
+[registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in),
+[accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions),
+[models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference),
+[preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations),
+[error recovery](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery),
+and [UI/UX guidelines](https://developers.openai.com/siwc/ui-ux-guidelines).
 
 ## What's next
 

@@ -18,6 +18,7 @@ import {
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
+import { addConfiguredMigrationDependencies } from "./upgrade.js";
 import {
   ensureNodePtyBuildDependency,
   parseWorkspaceScope,
@@ -31,6 +32,7 @@ const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const DRIZZLE_DEPENDENCY_VERSION = "^0.45.3";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
   "@react-router/fs-routes": "8.1.0",
@@ -103,6 +105,13 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
 ];
+// Workspace-only packages a first-party template uses on its hosted site, with
+// the files that import them. A scaffold cannot install these (a standalone app
+// resolves them from npm, a new workspace has no such package), so it drops the
+// dependency and those files. Publishing a package removes its entry here.
+const WORKSPACE_ONLY_TEMPLATE_WIRING: Record<string, readonly string[]> = {
+  "@agent-native/otel": ["server/plugins/otel.ts"],
+};
 const TAR_LISTING_MAX_BUFFER = 100 * 1024 * 1024;
 const localPackageTarballs = new Map<string, string>();
 const IN_PLACE_ALLOWLIST = new Set([
@@ -714,6 +723,7 @@ async function createWorkspaceInteractive(
         ...resolution,
         shape: "workspace",
       });
+      addConfiguredFeatureDependencies(appDir, targetDir);
       ensureGuardedScaffold(appDir);
       fixWebManifestName(
         appDir,
@@ -1068,6 +1078,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
+    addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
     ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
@@ -1084,6 +1095,7 @@ async function scaffoldOneAppIntoWorkspace(
     );
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
     applyLocalWorkspaceOverrides(workspace.workspaceRoot, workspaceOverrides);
+    ensureWorkspaceDrizzleDependency(workspace.workspaceRoot);
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
     if (err instanceof CreateWizardCancelledError) {
@@ -1433,6 +1445,7 @@ async function scaffoldAppTemplate(
   const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
     copyDir(localTemplate, targetDir);
+    removeWorkspaceOnlyTemplateWiring(targetDir);
     return {
       templateSource: localTemplateSourceKind(localTemplate),
       templateRef: getGitHubTemplateRefCandidates()[0],
@@ -1443,7 +1456,26 @@ async function scaffoldAppTemplate(
     `${TEMPLATES_DIR}/${sourceTemplate}`,
     targetDir,
   );
+  removeWorkspaceOnlyTemplateWiring(targetDir);
   return { templateSource: "github", templateRef };
+}
+
+function removeWorkspaceOnlyTemplateWiring(appDir: string): void {
+  const pkgPath = path.join(appDir, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  let changed = false;
+  for (const [dependency, files] of Object.entries(
+    WORKSPACE_ONLY_TEMPLATE_WIRING,
+  )) {
+    const dependencyTypes = (
+      ["dependencies", "devDependencies", "peerDependencies"] as const
+    ).filter((depType) => pkg[depType]?.[dependency] !== undefined);
+    if (dependencyTypes.length === 0) continue;
+    for (const depType of dependencyTypes) delete pkg[depType][dependency];
+    for (const file of files) fs.rmSync(path.join(appDir, file));
+    changed = true;
+  }
+  if (changed) fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 }
 
 function localTemplateSourceKind(
@@ -1921,6 +1953,20 @@ function resolvePublishedWorkspaceSpecifier(
   }
 }
 
+function ensureWorkspaceDrizzleDependency(workspaceRoot: string): void {
+  const packageJsonPath = path.join(workspaceRoot, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+  if (!pkg || typeof pkg !== "object" || Array.isArray(pkg)) {
+    throw new Error(`${packageJsonPath} must contain a JSON object`);
+  }
+  pkg.dependencies ??= {};
+  if (typeof pkg.dependencies !== "object" || Array.isArray(pkg.dependencies)) {
+    throw new Error(`${packageJsonPath} has an invalid dependencies object`);
+  }
+  pkg.dependencies["drizzle-orm"] ??= DRIZZLE_DEPENDENCY_VERSION;
+  fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + "\n");
+}
+
 async function scaffoldRequiredPackages(
   templateNames: string[],
   workspaceRoot: string,
@@ -2172,6 +2218,7 @@ function postProcessStandalone(
       }
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies["@electric-sql/pglite"] ??= PGLITE_DEPENDENCY_VERSION;
+      pkg.dependencies["drizzle-orm"] ??= DRIZZLE_DEPENDENCY_VERSION;
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
       hasNodePty = [
@@ -2181,6 +2228,7 @@ function postProcessStandalone(
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+      addConfiguredFeatureDependencies(targetDir);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
@@ -2241,6 +2289,19 @@ function postProcessStandalone(
   fixStandaloneTsconfig(targetDir, templateName);
 
   setupAgentSymlinks(targetDir);
+}
+
+function addConfiguredFeatureDependencies(
+  appDir: string,
+  workspaceRoot = appDir,
+): void {
+  const packageFile = path.join(appDir, "package.json");
+  if (!fs.existsSync(packageFile)) return;
+  addConfiguredMigrationDependencies({
+    root: workspaceRoot,
+    kind: workspaceRoot === appDir ? "standalone" : "workspace",
+    packageFiles: [packageFile],
+  });
 }
 
 function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
@@ -2468,6 +2529,7 @@ export {
   discoverCommunityWorkspaceApps as _discoverCommunityWorkspaceApps,
   normalizeCommunityWorkspaceAppDependencies as _normalizeCommunityWorkspaceAppDependencies,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
+  removeWorkspaceOnlyTemplateWiring as _removeWorkspaceOnlyTemplateWiring,
   tarExtractArgs as _tarExtractArgs,
   extractTarball as _extractTarball,
   materializeArchiveSymlinks as _materializeArchiveSymlinks,
@@ -3971,7 +4033,17 @@ function getToolkitDependencyVersion(): string {
     if (localToolkit) return localPackageTarball(localToolkit);
   }
 
-  return getOwnPackageDependencyVersion("@agent-native/toolkit");
+  const publishedRange = getOwnPackageDependencyVersion(
+    "@agent-native/toolkit",
+  );
+  if (publishedRange !== "latest") return publishedRange;
+
+  // Changesets publishes Toolkit at Core's version from the fixed release group.
+  const coreVersion = getCorePackageVersion();
+  if (coreVersion) return `^${coreVersion}`;
+  throw new Error(
+    "Cannot determine a compatible @agent-native/toolkit version from @agent-native/core.",
+  );
 }
 
 function getAgentKitDependencyVersion(): string {

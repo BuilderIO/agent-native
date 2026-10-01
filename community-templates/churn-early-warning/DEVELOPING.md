@@ -88,7 +88,7 @@ zone: bring the existing actions over, keep their names stable, and let the chat
 call them before adding extra screens. For a custom agent backend, keep the app
 shell and implement `AgentTransport`, or adapt an existing Core
 `AgentChatRuntime` with `createAgentKitProtocolAdapter()` from
-`@agent-native/core/client/chat`.
+`@agent-native/toolkit/app/chat`.
 
 ### Package and scaffold path
 

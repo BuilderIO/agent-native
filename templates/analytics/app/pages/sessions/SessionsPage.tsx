@@ -1,65 +1,38 @@
-import { CodeSurface } from "@agent-native/core/blocks";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { docsUrl } from "@agent-native/core/shared";
+import { CodeSurface } from "@agent-native/toolkit/app/blocks";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
-} from "@agent-native/core/client/settings";
-import { docsUrl } from "@agent-native/core/shared";
+} from "@agent-native/toolkit/app/settings";
 import {
   IconCheck,
   IconChevronDown,
   IconCloud,
   IconCode,
   IconExternalLink,
-  IconFilter,
   IconLoader2,
   IconPlayerPlay,
-  IconRefresh,
-  IconSearch,
   IconServer,
-  IconSettings,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { FilterTriggerIndicator } from "@/components/ui/filter-trigger";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
 
-type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
+import { SessionsTriagePage } from "./SessionsTriagePage";
 
 const SESSION_REPLAY_DOCS_URL = docsUrl("tracking", {
   hash: "session-replay",
@@ -132,48 +105,18 @@ async function saveS3StorageSettings(
   }
 }
 
-type SessionRecordingSummary = {
-  id: string;
-  clientRecordingId: string;
-  sessionId: string;
-  userId: string | null;
-  anonymousId: string | null;
-  userKey: string | null;
-  startedAt: string;
-  endedAt: string | null;
-  durationMs: number | null;
-  chunkCount: number;
-  eventCount: number;
-  totalBytes: number;
-  pageCount: number;
-  errorCount: number;
-  rageClickCount: number;
-  privacyMode: string;
-  firstUrl: string | null;
-  lastUrl: string | null;
-  path: string | null;
-  hostname: string | null;
-  referrer: string | null;
-  app: string | null;
-  template: string | null;
-  metadata?: Record<string, unknown>;
-  status: "active" | "completed";
-  createdAt: string;
-  updatedAt: string;
-  lastIngestedAt: string | null;
-};
-
-type SessionRecordingIdentity = Pick<
-  SessionRecordingSummary,
-  "id" | "userId" | "userKey" | "anonymousId" | "sessionId"
->;
-
-type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
-
-const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
 const MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS = 59_500;
 const SESSION_QUERY_DEBOUNCE_MS = 250;
 
+/**
+ * Local input state for a URL-backed filter, debounced into the URL.
+ *
+ * `urlValue` only resyncs local state when it changes for a reason other
+ * than this hook's own debounced write (back/forward navigation, an agent
+ * driven URL change, etc). React Router commits `setSearchParams` inside a
+ * transition, so without this guard the echo of our own write can land
+ * after a newer keystroke and clobber it.
+ */
 export function shouldShowZeroMinuteRecoveryAction(
   includeZeroMinuteSessions: boolean,
   filteredCount: number,
@@ -183,7 +126,6 @@ export function shouldShowZeroMinuteRecoveryAction(
     !includeZeroMinuteSessions && filteredCount === 0 && unfilteredCount > 0
   );
 }
-
 export function useDebouncedUrlFilter(
   urlValue: string,
   onCommit: (value: string) => void,
@@ -210,326 +152,14 @@ export function useDebouncedUrlFilter(
 }
 
 export default function SessionsPage() {
-  const t = useT();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const range = readRange(searchParams.get("range"));
-  const app = searchParams.get("app") ?? "";
-  const query = searchParams.get("q") ?? "";
-  const includeZeroMinuteSessions =
-    searchParams.get("includeZeroMinuteSessions") === "true";
-  const from = useMemo(() => rangeToFrom(range), [range]);
-
-  const updateFilter = useCallback(
-    (key: string, value: string) => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          const emptyDefault =
-            (key === "range" && value === "30d") || value.trim() === "";
-          if (emptyDefault) next.delete(key);
-          else next.set(key, value);
-          return next;
-        },
-        { replace: true },
-      );
-    },
-    [setSearchParams],
-  );
-
-  const commitQuery = useCallback(
-    (value: string) => updateFilter("q", value),
-    [updateFilter],
-  );
-  const [queryInput, setQueryInput] = useDebouncedUrlFilter(query, commitQuery);
-
-  const commitApp = useCallback(
-    (value: string) => updateFilter("app", value),
-    [updateFilter],
-  );
-  const [appInput, setAppInput] = useDebouncedUrlFilter(app, commitApp);
-
-  const sessionListFilters = {
-    from: from ?? undefined,
-    app: app || undefined,
-    query: query || undefined,
-  };
-  const { data, isLoading, isFetching, refetch, error } = useActionQuery<
-    SessionRecordingSummary[]
-  >(
-    "list-session-recordings",
-    {
-      ...sessionListFilters,
-      minDurationMs: includeZeroMinuteSessions
-        ? undefined
-        : MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS,
-      limit: 100,
-    },
-    { staleTime: 30_000 },
-  );
-
-  const recordings = data ?? [];
-  const shouldCheckForHiddenSessions =
-    !includeZeroMinuteSessions &&
-    !isLoading &&
-    !error &&
-    recordings.length === 0;
-  const {
-    data: unfilteredRecordings,
-    isLoading: isCheckingForHiddenSessions,
-    isFetching: isFetchingHiddenSessions,
-    error: hiddenSessionsError,
-    refetch: refetchHiddenSessions,
-  } = useActionQuery<SessionRecordingSummary[]>(
-    "list-session-recordings",
-    { ...sessionListFilters, limit: 1 },
-    { enabled: shouldCheckForHiddenSessions, staleTime: 30_000 },
-  );
-  const showZeroMinuteRecoveryAction = shouldShowZeroMinuteRecoveryAction(
-    includeZeroMinuteSessions,
-    recordings.length,
-    unfilteredRecordings?.length ?? 0,
-  );
-  const loadError =
-    error ?? (shouldCheckForHiddenSessions ? hiddenSessionsError : null);
-  const isCheckingEmptyState =
-    shouldCheckForHiddenSessions && isCheckingForHiddenSessions;
-  const isRefreshing =
-    isFetching || (shouldCheckForHiddenSessions && isFetchingHiddenSessions);
-  const popoverFiltered =
-    range !== "30d" || app !== "" || includeZeroMinuteSessions;
-
-  return (
-    <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
-      <Card>
-        <CardContent className="p-3">
-          <div className="analytics-sessions-filter-bar flex flex-wrap items-center gap-2">
-            <div className="analytics-sessions-filter-label flex items-center gap-2 px-1 text-sm font-medium">
-              <IconFilter className="h-4 w-4 text-muted-foreground" />
-              {t("sessions.filters")}
-            </div>
-            <div className="analytics-sessions-filter-search relative min-w-0">
-              <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={queryInput}
-                onChange={(event) => setQueryInput(event.target.value)}
-                placeholder={t("sessions.searchPlaceholder")}
-                className="ps-9"
-              />
-            </div>
-            <Popover>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className={cn(
-                        "shrink-0",
-                        popoverFiltered &&
-                          "border border-primary/40 text-primary",
-                      )}
-                      aria-label={t("sessions.filters")}
-                    >
-                      <FilterTriggerIndicator active={popoverFiltered}>
-                        <IconSettings className="h-4 w-4" />
-                      </FilterTriggerIndicator>
-                    </Button>
-                  </PopoverTrigger>
-                </TooltipTrigger>
-                <TooltipContent>{t("sessions.filters")}</TooltipContent>
-              </Tooltip>
-              <PopoverContent align="end" className="w-72 p-3">
-                <div className="grid gap-3">
-                  <div className="text-sm font-medium">
-                    {t("sessions.filters")}
-                  </div>
-                  <div className="grid gap-1.5">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      {t("sessions.range")}
-                    </div>
-                    <Select
-                      value={range}
-                      onValueChange={(value) => updateFilter("range", value)}
-                    >
-                      <SelectTrigger aria-label={t("sessions.range")}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {RANGE_OPTIONS.map((value) => (
-                          <SelectItem key={value} value={value}>
-                            {rangeLabel(value, t)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <label className="flex cursor-pointer items-center gap-2 border-t pt-3 text-sm">
-                    <Checkbox
-                      checked={includeZeroMinuteSessions}
-                      onCheckedChange={(checked) =>
-                        updateFilter(
-                          "includeZeroMinuteSessions",
-                          checked === true ? "true" : "",
-                        )
-                      }
-                    />
-                    {t("sessions.includeZeroMinuteSessions")}
-                  </label>
-                  <div className="grid gap-1.5 border-t pt-3">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      {t("sessions.userFilters")}
-                    </div>
-                    <Input
-                      value={appInput}
-                      onChange={(event) => setAppInput(event.target.value)}
-                      placeholder={t("sessions.appPlaceholder")}
-                    />
-                  </div>
-                  <div className="grid gap-1.5">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      {t("sessions.eventFilters")}
-                    </div>
-                    <div className="flex h-9 items-center rounded-md border bg-muted/20 px-3 text-sm text-muted-foreground">
-                      {t("sessions.anyActivity")}
-                    </div>
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                void refetch();
-                if (shouldCheckForHiddenSessions) {
-                  void refetchHiddenSessions();
-                }
-              }}
-              disabled={isRefreshing}
-              aria-label={t("sessions.refresh")}
-            >
-              <IconRefresh
-                className={cn("h-4 w-4", isRefreshing && "animate-spin")}
-              />
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="p-0">
-          {loadError ? (
-            <div className="p-6 text-sm text-destructive">
-              {t("sessions.loadFailed", { message: loadError.message })}
-            </div>
-          ) : isLoading || isCheckingEmptyState ? (
-            <SessionSkeleton />
-          ) : recordings.length === 0 ? (
-            showZeroMinuteRecoveryAction ? (
-              <FilteredEmptySessionsState
-                onIncludeZeroMinuteSessions={() =>
-                  updateFilter("includeZeroMinuteSessions", "true")
-                }
-              />
-            ) : (
-              <EmptySessionsState />
-            )
-          ) : (
-            <div>
-              <div className="flex items-center justify-between border-b px-4 py-3">
-                <div className="text-sm font-medium">
-                  {t("sessions.sessionPlaylist")}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {t("sessions.showing", {
-                    count: String(recordings.length),
-                  })}
-                </div>
-              </div>
-              <div className="divide-y">
-                {recordings.map((recording) => {
-                  const href = `/sessions/${encodeURIComponent(recording.id)}`;
-                  const lastSeen =
-                    recording.endedAt ??
-                    recording.lastIngestedAt ??
-                    recording.startedAt;
-                  const deviceLabel = sessionDeviceLabel(recording);
-                  return (
-                    <Link
-                      key={recording.id}
-                      to={href}
-                      className="analytics-session-row grid w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none"
-                      aria-label={t("sessions.watchReplay")}
-                    >
-                      <span className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-md bg-primary/10 font-medium text-primary">
-                        <IconPlayerPlay className="h-4 w-4 fill-current" />
-                        {formatSessionDuration(recording.durationMs)}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-foreground">
-                          {visitorLabel(recording, t)}
-                        </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {formatDateTime(lastSeen)} ·{" "}
-                          {t("sessions.eventCountCompact", {
-                            count: formatNumber(recording.eventCount),
-                          })}
-                        </span>
-                      </span>
-                      <span className="analytics-session-path min-w-0">
-                        <span className="block truncate text-sm font-medium text-primary">
-                          {pathLabel(recording)}
-                        </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {recording.hostname ||
-                            recording.app ||
-                            recording.template ||
-                            shortId(recording.sessionId)}
-                        </span>
-                      </span>
-                      <span className="analytics-session-app-meta min-w-0 text-left">
-                        <span className="analytics-session-badges flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-                          <span>{formatPageCount(recording.pageCount, t)}</span>
-                          {recording.errorCount > 0 ? (
-                            <span className="font-medium text-destructive">
-                              {t("sessions.errorCount", {
-                                count: String(recording.errorCount),
-                              })}
-                            </span>
-                          ) : null}
-                          {recording.rageClickCount > 0 ? (
-                            <span>
-                              {t("sessions.rageClicks", {
-                                count: String(recording.rageClickCount),
-                              })}
-                            </span>
-                          ) : null}
-                        </span>
-                        {deviceLabel ? (
-                          <span className="mt-1 block truncate text-xs text-muted-foreground">
-                            {deviceLabel}
-                          </span>
-                        ) : null}
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return <SessionsTriagePage />;
 }
 
-function EmptySessionsState() {
+export function EmptySessionsState() {
   const t = useT();
   const storageStatus = useReplayStorageStatus();
   const showStorageHint =
-    !storageStatus.isLoading && !storageStatus.data?.configured;
+    !storageStatus.isLoading && storageStatus.data?.configured === false;
   return (
     <div className="p-6 lg:p-8">
       {showStorageHint ? <ReplayStorageHint /> : null}
@@ -584,23 +214,11 @@ function EmptySessionsState() {
   );
 }
 
-function FilteredEmptySessionsState({
-  onIncludeZeroMinuteSessions,
+export function ReplayStorageHint({
+  embedded = false,
 }: {
-  onIncludeZeroMinuteSessions: () => void;
+  embedded?: boolean;
 }) {
-  const t = useT();
-  return (
-    <div className="flex min-h-[380px] flex-col items-center justify-center gap-4 p-6">
-      <h2 className="text-lg font-semibold">{t("sessions.noSessions")}</h2>
-      <Button variant="outline" onClick={onIncludeZeroMinuteSessions}>
-        {t("sessions.includeZeroMinuteSessions")}
-      </Button>
-    </div>
-  );
-}
-
-export function ReplayStorageHint() {
   const t = useT();
   const storageStatus = useReplayStorageStatus();
   const builderStatus = useBuilderStatus();
@@ -659,21 +277,28 @@ export function ReplayStorageHint() {
 
   return (
     <Collapsible open={s3Expanded} onOpenChange={setS3Expanded}>
-      <div className="mb-6 rounded-md border border-primary/30 bg-primary/5 p-4">
+      <div
+        className={cn(
+          !embedded &&
+            "mb-6 rounded-md border border-primary/30 bg-primary/5 p-4",
+        )}
+      >
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex min-w-[min(100%,24rem)] flex-1 items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background text-primary">
-              <IconCloud className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-medium">
-                {t("sessions.storageSetupTitle")}
+          {!embedded ? (
+            <div className="flex min-w-[min(100%,24rem)] flex-1 items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background text-primary">
+                <IconCloud className="h-5 w-5" />
               </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {t("sessions.storageSetupDescription")}
-              </p>
+              <div className="min-w-0">
+                <div className="text-sm font-medium">
+                  {t("sessions.storageSetupTitle")}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {t("sessions.storageSetupDescription")}
+                </p>
+              </div>
             </div>
-          </div>
+          ) : null}
           <div className="flex max-w-full flex-wrap items-center gap-3">
             <BuilderConnectPopover flow={builderConnect}>
               <Button
@@ -714,7 +339,12 @@ export function ReplayStorageHint() {
           </div>
         </div>
         <CollapsibleContent>
-          <div className="mt-4 border-t border-primary/20 pt-4">
+          <div
+            className={cn(
+              "mt-4 border-t pt-4",
+              embedded ? "border-border" : "border-primary/20",
+            )}
+          >
             <p className="mb-4 text-xs text-muted-foreground">
               {t("settings.s3OwnBucketDescription")}
             </p>
@@ -761,164 +391,6 @@ export function ReplayStorageHint() {
   );
 }
 
-function SessionSkeleton() {
-  return (
-    <div className="space-y-3 p-6">
-      {Array.from({ length: 7 }).map((_, index) => (
-        <Skeleton key={index} className="h-12 w-full" />
-      ))}
-    </div>
-  );
-}
-
-function readRange(value: string | null): ReplayRange {
-  return RANGE_OPTIONS.includes(value as ReplayRange)
-    ? (value as ReplayRange)
-    : "30d";
-}
-
-function rangeToFrom(range: ReplayRange): string | null {
-  if (range === "all") return null;
-  const hours =
-    range === "24h" ? 24 : range === "7d" ? 168 : range === "90d" ? 2160 : 720;
-  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-}
-
-function rangeLabel(value: ReplayRange, t: ReturnType<typeof useT>): string {
-  if (value === "24h") return t("sessions.last24h");
-  if (value === "7d") return t("sessions.last7d");
-  if (value === "30d") return t("sessions.last30d");
-  if (value === "90d") return t("sessions.last90d");
-  return t("sessions.allTime");
-}
-
-function visitorLabel(
-  recording: SessionRecordingIdentity,
-  t: ReturnType<typeof useT>,
-): string {
-  const email = emailLike(recording.userId) || emailLike(recording.userKey);
-  if (email) return email;
-  return (
-    recording.userId ||
-    recording.userKey ||
-    recording.anonymousId ||
-    t("sessions.anonymous")
-  );
-}
-
-function emailLike(value: string | null): string | null {
-  if (!value?.includes("@")) return null;
-  return value;
-}
-
-function shortId(value: string): string {
-  return value.length > 22
-    ? `${value.slice(0, 10)}...${value.slice(-8)}`
-    : value;
-}
-
-function pathLabel(recording: SessionRecordingSummary): string {
-  if (recording.path) return recording.path;
-  if (recording.lastUrl) return safePathFromUrl(recording.lastUrl);
-  if (recording.firstUrl) return safePathFromUrl(recording.firstUrl);
-  return shortId(recording.sessionId);
-}
-
-function safePathFromUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    return `${url.pathname}${url.search}` || url.hostname;
-  } catch {
-    return value;
-  }
-}
-
-export function sessionDeviceLabel(
-  recording: SessionRecordingDevice,
-): string | null {
-  const metadata = recordValue(recording.metadata);
-  const device = recordValue(metadata.device);
-  const browser = recordValue(metadata.browser);
-  const client = recordValue(metadata.client);
-  const os = osLabelFromValue(
-    metadata.os ??
-      metadata.operatingSystem ??
-      metadata.operating_system ??
-      metadata.deviceOs ??
-      metadata.device_os ??
-      device.os ??
-      device.operatingSystem ??
-      browser.os ??
-      client.os,
-  );
-  if (os) return os;
-  const platform = stringValue(
-    metadata.platform ?? device.platform ?? client.platform,
-  );
-  const platformLabel = inferOsLabel(platform);
-  if (platformLabel) return platformLabel;
-  const userAgent = stringValue(
-    metadata.userAgent ??
-      metadata.user_agent ??
-      device.userAgent ??
-      device.user_agent ??
-      client.userAgent ??
-      client.user_agent,
-  );
-  return inferOsLabel(userAgent);
-}
-
-function osLabelFromValue(value: unknown): string | null {
-  const record = recordValue(value);
-  if (record) {
-    const name = stringValue(record.name ?? record.family ?? record.os);
-    const version = stringValue(record.version ?? record.release);
-    if (name && version) return `${normalizeOsName(name)} ${version}`;
-    if (name) return normalizeOsName(name);
-  }
-  const label = stringValue(value);
-  if (!label) return null;
-  return inferOsLabel(label) ?? label;
-}
-
-function inferOsLabel(value: string | null): string | null {
-  if (!value) return null;
-  if (/cros|chrome os/i.test(value)) return "ChromeOS";
-  if (/iphone|ipad|ipod|ios/i.test(value)) return "iOS";
-  if (/mac os x|macintosh|macintel|darwin|macos/i.test(value)) return "macOS";
-  if (/windows|win32|win64/i.test(value)) return "Windows";
-  if (/android/i.test(value)) return "Android";
-  if (/linux/i.test(value)) return "Linux";
-  return null;
-}
-
-function normalizeOsName(value: string): string {
-  return inferOsLabel(value) ?? value;
-}
-
-function recordValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function stringValue(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
 export function formatSessionDuration(ms: number | null): string {
   if (!ms || !Number.isFinite(ms) || ms <= 0) return "0m";
   if (ms < MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS) return "0m";
@@ -928,20 +400,6 @@ export function formatSessionDuration(ms: number | null): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return `${hours}h ${remainingMinutes}m`;
-}
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat().format(value);
-}
-
-function formatPageCount(value: number, t: ReturnType<typeof useT>): string {
-  const count = Math.max(0, Math.round(value || 0));
-  if (count === 1) {
-    return t("sessions.pageCountCompactSingular", {
-      count: formatNumber(count),
-    });
-  }
-  return t("sessions.pageCountCompact", { count: formatNumber(count) });
 }
 
 const SESSION_REPLAY_SNIPPET = `// Agent-Native templates already call configureTracking().

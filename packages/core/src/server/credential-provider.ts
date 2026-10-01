@@ -17,8 +17,8 @@ import {
   BUILDER_OAUTH_SCOPE,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
-  isBuilderOrgManager,
 } from "./builder-oauth.js";
+import { decideCredentialWriteScope } from "./credential-write-scope.js";
 import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
 import {
   isPersonalProviderKeyUseRestricted,
@@ -84,26 +84,31 @@ async function canReadDesignatedVaultFallback(
 }
 
 /**
- * Decide which `app_secrets` scope a Builder/credential write should use.
- *
- * Org scope ("everyone in this org sees these credentials") wins when the
- * connecting user is an owner or admin of an active org — the write
- * privileges shared infra. A plain member or a user without an active
- * org falls through to per-user scope so a teammate can't silently
- * overwrite the org-shared connection.
+ * The `app_secrets` row a Builder key-pair write or delete targets, by the
+ * role table every Builder save path shares (`decideCredentialWriteScope`).
+ * Callers have already authorized the write and checked the personal-key
+ * policy.
  */
 export function resolveCredentialWriteScope(
   email: string,
   orgId: string | null | undefined,
   role: string | null | undefined,
 ): { scope: "user" | "org"; scopeId: string } {
-  if (orgId && (role === "owner" || role === "admin")) {
-    return { scope: "org", scopeId: orgId };
-  }
-  return { scope: "user", scopeId: email };
+  const decision = decideCredentialWriteScope({
+    action: "connect",
+    role,
+    orgId,
+    requestedScope: null,
+    personalAllowed: true,
+  });
+  return "scope" in decision && decision.scope === "org" && orgId
+    ? { scope: "org", scopeId: orgId }
+    : { scope: "user", scopeId: email };
 }
 
 export class FeatureNotConfiguredError extends Error {
+  readonly statusCode = 400;
+  readonly errorCode = "feature_not_configured";
   readonly requiredCredential: string;
   readonly builderConnectUrl?: string;
   readonly byokDocsUrl?: string;
@@ -194,6 +199,8 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
   "SLACK_BOT_TOKEN",
+  // Signs events from the deployed Slack app, not the integration owner's identity.
+  "SLACK_SIGNING_SECRET",
   "RESEND_API_KEY",
   "SENDGRID_API_KEY",
 ]);
@@ -466,11 +473,8 @@ async function resolveScopedBuilderCredential(
       }
       return { value: userSecret.value, source: "user", lookupFailed: false };
     };
-    const orgFirst = orgId ? await isBuilderOrgManager(orgId, email) : false;
-    if (!orgFirst) {
-      const personal = await readPersonal();
-      if (personal) return personal;
-    }
+    const personal = await readPersonal();
+    if (personal) return personal;
 
     // 2. Per-org shared credential: when one teammate connects Builder
     //    as an owner/admin we write the OAuth result at org scope so
@@ -516,11 +520,6 @@ async function resolveScopedBuilderCredential(
           `[builder-credential] key=${key} email=${email} orgId=${orgId} orgSource=${orgSource} miss tried=user,org,workspace`,
         );
       }
-    }
-
-    if (orgFirst) {
-      const personal = await readPersonal();
-      if (personal) return personal;
     }
 
     if (orgLookupCause !== undefined) {
@@ -669,13 +668,7 @@ async function resolveScopedBuilderCredentials(
         : null;
     };
 
-    // Members run on their own pair first; an owner or admin runs on the org's
-    // connection first, since a pair kept from before a promotion would
-    // otherwise shadow it. Their own pair stays the fallback: the owner who
-    // activates an account during first-run setup holds only a personal pair.
-    const orgFirst = orgId ? await isBuilderOrgManager(orgId, email) : false;
-    const order = orgFirst ? [tryOrg, tryPersonal] : [tryPersonal, tryOrg];
-    for (const attempt of order) {
+    for (const attempt of [tryPersonal, tryOrg]) {
       const creds = await attempt();
       if (creds) return { creds, lookupFailed: false };
     }
@@ -2104,6 +2097,9 @@ export async function resolveSecretDetailed(
       }
       lookupFailed = true;
       cause = err;
+    }
+    if (lookupFailed && !isTrustedSelfHostedRuntime()) {
+      return { value: null, lookupFailed: true, cause };
     }
     const envFallback = (
       isBuilderCredentialKey(key)

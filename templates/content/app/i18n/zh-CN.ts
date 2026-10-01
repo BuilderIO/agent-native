@@ -1271,7 +1271,9 @@ const history = {
 
 const overrides = {
   close: "关闭",
-  setup: { checkingProvider: "正在检查 AI 连接…" },
+  setup: {
+    providerStatusUnavailable: "无法确认 AI 是否已就绪。",
+  },
   onboarding: {
     fileStorage: {
       title: "连接存储以上传文件",
@@ -1319,6 +1321,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "内容",
+    loadingContent: "正在加载内容",
     commandSearchDocuments: "搜索文档",
     searchSince: "自 {{date}} 起",
     searchModifiedSince: "修改时间自 {{date}} 起",

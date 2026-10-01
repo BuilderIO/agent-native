@@ -1,7 +1,7 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { IconPhotoPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -288,7 +288,9 @@ export function ImageFillControls({
   }, [focused, value.url]);
 
   const commitUrl = () => {
-    onChange({ ...value, url: urlDraftRef.current.trim() });
+    const url = urlDraftRef.current.trim();
+    if (url === value.url) return;
+    onChange({ ...value, url });
   };
 
   const requestImageUpload = () => {

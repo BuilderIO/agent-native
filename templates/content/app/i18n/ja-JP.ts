@@ -1194,7 +1194,9 @@ const history = {
 
 const overrides = {
   close: "閉じる",
-  setup: { checkingProvider: "AI 接続を確認しています…" },
+  setup: {
+    providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
+  },
   onboarding: {
     fileStorage: {
       title: "ファイルをアップロードするストレージを接続",
@@ -1245,6 +1247,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "コンテンツ",
+    loadingContent: "コンテンツを読み込み中",
     commandSearchDocuments: "ドキュメントを検索",
     searchSince: "{{date}}以降",
     searchModifiedSince: "{{date}}以降に更新",

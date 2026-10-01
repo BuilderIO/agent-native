@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integrations" } },
   creativeContext: {
     title: "Library",
     description:
@@ -167,6 +168,12 @@ export default {
     openAgentSettings: "Manage agent",
     labTweaks: "Design tweaks",
     labTweaksDescription: "Try AI-powered design tweaks.",
+    labFullAppBuilding: "Full app building",
+    labFullAppBuildingDescription:
+      "Try building working apps from your designs with Builder.",
+    labDesignReviewTools: "Design review tools",
+    labDesignReviewToolsDescription:
+      "Check your designs for accessibility issues and compare visual changes.",
     mcpAbout:
       "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
@@ -185,8 +192,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "Checking AI connection…",
-      providerStatusUnavailable: "Couldn't check AI connection.",
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
     common: { retry: "Retry" },
   },
@@ -1260,6 +1266,7 @@ export default {
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
+      copyAgentPrompt: "Copy agent prompt",
       copyFullPrompt: "Copy full prompt",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
@@ -1417,6 +1424,8 @@ export default {
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
       reactSourceAnchorsUnavailable:
         "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
+      sourceLocationSnapshotFailed:
+        "Could not check source locations for this preview.",
       screenSourceUpdated: "Screen source updated",
       screenSourceUpdateFailed: "Could not update screen source",
       vectorEditUnsupported:
@@ -1475,7 +1484,7 @@ export default {
         "Choose Allow in Chrome's prompt to enable live editing.",
       permissionPromptNoPrompt: "No Chrome prompt?",
       permissionPromptSettingsInstructions:
-        "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+        "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
       permissionPromptRetry: "Retry connection",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
@@ -1666,7 +1675,7 @@ export default {
     staleAnchorDetail: "Original element no longer found on the canvas.",
   },
   homeContext: {
-    websiteReference: "Attach website",
+    websiteReference: "Add website",
     websiteUrlLabel: "Website URL",
     websiteUrl: "Paste a website URL",
     figmaUrlLabel: "Figma link",
@@ -1694,7 +1703,7 @@ export default {
     design: "Design",
     slides: "Slides",
     referenceDesign: "Reference a design",
-    figmaReference: "Attach Figma",
+    figmaReference: "Add Figma",
     referenceDeck: "Reference a presentation",
     quickSaas: "Create a SaaS landing page",
     quickDashboard: "Create a dashboard",

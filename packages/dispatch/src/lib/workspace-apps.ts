@@ -1,4 +1,4 @@
-import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
+import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first-state";
 import {
   getClientSurface,
   isInBuilderFrame,

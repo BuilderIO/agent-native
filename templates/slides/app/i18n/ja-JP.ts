@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "連携" } },
   templatesPage: {
     actions: "{{title}} のテンプレート操作",
     previewAction: "プレビュー",
@@ -46,7 +47,7 @@ const messages = {
     designSystems: "デザインシステム",
   },
   settings: {
-    agentObservability: "エージェントの可観測性",
+    agentObservability: "可観測性",
     title: "設定",
     labs: "Labs",
     labsIntro: "リリース前に実験的な機能をプレビューできます。",
@@ -171,6 +172,15 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "最新の変更はこのデバイスにしかありません。離れる前にバックアップをダウンロードしてください。",
+    slideConflictReview: "確認",
+    slideConflictTitle: "このスライドは別の場所で変更されました",
+    slideConflictDescription:
+      "別の編集者が新しいバージョンを保存しました。下書きを保持すると保存済みのスライド内容が置き換わります。最新バージョンを使用することもできます。",
+    slideConflictUseLatest: "最新バージョンを使用",
+    slideConflictKeepDraft: "下書きを保持",
+    slideConflictKeepEditing: "編集を続ける",
+    slideConflictResolutionFailed:
+      "競合を解決できませんでした。下書きは保持されています。",
     offline: "オフライン",
     selected: "選択済み",
     chooseDesignSystem: "デザインシステムを選択",
@@ -243,6 +253,9 @@ const messages = {
     media: "メディア",
     generateImage: "画像を生成",
     assetLibrary: "アセットライブラリ",
+    imageOptions: "画像オプション",
+    cropImage: "画像をトリミング",
+    cropHandle: "画像の{{position}}をトリミング",
     diagrams: "図表",
     insertMermaidDiagram: "Mermaid 図を挿入",
     insertMermaidFailed: "図の挿入に失敗しました",
@@ -291,6 +304,21 @@ const messages = {
     importing: "インポート中...",
     importFile: "ファイルをインポート",
     downloadBackup: "バックアップをダウンロード",
+    conflictStatus: "テキストの競合",
+    conflictStatusDescription:
+      "変更を保存する前に、競合しているテキストを確認してください。",
+    reviewConflict: "競合を確認",
+    conflictTitle: "スライド {{number}} でテキストが競合しています",
+    conflictDescription:
+      "編集中に別のバージョンでこのスライドが変更されました。",
+    conflictChoicesDescription:
+      "自分のテキストを保持すると最新バージョンに保存されます。保存済みテキストを使うと、このスライドのローカル下書きだけが置き換わります。",
+    conflictBackupDescription:
+      "このプレゼンテーション全体の下書きはスライドごとに解決できません。下書きを残すにはバックアップをダウンロードしてください。",
+    conflictResolveFailed:
+      "競合を解決できませんでした。下書きはこのデバイスに残っています。",
+    conflictKeepMine: "自分のテキストを保持",
+    conflictUseLatest: "保存済みテキストを使う",
     importBackup: "バックアップをインポート",
     backupDownloaded: "バックアップをダウンロードしました",
     backupDownloadFailed: "バックアップをダウンロードできませんでした",
@@ -390,6 +418,8 @@ const messages = {
     orderedList: "順序付きリスト",
     quote: "引用",
     blockquote: "ブロック引用",
+    divider: "区切り線",
+    horizontalRule: "水平線",
   },
   comments: {
     deleteComment: "コメントを削除",
@@ -423,6 +453,7 @@ const messages = {
     retry: "再試行",
     clickToAddComment: "クリックしてコメントを追加",
     selectSlideToAdd: "追加するにはスライドを選択してください",
+    filters: "コメントの絞り込み",
     scope: "コメントの範囲",
     thisSlide: "このスライド",
     allComments: "すべてのスライド",
@@ -601,8 +632,11 @@ const messages = {
     slideNumber: "幻灯片 {{number}}",
     noSlidesInSnapshot: "此快照中没有幻灯片。",
     restoreThisVersion: "恢复此版本",
+    retry: "再試行",
     noSavedVersions: "还没有已保存版本",
     noSavedVersionsDescription: "以后编辑幻灯片前会自动保存版本。",
+    loadFailed: "保存済みバージョンを読み込めませんでした。",
+    snapshotLoadFailed: "この保存済みバージョンを読み込めませんでした。",
   },
   editorSidebar: {
     selectSlide: "选择幻灯片 {{number}}",
@@ -858,7 +892,7 @@ const messages = {
     },
     importDeck: "デッキをインポート",
     context: {
-      websiteReference: "ウェブサイトを添付",
+      websiteReference: "ウェブサイトを追加",
       websiteUrlLabel: "ウェブサイトのURL",
       websiteUrl: "ウェブサイトのURLを貼り付け",
       figmaUrlLabel: "Figmaリンク",
@@ -873,7 +907,7 @@ const messages = {
       searchPresentations: "プレゼンテーションを検索…",
       menu: {
         system: "デザインシステムを使う",
-        figma: "Figmaを添付",
+        figma: "Figmaを追加",
         design: "デザインを参照",
         deck: "プレゼンテーションを参照",
         searchDesign: "デザインを検索…",
@@ -1054,7 +1088,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
   },
 };

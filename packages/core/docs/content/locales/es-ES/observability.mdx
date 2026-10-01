@@ -96,7 +96,7 @@ Agregue el panel a cualquier plantilla con una única ruta:
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -123,7 +123,7 @@ El panel tiene 6 pestañas:
 
 La pestaña Conversaciones muestra las ejecuciones registradas. Selecciona una para inspeccionar sus tramos y expande cualquiera para ver las entradas, salidas, errores y metadatos de herramientas capturados. **Abrir conversación completa** te lleva al hilo de chat correspondiente.
 
-Los argumentos y resultados de herramientas no se capturan de forma predeterminada. Activa `captureToolArgs` y `captureToolResults` en la configuración `observability` para almacenarlos. Los campos sensibles y los mensajes de error de herramientas se redactan antes de guardarlos.
+Los argumentos, los resultados y los cuerpos de error completos de las herramientas no se capturan de forma predeterminada. Activa `captureToolArgs` para almacenar los argumentos y `captureToolResults` para almacenar los resultados y los cuerpos de error completos en la configuración `observability`. Los campos sensibles se redactan antes de guardarlos. Una herramienta que falla conserva siempre una primera línea acotada de su error, con las credenciales, los correos electrónicos y los identificadores opacos largos redactados, de modo que los fallos sigan siendo diagnosticables aunque `captureToolResults` esté desactivado.
 
 ### Revisión humana {#review}
 
@@ -290,7 +290,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+El contenido se **redacta de forma predeterminada**: se almacenan los recuentos de tokens, los costes y los tiempos y, para una herramienta que falla, una primera línea acotada de su error con las credenciales, los correos electrónicos y los identificadores opacos largos redactados. Los prompts, las entradas de herramientas, los resultados de herramientas y los cuerpos de error completos permanecen desactivados a menos que `capturePrompts`, `captureToolArgs` y `captureToolResults` estén activados. Actívalos solo cuando necesites el contenido de prompts o argumentos para depurar.
 
 </Callout>
 

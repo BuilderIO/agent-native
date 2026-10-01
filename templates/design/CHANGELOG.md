@@ -3,15 +3,92 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-09-29
+## 2026-10-01
+
+### Fixed
+
+- Visual edits leave the pending canvas after your coding agent applies and acknowledges them.
+- Cmd/Ctrl+K opens the command menu again while the prompt box is focused
+- Dragging absolute layers out of a nested frame preserves their selected stacking order in the receiving frame.
+- The home screen shows one toolbar and a compact credit notice above Feedback only when the quota is exhausted.
+- Design shows one search and import toolbar, with a compact credit notice above feedback only at the limit.
+
+## 2026-09-30
+
+### Added
+
+- Connect ChatGPT to create and refine interactive prototypes in Design.
 
 ### Improved
 
+- Add references through compact dropdown menus and find designs with the centered home search.
+- Visual edit handoffs copy complete source instructions by default, and editors can update screen URLs.
+- Design remembers your home library tab, so returning users can open straight to Recent.
+- Reloaded app changes stay available to your coding agent until they are acknowledged.
+
+### Fixed
+
+- Visual edit over MCP now gives your agent the bridge start command with the right token, so local screens connect instead of failing with a 401.
+- Applied visual edits clear from the canvas after your agent acknowledges them
+- Design shows pending local file write requests in the editor
+- Holding Space while dragging a layer keeps it in its current auto-layout parent.
+- Local file write approvals stay available when an editor handoff needs a retry
+- Outline-only vector polygons no longer show corner-radius handles
+- Releasing Space before a drop resumes normal layer reparenting
+- Signed-in Design editors see pending local file write approvals.
+- The editor reliably surfaces local file-write consent requests.
+- Design preserves positions explicitly requested for localhost screens.
+- Fix selected-screen PNG and PDF exports for external previews.
+- New localhost screens avoid overlapping existing screens
+- PDF and SVG exports use the selected screen sizes and skip unavailable live frames.
+- PDF exports use the current localhost page after its route changes
+- PDF exports work with multiple selected screens and SVG exports stay on the chosen screen.
+- Selected screens duplicate with copy and paste.
+- Live preview export failures no longer show misleading screen or desktop-only guidance.
+- Copied visual edit prompts include the edits and explain how to apply them without Design MCP.
+- Design previews wait for the editor connection before becoming ready.
+- New local screens open beside existing canvas content.
+- Returning from Interact keeps the active screen selected
+- Live editing recovers clearly when a local bridge stops responding, and visual changes stay pending until handoff is confirmed
+- Live previews accept localhost and 127.0.0.1 for the same connected app.
+
+## 2026-09-29
+
+### Added
+
+- Screens can use shader fills and shader effects, and their settings are saved
+
+### Improved
+
+- Corner-radius handles only appear on shapes with a visible fill or stroke.
+- Design marquee selections stay responsive as you add more elements.
+- Local editing setup now points to Chrome's Allow prompt and includes a settings fallback.
+- The local editing guide now shows the local network Allow prompt and its Site settings fallback.
 - The browser permission guide points to Allow and the Connection is secure step.
 - The Chrome fallback guide shows the Local network Allow option.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Avoid signed-out source-write errors during visual editing
+- Blur and shadow values typed in Effects now save when you press Enter or close the popover with Escape
+- Drop shadows on screens that contain scripts or shaders now show on the screen
+- Dropdowns and tooltips inside the fill picker, like shader presets, now show on top instead of behind it
+- Gradient fill opacity values like 100% are no longer cut off
+- Clear the local live-preview edit state after its connected frames reload while keeping the MCP handoff available until the coding agent acknowledges it.
+- Corner-radius handles follow the pointer and match visible paint on supported shapes, including stroked polygons but excluding unsupported single-stroke vector paths.
+- Switching a gradient layer to Image no longer erases it before an image is chosen
+- Text editing keeps native pointer selection reliable on the canvas.
+- Corner-radius handles follow the pointer and match visible paint on supported shapes.
+- Corner-radius handles stay in sync with visible shape paint.
+- The home composer stays put as the app opens.
+- Design warnings wait for the current preview to finish loading
+- Live editing now offers a retry when the local bridge does not respond.
+- Mixed padding and margin values across selected layers now open separate side controls
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- The source-location warning no longer appears while an app preview is loading.
+- Source location warnings wait until app previews finish loading
 - Clearing a prompt removes its final character
 - Design tweak controls stay intact when an edit contains invalid definitions
 - Live previews no longer stay stuck when the running app reloads.
@@ -19,10 +96,18 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Local visual edits use the copy prompt handoff for signed-in editors too.
 - Duplicated screens keep the same spacing as other screens on the board.
 
+### Removed
+
+- Noise, Pattern, and Video fills are hidden until they can render, since choosing them did nothing or erased the fill
+
 ## 2026-09-28
 
 ### Improved
 
+- Full app building and design review tools can now be chosen in Labs.
+- Connected tools appear in the AgentKit Add menu only when they’re ready to use.
+- Design context sources are available from the same Add menu using either + or @.
+- The + and @ context launcher is searchable, grouped, and aligned above the prompt, with shared file and agent discovery.
 - The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
 - Center the home search field and keep prompt submission responsive while AI readiness is checked.
 - Corner radius handles stay with the drag and appear only on supported shapes
@@ -37,6 +122,11 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Signed-in editor chats keep selected references and integrations available for conversational follow-ups, separately from initial home suggestions.
+- Find existing designs in a searchable thumbnail gallery and add them as prompt references from the + and @ menus.
+- Chat suggestions stay hidden and prompt controls remain disabled until AI is connected and ready to use.
+- Sidebar and full-page chats share reference and integration choices, preserving each conversation's selections when switching views.
+- The context menu lists available integrations in a submenu with a clear connection setup link
 - Corner-radius handles appear as soon as a shape is selected under the pointer.
 - Design editor prompts stay visible while the composer loads
 - Existing designs open to Recent, and the home prompt stays interactive while AI readiness is checked.

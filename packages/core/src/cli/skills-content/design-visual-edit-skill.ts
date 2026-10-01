@@ -49,9 +49,9 @@ no connector installation.
 
 ## Put Design Beside The Chat
 
-Prefer the interactive MCP App from \`open-visual-edit\`: it keeps Design beside
-chat and routes **Apply design updates** through the host's MCP Apps bridge. The
-host may ask the user to confirm the current conversation. Otherwise,
+Prefer the MCP App from \`open-visual-edit\`: it keeps Design beside
+chat. Use **Copy prompt** to hand the visual edits to the coding agent; the host
+may request conversation confirmation. Otherwise,
 \`openUrl\` is a credential-free, read-only fallback; never claim it is editable.
 
 - Inline-browser hosts should open \`https://design.agent-native.com/visual-edit\`
@@ -243,8 +243,8 @@ check meaningful URL, hover, focus, scroll, and modal states.
 ## Account And Sharing Model
 
 - The capability permits live iframe inspection, session-local edits, undo/redo,
-  **Apply design updates**, and **Copy prompt**. These hand bounded source
-  instructions to the coding agent; they do not persist account-owned Design data.
+  and **Copy prompt**. The copied instructions go to the coding agent; they do
+  not persist account-owned Design data.
 - Public \`/design/:id\` links stay read-only without a signed-in owner/editor
   session. Never use the local capability to upgrade that ordinary sharing
   surface.
@@ -503,8 +503,9 @@ Pass the ID after \`visual-edit\` in the Design URL; the CLI prints that
 design's prompt (\`null\` when empty).
 
 Canvas edits on a localhost screen never write source directly. They stay
-pending until the canvas shows **Apply design updates** (local) or **Apply edits**
-(shared). An MCP App sends its prompt through the host or local Design agent;
+pending until the coding agent pulls them with \`get-visual-edit-pending\` or the
+copied prompt, then writes them to source. There is no separate canvas Apply
+button. An MCP App sends its prompt through the host or local Design agent;
 otherwise use **Copy prompt to your agent**.
 
 ChatGPT and Claude Code should pull, apply, acknowledge, and pull again.

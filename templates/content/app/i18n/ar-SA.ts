@@ -1186,7 +1186,9 @@ const history = {
 
 const overrides = {
   close: "إغلاق",
-  setup: { checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…" },
+  setup: {
+    providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
+  },
   onboarding: {
     fileStorage: {
       title: "اختر تخزين الملفات",
@@ -1234,6 +1236,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "المحتوى",
+    loadingContent: "جارٍ تحميل المحتوى",
     commandSearchDocuments: "بحث في المستندات",
     searchSince: "منذ {{date}}",
     searchModifiedSince: "عُدّل منذ {{date}}",

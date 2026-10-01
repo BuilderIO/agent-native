@@ -47,6 +47,13 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: { children?: unknown }) => children as never,
 }));
 
+vi.mock("@agent-native/core/client/uploads", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/uploads")
+  >()),
+  useFileUploadStatus: () => ({ isSuccess: false }),
+}));
+
 vi.mock("./field-primitives", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./field-primitives")>();
   return {
@@ -358,6 +365,44 @@ describe("FillProperties — existing layer fill popover", () => {
     );
     expect(findButtonByText(container, "#ff0000")).not.toBeNull();
     expect(findButtonByText(container, "Radial gradient 2")).not.toBeNull();
+  });
+
+  it("keeps an existing gradient layer when switching it to Image before an image is chosen", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+          initialStyles={{ backgroundImage: GRADIENT_LAYER }}
+        />,
+      );
+    });
+
+    act(() => findButtonByText(container, "Linear gradient 1")!.click());
+    for (const unsupported of ["Video", "Noise", "Pattern", "Shader"]) {
+      expect(
+        document.querySelector(`[aria-label="${unsupported}"]`),
+      ).toBeNull();
+    }
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Image"]')!
+        .click();
+    });
+    const urlInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Image URL"]',
+    );
+    expect(urlInput).not.toBeNull();
+    act(() => {
+      urlInput!.focus();
+      urlInput!.blur();
+    });
+
+    expect(onStyleChange).not.toHaveBeenCalled();
+    expect(onStylesChange).not.toHaveBeenCalled();
+    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
   });
 
   it("preserves a gradient's first-stop opacity and stops when switching back in the open picker", () => {

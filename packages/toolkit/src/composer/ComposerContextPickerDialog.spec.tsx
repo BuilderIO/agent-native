@@ -54,6 +54,7 @@ function multiple() {
 async function render(
   config: ComposerContextPickerConfig,
   onParentSubmit?: () => void,
+  disabled: { source?: boolean; category?: boolean } = {},
 ) {
   await act(async () =>
     root.render(
@@ -70,8 +71,14 @@ async function render(
               {
                 id: "category",
                 label: "Design",
+                disabled: disabled.category,
                 children: [
-                  { id: "link", label: "Attach source", picker: config },
+                  {
+                    id: "link",
+                    label: "Attach source",
+                    picker: config,
+                    disabled: disabled.source,
+                  },
                 ],
               },
             ]}
@@ -155,6 +162,96 @@ function deferred<T>() {
 }
 
 describe("shared context URL dialog", () => {
+  it("shows distinct preview cards for duplicate titles and retains selections through search", async () => {
+    const onAttach = vi.fn().mockResolvedValue(undefined);
+    const items = [
+      {
+        id: "one",
+        title: "Quarterly review",
+        preview: <img src="https://example.com/one.png" alt="Revenue chart" />,
+        metadata: "September 28",
+      },
+      {
+        id: "two",
+        title: "Quarterly review",
+        preview: <img src="https://example.com/two.png" alt="Product launch" />,
+        metadata: "September 27",
+      },
+    ];
+    await render({
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        layout: "gallery",
+        onAttach,
+      },
+      searchPlaceholder: "Search presentations",
+      items,
+    });
+    await open();
+    const cards = () =>
+      Array.from(dialog()!.querySelectorAll<HTMLElement>("[aria-pressed]"));
+    expect(
+      dialog()!.querySelectorAll(".agent-template-library-card"),
+    ).toHaveLength(2);
+    expect(dialog()!.querySelectorAll('[role="checkbox"]')).toHaveLength(0);
+    expect(dialog()!.querySelectorAll("img")).toHaveLength(2);
+    await act(async () => cards()[1].click());
+    expect(cards()[1].getAttribute("aria-pressed")).toBe("true");
+    await type("not found", 'input[type="search"]');
+    expect(cards()).toHaveLength(0);
+    await type("", 'input[type="search"]');
+    expect(cards()[1].getAttribute("aria-pressed")).toBe("true");
+    await click("Attach");
+    expect(
+      onAttach.mock.calls[0][0].map((item: { id: string }) => item.id),
+    ).toEqual(["two"]);
+  });
+  it("keeps a searchable single-select picker under the Design category", async () => {
+    const onSelect = vi.fn().mockResolvedValue(undefined);
+    const config = {
+      presentation: { type: "dialog" as const, mode: "single" as const },
+      searchPlaceholder: "Search design systems",
+      selectedIds: ["system-a"],
+      items: [
+        { id: "system-a", title: "System A" },
+        { id: "system-b", title: "System B" },
+      ],
+      onSelect,
+    } satisfies ComposerContextPickerConfig;
+    await render(config);
+    await act(async () =>
+      trigger().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+    expect(document.querySelector('[role="searchbox"]')).toBeNull();
+    expect(row("Add context")).toBeDefined();
+    await act(async () => row("Add context").click());
+    expect(row("Design")).toBeDefined();
+    await act(async () => row("Design").click());
+    expect(row("Attach source").querySelector("svg")).toBeNull();
+    await act(async () => row("Attach source").click());
+    await tick();
+    expect(dialog()).not.toBeNull();
+    expect(
+      dialog()!
+        .querySelector('[role="radio"][value="system-a"]')
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
+    await act(async () =>
+      dialog()!
+        .querySelector<HTMLElement>('[role="radio"][value="system-b"]')!
+        .click(),
+    );
+    await tick();
+    expect(onSelect).toHaveBeenCalledWith(
+      { id: "system-b", title: "System B" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(dialog()).toBeNull();
+  });
+
   it("isolates Continue and Attach form submissions from the portaled parent composer", async () => {
     const config = multiple();
     const parent = vi.fn();
@@ -338,6 +435,29 @@ describe("shared context URL dialog", () => {
       dialog()!.querySelector('input[type="url"]'),
     );
   });
+  it.each(["source", "category"] as const)(
+    "aborts an open picker when its %s is disabled",
+    async (level) => {
+      const config = multiple();
+      const pending = deferred<void>();
+      config.presentation.onAttach.mockReturnValue(pending.promise);
+      await render(config);
+      await open();
+      await browse();
+      await choose("First frame");
+      await click("Attach");
+      const request = config.presentation.onAttach.mock.calls[0][1];
+
+      await render(config, undefined, { [level]: true });
+      expect(dialog()).toBeNull();
+      expect(request.signal.aborted).toBe(true);
+
+      await render(config);
+      await open();
+      await act(async () => pending.resolve());
+      expect(dialog()).not.toBeNull();
+    },
+  );
   it("retries failed batches and respects false without clearing staged selection", async () => {
     const config = multiple();
     config.presentation.onAttach

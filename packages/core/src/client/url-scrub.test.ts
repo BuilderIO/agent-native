@@ -21,4 +21,25 @@ describe("scrubUrl", () => {
       "https://plan.agent-native.com/plans/123#overview",
     );
   });
+
+  it("redacts Mail search terms from absolute and relative URLs", () => {
+    const query = "private.sender@example.com";
+    const absolute = scrubUrl(
+      `https://mail.agent-native.com/all?q=${encodeURIComponent(query)}&tab=inbox`,
+      ["q"],
+    );
+    const relative = scrubUrl(`/all?q=${encodeURIComponent(query)}`, ["q"]);
+
+    expect(absolute).toBe(
+      "https://mail.agent-native.com/all?q=%3Credacted%3E&tab=inbox",
+    );
+    expect(relative).toBe("/all?q=%3Credacted%3E");
+    expect(absolute).not.toContain(query);
+    expect(relative).not.toContain(encodeURIComponent(query));
+  });
+
+  it("leaves other apps' q parameters unchanged by default", () => {
+    const url = "https://example.com/search?q=public-topic";
+    expect(scrubUrl(url)).toBe(url);
+  });
 });

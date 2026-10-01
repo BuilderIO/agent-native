@@ -6,7 +6,6 @@ import {
   type CredentialProvenance,
 } from "../../credentials/index.js";
 import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
-import { getUserLabs } from "../../labs/store.js";
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
@@ -36,10 +35,7 @@ import {
   secretKeyNames,
 } from "../../server/secret-key-aliases.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
-import {
-  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-  CHATGPT_SUBSCRIPTION_LAB_KEY,
-} from "../chatgpt-subscription-contract.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
@@ -845,8 +841,6 @@ async function chatGPTSubscriptionUsableForRequest(
 ): Promise<boolean> {
   const email = identityUserEmail(identity);
   if (!email) return false;
-  const labs = await getUserLabs(email);
-  if (labs[CHATGPT_SUBSCRIPTION_LAB_KEY] !== true) return false;
   return hasChatGPTSubscriptionCredential(email);
 }
 
@@ -904,7 +898,7 @@ async function engineCreateConfigForEntry(
       !(await chatGPTSubscriptionUsableForRequest(credentialIdentity))
     ) {
       throw new Error(
-        "Enable the ChatGPT subscription lab and connect a ChatGPT subscription before using this engine.",
+        "Connect a ChatGPT account with direct model access before using this engine.",
       );
     }
     safeExtra.userEmail = email;

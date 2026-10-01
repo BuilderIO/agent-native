@@ -110,6 +110,16 @@ if (globalSetup && !/throw new Error/.test(globalSetup)) {
     `${globalSetupPath} no longer throws. An authenticated run that degrades to an anonymous one reports green while testing nothing.`,
   );
 }
+if (globalSetup && !globalSetup.includes("withHostDeadline")) {
+  issues.push(
+    `${globalSetupPath} no longer runs each host's setup under a deadline. One host that accepts a request and goes silent stalls the whole job until its timeout kills it, which GitHub reports as "cancelled" with no test results.`,
+  );
+}
+if (providerKey && !providerKey.includes("AbortSignal.timeout")) {
+  issues.push(
+    `${providerKeyPath} no longer bounds the in-page OpenAI key install with an abort signal. Playwright's page.evaluate has no timeout of its own, so an unbounded fetch inside it can hang global setup indefinitely.`,
+  );
+}
 
 function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
@@ -118,6 +128,16 @@ function stripComments(source: string): string {
 if (config && /ignoreHTTPSErrors/.test(stripComments(config))) {
   issues.push(
     `${configPath} sets ignoreHTTPSErrors. "The connection isn't private" was a real beta report; only a browser that still validates certificates can catch it.`,
+  );
+}
+if (config && !/globalTimeout\s*:/.test(stripComments(config))) {
+  issues.push(
+    `${configPath} sets no globalTimeout. Without one a hung global setup runs until the job's timeout kills it, and a killed job leaves no results file for the failure digest.`,
+  );
+}
+if (config && !/maxFailures\s*:/.test(stripComments(config))) {
+  issues.push(
+    `${configPath} sets no maxFailures. A broad regression should stop the run in minutes rather than run every remaining test to its own timeout.`,
   );
 }
 
@@ -172,31 +192,6 @@ if (workflow) {
       `${workflowPath} no longer passes BETA_E2E_GREP through the advisory lane without failing when no advisory test matches.`,
     );
   }
-  const hasAuthSelectionCommandWithStatus =
-    /set \+e[\s\\]+BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=\$\{\{\s*matrix\.project\s*\}\}[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
-      workflow,
-    );
-  const selectionStatusCapture = workflow.indexOf('selection_status="$?"');
-  const selectionStatusCheck = workflow.indexOf(
-    'if [ "$selection_status" -ne 0 ]',
-  );
-  const noTestsMarker = workflow.indexOf('grep -q "Error: No tests found"');
-  const emptySelectionMarker = workflow.indexOf(
-    'grep -q "Total: 0 tests in 0 files"',
-  );
-  const selectionStatusExit = workflow.indexOf('exit "$selection_status"');
-  if (
-    !hasAuthSelectionCommandWithStatus ||
-    selectionStatusCapture < 0 ||
-    selectionStatusCheck < selectionStatusCapture ||
-    noTestsMarker < selectionStatusCheck ||
-    emptySelectionMarker < selectionStatusCheck ||
-    selectionStatusExit < selectionStatusCheck
-  ) {
-    issues.push(
-      `${workflowPath} must capture and propagate failed authenticated discovery, while skipping only an explicit no-tests result. A public-only grep must not require session credentials.`,
-    );
-  }
   if (!/continue-on-error:\s*true/.test(workflow)) {
     issues.push(
       `${workflowPath} no longer marks the advisory lane non-gating. Gating on advisory findings trains people to ignore a red run.`,
@@ -240,17 +235,30 @@ if (workflow) {
 
 if (workflow) {
   try {
+    type ShardEntry = {
+      slot?: unknown;
+      project?: unknown;
+      app?: unknown;
+      cluster?: unknown;
+      shard?: unknown;
+      timeout?: unknown;
+      global_timeout?: unknown;
+    };
     type WorkflowJob = {
       needs?: string | string[];
       if?: string;
+      "timeout-minutes"?: unknown;
+      env?: Record<string, unknown>;
+      steps?: Array<{ name?: unknown; run?: unknown }>;
       strategy?: {
         "max-parallel"?: unknown;
         matrix?: {
-          include?: Array<{ project?: unknown }>;
+          include?: ShardEntry[];
         };
       };
     };
     const parsed = parse(workflow) as {
+      concurrency?: { group?: unknown };
       jobs?: Record<string, WorkflowJob>;
     };
     const jobs = parsed.jobs ?? {};
@@ -261,57 +269,282 @@ if (workflow) {
         : needs === dependency;
     };
 
-    for (const [job, dependency] of [
-      ["public", "discover"],
-      ["fleet", "public"],
-      ["advisory", "fleet"],
-      ["authed", "advisory"],
-    ] as const) {
-      if (!hasNeed(job, dependency)) {
+    // The lanes are independent, so they overlap. What keeps that safe for the
+    // shared CDN and databases is the matrix caps and per-job timeouts below,
+    // not an ordering.
+    for (const job of ["public", "fleet", "advisory", "authed"] as const) {
+      if (!hasNeed(job, "discover")) {
         issues.push(
-          `${workflowPath} must run ${job} after ${dependency}; the beta lanes share database capacity and must not fan out concurrently.`,
+          `${workflowPath} must run ${job} after discover; it supplies the canonical app selection.`,
         );
       }
     }
-
-    if (jobs.public?.strategy?.["max-parallel"] !== 4) {
+    if (!hasNeed("authed", "gate")) {
       issues.push(
-        `${workflowPath} must cap the public matrix at four runners so the sharded sweep cannot burst shared backend capacity.`,
+        `${workflowPath} must run authed after the gate job, so a type error stops the authenticated shards before any token is spent.`,
+      );
+    }
+    const gateRuns = (jobs.gate?.steps ?? [])
+      .map((step) => String(step.run ?? ""))
+      .join("\n");
+    if (!gateRuns.includes("pnpm typecheck:e2e")) {
+      issues.push(
+        `${workflowPath} gate no longer runs typecheck:e2e. e2e/ is outside the workspace typecheck sweep.`,
       );
     }
 
-    const authenticatedProjects =
-      jobs.authed?.strategy?.matrix?.include?.map((entry) => entry.project) ??
-      [];
+    const concurrencyGroup = String(parsed.concurrency?.group ?? "");
+    if (!concurrencyGroup.includes("inputs.lane")) {
+      issues.push(
+        `${workflowPath} concurrency group must depend on inputs.lane. A single group makes the production pre-flight and the signup canary queue behind a scheduled authenticated run.`,
+      );
+    }
+
+    const publicParallel = jobs.public?.strategy?.["max-parallel"];
+    if (
+      typeof publicParallel !== "number" ||
+      publicParallel < 1 ||
+      publicParallel > 8
+    ) {
+      issues.push(
+        `${workflowPath} must cap the public matrix at eight runners or fewer so the sharded sweep cannot burst the CDN that throttles datacenter traffic.`,
+      );
+    }
+    const authedParallel = jobs.authed?.strategy?.["max-parallel"];
+    if (
+      typeof authedParallel !== "number" ||
+      authedParallel < 1 ||
+      authedParallel > 5
+    ) {
+      issues.push(
+        `${workflowPath} must cap the authenticated matrix at five runners or fewer so concurrent sessions cannot exhaust shared beta databases.`,
+      );
+    }
+
+    // A hung run must end inside its job's timeout so it is reported rather
+    // than cancelled with no results.
+    const jobTimeout = (job: string): number | null => {
+      const value = jobs[job]?.["timeout-minutes"];
+      return typeof value === "number" ? value : null;
+    };
+    for (const job of ["discover", "gate", "public", "fleet", "advisory"]) {
+      const timeout = jobTimeout(job);
+      if (timeout === null || timeout > 15) {
+        issues.push(
+          `${workflowPath} ${job} must set a numeric timeout-minutes of 15 or less; an unbounded or generous timeout is how a hung run cost 45 minutes.`,
+        );
+      }
+    }
+    for (const job of ["public", "fleet", "advisory"] as const) {
+      const globalTimeout = Number(
+        jobs[job]?.env?.BETA_E2E_GLOBAL_TIMEOUT_MINUTES,
+      );
+      const timeout = jobTimeout(job);
+      if (
+        !Number.isInteger(globalTimeout) ||
+        timeout === null ||
+        globalTimeout >= timeout
+      ) {
+        issues.push(
+          `${workflowPath} ${job} must set BETA_E2E_GLOBAL_TIMEOUT_MINUTES below its timeout-minutes, so Playwright ends the run and writes results before the job is killed.`,
+        );
+      }
+    }
+    if (
+      String(jobs.authed?.["timeout-minutes"] ?? "").replace(/\s/g, "") !==
+      "${{matrix.timeout}}"
+    ) {
+      issues.push(
+        `${workflowPath} authed must take timeout-minutes from its matrix entries, so each slot's limit is sized to that slot.`,
+      );
+    }
+    if (
+      String(jobs.authed?.env?.BETA_E2E_GLOBAL_TIMEOUT_MINUTES ?? "").replace(
+        /\s/g,
+        "",
+      ) !== "${{matrix.global_timeout}}"
+    ) {
+      issues.push(
+        `${workflowPath} authed must pass each slot's global_timeout as BETA_E2E_GLOBAL_TIMEOUT_MINUTES.`,
+      );
+    }
+
+    const authedShards = jobs.authed?.strategy?.matrix?.include ?? [];
     const configuredProjects = new Set(
       [...config.matchAll(/\bname:\s*["']([^"']+)["']/g)].map(
         (match) => match[1],
       ),
     );
-    if (authenticatedProjects.length === 0) {
+    if (authedShards.length === 0) {
       issues.push(
-        `${workflowPath} authed must declare authenticated matrix projects so registry, chat, and journey failures remain independently visible.`,
+        `${workflowPath} authed must declare authenticated matrix shards so registry, chat, journey, and design failures remain independently visible.`,
       );
     }
-    const seenAuthenticatedProjects = new Set<string>();
-    for (const project of authenticatedProjects) {
+    const seenSlots = new Set<string>();
+    const seenChatApps = new Set<string>();
+    for (const shard of authedShards) {
+      const { slot, project, app, timeout, global_timeout } = shard;
       if (typeof project !== "string" || !project) {
         issues.push(
           `${workflowPath} authed contains an authenticated matrix entry without a project name.`,
         );
         continue;
       }
-      if (seenAuthenticatedProjects.has(project)) {
+      if (typeof slot !== "string" || !slot) {
         issues.push(
-          `${workflowPath} authed lists authenticated project ${project} more than once.`,
+          `${workflowPath} authed ${project} entry has no slot. The slot names its artifact and report folder.`,
         );
+      } else {
+        if (seenSlots.has(slot)) {
+          issues.push(
+            `${workflowPath} authed lists slot ${slot} more than once; artifact names would collide.`,
+          );
+        }
+        seenSlots.add(slot);
       }
-      seenAuthenticatedProjects.add(project);
       if (!configuredProjects.has(project)) {
         issues.push(
           `${workflowPath} authed matrix project ${project} is not configured in ${configPath}.`,
         );
       }
+      if (
+        typeof timeout !== "number" ||
+        typeof global_timeout !== "number" ||
+        timeout > 30 ||
+        global_timeout < 1 ||
+        global_timeout >= timeout
+      ) {
+        issues.push(
+          `${workflowPath} authed slot ${String(slot)} needs a numeric timeout of 30 minutes or less and a smaller global_timeout.`,
+        );
+      }
+      if (project === "chat") {
+        if (typeof app !== "string" || !app) {
+          issues.push(
+            `${workflowPath} authed chat slot ${String(slot)} must name one app. Chat is sharded per app so a hang on one host is isolated and named.`,
+          );
+        } else if (seenChatApps.has(app)) {
+          issues.push(
+            `${workflowPath} authed runs the chat project for ${app} more than once.`,
+          );
+        } else {
+          seenChatApps.add(app);
+        }
+      }
+      // Global setup writes the e2e account's user-scoped OpenAI key on every
+      // host of a `chat` cluster slot. Keeping that to the chat project, one
+      // slot per host, is what stops two jobs writing one host's key at once.
+      if ((project === "chat") !== (shard.cluster === "chat")) {
+        issues.push(
+          `${workflowPath} authed slot ${String(slot)} must use cluster chat exactly when it runs the chat project (cluster ${JSON.stringify(shard.cluster)}, project ${project}). Only chat slots install the OpenAI key, one per host.`,
+        );
+      }
+    }
+
+    // A project the config defines but no slot runs is a lane that silently
+    // never executes; one selection in two slots runs twice; a shard set that
+    // is not exactly 1/m..m/m drops or repeats part of a project.
+    const slotProjects = new Set(authedShards.map((entry) => entry.project));
+    for (const project of configuredProjects) {
+      if (["public", "fleet", "advisory"].includes(project ?? "")) continue;
+      if (!slotProjects.has(project)) {
+        issues.push(
+          `${configPath} defines project ${project}, but no authed slot in ${workflowPath} runs it, so its tests would never execute.`,
+        );
+      }
+    }
+    const slotsByProject = new Map<string, ShardEntry[]>();
+    for (const entry of authedShards) {
+      if (typeof entry.project !== "string") continue;
+      slotsByProject.set(entry.project, [
+        ...(slotsByProject.get(entry.project) ?? []),
+        entry,
+      ]);
+    }
+    for (const [project, entries] of slotsByProject) {
+      const selections = new Set<string>();
+      for (const entry of entries) {
+        const selection = `${String(entry.app ?? "")}|${String(entry.shard ?? "")}`;
+        if (selections.has(selection)) {
+          issues.push(
+            `${workflowPath} authed runs project ${project} (app "${String(entry.app ?? "")}", shard "${String(entry.shard ?? "")}") in more than one slot, so those tests would run twice.`,
+          );
+        }
+        selections.add(selection);
+      }
+      const sharded = entries.filter((entry) => entry.shard !== undefined);
+      if (sharded.length === 0) continue;
+      if (sharded.length !== entries.length) {
+        issues.push(
+          `${workflowPath} authed mixes sharded and unsharded slots for project ${project}; the unsharded slot would repeat every sharded test.`,
+        );
+      }
+      const indexes: number[] = [];
+      const counts = new Set<number>();
+      for (const entry of sharded) {
+        const match =
+          typeof entry.shard === "string"
+            ? entry.shard.match(/^(\d+)\/(\d+)$/)
+            : null;
+        if (!match) {
+          issues.push(
+            `${workflowPath} authed slot ${String(entry.slot)} has shard ${JSON.stringify(entry.shard)}; use "<n>/<m>".`,
+          );
+          continue;
+        }
+        indexes.push(Number(match[1]));
+        counts.add(Number(match[2]));
+      }
+      const [count] = [...counts];
+      const expected = Array.from({ length: count ?? 0 }, (_, i) => i + 1);
+      if (
+        counts.size !== 1 ||
+        indexes.sort((a, b) => a - b).join(",") !== expected.join(",")
+      ) {
+        issues.push(
+          `${workflowPath} authed shards for project ${project} must be exactly 1/m through m/m, once each, or part of the project's tests are dropped or repeated.`,
+        );
+      }
+    }
+    if (
+      String(jobs.authed?.env?.BETA_E2E_PROJECT ?? "").replace(/\s/g, "") !==
+        "${{matrix.project}}" ||
+      String(jobs.authed?.env?.BETA_E2E_SHARD ?? "").replace(/\s/g, "") !==
+        "${{matrix.shard||''}}"
+    ) {
+      issues.push(
+        `${workflowPath} authed must pass each slot's project and shard as BETA_E2E_PROJECT and BETA_E2E_SHARD, or a shard would silently run the whole project.`,
+      );
+    }
+
+    // The authed step lists its selection with auth disabled before any
+    // credentialed setup. Only an explicit empty result may skip, and only
+    // for a narrowed run; every other failure must propagate.
+    const authedRun = String(
+      (jobs.authed?.steps ?? []).find((step) =>
+        String(step.name ?? "").startsWith("Authenticated"),
+      )?.run ?? "",
+    );
+    const listCommand = authedRun.search(
+      /set \+e\s+BETA_E2E_AUTHED=0 pnpm e2e:beta "\$\{select_args\[@\]\}" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/,
+    );
+    const emptyCheck = authedRun.indexOf('grep -q "Total: 0 tests in 0 files"');
+    const propagate = authedRun.indexOf('exit "$selection_status"');
+    const finalRun = authedRun.lastIndexOf('pnpm e2e:beta "${select_args[@]}"');
+    if (
+      !authedRun.includes('select_args=("--project=$BETA_E2E_PROJECT")') ||
+      !authedRun.includes('select_args+=("--shard=$BETA_E2E_SHARD")') ||
+      !authedRun.includes('select_args+=(--grep "$BETA_E2E_GREP")') ||
+      listCommand < 0 ||
+      emptyCheck < listCommand ||
+      !authedRun.includes('grep -q "Error: No tests found"') ||
+      !authedRun.includes('"$BETA_E2E_NARROWED" = "true"') ||
+      propagate < emptyCheck ||
+      finalRun < propagate
+    ) {
+      issues.push(
+        `${workflowPath} authed step must capture and propagate failed authenticated discovery, skip only an explicit no-tests result for a narrowed run, and run the same project, shard and grep selection it listed. A public-only grep must not require session credentials.`,
+      );
     }
 
     if (
@@ -451,6 +684,49 @@ if (scheduledWorkflow) {
         `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the full authenticated suite and deduplicate its GitHub issue lifecycle.`,
       );
     }
+  }
+
+  const reportingFragments = [
+    "scripts/beta-e2e-digest.ts",
+    "QA_SLACK_BOT_TOKEN",
+    "method: chat.postMessage",
+    "C0C4U4XRT6X",
+    "Slack notification not configured",
+  ];
+  for (const fragment of reportingFragments) {
+    if (!scheduledWorkflow.includes(fragment)) {
+      issues.push(
+        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. A failed run must produce the digest issue and the #qa-agent-native Slack message, and an unconfigured Slack token must be reported rather than skipped silently.`,
+      );
+    }
+  }
+  if (
+    !/uses:\s*slackapi\/slack-github-action@[0-9a-f]{40}\s+#\s*v\d/.test(
+      scheduledWorkflow,
+    )
+  ) {
+    issues.push(
+      `${scheduledWorkflowPath} must pin slackapi/slack-github-action by full commit SHA with a version comment, like every other action in this repository.`,
+    );
+  }
+  try {
+    const parsed = parse(scheduledWorkflow) as {
+      jobs?: Record<string, { permissions?: Record<string, string> }>;
+    };
+    const permissions = Object.entries(parsed.jobs?.report?.permissions ?? {})
+      .map(([scope, level]) => `${scope}: ${level}`)
+      .sort()
+      .join(", ");
+    const expected = "actions: read, contents: read, issues: write";
+    if (permissions !== expected) {
+      issues.push(
+        `${scheduledWorkflowPath} report job permissions must be exactly "${expected}" (read the run's jobs and artifacts, write the issue) and nothing broader; found "${permissions}".`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${scheduledWorkflowPath} report job permissions could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 

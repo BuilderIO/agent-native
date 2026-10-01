@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "التكاملات" } },
   templatesPage: {
     actions: "إجراءات القالب {{title}}",
     previewAction: "معاينة",
@@ -45,7 +46,7 @@ const messages = {
     designSystems: "أنظمة التصميم",
   },
   settings: {
-    agentObservability: "مراقبة الوكيل",
+    agentObservability: "قابلية المراقبة",
     title: "الإعدادات",
     labs: "المختبرات",
     labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
@@ -168,6 +169,14 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "توجد أحدث تعديلاتك على هذا الجهاز فقط. نزّل نسخة احتياطية قبل المغادرة.",
+    slideConflictReview: "مراجعة",
+    slideConflictTitle: "تم تغيير هذه الشريحة في مكان آخر",
+    slideConflictDescription:
+      "حفظ محرر آخر نسخة أحدث. سيؤدي الاحتفاظ بمسودتك إلى استبدال محتوى الشريحة المحفوظ، أو يمكنك استخدام أحدث نسخة.",
+    slideConflictUseLatest: "استخدام الأحدث",
+    slideConflictKeepDraft: "الاحتفاظ بمسودتي",
+    slideConflictKeepEditing: "متابعة التحرير",
+    slideConflictResolutionFailed: "تعذر حل التعارض. لا تزال مسودتك هنا.",
     offline: "غير متصل",
     selected: "محدد",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -244,6 +253,9 @@ const messages = {
     media: "الوسائط",
     generateImage: "إنشاء صورة",
     assetLibrary: "مكتبة الأصول",
+    imageOptions: "خيارات الصورة",
+    cropImage: "اقتصاص الصورة",
+    cropHandle: "اقتصاص الصورة {{position}}",
     diagrams: "المخططات",
     insertMermaidDiagram: "إدراج مخطط Mermaid",
     insertMermaidFailed: "فشل إدراج المخطط",
@@ -291,6 +303,19 @@ const messages = {
     importing: "جارٍ الاستيراد...",
     importFile: "استيراد ملف",
     downloadBackup: "تنزيل نسخة احتياطية",
+    conflictStatus: "تعارض في النص",
+    conflictStatusDescription: "راجع النص المتعارض قبل حفظ تغييرات أخرى.",
+    reviewConflict: "مراجعة التعارض",
+    conflictTitle: "تعارض نصي في الشريحة {{number}}",
+    conflictDescription: "غيّر إصدار آخر هذه الشريحة أثناء تحرير النص.",
+    conflictChoicesDescription:
+      "سيحفظ الاحتفاظ بنصك فوق أحدث إصدار. أما استخدام النص المحفوظ فيستبدل المسودة المحلية لهذه الشريحة فقط.",
+    conflictBackupDescription:
+      "لا يمكن حل مسودة العرض الكامل هذه شريحةً واحدةً في كل مرة. نزّل نسخة احتياطية للاحتفاظ بها.",
+    conflictResolveFailed:
+      "تعذّر حل التعارض. ما زالت مسودتك متاحة على هذا الجهاز.",
+    conflictKeepMine: "الاحتفاظ بنصي",
+    conflictUseLatest: "استخدام النص المحفوظ",
     importBackup: "استيراد نسخة احتياطية",
     backupDownloaded: "تم تنزيل النسخة الاحتياطية",
     backupDownloadFailed: "تعذر تنزيل النسخة الاحتياطية",
@@ -388,6 +413,8 @@ const messages = {
     orderedList: "قائمة مرتبة",
     quote: "اقتباس",
     blockquote: "اقتباس كتلي",
+    divider: "فاصل",
+    horizontalRule: "خط أفقي",
   },
   comments: {
     deleteComment: "حذف التعليق",
@@ -421,6 +448,7 @@ const messages = {
     retry: "إعادة المحاولة",
     clickToAddComment: "انقر لإضافة تعليق",
     selectSlideToAdd: "حدد شريحة لإضافة تعليق",
+    filters: "عوامل تصفية التعليقات",
     scope: "نطاق التعليقات",
     thisSlide: "هذه الشريحة",
     allComments: "كل الشرائح",
@@ -613,9 +641,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "إعادة المحاولة",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "تعذر تحميل الإصدارات المحفوظة.",
+    snapshotLoadFailed: "تعذر تحميل هذا الإصدار المحفوظ.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",
@@ -867,7 +898,7 @@ const messages = {
     },
     importDeck: "استيراد عرض",
     context: {
-      websiteReference: "إرفاق موقع ويب",
+      websiteReference: "إضافة موقع ويب",
       websiteUrlLabel: "عنوان URL لموقع الويب",
       websiteUrl: "الصق عنوان URL لموقع ويب",
       figmaUrlLabel: "رابط Figma",
@@ -881,7 +912,7 @@ const messages = {
       searchPresentations: "البحث في العروض التقديمية…",
       menu: {
         system: "استخدام نظام تصميم",
-        figma: "إرفاق Figma",
+        figma: "إضافة Figma",
         design: "الاستعانة بتصميم",
         deck: "الاستعانة بعرض تقديمي",
         searchDesign: "البحث في التصميم…",
@@ -1060,7 +1091,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
   },
 };

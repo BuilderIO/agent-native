@@ -94,7 +94,7 @@ description: "에이전트 추적, 평가, 피드백, A/B 실험 및 내장 대�
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -121,7 +121,7 @@ export default function ObservabilityPage() {
 
 대화 탭에는 기록된 실행이 표시됩니다. 실행을 선택해 스팬을 확인하고, 스팬을 펼쳐 캡처된 도구 입력, 출력, 오류 및 메타데이터를 볼 수 있습니다. **전체 대화 열기**를 선택하면 연결된 채팅 스레드로 이동합니다.
 
-도구 인수와 결과는 기본적으로 캡처되지 않습니다. 저장하려면 `observability` 설정에서 `captureToolArgs`와 `captureToolResults`를 활성화하세요. 민감한 필드와 도구 오류 메시지는 저장 전에 마스킹됩니다.
+도구 인수, 결과, 전체 오류 본문은 기본적으로 캡처되지 않습니다. `observability` 설정에서 인수를 저장하려면 `captureToolArgs`를, 결과와 전체 오류 본문을 저장하려면 `captureToolResults`를 활성화하세요. 민감한 필드는 저장 전에 마스킹됩니다. 실패한 도구는 `captureToolResults`가 꺼져 있어도 실패를 진단할 수 있도록, 자격 증명, 이메일 주소, 긴 불투명 ID를 마스킹한 오류의 첫 줄을 길이를 제한해 항상 보관합니다.
 
 ### 사람 검토 {#review}
 
@@ -288,7 +288,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+콘텐츠는 **기본적으로 마스킹됩니다**. 토큰 수, 비용, 타이밍이 저장되며, 실패한 도구의 경우 자격 증명, 이메일 주소, 긴 불투명 ID를 마스킹한 오류의 첫 줄(길이 제한)도 저장됩니다. 프롬프트, 도구 입력, 도구 결과, 전체 오류 본문은 `capturePrompts`, `captureToolArgs`, `captureToolResults`를 켜지 않는 한 저장되지 않습니다. 디버깅에 프롬프트나 인수 내용이 필요할 때만 켜세요.
 
 </Callout>
 

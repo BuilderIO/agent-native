@@ -1218,7 +1218,10 @@ const history = {
 
 const overrides = {
   close: "Fechar",
-  setup: { checkingProvider: "Verificando a conexão com a IA…" },
+  setup: {
+    providerStatusUnavailable:
+      "Não foi possível confirmar se a IA está pronta.",
+  },
   onboarding: {
     fileStorage: {
       title: "Conecte o armazenamento para enviar arquivos",
@@ -1273,6 +1276,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "Conteúdo",
+    loadingContent: "Carregando conteúdo",
     commandSearchDocuments: "Buscar documentos",
     searchSince: "Desde {{date}}",
     searchModifiedSince: "Modificado desde {{date}}",

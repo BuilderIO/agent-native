@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "連携" } },
   creativeContext: {
     title: "ライブラリ",
     description:
@@ -171,6 +172,12 @@ export default {
     openAgentSettings: "エージェントを管理",
     labTweaks: "デザインの調整",
     labTweaksDescription: "AI によるデザイン調整をお試しください。",
+    labFullAppBuilding: "アプリ全体の構築",
+    labFullAppBuildingDescription:
+      "Builder を使って、デザインから動作するアプリを構築してみましょう。",
+    labDesignReviewTools: "デザインレビュー ツール",
+    labDesignReviewToolsDescription:
+      "デザインのアクセシビリティ上の問題を確認し、視覚的な変更を比較します。",
     mcpAbout:
       "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
@@ -189,8 +196,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "AI 接続を確認しています…",
-      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
     common: { retry: "再試行" },
   },
@@ -1265,6 +1271,7 @@ export default {
       verifying: "ソースとランタイムを検証中…",
       retryWithAgent: "ソース検証を再試行",
       copyPrompt: "エージェントにプロンプトをコピー",
+      copyAgentPrompt: "エージェントプロンプトをコピー",
       copyFullPrompt: "完全なプロンプトをコピー",
       abortPreview: "プレビューを中止して操作",
       agentMessage:
@@ -1429,6 +1436,8 @@ export default {
         "このレイヤーのソースが見つかりません。アプリの読み込みが完了してから再度お試しいただくか、エージェントに変更を依頼してください。",
       reactSourceAnchorsUnavailable:
         "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
+      sourceLocationSnapshotFailed:
+        "このプレビューのソース位置を確認できませんでした。",
       screenSourceUpdated: "画面ソースを更新しました",
       screenSourceUpdateFailed: "画面ソースを更新できませんでした",
       vectorEditUnsupported:
@@ -1491,7 +1500,7 @@ export default {
         "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
       permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
       permissionPromptSettingsInstructions:
-        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、ローカル ネットワークを「許可」に設定します。",
       permissionPromptRetry: "接続を再試行",
     },
   },
@@ -1679,7 +1688,7 @@ export default {
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
   homeContext: {
-    websiteReference: "ウェブサイトを添付",
+    websiteReference: "ウェブサイトを追加",
     websiteUrlLabel: "ウェブサイトのURL",
     websiteUrl: "ウェブサイトのURLを貼り付け",
     figmaUrlLabel: "Figmaリンク",
@@ -1708,7 +1717,7 @@ export default {
     design: "デザイン",
     slides: "スライド",
     referenceDesign: "デザインを参照",
-    figmaReference: "Figmaを添付",
+    figmaReference: "Figmaを追加",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",

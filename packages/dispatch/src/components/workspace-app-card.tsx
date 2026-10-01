@@ -1,10 +1,10 @@
-import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/core/client/chat-first";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/toolkit/app/chat/chat-first/app-open-actions";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import {
   IconChevronDown,
   IconChevronRight,

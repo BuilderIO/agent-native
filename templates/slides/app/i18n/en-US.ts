@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrations" } },
   templatesPage: {
     actions: "Template actions for {{title}}",
     previewAction: "Preview",
@@ -45,7 +46,7 @@ const messages = {
     designSystems: "Design Systems",
   },
   settings: {
-    agentObservability: "Agent Observability",
+    agentObservability: "Observability",
     title: "Settings",
     labs: "Labs",
     labsIntro: "Preview experimental features before they ship.",
@@ -170,6 +171,15 @@ const messages = {
     saveReconnect: "Changes will save when reconnected",
     saveFailedDescription:
       "Your latest edits are only on this device. Download a backup before leaving.",
+    slideConflictReview: "Review",
+    slideConflictTitle: "This slide changed elsewhere",
+    slideConflictDescription:
+      "Another editor saved a newer version. Keeping your draft will replace that slide's saved content, or use the latest version.",
+    slideConflictUseLatest: "Use latest",
+    slideConflictKeepDraft: "Keep my draft",
+    slideConflictKeepEditing: "Keep editing",
+    slideConflictResolutionFailed:
+      "Could not resolve the conflict. Your draft is still here.",
     offline: "Offline",
     selected: "selected",
     chooseDesignSystem: "Choose a design system",
@@ -242,6 +252,9 @@ const messages = {
     media: "Media",
     generateImage: "Generate Image",
     assetLibrary: "Asset Library",
+    imageOptions: "Image options",
+    cropImage: "Crop image",
+    cropHandle: "Crop image {{position}}",
     diagrams: "Diagrams",
     insertMermaidDiagram: "Insert Mermaid Diagram",
     insertMermaidFailed: "Failed to insert diagram",
@@ -289,6 +302,21 @@ const messages = {
     importing: "Importing...",
     importFile: "Import file",
     downloadBackup: "Download backup",
+    conflictStatus: "Text conflict",
+    conflictStatusDescription:
+      "Review the conflicting text before saving more changes.",
+    reviewConflict: "Review conflict",
+    conflictTitle: "Slide {{number}} has a text conflict",
+    conflictDescription:
+      "Another version changed this slide while your text was being edited.",
+    conflictChoicesDescription:
+      "Keeping your text saves it over the latest version. Using saved text replaces only this slide's local draft.",
+    conflictBackupDescription:
+      "This full-deck draft can't be resolved one slide at a time. Download a backup to keep it safe.",
+    conflictResolveFailed:
+      "Couldn't resolve the conflict. Your draft is still available on this device.",
+    conflictKeepMine: "Keep my text",
+    conflictUseLatest: "Use saved text",
     importBackup: "Import backup",
     backupDownloaded: "Backup downloaded",
     backupDownloadFailed: "Could not download backup",
@@ -386,6 +414,8 @@ const messages = {
     orderedList: "Ordered list",
     quote: "Quote",
     blockquote: "Blockquote",
+    divider: "Divider",
+    horizontalRule: "Horizontal rule",
   },
   comments: {
     deleteComment: "Delete comment",
@@ -419,6 +449,7 @@ const messages = {
     retry: "Retry",
     clickToAddComment: "Click to add a comment",
     selectSlideToAdd: "Select a slide to add one",
+    filters: "Comment filters",
     scope: "Comment scope",
     thisSlide: "This slide",
     allComments: "All slides",
@@ -601,9 +632,12 @@ const messages = {
     slideNumber: "Slide {{number}}",
     noSlidesInSnapshot: "No slides in this snapshot.",
     restoreThisVersion: "Restore this version",
+    retry: "Retry",
     noSavedVersions: "No history yet",
     noSavedVersionsDescription:
       "History is saved automatically before future deck edits.",
+    loadFailed: "Could not load saved versions.",
+    snapshotLoadFailed: "Could not load this saved version.",
   },
   editorSidebar: {
     selectSlide: "Select slide {{number}}",
@@ -852,7 +886,7 @@ const messages = {
     },
     importDeck: "Import Deck",
     context: {
-      websiteReference: "Attach website",
+      websiteReference: "Add website",
       websiteUrlLabel: "Website URL",
       websiteUrl: "Paste a website URL",
       figmaUrlLabel: "Figma link",
@@ -866,7 +900,7 @@ const messages = {
       searchPresentations: "Search presentations…",
       menu: {
         system: "Use a design system",
-        figma: "Attach Figma",
+        figma: "Add Figma",
         design: "Reference a design",
         deck: "Reference a presentation",
         searchDesign: "Search design…",
@@ -1048,7 +1082,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "Couldn't check AI connection.",
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
   },
 };

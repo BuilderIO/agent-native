@@ -330,6 +330,7 @@ interface EditPanelProps {
   onScreenHeightModeChange?: (screenId: string, mode: ScreenHeightMode) => void;
   selectedScreenSource?: ScreenSourceSelection | null;
   sourceLocationUnavailable?: boolean;
+  sourceLocationSnapshotFailed?: boolean;
   localhostConnections?: LocalhostConnectionOption[];
   onScreenSourceChange?: (
     screenId: string,
@@ -339,6 +340,7 @@ interface EditPanelProps {
       connectionId?: string;
     },
   ) => void;
+  onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
   onRemoveScreen?: () => void;
   screenSourcePending?: boolean;
@@ -1093,6 +1095,7 @@ function ScreenGeometryProperties({
   selectedScreenSource,
   localhostConnections = [],
   onScreenSourceChange,
+  onScreenUrlChange,
   onAddLocalhostScreen,
   onRemoveScreen,
   screenSourcePending = false,
@@ -1122,6 +1125,7 @@ function ScreenGeometryProperties({
       connectionId?: string;
     },
   ) => void;
+  onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
   onRemoveScreen?: () => void;
   screenSourcePending?: boolean;
@@ -1131,6 +1135,7 @@ function ScreenGeometryProperties({
   const noop = useCallback(() => {}, []);
   const editable = Boolean(onGeometryChange);
   const sourceEditable = Boolean(onScreenSourceChange);
+  const urlEditable = sourceEditable || Boolean(onScreenUrlChange);
   const persistedSourceType = selectedScreenSource?.sourceType ?? "static";
   const heightMode = screen.heightMode ?? "auto";
   const [sourceMode, setSourceMode] = useState<"static" | "url">(
@@ -1157,19 +1162,24 @@ function ScreenGeometryProperties({
   const commitUrl = useCallback(
     (nextConnectionId = connectionDraft) => {
       const url = sourceUrlDraft.trim();
-      if (!sourceEditable || !url || screenSourcePending) return;
-      onScreenSourceChange?.(screen.id, {
-        sourceType: "url",
-        url,
-        ...(nextConnectionId ? { connectionId: nextConnectionId } : {}),
-      });
+      if (!urlEditable || !url || screenSourcePending) return;
+      if (onScreenUrlChange) {
+        onScreenUrlChange(screen.id, url);
+      } else {
+        onScreenSourceChange?.(screen.id, {
+          sourceType: "url",
+          url,
+          ...(nextConnectionId ? { connectionId: nextConnectionId } : {}),
+        });
+      }
     },
     [
       connectionDraft,
+      onScreenUrlChange,
       onScreenSourceChange,
       screen.id,
       screenSourcePending,
-      sourceEditable,
+      urlEditable,
       sourceUrlDraft,
     ],
   );
@@ -1254,7 +1264,6 @@ function ScreenGeometryProperties({
                 <Input
                   value={sourceUrlDraft}
                   onChange={(event) => setSourceUrlDraft(event.target.value)}
-                  onBlur={() => commitUrl()}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
@@ -1267,7 +1276,7 @@ function ScreenGeometryProperties({
                   }}
                   placeholder={t("editPanel.screenSource.urlPlaceholder")}
                   aria-label={t("editPanel.screenSource.urlLabel")}
-                  disabled={!sourceEditable || screenSourcePending}
+                  disabled={!urlEditable || screenSourcePending}
                   className="h-6 min-w-0 flex-1 text-[11px]"
                 />
                 <Button
@@ -1276,7 +1285,7 @@ function ScreenGeometryProperties({
                   variant="secondary"
                   className="h-6 shrink-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none hover:bg-[var(--design-editor-panel-raised-bg)]"
                   disabled={
-                    !sourceEditable ||
+                    !urlEditable ||
                     screenSourcePending ||
                     !sourceUrlDraft.trim()
                   }
@@ -2172,8 +2181,10 @@ export const EditPanel = memo(function EditPanel({
   onScreenHeightModeChange,
   selectedScreenSource,
   sourceLocationUnavailable = false,
+  sourceLocationSnapshotFailed = false,
   localhostConnections,
   onScreenSourceChange,
+  onScreenUrlChange,
   onAddLocalhostScreen,
   onRemoveScreen,
   screenSourcePending,
@@ -2336,6 +2347,9 @@ export const EditPanel = memo(function EditPanel({
     };
   }, [effectiveSelectedElements, textEditingState]);
   const selectedCount = effectiveSelectedElements.length;
+  const selectedElementsKey = JSON.stringify(
+    effectiveSelectedElements.map(elementStableKey),
+  );
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !fileId || selectedCount > 1) return undefined;
     const nodeId = inspectorElement?.sourceId;
@@ -2357,6 +2371,27 @@ export const EditPanel = memo(function EditPanel({
     onShaderSourceApplied,
     onEditCode,
   ]);
+  const screenGlslShaderContext: GlslShaderPanelContext | undefined =
+    useMemo(() => {
+      const screenFileId = selectedScreenGeometry?.id;
+      const nodeId = selectedScreenElement?.sourceId;
+      if (!designId || !screenFileId || !nodeId) return undefined;
+      return {
+        designId,
+        fileId: screenFileId,
+        nodeId,
+        selector: selectedScreenElement?.selector,
+        onApplied: onShaderSourceApplied,
+        onEditCode,
+      };
+    }, [
+      designId,
+      selectedScreenGeometry?.id,
+      selectedScreenElement?.sourceId,
+      selectedScreenElement?.selector,
+      onShaderSourceApplied,
+      onEditCode,
+    ]);
   const documentColorPalette = useDocumentColorPalette(files);
   const selectionAlreadyComponent =
     selectedCount === 1 &&
@@ -2688,7 +2723,14 @@ export const EditPanel = memo(function EditPanel({
             {!inspectorElement && selectedScreenGeometry ? (
               <ScreenSelectionHeader screen={selectedScreenGeometry} />
             ) : null}
-            {sourceLocationUnavailable ? (
+            {sourceLocationSnapshotFailed ? (
+              <div
+                role="status"
+                className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
+              >
+                {t("designEditor.toasts.sourceLocationSnapshotFailed")}
+              </div>
+            ) : sourceLocationUnavailable ? (
               <div
                 role="status"
                 className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
@@ -2832,6 +2874,7 @@ export const EditPanel = memo(function EditPanel({
                     onScreenSourceChange={
                       readOnly ? undefined : onScreenSourceChange
                     }
+                    onScreenUrlChange={readOnly ? undefined : onScreenUrlChange}
                     onAddLocalhostScreen={
                       readOnly ? undefined : onAddLocalhostScreen
                     }
@@ -2873,6 +2916,7 @@ export const EditPanel = memo(function EditPanel({
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                         documentColorPalette={documentColorPalette}
+                        glslShaderContext={screenGlslShaderContext}
                       />
                       <StrokeProperties
                         key={`stroke:${selectedScreenElementSectionKey}`}
@@ -2885,6 +2929,7 @@ export const EditPanel = memo(function EditPanel({
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
+                        glslShaderContext={screenGlslShaderContext}
                       />
                       <SelectionColorsProperties
                         elements={[selectedScreenElement]}
@@ -2971,7 +3016,7 @@ export const EditPanel = memo(function EditPanel({
                     />
                   ) : null}
                   <LayoutContextProperties
-                    key={`layout-context:${inspectorElementSectionKey}`}
+                    key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}

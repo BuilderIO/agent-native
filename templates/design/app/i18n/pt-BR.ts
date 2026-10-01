@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integrações" } },
   creativeContext: {
     title: "Biblioteca",
     description:
@@ -168,6 +169,12 @@ export default {
     openAgentSettings: "Gerenciar agente",
     labTweaks: "Ajustes de design",
     labTweaksDescription: "Experimente ajustes de design com IA.",
+    labFullAppBuilding: "Criação de apps completos",
+    labFullAppBuildingDescription:
+      "Experimente criar apps funcionais a partir dos seus designs com o Builder.",
+    labDesignReviewTools: "Ferramentas de revisão de design",
+    labDesignReviewToolsDescription:
+      "Verifique problemas de acessibilidade nos seus designs e compare alterações visuais.",
     mcpAbout:
       "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
@@ -186,9 +193,8 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "Verificando a conexão com a IA…",
       providerStatusUnavailable:
-        "Não foi possível verificar a conexão com a IA.",
+        "Não foi possível confirmar se a IA está pronta.",
     },
     common: { retry: "Tentar novamente" },
   },
@@ -1263,6 +1269,7 @@ export default {
       verifying: "Verificando origem e runtime…",
       retryWithAgent: "Tentar verificar a origem novamente",
       copyPrompt: "Copiar prompt para seu agente",
+      copyAgentPrompt: "Copiar prompt do agente",
       copyFullPrompt: "Copiar o prompt completo",
       abortPreview: "Cancelar prévia e interagir",
       agentMessage: "Aplique as edições visuais de estilo pendentes à origem.",
@@ -1427,6 +1434,8 @@ export default {
         "Não foi possível localizar esta camada no código-fonte. Tente novamente quando o app terminar de carregar, ou peça ao agente para fazer essa alteração.",
       reactSourceAnchorsUnavailable:
         "Este app não expõe localizações de código ao editor, então esta camada não pode ser associada a uma linha. Peça ao agente para fazer essa alteração.",
+      sourceLocationSnapshotFailed:
+        "Não foi possível verificar os locais do código-fonte desta visualização.",
       screenSourceUpdated: "Fonte da tela atualizada",
       screenSourceUpdateFailed: "Não foi possível atualizar a fonte da tela",
       vectorEditUnsupported:
@@ -1489,7 +1498,7 @@ export default {
         "Para ativar a edição ao vivo, escolha Permitir no aviso do Chrome.",
       permissionPromptNoPrompt: "O aviso do Chrome não apareceu?",
       permissionPromptSettingsInstructions:
-        "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e permita o acesso aos apps do seu dispositivo.",
+        "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e defina Rede local como Permitir.",
       permissionPromptRetry: "Tentar conexão novamente",
     },
   },
@@ -1679,7 +1688,7 @@ export default {
       "O elemento original não foi mais encontrado na tela de design.",
   },
   homeContext: {
-    websiteReference: "Anexar site",
+    websiteReference: "Adicionar site",
     websiteUrlLabel: "URL do site",
     websiteUrl: "Cole a URL de um site",
     figmaUrlLabel: "Link do Figma",
@@ -1707,7 +1716,7 @@ export default {
     design: "Design",
     slides: "Slides",
     referenceDesign: "Usar um design como referência",
-    figmaReference: "Anexar Figma",
+    figmaReference: "Adicionar Figma",
     referenceDeck: "Usar uma apresentação como referência",
     quickSaas: "Criar uma página de SaaS",
     quickDashboard: "Criar um painel",

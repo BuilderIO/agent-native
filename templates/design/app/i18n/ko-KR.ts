@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "연동" } },
   creativeContext: {
     title: "라이브러리",
     description:
@@ -166,6 +167,12 @@ export default {
     openAgentSettings: "에이전트 관리",
     labTweaks: "디자인 트윅",
     labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
+    labFullAppBuilding: "전체 앱 만들기",
+    labFullAppBuildingDescription:
+      "Builder로 디자인을 바탕으로 작동하는 앱을 만들어 보세요.",
+    labDesignReviewTools: "디자인 검토 도구",
+    labDesignReviewToolsDescription:
+      "디자인의 접근성 문제를 확인하고 시각적 변경 사항을 비교하세요.",
     mcpAbout:
       "Design을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Design에서 디자인을 만들고 편집할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
@@ -184,8 +191,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "AI 연결을 확인하는 중…",
-      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
   },
@@ -1250,6 +1256,7 @@ export default {
       verifying: "소스와 런타임 확인 중…",
       retryWithAgent: "소스 확인 다시 시도",
       copyPrompt: "에이전트에 프롬프트 복사",
+      copyAgentPrompt: "에이전트 프롬프트 복사",
       copyFullPrompt: "전체 프롬프트 복사",
       abortPreview: "미리보기를 중단하고 상호작용",
       agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
@@ -1409,6 +1416,8 @@ export default {
         "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
       reactSourceAnchorsUnavailable:
         "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
+      sourceLocationSnapshotFailed:
+        "이 미리보기의 소스 위치를 확인할 수 없습니다.",
       screenSourceUpdated: "화면 소스가 업데이트됨",
       screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
       vectorEditUnsupported:
@@ -1471,7 +1480,7 @@ export default {
         "실시간 편집을 사용하려면 Chrome 프롬프트에서 ‘허용’을 선택하세요.",
       permissionPromptNoPrompt: "Chrome 프롬프트가 표시되지 않나요?",
       permissionPromptSettingsInstructions:
-        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 기기의 앱에 대한 액세스를 허용하세요.",
+        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크를 허용으로 설정하세요.",
       permissionPromptRetry: "연결 재시도",
     },
   },
@@ -1658,7 +1667,7 @@ export default {
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
   homeContext: {
-    websiteReference: "웹사이트 첨부",
+    websiteReference: "웹사이트 추가",
     websiteUrlLabel: "웹사이트 URL",
     websiteUrl: "웹사이트 URL 붙여넣기",
     figmaUrlLabel: "Figma 링크",
@@ -1686,7 +1695,7 @@ export default {
     design: "디자인",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
-    figmaReference: "Figma 첨부",
+    figmaReference: "Figma 추가",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",

@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "연동" } },
   templatesPage: {
     actions: "{{title}} 템플릿 작업",
     previewAction: "미리보기",
@@ -45,7 +46,7 @@ const messages = {
     designSystems: "디자인 시스템",
   },
   settings: {
-    agentObservability: "에이전트 관찰성",
+    agentObservability: "관찰성",
     title: "설정",
     labs: "Labs",
     labsIntro: "출시 전에 실험적인 기능을 미리 사용해 보세요.",
@@ -170,6 +171,15 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "최신 변경 사항이 이 기기에만 있습니다. 나가기 전에 백업을 다운로드하세요.",
+    slideConflictReview: "검토",
+    slideConflictTitle: "이 슬라이드는 다른 곳에서 변경되었습니다",
+    slideConflictDescription:
+      "다른 편집자가 최신 버전을 저장했습니다. 초안을 유지하면 저장된 슬라이드 내용이 대체됩니다. 최신 버전을 사용할 수도 있습니다.",
+    slideConflictUseLatest: "최신 버전 사용",
+    slideConflictKeepDraft: "내 초안 유지",
+    slideConflictKeepEditing: "계속 편집",
+    slideConflictResolutionFailed:
+      "충돌을 해결하지 못했습니다. 초안은 그대로 유지됩니다.",
     offline: "오프라인",
     selected: "선택됨",
     chooseDesignSystem: "デザインシステムを選択",
@@ -242,6 +252,9 @@ const messages = {
     media: "미디어",
     generateImage: "이미지 생성",
     assetLibrary: "에셋 라이브러리",
+    imageOptions: "이미지 옵션",
+    cropImage: "이미지 자르기",
+    cropHandle: "이미지 {{position}} 자르기",
     diagrams: "다이어그램",
     insertMermaidDiagram: "Mermaid 다이어그램 삽입",
     insertMermaidFailed: "다이어그램 삽입 실패",
@@ -289,6 +302,21 @@ const messages = {
     importing: "가져오는 중...",
     importFile: "파일 가져오기",
     downloadBackup: "백업 다운로드",
+    conflictStatus: "텍스트 충돌",
+    conflictStatusDescription:
+      "다른 변경 사항을 저장하기 전에 충돌한 텍스트를 확인하세요.",
+    reviewConflict: "충돌 검토",
+    conflictTitle: "슬라이드 {{number}}의 텍스트 충돌",
+    conflictDescription:
+      "텍스트를 편집하는 동안 다른 버전에서 이 슬라이드가 변경되었습니다.",
+    conflictChoicesDescription:
+      "내 텍스트를 유지하면 최신 버전에 저장됩니다. 저장된 텍스트를 사용하면 이 슬라이드의 로컬 초안만 바뀝니다.",
+    conflictBackupDescription:
+      "전체 프레젠테이션 초안은 슬라이드별로 해결할 수 없습니다. 초안을 보관하려면 백업을 다운로드하세요.",
+    conflictResolveFailed:
+      "충돌을 해결하지 못했습니다. 이 기기에 초안이 계속 남아 있습니다.",
+    conflictKeepMine: "내 텍스트 유지",
+    conflictUseLatest: "저장된 텍스트 사용",
     importBackup: "백업 가져오기",
     backupDownloaded: "백업을 다운로드했습니다",
     backupDownloadFailed: "백업을 다운로드할 수 없습니다",
@@ -386,6 +414,8 @@ const messages = {
     orderedList: "순서 있는 목록",
     quote: "인용",
     blockquote: "인용 블록",
+    divider: "구분선",
+    horizontalRule: "가로줄",
   },
   comments: {
     deleteComment: "댓글 삭제",
@@ -419,6 +449,7 @@ const messages = {
     retry: "다시 시도",
     clickToAddComment: "클릭하여 댓글 추가",
     selectSlideToAdd: "추가하려면 슬라이드를 선택하세요",
+    filters: "댓글 필터",
     scope: "댓글 범위",
     thisSlide: "이 슬라이드",
     allComments: "모든 슬라이드",
@@ -596,8 +627,11 @@ const messages = {
     slideNumber: "幻灯片 {{number}}",
     noSlidesInSnapshot: "此快照中没有幻灯片。",
     restoreThisVersion: "恢复此版本",
+    retry: "다시 시도",
     noSavedVersions: "还没有已保存版本",
     noSavedVersionsDescription: "以后编辑幻灯片前会自动保存版本。",
+    loadFailed: "저장된 버전을 불러올 수 없습니다.",
+    snapshotLoadFailed: "이 저장된 버전을 불러올 수 없습니다.",
   },
   editorSidebar: {
     selectSlide: "选择幻灯片 {{number}}",
@@ -847,7 +881,7 @@ const messages = {
     },
     importDeck: "덱 가져오기",
     context: {
-      websiteReference: "웹사이트 첨부",
+      websiteReference: "웹사이트 추가",
       websiteUrlLabel: "웹사이트 URL",
       websiteUrl: "웹사이트 URL 붙여넣기",
       figmaUrlLabel: "Figma 링크",
@@ -861,7 +895,7 @@ const messages = {
       searchPresentations: "프레젠테이션 검색…",
       menu: {
         system: "디자인 시스템 사용",
-        figma: "Figma 첨부",
+        figma: "Figma 추가",
         design: "디자인 참조",
         deck: "프레젠테이션 참조",
         searchDesign: "디자인 검색…",
@@ -1041,7 +1075,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
   },
 };

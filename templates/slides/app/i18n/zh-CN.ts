@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "集成" } },
   templatesPage: {
     actions: "{{title}} 的模板操作",
     previewAction: "预览",
@@ -45,7 +46,7 @@ const messages = {
     designSystems: "设计系统",
   },
   settings: {
-    agentObservability: "代理可观测性",
+    agentObservability: "可观测性",
     title: "设置",
     labs: "实验室",
     labsIntro: "在正式发布前预览实验性功能。",
@@ -166,6 +167,14 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "你最近的编辑内容仅保存在此设备上。离开前请下载备份。",
+    slideConflictReview: "查看",
+    slideConflictTitle: "此幻灯片已在其他位置更改",
+    slideConflictDescription:
+      "其他编辑者保存了较新的版本。保留草稿会替换已保存的幻灯片内容，也可以使用最新版本。",
+    slideConflictUseLatest: "使用最新版本",
+    slideConflictKeepDraft: "保留我的草稿",
+    slideConflictKeepEditing: "继续编辑",
+    slideConflictResolutionFailed: "无法解决冲突。你的草稿仍保留在此。",
     offline: "离线",
     selected: "已选择",
     chooseDesignSystem: "デザインシステムを選択",
@@ -237,6 +246,9 @@ const messages = {
     media: "媒体",
     generateImage: "生成图片",
     assetLibrary: "素材库",
+    imageOptions: "图片选项",
+    cropImage: "裁剪图片",
+    cropHandle: "裁剪图片{{position}}",
     diagrams: "图表",
     insertMermaidDiagram: "插入 Mermaid 图表",
     insertMermaidFailed: "插入图表失败",
@@ -284,6 +296,18 @@ const messages = {
     importing: "正在导入...",
     importFile: "导入文件",
     downloadBackup: "下载备份",
+    conflictStatus: "文本冲突",
+    conflictStatusDescription: "请先检查冲突的文本，再保存其他更改。",
+    reviewConflict: "查看冲突",
+    conflictTitle: "第 {{number}} 张幻灯片存在文本冲突",
+    conflictDescription: "编辑文本期间，另一版本更改了此幻灯片。",
+    conflictChoicesDescription:
+      "保留我的文本会将其保存到最新版本中。使用已保存的文本只会替换此幻灯片的本地草稿。",
+    conflictBackupDescription:
+      "此完整演示文稿草稿无法逐张幻灯片解决。请先下载备份以保留草稿。",
+    conflictResolveFailed: "无法解决冲突。此设备上仍保留着你的草稿。",
+    conflictKeepMine: "保留我的文本",
+    conflictUseLatest: "使用已保存的文本",
     importBackup: "导入备份",
     backupDownloaded: "备份已下载",
     backupDownloadFailed: "无法下载备份",
@@ -380,6 +404,8 @@ const messages = {
     orderedList: "有序列表",
     quote: "引用",
     blockquote: "块引用",
+    divider: "分隔线",
+    horizontalRule: "水平线",
   },
   comments: {
     deleteComment: "删除评论",
@@ -413,6 +439,7 @@ const messages = {
     retry: "重试",
     clickToAddComment: "点击添加评论",
     selectSlideToAdd: "选择幻灯片以添加评论",
+    filters: "评论筛选",
     scope: "评论范围",
     thisSlide: "此幻灯片",
     allComments: "所有幻灯片",
@@ -590,8 +617,11 @@ const messages = {
     slideNumber: "幻灯片 {{number}}",
     noSlidesInSnapshot: "此快照中没有幻灯片。",
     restoreThisVersion: "恢复此版本",
+    retry: "重试",
     noSavedVersions: "还没有已保存版本",
     noSavedVersionsDescription: "以后编辑幻灯片前会自动保存版本。",
+    loadFailed: "无法加载已保存的版本。",
+    snapshotLoadFailed: "无法加载此已保存版本。",
   },
   editorSidebar: {
     selectSlide: "选择幻灯片 {{number}}",
@@ -827,7 +857,7 @@ const messages = {
     },
     importDeck: "导入演示文稿",
     context: {
-      websiteReference: "附加网站",
+      websiteReference: "添加网站",
       websiteUrlLabel: "网站 URL",
       websiteUrl: "粘贴网站 URL",
       figmaUrlLabel: "Figma 链接",
@@ -840,7 +870,7 @@ const messages = {
       searchPresentations: "搜索演示文稿…",
       menu: {
         system: "使用设计系统",
-        figma: "附加 Figma",
+        figma: "添加 Figma",
         design: "参考设计",
         deck: "参考演示文稿",
         searchDesign: "搜索设计…",
@@ -1013,7 +1043,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "无法检查 AI 连接。",
+      providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
   },
 };

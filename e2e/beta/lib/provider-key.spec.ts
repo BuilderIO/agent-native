@@ -98,7 +98,31 @@ test("passes the canonical endpoint through the browser evaluation boundary", as
     "/_agent-native/agent-engine/status",
     "sk-example-dedicated",
     "https://api.openai.com/v1",
+    30_000,
   ]);
+});
+
+test("a host that never answers the in-page install fails instead of hanging", async () => {
+  const page = {
+    async goto() {},
+    evaluate: () => new Promise<never>(() => {}),
+    async close() {},
+  };
+  const context = {
+    async newPage() {
+      return page;
+    },
+  } as unknown as BrowserContext;
+
+  await assert.rejects(
+    installOpenAiKey(
+      context,
+      "https://beta.example.test",
+      "sk-example-dedicated",
+      20,
+    ),
+    /Installing the OpenAI key on https:\/\/beta\.example\.test did not finish/,
+  );
 });
 
 test("does not treat a successful write as an installed key when runtime is missing it", async () => {

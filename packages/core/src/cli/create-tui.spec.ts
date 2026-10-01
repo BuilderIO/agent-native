@@ -125,7 +125,7 @@ describe("agent-native create TUI", () => {
 
     await cli.waitFor("Esc cancel");
     const initialProgress = await cli.waitFor("Step 1 of 4");
-    expect(cli.output).toContain("Step 1 of 4");
+    await cli.waitFor("Step 1 of 4");
     for (const choice of [
       "Chat workspace",
       "Standalone app",
@@ -133,10 +133,10 @@ describe("agent-native create TUI", () => {
       "First-party template",
       "Community template",
     ]) {
-      expect(cli.output).toContain(choice);
+      await cli.waitFor(choice);
     }
-    expect(cli.output).toContain("chat/");
-    expect(cli.output).toContain("dispatch/");
+    await cli.waitFor("chat/");
+    await cli.waitFor("dispatch/");
     await wait(50);
     cli.child.write("\x1b[B\x1b[B");
     const headlessProgress = await cli.waitFor(
@@ -148,21 +148,22 @@ describe("agent-native create TUI", () => {
     await wait(50);
     cli.child.write("\r");
     const firstAppsStep = await cli.waitFor("Shape your app lineup");
-    expect(cli.output).toContain("Step 2 of 4");
+    await cli.waitFor("Step 2 of 4");
     await cli.waitFor("2 selected", firstAppsStep + 1);
-    expect(cli.output).toContain("[x] Chat");
-    expect(cli.output).toContain("[x] Dispatch");
-    expect(cli.output).toContain("required · default");
+    await cli.waitFor("[x] Chat");
+    await cli.waitFor("[x] Dispatch");
+    await cli.waitFor("required · default");
     await wait(50);
-    for (let index = 0; index < 8; index++) cli.child.write("\x1b[B");
-    await cli.waitFor("Forms");
-    cli.child.write(" ");
+    // One write, so Ink hands the TUI every key before it re-renders.
+    cli.child.write(`${"\x1b[B".repeat(8)} `);
     await cli.waitFor("3 selected");
     cli.child.write("\x02");
     const startAgain = await cli.waitFor(
       "Choose a starting point",
       firstAppsStep + 1,
     );
+    await cli.waitFor("Chat workspace", startAgain + 1);
+    await wait(50);
     cli.child.write("\r");
     const secondAppsStep = await cli.waitFor(
       "Shape your app lineup",
@@ -190,9 +191,9 @@ describe("agent-native create TUI", () => {
     const cli = startTty(["create", "--template", "dispatch,chat"], cwd);
 
     await cli.waitFor("2 selected");
-    expect(cli.output).toContain("Step 1 of 2");
-    expect(cli.output).toContain("[x] Chat");
-    expect(cli.output).toContain("[x] Dispatch");
+    await cli.waitFor("Step 1 of 2");
+    await cli.waitFor("[x] Chat");
+    await cli.waitFor("[x] Dispatch");
     cli.child.write("\x1b");
 
     const { exitCode } = await cli.exited;
@@ -212,7 +213,7 @@ describe("agent-native create TUI", () => {
 
     await cli.waitFor("Choose apps to add");
     await cli.waitFor("1 selected");
-    expect(cli.output).toContain("[x] Dispatch");
+    await cli.waitFor("[x] Dispatch");
     expect(cli.output).not.toContain("[x] Chat");
     cli.child.write("\x1b");
 
@@ -234,19 +235,19 @@ describe("agent-native create TUI", () => {
     const cli = startTty(["create", "--template", source], cwd);
 
     await cli.waitFor("GitHub repository");
-    expect(cli.output).toContain("Current workspace/");
-    expect(cli.output).toContain("community app/");
-    expect(cli.output).toContain(canonicalSource);
+    await cli.waitFor("Current workspace/");
+    await cli.waitFor("community app/");
+    await cli.waitFor(canonicalSource);
     await wait(50);
     cli.child.write("\r");
     await cli.waitFor("Project plan");
-    expect(cli.output).toContain(`Source: ${canonicalSource}`);
-    expect(cli.output).toContain("Project: current workspace");
-    expect(cli.output).toContain("community app");
+    await cli.waitFor(`Source: ${canonicalSource}`);
+    await cli.waitFor("Project: current workspace");
+    await cli.waitFor("community app");
 
     cli.child.write("\x02");
     await cli.waitFor("GitHub repository");
-    expect(cli.output).toContain(canonicalSource);
+    await cli.waitFor(canonicalSource);
     cli.child.write("\x1b");
 
     const { exitCode } = await cli.exited;
@@ -268,14 +269,14 @@ describe("agent-native create TUI", () => {
     await wait(50);
     cli.child.write("\r");
     await cli.waitFor("Name your project");
-    expect(cli.output).toContain("Step 3 of 4");
+    await cli.waitFor("Step 3 of 4");
     await wait(50);
     cli.child.write("wizard-app");
     await cli.waitFor("wizard-app");
     await wait(50);
     cli.child.write("\r");
     await cli.waitFor("Ready to create");
-    expect(cli.output).toContain("Step 4 of 4");
+    await cli.waitFor("Step 4 of 4");
     await wait(50);
     cli.child.write("\r");
     await cli.waitFor("Workspace ready");

@@ -61,17 +61,22 @@ vi.mock("@agent-native/core/settings", async (importOriginal) => {
 import { schema } from "../db/index.js";
 import {
   candidateFingerprintsForConsole,
+  captureTestError,
   culpritFromFrames,
   deriveConsoleExceptionIdentity,
   extractExceptionInput,
   fingerprint,
+  getErrorIngestStats,
   getErrorIssue,
+  ingestAnalyticsExceptionEvents,
   ingestException,
   isBenignBrowserAbortException,
   listErrorIssues,
   matchErrorIssuesBySignatures,
   normalizeFrameFile,
   parseStack,
+  recordErrorIngestFailure,
+  resetErrorIngestStateForTests,
   sourceContextFromText,
   titleFromException,
   trustedSourceRelativePath,
@@ -800,11 +805,11 @@ describe("ingestException", () => {
     await db
       .update(schema.errorEvents)
       .set({ clientRecordingId: "client-tim" })
-      .where(eq(schema.errorEvents.id, tim.eventId));
+      .where(eq(schema.errorEvents.id, tim.eventId!));
     await db
       .update(schema.errorEvents)
       .set({ sessionRecordingId: "sr_other" })
-      .where(eq(schema.errorEvents.id, other.eventId));
+      .where(eq(schema.errorEvents.id, other.eventId!));
 
     const byRecording = await listErrorIssues(
       { userEmail: SCOPE.ownerEmail, orgId: null },
@@ -836,7 +841,7 @@ describe("ingestException", () => {
         userKey: "other@example.com",
         sessionRecordingId: "sr_other",
       })
-      .where(eq(schema.errorEvents.id, tim.eventId));
+      .where(eq(schema.errorEvents.id, tim.eventId!));
 
     const issues = await listErrorIssues(
       { userEmail: SCOPE.ownerEmail, orgId: null },
@@ -956,6 +961,7 @@ describe("matchErrorIssuesBySignatures", () => {
           source: "window-error",
           message: "TypeError: x is not a function",
           stack: baseRaw().rawStack,
+          app: "analytics",
         },
         {
           key: "console-2",
@@ -983,9 +989,616 @@ describe("matchErrorIssuesBySignatures", () => {
           source: "window-error",
           message: "TypeError: x is not a function",
           stack: baseRaw().rawStack,
+          app: "analytics",
         },
       ],
     );
     expect(matches["console-1"]).toBeUndefined();
+  });
+});
+
+describe("parseStack message headers", () => {
+  it("never turns a database error's params line into a frame", () => {
+    const frames = parseStack(
+      [
+        'Error: Failed query: insert into "users" ("email") values ($1)',
+        "params: ada.lovelace@example.com,second@example.com",
+        "    at runQuery (/var/task/_chunks/db.mjs:10:5)",
+      ].join("\n"),
+    );
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toMatchObject({ function: "runQuery", lineno: 10 });
+    expect(culpritFromFrames(frames)).toBe("runQuery (db.mjs:10)");
+  });
+
+  it("rejects a Gecko-style line whose location is not a location", () => {
+    expect(parseStack("params: ada@example.com,x@y.z")).toEqual([]);
+    expect(parseStack("run@[native code]")).toHaveLength(1);
+  });
+
+  it("does not count extension, GTM, or vendor frames as app code", () => {
+    const frames = parseStack(
+      [
+        "TypeError: x",
+        "    at e (chrome-extension://abc/executors/200.js:1:2)",
+        "    at t (https://www.googletagmanager.com/gtm.js?id=GTM-1:210:5)",
+        "    at p (https://cdn.vector.co/pixel.js:2:9)",
+      ].join("\n"),
+    );
+    expect(frames.map((frame) => frame.inApp)).toEqual([false, false, false]);
+  });
+});
+
+describe("culprit attribution", () => {
+  it("skips our own fetch wrappers to reach the code that issued the call", () => {
+    const frames = parseStack(
+      [
+        "TypeError: Failed to fetch",
+        "    at window.fetch (https://slides.agent-native.com/assets/api-path-Bx1.js:1:2210)",
+        "    at loadDashboard (https://slides.agent-native.com/assets/Dashboard-3f2a9c1d.js:10:2)",
+      ].join("\n"),
+    );
+    expect(culpritFromFrames(frames)).toBe("loadDashboard (Dashboard.js:10)");
+  });
+});
+
+describe("stable fingerprints", () => {
+  const server = (
+    fn: string,
+    file = "/var/task/_chunks/production-agent.mjs",
+  ) => parseStack(`Error: x\n    at ${fn} (${file}:140:12)`);
+
+  it("groups one server error across deploys that rename the minified function", () => {
+    const message =
+      "MissingAuthSecretError: [agent-native] production configuration errors:";
+    const names = [
+      "kn",
+      "Tn",
+      "An",
+      "Mn",
+      "xn",
+      "wn",
+      "bn",
+      "En",
+      "Dn",
+      "mm",
+      "hm",
+      "vm",
+    ];
+    const fingerprints = names.map((fn) =>
+      fingerprint("MissingAuthSecretError", server(fn), message),
+    );
+    expect(new Set(fingerprints).size).toBe(1);
+  });
+
+  it("groups generic messages by file but not by minified function name", () => {
+    const generic = "Cannot read properties of undefined (reading 'map')";
+    const a = fingerprint(
+      "TypeError",
+      server("Po", "/assets/Home-9f2a1c3d.js"),
+      generic,
+    );
+    const b = fingerprint(
+      "TypeError",
+      server("Ga", "/assets/Home-77aa00bb.js"),
+      generic,
+    );
+    const other = fingerprint(
+      "TypeError",
+      server("Po", "/assets/Editor-9f2a1c3d.js"),
+      generic,
+    );
+    expect(a).toBe(b);
+    expect(a).not.toBe(other);
+    // A readable function name still distinguishes two call sites in one file.
+    expect(
+      fingerprint("TypeError", server("renderRow", "/assets/Home.js"), generic),
+    ).not.toBe(
+      fingerprint(
+        "TypeError",
+        server("renderHeader", "/assets/Home.js"),
+        generic,
+      ),
+    );
+  });
+
+  it("keeps messageless and generic network errors apart by their first-party frame", () => {
+    const a = parseStack(
+      "TypeError: x\n    at load (https://a.test/assets/Dashboard.js:1:1)",
+    );
+    const b = parseStack(
+      "TypeError: x\n    at load (https://a.test/assets/Settings.js:1:1)",
+    );
+    expect(fingerprint("TypeError", a, "Failed to fetch")).not.toBe(
+      fingerprint("TypeError", b, "Failed to fetch"),
+    );
+    expect(fingerprint("Error", a, "")).not.toBe(fingerprint("Error", b, ""));
+  });
+
+  it("is not split by wrapper frames in front of the real caller", () => {
+    const direct = parseStack(
+      "TypeError: x\n    at load (https://a.test/assets/Dashboard.js:1:1)",
+    );
+    const wrapped = parseStack(
+      [
+        "TypeError: x",
+        "    at window.fetch (https://a.test/assets/api-path-Bx1.js:1:1)",
+        "    at load (https://a.test/assets/Dashboard.js:1:1)",
+      ].join("\n"),
+    );
+    expect(fingerprint("TypeError", wrapped, "Failed to fetch")).toBe(
+      fingerprint("TypeError", direct, "Failed to fetch"),
+    );
+  });
+
+  it("strips emails from the grouped message so each user does not get an issue", () => {
+    expect(
+      fingerprint("Error", [], "No account for ada.lovelace@example.com"),
+    ).toBe(fingerprint("Error", [], "No account for grace.hopper@example.org"));
+  });
+
+  it("adds errorCode and failureClass to the grouping when present", () => {
+    const frames = server("Fa");
+    const plain = fingerprint("Error", frames, "Background automation ended");
+    const missing = fingerprint(
+      "Error",
+      frames,
+      "Background automation ended",
+      {
+        errorCode: "missing_tools",
+      },
+    );
+    const timeout = fingerprint(
+      "Error",
+      frames,
+      "Background automation ended",
+      {
+        errorCode: "run_timeout",
+      },
+    );
+    expect(new Set([plain, missing, timeout]).size).toBe(3);
+    expect(
+      fingerprint("Error", frames, "Background automation ended", {}),
+    ).toBe(plain);
+  });
+});
+
+describe("fingerprints keep bugs apart that a bare message cannot", () => {
+  const react418 =
+    "Minified React error #418; visit https://react.dev/errors/418?args[]=text for the full message or use the non-minified dev environment for full errors and additional helpful warnings.";
+  const react185 =
+    "Minified React error #185; visit https://react.dev/errors/185 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.";
+  const reactStack = (host: string, fn: string) =>
+    parseStack(
+      `Error: Minified React error\n    at ${fn} (https://${host}/assets/index-AbC12345.js:1:2)`,
+    );
+
+  it("never merges two React error numbers, in one app or across apps", () => {
+    const stack = reactStack("slides.agent-native.com", "kn");
+    expect(fingerprint("Error", stack, react418, { app: "slides" })).not.toBe(
+      fingerprint("Error", stack, react185, { app: "slides" }),
+    );
+    expect(fingerprint("Error", stack, react418, { app: "slides" })).not.toBe(
+      fingerprint(
+        "Error",
+        reactStack("design.agent-native.com", "Po"),
+        react185,
+        { app: "design" },
+      ),
+    );
+  });
+
+  it("keeps one React error number grouped across deploys that rename the minified function", () => {
+    const a = fingerprint(
+      "Error",
+      reactStack("slides.agent-native.com", "kn"),
+      react418,
+      { app: "slides" },
+    );
+    const b = fingerprint(
+      "Error",
+      reactStack("slides.agent-native.com", "Po"),
+      react418,
+      { app: "slides" },
+    );
+    expect(a).toBe(b);
+  });
+
+  it("splits a bare `fetch failed` by the first-party call site, past node internals", () => {
+    const stack = (caller: string, file: string) =>
+      parseStack(
+        [
+          "TypeError: fetch failed",
+          "    at node:internal/deps/undici/undici:13502:13",
+          "    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)",
+          `    at async ${caller} (file://${file}:10:1)`,
+        ].join("\n"),
+      );
+    const gmail = fingerprint(
+      "TypeError",
+      stack("fetchGmail", "/var/task/server/gmail.mjs"),
+      "fetch failed",
+      { app: "mail" },
+    );
+    const llm = fingerprint(
+      "TypeError",
+      stack("callProvider", "/var/task/server/llm.mjs"),
+      "fetch failed",
+      { app: "mail" },
+    );
+    expect(gmail).not.toBe(llm);
+  });
+
+  it.each([
+    "terminated",
+    "This operation was aborted",
+    "Request failed with status code 502",
+    "Internal Server Error",
+  ])("splits `%s` by call site", (message) => {
+    const at = (file: string) =>
+      parseStack(`Error: x\n    at loadThing (file://${file}:1:1)`);
+    expect(
+      fingerprint("Error", at("/var/task/a.mjs"), message, { app: "mail" }),
+    ).not.toBe(
+      fingerprint("Error", at("/var/task/b.mjs"), message, { app: "mail" }),
+    );
+  });
+
+  it("still groups status-code variants from one call site", () => {
+    const frames = parseStack(
+      "Error: x\n    at loadThing (file:///var/task/a.mjs:1:1)",
+    );
+    expect(
+      fingerprint("Error", frames, "Request failed with status code 502"),
+    ).toBe(fingerprint("Error", frames, "Request failed with status code 504"));
+  });
+
+  it("never merges one message across two apps", () => {
+    const frames = parseStack(
+      "Error: x\n    at loadThing (file:///var/task/a.mjs:1:1)",
+    );
+    const message = "Configuration is missing";
+    expect(fingerprint("Error", frames, message, { app: "mail" })).not.toBe(
+      fingerprint("Error", frames, message, { app: "slides" }),
+    );
+    expect(fingerprint("Error", frames, message, { app: "Mail " })).toBe(
+      fingerprint("Error", frames, message, { app: "mail" }),
+    );
+  });
+
+  it("opens one issue per app for the same message, and lets console matching find each", async () => {
+    const client = await PGlite.create("memory://");
+    try {
+      await createTables(client);
+      getDbMock.mockReturnValue(drizzle(client, { schema }));
+      recordChangeMock.mockReset();
+      notifyWithDeliveryMock.mockClear();
+      getUserSettingMock.mockReset();
+      getUserSettingMock.mockResolvedValue(null);
+
+      const raw = baseRaw({ message: "Configuration is missing" });
+      const mail = await ingestException(
+        SCOPE,
+        raw,
+        derivedFor({ app: "mail" }),
+      );
+      const slides = await ingestException(
+        SCOPE,
+        raw,
+        derivedFor({ app: "slides" }),
+      );
+      expect(mail.isNewIssue).toBe(true);
+      expect(slides.isNewIssue).toBe(true);
+      expect(slides.issueId).not.toBe(mail.issueId);
+
+      const scope = { userEmail: SCOPE.ownerEmail, orgId: null };
+      const signature = {
+        key: "c1",
+        source: "window-error",
+        message: "TypeError: Configuration is missing",
+        stack: raw.rawStack,
+      };
+      const forMail = await matchErrorIssuesBySignatures(scope, [
+        { ...signature, app: "mail" },
+      ]);
+      const forSlides = await matchErrorIssuesBySignatures(scope, [
+        { ...signature, app: "slides" },
+      ]);
+      expect(forMail.c1?.issueId).toBe(mail.issueId);
+      expect(forSlides.c1?.issueId).toBe(slides.issueId);
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+describe("extractExceptionInput PII", () => {
+  it("drops the bound parameters from the message and the raw stack", () => {
+    const input = extractExceptionInput({
+      exceptionType: "Error",
+      exceptionMessage:
+        "Failed query: select 1 where email = $1\nparams: mwang@builder.io",
+      exceptionStack:
+        "Error: Failed query: select 1 where email = $1\nparams: mwang@builder.io\n    at q (/var/task/db.mjs:1:1)",
+    });
+    expect(input.message).toBe("Failed query: select 1 where email = $1");
+    expect(input.rawStack).not.toContain("mwang");
+    expect(titleFromException(input.type, input.message)).not.toContain("@");
+  });
+});
+
+describe("error ingest flood control", () => {
+  let client: PGliteClient;
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T12:00:00.000Z"));
+    resetErrorIngestStateForTests();
+    client = await PGlite.create("memory://");
+    await createTables(client);
+    getDbMock.mockReturnValue(drizzle(client, { schema }));
+    recordChangeMock.mockReset();
+    notifyWithDeliveryMock.mockClear();
+    getUserSettingMock.mockReset();
+    getUserSettingMock.mockResolvedValue(null);
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    await client.close();
+  });
+
+  const db = () => drizzle(client, { schema }) as any;
+  const issues = () => db().select().from(schema.errorIssues);
+  const events = () => db().select().from(schema.errorEvents);
+
+  function exceptionProperties(overrides: Record<string, unknown> = {}) {
+    return {
+      exceptionType: "UnhandledRejection",
+      exceptionMessage: "Domain not allowed",
+      exceptionStack:
+        "Error: Domain not allowed\n    at https://cdn.vector.co/pixel.js:2:15234",
+      handled: false,
+      level: "error",
+      ...overrides,
+    };
+  }
+
+  it("counts, but never creates an issue for, third-party noise", async () => {
+    const result = await ingestAnalyticsExceptionEvents(SCOPE, [
+      { properties: exceptionProperties(), derived: derivedFor() },
+      {
+        properties: exceptionProperties({
+          exceptionType: "Error",
+          exceptionMessage: "Script error.",
+          exceptionStack: undefined,
+        }),
+        derived: derivedFor(),
+      },
+      {
+        properties: exceptionProperties({
+          exceptionType: "TypeError",
+          exceptionMessage:
+            "Failed to fetch dynamically imported module: https://a.test/assets/Panel-3f.js",
+          exceptionStack:
+            "TypeError: Failed to fetch dynamically imported module: https://a.test/assets/Panel-3f.js",
+        }),
+        derived: derivedFor(),
+      },
+    ]);
+
+    expect(result).toMatchObject({ ingested: 0, suppressed: 3, failed: 0 });
+    expect(await issues()).toHaveLength(0);
+    expect(getErrorIngestStats().suppressed).toEqual({
+      "third-party-origin": 1,
+      "opaque-script-error": 1,
+      "stale-chunk": 1,
+    });
+  });
+
+  it("never applies browser noise rules to a server event", async () => {
+    const result = await ingestAnalyticsExceptionEvents(SCOPE, [
+      {
+        properties: {
+          exceptionType: "TypeError",
+          exceptionMessage: "Failed to fetch",
+          handled: true,
+          level: "error",
+          runtime: "node",
+          source: "server",
+        },
+        derived: derivedFor({ url: null }),
+      },
+    ]);
+    expect(result.ingested).toBe(1);
+    expect(await issues()).toHaveLength(1);
+  });
+
+  it("ingests an access-control failure only when the sender marked it as a real failure", async () => {
+    const forbidden = (tags?: Record<string, string>) => ({
+      properties: {
+        exceptionType: "ForbiddenError",
+        exceptionMessage: "Automation grant was revoked",
+        exceptionTags: tags,
+        handled: true,
+        level: "error",
+        runtime: "node",
+        source: "server",
+      },
+      derived: derivedFor({ url: null }),
+    });
+
+    const unmarked = await ingestAnalyticsExceptionEvents(SCOPE, [forbidden()]);
+    expect(unmarked).toMatchObject({ ingested: 0, suppressed: 1 });
+    expect(getErrorIngestStats().suppressed).toEqual({ "access-control": 1 });
+
+    const marked = await ingestAnalyticsExceptionEvents(SCOPE, [
+      forbidden({ reportExpected: "true" }),
+    ]);
+    expect(marked).toMatchObject({ ingested: 1, suppressed: 0 });
+    expect(await issues()).toHaveLength(1);
+  });
+
+  it("ingests a stackless browser network failure whose sender named its origin", async () => {
+    const networkFailure = (tags?: Record<string, string>) => ({
+      properties: exceptionProperties({
+        exceptionType: "TypeError",
+        exceptionMessage: "Load failed",
+        exceptionStack: undefined,
+        exceptionTags: tags,
+      }),
+      derived: derivedFor(),
+    });
+
+    expect(
+      await ingestAnalyticsExceptionEvents(SCOPE, [networkFailure()]),
+    ).toMatchObject({ ingested: 0, suppressed: 1 });
+    expect(
+      await ingestAnalyticsExceptionEvents(SCOPE, [
+        networkFailure({ context: "agent-native-chat" }),
+      ]),
+    ).toMatchObject({ ingested: 1, suppressed: 0 });
+  });
+
+  it("drops the fuzz-harness label for CLI events", async () => {
+    const result = await ingestAnalyticsExceptionEvents(SCOPE, [
+      {
+        properties: {
+          exceptionType: "Error",
+          exceptionMessage: "fuzz-intercepted-process-exit",
+          runtime: "cli",
+          source: "cli",
+        },
+        derived: derivedFor({ url: null }),
+      },
+    ]);
+    expect(result).toMatchObject({ ingested: 0, suppressed: 1 });
+  });
+
+  it("always counts, but stores at most one sample a minute once an issue is hot", async () => {
+    const user = (n: number) =>
+      derivedFor({
+        userKey: "same-user",
+        anonymousId: "same-user",
+        sessionId: `s${n}`,
+      });
+    for (let i = 0; i < 20; i += 1) {
+      await ingestException(SCOPE, baseRaw(), user(i));
+    }
+    expect(await events()).toHaveLength(20);
+
+    // Past the free allowance: the first sample is stored, the flood is only counted.
+    for (let i = 20; i < 120; i += 1) {
+      await ingestException(SCOPE, baseRaw(), user(i));
+    }
+    let [issue] = await issues();
+    expect(issue.eventCount).toBe(120);
+    expect(await events()).toHaveLength(21);
+    expect(getErrorIngestStats().sampledOut).toBe(99);
+
+    vi.setSystemTime(new Date("2026-10-01T12:01:01.000Z"));
+    await ingestException(SCOPE, baseRaw(), user(121));
+    [issue] = await issues();
+    expect(issue.eventCount).toBe(121);
+    expect(await events()).toHaveLength(22);
+  });
+
+  it("still stores the first event from each new user so usersAffected keeps growing", async () => {
+    for (let i = 0; i < 25; i += 1) {
+      await ingestException(
+        SCOPE,
+        baseRaw(),
+        derivedFor({ userKey: "u-first", anonymousId: "u-first" }),
+      );
+    }
+    await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: "u-late", anonymousId: "u-late" }),
+    );
+    const [issue] = await issues();
+    expect(issue).toMatchObject({ eventCount: 26, usersAffected: 2 });
+  });
+
+  it("keeps the issue open and fresh while sampling", async () => {
+    for (let i = 0; i < 22; i += 1) {
+      await ingestException(SCOPE, baseRaw(), derivedFor({ userKey: "u" }));
+    }
+    await db().update(schema.errorIssues).set({ status: "resolved" });
+    recordChangeMock.mockClear();
+    const result = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: "u", timestamp: "2026-09-30T00:00:00.000Z" }),
+    );
+    const [issue] = await issues();
+    expect(result.stored).toBe(false);
+    expect(issue.status).toBe("unresolved");
+    expect(issue.eventCount).toBe(23);
+    // The reopen goes through the sampled path, which must still refresh the list.
+    expect(recordChangeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "error-issues",
+        type: "change",
+        key: issue.id,
+      }),
+    );
+
+    // A plain count bump on an open issue does not.
+    recordChangeMock.mockClear();
+    await ingestException(SCOPE, baseRaw(), derivedFor({ userKey: "u" }));
+    expect(recordChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("always stores the pipeline test event", async () => {
+    for (let i = 0; i < 30; i += 1) {
+      await captureTestError({ userEmail: SCOPE.ownerEmail, orgId: null });
+    }
+    const result = await captureTestError({
+      userEmail: SCOPE.ownerEmail,
+      orgId: null,
+    });
+    expect(result.eventId).toEqual(expect.stringMatching(/^errev_/));
+    expect(await events()).toHaveLength(31);
+  });
+
+  it("surfaces dropped ingests with a distinguishable error-level log and a counter", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    getDbMock.mockImplementation(() => {
+      throw new Error("password authentication failed for user 'neondb_owner'");
+    });
+
+    const result = await ingestAnalyticsExceptionEvents(SCOPE, [
+      {
+        properties: exceptionProperties({
+          exceptionStack: "Error: x\n    at f (https://a.test/a.js:1:1)",
+        }),
+        derived: derivedFor(),
+      },
+      {
+        properties: exceptionProperties({
+          exceptionMessage: "another",
+          exceptionStack: "Error: x\n    at f (https://a.test/a.js:1:1)",
+        }),
+        derived: derivedFor(),
+      },
+    ]);
+
+    expect(result).toMatchObject({ ingested: 0, failed: 2 });
+    expect(getErrorIngestStats().failed).toBe(2);
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(String(errorLog.mock.calls[0][0])).toContain(
+      "[error-capture] INGEST_DROPPED",
+    );
+
+    // The log is throttled so an outage does not turn into a log flood.
+    recordErrorIngestFailure(5, new Error("still down"));
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(getErrorIngestStats().failed).toBe(7);
+    vi.setSystemTime(new Date("2026-10-01T12:01:00.000Z"));
+    recordErrorIngestFailure(1, new Error("still down"));
+    expect(errorLog).toHaveBeenCalledTimes(2);
+    expect(String(errorLog.mock.calls[1][0])).toContain('"dropped":7');
   });
 });

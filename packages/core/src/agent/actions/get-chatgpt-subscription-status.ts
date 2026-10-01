@@ -5,7 +5,7 @@ import { getChatGPTSubscriptionStatus } from "../../server/chatgpt-subscription-
 
 export default defineAction({
   description:
-    "Return the current user's experimental ChatGPT subscription connection status.",
+    "Return the current user's ChatGPT subscription support, selected registration, and saved account registrations.",
   schema: z.object({}),
   http: { method: "GET" },
   run: async (_args, ctx) => {

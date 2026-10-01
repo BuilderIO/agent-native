@@ -41,6 +41,11 @@ vi.mock("../server/lib/error-capture.js", () => ({
 }));
 
 const getDashboard = vi.fn(async () => null);
+const listSessionRecordingsPage = vi.fn(async () => ({
+  recordings: [] as { id: string }[],
+  total: 0,
+  appCounts: [] as { app: string; count: number }[],
+}));
 
 vi.mock("../server/lib/analytics-alerts", () => ({
   listAnalyticsAlertRules: vi.fn(async () => []),
@@ -58,7 +63,10 @@ vi.mock("../server/lib/first-party-analytics.js", () => ({
 vi.mock("../server/lib/session-replay.js", () => ({
   getSessionReplaySummary: vi.fn(async () => null),
   listSessionRecordings: vi.fn(async () => []),
-  replayRangeToIso: vi.fn(() => null),
+  listSessionRecordingsPage,
+  replayRangeToIso: vi.fn((range: string) =>
+    range === "all" ? null : "2026-09-01T00:00:00.000Z",
+  ),
 }));
 
 const { default: viewScreenAction } = await import("./view-screen");
@@ -257,5 +265,198 @@ describe("view-screen monitoring status-pages branch", () => {
     const out = await runScreen();
     expect(listStatusPages).not.toHaveBeenCalled();
     expect(out.page).toBe("monitoring");
+  });
+});
+
+describe("view-screen Sessions context", () => {
+  beforeEach(() => {
+    userEmail = "user@example.test";
+    selectedObjectState.current = null;
+    listSessionRecordingsPage.mockReset();
+    listSessionRecordingsPage.mockResolvedValue({
+      recordings: Array.from({ length: 25 }, (_, index) => ({
+        id: `recording-${index}`,
+      })),
+      total: 137,
+      appCounts: [],
+    });
+  });
+
+  it("uses default filters and labels the bounded first-page excerpt without a Lab marker", async () => {
+    setScreen(
+      { view: "sessions" },
+      { pathname: "/sessions", searchParams: {} },
+    );
+
+    const out = await runScreen();
+
+    expect(out.sessionReplayPage).toMatchObject({
+      page: 1,
+      pageSize: 100,
+      offset: 0,
+      total: 137,
+      returnedCount: 25,
+      excerptLimit: 25,
+      truncated: true,
+      filters: { range: "30d", hideEmpty: true, sort: "newest", offset: 0 },
+      fullPageAction: {
+        name: "list-session-recordings",
+        args: { paginated: true, hideEmpty: true, offset: 0, limit: 100 },
+      },
+    });
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      { userEmail: "user@example.test", orgId: "org-1" },
+      expect.objectContaining({
+        from: "2026-09-01T00:00:00.000Z",
+        hideEmpty: true,
+        sort: "newest",
+        offset: 0,
+        limit: 25,
+      }),
+    );
+  });
+
+  it("keeps the UI page offset, filters, and full-page retrieval scope", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: {
+          range: "custom",
+          from: "2026-09-01T00:00:00.000Z",
+          to: "2026-09-04T23:59:59.999Z",
+          app: "clips",
+          visitorType: "work",
+          emailDomain: "example.test",
+          hasNetworkErrors: "true",
+          sort: "errors",
+          page: "2",
+          minDurationMs: "300000",
+        },
+      },
+    );
+
+    const out = await runScreen();
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        from: "2026-09-01T00:00:00.000Z",
+        to: "2026-09-04T23:59:59.999Z",
+        app: "clips",
+        visitorType: "work",
+        emailDomain: "example.test",
+        hasNetworkErrors: true,
+        minDurationMs: 300000,
+        hideEmpty: true,
+        sort: "errors",
+        offset: 100,
+        limit: 25,
+      }),
+    );
+    expect(out.sessionReplayPage).toMatchObject({
+      page: 2,
+      pageSize: 100,
+      offset: 100,
+      total: 137,
+      returnedCount: 25,
+      truncated: true,
+      filters: { range: "custom", app: "clips", sort: "errors" },
+      fullPageAction: {
+        args: { paginated: true, offset: 100, limit: 100 },
+      },
+    });
+  });
+
+  it("uses date-only custom bounds for the same interval as the Sessions UI", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: {
+          range: "custom",
+          fromDate: "2026-09-23",
+          toDate: "2026-09-25",
+        },
+      },
+    );
+
+    const out = await runScreen();
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        from: "2026-09-23T00:00:00.000Z",
+        to: "2026-09-25T23:59:59.999Z",
+      }),
+    );
+    expect(out.sessionReplayPage.fullPageAction.args).toMatchObject({
+      from: "2026-09-23T00:00:00.000Z",
+      to: "2026-09-25T23:59:59.999Z",
+    });
+  });
+
+  it("preserves legacy includeZero and lets explicit hideEmpty win", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: { triage: "1", includeZeroMinuteSessions: "true" },
+      },
+    );
+    const legacy = await runScreen();
+    expect(legacy.sessionReplayPage.filters.hideEmpty).toBe(false);
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ hideEmpty: false }),
+    );
+
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: {
+          includeZeroMinuteSessions: "true",
+          hideEmpty: "true",
+        },
+      },
+    );
+    const explicit = await runScreen();
+    expect(explicit.sessionReplayPage.filters.hideEmpty).toBe(true);
+  });
+
+  it("reports a complete excerpt when fewer than 25 rows remain", async () => {
+    listSessionRecordingsPage.mockResolvedValueOnce({
+      recordings: [{ id: "recording-1" }],
+      total: 101,
+      appCounts: [],
+    });
+    setScreen(
+      { view: "sessions" },
+      { pathname: "/sessions", searchParams: { page: "2" } },
+    );
+
+    const out = await runScreen();
+    expect(out.sessionReplayPage).toMatchObject({
+      offset: 100,
+      total: 101,
+      returnedCount: 1,
+      truncated: false,
+    });
+  });
+
+  it("keeps an unsafe page out of the backend offset and context", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: { page: "9007199254740993" },
+      },
+    );
+
+    const out = await runScreen();
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ offset: 0, limit: 25 }),
+    );
+    expect(out.sessionReplayPage).toMatchObject({ page: 1, offset: 0 });
   });
 });

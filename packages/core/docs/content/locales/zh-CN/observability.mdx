@@ -94,7 +94,7 @@ description: "代理跟踪、评估、反馈、A/B 实验和内置仪表板 - �
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -121,7 +121,7 @@ export default function ObservabilityPage() {
 
 “对话”选项卡显示已记录的运行。选择一个运行可查看其跨度，展开任意跨度即可查看已捕获的工具输入、输出、错误和元数据。选择**打开完整对话**可跳转到关联的聊天线程。
 
-默认不捕获工具参数和结果。若要存储这些内容，请在 `observability` 配置中启用 `captureToolArgs` 和 `captureToolResults`。敏感字段和工具错误消息会在存储前脱敏。
+默认不捕获工具参数、结果和完整的错误正文。若要存储这些内容，请在 `observability` 配置中启用 `captureToolArgs`（存储参数）和 `captureToolResults`（存储结果和完整错误正文）。敏感字段会在存储前脱敏。失败的工具始终会保留其错误的首行（长度有限），其中的凭据、电子邮件地址和较长的不透明 ID 会被脱敏，因此即使关闭 `captureToolResults`，失败仍可诊断。
 
 ### 人工审核 {#review}
 
@@ -288,7 +288,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+内容**默认会脱敏**：存储的是 token 数量、成本和耗时，对于失败的工具，还会存储其错误的首行（长度有限），其中的凭据、电子邮件地址和较长的不透明 ID 会被脱敏。除非启用 `capturePrompts`、`captureToolArgs` 和 `captureToolResults`，否则提示词、工具输入、工具结果和完整错误正文都不会被存储。仅在调试需要提示词或参数内容时才启用它们。
 
 </Callout>
 

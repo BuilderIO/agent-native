@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integrationen" } },
   creativeContext: {
     title: "Bibliothek",
     description:
@@ -168,6 +169,12 @@ export default {
     openAgentSettings: "Agent verwalten",
     labTweaks: "Design-Anpassungen",
     labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
+    labFullAppBuilding: "Vollständige Apps erstellen",
+    labFullAppBuildingDescription:
+      "Probiere aus, mit Builder aus deinen Designs funktionsfähige Apps zu erstellen.",
+    labDesignReviewTools: "Tools zur Designprüfung",
+    labDesignReviewToolsDescription:
+      "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -186,8 +193,8 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "KI-Verbindung wird geprüft…",
-      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
     common: { retry: "Erneut versuchen" },
   },
@@ -1272,6 +1279,7 @@ export default {
       verifying: "Quelle und Laufzeit werden überprüft…",
       retryWithAgent: "Quellprüfung wiederholen",
       copyPrompt: "Prompt an deinen Agent kopieren",
+      copyAgentPrompt: "Agentenprompt kopieren",
       copyFullPrompt: "Vollständigen Prompt kopieren",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:
@@ -1442,6 +1450,8 @@ export default {
         "Diese Ebene lässt sich im Quellcode nicht finden. Versuche es erneut, sobald die App vollständig geladen ist, oder lass die Änderung vom Agenten vornehmen.",
       reactSourceAnchorsUnavailable:
         "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
+      sourceLocationSnapshotFailed:
+        "Quellcode-Positionen für diese Vorschau konnten nicht geprüft werden.",
       screenSourceUpdated: "Screen-Quelle aktualisiert",
       screenSourceUpdateFailed:
         "Screen-Quelle konnte nicht aktualisiert werden",
@@ -1505,7 +1515,7 @@ export default {
         "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
       permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
       permissionPromptSettingsInstructions:
-        "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und erlaube den Zugriff auf Apps auf deinem Gerät.",
+        "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und setze Lokales Netzwerk auf Zulassen.",
       permissionPromptRetry: "Verbindung wiederholen",
     },
   },
@@ -1701,7 +1711,7 @@ export default {
       "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
   },
   homeContext: {
-    websiteReference: "Website anhängen",
+    websiteReference: "Website hinzufügen",
     websiteUrlLabel: "Website-URL",
     websiteUrl: "Website-URL einfügen",
     figmaUrlLabel: "Figma-Link",
@@ -1730,7 +1740,7 @@ export default {
     design: "Design",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
-    figmaReference: "Figma anhängen",
+    figmaReference: "Figma hinzufügen",
     referenceDeck: "Eine Präsentation als Referenz verwenden",
     quickSaas: "SaaS-Landingpage erstellen",
     quickDashboard: "Dashboard erstellen",

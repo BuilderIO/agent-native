@@ -94,7 +94,7 @@ description: "एजेंट ट्रेस, मूल्यांकन, फ�
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -121,7 +121,7 @@ export default function ObservabilityPage() {
 
 बातचीत टैब रिकॉर्ड किए गए रन दिखाता है। किसी रन को चुनकर उसके स्पैन देखें और किसी भी स्पैन को खोलकर कैप्चर किए गए टूल इनपुट, आउटपुट, त्रुटियाँ और मेटाडेटा देखें। **पूरी बातचीत खोलें** से संबंधित चैट थ्रेड खुलता है।
 
-टूल आर्ग्युमेंट और परिणाम डिफ़ॉल्ट रूप से कैप्चर नहीं होते। इन्हें स्टोर करने के लिए `observability` कॉन्फ़िगरेशन में `captureToolArgs` और `captureToolResults` सक्षम करें। संवेदनशील फ़ील्ड और टूल त्रुटि संदेश स्टोर करने से पहले छिपाए जाते हैं।
+टूल आर्ग्युमेंट, परिणाम और पूरे त्रुटि बॉडी डिफ़ॉल्ट रूप से कैप्चर नहीं होते। `observability` कॉन्फ़िगरेशन में आर्ग्युमेंट स्टोर करने के लिए `captureToolArgs` और परिणाम तथा पूरे त्रुटि बॉडी स्टोर करने के लिए `captureToolResults` सक्षम करें। संवेदनशील फ़ील्ड स्टोर करने से पहले छिपाए जाते हैं। विफल हुआ टूल अपनी त्रुटि की सीमित लंबाई वाली पहली पंक्ति हमेशा रखता है, जिसमें क्रेडेंशियल, ईमेल पते और लंबे अपारदर्शी आईडी छिपाए जाते हैं, ताकि `captureToolResults` बंद होने पर भी विफलताओं का निदान किया जा सके।
 
 ### मानव समीक्षा {#review}
 
@@ -288,7 +288,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+कंटेंट **डिफ़ॉल्ट रूप से छिपाया जाता है**: टोकन की गिनती, लागत और टाइमिंग स्टोर होती है, और विफल टूल के लिए उसकी त्रुटि की सीमित लंबाई वाली पहली पंक्ति भी, जिसमें क्रेडेंशियल, ईमेल पते और लंबे अपारदर्शी आईडी छिपाए जाते हैं। प्रॉम्प्ट, टूल इनपुट, टूल परिणाम और पूरे त्रुटि बॉडी तब तक बंद रहते हैं जब तक `capturePrompts`, `captureToolArgs` और `captureToolResults` चालू न हों। इन्हें केवल तभी चालू करें जब डीबगिंग के लिए प्रॉम्प्ट या आर्ग्युमेंट की सामग्री चाहिए।
 
 </Callout>
 

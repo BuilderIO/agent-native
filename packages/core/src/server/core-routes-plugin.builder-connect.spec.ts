@@ -22,6 +22,12 @@ import {
   resolveBuilderConnectCallbackState,
 } from "./builder-browser.js";
 import {
+  BUILDER_CONNECT_NEEDS_ORGANIZATION,
+  BUILDER_CONNECT_SESSION_NOT_SHARED,
+  BUILDER_ORG_ALREADY_CONNECTED,
+  BUILDER_ORG_MEMBERSHIP_UNREADABLE,
+  BUILDER_ORG_RECONNECT_BY_LOGIN,
+  decideBuilderActivation,
   disconnectBuilderConnectionAtScope,
   parseBuilderConnectionScope,
   resolveBuilderActivationWrite,
@@ -78,6 +84,60 @@ describe("resolveBuilderOrgMutation", () => {
       role: "member",
       deny: null,
     });
+  });
+
+  it("refuses a signed-in non-member with a next step, not a dead end", async () => {
+    getOrgContextMock.mockResolvedValue({
+      email: "solo@example.com",
+      orgId: null,
+      role: null,
+    });
+
+    await expect(
+      resolveBuilderOrgMutation(createMockEvent(), {
+        allowMemberInitiation: true,
+      }),
+    ).resolves.toEqual({
+      orgId: null,
+      role: null,
+      deny: BUILDER_CONNECT_NEEDS_ORGANIZATION,
+      whoCanFix: "self",
+    });
+  });
+
+  it("tells a window without the app's sign-in (preview, embed) to open the app in its own tab", async () => {
+    // The connect popup proved its owner with a signed token, but this window
+    // has no first-party session, so membership cannot be read here.
+    getOrgContextMock.mockResolvedValue({
+      email: "",
+      orgId: null,
+      role: null,
+    });
+
+    await expect(
+      resolveBuilderOrgMutation(createMockEvent(), {
+        allowMemberInitiation: true,
+      }),
+    ).resolves.toMatchObject({
+      orgId: null,
+      deny: BUILDER_CONNECT_SESSION_NOT_SHARED,
+      whoCanFix: "self",
+    });
+  });
+
+  it("does not call an unreadable membership a non-member", async () => {
+    getOrgContextMock.mockRejectedValue(
+      Object.assign(new Error("Connection terminated"), { code: "08006" }),
+    );
+
+    for (const options of [{ allowMemberInitiation: true }, {}]) {
+      await expect(
+        resolveBuilderOrgMutation(createMockEvent(), options),
+      ).resolves.toMatchObject({
+        orgId: null,
+        deny: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
+      });
+    }
   });
 
   it("keeps shared Builder revocation owner/admin protected", async () => {
@@ -209,7 +269,11 @@ describe("Builder connection scope", () => {
   });
 
   it("still requires organization membership for a named connection", async () => {
-    getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
+    getOrgContextMock.mockResolvedValue({
+      email: "member@example.com",
+      orgId: null,
+      role: null,
+    });
     await expect(
       resolveBuilderConnectAuthorization(
         createMockEvent(),
@@ -217,7 +281,7 @@ describe("Builder connection scope", () => {
         "personal",
       ),
     ).resolves.toMatchObject({
-      deny: "Only signed-in organization members can connect Builder.",
+      deny: BUILDER_CONNECT_NEEDS_ORGANIZATION,
     });
   });
 });
@@ -565,25 +629,152 @@ describe("resolveBuilderActivationWrite", () => {
     requestedScope: "org" | "personal" | null,
     role: string | null,
     orgId: string | null = "org-123",
-  ) => resolveBuilderActivationWrite({ requestedScope, orgId, role });
-
-  it("stores an owner or admin's new account as the organization's connection", () => {
-    expect(activate(null, "owner")).toEqual({
-      orgId: "org-123",
-      role: "owner",
+    orgConnected = false,
+  ) =>
+    resolveBuilderActivationWrite({
+      requestedScope,
+      orgId,
+      role,
+      orgConnected,
     });
-    expect(activate("org", "admin")).toEqual({
-      orgId: "org-123",
-      role: "admin",
+
+  it("stores an owner or admin's new account for the organization", () => {
+    for (const requestedScope of ["org", null] as const) {
+      expect(activate(requestedScope, "admin")).toEqual({
+        orgId: "org-123",
+        role: "admin",
+      });
+      expect(activate(requestedScope, "owner")).toEqual({
+        orgId: "org-123",
+        role: "owner",
+      });
+    }
+  });
+
+  it("never replaces or shadows the organization's existing connection", () => {
+    // Tim 9/29: an activation swapped the org's Builder account for a new
+    // free one, and the sidebar then said the org's credits were used up.
+    // Owners and admins are sent to log in to the org's account instead (the
+    // reconnect for an expired grant); members are told who can fix it.
+    for (const role of ["owner", "admin"]) {
+      for (const requestedScope of [null, "org"] as const) {
+        expect(activate(requestedScope, role, "org-123", true)).toEqual({
+          deny: BUILDER_ORG_RECONNECT_BY_LOGIN,
+          code: "account_exists",
+        });
+      }
+    }
+    expect(activate(null, "member", "org-123", true)).toEqual({
+      deny: BUILDER_ORG_ALREADY_CONNECTED,
+      code: "not_permitted",
     });
   });
 
   it("stores a member's new account personally", () => {
     expect(activate(null, "member")).toBeNull();
     expect(activate("personal", "member")).toBeNull();
+    // Naming a personal account is deliberate, so it may sit beside the org's.
+    expect(activate("personal", "member", "org-123", true)).toBeNull();
   });
 
   it("stores the account personally without an organization", () => {
     expect(activate(null, "owner", null)).toBeNull();
+  });
+});
+
+describe("decideBuilderActivation", () => {
+  // A stored org grant counts whether it still works or has expired: either
+  // way a new account would replace or shadow it.
+  const orgGrants = {
+    valid: true,
+    expired: true,
+    none: false,
+  } as const;
+
+  for (const role of ["owner", "admin", "member"] as const) {
+    for (const [grant, connected] of Object.entries(orgGrants)) {
+      it(`${role}, org grant ${grant}`, async () => {
+        getOrgContextMock.mockResolvedValue({
+          email: "user@example.com",
+          orgId: "org-123",
+          role,
+        });
+        const hasOrgConnection = vi.fn(async () => connected);
+
+        const decision = await decideBuilderActivation(
+          createMockEvent(),
+          { ownerEmail: "user@example.com", requestedScope: null },
+          hasOrgConnection,
+        );
+
+        if (!connected) {
+          expect(decision).toEqual({
+            write: role === "member" ? null : { orgId: "org-123", role: role },
+          });
+        } else if (role === "member") {
+          expect(decision).toEqual({
+            refuse: {
+              status: 409,
+              message: BUILDER_ORG_ALREADY_CONNECTED,
+              reason: "activation_refused",
+              code: "not_permitted",
+            },
+          });
+        } else {
+          // The popup's "Log in" path is the owner's reconnect, not a
+          // dead end telling them to ask an owner.
+          expect(decision).toEqual({
+            refuse: {
+              status: 409,
+              message: BUILDER_ORG_RECONNECT_BY_LOGIN,
+              reason: "activation_refused",
+              code: "account_exists",
+            },
+          });
+        }
+        expect(hasOrgConnection).toHaveBeenCalledWith(
+          "user@example.com",
+          "org-123",
+        );
+      });
+    }
+  }
+
+  it("refuses before provisioning when the membership cannot be read", async () => {
+    getOrgContextMock.mockRejectedValue(
+      Object.assign(new Error("Connection terminated"), { code: "08006" }),
+    );
+    const hasOrgConnection = vi.fn(async () => false);
+
+    const decision = await decideBuilderActivation(
+      createMockEvent(),
+      { ownerEmail: "user@example.com", requestedScope: null },
+      hasOrgConnection,
+    );
+
+    expect(decision).toEqual({
+      refuse: {
+        status: 503,
+        message: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
+        reason: "membership_unreadable",
+        code: "membership_unreadable",
+      },
+    });
+    expect(hasOrgConnection).not.toHaveBeenCalled();
+  });
+
+  it("still lets someone without an organization activate personally", async () => {
+    getOrgContextMock.mockResolvedValue({
+      email: "solo@example.com",
+      orgId: null,
+      role: null,
+    });
+
+    await expect(
+      decideBuilderActivation(createMockEvent(), {
+        ownerEmail: "solo@example.com",
+        requestedScope: null,
+      }),
+    ).resolves.toEqual({ write: null });
   });
 });

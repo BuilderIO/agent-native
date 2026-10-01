@@ -22,7 +22,7 @@ const state = vi.hoisted(() => ({
   providerEnabled: [] as boolean[],
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   BuilderSetupCard: () => null,
   chatModelSelectionStorageKey: (namespace?: string | null) =>
     namespace
@@ -38,7 +38,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     return { selectedEngine: state.selectedEngine };
   },
 }));
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: () => null,
+}));
+vi.mock("@agent-native/toolkit/app/chat/composer", () => ({
   isLocalRuntimeEngine: (engine: string) => engine === "ollama",
 }));
 
@@ -68,7 +71,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
   };
 });
 
-vi.mock("@agent-native/core/client/navigation", () => ({
+vi.mock("@agent-native/toolkit/app/shared", () => ({
   submitToAgent: vi.fn(),
 }));
 
@@ -80,7 +83,7 @@ vi.mock("./docs-content", () => ({
   buildSearchIndexAsync: vi.fn(),
 }));
 
-import { submitToAgent } from "@agent-native/core/client/navigation";
+import { submitToAgent } from "@agent-native/toolkit/app/shared";
 
 import { buildSearchIndexAsync } from "./docs-content";
 import { SearchModal } from "./SearchModal";

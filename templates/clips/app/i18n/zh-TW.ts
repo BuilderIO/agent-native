@@ -2,8 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
   agentChat: {
     setup: {
-      checkingProvider: "正在檢查 AI 連線…",
-      providerStatusUnavailable: "無法檢查 AI 連線。",
+      providerStatusUnavailable: "無法確認 AI 是否已就緒。",
     },
     common: { retry: "重試" },
   },
@@ -763,6 +762,11 @@ const messages = {
     agentTitle: "管理代理",
     pageTitle: "設定 · Clips",
     labs: "Labs",
+    labResilientRecording: "彈性錄製",
+    labResilientRecordingDescription:
+      "試用更快的錄製上傳速度，以及中斷後更完善的復原功能。",
+    labResilientRecordingMixedDescription:
+      "先前的錄製設定仍然有效。請選擇開啟或關閉，以使用單一設定。",
     labsIntro: "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
     labVideoEditing: "影片編輯",
     labVideoEditingDescription: "試用新的影片編輯器。",
@@ -1851,6 +1855,7 @@ const messages = {
     retry: "重試",
     retrying: "正在重試…",
     retryFailed: "無法重試此上傳。",
+    retryCheckFailed: "無法檢查是否能重試此上傳。請重新整理頁面後再試。",
     retryUnavailableHere: "重試僅在錄製此內容的裝置或瀏覽器上可用。",
     viewsCount: "{{count}} 次觀看",
     recordingMenu: "錄製選單",

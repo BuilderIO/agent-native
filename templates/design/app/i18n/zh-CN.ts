@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "集成" } },
   creativeContext: {
     title: "资料库",
     description: "可复用的创意上下文，帮助智能体在不同工作中保持一致。",
@@ -159,6 +160,11 @@ export default {
     openAgentSettings: "管理代理",
     labTweaks: "设计微调",
     labTweaksDescription: "试用 AI 设计微调功能。",
+    labFullAppBuilding: "构建完整应用",
+    labFullAppBuildingDescription:
+      "试用 Builder，根据你的设计构建可运行的应用。",
+    labDesignReviewTools: "设计审查工具",
+    labDesignReviewToolsDescription: "检查设计中的无障碍问题并比较视觉变化。",
     mcpAbout:
       "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
@@ -177,8 +183,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "正在检查 AI 连接…",
-      providerStatusUnavailable: "无法检查 AI 连接。",
+      providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
     common: { retry: "重试" },
   },
@@ -1224,6 +1229,7 @@ export default {
       verifying: "正在验证源文件和运行时…",
       retryWithAgent: "重试源文件验证",
       copyPrompt: "将提示复制给你的代理",
+      copyAgentPrompt: "复制代理提示",
       copyFullPrompt: "复制完整提示",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",
@@ -1368,6 +1374,7 @@ export default {
         "无法在源码中定位该图层。请等应用加载完成后重试，或请代理帮你完成此更改。",
       reactSourceAnchorsUnavailable:
         "该应用未向编辑器提供源码位置，因此无法把该图层追溯到具体代码行。请让代理完成此更改。",
+      sourceLocationSnapshotFailed: "无法检查此预览的源代码位置。",
       screenSourceUpdated: "屏幕来源已更新",
       screenSourceUpdateFailed: "无法更新屏幕来源",
       vectorEditUnsupported: "此形状或变换目前无法进行向量编辑。",
@@ -1427,7 +1434,7 @@ export default {
         "在 Chrome 的提示中选择“允许”，以启用实时编辑。",
       permissionPromptNoPrompt: "没有看到 Chrome 提示？",
       permissionPromptSettingsInstructions:
-        "点击地址栏左侧的站点控制图标，打开网站设置，然后允许访问设备上的应用。",
+        "点击地址栏左侧的站点控制图标，打开网站设置，然后将本地网络设为“允许”。",
       permissionPromptRetry: "重试连接",
     },
   },
@@ -1609,7 +1616,7 @@ export default {
     staleAnchorDetail: "在画布上已找不到原始元素。",
   },
   homeContext: {
-    websiteReference: "附加网站",
+    websiteReference: "添加网站",
     websiteUrlLabel: "网站 URL",
     websiteUrl: "粘贴网站 URL",
     figmaUrlLabel: "Figma 链接",
@@ -1635,7 +1642,7 @@ export default {
     design: "设计",
     slides: "幻灯片",
     referenceDesign: "参考设计",
-    figmaReference: "附加 Figma",
+    figmaReference: "添加 Figma",
     referenceDeck: "参考演示文稿",
     quickSaas: "创建 SaaS 落地页",
     quickDashboard: "创建仪表盘",

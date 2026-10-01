@@ -190,7 +190,9 @@ const history = {
 
 const overrides = {
   close: "關閉",
-  setup: { checkingProvider: "正在檢查 AI 連線…" },
+  setup: {
+    providerStatusUnavailable: "無法確認 AI 是否已就緒。",
+  },
   onboarding: {
     fileStorage: {
       title: "連接儲存空間以上傳檔案",
@@ -200,6 +202,7 @@ const overrides = {
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandContent: "內容",
+    loadingContent: "正在載入內容",
     commandSearchDocuments: "搜尋檔案",
     searchSince: "自 {{date}} 起",
     searchModifiedSince: "修改時間自 {{date}} 起",

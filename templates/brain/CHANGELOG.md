@@ -3,6 +3,28 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Improved
+
+- Brain answers from synced Slack and Zoom messages with their channel and date, including questions asked from Dispatch, Slack, or MCP.
+
+## 2026-09-30
+
+### Added
+
+- Brain syncs Zoom cloud-recording transcripts hourly alongside Slack.
+
+### Improved
+
+- Brain chat semantic-searches synced Slack and Zoom content and sees each item's source and date.
+- Knowledge writes publish directly with no manual approval step.
+- Slack messages and meeting transcripts are stored in full unless Jev flags them as sensitive.
+
+### Fixed
+
+- Slack, Granola, GitHub, and Zoom sources sync hourly again instead of silently stalling when a workspace has many sources that do not auto-sync.
+
 ## 2026-09-25
 
 ### Improved

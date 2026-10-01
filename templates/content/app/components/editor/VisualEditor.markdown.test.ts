@@ -2945,6 +2945,11 @@ describe("live suggestion presentation", () => {
   it.each([
     {
       name: "replacement inside bold text",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["B", "uil"],
+        canonical: ["B", "ol"],
+      },
       canonical: "**Bold** sample.",
       draft: "**Build** sample.",
       beforeText: "ol",
@@ -2955,6 +2960,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "deletion inside bold text",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["B", ""],
+        canonical: ["B", "ol"],
+      },
       canonical: "**Bold** sample.",
       draft: "**Bd** sample.",
       beforeText: "ol",
@@ -2965,6 +2975,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "insertion inside bold text",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["Bo", "!"],
+        canonical: ["Bo", ""],
+      },
       canonical: "**Bold** sample.",
       draft: "**Bo!ld** sample.",
       beforeText: "",
@@ -2975,6 +2990,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "replacement in the second repeated marked word",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["Echo and E", "OH"],
+        canonical: ["Echo and E", "ch"],
+      },
       canonical: "**Echo** and **Echo**",
       draft: "**Echo** and **EOHo**",
       beforeText: "ch",
@@ -2985,6 +3005,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "replacement of escaped marked text",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["A", "x"],
+        canonical: ["A", "*"],
+      },
       canonical: "**A\\*B**",
       draft: "**AxB**",
       beforeText: "\\*",
@@ -2995,6 +3020,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "replacement of inline-code punctuation",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["a", "x"],
+        canonical: ["a", "`"],
+      },
       canonical: "``a`b``",
       draft: "`axb`",
       beforeText: "`",
@@ -3005,6 +3035,11 @@ describe("live suggestion presentation", () => {
     },
     {
       name: "replacement in link text that also occurs in its href",
+      // Rendered text before the anchor and the text it covers, per side.
+      expected: {
+        draft: ["s", "OM"],
+        canonical: ["s", "am"],
+      },
       canonical: "[same](https://same.test) sample.",
       draft: "[sOMe](https://same.test) sample.",
       beforeText: "am",
@@ -3023,6 +3058,7 @@ describe("live suggestion presentation", () => {
       canonicalFrom,
       draftFrom,
       kind,
+      expected,
     }) => {
       for (const presentation of ["draft", "canonical"] as const) {
         const source = presentation === "draft" ? draft : canonical;
@@ -3030,23 +3066,29 @@ describe("live suggestion presentation", () => {
         const quote = presentation === "draft" ? afterText : beforeText;
         const editor = createSuggestionEditor(source);
         try {
-          expect(
-            suggestionHighlightSpec(editor.state.doc, {
-              id: `inside-mark-${presentation}`,
-              kind: kind as VisualEditorSuggestion["kind"],
-              beforeText,
-              afterText,
-              anchor: {
-                from,
-                prefix: source.slice(Math.max(0, from - 32), from),
-                suffix: source.slice(
-                  from + quote.length,
-                  from + quote.length + 32,
-                ),
-              },
-              presentation,
-            }),
-          ).not.toBeNull();
+          const spec = suggestionHighlightSpec(editor.state.doc, {
+            id: `inside-mark-${presentation}`,
+            kind: kind as VisualEditorSuggestion["kind"],
+            beforeText,
+            afterText,
+            anchor: {
+              from,
+              prefix: source.slice(Math.max(0, from - 32), from),
+              suffix: source.slice(
+                from + quote.length,
+                from + quote.length + 32,
+              ),
+            },
+            presentation,
+          });
+          // Resolving to some range is not enough: it has to be the intended
+          // occurrence, not an earlier or look-alike one.
+          expect(spec).not.toBeNull();
+          const doc = editor.state.doc;
+          expect([
+            doc.textBetween(0, spec!.from, "\n"),
+            doc.textBetween(spec!.from, spec!.to, "\n"),
+          ]).toEqual(expected[presentation]);
         } finally {
           editor.destroy();
         }

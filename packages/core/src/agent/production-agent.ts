@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
+import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
 import {
   defineEventHandler,
   getHeader,
@@ -13,7 +15,10 @@ import type { EventHandler as H3EventHandler } from "h3";
 import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
-import { actionCallIsReadOnly } from "../action-call-classification.js";
+import {
+  actionCallEmitsChange,
+  actionCallIsReadOnly,
+} from "../action-call-classification.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -199,6 +204,16 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
+  FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
+  FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+  followUpSuggestionsTool,
+  identifyFollowUpSuggestions,
+  parseFollowUpSuggestions,
+  type FollowUpSuggestionsFailure,
+} from "./follow-up-suggestions.js";
+import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
 } from "./harness/hosted.js";
@@ -245,6 +260,7 @@ import {
   abortRunDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
+  getSlotHoldingRunId,
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
@@ -895,6 +911,54 @@ export async function resolveOwnerEngineApiKey(input: {
 }
 
 /**
+ * The engine a chat request runs on. Anything that tells the user what their
+ * chat will run on (the sidebar credit notice) asks this too, so it cannot
+ * disagree with the chat.
+ */
+export async function resolveChatEngine(input: {
+  engineOption?: ResolveEngineConfig["engineOption"];
+  ownerKey: ResolvedOwnerApiKey;
+  model?: string;
+  appId?: string;
+  credentialIdentity: ResolveEngineConfig["credentialIdentity"];
+}): Promise<AgentEngine> {
+  const key = {
+    apiKey: input.ownerKey.apiKey,
+    apiKeyEnvVar: input.ownerKey.apiKeyEnvVar,
+    apiKeyProvenance: input.ownerKey.credentialProvenance,
+    appId: input.appId,
+    credentialIdentity: input.credentialIdentity,
+  };
+  try {
+    return await resolveEngine({
+      ...key,
+      engineOption: input.engineOption,
+      model: input.model,
+    });
+  } catch (error) {
+    if (error instanceof CredentialEndpointMismatchError) throw error;
+    return resolveEngine(key);
+  }
+}
+
+/**
+ * A message sent while another run holds the thread. It is not saved yet; the
+ * client delivers it once that run ends instead of showing the user an error.
+ */
+function runSlotBusy(
+  event: Parameters<typeof setResponseStatus>[0],
+  activeRunId: string | null,
+) {
+  setResponseStatus(event, 409);
+  return {
+    error: "Run already in progress for this thread",
+    code: "run_slot_busy",
+    retryable: true,
+    activeRunId,
+  };
+}
+
+/**
  * The error a chat turn answers with when no model credential is usable. A
  * member whose org restricts personal API keys can't fix that by adding a key,
  * so they get the restriction instead of the connect-a-provider prompt.
@@ -953,12 +1017,23 @@ export interface ActionEntry {
   uiOnly?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
+  /** True when this entry's raw tool schema was authored by an external MCP
+   *  server (imported via the MCP client), not a local action. Distinct
+   *  from `mcpTool`, which controls whether a *local* action is exposed to
+   *  external agents — reusing that flag here would both misclassify local
+   *  actions that opt into external exposure and (via `declaredMcpToolNames`)
+   *  auto-add imported server tools to this app's own outbound MCP/A2A
+   *  catalog. Only used to pick the MCP protocol's default 2020-12 JSON
+   *  Schema dialect when the schema omits `$schema`. */
+  fromMcpServer?: boolean;
+  mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
+  changeEvents?: boolean;
   parallelSafe?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -1534,6 +1609,7 @@ export interface ProductionAgentOptions {
   onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
   onRunPrepared?: (details: {
     runId: string;
+    turnId: string;
     threadId: string | undefined;
     message: string;
     attachments?: AgentChatAttachment[];
@@ -2524,7 +2600,11 @@ export async function callConnectedAgentReference(input: {
           ...(connectionRequest.appId
             ? { appId: connectionRequest.appId }
             : {}),
-          source: { id: input.agent, kind: "agent", label: input.agent },
+          source: connectionRequest.source ?? {
+            id: input.agent,
+            kind: "agent",
+            label: input.agent,
+          },
         },
       );
     }
@@ -2558,12 +2638,31 @@ function parseA2AConnectionRequest(
   const appId = typeof request.appId === "string" ? request.appId.trim() : "";
   const detail =
     typeof request.detail === "string" ? request.detail.trim() : "";
+  const sourceValue =
+    request.source && typeof request.source === "object"
+      ? (request.source as Record<string, unknown>)
+      : null;
+  const sourceId =
+    typeof sourceValue?.id === "string" ? sourceValue.id.trim() : "";
+  const sourceLabel =
+    typeof sourceValue?.label === "string" ? sourceValue.label.trim() : "";
   return {
     version: 1,
     provider,
     reason,
     ...(appId && appId.length <= 120 ? { appId } : {}),
     ...(detail && detail.length <= 1_000 ? { detail } : {}),
+    ...(sourceValue?.kind === "workspace_connection" &&
+    sourceId === provider &&
+    sourceId.length <= 120
+      ? {
+          source: {
+            id: sourceId,
+            kind: "workspace_connection" as const,
+            ...(sourceLabel ? { label: sourceLabel.slice(0, 120) } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -3804,16 +3903,30 @@ export function normalizeToolErrorForBreaker(error: string): string {
       )
       // Bare JSON payloads some providers inline instead of a Received: span.
       .replace(/\{[\s\S]{0,2000}?\}/g, "{}")
+      .replace(
+        /\bready again in about \d+s\b/g,
+        "ready again after the cooldown",
+      )
       .replace(/\s+/g, " ")
       .trim()
   );
 }
 
-function rateLimitRecoveryHint(message: string): string {
+function rateLimitRecoveryHint(message: string, error?: unknown): string {
+  const statusCode =
+    typeof error === "object" && error !== null && "statusCode" in error
+      ? error.statusCode
+      : undefined;
+  const errorCode =
+    typeof error === "object" && error !== null && "errorCode" in error
+      ? error.errorCode
+      : undefined;
   if (
+    statusCode !== 429 &&
     !/\b(?:429|rate[-\s]?limit|rate limited|quota exceeded|too many requests|calls limit exceeded)\b/i.test(
       message,
-    )
+    ) &&
+    !(typeof errorCode === "string" && /rate[-_]?limit|quota/i.test(errorCode))
   ) {
     return "";
   }
@@ -3875,6 +3988,12 @@ export function permanentPreconditionReason(
     .trim()
     // The headline appends its own sentence punctuation.
     .replace(/[.。]+$/, "");
+  const nestedPrecondition = reason
+    .match(
+      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)\. That needs to be fixed outside this chat\b/i,
+    )?.[1]
+    ?.trim();
+  if (nestedPrecondition) return nestedPrecondition;
   if (!reason) return null;
   if (
     /\bI stopped because\b/i.test(reason) ||
@@ -4199,7 +4318,19 @@ const rawToolInputAjv = new Ajv({
   verbose: true,
 });
 
-const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
+const rawToolInputAjv2020 = new Ajv2020({
+  strict: false,
+  allErrors: true,
+  coerceTypes: true,
+  useDefaults: false,
+  removeAdditional: false,
+  verbose: true,
+});
+
+const rawToolInputValidatorCache = new WeakMap<
+  object,
+  Map<boolean, ValidateFunction>
+>();
 
 const optionalPlaceholderAjv = new Ajv({
   strict: false,
@@ -4414,11 +4545,28 @@ function coerceStringifiedJsonToolValues(
     : { input, changed: false };
 }
 
-function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
-  const cached = rawToolInputValidatorCache.get(schema);
+function getRawToolInputValidator(
+  schema: RawJsonSchema,
+  useMcpDefaultDialect = false,
+): ValidateFunction {
+  const cached = rawToolInputValidatorCache
+    .get(schema)
+    ?.get(useMcpDefaultDialect);
   if (cached) return cached;
-  const validator = rawToolInputAjv.compile(schema);
-  rawToolInputValidatorCache.set(schema, validator);
+  const declaredDialect = (schema as { $schema?: unknown }).$schema;
+  const normalizedDialect =
+    typeof declaredDialect === "string"
+      ? declaredDialect.replace(/#$/, "")
+      : undefined;
+  const ajv =
+    normalizedDialect === "https://json-schema.org/draft/2020-12/schema" ||
+    (declaredDialect === undefined && useMcpDefaultDialect)
+      ? rawToolInputAjv2020
+      : rawToolInputAjv;
+  const validator = ajv.compile(schema);
+  const validators = rawToolInputValidatorCache.get(schema) ?? new Map();
+  validators.set(useMcpDefaultDialect, validator);
+  rawToolInputValidatorCache.set(schema, validators);
   return validator;
 }
 
@@ -4470,7 +4618,10 @@ function validateRawToolInput(
   if (!parameters) return null;
   let validator: ValidateFunction;
   try {
-    validator = getRawToolInputValidator(parameters);
+    validator = getRawToolInputValidator(
+      parameters,
+      entry.fromMcpServer === true,
+    );
   } catch (err) {
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }
@@ -4503,6 +4654,8 @@ export async function runAgentLoop(opts: {
   actionCaller?: ActionCaller;
   automation?: ActionAutomationContext;
   runId?: string;
+  /** Enable same-turn, agent-authored response metadata for interactive chat. */
+  followUpSuggestions?: boolean;
   budgetStartedAt?: number;
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
@@ -4548,14 +4701,55 @@ export async function runAgentLoop(opts: {
 }): Promise<AgentLoopUsage> {
   const {
     engine,
-    systemPrompt,
-    tools,
-    availableTools,
+    systemPrompt: providedSystemPrompt,
+    tools: providedTools,
+    availableTools: providedAvailableTools,
     messages,
     actions,
     send,
     signal,
   } = opts;
+  const followUpRunId = opts.followUpSuggestions ? opts.runId : undefined;
+  if (opts.followUpSuggestions && !followUpRunId) {
+    throw new Error("Follow-up suggestions require the canonical run id.");
+  }
+  const systemPrompt = followUpRunId
+    ? `${providedSystemPrompt}\n\n${FOLLOW_UP_SUGGESTIONS_INSTRUCTION}`
+    : providedSystemPrompt;
+  const tools = followUpRunId
+    ? [
+        followUpSuggestionsTool,
+        ...providedTools.filter(
+          (tool) => tool.name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+        ),
+      ]
+    : providedTools;
+  const availableTools = followUpRunId
+    ? [
+        followUpSuggestionsTool,
+        ...(providedAvailableTools ?? providedTools).filter(
+          (tool) => tool.name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+        ),
+      ]
+    : providedAvailableTools;
+  let completedFollowUpSuggestions: AgentSuggestion[] | undefined;
+  let completingFollowUpSuggestions = false;
+  let followUpCompletionFailed = false;
+  const failFollowUpCompletion = (code: FollowUpSuggestionsFailure) => {
+    if (followUpCompletionFailed) return;
+    followUpCompletionFailed = true;
+    completedFollowUpSuggestions = undefined;
+    send({
+      type: "rich_event",
+      event: {
+        namespace: "agent-native.follow-up-suggestions",
+        name: "generation_failed",
+        version: 1,
+        data: { code, runId: followUpRunId },
+      },
+    });
+  };
+  if (followUpRunId) send({ type: "suggestions", suggestions: [] });
   let model = opts.model;
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
@@ -4617,6 +4811,7 @@ export async function runAgentLoop(opts: {
         activeToolNames.has(tool.name),
       );
       const prioritizedNames = new Set(names);
+      if (followUpRunId) prioritizedNames.add(FOLLOW_UP_SUGGESTIONS_TOOL_NAME);
       activeTools = [
         ...expandedTools.filter((tool) => prioritizedNames.has(tool.name)),
         ...expandedTools.filter((tool) => !prioritizedNames.has(tool.name)),
@@ -4861,6 +5056,10 @@ export async function runAgentLoop(opts: {
     }
     const turnInputTokens = priorTurnInputTokens + usage.inputTokens;
     if (turnInputTokens > maxRunInputTokens) {
+      if (completingFollowUpSuggestions) {
+        failFollowUpCompletion("budget_exhausted");
+        break;
+      }
       emitTripwire(
         new TripWire(
           `I stopped because this request consumed ${turnInputTokens.toLocaleString()} input tokens, past the ${maxRunInputTokens.toLocaleString()} budget for a single turn. ` +
@@ -4871,6 +5070,10 @@ export async function runAgentLoop(opts: {
       break;
     }
     if (++iterations > maxIterations + (loopBreakerCloseout ? 1 : 0)) {
+      if (completingFollowUpSuggestions) {
+        failFollowUpCompletion("iteration_limit");
+        break;
+      }
       send({ type: "loop_limit", maxIterations });
       endedAtLoopLimit = true;
       break;
@@ -4887,29 +5090,49 @@ export async function runAgentLoop(opts: {
       string,
       { name: string; input: unknown; error: string }
     >();
-    let contextMessages = messages;
-
-    if (opts.threadId) {
-      contextMessages = await applyContextXrayTransformForIteration({
-        threadId: opts.threadId,
-        ownerEmail: opts.ownerEmail,
-        turnId: opts.turnId,
-        model,
-        messages,
-        systemSections: opts.systemSections,
-      });
-
-      if (opts.ownerEmail) {
-        contextMessages = await applyObservationalMemoryToContext(
-          contextMessages,
+    let contextMessages = completingFollowUpSuggestions
+      ? [
+          ...messages,
           {
-            threadId: opts.threadId,
-            ownerEmail: opts.ownerEmail,
-            orgId: opts.orgId ?? null,
+            role: "user" as const,
+            content: [
+              {
+                type: "text" as const,
+                text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+              },
+            ],
           },
-        );
+        ]
+      : messages;
+
+    try {
+      if (opts.threadId) {
+        contextMessages = await applyContextXrayTransformForIteration({
+          threadId: opts.threadId,
+          ownerEmail: opts.ownerEmail,
+          turnId: opts.turnId,
+          model,
+          messages: contextMessages,
+          systemSections: opts.systemSections,
+        });
+
+        if (opts.ownerEmail) {
+          contextMessages = await applyObservationalMemoryToContext(
+            contextMessages,
+            {
+              threadId: opts.threadId,
+              ownerEmail: opts.ownerEmail,
+              orgId: opts.orgId ?? null,
+            },
+          );
+        }
       }
+    } catch (error) {
+      if (signal.aborted || !completingFollowUpSuggestions) throw error;
+      failFollowUpCompletion("context_error");
+      break;
     }
+    if (signal.aborted) break;
 
     for (let retry = 0; ; retry++) {
       const attemptStartedAt = Date.now();
@@ -4919,23 +5142,42 @@ export async function runAgentLoop(opts: {
       terminalStopReason = undefined;
       toolCallErrors.clear();
       try {
+        let providerOptions = opts.providerOptions;
+        if (
+          completingFollowUpSuggestions &&
+          providerOptions?.anthropic?.thinking
+        ) {
+          const { thinking: _thinking, ...anthropic } =
+            providerOptions.anthropic;
+          providerOptions = { ...providerOptions, anthropic };
+        }
         const streamOpts = {
           model,
           systemPrompt: continuationSystemPrompt,
           messages: contextMessages,
           tools: loopBreakerCloseout
             ? []
-            : sourceSweepDelegationGuardActive
-              ? restrictAgentTeamsAfterSourceSweep(activeTools)
-              : activeTools,
+            : completingFollowUpSuggestions
+              ? [followUpSuggestionsTool]
+              : sourceSweepDelegationGuardActive
+                ? restrictAgentTeamsAfterSourceSweep(activeTools)
+                : activeTools,
           abortSignal: signal,
           maxOutputTokens: resolveMaxOutputTokensForEngine(
             engine.name,
-            effectiveMaxOutputTokens,
+            completingFollowUpSuggestions
+              ? Math.min(
+                  effectiveMaxOutputTokens ??
+                    FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
+                  FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
+                )
+              : effectiveMaxOutputTokens,
             model,
           ),
-          reasoningEffort: effectiveReasoningEffort,
-          providerOptions: opts.providerOptions,
+          reasoningEffort: completingFollowUpSuggestions
+            ? ("none" as const)
+            : effectiveReasoningEffort,
+          providerOptions,
         };
 
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
@@ -5009,10 +5251,9 @@ export async function runAgentLoop(opts: {
         const checkpointNoProgress = () => {
           if (endedForNoProgress) return;
           closeModelStreamBracket();
-          send({
-            type: "auto_continue",
-            reason: "no_progress",
-          });
+          if (completingFollowUpSuggestions)
+            failFollowUpCompletion("interrupted");
+          else send({ type: "auto_continue", reason: "no_progress" });
           endedForNoProgress = true;
         };
         let eventIteratorReturnRequested = false;
@@ -5104,6 +5345,11 @@ export async function runAgentLoop(opts: {
               try {
                 await processorChain.runStream(event);
               } catch (err) {
+                if (signal.aborted) throw err;
+                if (completingFollowUpSuggestions) {
+                  failFollowUpCompletion("processor_error");
+                  break;
+                }
                 if (err instanceof TripWire) {
                   emitTripwire(err);
                   break;
@@ -5113,10 +5359,12 @@ export async function runAgentLoop(opts: {
             }
             if (event.type === "text-delta") {
               streamedAssistantText += event.text;
-              send({ type: "text", text: event.text });
+              if (!completingFollowUpSuggestions)
+                send({ type: "text", text: event.text });
             } else if (event.type === "thinking-delta") {
               thinkingBuffer += event.text;
-              send({ type: "thinking", text: event.text });
+              if (!completingFollowUpSuggestions)
+                send({ type: "thinking", text: event.text });
             } else if (event.type === "tool-input-start") {
               const key = event.id ?? event.name;
               if (key && event.name) {
@@ -5124,6 +5372,12 @@ export async function runAgentLoop(opts: {
                 toolInputBytes.set(key, 0);
                 trackActiveToolInput(key, event.name, 0);
               }
+              if (
+                completingFollowUpSuggestions ||
+                (followUpRunId &&
+                  event.name === FOLLOW_UP_SUGGESTIONS_TOOL_NAME)
+              )
+                continue;
               send({
                 type: "tool_input_start",
                 ...(event.name ? { tool: event.name } : {}),
@@ -5149,6 +5403,11 @@ export async function runAgentLoop(opts: {
                   trackActiveToolInput(key, toolName, progressBytes);
                 }
               }
+              if (
+                completingFollowUpSuggestions ||
+                (followUpRunId && toolName === FOLLOW_UP_SUGGESTIONS_TOOL_NAME)
+              )
+                continue;
               if (event.text) {
                 send({
                   type: "tool_input_delta",
@@ -5229,8 +5488,10 @@ export async function runAgentLoop(opts: {
         }
 
         if (endedForNoProgress) {
+          if (completingFollowUpSuggestions) break;
           return usage;
         }
+        if (followUpCompletionFailed) break;
 
         const hasCompleteToolCall =
           streamedAssistantToolCalls.length > 0 ||
@@ -5239,6 +5500,10 @@ export async function runAgentLoop(opts: {
         const hasUnfinishedToolInput =
           activeToolInputs.size > 0 && !hasCompleteToolCall;
         if (hasUnfinishedToolInput) {
+          if (completingFollowUpSuggestions) {
+            failFollowUpCompletion("interrupted");
+            break;
+          }
           send({ type: "auto_continue", reason: "stream_ended" });
           return usage;
         }
@@ -5246,6 +5511,10 @@ export async function runAgentLoop(opts: {
         break;
       } catch (err: unknown) {
         if (signal.aborted) throw err;
+        if (completingFollowUpSuggestions) {
+          failFollowUpCompletion("provider_error");
+          break;
+        }
         if (isContextTooLongError(err)) {
           if (retry === 0) {
             const trimmed = trimOldToolResults(contextMessages);
@@ -5317,7 +5586,7 @@ export async function runAgentLoop(opts: {
       }
     }
 
-    if (tripwire) break;
+    if (tripwire || followUpCompletionFailed) break;
 
     if (!assistantContent && toolCallErrors.size > 0) {
       assistantContent = [];
@@ -5350,6 +5619,10 @@ export async function runAgentLoop(opts: {
     }
     if (!assistantContent) {
       if (!terminalStopReason) {
+        if (completingFollowUpSuggestions) {
+          failFollowUpCompletion("interrupted");
+          break;
+        }
         send({ type: "auto_continue", reason: "stream_ended" });
         return usage;
       }
@@ -5388,14 +5661,64 @@ export async function runAgentLoop(opts: {
         : part,
     );
 
-    if (assistantContentForHistory.length > 0) {
+    if (
+      !completingFollowUpSuggestions &&
+      assistantContentForHistory.length > 0
+    ) {
       messages.push({ role: "assistant", content: assistantContentForHistory });
     }
 
-    const toolCallParts = assistantContent.filter(
+    const allToolCallParts = assistantContent.filter(
       (p): p is import("./engine/types.js").EngineToolCallPart =>
         p.type === "tool-call",
     );
+    const followUpCalls = followUpRunId
+      ? allToolCallParts.filter(
+          (part) => part.name === FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+        )
+      : [];
+    const toolCallParts = followUpRunId
+      ? allToolCallParts.filter(
+          (part) => part.name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+        )
+      : allToolCallParts;
+    if (
+      toolCallParts.length > 0 ||
+      followUpCalls.length > 0 ||
+      terminalStopReason === "max_tokens" ||
+      !terminalStopReason
+    ) {
+      completedFollowUpSuggestions = undefined;
+    }
+    const followUpResults: EngineContentPart[] = followUpCalls.map((call) => {
+      const parsed = parseFollowUpSuggestions(call.input);
+      const error = !parsed.success
+        ? `Invalid follow-up suggestions: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`
+        : followUpCalls.length !== 1 || toolCallParts.length > 0
+          ? "Provide follow-ups before or alongside the final reply, after other tool results are known."
+          : toolCallErrors.has(call.id)
+            ? "Follow-up tool input was not completed successfully."
+            : terminalStopReason !== "end_turn" &&
+                terminalStopReason !== "tool_use"
+              ? "Follow-up publication was interrupted; provide it again after completing the work."
+              : undefined;
+      if (!error && parsed.success && followUpRunId) {
+        completedFollowUpSuggestions = identifyFollowUpSuggestions(
+          parsed.data.suggestions,
+          followUpRunId,
+        );
+      }
+      return {
+        type: "tool-result",
+        toolCallId: call.id,
+        toolName: call.name,
+        toolInput: JSON.stringify(call.input ?? {}),
+        content:
+          error ??
+          "Follow-ups validated; displayed only if this turn completes successfully.",
+        ...(error ? { isError: true } : {}),
+      };
+    });
 
     if (loopBreakerCloseout && toolCallParts.length > 0) {
       const finalText = collectTextParts(assistantContentForHistory);
@@ -5419,12 +5742,23 @@ export async function runAgentLoop(opts: {
           },
         });
       } catch (err) {
+        if (signal.aborted) throw err;
+        if (completingFollowUpSuggestions) {
+          failFollowUpCompletion("processor_error");
+          break;
+        }
         if (err instanceof TripWire) {
           emitTripwire(err);
           break;
         }
         throw err;
       }
+    }
+
+    if (completingFollowUpSuggestions) {
+      if (completedFollowUpSuggestions === undefined)
+        failFollowUpCompletion("invalid_or_missing");
+      break;
     }
 
     const flushUnstreamedAssistantText = () => {
@@ -5434,6 +5768,8 @@ export async function runAgentLoop(opts: {
     };
 
     if (toolCallParts.length === 0) {
+      if (followUpResults.length > 0)
+        messages.push({ role: "user", content: followUpResults });
       if (terminalStopReason === "max_tokens") {
         flushUnstreamedAssistantText();
         appendAgentLoopContinuation(messages, "max_tokens");
@@ -5443,7 +5779,15 @@ export async function runAgentLoop(opts: {
       const hasEmptyFinalResponse =
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
         streamedAssistantText.trim().length === 0;
+      if (
+        followUpResults.length > 0 &&
+        (terminalStopReason === "tool_use" || hasEmptyFinalResponse)
+      ) {
+        flushUnstreamedAssistantText();
+        continue;
+      }
       if (hasEmptyFinalResponse) {
+        completedFollowUpSuggestions = undefined;
         if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
           emptyFinalResponseRetries += 1;
           effectiveMaxOutputTokens =
@@ -5487,6 +5831,7 @@ export async function runAgentLoop(opts: {
         }
       }
       if (guard) {
+        completedFollowUpSuggestions = undefined;
         const retryMessage =
           typeof guard === "string" ? guard : guard.retryMessage;
         const fallbackMessage =
@@ -5524,6 +5869,14 @@ export async function runAgentLoop(opts: {
         });
       } else {
         flushUnstreamedAssistantText();
+        if (
+          followUpRunId &&
+          completedFollowUpSuggestions === undefined &&
+          terminalStopReason === "end_turn"
+        ) {
+          completingFollowUpSuggestions = true;
+          continue;
+        }
       }
       emptyFinalResponseRetries = 0;
       effectiveMaxOutputTokens = opts.maxOutputTokens;
@@ -6562,7 +6915,7 @@ export async function runAgentLoop(opts: {
               isActionContractError(err) && err.errorCode !== "action_failed"
                 ? ` (errorCode: ${err.errorCode})`
                 : "";
-            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
+            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message, err)}`;
           }
           isError = true;
         }
@@ -6603,7 +6956,7 @@ export async function runAgentLoop(opts: {
           try {
             const { notifyActionChangeInBackground } =
               await import("../server/action-change.js");
-            if (!actionIsReadOnly) {
+            if (actionCallEmitsChange(actionEntry, toolCall.input, false)) {
               const owner =
                 opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
               const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
@@ -6703,7 +7056,7 @@ export async function runAgentLoop(opts: {
       return null;
     };
 
-    const toolResultParts: EngineContentPart[] = [];
+    const toolResultParts: EngineContentPart[] = [...followUpResults];
     let parallelBatch: import("./engine/types.js").EngineToolCallPart[] = [];
     let parallelBatchKind: ParallelBatchKind | null = null;
     const flushParallelBatch = async () => {
@@ -6844,8 +7197,18 @@ export async function runAgentLoop(opts: {
         );
       } catch (err) {
         if (!(err instanceof TripWire)) throw err;
+        emitTripwire(err);
+        reportOutcome({
+          state: "failed",
+          code: "guardrail",
+          retryable: false,
+          message: err.message,
+        });
+        return usage;
       }
     }
+    if (followUpRunId && completedFollowUpSuggestions !== undefined)
+      send({ type: "suggestions", suggestions: completedFollowUpSuggestions });
     send({
       type: "done",
       ...(loopBreakerStopped
@@ -8075,8 +8438,11 @@ export async function chainServerDrivenContinuation(opts: {
             ? lastDispatchErr.message
             : lastDispatchErr,
         );
+        // The turn continues in the pre-inserted successor, so this chunk is
+        // truncated, never completed, and its stream ends with the same
+        // continuation signal a dispatched handoff sends.
         const statusUpdated = await d
-          .updateRunStatusIfRunning(runId, "completed")
+          .updateRunStatusIfRunning(runId, "truncated")
           .catch(() => false);
         if (statusUpdated) {
           await d
@@ -8086,6 +8452,10 @@ export async function chainServerDrivenContinuation(opts: {
             )
             .catch(() => {});
         }
+        run.continuationTerminalEvent = {
+          type: "auto_continue",
+          reason: continuationReason,
+        };
         return;
       }
       throw lastDispatchErr instanceof Error
@@ -8640,6 +9010,13 @@ export function createProductionAgentHandler(
           (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
+      // A busy thread refuses this message (409) and the client sends it again
+      // once the thread frees up; uploading first would store every
+      // attachment again on each refusal.
+      if (threadId && !isBackgroundWorker) {
+        const activeRunId = await getSlotHoldingRunId(threadId);
+        if (activeRunId) return runSlotBusy(event, activeRunId);
+      }
       try {
         const preUpload = await preUploadAttachments({
           attachments: requestAttachments,
@@ -8686,16 +9063,13 @@ export function createProductionAgentHandler(
 
     workerStep("apikey_start");
     const engineOption = requestEngine ?? options.engine;
-    const {
-      apiKey: effectiveApiKey,
-      apiKeyEnvVar: effectiveApiKeyEnvVar,
-      credentialProvenance: apiKeyProvenance,
-    } = await resolveOwnerEngineApiKey({
+    const ownerKey = await resolveOwnerEngineApiKey({
       engineOption,
       ownerEmail,
       anthropicFallback:
         options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"),
     });
+    const effectiveApiKey = ownerKey.apiKey;
     workerStep("apikey_done");
 
     workerStep("engine_start");
@@ -8703,27 +9077,13 @@ export function createProductionAgentHandler(
       userEmail: ownerEmail,
       orgId: getRequestOrgId(),
     };
-    let engine: AgentEngine;
-    try {
-      engine = await resolveEngine({
-        engineOption,
-        apiKey: effectiveApiKey,
-        apiKeyEnvVar: effectiveApiKeyEnvVar,
-        apiKeyProvenance,
-        model: configuredModel,
-        appId: options.appId,
-        credentialIdentity,
-      });
-    } catch (error) {
-      if (error instanceof CredentialEndpointMismatchError) throw error;
-      engine = await resolveEngine({
-        apiKey: effectiveApiKey,
-        apiKeyEnvVar: effectiveApiKeyEnvVar,
-        apiKeyProvenance,
-        appId: options.appId,
-        credentialIdentity,
-      });
-    }
+    const engine = await resolveChatEngine({
+      engineOption,
+      ownerKey,
+      model: configuredModel,
+      appId: options.appId,
+      credentialIdentity,
+    });
     workerStep("engine_done");
 
     workerStep("model_start");
@@ -9417,13 +9777,7 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
-      if (!slot.claimed) {
-        setResponseStatus(event, 409);
-        return {
-          error: "Run already in progress for this thread",
-          activeRunId: slot.activeRunId,
-        };
-      }
+      if (!slot.claimed) return runSlotBusy(event, slot.activeRunId);
       foregroundRunRowInserted = true;
     }
 
@@ -9543,6 +9897,7 @@ export function createProductionAgentHandler(
       try {
         await options.onRunPrepared({
           runId,
+          turnId: effectiveTurnId,
           threadId,
           message: messageToPersist,
           attachments: requestAttachments,
@@ -9976,7 +10331,11 @@ export function createProductionAgentHandler(
           return;
         }
 
-        send({ type: "activity", label: "Starting agent" });
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:starting-agent`,
+          label: "Starting agent",
+        });
 
         if (isBackgroundWorker) {
           await recordRunDiagnostic(
@@ -10202,6 +10561,7 @@ export function createProductionAgentHandler(
           engine,
           model: effectiveModel,
           runId,
+          followUpSuggestions: true,
           systemPrompt: requestSystemPrompt,
           tools: requestTools,
           availableTools: availableRequestTools,
@@ -10258,7 +10618,11 @@ export function createProductionAgentHandler(
             : {}),
         };
 
-        send({ type: "activity", label: "Contacting model" });
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:contacting-model`,
+          label: "Contacting model",
+        });
 
         let instrumented = false;
         try {

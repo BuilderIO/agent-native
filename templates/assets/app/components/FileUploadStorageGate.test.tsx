@@ -8,7 +8,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/setup-connections", async () => {
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", async () => {
   const { createElement } = await import("react");
   return {
     FileStorageSetupPopover: ({

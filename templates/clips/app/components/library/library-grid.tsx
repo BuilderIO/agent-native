@@ -4,8 +4,8 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconAlertTriangle,
   IconChevronLeft,
@@ -206,6 +206,8 @@ export function LibraryGrid({
   extraActions,
 }: LibraryGridProps) {
   const t = useT();
+  const recordingsHeading =
+    kind === "image" ? t("navigation.screenshots") : t("navigation.recordings");
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -776,13 +778,13 @@ export function LibraryGrid({
                   )}
 
                   {recordings.length > 0 && (
-                    <section aria-label={t("navigation.recordings")}>
+                    <section aria-label={recordingsHeading}>
                       {visibleFolders.length > 0 && (
                         <h2
                           id="library-recordings-heading"
                           className="mb-3 text-sm font-semibold text-foreground"
                         >
-                          {t("navigation.recordings")}
+                          {recordingsHeading}
                         </h2>
                       )}
                       <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">

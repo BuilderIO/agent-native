@@ -4,8 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      checkingProvider: "Comprobando la conexión de IA…",
-      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+      providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
     common: { retry: "Reintentar" },
   },
@@ -820,6 +819,11 @@ const messages = {
     agentTitle: "Gestionar agente",
     pageTitle: "Ajustes · Clips",
     labs: "Labs",
+    labResilientRecording: "Grabación resistente",
+    labResilientRecordingDescription:
+      "Prueba cargas de grabaciones más rápidas y una mejor recuperación tras interrupciones.",
+    labResilientRecordingMixedDescription:
+      "Los ajustes de grabación anteriores siguen activos. Elige Activado o Desactivado para usar un solo ajuste.",
     labsIntro:
       "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
     labVideoEditing: "Edición de vídeo",
@@ -1981,6 +1985,8 @@ const messages = {
     retry: "Reintentar",
     retrying: "Reintentando…",
     retryFailed: "No se pudo reintentar esta subida.",
+    retryCheckFailed:
+      "No se pudo comprobar si se puede reintentar esta carga. Actualiza la página para volver a intentarlo.",
     retryUnavailableHere:
       "Reintentar solo está disponible en el dispositivo o navegador donde se grabó esto.",
     viewsCount: "{{count}} visualizaciones",

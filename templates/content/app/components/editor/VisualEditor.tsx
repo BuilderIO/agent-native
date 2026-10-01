@@ -1,4 +1,3 @@
-import { RegistryBlockDataProvider } from "@agent-native/core/blocks";
 import {
   usePresence,
   useRecentEdits,
@@ -11,6 +10,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
@@ -2633,6 +2633,7 @@ export function createVisualEditorExtensions({
       NormalizeTableHeaders,
       NormalizeTableAlignment,
       ...createNotionEditorExtensions({
+        documentId,
         onOpenPageLink: onOpenNotionPageLink,
       }),
       ...notionFidelityExtensions,

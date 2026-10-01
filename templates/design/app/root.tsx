@@ -1,7 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
   useDbSync,
   getBrowserTabId,
@@ -12,11 +11,10 @@ import {
   setAgentNativeApiDisabled,
 } from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowsMaximize,
   IconHierarchy2,
@@ -220,11 +218,14 @@ function PrivateRootContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
+  // The home prompt composer takes focus on load, and without this the shortcut
+  // is swallowed whenever a contenteditable has focus.
   useCommandMenuShortcut(
     useCallback(() => {
       if (!hasSession || isPublicVisualEdit) return;
       setCmdkOpen(true);
     }, [hasSession, isPublicVisualEdit]),
+    { allowContentEditable: true },
   );
 
   const content = isPublicVisualEdit ? (
@@ -277,4 +278,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

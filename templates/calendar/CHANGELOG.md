@@ -3,11 +3,23 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-30
+
+### Fixed
+
+- Chat stays ready for your next draft while a message is being sent.
+
 ## 2026-09-29
 
 ### Improved
 
 - Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Chat prompts clear immediately while the assistant thinks.
+- Events longer than 24 hours appear as compact bars at the top of Calendar.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 
 ## 2026-09-28
 

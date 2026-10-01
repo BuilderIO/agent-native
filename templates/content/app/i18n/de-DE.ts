@@ -1228,7 +1228,10 @@ const history = {
 
 const overrides = {
   close: "Schließen",
-  setup: { checkingProvider: "KI-Verbindung wird geprüft…" },
+  setup: {
+    providerStatusUnavailable:
+      "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
+  },
   onboarding: {
     fileStorage: {
       title: "Speicher verbinden, um Dateien hochzuladen",
@@ -1280,6 +1283,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "Inhalt",
+    loadingContent: "Inhalt wird geladen",
     commandSearchDocuments: "Dokumente suchen",
     searchSince: "Seit {{date}}",
     searchModifiedSince: "Geändert seit {{date}}",

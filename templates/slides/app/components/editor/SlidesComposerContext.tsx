@@ -4,24 +4,33 @@ import {
   useSession,
   actionErrorMessage,
 } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { composerSourceListSchema } from "@agent-native/core/shared";
+import {
+  useAgentKitCapabilities,
+  useAgentKitIntegrationMenu,
+  readAssistantChatComposerContextDraft,
+  writeAssistantChatComposerContextDraft,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   snapshotComposerContextItems,
   type AgentChatContextItem,
   type ComposerContextMenuItem,
+  type ComposerContextSnapshot,
   type ComposerContextPickerConfig,
   type ComposerContextPickerItem,
   type ComposerContextPickerRequest,
 } from "@agent-native/toolkit/composer";
 import {
-  IconComponents,
-  IconLink,
-  IconOmega,
-  IconTextRecognition,
-} from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { z } from "zod";
 
+import SlideRenderer from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,7 +38,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type { Slide } from "@/context/DeckContext";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
   composerSourceErrorMessage,
   composerSourceKey,
@@ -39,6 +50,11 @@ import {
   type ComposerSource,
   type SlidesComposerContext,
 } from "@/lib/composer-context";
+import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
+
+const storedContextSchema = slidesComposerContextSchema.extend({
+  automaticReferenceDeckId: z.string().nullable().optional(),
+});
 
 function figmaPickerId(reference: ComposerSource) {
   return `${encodeURIComponent(composerSourceKey(reference))}:${encodeURIComponent(reference.id)}`;
@@ -46,6 +62,7 @@ function figmaPickerId(reference: ComposerSource) {
 
 export function useSlidesComposerContext({
   active = true,
+  initialSelection,
   defaultDesignSystemId,
   defaultReferenceDeck,
   systems,
@@ -53,8 +70,12 @@ export function useSlidesComposerContext({
   systemsLoading,
   retrySystems,
   onCreateDesignSystem,
+  scopeKey,
+  persistSelection = true,
+  draftScope,
 }: {
   active?: boolean;
+  initialSelection?: SlidesComposerContext;
   defaultDesignSystemId: string | null;
   defaultReferenceDeck?: { id: string; title: string };
   systems: Array<{ id: string; title: string }>;
@@ -62,24 +83,37 @@ export function useSlidesComposerContext({
   systemsLoading?: boolean;
   retrySystems?: () => unknown;
   onCreateDesignSystem: () => void;
+  scopeKey?: string;
+  persistSelection?: boolean;
+  draftScope?: string;
 }) {
   const t = useT();
+  const formatters = useFormatters();
+  const capabilities = useAgentKitCapabilities();
   const systemsEnabled = useDesignSystemWorkflows();
   const { session } = useSession();
-  const identity = `${session?.email ?? "guest"}:${session?.orgId ?? "personal"}`;
+  const accountIdentity = `${session?.email ?? "guest"}:${session?.orgId ?? "personal"}`;
+  const identity = JSON.stringify([
+    session?.authUserId,
+    accountIdentity,
+    scopeKey ?? "home",
+  ]);
   const refreshKey = useChangeVersions([
     "action",
     "decks",
     "slides",
     "designs",
   ]);
-  const storageKey = `slides-home-context:${identity}`;
+  const storageKey = `slides-home-context:${session?.authUserId ? `${session.authUserId}:` : ""}${accountIdentity}`;
   const defaultDeckId = defaultReferenceDeck?.id;
   const defaultDeckTitle = defaultReferenceDeck?.title;
   const [storedSelection, setSelection] = useState<SlidesComposerContext>({
     designSystemId: null,
     references: [],
   });
+  const [automaticReferenceDeckId, setAutomaticReferenceDeckId] = useState<
+    string | null
+  >(null);
   const selection = useMemo(
     () =>
       systemsEnabled
@@ -89,18 +123,46 @@ export function useSlidesComposerContext({
   );
   const [items, setItems] = useState<AgentChatContextItem[]>([]);
   const [error, setError] = useState<string>();
+  const [draftHydrated, setDraftHydrated] = useState(!draftScope);
   const [inspectedKey, setInspectedKey] = useState<string>();
   const version = useRef(0);
   const edited = useRef(false);
+  const initialSelectionKey = useRef<string | undefined>(undefined);
   const activeIdentity = useRef(identity);
   activeIdentity.current = identity;
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
+  const storedSelectionRef = useRef(storedSelection);
+  storedSelectionRef.current = storedSelection;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const mounted = useRef(true);
+  const systemVersion = useRef(0);
+  const submissionReceipts = useRef(
+    new WeakMap<
+      ComposerContextSnapshot,
+      {
+        identity: string;
+        references: Map<string, ComposerSource>;
+        systemId: string | null;
+        systemVersion: number;
+      }
+    >(),
+  );
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     edited.current = false;
+    initialSelectionKey.current = undefined;
+    setAutomaticReferenceDeckId(null);
     setError(undefined);
     version.current++;
+    systemVersion.current++;
   }, [identity]);
   useEffect(() => {
     if (!active) setInspectedKey(undefined);
@@ -108,10 +170,33 @@ export function useSlidesComposerContext({
   useEffect(() => {
     if (edited.current) return;
     try {
-      const stored = window.localStorage.getItem(storageKey);
+      if (draftScope) {
+        setAutomaticReferenceDeckId(null);
+        const draft = readAssistantChatComposerContextDraft(draftScope);
+        setSelection(
+          draft
+            ? slidesComposerContextSchema.parse(draft)
+            : { designSystemId: null, references: [] },
+        );
+        setDraftHydrated(true);
+        return;
+      }
+      const stored = persistSelection
+        ? window.localStorage.getItem(storageKey)
+        : null;
+      const parsed = stored
+        ? storedContextSchema.parse(JSON.parse(stored))
+        : undefined;
+      setAutomaticReferenceDeckId(
+        parsed?.automaticReferenceDeckId ??
+          (stored ? null : (defaultDeckId ?? null)),
+      );
       setSelection(
-        stored
-          ? slidesComposerContextSchema.parse(JSON.parse(stored))
+        parsed
+          ? {
+              designSystemId: parsed.designSystemId,
+              references: parsed.references,
+            }
           : {
               designSystemId: systemsEnabled ? defaultDesignSystemId : null,
               references:
@@ -128,15 +213,49 @@ export function useSlidesComposerContext({
       );
     } catch (cause) {
       setSelection({ designSystemId: null, references: [] });
-      setError(actionErrorMessage(cause) ?? t("home.context.loadFailed"));
+      setError(
+        draftScope
+          ? t("home.context.loadFailed")
+          : (actionErrorMessage(cause) ?? t("home.context.loadFailed")),
+      );
     }
   }, [
     storageKey,
+    draftScope,
+    identity,
+    persistSelection,
     defaultDesignSystemId,
     defaultDeckId,
     defaultDeckTitle,
     t,
     systemsEnabled,
+  ]);
+  useEffect(() => {
+    if (!initialSelection) {
+      initialSelectionKey.current = undefined;
+      return;
+    }
+    const key = JSON.stringify(initialSelection);
+    if (initialSelectionKey.current === key) return;
+    initialSelectionKey.current = key;
+    setAutomaticReferenceDeckId(null);
+    const next = systemsEnabled
+      ? initialSelection
+      : { ...initialSelection, designSystemId: storedSelection.designSystemId };
+    edited.current = true;
+    selectionRef.current = next;
+    setSelection(next);
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      setError(t("home.context.saveFailed"));
+    }
+  }, [
+    initialSelection,
+    storageKey,
+    storedSelection.designSystemId,
+    systemsEnabled,
+    t,
   ]);
 
   useEffect(() => {
@@ -174,20 +293,48 @@ export function useSlidesComposerContext({
     };
   }, [active, selection, identity, t]);
 
-  const save = (next: SlidesComposerContext) => {
+  const save = (
+    next: SlidesComposerContext,
+    clearAutomaticReferenceDeck = false,
+  ) => {
     if (!slidesComposerContextSchema.safeParse(next).success) {
       setError(t("home.context.tooMany"));
       return false;
     }
     edited.current = true;
+    const nextAutomaticReferenceDeckId =
+      !clearAutomaticReferenceDeck &&
+      automaticReferenceDeckId &&
+      next.references.some(
+        (reference) =>
+          reference.source === "slides" &&
+          reference.id === automaticReferenceDeckId,
+      )
+        ? automaticReferenceDeckId
+        : null;
+    setAutomaticReferenceDeckId(nextAutomaticReferenceDeckId);
     const persisted = systemsEnabled
       ? next
-      : { ...next, designSystemId: storedSelection.designSystemId };
+      : { ...next, designSystemId: storedSelectionRef.current.designSystemId };
+    if (next.designSystemId !== selectionRef.current.designSystemId)
+      systemVersion.current++;
     selectionRef.current = next;
+    storedSelectionRef.current = persisted;
     setSelection(persisted);
     setError(undefined);
+    setDraftHydrated(true);
+    if (!persistSelection && !draftScope) return true;
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(persisted));
+      if (draftScope)
+        writeAssistantChatComposerContextDraft(draftScope, persisted);
+      else
+        window.localStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            ...persisted,
+            automaticReferenceDeckId: nextAutomaticReferenceDeckId,
+          }),
+        );
     } catch {
       setError(t("home.context.saveFailed"));
       return false;
@@ -195,7 +342,7 @@ export function useSlidesComposerContext({
     return true;
   };
   const attachBatch = (references: readonly ComposerSource[]) => {
-    if (activeIdentity.current !== identity)
+    if (!activeRef.current || activeIdentity.current !== identity)
       throw new Error(t("home.context.loadFailed"));
     const current = selectionRef.current;
     const combined = new Map(
@@ -207,7 +354,14 @@ export function useSlidesComposerContext({
     for (const reference of references)
       combined.set(composerSourceKey(reference), reference);
     if (combined.size > 20) throw new Error(t("home.context.tooMany"));
-    return save({ ...current, references: [...combined.values()] });
+    return save(
+      { ...current, references: [...combined.values()] },
+      references.some(
+        (reference) =>
+          reference.source === "slides" &&
+          reference.id === automaticReferenceDeckId,
+      ),
+    );
   };
   const remove = (key: string) => {
     if (key === "context-state") {
@@ -224,8 +378,8 @@ export function useSlidesComposerContext({
     });
   };
   const referencePicker = (
-    source: Exclude<ComposerSource["source"], "website">,
-  ): ComposerContextPickerConfig => {
+    source: Exclude<ComposerSource["source"], "website" | "integration">,
+  ): Extract<ComposerContextPickerConfig, { load: unknown }> => {
     const toReference = (
       item: ComposerContextPickerItem,
       request: ComposerContextPickerRequest,
@@ -247,6 +401,15 @@ export function useSlidesComposerContext({
     return {
       scopeKey: identity,
       refreshKey,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        ...(source === "slides" ? { layout: "gallery" as const } : {}),
+        onAttach: (
+          items: readonly ComposerContextPickerItem[],
+          request: ComposerContextPickerRequest,
+        ) => attachBatch(items.map((item) => toReference(item, request))),
+      },
       searchPlaceholder: t(
         source === "figma"
           ? "home.context.searchFrames"
@@ -277,21 +440,8 @@ export function useSlidesComposerContext({
                   : t("home.context.invalidFigmaUrl");
               },
             },
-            presentation: {
-              type: "dialog" as const,
-              mode: "multiple" as const,
-              onAttach: (
-                items: readonly ComposerContextPickerItem[],
-                request: ComposerContextPickerRequest,
-              ) => attachBatch(items.map((item) => toReference(item, request))),
-            },
           }
-        : {
-            onSelect: (
-              item: ComposerContextPickerItem,
-              request: ComposerContextPickerRequest,
-            ) => attachBatch([toReference(item, request)]),
-          }),
+        : {}),
       load: async ({ search, page, cursor, url, signal }) => {
         try {
           const result = composerSourceListSchema.safeParse(
@@ -353,21 +503,100 @@ export function useSlidesComposerContext({
           statusMessage: error,
         },
       ]
-    : items;
+    : !draftHydrated
+      ? [
+          {
+            key: "context-state",
+            title: t("home.context.title"),
+            context: "",
+            status: "pending" as const,
+          },
+        ]
+      : items;
+  const integrationMenu = useAgentKitIntegrationMenu({
+    capabilities,
+    scopeKey: identity,
+    onSelect: (integration) => {
+      attachBatch([
+        { id: integration.id, title: integration.label, source: "integration" },
+      ]);
+    },
+  });
   const contextMenuItems: ComposerContextMenuItem[] = [
     {
       id: "design-context",
       label: t("home.context.designCategory"),
       searchPlaceholder: t("home.context.menu.searchDesign"),
-      icon: <IconTextRecognition size={16} />,
       children: [
+        {
+          id: "deck",
+          label: t("home.context.menu.deck"),
+          intent: "add-context",
+          picker: {
+            ...referencePicker("slides"),
+            load: async ({ search, cursor, signal }) => {
+              const result = await callAction<{
+                decks: Array<{
+                  id: string;
+                  title: string;
+                  previewSlide?: Slide;
+                  aspectRatio?: AspectRatio;
+                  updatedAt: string;
+                }>;
+                nextCursor?: string;
+              }>(
+                "list-decks",
+                { includePreview: "true", limit: 12, search, cursor },
+                { method: "GET", signal },
+              );
+              return {
+                hasMore: Boolean(result.nextCursor),
+                nextCursor: result.nextCursor,
+                items: result.decks.map((deck) => ({
+                  id: deck.id,
+                  title: deck.title,
+                  preview: deck.previewSlide ? (
+                    <div className="flex h-full items-center justify-center overflow-hidden">
+                      <div
+                        className="slide-reference-preview-frame relative h-full overflow-hidden"
+                        style={
+                          {
+                            "--reference-ratio":
+                              getDeckListingPreviewFrameStyle(deck.aspectRatio)
+                                .aspectRatio,
+                            "--reference-width":
+                              getDeckListingPreviewFrameStyle(deck.aspectRatio)
+                                .width,
+                          } as CSSProperties
+                        }
+                      >
+                        <SlideRenderer
+                          slide={deck.previewSlide}
+                          thumbnail
+                          aspectRatio={deck.aspectRatio}
+                        />
+                      </div>
+                    </div>
+                  ) : null,
+                  metadata: (
+                    <time dateTime={deck.updatedAt}>
+                      {formatters.formatDate(deck.updatedAt, {
+                        dateStyle: "medium",
+                      })}
+                    </time>
+                  ),
+                })),
+              };
+            },
+          },
+        },
         ...(systemsEnabled
           ? [
               {
                 id: "system",
                 label: t("home.context.menu.system"),
-                icon: <IconOmega size={16} />,
                 picker: {
+                  presentation: { type: "dialog", mode: "single" },
                   scopeKey: identity,
                   searchPlaceholder: t("home.context.searchSystems"),
                   selectedIds: selection.designSystemId
@@ -385,7 +614,6 @@ export function useSlidesComposerContext({
                     : t("home.context.noSystems"),
                   footerAction: {
                     label: t("home.context.createSystem"),
-                    icon: <IconOmega size={16} />,
                     onSelect: onCreateDesignSystem,
                   },
                   clearSelection: selection.designSystemId
@@ -395,22 +623,35 @@ export function useSlidesComposerContext({
                           save({ ...selection, designSystemId: null }),
                       }
                     : undefined,
-                  onSelect: (item) =>
-                    save({ ...selection, designSystemId: item.id }),
+                  onSelect: (item) => {
+                    if (
+                      !activeRef.current ||
+                      activeIdentity.current !== identity
+                    )
+                      throw new Error(t("home.context.loadFailed"));
+                    return save({
+                      ...selectionRef.current,
+                      designSystemId: item.id,
+                    });
+                  },
                 },
               } satisfies ComposerContextMenuItem,
             ]
           : []),
-        {
-          id: "figma",
-          label: t("home.context.menu.figma"),
-          icon: <IconComponents size={16} />,
-          picker: referencePicker("figma"),
-        },
+        ...(capabilities.data?.sources.figma.available
+          ? [
+              {
+                id: "figma",
+                label: t("home.context.menu.figma"),
+                intent: "add-context" as const,
+                picker: referencePicker("figma"),
+              } satisfies ComposerContextMenuItem,
+            ]
+          : []),
         {
           id: "website",
           label: t("home.context.websiteReference"),
-          icon: <IconLink size={16} />,
+          intent: "add-context",
           picker: {
             scopeKey: identity,
             searchPlaceholder: t("home.context.websiteUrl"),
@@ -432,11 +673,90 @@ export function useSlidesComposerContext({
               ]),
           },
         },
+        integrationMenu,
       ],
     },
   ];
   const inspected = contextItems.find((item) => item.key === inspectedKey);
+  const renderedSystemVersion = systemVersion.current;
+  const beforeSend = async (submitted?: readonly AgentChatContextItem[]) => {
+    const capturedIdentity = identity;
+    const capturedSystemVersion = renderedSystemVersion;
+    const capturedItems = submitted ?? contextItems;
+    const keys = new Set(capturedItems.map((item) => item.key));
+    const current = selection;
+    const capturedReferences = current.references.filter((source) =>
+      keys.has(composerSourceKey(source)),
+    );
+    const snapshot = structuredClone({
+      designSystemId:
+        current.designSystemId && keys.has(`system:${current.designSystemId}`)
+          ? current.designSystemId
+          : null,
+      references: capturedReferences,
+    });
+    formatSlidesComposerContext(
+      snapshot,
+      capturedItems,
+      t("home.context.notReady"),
+    );
+    const resolved = await readSlidesComposerContext(
+      snapshot,
+      t("home.context.emptySource"),
+      t("home.context.figmaReadFailed"),
+    );
+    if (!mounted.current || capturedIdentity !== activeIdentity.current)
+      throw new Error(t("home.context.loadFailed"));
+    if (
+      snapshot.designSystemId === selectionRef.current.designSystemId &&
+      capturedSystemVersion === systemVersion.current &&
+      capturedReferences.length === selectionRef.current.references.length &&
+      capturedReferences.every(
+        (source, index) => source === selectionRef.current.references[index],
+      )
+    )
+      setItems(resolved);
+    formatSlidesComposerContext(snapshot, resolved, t("home.context.notReady"));
+    const frozen = snapshotComposerContextItems(resolved);
+    submissionReceipts.current.set(frozen, {
+      identity: capturedIdentity,
+      references: new Map(
+        capturedReferences.map((source) => [composerSourceKey(source), source]),
+      ),
+      systemId: snapshot.designSystemId,
+      systemVersion: capturedSystemVersion,
+    });
+    return {
+      selection: snapshot,
+      items: frozen,
+      text: formatSlidesComposerContext(
+        snapshot,
+        frozen,
+        t("home.context.notReady"),
+      ),
+    };
+  };
+  const submissionAccepted = (snapshot: ComposerContextSnapshot) => {
+    const receipt = submissionReceipts.current.get(snapshot);
+    submissionReceipts.current.delete(snapshot);
+    if (!mounted.current || receipt?.identity !== activeIdentity.current)
+      return;
+    const current = selectionRef.current;
+    save({
+      designSystemId:
+        receipt.systemId === current.designSystemId &&
+        receipt.systemVersion === systemVersion.current
+          ? null
+          : current.designSystemId,
+      references: current.references.filter(
+        (source) =>
+          receipt.references.get(composerSourceKey(source)) !== source,
+      ),
+    });
+  };
   return {
+    selection,
+    automaticReferenceDeckId,
     props: {
       contextItems,
       contextMenuItems: active ? contextMenuItems : [],
@@ -444,40 +764,8 @@ export function useSlidesComposerContext({
       onRetryContextItem: () => setSelection((current) => ({ ...current })),
       onInspectContextItem: setInspectedKey,
     },
-    beforeSend: async (submitted?: readonly AgentChatContextItem[]) => {
-      const capturedIdentity = identity;
-      const snapshot = structuredClone(selectionRef.current);
-      formatSlidesComposerContext(
-        snapshot,
-        submitted ?? contextItems,
-        t("home.context.notReady"),
-      );
-      const resolved = await readSlidesComposerContext(
-        snapshot,
-        t("home.context.emptySource"),
-        t("home.context.figmaReadFailed"),
-        t("home.context.websiteReadFailed"),
-      );
-      if (capturedIdentity !== activeIdentity.current)
-        throw new Error(t("home.context.loadFailed"));
-      if (JSON.stringify(snapshot) === JSON.stringify(selectionRef.current))
-        setItems(resolved);
-      formatSlidesComposerContext(
-        snapshot,
-        resolved,
-        t("home.context.notReady"),
-      );
-      const frozen = snapshotComposerContextItems(resolved);
-      return {
-        selection: snapshot,
-        items: frozen,
-        text: formatSlidesComposerContext(
-          snapshot,
-          frozen,
-          t("home.context.notReady"),
-        ),
-      };
-    },
+    beforeSend,
+    submissionAccepted,
     dialogs: (
       <Dialog
         open={active && Boolean(inspectedKey)}

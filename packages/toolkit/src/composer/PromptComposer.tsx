@@ -28,7 +28,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { Spinner } from "../ui/spinner.js";
 import { TooltipProvider } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
@@ -80,11 +79,15 @@ export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
+  /** Clear the submitted draft once the host owns the message and its failure recovery. */
+  onLocalSubmit?: () => void;
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
   attachments?: ReadonlyArray<unknown>;
   contextItems?: ComposerContextSnapshot;
+  /** Mode instructions; hosts append these after preparing provider-owned context. */
+  composerModeContext?: string;
 }
 
 export interface PromptComposerProps {
@@ -92,6 +95,7 @@ export interface PromptComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  /** When provided, both + and @ open this shared Add menu. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /** Called when the user submits the composer. */
   onSubmit: (
@@ -102,6 +106,9 @@ export interface PromptComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onSubmissionPendingChange?: (pending: boolean) => void;
+  /** Scope where a failed submission should be recovered after the host forks. */
+  getSubmitFailureDraftScope?: () => string | null;
   /** Handle file paste/drop errors in the host chat surface. */
   onAttachmentError?: (message: string) => void;
   /** Delegate app-scaffolding prompts to the enclosing Builder chat. */
@@ -112,6 +119,8 @@ export interface PromptComposerProps {
   disabled?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
   submissionDisabled?: boolean;
+  /** Disable only the send control while the submission is being accepted. */
+  sendButtonDisabled?: boolean;
   /** Prevent submission while preserving editor focus and draft entry. */
   submitting?: boolean;
   /** Present the primary action as queueing instead of immediate send. */
@@ -131,6 +140,8 @@ export interface PromptComposerProps {
   draftScope?: string;
   /** Keep the submitted prompt in the editor. Default: false. */
   preserveDraftOnSubmit?: boolean;
+  /** Clear the submitted text before the host request finishes. */
+  clearOnSubmitImmediately?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
   /** Controlled open state for hosts that resize around the model picker. */
@@ -266,7 +277,7 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {
-      id: state.file.name,
+      id: crypto.randomUUID(),
       type: "document",
       name: state.file.name,
       contentType: state.file.type || "application/octet-stream",
@@ -292,6 +303,10 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 
 class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
   public accept = IMAGE_ATTACHMENT_ACCEPT;
+
+  public async add(state: { file: File }): Promise<PendingAttachment> {
+    return { ...(await super.add(state)), id: crypto.randomUUID() };
+  }
 }
 
 function isInlineableTextFile(file: File): boolean {
@@ -330,10 +345,7 @@ export function shouldGateComposerForEngine(
   return state !== "configured";
 }
 
-/**
- * Show setup treatment only for a confirmed-missing engine with a setup
- * component. Unresolved status uses the retry treatment instead.
- */
+/** Show setup treatment only when a confirmed-missing engine has setup UI. */
 export function shouldGateComposerForMissingEngine(input: {
   state: string;
   hasSetupComponent: boolean;
@@ -599,6 +611,7 @@ function PromptComposerInner({
   ariaLabel,
   disabled,
   submissionDisabled,
+  sendButtonDisabled,
   submitting,
   willQueue = false,
   onDisabledClick,
@@ -611,6 +624,7 @@ function PromptComposerInner({
   rootStyle,
   draftScope,
   preserveDraftOnSubmit = false,
+  clearOnSubmitImmediately,
   showModelSelector = true,
   modelSelectorOpen,
   showAutoModelOption = true,
@@ -670,6 +684,8 @@ function PromptComposerInner({
   imageModelMenu,
   composerRef,
   onBeforeSubmit,
+  onSubmissionPendingChange,
+  getSubmitFailureDraftScope,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
 }: PromptComposerProps) {
@@ -752,9 +768,6 @@ function PromptComposerInner({
     ? agentEngineConfigured.state
     : "configured";
   const missingApiKey = engineStatusChecksEnabled && engineState === "missing";
-  const engineStatusUnresolved =
-    engineStatusChecksEnabled &&
-    (engineState === "unknown" || engineState === "unavailable");
   const handleBuilderConnected = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -799,10 +812,14 @@ function PromptComposerInner({
       });
       await onSubmit(finalText, files, references, {
         intent: submitOptions?.intent ?? "immediate",
+        onLocalSubmit: submitOptions?.onLocalSubmit,
         model: composerModel,
         engine: composerEngine,
         effort: composerEffort,
         attachments,
+        ...(submitOptions?.composerModeContext === undefined
+          ? {}
+          : { composerModeContext: submitOptions.composerModeContext }),
         ...(submitOptions?.contextItems === undefined
           ? {}
           : { contextItems: submitOptions.contextItems }),
@@ -834,29 +851,20 @@ function PromptComposerInner({
           />
         </div>
       ) : null}
-      {engineStatusUnresolved ? (
-        engineState === "unknown" ? (
-          <div className="mb-2 flex justify-center">
-            <Spinner
-              aria-label={t("common.loading")}
-              className="size-4 text-muted-foreground"
-            />
-          </div>
-        ) : (
-          <div
-            className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-            role="status"
+      {engineState === "unavailable" ? (
+        <div
+          className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+          role="status"
+        >
+          <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+          <button
+            type="button"
+            className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={retryEngineStatus}
           >
-            <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-            <button
-              type="button"
-              className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={retryEngineStatus}
-            >
-              {t("agentChat.common.retry")}
-            </button>
-          </div>
-        )
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
       ) : null}
       <AgentComposerFrame
         className={cn(
@@ -885,8 +893,10 @@ function PromptComposerInner({
           ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled}
+          contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled || engineSubmissionBlocked}
-          submitting={submitting || engineState === "unknown"}
+          sendButtonDisabled={sendButtonDisabled}
+          submitting={submitting}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}
@@ -895,9 +905,12 @@ function PromptComposerInner({
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
           onBeforeSubmit={onBeforeSubmit}
+          onSubmissionPendingChange={onSubmissionPendingChange}
+          getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           onAttachmentError={onAttachmentError}
           interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
           clearOnSubmit={!preserveDraftOnSubmit}
+          clearOnSubmitImmediately={clearOnSubmitImmediately}
           plusMenuMode={
             plusMenuMode ??
             (attachmentsEnabled || onAttachmentRequest

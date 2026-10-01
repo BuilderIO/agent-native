@@ -3,7 +3,7 @@ import {
   AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { CLIPS_LABS } from "@shared/labs";
 import { useMemo } from "react";
 
@@ -23,6 +23,16 @@ export default function SettingsIndexRoute() {
   const labs = useMemo(
     () =>
       CLIPS_LABS.map((lab) => {
+        if (lab.key === "clips.resilient-recording") {
+          return {
+            ...lab,
+            displayName: t("settings.labResilientRecording"),
+            description: t("settings.labResilientRecordingDescription"),
+            inheritedMixedDescription: t(
+              "settings.labResilientRecordingMixedDescription",
+            ),
+          };
+        }
         if (lab.key === "clips.video-editing") {
           return {
             ...lab,

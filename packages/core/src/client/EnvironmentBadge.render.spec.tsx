@@ -8,14 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const useSessionMock = vi.fn();
 const injectedAgentNativeConfigMock = vi.fn();
 
-vi.mock("./use-session.js", () => ({
+vi.mock("@agent-native/core/client/use-session", async () => ({
+  ...(await import("./use-session.js")),
   useSession: () => useSessionMock(),
 }));
-vi.mock("./app-config.js", () => ({
+vi.mock("@agent-native/core/client/app-config", () => ({
   injectedAgentNativeConfig: () => injectedAgentNativeConfigMock(),
 }));
 
-import { EnvironmentBadge } from "./EnvironmentBadge.js";
+import { EnvironmentBadge } from "../../../toolkit/src/app/shared/EnvironmentBadge.js";
 
 describe("EnvironmentBadge render", () => {
   let container: HTMLDivElement;
@@ -50,6 +51,7 @@ describe("EnvironmentBadge render", () => {
       configurable: true,
       value: originalLocation,
     });
+    delete window.__agentNativeNavigationStarted;
     Object.defineProperty(window.navigator, "userAgent", {
       configurable: true,
       value: originalUserAgent,

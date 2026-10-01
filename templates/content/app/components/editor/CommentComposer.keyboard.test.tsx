@@ -14,7 +14,10 @@ import { CommentComposer, type CommentAiDraft } from "./CommentComposer";
 
 const onModelChange = vi.fn();
 const onAiDraftChange = vi.fn();
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   useChatModels: () => ({
     configuredModels: [
       {

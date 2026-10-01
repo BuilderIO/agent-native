@@ -674,6 +674,10 @@ const messages = {
       ruleBackfillMatches: "{{count}} mensajes recientes coinciden",
       ruleBackfillNoMatches: "Ningún mensaje reciente coincide con esta regla.",
       ruleBackfillFailed: "No se pudo aplicar esta regla al correo reciente.",
+      ruleBackfillRunFailed:
+        "No se pudo completar la aplicación de reglas al correo reciente.",
+      backfillStatusLoadFailed:
+        "No se pudo cargar el estado reciente de las reglas.",
       ruleBackfillPartialFailure:
         "No se pudieron actualizar {{count}} mensajes.",
       ruleBackfillUndoing: "Restaurando el correo reciente…",

@@ -1786,6 +1786,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
   });
 
   it("still clears a stale collab value when there is no local emission", async () => {
+    vi.useFakeTimers();
     const { captured, Harness } = makeCollabSeedHarness("stale persisted body");
     act(() =>
       root.render(
@@ -1799,7 +1800,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       ),
     );
     expect(getEditorMarkdown(captured.editor!)).toBe("stale persisted body");
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    await act(async () => vi.advanceTimersByTimeAsync(30));
 
     expect(getEditorMarkdown(captured.editor!)).toBe("canonical SQL body");
     expect(captured.emitted).toEqual([]);

@@ -1,7 +1,8 @@
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
+import { useLabState } from "@agent-native/core/client/labs";
+import { CLIPS_RESILIENT_RECORDING } from "@shared/labs";
 import { isImageRecording } from "@shared/recording-kind";
+import { recordingPolicyFromLab } from "@shared/recording-policy";
 import { isDefaultTitle } from "@shared/title-source";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
@@ -56,6 +57,7 @@ import {
   hasRecordingBackup,
   subscribeToRecordingBackupChanges,
 } from "@/lib/recording-backup";
+import { getRecordingUploadRecoveryEnabled } from "@/lib/recording-recovery-policy";
 import {
   isAtRiskRecordingUpload,
   isStaleRecordingUpload,
@@ -119,16 +121,28 @@ export function RecordingCard({
 }: RecordingCardProps) {
   const t = useT();
   const formatters = useFormatters();
-  const uploadRetryEnabled = useFeatureFlag(UPLOAD_RETRY_RESUME_FLAG.key);
+  const recordingLab = useLabState(CLIPS_RESILIENT_RECORDING.key);
+  const uploadRetryEnabled =
+    recordingLab.isSuccess &&
+    recordingLab.source !== null &&
+    recordingPolicyFromLab({
+      enabled: recordingLab.enabled,
+      source: recordingLab.source,
+      legacyValues: recordingLab.legacyValues,
+    }).recovery;
   const formatDate = (date: Date) => formatters.formatDate(date);
   const formatRelativeTime = (
     value: number,
     unit: Parameters<typeof formatters.formatRelativeTime>[1],
   ) => formatters.formatRelativeTime(value, unit);
-  const [hovered, setHovered] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [hasBackup, setHasBackup] = useState(false);
+  const [hasBackup, setHasBackup] = useState<boolean | null>(null);
+  const [savedRecovery, setSavedRecovery] = useState<{
+    recordingId: string;
+    enabled: boolean;
+  } | null>(null);
+  const [recoveryCheckFailed, setRecoveryCheckFailed] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const pendingTrashRef = useRef(false);
 
@@ -170,17 +184,19 @@ export function RecordingCard({
     (recording.status === "failed" &&
       isRetryableUploadInterruption(recording.failureReason)) ||
     (recording.status === "uploading" && staleUpload);
+  const retryableUpload =
+    Boolean(onRetry) && retryableStatus && !nativeUploadPaused;
   const canRetry =
-    uploadRetryEnabled &&
-    Boolean(onRetry) &&
-    retryableStatus &&
-    !nativeUploadPaused;
+    retryableUpload &&
+    savedRecovery?.recordingId === recording.id &&
+    savedRecovery.enabled;
 
   useEffect(() => {
-    if (!canRetry) {
+    if (!retryableUpload) {
       setHasBackup(false);
       return;
     }
+    setHasBackup(null);
     let cancelled = false;
     const checkForBackup = () => {
       void hasRecordingBackup(recording.id).then((found) => {
@@ -196,7 +212,34 @@ export function RecordingCard({
       cancelled = true;
       unsubscribe();
     };
-  }, [canRetry, recording.id]);
+  }, [retryableUpload, recording.id]);
+
+  useEffect(() => {
+    setSavedRecovery(null);
+    setRecoveryCheckFailed(false);
+    if (!retryableUpload || hasBackup !== true) return;
+    let cancelled = false;
+    void getRecordingUploadRecoveryEnabled(recording.id)
+      .then((enabled) => {
+        if (cancelled) return;
+        setSavedRecovery({ recordingId: recording.id, enabled });
+        setRecoveryCheckFailed(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSavedRecovery(null);
+        setRecoveryCheckFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    uploadRetryEnabled,
+    recordingLab.source,
+    retryableUpload,
+    hasBackup,
+    recording.id,
+  ]);
 
   const handleRetry = useCallback(
     async (e: React.MouseEvent) => {
@@ -221,15 +264,11 @@ export function RecordingCard({
   const displayOwnerName = recording.ownerName?.trim() || recording.ownerEmail;
   const visibilityLabel = t(`shareUi.visibility.${recording.visibility}.label`);
 
-  const displayThumbnail = useMemo(() => {
-    if (hovered && recording.animatedThumbnailUrl)
-      return recording.animatedThumbnailUrl;
-    return recording.thumbnailUrl;
-  }, [hovered, recording.animatedThumbnailUrl, recording.thumbnailUrl]);
+  const displayThumbnail = recording.thumbnailUrl;
 
   useEffect(() => {
     setThumbnailFailed(false);
-  }, [displayThumbnail]);
+  }, [recording.thumbnailUrl]);
 
   const ownerInitials = useMemo(() => {
     const words = displayOwnerName.split(/\s+/).filter(Boolean);
@@ -291,8 +330,6 @@ export function RecordingCard({
       <ContextMenuTrigger asChild>
         <div
           role="article"
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
           className={cn(
             "group relative flex flex-col rounded-lg border bg-card overflow-hidden cursor-pointer",
             "border-border/80 hover:border-primary/40",
@@ -453,7 +490,14 @@ export function RecordingCard({
                           ? t("clipsFinalRaw.retrying")
                           : t("clipsFinalRaw.retry")}
                       </Button>
-                    ) : canRetry ? (
+                    ) : recoveryCheckFailed && hasBackup ? (
+                      <div
+                        role="alert"
+                        className="mt-1.5 text-[10px] leading-snug text-muted-foreground"
+                      >
+                        {t("clipsFinalRaw.retryCheckFailed")}
+                      </div>
+                    ) : retryableUpload && hasBackup === false ? (
                       <div className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
                         {t("clipsFinalRaw.retryUnavailableHere")}
                       </div>

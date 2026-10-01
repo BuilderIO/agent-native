@@ -251,6 +251,42 @@ describe("resolveFilterVars", () => {
     ).toBe("SELECT __invalid_custom_date_range__");
   });
 
+  it("does not replace missing custom bounds with the preset range", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "timeRange",
+        label: "Time range",
+        type: "select",
+        default: "90d",
+        options: [{ value: "90d", label: "Last 90 days" }],
+      },
+    ];
+    const params: Record<string, string> = { timeRange: "custom" };
+    const vars = resolveFilterVars(filters, (key) => params[key] || "");
+
+    expect(vars.timeRangeStart).toBe("");
+    expect(vars.timeRangeEnd).toBe("");
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE '{{timeRange}}' = 'custom'",
+        vars,
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE '{{timeRange}}' = 'custom'",
+        { timeRange: "custom" },
+        { source: "first-party" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+
+    params.timeRangeStart = "2026-08-01";
+    const partial = resolveFilterVars(filters, (key) => params[key] || "");
+    expect(partial.timeRangeStart).toBe("2026-08-01");
+    expect(partial.timeRangeEnd).toBe("");
+  });
+
   it("adds custom bounds to replay date expressions in persisted queries", () => {
     const sql = interpolateDashboardPanelSql(
       "SELECT * FROM replay_sessions WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '365d' AND substr(started_at, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) ",

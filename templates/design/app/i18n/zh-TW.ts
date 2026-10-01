@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "整合" } },
   creativeContext: {
     title: "資料庫",
     description: "可重複使用的創意脈絡，協助代理在不同工作中保持一致。",
@@ -158,6 +159,11 @@ export default {
     openAgentSettings: "管理代理",
     labTweaks: "設計微調",
     labTweaksDescription: "試用 AI 設計微調功能。",
+    labFullAppBuilding: "建構完整應用程式",
+    labFullAppBuildingDescription:
+      "試用 Builder，根據你的設計建構可運作的應用程式。",
+    labDesignReviewTools: "設計審查工具",
+    labDesignReviewToolsDescription: "檢查設計中的無障礙問題並比較視覺變更。",
     mcpAbout:
       "將 Design 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Design 中工作：建立和編輯設計。它只能看到你有權看到的內容。",
   },
@@ -269,8 +275,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "正在檢查 AI 連線…",
-      providerStatusUnavailable: "無法檢查 AI 連線。",
+      providerStatusUnavailable: "無法確認 AI 是否已就緒。",
     },
     common: { retry: "重試" },
   },
@@ -1223,6 +1228,7 @@ export default {
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
+      copyAgentPrompt: "複製代理提示",
       copyFullPrompt: "複製完整提示",
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
@@ -1339,6 +1345,7 @@ export default {
         "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
       reactSourceAnchorsUnavailable:
         "此應用程式未向編輯器提供原始碼位置，因此無法將此圖層對應到特定行。請讓代理程式完成此變更。",
+      sourceLocationSnapshotFailed: "無法檢查此預覽的原始碼位置。",
       designStateLiveScreen:
         "即時畫面無法預覽設計狀態 — 其內容是執行中的應用程式，而非文件。",
     },
@@ -1519,7 +1526,7 @@ export default {
         "在 Chrome 的提示中選擇「允許」，即可啟用即時編輯。",
       permissionPromptNoPrompt: "沒有看到 Chrome 提示？",
       permissionPromptSettingsInstructions:
-        "點擊網址列左側的網站控制圖示，開啟網站設定，然後允許存取裝置上的 App。",
+        "點擊網址列左側的網站控制圖示，開啟網站設定，然後將本機網路設為「允許」。",
       permissionPromptRetry: "重試連線",
     },
   },
@@ -1712,7 +1719,7 @@ export default {
     layoutLabel: "畫面版面已可儲存",
   },
   homeContext: {
-    websiteReference: "附加網站",
+    websiteReference: "新增網站",
     websiteUrlLabel: "網站 URL",
     websiteUrl: "貼上網站 URL",
     figmaUrlLabel: "Figma 連結",
@@ -1738,7 +1745,7 @@ export default {
     design: "設計",
     slides: "投影片",
     referenceDesign: "參考設計",
-    figmaReference: "附加 Figma",
+    figmaReference: "新增 Figma",
     referenceDeck: "參考簡報",
     quickSaas: "建立 SaaS 登陸頁",
     quickDashboard: "建立儀表板",

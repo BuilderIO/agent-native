@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { LLM_MISSING_CREDENTIALS_MESSAGE } from "../agent/engine/credential-errors.js";
 import { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } from "../app-config/run-lifecycle-invariants.js";
-import { subscribeChatFirstOpenApp } from "./chat-first.js";
+import { subscribeChatFirstOpenApp } from "./chat-first-state.js";
 import {
   AgentAutoContinueSignal,
   admitSSEEvent,
@@ -2139,7 +2140,8 @@ describe("SSE event processor error classification", () => {
       metadata: {
         custom: {
           runError: {
-            message: "No LLM provider is connected",
+            message: LLM_MISSING_CREDENTIALS_MESSAGE,
+            details: "No LLM provider is connected",
             errorCode: "missing_credentials",
           },
         },

@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink, captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -22,6 +22,49 @@ function parseJsonProjection(value: unknown, label: string): unknown {
   } catch (error) {
     throw new Error(`Invalid ${label} JSON projection`, { cause: error });
   }
+}
+
+// Thumbnails render from the first slide only; a slide beyond this size is
+// reported as too large instead of inflating every gallery page.
+const MAX_PREVIEW_SLIDE_CHARS = 128 * 1024;
+
+const firstSlideText = sql`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
+const previewProjection = {
+  previewSlide: sql<
+    string | null
+  >`(case when length(${firstSlideText}) <= ${MAX_PREVIEW_SLIDE_CHARS} then ${firstSlideText} end)`,
+  previewTooLarge: sql<
+    boolean | null
+  >`(length(${firstSlideText}) > ${MAX_PREVIEW_SLIDE_CHARS})`,
+  aspectRatio: sql<
+    string | null
+  >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`,
+};
+
+function previewFromRawData(data: string, deckId: string) {
+  let previewSlide: string | null = null;
+  let previewTooLarge: boolean | null = null;
+  let aspectRatio: string | null = null;
+  try {
+    const parsed = JSON.parse(data);
+    const firstSlide = Array.isArray(parsed?.slides)
+      ? parsed.slides[0]
+      : undefined;
+    if (firstSlide !== undefined) {
+      const text = JSON.stringify(firstSlide);
+      if (text.length <= MAX_PREVIEW_SLIDE_CHARS) previewSlide = text;
+      else previewTooLarge = true;
+    }
+    if (typeof parsed?.aspectRatio === "string") {
+      aspectRatio = parsed.aspectRatio;
+    }
+  } catch (parseError) {
+    captureError(parseError, {
+      route: "list-decks",
+      extra: { deckId },
+    });
+  }
+  return { previewSlide, previewTooLarge, aspectRatio };
 }
 
 const INVALID_TEXT_REPRESENTATION = "22P02";
@@ -68,7 +111,7 @@ function decodeDeckCursor(value: string): { updatedAt: string; id: string } {
 
 export default defineAction({
   description:
-    "List decks from the database with metadata. Use updatedSince, limit, and cursor for bounded incremental sync; paged responses are metadata-only, so use get-deck for slide content.",
+    "List accessible decks with metadata. Use updatedSince, limit, and cursor for bounded incremental sync, includePreview for the first slide, or get-deck for full slide content.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -84,7 +127,7 @@ export default defineAction({
       .enum(["true", "false"])
       .optional()
       .describe(
-        "Set to 'true' with light mode to include only the first slide preview",
+        "Set to 'true' with light mode or a bounded page to include only the first slide preview",
       ),
     light: z
       .enum(["true", "false"])
@@ -127,12 +170,18 @@ export default defineAction({
       .optional()
       .describe("Opaque cursor returned by the previous page"),
   }),
+  readOnly: true,
   http: { method: "GET" },
   link: () => ({
     url: slidesDeepLink(),
     label: "Open decks in Slides",
     view: "list",
   }),
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const db = getDb();
     const ownerEmail = getRequestUserEmail();
@@ -185,20 +234,77 @@ export default defineAction({
         ? and(where, ...pageConditions)
         : where;
       const pageSize = args.limit ?? DEFAULT_PAGE_SIZE;
-      const rows = await db
+      const previewRequested = args.includePreview === "true";
+      const pagedMeta = {
+        id: schema.decks.id,
+        title: schema.decks.title,
+        ownerEmail: schema.decks.ownerEmail,
+        designSystemId: schema.decks.designSystemId,
+        createdAt: schema.decks.createdAt,
+        updatedAt: schema.decks.updatedAt,
+        visibility: schema.decks.visibility,
+      };
+      const pagedQuery = db
         .select({
-          id: schema.decks.id,
-          title: schema.decks.title,
-          ownerEmail: schema.decks.ownerEmail,
-          designSystemId: schema.decks.designSystemId,
-          createdAt: schema.decks.createdAt,
-          updatedAt: schema.decks.updatedAt,
-          visibility: schema.decks.visibility,
+          ...pagedMeta,
+          previewSlide: previewRequested
+            ? previewProjection.previewSlide
+            : sql<null>`null`,
+          previewTooLarge: previewRequested
+            ? previewProjection.previewTooLarge
+            : sql<null>`null`,
+          aspectRatio: previewRequested
+            ? previewProjection.aspectRatio
+            : sql<null>`null`,
         })
         .from(schema.decks)
         .where(pagedWhere)
         .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
         .limit(pageSize + 1);
+      let rows: Awaited<typeof pagedQuery>;
+      try {
+        rows = await pagedQuery;
+      } catch (error) {
+        if (!previewRequested || !isInvalidJsonCastError(error)) throw error;
+        captureError(error, {
+          route: "list-decks",
+          extra: { includePreview: true, paged: true },
+        });
+        const metaRows = await db
+          .select(pagedMeta)
+          .from(schema.decks)
+          .where(pagedWhere)
+          .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
+          .limit(pageSize + 1);
+        // Only a row whose own projection fails pays for a full body read.
+        rows = await Promise.all(
+          metaRows.map(async (meta) => {
+            const rowWhere = eq(schema.decks.id, meta.id);
+            try {
+              const [preview] = await db
+                .select(previewProjection)
+                .from(schema.decks)
+                .where(rowWhere);
+              return {
+                ...meta,
+                previewSlide: preview?.previewSlide ?? null,
+                previewTooLarge: preview?.previewTooLarge ?? null,
+                aspectRatio: preview?.aspectRatio ?? null,
+              };
+            } catch (rowError) {
+              if (!isInvalidJsonCastError(rowError)) throw rowError;
+              const [raw] = await db
+                .select({ data: schema.decks.data })
+                .from(schema.decks)
+                .where(rowWhere);
+              return {
+                ...meta,
+                ...previewFromRawData(raw?.data ?? "", meta.id),
+              };
+            }
+          }),
+        );
+      }
       const hasNextPage = rows.length > pageSize;
       const visibleRows = hasNextPage ? rows.slice(0, pageSize) : rows;
       const lastRow = visibleRows[visibleRows.length - 1];
@@ -224,6 +330,20 @@ export default defineAction({
           normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        ...(args.includePreview === "true"
+          ? {
+              ...(row.previewSlide !== null
+                ? {
+                    previewSlide: parseJsonProjection(
+                      row.previewSlide,
+                      "first slide preview",
+                    ),
+                  }
+                : {}),
+              ...(row.previewTooLarge ? { previewTooLarge: true } : {}),
+              aspectRatio: row.aspectRatio,
+            }
+          : {}),
       }));
       return {
         count: decks.length,
@@ -234,12 +354,6 @@ export default defineAction({
 
     if (args.light === "true") {
       if (args.includePreview === "true") {
-        const previewSlideProjection = sql<
-          string | null
-        >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
-        const aspectRatioProjection = sql<
-          string | null
-        >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`;
         const previewQuery = db
           .select({
             id: schema.decks.id,
@@ -247,8 +361,7 @@ export default defineAction({
             updatedAt: schema.decks.updatedAt,
             visibility: schema.decks.visibility,
             ownerEmail: schema.decks.ownerEmail,
-            previewSlide: previewSlideProjection,
-            aspectRatio: aspectRatioProjection,
+            ...previewProjection,
           })
           .from(schema.decks)
           .where(where)
@@ -275,28 +388,10 @@ export default defineAction({
             .from(schema.decks)
             .where(where)
             .orderBy(desc(schema.decks.updatedAt));
-          rows = rawRows.map(({ data, ...meta }) => {
-            let previewSlide: string | null = null;
-            let aspectRatio: string | null = null;
-            try {
-              const parsed = JSON.parse(data);
-              const firstSlide = Array.isArray(parsed?.slides)
-                ? parsed.slides[0]
-                : undefined;
-              if (firstSlide !== undefined) {
-                previewSlide = JSON.stringify(firstSlide);
-              }
-              if (typeof parsed?.aspectRatio === "string") {
-                aspectRatio = parsed.aspectRatio;
-              }
-            } catch (parseError) {
-              captureError(parseError, {
-                route: "list-decks",
-                extra: { deckId: meta.id },
-              });
-            }
-            return { ...meta, previewSlide, aspectRatio };
-          });
+          rows = rawRows.map(({ data, ...meta }) => ({
+            ...meta,
+            ...previewFromRawData(data, meta.id),
+          }));
         }
 
         return {
@@ -318,6 +413,7 @@ export default defineAction({
               ...(previewSlide && typeof previewSlide === "object"
                 ? { previewSlide }
                 : {}),
+              ...(row.previewTooLarge ? { previewTooLarge: true } : {}),
               ...(typeof row.aspectRatio === "string"
                 ? { aspectRatio: row.aspectRatio }
                 : {}),

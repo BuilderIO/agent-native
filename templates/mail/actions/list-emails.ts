@@ -4,6 +4,8 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
+import { assertGmailNotCoolingDown } from "../server/lib/gmail-quota.js";
+import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import {
   getClients,
   getConnectedAccountsWithErrors,
@@ -663,6 +665,7 @@ export default defineAction({
           throw error;
         }
       }
+      await assertGmailNotCoolingDown(clients.map((client) => client.email));
       const labelMap = new Map<string, string>();
       await Promise.all(
         clients.map(async ({ accessToken }) => {
@@ -685,16 +688,12 @@ export default defineAction({
       });
 
       if (!listResult.ok) {
-        return JSON.stringify(
-          {
-            error: listResult.message,
-            ...(listResult.isQuotaError && {
-              retryAfterSeconds: listResult.retryAfterSeconds,
-            }),
-          },
-          null,
-          2,
-        );
+        if (listResult.isQuotaError) {
+          throw new GmailQuotaCooldownError(
+            (listResult.retryAfterSeconds ?? 60) * 1000,
+          );
+        }
+        return JSON.stringify({ error: listResult.message }, null, 2);
       }
 
       let emails: any[] = listResult.emails;

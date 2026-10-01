@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integraciones" } },
   creativeContext: {
     title: "Biblioteca",
     description:
@@ -168,6 +169,12 @@ export default {
     openAgentSettings: "Gestionar agente",
     labTweaks: "Ajustes de diseño",
     labTweaksDescription: "Prueba los ajustes de diseño con IA.",
+    labFullAppBuilding: "Creación de aplicaciones completas",
+    labFullAppBuildingDescription:
+      "Prueba a crear aplicaciones funcionales a partir de tus diseños con Builder.",
+    labDesignReviewTools: "Herramientas de revisión de diseños",
+    labDesignReviewToolsDescription:
+      "Comprueba si tus diseños tienen problemas de accesibilidad y compara los cambios visuales.",
     mcpAbout:
       "Conecta Design con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Design por ti: crear diseños y editarlos. Solo ve lo que tú puedes ver.",
   },
@@ -186,8 +193,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "Comprobando la conexión de IA…",
-      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+      providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
     common: { retry: "Reintentar" },
   },
@@ -1266,6 +1272,7 @@ export default {
       verifying: "Verificando el código y el runtime…",
       retryWithAgent: "Reintentar verificación del código",
       copyPrompt: "Copiar prompt a tu agente",
+      copyAgentPrompt: "Copiar prompt del agente",
       copyFullPrompt: "Copiar el prompt completo",
       abortPreview: "Cancelar vista previa e interactuar",
       agentMessage:
@@ -1428,6 +1435,8 @@ export default {
         "No se puede localizar esta capa en el código fuente. Vuelve a intentarlo cuando la aplicación termine de cargar, o pide al agente que haga el cambio.",
       reactSourceAnchorsUnavailable:
         "Esta aplicación no expone ubicaciones de código al editor, así que esta capa no se puede rastrear hasta una línea. Pide al agente que haga el cambio.",
+      sourceLocationSnapshotFailed:
+        "No se pudieron comprobar las ubicaciones del código fuente de esta vista previa.",
       screenSourceUpdated: "Fuente de pantalla actualizada",
       screenSourceUpdateFailed: "No se pudo actualizar la fuente de pantalla",
       vectorEditUnsupported:
@@ -1490,7 +1499,7 @@ export default {
         "Selecciona Permitir en el aviso de Chrome para habilitar la edición en vivo.",
       permissionPromptNoPrompt: "¿No aparece el aviso de Chrome?",
       permissionPromptSettingsInstructions:
-        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y permite el acceso a las aplicaciones de tu dispositivo.",
+        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y establece Red local en Permitir.",
       permissionPromptRetry: "Reintentar conexión",
     },
   },
@@ -1680,7 +1689,7 @@ export default {
     staleAnchorDetail: "Ya no se encuentra el elemento original en el lienzo.",
   },
   homeContext: {
-    websiteReference: "Adjuntar sitio web",
+    websiteReference: "Añadir sitio web",
     websiteUrlLabel: "URL del sitio web",
     websiteUrl: "Pega la URL de un sitio web",
     figmaUrlLabel: "Enlace de Figma",
@@ -1709,7 +1718,7 @@ export default {
     design: "Diseño",
     slides: "Diapositivas",
     referenceDesign: "Usar un diseño como referencia",
-    figmaReference: "Adjuntar Figma",
+    figmaReference: "Añadir Figma",
     referenceDeck: "Usar una presentación como referencia",
     quickSaas: "Crear una página de SaaS",
     quickDashboard: "Crear un panel",

@@ -8,7 +8,6 @@ import {
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { type ReviewThread } from "@agent-native/core/client/review";
 import {
   clampZoomFactor,
   normalizeWheelDeltaPx,
@@ -18,6 +17,7 @@ import {
 } from "@agent-native/core/client/zoom-gesture";
 import type { ReviewComment } from "@agent-native/core/review";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
+import { type ReviewThread } from "@agent-native/toolkit/app/review";
 import { isLoopbackPreviewAllowed } from "@shared/builder-preview-url";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
@@ -491,7 +491,13 @@ type StyleReplayPatch = {
   interactionState?: InteractionState;
 };
 
-type BridgeRegistrationAttemptResult = boolean | "stale-preview-token" | null;
+const LIVE_EDIT_BRIDGE_REGISTRATION_TIMEOUT_MS = 15_000;
+
+type BridgeRegistrationAttemptResult =
+  | boolean
+  | "registration-timeout"
+  | "stale-preview-token"
+  | null;
 
 export type EditorDragStateChange = {
   active: boolean;
@@ -506,6 +512,10 @@ export type EditorDragStateChange = {
     insert?: boolean;
   };
 };
+
+export type RuntimeLayerSnapshotReadiness =
+  | { status: "loading"; documentId?: string }
+  | { status: "ready" | "error"; documentId: string };
 
 interface DesignCanvasProps {
   content: string;
@@ -532,6 +542,7 @@ interface DesignCanvasProps {
    */
   sourceType?: "inline" | "localhost" | "fusion";
   bridgeUrl?: string;
+  allowLocalNetworkAccessPrompt?: boolean;
   previewUrlOverride?: string;
   previewUrlSourceKey?: string;
   connectionId?: string;
@@ -552,6 +563,9 @@ interface DesignCanvasProps {
     documentId?: string;
     reservationToken?: string;
   }) => void;
+  onRuntimeLayerSnapshotReadinessChange?: (
+    readiness: RuntimeLayerSnapshotReadiness,
+  ) => void;
   onReserveVisualEditSnapshot?: (screenId?: string) => Promise<{
     reservationToken: string;
   }>;
@@ -571,6 +585,7 @@ interface DesignCanvasProps {
   onRoutePathChange?: (screenId: string | undefined, routePath: string) => void;
   onBootStart?: () => void;
   onBootReady?: () => void;
+  onRuntimeReload?: () => void;
   onScreenRootComputedStyles?: (computedStyles: Record<string, string>) => void;
   onRuntimeVerificationSnapshot?: (snapshot: {
     requestId: number;
@@ -995,6 +1010,7 @@ function classifyLiveEditHealthProbe(
 }
 
 const LIVE_EDIT_READY_TIMEOUT_MS = 4000;
+const LIVE_EDIT_HEALTH_PROBE_TIMEOUT_MS = 8_000;
 const MAX_LIVE_EDIT_RESTART_ATTEMPTS = 3;
 const LIVE_EDIT_SAME_INSTANCE_MAX_REARM_DELAY_MS = 16_000;
 const LIVE_EDIT_SAME_INSTANCE_ERROR_CEILING_MS = 48_000;
@@ -1249,6 +1265,7 @@ export function DesignCanvas({
   contentKey,
   sourceType,
   bridgeUrl,
+  allowLocalNetworkAccessPrompt = true,
   previewUrlOverride,
   previewUrlSourceKey,
   connectionId,
@@ -1259,6 +1276,7 @@ export function DesignCanvas({
   blockPreviewInteraction = false,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
+  onRuntimeLayerSnapshotReadinessChange,
   onReserveVisualEditSnapshot,
   onBridgeReady,
   onPreviewTokenChange,
@@ -1267,6 +1285,7 @@ export function DesignCanvas({
   onRoutePathChange,
   onBootStart,
   onBootReady,
+  onRuntimeReload,
   onScreenRootComputedStyles,
   onRuntimeVerificationSnapshot,
   fusionUrl,
@@ -1521,10 +1540,25 @@ export function DesignCanvas({
   const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
+  const readyIframeDocumentIdentityRef = useRef(readyIframeDocumentIdentity);
+  readyIframeDocumentIdentityRef.current = readyIframeDocumentIdentity;
   const [iframeReloadSequence, setIframeReloadSequence] = useState(0);
   const liveRoutePathRef = useRef<string | null>(null);
   const liveEditDocumentIdsRef = useRef(new Set<string>());
   const liveEditDocumentIdRef = useRef<string | null>(null);
+  const runtimeReloadingFromDocumentIdRef = useRef<string | undefined>(
+    undefined,
+  );
+  const readyRuntimeLayerDocumentIdRef = useRef<string | null>(null);
+  const runtimeLayerSnapshotDocumentIdRef = useRef<string | null>(null);
+  const runtimeLayerSnapshotReadinessRequestIdRef = useRef(0);
+  const expectedRuntimeLayerSnapshotReadinessRequestIdRef = useRef<
+    number | null
+  >(null);
+  const pendingRuntimeLayerSnapshotReadinessRef = useRef<{
+    readiness: RuntimeLayerSnapshotReadiness;
+    documentIdentity: string;
+  } | null>(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
   const pendingOneShotMessagesRef = useRef<unknown[]>([]);
   const pendingRuntimeDeletePreviewRef = useRef<{
@@ -1620,9 +1654,30 @@ export function DesignCanvas({
     },
     [probeBridgeReadinessUntilDrained],
   );
-  const requestRuntimeLayerSnapshot = useCallback(() => {
-    postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
-  }, [postOneShotBridgeMessage]);
+  const requestRuntimeLayerSnapshot = useCallback(
+    (readinessRequestId?: number) => {
+      postOneShotBridgeMessage({
+        type: "request-runtime-layer-snapshot",
+        ...(readinessRequestId !== undefined ? { readinessRequestId } : {}),
+      });
+    },
+    [postOneShotBridgeMessage],
+  );
+  const refreshRuntimeLayerSnapshotAfterReady = useCallback(() => {
+    if (!onRuntimeLayerSnapshotReadinessChange) return;
+    pendingRuntimeLayerSnapshotReadinessRef.current = null;
+    const readinessRequestId =
+      ++runtimeLayerSnapshotReadinessRequestIdRef.current;
+    expectedRuntimeLayerSnapshotReadinessRequestIdRef.current =
+      readinessRequestId;
+    onRuntimeLayerSnapshotReadinessChange({
+      status: "loading",
+      ...(readyRuntimeLayerDocumentIdRef.current
+        ? { documentId: readyRuntimeLayerDocumentIdRef.current }
+        : {}),
+    });
+    requestRuntimeLayerSnapshot(readinessRequestId);
+  }, [onRuntimeLayerSnapshotReadinessChange, requestRuntimeLayerSnapshot]);
   const sharedSnapshotRequestTimerRef = useRef<number | undefined>(undefined);
   const requestSharedSnapshotAfterEdit = useCallback(() => {
     if (sourceType !== "localhost" || snapshotOnly) return;
@@ -1911,6 +1966,7 @@ export function DesignCanvas({
   const bridgeRegistrationRetryAttemptRef = useRef(0);
   const bridgeRegistrationRetryTimerRef = useRef<number | undefined>(undefined);
   const bridgeRegistrationAttemptGenerationRef = useRef(0);
+  const bridgeRegistrationControllerRef = useRef<AbortController | null>(null);
   const previewTokenRefreshAttemptRef = useRef<string | null>(null);
   const [bridgeRegistrationRetryNonce, setBridgeRegistrationRetryNonce] =
     useState(0);
@@ -2254,8 +2310,11 @@ export function DesignCanvas({
   }, [externalPreviewUrl, runtimeVerificationRequest]);
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
-    usesLiveEditInjectedBridge && !liveEditBridgeRegistered;
+    registerRuntimeBridge &&
+    usesLiveEditInjectedBridge &&
+    !liveEditBridgeRegistered;
   const showProactiveLocalNetworkAccessPrompt =
+    allowLocalNetworkAccessPrompt &&
     usesLiveEditInjectedBridge &&
     localNetworkAccessPermissionState === "prompt" &&
     !liveEditBridgeRegistered &&
@@ -2385,6 +2444,8 @@ export function DesignCanvas({
   useEffect(
     () => () => {
       bridgeRegistrationAttemptGenerationRef.current += 1;
+      bridgeRegistrationControllerRef.current?.abort();
+      bridgeRegistrationControllerRef.current = null;
     },
     [],
   );
@@ -2401,6 +2462,7 @@ export function DesignCanvas({
   const attemptBridgeRegistration =
     useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
       if (
+        !registerRuntimeBridge ||
         !usesLiveEditInjectedBridge ||
         !bridgeUrl ||
         !effectivePreviewToken ||
@@ -2413,23 +2475,40 @@ export function DesignCanvas({
       const generation = ++bridgeRegistrationAttemptGenerationRef.current;
       const isCurrent = () =>
         bridgeRegistrationAttemptGenerationRef.current === generation;
+      bridgeRegistrationControllerRef.current?.abort();
       setBridgeConnectionLostError(null);
       const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
+      const controller = new AbortController();
+      bridgeRegistrationControllerRef.current = controller;
+      let registrationTimedOut = false;
       try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-design-preview-token": effectivePreviewToken,
-            "x-agent-native-live-edit-registration-capability":
-              effectiveLiveEditRegistrationCapability ??
-              effectiveLiveEditCapability!,
-          },
-          body: JSON.stringify({
-            script: liveEditBridgeScript,
-            bridgeKey: liveEditBridgeKey,
-            designId,
+        let timeoutId: number | undefined;
+        const response = await Promise.race([
+          fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-design-preview-token": effectivePreviewToken,
+              "x-agent-native-live-edit-registration-capability":
+                effectiveLiveEditRegistrationCapability ??
+                effectiveLiveEditCapability!,
+            },
+            body: JSON.stringify({
+              script: liveEditBridgeScript,
+              bridgeKey: liveEditBridgeKey,
+              designId,
+            }),
+            signal: controller.signal,
           }),
+          new Promise<never>((_resolve, reject) => {
+            timeoutId = window.setTimeout(() => {
+              registrationTimedOut = true;
+              controller.abort();
+              reject(new Error("Live editor bridge registration timed out"));
+            }, LIVE_EDIT_BRIDGE_REGISTRATION_TIMEOUT_MS);
+          }),
+        ]).finally(() => {
+          if (timeoutId !== undefined) window.clearTimeout(timeoutId);
         });
         if (isPreviewTokenStaleStatus(response.status)) {
           if (!isCurrent()) return null;
@@ -2554,13 +2633,25 @@ export function DesignCanvas({
         setRegisteredLiveEditBridgeKey(null);
         setBridgeRegistrationError({
           bridgeKey: liveEditBridgeKey,
-          message: error instanceof Error ? error.message : String(error),
+          message: registrationTimedOut
+            ? ""
+            : error instanceof Error
+              ? error.message
+              : String(error),
         });
         setConnectingLocalNetworkAccess(false);
-        void classifyBridgeRegistrationFailure().then((kind) => {
-          if (isCurrent()) setBridgeRegistrationFailureKind(kind);
-        });
-        return false;
+        if (registrationTimedOut) {
+          setBridgeRegistrationFailureKind("maybePermissionBlocked");
+        } else {
+          void classifyBridgeRegistrationFailure().then((kind) => {
+            if (isCurrent()) setBridgeRegistrationFailureKind(kind);
+          });
+        }
+        return registrationTimedOut ? "registration-timeout" : false;
+      } finally {
+        if (bridgeRegistrationControllerRef.current === controller) {
+          bridgeRegistrationControllerRef.current = null;
+        }
       }
     }, [
       bridgeUrl,
@@ -2578,8 +2669,20 @@ export function DesignCanvas({
       connectionId,
       publicVisualEdit,
       screenId,
+      registerRuntimeBridge,
     ]);
   useEffect(() => {
+    if (!registerRuntimeBridge) {
+      bridgeRegistrationAttemptGenerationRef.current += 1;
+      bridgeRegistrationControllerRef.current?.abort();
+      bridgeRegistrationControllerRef.current = null;
+      if (bridgeRegistrationRetryTimerRef.current !== undefined) {
+        window.clearTimeout(bridgeRegistrationRetryTimerRef.current);
+        bridgeRegistrationRetryTimerRef.current = undefined;
+      }
+      setConnectingLocalNetworkAccess(false);
+      return;
+    }
     if (
       !usesLiveEditInjectedBridge ||
       !bridgeUrl ||
@@ -2587,6 +2690,8 @@ export function DesignCanvas({
       !(effectiveLiveEditRegistrationCapability ?? effectiveLiveEditCapability)
     ) {
       bridgeRegistrationAttemptGenerationRef.current += 1;
+      bridgeRegistrationControllerRef.current?.abort();
+      bridgeRegistrationControllerRef.current = null;
       bridgeRegistrationRetryAttemptRef.current = 0;
       liveEditRestartAttemptRef.current = 0;
       liveEditSameInstanceElapsedMsRef.current = 0;
@@ -2607,11 +2712,18 @@ export function DesignCanvas({
       current === liveEditBridgeKey ? current : null,
     );
     let cancelled = false;
-    void attemptBridgeRegistration().then((result) => {
+    const registrationAttempt = attemptBridgeRegistration();
+    const generation = bridgeRegistrationAttemptGenerationRef.current;
+    void registrationAttempt.then((result) => {
       if (result === false && !cancelled) scheduleBridgeRegistrationRetry();
     });
     return () => {
       cancelled = true;
+      if (bridgeRegistrationAttemptGenerationRef.current === generation) {
+        bridgeRegistrationAttemptGenerationRef.current += 1;
+        bridgeRegistrationControllerRef.current?.abort();
+        bridgeRegistrationControllerRef.current = null;
+      }
       if (bridgeRegistrationRetryTimerRef.current !== undefined) {
         window.clearTimeout(bridgeRegistrationRetryTimerRef.current);
         bridgeRegistrationRetryTimerRef.current = undefined;
@@ -2623,6 +2735,7 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
     effectivePreviewToken,
+    registerRuntimeBridge,
     scheduleBridgeRegistrationRetry,
     usesLiveEditInjectedBridge,
   ]);
@@ -2763,8 +2876,15 @@ export function DesignCanvas({
     const isHealthProbeCurrent = () =>
       liveEditHealthProbeGenerationRef.current === healthProbeGeneration &&
       bridgeRegistrationAttemptGenerationRef.current === registrationGeneration;
+    const healthProbeAbortController = new AbortController();
+    const healthProbeTimeoutId = window.setTimeout(
+      () => healthProbeAbortController.abort(),
+      LIVE_EDIT_HEALTH_PROBE_TIMEOUT_MS,
+    );
     try {
-      const response = await fetch(healthEndpointUrl(bridgeUrl));
+      const response = await fetch(healthEndpointUrl(bridgeUrl), {
+        signal: healthProbeAbortController.signal,
+      });
       const payload = (await response.json().catch(() => null)) as {
         bridgeInstanceId?: string;
       } | null;
@@ -2876,9 +2996,14 @@ export function DesignCanvas({
       setRegisteredLiveEditBridgeKey(null);
       setBridgeConnectionLostError({
         bridgeKey: liveEditBridgeKey,
-        message: error instanceof Error ? error.message : String(error),
+        message: healthProbeAbortController.signal.aborted
+          ? t("designCanvas.localBridge.connectionNotConfirmed")
+          : error instanceof Error
+            ? error.message
+            : String(error),
       });
     } finally {
+      window.clearTimeout(healthProbeTimeoutId);
       if (liveEditHealthProbeGenerationRef.current === healthProbeGeneration) {
         liveEditRestartInFlightRef.current = false;
       }
@@ -3269,6 +3394,11 @@ export function DesignCanvas({
     : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
+    runtimeReloadingFromDocumentIdRef.current = undefined;
+    pendingRuntimeLayerSnapshotReadinessRef.current = null;
+    readyRuntimeLayerDocumentIdRef.current = null;
+    runtimeLayerSnapshotDocumentIdRef.current = null;
+    expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
       bridgeReadyRef.current = false;
       editorChromeReadyRef.current = false;
@@ -3305,18 +3435,80 @@ export function DesignCanvas({
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const [loadedPreviewDocumentIdentity, setLoadedPreviewDocumentIdentity] =
+    useState<string | null>(null);
+  const loadedPreviewDocumentIdentityRef = useRef(
+    loadedPreviewDocumentIdentity,
+  );
+  loadedPreviewDocumentIdentityRef.current = loadedPreviewDocumentIdentity;
+  const reportRuntimeLayerSnapshotReadiness = useCallback(
+    (readiness: RuntimeLayerSnapshotReadiness) => {
+      if (
+        readiness.status !== "loading" &&
+        externalPreviewUrlRef.current &&
+        (loadedPreviewDocumentIdentityRef.current !==
+          iframeDocumentIdentityRef.current ||
+          readyIframeDocumentIdentityRef.current !==
+            iframeDocumentIdentityRef.current)
+      ) {
+        pendingRuntimeLayerSnapshotReadinessRef.current = {
+          readiness,
+          documentIdentity: iframeDocumentIdentityRef.current,
+        };
+        return;
+      }
+      pendingRuntimeLayerSnapshotReadinessRef.current = null;
+      onRuntimeLayerSnapshotReadinessChange?.(readiness);
+    },
+    [onRuntimeLayerSnapshotReadinessChange],
+  );
   const markPreviewFrameReady = useCallback(() => {
     setPreviewFrameLoaded(true);
     if (!onBootReady || bootReadyRef.current) return;
     bootReadyRef.current = true;
     onBootReady();
   }, [onBootReady]);
-  useEffect(() => {
-    if (!externalPreviewUrl) return;
+  const markExternalPreviewDocumentLoaded = useCallback(() => {
+    const documentIdentity = iframeDocumentIdentityRef.current;
+    loadedPreviewDocumentIdentityRef.current = documentIdentity;
+    setLoadedPreviewDocumentIdentity(documentIdentity);
+  }, []);
+  useLayoutEffect(() => {
+    loadedPreviewDocumentIdentityRef.current = null;
+    setLoadedPreviewDocumentIdentity(null);
+  }, [iframeDocumentIdentity]);
+  useLayoutEffect(() => {
+    if (!externalPreviewUrl) {
+      pendingRuntimeLayerSnapshotReadinessRef.current = null;
+      return;
+    }
     setPreviewFrameLoaded(
       readyIframeDocumentIdentity === iframeDocumentIdentity,
     );
   }, [externalPreviewUrl, iframeDocumentIdentity, readyIframeDocumentIdentity]);
+  useLayoutEffect(() => {
+    const pending = pendingRuntimeLayerSnapshotReadinessRef.current;
+    if (!pending) return;
+    if (pending.documentIdentity !== iframeDocumentIdentity) {
+      pendingRuntimeLayerSnapshotReadinessRef.current = null;
+      return;
+    }
+    if (
+      !externalPreviewUrl ||
+      loadedPreviewDocumentIdentity !== iframeDocumentIdentity ||
+      readyIframeDocumentIdentity !== iframeDocumentIdentity
+    ) {
+      return;
+    }
+    pendingRuntimeLayerSnapshotReadinessRef.current = null;
+    onRuntimeLayerSnapshotReadinessChange?.(pending.readiness);
+  }, [
+    externalPreviewUrl,
+    iframeDocumentIdentity,
+    loadedPreviewDocumentIdentity,
+    onRuntimeLayerSnapshotReadinessChange,
+    readyIframeDocumentIdentity,
+  ]);
   const liveEditDocumentPending =
     usesLiveEditEditorBridge &&
     Boolean(externalPreviewUrl) &&
@@ -3550,6 +3742,21 @@ export function DesignCanvas({
         const requestId = e.data.payload?.requestId;
         const documentId = e.data.payload?.documentId;
         if (
+          e.data.type === "agent-native:runtime-layer-snapshot-error" &&
+          documentId === readyRuntimeLayerDocumentIdRef.current &&
+          Number.isSafeInteger(e.data.payload?.readinessRequestId) &&
+          e.data.payload.readinessRequestId ===
+            expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
+        ) {
+          expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
+          if (typeof documentId === "string") {
+            reportRuntimeLayerSnapshotReadiness({
+              status: "error",
+              documentId,
+            });
+          }
+        }
+        if (
           Number.isSafeInteger(requestId) &&
           typeof documentId === "string" &&
           typeof e.data.payload?.reservationToken === "string"
@@ -3704,9 +3911,18 @@ export function DesignCanvas({
           );
         }
         if (usesLiveEditEditorBridge) {
+          runtimeReloadingFromDocumentIdRef.current =
+            liveEditDocumentIdRef.current ?? undefined;
           bootReadyRef.current = false;
           bridgeReadyRef.current = false;
           editorChromeReadyRef.current = false;
+          loadedPreviewDocumentIdentityRef.current = null;
+          setLoadedPreviewDocumentIdentity(null);
+          readyRuntimeLayerDocumentIdRef.current = null;
+          runtimeLayerSnapshotDocumentIdRef.current = null;
+          expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
+          pendingRuntimeLayerSnapshotReadinessRef.current = null;
+          onRuntimeLayerSnapshotReadinessChange?.({ status: "loading" });
           liveRoutePathRef.current = null;
           onBootStart?.();
           liveEditHealthProbeGenerationRef.current += 1;
@@ -3800,13 +4016,18 @@ export function DesignCanvas({
           payload.html.length <= 2_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
+          const documentId =
+            typeof payload.documentId === "string" ? payload.documentId : null;
+          if (
+            !documentId ||
+            documentId !== readyRuntimeLayerDocumentIdRef.current
+          ) {
+            return;
+          }
           const snapshot = {
             html: payload.html,
             nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
-            documentId:
-              typeof payload.documentId === "string"
-                ? payload.documentId
-                : undefined,
+            documentId,
           };
           const reservationToken =
             typeof payload.reservationToken === "string"
@@ -3815,7 +4036,31 @@ export function DesignCanvas({
           const requestId = Number.isSafeInteger(payload.requestId)
             ? (payload.requestId as number)
             : undefined;
+          const readinessRequestId = Number.isSafeInteger(
+            payload.readinessRequestId,
+          )
+            ? (payload.readinessRequestId as number)
+            : undefined;
           onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
+          if (onRuntimeLayerSnapshot) {
+            runtimeLayerSnapshotDocumentIdRef.current = documentId;
+          }
+          if (
+            editorChromeReadyRef.current &&
+            onRuntimeLayerSnapshotReadinessChange &&
+            documentId === runtimeLayerSnapshotDocumentIdRef.current &&
+            (readinessRequestId ===
+              expectedRuntimeLayerSnapshotReadinessRequestIdRef.current ||
+              (readinessRequestId === undefined &&
+                expectedRuntimeLayerSnapshotReadinessRequestIdRef.current ===
+                  null))
+          ) {
+            expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
+            reportRuntimeLayerSnapshotReadiness({
+              status: "ready",
+              documentId,
+            });
+          }
           if (
             reservationToken &&
             requestId !== undefined &&
@@ -3837,10 +4082,16 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "agent-native:editor-chrome-ready") {
+        const documentId =
+          typeof e.data.documentId === "string" && e.data.documentId
+            ? e.data.documentId
+            : null;
+        const shouldRefreshRuntimeLayerSnapshot =
+          !editorChromeReadyRef.current ||
+          documentId !== readyRuntimeLayerDocumentIdRef.current;
         liveEditHealthProbeGenerationRef.current += 1;
         liveEditRestartInFlightRef.current = false;
         if (trustedLateLiveEditReady && lateReadyRecovery) {
-          lateLiveEditReadyRecoveryRef.current = null;
           if (lateReadyRecovery.registrationHandoffKey) {
             liveEditRegistrationHandoff.set(
               lateReadyRecovery.registrationHandoffKey,
@@ -3851,13 +4102,36 @@ export function DesignCanvas({
             current?.bridgeKey === lateReadyRecovery.bridgeKey ? null : current,
           );
           setRegisteredLiveEditBridgeKey(lateReadyRecovery.bridgeKey);
+          lateLiveEditReadyRecoveryRef.current = null;
+          liveEditRestartAttemptRef.current = 0;
+          if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
+            window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
+            liveEditSameInstanceRearmTimerRef.current = undefined;
+          }
+          liveEditSameInstanceElapsedMsRef.current = 0;
+          liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
+          setLiveEditSameInstanceStalledError(null);
           return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
+        const reloadStartedFromDocumentId =
+          runtimeReloadingFromDocumentIdRef.current;
+        if (
+          reloadStartedFromDocumentId !== undefined &&
+          documentId !== null &&
+          documentId !== reloadStartedFromDocumentId
+        ) {
+          runtimeReloadingFromDocumentIdRef.current = undefined;
+          onRuntimeReload?.();
+        }
+        readyRuntimeLayerDocumentIdRef.current = documentId;
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
+        if (shouldRefreshRuntimeLayerSnapshot) {
+          refreshRuntimeLayerSnapshotAfterReady();
+        }
         liveEditRestartAttemptRef.current = 0;
         if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
           window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
@@ -4858,11 +5132,15 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onRuntimeLayerSnapshot,
+    onRuntimeLayerSnapshotReadinessChange,
+    reportRuntimeLayerSnapshotReadiness,
     onReserveVisualEditSnapshot,
     onBridgeReady,
+    refreshRuntimeLayerSnapshotAfterReady,
     onBootReady,
     markPreviewFrameReady,
     onBootStart,
+    onRuntimeReload,
     externalPreviewUrl,
     onScreenRootComputedStyles,
     onRuntimeVerificationSnapshot,
@@ -5136,30 +5414,43 @@ export function DesignCanvas({
       if (bridgeReadyRef.current) {
         if (editorChromeReadyRef.current) return;
         editorChromeReadyRef.current = true;
+        refreshRuntimeLayerSnapshotAfterReady();
         flushPendingOneShotMessages();
         return;
       }
       bridgeReadyRef.current = true;
       editorChromeReadyRef.current = true;
       onBridgeReady?.();
+      refreshRuntimeLayerSnapshotAfterReady();
       flushPendingOneShotMessages();
     }
     iframe.addEventListener("load", handleLoadReadyFallback);
     return () => iframe.removeEventListener("load", handleLoadReadyFallback);
-  }, [flushPendingOneShotMessages, onBridgeReady, usesLiveEditEditorBridge]);
+  }, [
+    flushPendingOneShotMessages,
+    onBridgeReady,
+    refreshRuntimeLayerSnapshotAfterReady,
+    usesLiveEditEditorBridge,
+  ]);
 
-  useEffect(() => {
-    if (!onBootReady) return;
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    const handleLoad = () => {
-      if (bootReadyRef.current) return;
-      bootReadyRef.current = true;
-      onBootReady();
-    };
-    iframe.addEventListener("load", handleLoad);
-    return () => iframe.removeEventListener("load", handleLoad);
-  }, [iframeDocumentIdentity, onBootReady]);
+  useLayoutEffect(() => {
+    if (!onRuntimeLayerSnapshotReadinessChange) return;
+    if (editorChromeReadyRef.current) {
+      refreshRuntimeLayerSnapshotAfterReady();
+      return;
+    }
+    pendingRuntimeLayerSnapshotReadinessRef.current = null;
+    onRuntimeLayerSnapshotReadinessChange({
+      status: "loading",
+      ...(readyRuntimeLayerDocumentIdRef.current
+        ? { documentId: readyRuntimeLayerDocumentIdRef.current }
+        : {}),
+    });
+  }, [
+    iframeDocumentIdentity,
+    onRuntimeLayerSnapshotReadinessChange,
+    refreshRuntimeLayerSnapshotAfterReady,
+  ]);
 
   useLayoutEffect(() => {
     onBootStart?.();
@@ -6997,6 +7288,7 @@ export function DesignCanvas({
           }}
           onLoad={(event) => {
             tabFocusedLiveFrames.delete(event.currentTarget);
+            markExternalPreviewDocumentLoaded();
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
             focusScrollSurface(true);
@@ -7086,6 +7378,7 @@ export function DesignCanvas({
           // cost memory.
           className="pointer-events-none fixed border-0 opacity-0"
           style={{
+            // scaled-iframe-paint-ignore: verification frame stays offscreen and unpainted.
             left: -100_000,
             top: -100_000,
             width: embeddedFrame?.viewportWidth ?? previewWidthPx ?? 1280,

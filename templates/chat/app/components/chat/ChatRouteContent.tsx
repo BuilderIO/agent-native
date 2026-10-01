@@ -2,41 +2,41 @@ import type {
   AgentConnectionRequest,
   AgentMessage,
 } from "@agent-native/agentkit";
+import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
+import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   AgentMessageView,
   AgentRunFailure,
   AgentConnectionRequestCard,
   AgentKitChat,
-} from "@agent-native/agentkit/react/components";
+} from "@agent-native/toolkit/app/agentkit/react/components";
 import {
   useAgentKit,
   useAgentKitControl,
   useAgentThread,
   type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
-} from "@agent-native/agentkit/react/context";
-import {
-  BuilderSetupCard,
-  isMissingLlmProviderRunError,
-} from "@agent-native/core/client/agent-chat";
-import { CoreAgentKitRoot } from "@agent-native/core/client/agentkit-chat";
-import { CoreComposerRuntimeProvider } from "@agent-native/core/client/agentkit-chat/composer";
+} from "@agent-native/toolkit/app/agentkit/react/context";
+import { CoreComposerRuntimeProvider } from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
 import {
   McpAgentKitConnectionRequestCard,
   McpAgentKitConnectionResume,
-} from "@agent-native/core/client/agentkit-chat/connections";
-import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/connections";
+import { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
-} from "@agent-native/core/client/agentkit-chat/questions";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/questions";
 import {
   findMcpConnectionSuggestionIntegration,
   McpConnectionSuggestion,
-} from "@agent-native/core/client/agentkit-chat/suggestions";
-import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
-import { trackEvent } from "@agent-native/core/client/analytics";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/suggestions";
+import {
+  BuilderSetupCard,
+  isMissingLlmProviderRunError,
+} from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import {
   useCallback,
@@ -389,6 +389,10 @@ function ChatMcpConnectionRequest({
   return (
     <McpAgentKitConnectionRequestCard
       provider={request.provider}
+      reason={request.reason}
+      status={request.status}
+      appId={request.appId}
+      source={request.source}
       {...(request.detail ? { detail: request.detail } : {})}
       target={{ threadId, runId, requestId: request.id }}
       onConnected={() => resolve("connected")}
@@ -401,22 +405,11 @@ function ChatMcpConnectionRequest({
 function ChatMcpConnectionResume() {
   const { controller, threadId } = useAgentKit();
   const onResume = useCallback(
-    async (
-      target: { threadId: string; runId: string; requestId: string },
-      request: { message: string },
-    ) => {
-      try {
-        await controller.resolveConnectionRequest({
-          ...target,
-          response: { status: "connected" },
-        });
-      } catch {
-        await controller.sendMessage({
-          threadId: target.threadId,
-          text: request.message,
-        });
-      }
-    },
+    (target: { threadId: string; runId: string; requestId: string }) =>
+      controller.resolveConnectionRequest({
+        ...target,
+        response: { status: "connected" },
+      }),
     [controller],
   );
   const onMessageResume = useCallback(

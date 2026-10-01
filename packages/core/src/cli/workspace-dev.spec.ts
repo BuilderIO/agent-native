@@ -25,6 +25,7 @@ import {
   isWorkspaceWatcherLimitError,
   runWorkspaceDev,
   shouldEagerStartWorkspaceApps,
+  shouldOpenWorkspaceBrowser,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
   workspaceGatewayUrl,
@@ -941,6 +942,62 @@ describe("workspace dev helpers", () => {
       true,
     );
     expect(shouldEagerStartWorkspaceApps([], {})).toBe(false);
+  });
+
+  it("skips browser auto-open when headless or opted out", () => {
+    expect(shouldOpenWorkspaceBrowser([], {}, "darwin")).toBe(true);
+    expect(shouldOpenWorkspaceBrowser([], { DISPLAY: ":0" }, "linux")).toBe(
+      true,
+    );
+    expect(shouldOpenWorkspaceBrowser([], {}, "linux")).toBe(false);
+    expect(shouldOpenWorkspaceBrowser(["--no-open"], {}, "darwin")).toBe(false);
+    expect(
+      shouldOpenWorkspaceBrowser([], { WORKSPACE_NO_OPEN: "1" }, "darwin"),
+    ).toBe(false);
+    expect(
+      shouldOpenWorkspaceBrowser([], { AGENT_NATIVE_NO_OPEN: "1" }, "darwin"),
+    ).toBe(false);
+    expect(shouldOpenWorkspaceBrowser([], { CI: "true" }, "darwin")).toBe(
+      false,
+    );
+    expect(
+      shouldOpenWorkspaceBrowser([], { CODESPACES: "true" }, "darwin"),
+    ).toBe(false);
+  });
+
+  it("keeps the gateway running when the browser opener is missing", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let errors = "";
+    const env = { ...testEnv(), DISPLAY: ":0" };
+    delete env.WORKSPACE_NO_OPEN;
+    delete env.AGENT_NATIVE_NO_OPEN;
+    delete env.CI;
+    delete env.BUILDER_IO_DEV_SERVER;
+    delete env.BUILDER_PROJECT_ID;
+    delete env.CODESPACES;
+    delete env.GITPOD_WORKSPACE_ID;
+    delete env.REMOTE_CONTAINERS;
+    delete env.DEVCONTAINER;
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env,
+      spawnProcess: fake.spawnProcess,
+      stdout: { write: () => true },
+      stderr: { write: (chunk) => void (errors += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    const opener = fake
+      .calls()
+      .find((call) => call.options?.detached && call.command !== "pnpm");
+    expect(opener).toBeDefined();
+    const err = Object.assign(new Error("spawn xdg-open ENOENT"), {
+      code: "ENOENT",
+    });
+    expect(() => opener!.child.emit("error", err)).not.toThrow();
+    expect(errors).toContain("Could not auto-open browser");
+    expect((await fetch(`${url}/_workspace/apps`)).ok).toBe(true);
   });
 
   it("defaults prewarm off in lazy mode and supports explicit opt-in", () => {

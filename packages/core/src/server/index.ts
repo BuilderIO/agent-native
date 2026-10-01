@@ -3,6 +3,14 @@ export {
   type ComposerWebsiteExtraction,
 } from "./composer-website-source.js";
 export {
+  isAgentKitFigmaSourceAvailable,
+  listAgentKitCapabilities,
+  readAgentKitIntegrationIntent,
+  type AgentKitCapabilityAppId,
+  type AgentKitCapabilityCatalog,
+  type AgentKitIntegrationCapability,
+} from "../agentkit/capabilities.js";
+export {
   defineAppConfig,
   getAppConfig,
   resolveAppHomePath,
@@ -626,6 +634,7 @@ export {
   deleteBuilderCredentials,
   resolveSecret,
   resolveSecretDetailed,
+  prefetchSecrets,
   BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
   type ResolvedSecretDetail,
@@ -673,11 +682,13 @@ export {
   resolveDeployPlatform,
   type DeployPlatform,
 } from "./deploy-environment.js";
+export { isServerlessRuntime } from "../db/client.js";
 export {
   BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
+  resolveBuilderLegacyRequestAuthorization,
   resolveBuilderRequestAuthorization,
   type BuilderLegacyCredentialKey,
   type BuilderRequestAuthorization,
@@ -870,6 +881,13 @@ export {
   type AgentReadableResourceDiscovery,
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "../shared/agent-readable-resource.js";
+
+export {
+  registerObservabilityProvider,
+  type ObservabilityMeterProvider,
+  type ObservabilityProvider,
+  type ObservabilityTracerProvider,
+} from "../observability/otel-provider.js";
 
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {

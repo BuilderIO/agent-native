@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integraciones" } },
   templatesPage: {
     actions: "Acciones de la plantilla {{title}}",
     previewAction: "Vista previa",
@@ -45,7 +46,7 @@ const messages = {
     designSystems: "Sistemas de diseño",
   },
   settings: {
-    agentObservability: "Observabilidad del agente",
+    agentObservability: "Observabilidad",
     title: "Ajustes",
     labs: "Labs",
     labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
@@ -172,6 +173,15 @@ const messages = {
     saveReconnect: "Los cambios se guardarán al reconectar",
     saveFailedDescription:
       "Tus cambios más recientes solo están en este dispositivo. Descarga una copia de seguridad antes de salir.",
+    slideConflictReview: "Revisar",
+    slideConflictTitle: "Esta diapositiva cambió en otro lugar",
+    slideConflictDescription:
+      "Otra persona guardó una versión más reciente. Conservar tu borrador reemplazará el contenido guardado de esta diapositiva, o usa la última versión.",
+    slideConflictUseLatest: "Usar la última versión",
+    slideConflictKeepDraft: "Conservar mi borrador",
+    slideConflictKeepEditing: "Seguir editando",
+    slideConflictResolutionFailed:
+      "No se pudo resolver el conflicto. Tu borrador sigue aquí.",
     offline: "Sin conexión",
     selected: "seleccionado",
     chooseDesignSystem: "Elige un sistema de diseño",
@@ -248,6 +258,9 @@ const messages = {
     media: "Multimedia",
     generateImage: "Generar imagen",
     assetLibrary: "Biblioteca de recursos",
+    imageOptions: "Opciones de imagen",
+    cropImage: "Recortar imagen",
+    cropHandle: "Recortar imagen {{position}}",
     diagrams: "Diagramas",
     insertMermaidDiagram: "Insertar diagrama Mermaid",
     insertMermaidFailed: "No se pudo insertar el diagrama",
@@ -296,6 +309,21 @@ const messages = {
     importing: "Importando...",
     importFile: "Importar archivo",
     downloadBackup: "Descargar copia de seguridad",
+    conflictStatus: "Conflicto de texto",
+    conflictStatusDescription:
+      "Revisa el texto en conflicto antes de guardar más cambios.",
+    reviewConflict: "Revisar conflicto",
+    conflictTitle: "Conflicto de texto en la diapositiva {{number}}",
+    conflictDescription:
+      "Otra versión modificó esta diapositiva mientras editabas el texto.",
+    conflictChoicesDescription:
+      "Conservar tu texto lo guarda sobre la versión más reciente. Usar el texto guardado solo reemplaza el borrador local de esta diapositiva.",
+    conflictBackupDescription:
+      "Este borrador de toda la presentación no se puede resolver diapositiva por diapositiva. Descarga una copia para conservarlo.",
+    conflictResolveFailed:
+      "No se pudo resolver el conflicto. El borrador sigue disponible en este dispositivo.",
+    conflictKeepMine: "Conservar mi texto",
+    conflictUseLatest: "Usar el texto guardado",
     importBackup: "Importar copia de seguridad",
     backupDownloaded: "Copia de seguridad descargada",
     backupDownloadFailed: "No se pudo descargar la copia de seguridad",
@@ -395,6 +423,8 @@ const messages = {
     orderedList: "Lista ordenada",
     quote: "Cita",
     blockquote: "Bloque de cita",
+    divider: "Separador",
+    horizontalRule: "Línea horizontal",
   },
   comments: {
     deleteComment: "Eliminar comentario",
@@ -428,6 +458,7 @@ const messages = {
     retry: "Reintentar",
     clickToAddComment: "Haz clic para añadir un comentario",
     selectSlideToAdd: "Selecciona una diapositiva para añadir uno",
+    filters: "Filtros de comentarios",
     scope: "Ámbito de comentarios",
     thisSlide: "Esta diapositiva",
     allComments: "Todas las diapositivas",
@@ -615,9 +646,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "Reintentar",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "No se pudieron cargar las versiones guardadas.",
+    snapshotLoadFailed: "No se pudo cargar esta versión guardada.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",
@@ -877,7 +911,7 @@ const messages = {
     },
     importDeck: "Importar presentación",
     context: {
-      websiteReference: "Adjuntar sitio web",
+      websiteReference: "Añadir sitio web",
       websiteUrlLabel: "URL del sitio web",
       websiteUrl: "Pega la URL de un sitio web",
       figmaUrlLabel: "Enlace de Figma",
@@ -892,7 +926,7 @@ const messages = {
       searchPresentations: "Buscar presentaciones…",
       menu: {
         system: "Usar un sistema de diseño",
-        figma: "Adjuntar Figma",
+        figma: "Añadir Figma",
         design: "Usar un diseño como referencia",
         deck: "Usar una presentación como referencia",
         searchDesign: "Buscar en diseño…",
@@ -1079,7 +1113,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+      providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
   },
 };

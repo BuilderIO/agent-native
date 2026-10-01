@@ -14,6 +14,7 @@ import { createSharesTable, type ShareRole } from "./schema.js";
 vi.mock("../db/client.js", () => {
   return {
     getDbExec: () => sharedClient,
+    getScopedDbExec: () => undefined,
     isProductionServerlessFunctionRuntime: () => false,
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };

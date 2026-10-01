@@ -96,7 +96,7 @@ Adicione o painel a qualquer modelo com uma única rota:
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -123,7 +123,7 @@ O painel possui 6 guias:
 
 A guia Conversas mostra as execuções registradas. Selecione uma para inspecionar seus períodos e expanda qualquer período para ver entradas, saídas, erros e metadados de ferramentas capturados. **Abrir conversa completa** leva à conversa de chat correspondente.
 
-Os argumentos e resultados das ferramentas não são capturados por padrão. Ative `captureToolArgs` e `captureToolResults` na configuração `observability` para armazená-los. Campos sensíveis e mensagens de erro das ferramentas são ocultados antes do armazenamento.
+Os argumentos, os resultados e os corpos de erro completos das ferramentas não são capturados por padrão. Ative `captureToolArgs` para armazenar os argumentos e `captureToolResults` para armazenar os resultados e os corpos de erro completos na configuração `observability`. Os campos sensíveis são ocultados antes do armazenamento. Uma ferramenta com falha sempre mantém a primeira linha do erro, com tamanho limitado e com credenciais, e-mails e IDs opacos longos ocultados, para que as falhas continuem diagnosticáveis mesmo com `captureToolResults` desativado.
 
 ### Revisão humana {#review}
 
@@ -290,7 +290,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+O conteúdo é **ocultado por padrão**: são armazenados contagens de tokens, custos e tempos e, para uma ferramenta com falha, a primeira linha do erro, com tamanho limitado e com credenciais, e-mails e IDs opacos longos ocultados. Prompts, entradas de ferramentas, resultados de ferramentas e corpos de erro completos permanecem desativados, a menos que `capturePrompts`, `captureToolArgs` e `captureToolResults` estejam ativados. Ative-os somente quando precisar do conteúdo de prompts ou argumentos para depuração.
 
 </Callout>
 

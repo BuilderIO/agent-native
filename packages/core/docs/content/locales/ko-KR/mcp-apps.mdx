@@ -18,6 +18,14 @@ MCP 앱은 호환 호스트(Claude, Claude Desktop, ChatGPT, VS Code GitHub Copi
 
 Agent-Native 앱의 자체 채팅 내에서 표, 차트, 입력된 결과 및 승인 어포던스와 같은 자사 위젯에 대해 [native chat renderers](/docs/native-chat-ui)를 선호합니다. Claude, ChatGPT, Copilot, Cursor 및 기타 호환 호스트의 외부/교차 호스트 인라인 UI용 MCP 앱을 범용 딥 링크 폴백으로 `link` 작업과 함께 사용하세요.
 
+## OpenAI Plugin Extensions {#openai-plugin-extensions}
+
+OpenAI Plugin Extensions는 모델이 호출하는 MCP 도구에 앱 실행 진입점을 추가합니다. 인라인 MCP Apps가 활성화되면 공유 `open_app` 도구가 전역 사이드바와 대화 사이드 패널에 진입점을 제공합니다. ChatGPT는 `{}` 인수로 도구를 호출하고 Core는 현재 앱의 홈 화면을 인라인 MCP App으로 엽니다. 공유 MCP 서버를 사용하는 앱은 별도 등록이 필요하지 않습니다. [OpenAI Plugin Extensions 가이드](https://developers.openai.com/plugins/build/extensions)와 [MCP Extensions 사양](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md)을 참고하세요.
+
+임베드된 앱 경로의 버튼은 `sendToAgentChat(...)`를 호출해 대화를 이어갈 수 있습니다. Core는 선택된 상태를 `annotations.audience: ["assistant"]`와 함께 `ui/update-model-context`로 전송한 다음 사용자에게 보이는 프롬프트를 `ui/message`로 보냅니다. 파일 뷰어, 컴포저 멘션 및 기타 특수 확장에는 앱별 입력 계약이 필요합니다.
+
+이전 호스트에서는 요청에 선택되었거나 구조화된 컨텍스트가 없고, 모든 콘텐츠를 텍스트로 표현할 수 있으며, 전달되는 텍스트의 각 `annotations.audience` 목록에 `assistant`와 `user`가 모두 포함된 경우에만 Core가 텍스트 폴백을 사용할 수 있습니다. 그렇지 않거나 호스트가 컨텍스트 업데이트를 거부하면 `sendToAgentChat(...)`은 `false`를 반환합니다.
+
 ## 작성: 선택적 MCP 앱 UI {#mcp-apps}
 
 MCP 앱 확장을 지원하는 호스트의 경우 작업은 `mcpApp`를 사용하여 인라인 UI 리소스를 광고할 수도 있습니다. 이는 외부 에이전트가 사용자에게 텍스트만 제공하는 대신 대화형 화면을 제공해야 하는 흐름에 대한 점진적인 개선 사항입니다. 예를 들어 이메일 초안 검토, 캘린더 초대 편집, 생성된 대시보드 변형 중에서 선택 등이 있습니다.

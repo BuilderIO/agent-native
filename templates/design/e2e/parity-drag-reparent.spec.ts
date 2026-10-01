@@ -986,38 +986,53 @@ test.describe("drag reparent parity", () => {
 
     const widget = await boxFor(page, screenId, "widget");
     const footer = await boxFor(page, screenId, "footer");
-    const previewBody = designFrame(page, screenId).locator("body");
-    const spaceKey = (type: "keydown" | "keyup") =>
-      previewBody.evaluate((_b, t) => {
-        document.dispatchEvent(
-          new KeyboardEvent(t, {
-            key: " ",
-            code: "Space",
-            bubbles: true,
-            cancelable: true,
-          }),
+    const liveWidgetParent = () =>
+      designFrame(page, screenId)
+        .locator('[data-agent-native-node-id="widget"]')
+        .evaluate((element) =>
+          element.parentElement?.getAttribute("data-agent-native-node-id"),
         );
-      }, type);
+
+    await page.evaluate(() => {
+      document.body.dataset.editorDragStarted = "false";
+      window.addEventListener(
+        "message",
+        (event: MessageEvent) => {
+          if (
+            event.data?.type === "agent-native:editor-drag-state" &&
+            event.data.active === true
+          ) {
+            document.body.dataset.editorDragStarted = "true";
+          }
+        },
+        true,
+      );
+    });
 
     await page.mouse.move(
       widget.x + widget.width / 2,
       widget.y + widget.height / 2,
     );
     await page.mouse.down();
-    await spaceKey("keydown");
     await page.mouse.move(
       widget.x + widget.width / 2 + 20,
       widget.y + widget.height / 2,
       { steps: 5 },
     );
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-editor-drag-started",
+      "true",
+    );
+    await page.keyboard.down("Space");
     await page.mouse.move(
       footer.x + footer.width / 2,
       footer.y + footer.height / 2,
       { steps: 24 },
     );
+    await expect.poll(liveWidgetParent).toBe("main");
     await page.waitForTimeout(400);
     await page.mouse.up();
-    await spaceKey("keyup");
+    await page.keyboard.up("Space");
 
     await expect
       .poll(
@@ -1031,6 +1046,17 @@ test.describe("drag reparent parity", () => {
             "Figma: holding Space while dragging must keep the object in its current parent even while hovering a frame",
         },
       )
+      .toBe("main");
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return parentOf(html, "widget");
+      })
       .toBe("main");
   });
 

@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "接続を解除しています…",
   },
   settings: {
+    backHome: "ホームに戻る",
+    title: "設定",
+    description: "アプリと言語の設定を管理します。",
+    languageTitle: "インターフェースの言語",
+    languageDescription: "このアプリで使用する言語を選択します。",
+    languageLabel: "言語",
     agentTitle: "エージェント設定",
     agentDescription:
       "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",

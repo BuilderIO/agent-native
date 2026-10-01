@@ -505,6 +505,43 @@ describe("agent chat resource route organization scopes", () => {
     });
   });
 
+  it("reserves mention results for peer agents when files fill their source budget", async () => {
+    const h3App = await mountResourceRoutes();
+    const files = Array.from({ length: 80 }, (_, index) => ({
+      id: `file-${index}`,
+      path: `brief-${index}.md`,
+      owner: "__shared__",
+      mimeType: "text/markdown",
+    }));
+    mocks.resourceList.mockResolvedValue(files);
+    mocks.resourceListAccessible.mockResolvedValue(files);
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "slides",
+        name: "Slides",
+        url: "https://slides.example.test",
+        description: "Create presentations",
+      },
+    ] as never);
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/mentions",
+      { userEmail: "user@example.test", orgId: "org-active" },
+    );
+    const items = (await response.text())
+      .trim()
+      .split("\n")
+      .flatMap((line) => JSON.parse(line).items);
+    expect(items.length).toBeLessThanOrEqual(50);
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        id: "agent:slides",
+        section: "Connected Agents",
+      }),
+    );
+    expect(items.some((item) => item.refType === "file")).toBe(true);
+  });
+
   it("inherits the active request organization when a resolver returns undefined", async () => {
     const h3App = await mountResourceRoutes({ resolveOrgId: () => undefined });
     const resourceList = mocks.resourceList.getMockImplementation()!;

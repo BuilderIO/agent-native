@@ -465,6 +465,7 @@ jobs:
             | select(any(.releases[]?.name;
                 . == "@agent-native/agentkit" or
                 . == "@agent-native/core" or
+                . == "@agent-native/core-corpus" or
                 . == "@agent-native/creative-context" or
                 . == "@agent-native/dispatch" or
                 . == "@agent-native/pinpoint" or
@@ -481,9 +482,21 @@ jobs:
       - name: Validate changesets
         run: node scripts/check-changeset.mjs
 
-      - name: Build all packages
+      - name: Build publishable packages
         if: github.event_name == 'push'
-        run: pnpm -r build
+        run: >-
+          pnpm -r
+          --filter '@agent-native/agentkit...'
+          --filter '@agent-native/core...'
+          --filter '@agent-native/core-corpus...'
+          --filter '@agent-native/creative-context...'
+          --filter '@agent-native/dispatch...'
+          --filter '@agent-native/pinpoint...'
+          --filter '@agent-native/recap-cli...'
+          --filter '@agent-native/scheduling...'
+          --filter '@agent-native/skills...'
+          --filter '@agent-native/toolkit...'
+          run build
 
       - name: Create stable Release PR or publish to npm
         id: changesets

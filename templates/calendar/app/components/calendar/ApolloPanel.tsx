@@ -1,5 +1,5 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
 import type { CalendarEvent } from "@shared/api";
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";

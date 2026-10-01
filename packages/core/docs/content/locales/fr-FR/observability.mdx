@@ -96,7 +96,7 @@ Ajoutez le tableau de bord à n'importe quel modèle avec un seul itinéraire :
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -123,7 +123,7 @@ Le tableau de bord comporte 6 onglets :
 
 L’onglet Conversations affiche les exécutions enregistrées. Sélectionnez-en une pour examiner ses étendues, puis développez une étendue pour voir les entrées, sorties, erreurs et métadonnées des outils qui ont été capturées. **Ouvrir la conversation complète** ouvre le fil de discussion associé.
 
-La capture des arguments et résultats des outils est désactivée par défaut. Activez `captureToolArgs` et `captureToolResults` dans la configuration `observability` pour les stocker. Les champs sensibles et les messages d’erreur des outils sont expurgés avant l’enregistrement.
+La capture des arguments, des résultats et des corps d’erreur complets des outils est désactivée par défaut. Activez `captureToolArgs` pour stocker les arguments et `captureToolResults` pour stocker les résultats et les corps d’erreur complets dans la configuration `observability`. Les champs sensibles sont expurgés avant l’enregistrement. Un outil en échec conserve toujours la première ligne de son erreur, limitée en longueur, avec les identifiants de connexion, les adresses e-mail et les longs identifiants opaques expurgés, afin que les échecs restent diagnosticables même lorsque `captureToolResults` est désactivé.
 
 ### Revue humaine {#review}
 
@@ -290,7 +290,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+Le contenu est **expurgé par défaut** : les nombres de jetons, les coûts et les durées sont stockés, ainsi que, pour un outil en échec, la première ligne de son erreur (limitée en longueur) avec les identifiants de connexion, les adresses e-mail et les longs identifiants opaques expurgés. Les prompts, les entrées des outils, les résultats des outils et les corps d’erreur complets restent désactivés tant que `capturePrompts`, `captureToolArgs` et `captureToolResults` ne sont pas activés. Ne les activez que si vous avez besoin du contenu des prompts ou des arguments pour le débogage.
 
 </Callout>
 

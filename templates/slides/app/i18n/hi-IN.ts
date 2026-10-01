@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "इंटीग्रेशन" } },
   templatesPage: {
     actions: "{{title}} टेम्पलेट की कार्रवाइयाँ",
     previewAction: "पूर्वावलोकन",
@@ -45,7 +46,7 @@ const messages = {
     designSystems: "डिज़ाइन सिस्टम",
   },
   settings: {
-    agentObservability: "एजेंट अवलोकन",
+    agentObservability: "अवलोकनक्षमता",
     title: "सेटिंग्स",
     labs: "लैब्स",
     labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
@@ -168,6 +169,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "आपके नवीनतम बदलाव केवल इसी डिवाइस पर हैं। जाने से पहले बैकअप डाउनलोड करें।",
+    slideConflictReview: "समीक्षा करें",
+    slideConflictTitle: "यह स्लाइड कहीं और बदली गई है",
+    slideConflictDescription:
+      "किसी अन्य संपादक ने नया संस्करण सहेजा है। अपना ड्राफ़्ट रखने से सहेजी गई स्लाइड की सामग्री बदल जाएगी, या नवीनतम संस्करण का उपयोग करें।",
+    slideConflictUseLatest: "नवीनतम संस्करण उपयोग करें",
+    slideConflictKeepDraft: "मेरा ड्राफ़्ट रखें",
+    slideConflictKeepEditing: "संपादन जारी रखें",
+    slideConflictResolutionFailed:
+      "संघर्ष हल नहीं हो सका। आपका ड्राफ़्ट अभी भी यहाँ है।",
     offline: "ऑफ़लाइन",
     selected: "चयनित",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -240,6 +250,9 @@ const messages = {
     media: "मीडिया",
     generateImage: "इमेज बनाएं",
     assetLibrary: "एसेट लाइब्रेरी",
+    imageOptions: "छवि विकल्प",
+    cropImage: "छवि क्रॉप करें",
+    cropHandle: "छवि {{position}} क्रॉप करें",
     diagrams: "डायग्राम",
     insertMermaidDiagram: "Mermaid डायग्राम डालें",
     insertMermaidFailed: "डायग्राम डालने में विफल",
@@ -287,6 +300,21 @@ const messages = {
     importing: "आयात हो रहा है...",
     importFile: "फ़ाइल आयात करें",
     downloadBackup: "बैकअप डाउनलोड करें",
+    conflictStatus: "टेक्स्ट में विरोध",
+    conflictStatusDescription:
+      "अन्य बदलाव सहेजने से पहले विरोध वाले टेक्स्ट की समीक्षा करें।",
+    reviewConflict: "विरोध की समीक्षा करें",
+    conflictTitle: "स्लाइड {{number}} में टेक्स्ट का विरोध है",
+    conflictDescription:
+      "आपके टेक्स्ट संपादित करते समय किसी अन्य संस्करण ने इस स्लाइड को बदला।",
+    conflictChoicesDescription:
+      "अपना टेक्स्ट रखने पर वह नवीनतम संस्करण पर सहेजा जाएगा। सहेजा हुआ टेक्स्ट चुनने पर केवल इस स्लाइड का स्थानीय ड्राफ़्ट बदलेगा।",
+    conflictBackupDescription:
+      "पूरी प्रस्तुति के इस ड्राफ़्ट को स्लाइड-दर-स्लाइड हल नहीं किया जा सकता। इसे सुरक्षित रखने के लिए बैकअप डाउनलोड करें।",
+    conflictResolveFailed:
+      "विरोध हल नहीं हो सका। आपका ड्राफ़्ट इस डिवाइस पर उपलब्ध है।",
+    conflictKeepMine: "मेरा टेक्स्ट रखें",
+    conflictUseLatest: "सहेजा हुआ टेक्स्ट इस्तेमाल करें",
     importBackup: "बैकअप आयात करें",
     backupDownloaded: "बैकअप डाउनलोड हो गया",
     backupDownloadFailed: "बैकअप डाउनलोड नहीं हो सका",
@@ -383,6 +411,8 @@ const messages = {
     orderedList: "क्रमबद्ध सूची",
     quote: "उद्धरण",
     blockquote: "ब्लॉक उद्धरण",
+    divider: "विभाजक",
+    horizontalRule: "क्षैतिज रेखा",
   },
   comments: {
     deleteComment: "टिप्पणी हटाएं",
@@ -416,6 +446,7 @@ const messages = {
     retry: "फिर कोशिश करें",
     clickToAddComment: "टिप्पणी जोड़ने के लिए क्लिक करें",
     selectSlideToAdd: "एक टिप्पणी जोड़ने के लिए स्लाइड चुनें",
+    filters: "टिप्पणी फ़िल्टर",
     scope: "टिप्पणी का दायरा",
     thisSlide: "यह स्लाइड",
     allComments: "सभी स्लाइड",
@@ -596,9 +627,12 @@ const messages = {
     slideNumber: "स्लाइड {{number}}",
     noSlidesInSnapshot: "इस स्नैपशॉट में कोई स्लाइड नहीं है।",
     restoreThisVersion: "यह संस्करण बहाल करें",
+    retry: "फिर से प्रयास करें",
     noSavedVersions: "अभी कोई सहेजा गया संस्करण नहीं",
     noSavedVersionsDescription:
       "भविष्य के डेक संपादनों से पहले संस्करण अपने-आप सहेजे जाते हैं।",
+    loadFailed: "सहेजे गए संस्करण लोड नहीं हो सके।",
+    snapshotLoadFailed: "यह सहेजा गया संस्करण लोड नहीं हो सका।",
   },
   editorSidebar: {
     selectSlide: "स्लाइड {{number}} चुनें",
@@ -857,7 +891,7 @@ const messages = {
       searchPresentations: "प्रस्तुतियाँ खोजें…",
       menu: {
         system: "डिज़ाइन सिस्टम का उपयोग करें",
-        figma: "Figma संलग्न करें",
+        figma: "Figma जोड़ें",
         design: "डिज़ाइन का संदर्भ लें",
         deck: "प्रस्तुति का संदर्भ लें",
         searchDesign: "डिज़ाइन खोजें…",
@@ -1036,7 +1070,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+      providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },
   },
 };

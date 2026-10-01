@@ -3,7 +3,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
-} from "../chat-first.js";
+} from "../chat-first-state.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
@@ -425,6 +425,45 @@ describe("createAgentNativeChatRuntime", () => {
       message: "Use this selection once",
       skipPendingSelectionContext: true,
     });
+  });
+
+  it("preserves workspace connection source metadata in connection requests", async () => {
+    const source = {
+      id: "google_drive",
+      kind: "workspace_connection",
+      label: "Google Drive",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "connection_required",
+          requestId: "request-google-drive",
+          provider: "google_drive",
+          connectionReason: "connect",
+          appId: "dispatch",
+          source,
+        },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession()).startTurn({
+          prompt: "Read this Google Doc",
+        })
+      ).events,
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "connection-request",
+        requestId: "request-google-drive",
+        source,
+      }),
+    );
   });
 
   it("keeps raw structured action results separate from display text", async () => {

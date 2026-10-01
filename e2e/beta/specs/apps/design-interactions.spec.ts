@@ -7,6 +7,12 @@ import {
   type Page,
 } from "@playwright/test";
 
+import {
+  attemptsFor,
+  describeActionFailure,
+  isSuccessStatus,
+  postActionWithRetry,
+} from "../../lib/action-retry";
 import { collectAppPageErrors } from "../../lib/app";
 import {
   assertSignedInOnBeta,
@@ -148,15 +154,19 @@ async function postAction(
   input: Record<string, unknown>,
   allowConflict = false,
 ): Promise<any> {
-  const response = await page.request.post(
+  const { final, history } = await postActionWithRetry(
+    page.request,
     `${ORIGIN}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
+    input,
+    { attempts: attemptsFor(name) },
   );
-  if (!response.ok() && !(allowConflict && response.status() === 409))
-    throw new Error(`${name} failed: HTTP ${response.status()}`);
-  if (allowConflict && response.status() === 409)
-    return { conflict: true, error: await response.text() };
-  return response.json();
+  if (allowConflict && final.status === 409) {
+    return { conflict: true, error: final.body };
+  }
+  if (!isSuccessStatus(final.status)) {
+    throw new Error(describeActionFailure(name, history));
+  }
+  return JSON.parse(final.body);
 }
 
 async function readSource(
@@ -851,7 +861,10 @@ function typographySection(page: Page): Locator {
     .first();
 }
 
-test.describe.configure({ mode: "serial" });
+// Each test builds and deletes its own design, so one failing must not skip
+// the rest: serial mode turned a single bad fixture call into seven tests that
+// "did not run".
+test.describe.configure({ mode: "default" });
 
 test.describe("authenticated beta Design interactions", () => {
   test.skip(
@@ -889,7 +902,13 @@ test.describe("authenticated beta Design interactions", () => {
       if (typeof fileId !== "string")
         throw new Error("index.html file was not created");
 
-      const apply = async (nodeId: string, value: string) => {
+      // The open editor and propagation also write this design, so the file
+      // hashes read for `expectedFiles` can be stale by the time the edit
+      // lands. A 409 is re-read and retried for every edit, including reset.
+      const applyEdit = async (
+        nodeId: string,
+        edit: Record<string, unknown>,
+      ) => {
         let result: any;
         for (let attempt = 0; attempt < 3; attempt += 1) {
           result = await postAction(
@@ -899,11 +918,7 @@ test.describe("authenticated beta Design interactions", () => {
               designId,
               fileId,
               nodeId,
-              edit: {
-                kind: "attribute",
-                attribute: "data-agent-native-prop-variant",
-                value,
-              },
+              edit,
               source: {
                 expectedFiles: await expectedHtmlFiles(page, designId),
               },
@@ -915,6 +930,12 @@ test.describe("authenticated beta Design interactions", () => {
         }
         return result;
       };
+      const apply = (nodeId: string, value: string) =>
+        applyEdit(nodeId, {
+          kind: "attribute",
+          attribute: "data-agent-native-prop-variant",
+          value,
+        });
 
       const mainEdit = await apply("component-main", "secondary");
       expect(mainEdit.persisted, JSON.stringify(mainEdit)).toBe(true);
@@ -998,12 +1019,8 @@ test.describe("authenticated beta Design interactions", () => {
         )
         .toBe("outline");
 
-      const reset = await postAction(page, "apply-component-prop-edit", {
-        designId,
-        fileId,
-        nodeId: "component-instance",
-        edit: { kind: "resetOverrides" },
-        source: { expectedFiles: await expectedHtmlFiles(page, designId) },
+      const reset = await applyEdit("component-instance", {
+        kind: "resetOverrides",
       });
       expect(reset.persisted, JSON.stringify(reset)).toBe(true);
       await expect

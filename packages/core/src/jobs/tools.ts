@@ -20,6 +20,7 @@ import {
   isReasoningEffort,
   REASONING_EFFORTS,
 } from "../shared/reasoning-effort.js";
+import { RESUME_AUTOMATION_PATCH } from "./automation-outcome.js";
 import {
   isValidCron,
   nextOccurrence,
@@ -264,6 +265,9 @@ async function runList(
         lastRun: meta.lastRun || null,
         lastStatus: meta.lastStatus || null,
         lastError: meta.lastError || null,
+        lastErrorCode: meta.lastErrorCode || null,
+        pausedReason: meta.pausedReason || null,
+        pausedAt: meta.pausedAt || null,
         nextRun: meta.nextRun || null,
         originScopeId: meta.originScopeId || null,
         deliveryPlatform: meta.deliveryPlatform || null,
@@ -364,6 +368,13 @@ async function runUpdate(
   if (enabled !== undefined) {
     meta.enabled = enabled === true || enabled === "true";
     fields.enabled = meta.enabled;
+    if (
+      meta.enabled &&
+      (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
+    ) {
+      // Enabling lifts a framework pause and starts a clean failure streak.
+      Object.assign(fields, RESUME_AUTOMATION_PATCH);
+    }
   }
 
   if (runAs === "creator" || runAs === "shared") {

@@ -12,7 +12,7 @@ describe("authenticated recording route loading", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     expect(route).toContain("enabled: !!recordingId && !sessionLoading");
     expect(route).toContain(
-      "if (playerDataQ.isLoading || playerDataForbidden)",
+      "if (playerDataQ.isPending || playerDataForbidden)",
     );
     expect(route).toContain("<RecordingWorkspaceSkeleton />");
     expect(route).not.toContain("buildSignInReturnHref");
@@ -246,6 +246,9 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("pendingAccountActionRef");
     expect(route).toContain("disabled={Boolean(session) && !viewerCanComment}");
     expect(route).toContain("onReact={reactToRecording}");
+    expect(route).toMatch(
+      /portalContainer={\s*isPlayerFullscreen \? playerRef\.current\?\.container : undefined\s*}/,
+    );
   });
 
   it("keeps public comments in flow and consolidates recording insights", () => {

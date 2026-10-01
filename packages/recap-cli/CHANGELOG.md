@@ -1,5 +1,68 @@
 # @agent-native/recap-cli
 
+## 0.5.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.54
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- be78352: Embed the PR recap workflow in the package runtime so bundled apps do not look for it in the consumer repository.
+
+## 0.5.53
+
+### Patch Changes
+
+- 8f82288: Scaffold configured feature dependencies and preserve long workspace URLs.
+  Keep optional Playwright imports external to app bundles so builds do not require its optional Chromium dependency.
+- Release all public npm packages with a patch version bump.
+
+## 0.5.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.50
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.49
 
 ### Patch Changes

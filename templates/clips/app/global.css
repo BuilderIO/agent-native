@@ -1,7 +1,6 @@
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
-@import "@agent-native/core/styles/agent-native.css";
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
@@ -57,7 +56,7 @@
 }
 
 .dark {
-  --background: 0 0% 10%;
+  --background: 0 0% 13.33%;
   --foreground: 0 0% 90%;
   --card: 0 0% 14%;
   --card-foreground: 0 0% 90%;

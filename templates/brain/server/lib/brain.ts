@@ -228,7 +228,6 @@ export interface BrainAgentGuidance {
   };
   distillation: {
     defaultPublishTier: BrainPublishTier;
-    requireApprovalForCompanyKnowledge: boolean;
     autoRedactEmails: boolean;
     instructions: string;
     rules: string[];
@@ -267,18 +266,18 @@ function retrievalPolicy(
       return {
         rawCaptureFallback: "never-answer" as const,
         instructions: [
-          "Answer from reviewed Brain knowledge only.",
+          "Answer from distilled Brain knowledge only.",
           "Use raw captures for distillation and exact quote validation, not as answer support.",
-          "If reviewed knowledge is missing or thin, say Brain does not have enough reviewed support.",
+          "If distilled knowledge is missing or thin, say Brain does not have enough distilled support.",
         ],
       };
     case "exploratory":
       return {
         rawCaptureFallback: "allowed-leads" as const,
         instructions: [
-          "Start with reviewed Brain knowledge, then include accessible raw captures and source records as clearly labeled leads.",
-          "Never present raw capture matches as approved company knowledge or answer evidence; use them only as leads for review.",
-          "Say when a result is unreviewed and needs distillation or review.",
+          "Use distilled Brain knowledge together with synced captures (Slack, Zoom, and other connected sources) whose answerEligible is true.",
+          "Name the source (channel or meeting) and date behind each fact, and prefer the most recent capture when sources disagree.",
+          "Label weaker or conflicting signals as uncertain instead of dropping them.",
         ],
       };
     case "balanced":
@@ -286,8 +285,8 @@ function retrievalPolicy(
       return {
         rawCaptureFallback: "thin-results" as const,
         instructions: [
-          "Prefer reviewed Brain knowledge.",
-          "Use accessible raw captures only when reviewed knowledge is missing or too thin, return them as clearly labeled leads, and never use their text as answer evidence.",
+          "Prefer distilled Brain knowledge.",
+          "When distilled knowledge is missing or thin, answer from synced captures (Slack, Zoom, and other connected sources) whose answerEligible is true, naming the source (channel or meeting) and date behind each fact.",
           "Do not invent facts beyond returned Brain results.",
         ],
       };
@@ -326,20 +325,17 @@ export function buildBrainAgentGuidance(
     },
     distillation: {
       defaultPublishTier: settings.defaultPublishTier,
-      requireApprovalForCompanyKnowledge:
-        settings.requireApprovalForCompanyKnowledge,
       autoRedactEmails: settings.autoRedactEmails,
       instructions: distillationInstructions,
       rules: [
         "Extract durable, reusable institutional knowledge only.",
+        "Treat explicit company or product launch announcements as retainable dated facts, even when a capture is a single short message. Distinguish announced plans from confirmed launches; never claim a launch happened solely because someone said it would happen today.",
         settings.captureSanitizationEnabled === false
           ? "Captures may contain raw provider text; avoid personal or out-of-scope material."
           : "Transcript captures are pre-sanitized before storage; treat capture text as the durable company-relevant source.",
         "Preserve short exact quotes as evidence.",
         `Use ${settings.defaultPublishTier} as the default publish tier unless the user or capture context clearly calls for another tier.`,
-        settings.requireApprovalForCompanyKnowledge
-          ? "Expect company-tier writes to route through review unless write-knowledge can safely publish them."
-          : "Company-tier writes may publish directly when write-knowledge accepts them.",
+        "write-knowledge publishes directly; there is no review step.",
         settings.autoRedactEmails
           ? "Email addresses are auto-redacted by write-knowledge; still avoid adding unnecessary personal data."
           : "Email auto-redaction is disabled; avoid including personal data unless it is essential evidence.",
@@ -359,9 +355,14 @@ export function buildBrainAgentGuidance(
     },
     response: {
       toneInstruction: toneInstruction(tone),
-      citationInstruction: requireCitations
-        ? "Cite published Brain knowledge evidence or source URLs for factual claims; raw captures are leads, not answer citations; say when approved support is missing."
-        : "Include published Brain knowledge citations when helpful; raw captures are leads, not answer evidence, and concise uncited summaries are allowed by workspace settings.",
+      citationInstruction:
+        sourcePolicy === "strict"
+          ? requireCitations
+            ? "Cite published Brain knowledge evidence for factual claims; raw captures are not answer citations under the strict policy; say when distilled support is missing."
+            : "Include published Brain knowledge citations when helpful; raw captures are not answer evidence under the strict policy, and concise uncited summaries are allowed by workspace settings."
+          : requireCitations
+            ? "Cite published Brain knowledge or answer-eligible captures for factual claims, giving each capture's source (channel or meeting), date, and link; say when support is missing."
+            : "Include knowledge or answer-eligible capture citations (source, date, link) when helpful; concise uncited summaries are allowed by workspace settings.",
     },
   };
 }
@@ -723,6 +724,8 @@ async function findUpstreamDeletionReceipt(
 function captureMetadataFingerprint(metadata: Record<string, unknown>) {
   const comparable = { ...metadata };
   delete comparable.captureSanitization;
+  // Connectors stamp every re-pull with a fresh run id; it must not re-queue unchanged captures.
+  delete comparable.syncRunId;
   return stableJson(comparable);
 }
 
@@ -741,6 +744,8 @@ export async function createCapture(values: {
     memberEmails?: string[];
     upstreamRefHash?: string | null;
   };
+  // Only for repo-authored fixture text (demo/eval seeds); ingested content must use the workspace classifier.
+  privacyClassifier?: "deterministic";
 }) {
   const sourceAccess = await getAccessibleSource(values.sourceId, "editor");
   const source =
@@ -785,7 +790,9 @@ export async function createCapture(values: {
       orgId: source.orgId,
     },
     sourceConfig: parseJson<Record<string, unknown>>(source.configJson, {}),
-    settings,
+    settings: values.privacyClassifier
+      ? { ...settings, privacyClassifier: values.privacyClassifier }
+      : settings,
   });
   if (!sanitized.decision || sanitized.decision.disposition !== "allowed") {
     const receipt = await recordBlockedCapture({
@@ -1530,45 +1537,9 @@ export interface WriteKnowledgeInput {
   confidence?: number;
   publishTier?: BrainPublishTier;
   supersedesId?: string;
-  proposalMode?: "auto" | "always" | "never";
   rationale?: string;
   redactions?: string[];
   publishCanonical?: boolean;
-}
-
-async function evidenceSourceReviewPolicy(
-  evidence: BrainEvidence[],
-): Promise<"required" | "disabled" | "legacy"> {
-  const sourceIds = Array.from(
-    new Set(evidence.map((item) => item.sourceId).filter(Boolean)),
-  );
-  if (!sourceIds.length) return "legacy";
-  const sources = await getDb()
-    .select({
-      id: schema.brainSources.id,
-      configJson: schema.brainSources.configJson,
-    })
-    .from(schema.brainSources)
-    .where(
-      and(
-        inArray(schema.brainSources.id, sourceIds),
-        accessFilter(schema.brainSources, schema.brainSourceShares),
-      ),
-    );
-  if (sources.length !== sourceIds.length) return "required";
-  const values = sources.map((source) => {
-    const config = parseJson<Record<string, unknown>>(source.configJson, {});
-    const answerPolicy =
-      config.answerPolicy &&
-      typeof config.answerPolicy === "object" &&
-      !Array.isArray(config.answerPolicy)
-        ? (config.answerPolicy as Record<string, unknown>)
-        : null;
-    if (answerPolicy?.conflictBehavior === "require-review") return true;
-    return answerPolicy?.reviewRequired ?? config.reviewRequired;
-  });
-  if (values.includes(true)) return "required";
-  return values.every((value) => value === false) ? "disabled" : "legacy";
 }
 
 function slugify(value: string): string {
@@ -1934,10 +1905,7 @@ export async function previewKnowledgeCanonicalResource(input: {
   };
 }
 
-export async function writeKnowledgeRecord(
-  input: WriteKnowledgeInput,
-  options: { bypassProposal?: boolean } = {},
-) {
+export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
   const db = getDb();
   const userEmail = requireUserEmail();
   const settings = await readBrainSettings();
@@ -1993,80 +1961,6 @@ export async function writeKnowledgeRecord(
   const orgId = existing?.orgId ?? getRequestOrgId() ?? null;
   const visibility = visibilityForTier(tier);
   const status = redacted.redacted ? "redacted" : statusForTier(tier);
-  const highConfidenceAutoPublish =
-    (input.confidence ?? 80) >= 90 && !input.knowledgeId && !redacted.redacted;
-  const sourceReviewPolicy =
-    !options.bypassProposal &&
-    tier === "company" &&
-    input.proposalMode !== "always" &&
-    input.proposalMode !== "never"
-      ? await evidenceSourceReviewPolicy(evidence)
-      : "legacy";
-  const autoModeNeedsProposal =
-    sourceReviewPolicy === "required" ||
-    (sourceReviewPolicy === "legacy" &&
-      settings.requireApprovalForCompanyKnowledge &&
-      !highConfidenceAutoPublish);
-  const needsProposal =
-    !options.bypassProposal &&
-    (input.proposalMode === "always" ||
-      (input.proposalMode !== "never" &&
-        tier === "company" &&
-        autoModeNeedsProposal));
-
-  const payload = {
-    knowledgeId: input.knowledgeId,
-    title: redacted.title,
-    body: redacted.body,
-    summary: redacted.summary,
-    topic: input.topic ?? null,
-    tags: redacted.tags,
-    entities: redacted.entities,
-    evidence: redacted.evidence,
-    confidence: input.confidence ?? 80,
-    publishTier: tier,
-    kind: input.kind ?? "fact",
-    supersedesId: input.supersedesId,
-    sourceId,
-    captureId,
-    status,
-    visibility,
-    publishCanonical: input.publishCanonical ?? false,
-  };
-
-  if (needsProposal) {
-    const proposalId = nanoid();
-    await db.insert(schema.brainProposals).values({
-      id: proposalId,
-      knowledgeId: input.knowledgeId ?? null,
-      sourceId,
-      captureId,
-      audienceId: evidenceAudience?.audienceId ?? null,
-      audienceAclHash: evidenceAudience?.aclHash ?? null,
-      title: redacted.title,
-      body: redacted.body,
-      rationale: input.rationale ?? "",
-      proposedAction: input.knowledgeId ? "update" : "create",
-      payloadJson: stableJson(payload),
-      evidenceJson: stableJson(redacted.evidence),
-      status: "pending",
-      reviewerNotes: null,
-      createdBy: userEmail,
-      reviewedBy: null,
-      reviewedAt: null,
-      ownerEmail,
-      orgId,
-      visibility,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const [proposal] = await db
-      .select()
-      .from(schema.brainProposals)
-      .where(eq(schema.brainProposals.id, proposalId))
-      .limit(1);
-    return { mode: "proposal" as const, proposal: serializeProposal(proposal) };
-  }
 
   const id = input.knowledgeId ?? nanoid();
   if (existing) {

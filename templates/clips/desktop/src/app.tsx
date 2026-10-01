@@ -104,6 +104,7 @@ import {
   desktopRecoveryCopy,
   desktopRecordingFailureCopy,
 } from "./i18n/en-US";
+import { createAudioCue } from "./lib/audio-cue";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import { shouldKeepBubbleSession } from "./lib/bubble-session";
 import {
@@ -2673,6 +2674,9 @@ export function App({
   const restartCancelledRef = useRef(false);
   const recordingCancelInFlightRef = useRef(false);
   const sessionRecordingIdRef = useRef<string | null>(null);
+  const finishRecordingStopRef = useRef<
+    (handle: RecorderHandle, recordingId?: string | null) => Promise<void>
+  >(async () => {});
   const recordingInFlight =
     isRecording || recordingFlowActive || recordingStartPending;
   useLayoutEffect(() => {
@@ -3129,6 +3133,73 @@ export function App({
     }
   }
 
+  finishRecordingStopRef.current = async (handle, stoppingRecordingId) => {
+    recordingStopFinalizingRef.current = true;
+    setRecordingStopFinalizing(true);
+    bubbleStreamTransferredToRecorder.current = false;
+    bubbleStreamRef.current = null;
+    recordingFlowGateRef.current = false;
+    (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
+      false;
+    setRecordingFlowActive(false);
+    setRecorder(null);
+    setBubbleSessionEpoch((epoch) => epoch + 1);
+
+    let stopFailed = false;
+    let stopResult: RecorderStopResult | null = null;
+    try {
+      stopResult = await handle.stop();
+      if (stopResult.localOnly) {
+        setLocalRecordingNotice({
+          folderPath: stopResult.localFolder,
+          files: stopResult.localFiles ?? [],
+        });
+        emit("clips:native-upload-finished", {
+          recordingId: stopResult.recordingId,
+          ok: true,
+          localFilePath: stopResult.localFiles?.[0]?.path ?? null,
+        }).catch(() => {});
+      } else {
+        setLastRecordingId(stopResult.recordingId);
+        await copyShareLink(stopResult.recordingId, serverUrl, {
+          notify: false,
+        });
+      }
+    } catch (err) {
+      stopFailed = true;
+      setRecError(err instanceof Error ? err.message : String(err));
+      if (!stopResult) {
+        reportRecordingFailure(
+          {
+            recordingId: stoppingRecordingId ?? undefined,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          localRecordingMode !== "off",
+        );
+        emit("clips:native-upload-finished", {
+          recordingId: stoppingRecordingId ?? undefined,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }).catch(() => {});
+      }
+      await loadPendingUploads();
+    } finally {
+      recordingStopFinalizingRef.current = false;
+      setRecordingStopFinalizing(false);
+      setRecError((message) => clearResolvedFinalizationError(message, false));
+      invoke("set_recording_state", { active: false }).catch(() => {});
+      if (stopFailed || stopResult?.localOnly) {
+        invoke("show_popover").catch(() => {});
+      } else {
+        getCurrentWindow()
+          .hide()
+          .catch(() => {});
+        emit("clips:popover-visible", false).catch(() => {});
+      }
+    }
+  };
+
   async function retryPendingUpload(upload: PendingDesktopUpload) {
     if (
       retryingUploadId ||
@@ -3403,6 +3474,8 @@ export function App({
       micOn,
     });
 
+    const audioCue = createAudioCue();
+    let audioCueTransferred = false;
     const attempt = new RecordingStartAttempt();
     const startAttemptId = crypto.randomUUID();
     recoverySessionId.current = startAttemptId;
@@ -3410,9 +3483,21 @@ export function App({
     recordingFlowGateRef.current = true;
     setRecordingStartPending(true);
     let handle: RecorderHandle | null = null;
+    let stoppedDuringStart = false;
+    let stopRequestedDuringStart = false;
+    let captureStartRequestedDuringStart = false;
+    let unlistenStartupStop: (() => void) | null = null;
     let startError: unknown = null;
     let parkPopoverTimer: number | null = null;
     try {
+      sessionRecordingIdRef.current = null;
+      unlistenStartupStop = await listen("clips:recorder-stop", () => {
+        stopRequestedDuringStart = true;
+        if (!captureStartRequestedDuringStart) {
+          attempt.cancel();
+          emit("clips:countdown-cancel").catch(() => {});
+        }
+      });
       stopAllMicMeters();
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
@@ -3440,28 +3525,37 @@ export function App({
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
 
-      const recordingPromise = startRecording({
-        serverUrl,
-        mode,
-        source,
-        cameraId,
-        micId: selectedMicId || undefined,
-        micLabel: selectedMicLabel || micLabel || undefined,
-        authToken: loadDesktopAuthToken(serverUrl),
-        cookie: typeof document !== "undefined" ? document.cookie || "" : "",
-        cameraOn,
-        micOn,
-        systemAudioOn,
-        voiceCleanupEnabled,
-        localRecordingMode,
-        preAcquiredCameraStream,
-        preAcquiredDisplayStream: options?.resumeCapture?.displayStream ?? null,
-        preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
-        preAcquiredCaptureSuspension: attempt.captureSuspension,
-        pendingTranscriptionTeardown:
-          options?.resumeCapture?.transcriptionTornDown ?? null,
-        signal: attempt.signal,
-      });
+      const recordingPromise = startRecording(
+        {
+          serverUrl,
+          mode,
+          source,
+          cameraId,
+          micId: selectedMicId || undefined,
+          micLabel: selectedMicLabel || micLabel || undefined,
+          authToken: loadDesktopAuthToken(serverUrl),
+          cookie: typeof document !== "undefined" ? document.cookie || "" : "",
+          cameraOn,
+          micOn,
+          systemAudioOn,
+          voiceCleanupEnabled,
+          localRecordingMode,
+          preAcquiredCameraStream,
+          preAcquiredDisplayStream:
+            options?.resumeCapture?.displayStream ?? null,
+          preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
+          preAcquiredCaptureSuspension: attempt.captureSuspension,
+          pendingTranscriptionTeardown:
+            options?.resumeCapture?.transcriptionTornDown ?? null,
+          signal: attempt.signal,
+          onCaptureStartRequested: (recordingId) => {
+            captureStartRequestedDuringStart = true;
+            sessionRecordingIdRef.current = recordingId;
+          },
+        },
+        audioCue,
+      );
+      audioCueTransferred = true;
       if (isMacPlatform() && !nativeCaptureRecordingActive) {
         parkPopoverTimer = window.setTimeout(() => {
           if (
@@ -3478,9 +3572,17 @@ export function App({
         await boundedCleanup(started.cancel());
         attempt.ensureActive();
       }
-      handle = started;
       attempt.captureSuspension = null;
-      console.log("[clips-popover] recorder handle received");
+      if (stopRequestedDuringStart && captureStartRequestedDuringStart) {
+        stoppedDuringStart = true;
+        await finishRecordingStopRef.current(
+          started,
+          sessionRecordingIdRef.current,
+        );
+      } else {
+        handle = started;
+        console.log("[clips-popover] recorder handle received");
+      }
     } catch (err) {
       startError = err;
       if (!isRecordingStartCancellation(err)) {
@@ -3496,11 +3598,17 @@ export function App({
         });
       }
     } finally {
+      if (!audioCueTransferred) audioCue.cleanup();
       if (parkPopoverTimer !== null) {
         window.clearTimeout(parkPopoverTimer);
         parkPopoverTimer = null;
       }
-      if (!handle && recordingStartAttemptRef.current === attempt) {
+      unlistenStartupStop?.();
+      if (
+        !handle &&
+        !stoppedDuringStart &&
+        recordingStartAttemptRef.current === attempt
+      ) {
         attempt.cancel();
         console.warn(
           "[clips-popover] handleStartRecording finally: no handle — running recovery",
@@ -3522,6 +3630,7 @@ export function App({
       setRecorder(handle);
       return handle;
     }
+    if (stoppedDuringStart) return null;
 
     console.error("[clips-popover] handleStartRecording failed:", startError);
 
@@ -3745,74 +3854,10 @@ export function App({
           recordingCancelInFlightRef.current
         )
           return;
-        const handle = recorder;
-        recordingStopFinalizingRef.current = true;
-        setRecordingStopFinalizing(true);
-        bubbleStreamTransferredToRecorder.current = false;
-        bubbleStreamRef.current = null;
-        recordingFlowGateRef.current = false;
-        (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
-          false;
-        setRecordingFlowActive(false);
-        setRecorder(null);
-        setBubbleSessionEpoch((epoch) => epoch + 1);
-
-        let stopFailed = false;
-        let stopResult: RecorderStopResult | null = null;
-        const stoppingRecordingId = sessionRecordingIdRef.current;
-        try {
-          stopResult = await handle.stop();
-          if (stopResult.localOnly) {
-            setLocalRecordingNotice({
-              folderPath: stopResult.localFolder,
-              files: stopResult.localFiles ?? [],
-            });
-            emit("clips:native-upload-finished", {
-              recordingId: stopResult.recordingId,
-              ok: true,
-              localFilePath: stopResult.localFiles?.[0]?.path ?? null,
-            }).catch(() => {});
-          } else {
-            setLastRecordingId(stopResult.recordingId);
-            await copyShareLink(stopResult.recordingId, serverUrl, {
-              notify: false,
-            });
-          }
-        } catch (err) {
-          stopFailed = true;
-          setRecError(err instanceof Error ? err.message : String(err));
-          if (!stopResult) {
-            reportRecordingFailure(
-              {
-                recordingId: stoppingRecordingId ?? undefined,
-                ok: false,
-                error: err instanceof Error ? err.message : String(err),
-              },
-              localRecordingMode !== "off",
-            );
-            emit("clips:native-upload-finished", {
-              recordingId: stoppingRecordingId ?? undefined,
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            }).catch(() => {});
-          }
-          await loadPendingUploads();
-        } finally {
-          recordingStopFinalizingRef.current = false;
-          setRecordingStopFinalizing(false);
-          setRecError((message) =>
-            clearResolvedFinalizationError(message, false),
-          );
-          invoke("set_recording_state", { active: false }).catch(() => {});
-          if (stopFailed || stopResult?.localOnly) {
-            invoke("show_popover").catch(() => {});
-          } else {
-            getCurrentWindow()
-              .hide()
-              .catch(() => {});
-            emit("clips:popover-visible", false).catch(() => {});
-          }
-        }
+        void finishRecordingStopRef.current(
+          recorder,
+          sessionRecordingIdRef.current,
+        );
       }),
     );
     track(
@@ -4555,7 +4600,7 @@ export function App({
       {pendingUploadBanner}
 
       <div className="bottom-row">
-        {wisprFlowLabEnabled ? (
+        {voiceDictationEnabled ? (
           <BottomHint
             label="Dictate"
             shortcut={compactVoiceShortcutLabel(

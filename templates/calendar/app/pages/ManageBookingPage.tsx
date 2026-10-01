@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import {
   IconCalendar,
   IconClock,

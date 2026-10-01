@@ -403,24 +403,29 @@ function resolveElementForExport(
   doc: Document,
   selected: ElementInfo,
 ): Element | null {
-  let element: Element | null = null;
-  if (selected.sourceId) {
+  for (const sourceId of [selected.runtimeSourceId, selected.sourceId]) {
+    if (!sourceId) continue;
     try {
-      element = doc.querySelector(
-        `[data-agent-native-node-id="${CSS.escape(selected.sourceId)}"]`,
+      const element = doc.querySelector(
+        `[data-agent-native-node-id="${CSS.escape(sourceId)}"]`,
       );
+      if (element) return element;
     } catch {
-      element = null;
+      // coercion-ok: Invalid optional IDs fall through; unresolved exports still error below.
+      // Continue with the remaining selection identities.
     }
   }
-  if (!element && selected.selector) {
+  for (const selector of [selected.runtimeSelector, selected.selector]) {
+    if (!selector) continue;
     try {
-      element = doc.querySelector(selected.selector);
+      const element = doc.querySelector(selector);
+      if (element) return element;
     } catch {
-      element = null;
+      // coercion-ok: Invalid optional selectors fall through; unresolved exports still error below.
+      // Continue with the remaining selection identities.
     }
   }
-  return element;
+  return null;
 }
 
 export function resolveSelectedExportElements(
@@ -494,9 +499,8 @@ export function resolveExportCropTarget(
     if (
       error instanceof PngCaptureError &&
       error.code === "selection-unresolved"
-    ) {
+    )
       return { kind: "unresolved" };
-    }
     throw error;
   }
 }

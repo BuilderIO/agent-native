@@ -61,6 +61,7 @@ const FULL_CHECK_FILES = new Set([
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  "scripts/ci-change-scope.test.ts",
   "tsconfig.json",
   "vitest.shared.ts",
 ]);
@@ -87,7 +88,6 @@ const CHECK_NAMES = [
 
 const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
   "scripts/agent-friction-report.mjs",
-  "scripts/ci-change-scope.ts",
   "scripts/ci-change-scope.test.ts",
 ]);
 
@@ -113,6 +113,19 @@ export const QUERY_BUDGET_APPS = [
   "tasks",
 ] as const;
 
+// These templates depend on @agent-native/creative-context at runtime.
+const CREATIVE_CONTEXT_QUERY_BUDGET_APPS = [
+  "analytics",
+  "assets",
+  "content",
+  "design",
+  "slides",
+] as const satisfies readonly (typeof QUERY_BUDGET_APPS)[number][];
+
+// The query budget splits its apps across this many jobs. Each job pays for
+// its own checkout, install, and dist restore, so a third shard buys less.
+export const QUERY_BUDGET_SHARD_COUNT = 2;
+
 // Apps the SSR cold-start smoke builds and imports. Shared packages rebuild
 // every one; a template change rebuilds only that template.
 export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
@@ -131,8 +144,11 @@ export type ChangeScope = {
   testWorkspaceFilters: string[];
   scriptTests: string[];
   queryBudgetApps: string[];
+  queryBudgetShards: QueryBudgetShard[];
   ssrBootApps: string[];
 };
+
+export type QueryBudgetShard = { shard: string; apps: string[] };
 
 export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
@@ -187,9 +203,14 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
-    if (!isGuardScopedScriptPath(path)) continue;
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
+      continue;
+    }
+    if (
+      !isGuardScopedScriptPath(path) &&
+      path !== "scripts/ci-change-scope.ts"
+    ) {
       continue;
     }
     const stem = path.replace(/\.(?:ts|mts|mjs|js)$/u, "");
@@ -363,7 +384,27 @@ function queryBudgetAppsFor(
   if (full || measuresEveryQueryBudgetApp(changedPaths)) {
     return [...QUERY_BUDGET_APPS];
   }
-  return changedQueryBudgetApps(changedPaths);
+  const selectedApps = new Set(changedQueryBudgetApps(changedPaths));
+  if (hasPath(changedPaths, "packages/creative-context/")) {
+    for (const app of CREATIVE_CONTEXT_QUERY_BUDGET_APPS) {
+      selectedApps.add(app);
+    }
+  }
+  return QUERY_BUDGET_APPS.filter((app) => selectedApps.has(app));
+}
+
+export function shardQueryBudgetApps(
+  apps: readonly string[],
+): QueryBudgetShard[] {
+  const shards = Array.from(
+    { length: Math.min(QUERY_BUDGET_SHARD_COUNT, apps.length) },
+    () => [] as string[],
+  );
+  apps.forEach((app, index) => shards[index % shards.length].push(app));
+  return shards.map((shardApps, index) => ({
+    shard: `${index + 1}/${shards.length}`,
+    apps: shardApps,
+  }));
 }
 
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
@@ -429,6 +470,7 @@ function buildChecks(
   const assetsChanged = hasPath(changedPaths, "templates/assets/");
   const neonQueryBudgetChanged =
     measuresEveryQueryBudgetApp(changedPaths) ||
+    hasPath(changedPaths, "packages/creative-context/") ||
     changedQueryBudgetApps(changedPaths).length > 0;
 
   return {
@@ -491,6 +533,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
         ]),
       ) as CheckSelection)
     : buildChecks(changedPaths, full);
+  const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
 
   return {
     changedPaths,
@@ -501,7 +544,8 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     workspaceFilters,
     testWorkspaceFilters,
     scriptTests: scriptTestsForPaths(changedPaths),
-    queryBudgetApps: queryBudgetAppsFor(changedPaths, full, checks),
+    queryBudgetApps,
+    queryBudgetShards: shardQueryBudgetApps(queryBudgetApps),
     ssrBootApps: ssrBootAppsFor(changedPaths, full, checks),
   };
 }
@@ -524,7 +568,7 @@ function writeOutputs(scope: ChangeScope): void {
       `changed_count=${scope.changedPaths.length}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
-      `query_budget_apps=${JSON.stringify(scope.queryBudgetApps)}`,
+      `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
       `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(

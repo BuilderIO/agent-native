@@ -3,16 +3,18 @@ import {
   navigateWithAgentChatViewTransition,
   useChatModels,
 } from "@agent-native/core/client/agent-chat";
-import { PromptBar, PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
+import {
+  PromptBar,
+  PromptComposer,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { IconChevronDown, IconClockHour4, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 
-import type { ConnectedAppSummary } from "../lib/other-apps";
 import { cn } from "../lib/utils";
 import {
   orderWorkspaceApps,
@@ -31,11 +33,6 @@ import {
 } from "./app-list-row";
 import { CreateAppPopover } from "./create-app-popover";
 import { useSetPageTitle } from "./layout/HeaderActions";
-import {
-  filterOtherAppEntries,
-  mergeOtherAppEntries,
-  OtherAppsSection,
-} from "./other-apps-section";
 import { Button } from "./ui/button";
 import {
   Collapsible,
@@ -48,7 +45,6 @@ import {
   WorkspaceAppSearch,
   WorkspaceAppSearchEmpty,
 } from "./workspace-app-search";
-import type { CuratedWorkspaceTemplatesResult } from "./workspace-template-card";
 
 function SectionHeader({
   title,
@@ -163,25 +159,9 @@ function CommandPanel() {
 function AppsPanel({
   apps,
   isLoading,
-  connectedApps,
-  connectedAppsError,
-  connectedAppsLoading,
-  onRetryConnectedApps,
-  curatedTemplates,
-  curatedTemplatesError,
-  curatedTemplatesLoading,
-  onRetryCuratedTemplates,
 }: {
   apps: WorkspaceAppSummary[];
   isLoading: boolean;
-  connectedApps: ConnectedAppSummary[];
-  connectedAppsError?: Error | null;
-  connectedAppsLoading: boolean;
-  onRetryConnectedApps: () => void;
-  curatedTemplates?: CuratedWorkspaceTemplatesResult;
-  curatedTemplatesError?: Error | null;
-  curatedTemplatesLoading: boolean;
-  onRetryCuratedTemplates: () => void;
 }) {
   const t = useT();
   const [showPending, setShowPending] = useState(false);
@@ -200,20 +180,8 @@ function AppsPanel({
   const filteredPendingApps = orderedPendingApps.filter((app) =>
     workspaceAppMatchesQuery(app, searchQuery),
   );
-  const otherAppEntries = filterOtherAppEntries(
-    mergeOtherAppEntries({
-      templates: curatedTemplates,
-      connectedApps,
-      workspaceApps: apps,
-    }),
-    searchQuery,
-  );
   const hasSearchResults =
-    filteredActiveApps.length > 0 ||
-    filteredPendingApps.length > 0 ||
-    otherAppEntries.length > 0;
-  const otherAppsLoading = curatedTemplatesLoading || connectedAppsLoading;
-  const otherAppsError = curatedTemplatesError || connectedAppsError;
+    filteredActiveApps.length > 0 || filteredPendingApps.length > 0;
   const showSkeletons =
     isLoading && activeApps.length === 0 && pendingApps.length === 0;
 
@@ -229,9 +197,7 @@ function AppsPanel({
               </Link>
             </Button>
             {!showSkeletons &&
-            (visibleApps.length > 0 ||
-              otherAppEntries.length > 0 ||
-              Boolean(searchQuery.trim())) ? (
+            (visibleApps.length > 0 || Boolean(searchQuery.trim())) ? (
               <WorkspaceAppSearch
                 className="w-[220px]"
                 query={searchQuery}
@@ -263,10 +229,7 @@ function AppsPanel({
       ) : null}
       {showSkeletons ? (
         <OverviewAppsSkeleton />
-      ) : searchQuery.trim() &&
-        !hasSearchResults &&
-        !otherAppsLoading &&
-        !otherAppsError ? (
+      ) : searchQuery.trim() && !hasSearchResults ? (
         <WorkspaceAppSearchEmpty
           query={searchQuery}
           onClear={() => setSearchQuery("")}
@@ -284,32 +247,14 @@ function AppsPanel({
               />
             ))}
             {filteredActiveApps.length === 0 &&
-            !searchQuery.trim() &&
-            otherAppEntries.length === 0 &&
-            !curatedTemplatesLoading &&
-            !connectedAppsLoading &&
-            !curatedTemplatesError &&
-            !connectedAppsError ? (
+            pendingApps.length === 0 &&
+            !searchQuery.trim() ? (
               <p className="px-4 py-3 text-sm text-muted-foreground">
                 {t("dispatch.pages.noApps", {
                   defaultValue: "No apps yet.",
                 })}
               </p>
             ) : null}
-            <OtherAppsSection
-              templates={curatedTemplates}
-              connectedApps={connectedApps}
-              workspaceApps={apps}
-              templatesLoading={curatedTemplatesLoading}
-              connectedAppsLoading={connectedAppsLoading}
-              templatesError={curatedTemplatesError}
-              connectedAppsError={connectedAppsError}
-              query={searchQuery}
-              onRetryTemplates={onRetryCuratedTemplates}
-              onRetryConnectedApps={onRetryConnectedApps}
-              heading={null}
-              embeddedInList
-            />
           </AppList>
         </>
       )}
@@ -405,14 +350,6 @@ export function DispatchControlPlane() {
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
   );
-  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
-    "list-connected-agents",
-    {},
-  );
-  const curatedTemplatesQuery = useActionQuery<CuratedWorkspaceTemplatesResult>(
-    "list-curated-workspace-templates",
-    {},
-  );
   const { data: workspaceApps = [], isLoading: appsLoading } = appsQuery;
 
   return (
@@ -424,18 +361,7 @@ export function DispatchControlPlane() {
           onRetry={() => void appsQuery.refetch()}
         />
       ) : (
-        <AppsPanel
-          apps={workspaceApps ?? []}
-          isLoading={appsLoading}
-          connectedApps={connectedAppsQuery.data ?? []}
-          connectedAppsError={connectedAppsQuery.error}
-          connectedAppsLoading={connectedAppsQuery.isLoading}
-          onRetryConnectedApps={() => void connectedAppsQuery.refetch()}
-          curatedTemplates={curatedTemplatesQuery.data}
-          curatedTemplatesError={curatedTemplatesQuery.error}
-          curatedTemplatesLoading={curatedTemplatesQuery.isLoading}
-          onRetryCuratedTemplates={() => void curatedTemplatesQuery.refetch()}
-        />
+        <AppsPanel apps={workspaceApps ?? []} isLoading={appsLoading} />
       )}
     </div>
   );
