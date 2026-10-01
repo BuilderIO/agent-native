@@ -1429,8 +1429,8 @@ describe("update-visual-plan comments", () => {
     ).rejects.toMatchObject({
       message:
         "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
-      errorCode: "plan_revision_required",
-      statusCode: 400,
+      errorCode: "expected_updated_at_required",
+      statusCode: 422,
     });
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
   });
@@ -1479,6 +1479,30 @@ describe("update-visual-plan comments", () => {
       expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
     },
   );
+
+  it("types a stale revision as a 409 conflict so the action boundary does not capture it", async () => {
+    request.email = "editor@example.com";
+    getDbMock.mockReturnValue({});
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ updatedAt: newerUpdatedAt }),
+    );
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        content: structuredContent,
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "plan_revision_conflict",
+      statusCode: 409,
+    });
+  });
 
   it.each([
     {

@@ -62,7 +62,7 @@ Rules:
 - Content should be concise and presentation-ready (not paragraphs)
 - Use bullet points for lists, keep each point brief
 - Keep title, section, statement, and call-to-action slides centered with generous, even margins
-- Do not use emoji as decorative icons or bullets; use plain text bullets or HTML/CSS shapes instead
+- Do not use emoji as decorative icons or bullets; use plain text or numbered bullets
 - Do not invent factual numbers, metrics, URLs, source attributions, dates, success rates, benchmarks, customer names, or case-study results. Only include concrete factual claims if they are present in the topic/context. If a useful metric is unknown, use qualitative wording, [metric TBD], or clearly label it as a draft assumption.
 - ${imageInstruction}
 

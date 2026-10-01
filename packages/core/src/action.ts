@@ -251,6 +251,7 @@ export type ActionMcpAppCspBuilder = (ctx: {
   actionName: string;
   appId?: string;
   requestOrigin?: string;
+  catalogMode?: "app" | "directory";
 }) => ActionMcpAppCsp | Promise<ActionMcpAppCsp>;
 
 export interface ActionMcpAppPermissions {
@@ -271,6 +272,7 @@ export type ActionMcpAppHtmlBuilder = (ctx: {
   actionName: string;
   appId?: string;
   requestOrigin?: string;
+  catalogMode?: "app" | "directory";
 }) => string;
 
 export interface ActionMcpAppResourceConfig {
@@ -370,6 +372,11 @@ interface DefineActionWithSchema<
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<StandardSchemaV1.InferInput<TSchema>>;
+  /** `false` keeps a mutating action from publishing an `action` change event
+   *  (and its sync_events row) after each call. For writes no other session
+   *  needs to see, such as telemetry. Defaults to publishing; read-only
+   *  actions never publish. */
+  changeEvents?: boolean;
   parallelSafe?: boolean;
   endsTurn?: boolean;
   dedupe?: boolean;
@@ -446,6 +453,7 @@ interface DefineActionWithParams<
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
+  changeEvents?: boolean;
   parallelSafe?: boolean;
   endsTurn?: boolean;
   dedupe?: boolean;
@@ -488,6 +496,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
+  readonly changeEvents?: boolean;
   readonly parallelSafe?: boolean;
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
@@ -714,6 +723,9 @@ export function defineAction(options: any) {
       options.planMode.effect === "write" ||
       options.planMode.effect === "unknown")
       ? { planMode: options.planMode }
+      : {}),
+    ...(typeof options.changeEvents === "boolean"
+      ? { changeEvents: options.changeEvents }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),

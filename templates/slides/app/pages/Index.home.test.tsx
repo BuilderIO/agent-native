@@ -101,7 +101,7 @@ const {
   updateDeck: vi.fn(),
   promptProps: vi.fn(),
   referenceProps: vi.fn(),
-  signedIn: { value: true },
+  signedIn: { value: true, unreachable: false },
   agentEngine: { state: "configured", missing: false },
   fetchAgentEngineConfiguredState: vi.fn(),
   agentSubmit: vi.fn(),
@@ -231,6 +231,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
   useSession: () => ({
     session: signedIn.value ? { user: { email: "home@example.test" } } : null,
+    status: signedIn.unreachable
+      ? "unavailable"
+      : signedIn.value
+        ? "authenticated"
+        : "unauthenticated",
   }),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => translate }));
@@ -451,6 +456,7 @@ beforeEach(() => {
   createDeck.mockReset();
   updateDeck.mockReset();
   signedIn.value = true;
+  signedIn.unreachable = false;
   agentEngine.state = "configured";
   agentEngine.missing = false;
   fetchAgentEngineConfiguredState.mockImplementation(async () =>
@@ -1950,6 +1956,25 @@ describe("Slides prompt-led home", () => {
     expect((homeImport.current as { error: string }).error).toBe(
       "Sign-in required",
     );
+  });
+
+  it("does not treat an unreachable session check as signed out", async () => {
+    signedIn.value = false;
+    signedIn.unreachable = true;
+    const home = renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    act(() => {
+      const props = promptProps.mock.lastCall![0] as ComponentProps<
+        typeof PromptPopover
+      >;
+      expect(props.onBeforeUpload?.("My outline", [], "", [])).toBe(true);
+    });
+    expect(sessionStorage.getItem("slides:pending-deck-prompt")).toBeNull();
+    home.unmount();
   });
 
   it("restores composer references through the sign-in draft", async () => {

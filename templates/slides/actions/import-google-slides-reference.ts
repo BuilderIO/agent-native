@@ -23,14 +23,22 @@ function deckDeepLink(deckId: string): string {
   });
 }
 
+function invalidSlidesReference(message: string): never {
+  return fail(message, {
+    errorCode: "invalid_google_slides_reference",
+    statusCode: 400,
+  });
+}
+
 export function extractGoogleSlidesPresentationId(value: string): string {
   const candidate = value.trim();
-  if (!candidate)
-    throw new Error("A Google Slides file ID or URL is required.");
+  if (!candidate) {
+    invalidSlidesReference("A Google Slides file ID or URL is required.");
+  }
 
   if (!/^https?:\/\//i.test(candidate)) {
     if (!/^[a-zA-Z0-9_-]+$/.test(candidate)) {
-      throw new Error(
+      invalidSlidesReference(
         "Use a Google Slides file ID or a docs.google.com presentation URL.",
       );
     }
@@ -41,16 +49,20 @@ export function extractGoogleSlidesPresentationId(value: string): string {
   try {
     url = new URL(candidate);
   } catch {
-    throw new Error("Use a valid Google Slides presentation URL.");
+    invalidSlidesReference("Use a valid Google Slides presentation URL.");
   }
   if (url.hostname !== "docs.google.com") {
-    throw new Error("Use a docs.google.com Google Slides presentation URL.");
+    invalidSlidesReference(
+      "Use a docs.google.com Google Slides presentation URL.",
+    );
   }
   const match = url.pathname.match(
     /^\/presentation\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)(?:\/|$)/,
   );
   if (!match) {
-    throw new Error("That URL is not a Google Slides presentation link.");
+    invalidSlidesReference(
+      "That URL is not a Google Slides presentation link.",
+    );
   }
   return match[1];
 }

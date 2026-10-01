@@ -352,8 +352,9 @@ export default defineAction({
         contextPackId !== undefined &&
         contextPackId !== existingContext.contextPackId
       ) {
-        throw new Error(
+        fail(
           "The added slide must use the deck's existing creative-context pack",
+          { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
         );
       }
       const effectivePackId = contextPackId ?? existingContext?.contextPackId;

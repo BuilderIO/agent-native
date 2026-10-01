@@ -407,6 +407,57 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Kopieren fehlgeschlagen");
   });
 
+  it("copies a report that names the app, the thread, the run, the code, the time and the build", async () => {
+    clipboardMock.writeClipboardText.mockResolvedValue(true);
+    window.history.replaceState(null, "", "/inbox?thread=thr_77&token=secret");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The provider rejected the credential.",
+              errorCode: "credential_rejected",
+              runId: "run-123",
+              details: "attempted_runs: run-1",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    const copyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Copy debug info"),
+    );
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const copied = clipboardMock.writeClipboardText.mock.calls.at(-1)?.[0];
+    const lines = String(copied).split("\n");
+    expect(lines).toContain("error: The provider rejected the credential.");
+    expect(lines).toContain(`app: ${window.location.host}`);
+    expect(lines).toContain(`thread: ${window.location.origin}/?thread=thr_77`);
+    expect(lines).toContain("run: run-123");
+    expect(lines).toContain("code: credential_rejected");
+    expect(lines).toContain(
+      'inspect: get-agent-thread-debug {"runId":"run-123"}',
+    );
+    expect(lines.some((line) => line.startsWith("time: "))).toBe(true);
+    expect(lines.some((line) => line.startsWith("build: "))).toBe(true);
+    expect(copied).toContain("Details:\nattempted_runs: run-1");
+    expect(copied).not.toContain("secret");
+    window.history.replaceState(null, "", "/");
+  });
+
   it("keeps recovery actions compact in a narrow chat panel", async () => {
     await act(async () => {
       root.render(
@@ -936,6 +987,30 @@ describe("run recovery surfaces", () => {
     });
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("offers setup for a missing provider read back from the run's record", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The agent run failed.",
+              errorCode: "missing_credentials",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Connect AI");
   });
 
   it("routes structured provider-key errors to inline setup recovery", async () => {

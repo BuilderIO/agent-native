@@ -41,6 +41,17 @@ export function isMissingUploadProviderError(
 }
 
 export function isStorageSetupRequiredError(error: unknown): boolean {
+  // Typed first: the server says who can fix storage, and "nobody connected
+  // it" is the workspace admin's setup, whatever the message says.
+  const typed = error as {
+    errorCode?: unknown;
+    details?: { whoCanFix?: unknown } | null;
+  } | null;
+  if (typed?.errorCode === "attachment_storage_unavailable") {
+    return typed.details?.whoCanFix === "workspace_admin";
+  }
+  // Producers that do not carry a typed code yet (image assets, image
+  // generation) still word this as "No object storage is connected".
   const message =
     error instanceof Error
       ? error.message

@@ -10990,6 +10990,7 @@ it("editor chrome bridge promotes an empty body drop through clipped frames to t
     },
     nearestChildInsertionTarget: () => null,
     isEmptyDropContainer: () => false,
+    elementFromEditorPointIgnoring: () => body,
   });
 
   expect(flowMoveTargetForPoint(el, 500, 500)).toMatchObject({
@@ -11038,7 +11039,7 @@ it("editor chrome bridge keeps a top-level plain-frame receiver distinct from a 
   };
   const flowMoveTargetForPoint = compileBridgeFunction<
     (el: Element, x: number, y: number) => Record<string, unknown>
-  >("flowMoveTargetForPoint", "clipsOverflow", {
+  >("flowMoveTargetForPoint", "ignoreAutoLayoutForDropTarget", {
     document,
     window: {
       getComputedStyle: () => ({ display: "block" }),
@@ -11054,8 +11055,14 @@ it("editor chrome bridge keeps a top-level plain-frame receiver distinct from a 
       receiverIsAutoLayout && element === receiver,
     isContainerDropTarget: (element: Element) =>
       element === receiver || element === exitedFrame,
+    elementFromEditorPointIgnoring: () => pointHit,
     parentFlowAxis: () => "y",
     isEmptyDropContainer: () => false,
+    unnestAbsoluteToScreenRoot: () => ({
+      anchor: receiver,
+      placement: "after",
+      dropMode: "absolute-container",
+    }),
   });
 
   expect(flowMoveTargetForPoint(child, 240, 150)).toMatchObject({
@@ -11929,7 +11936,28 @@ it(
             .textContent?.trim(),
         };
       });
-      expect(chipResult.childIds).toEqual(["itemB", "itemA"]);
+      const chipMoves = (await readBridgeMessages(page))
+        .filter(
+          (message) =>
+            message.type === "visual-structure-change" &&
+            (message as { sourceId?: string }).sourceId === "itemA",
+        )
+        .map((message) => {
+          const move = message as {
+            anchorSourceId?: string;
+            placement?: string;
+            dropMode?: string;
+          };
+          return {
+            anchorSourceId: move.anchorSourceId,
+            placement: move.placement,
+            dropMode: move.dropMode,
+          };
+        });
+      expect(
+        chipResult.childIds,
+        JSON.stringify({ chipMoves, pageErrors }),
+      ).toEqual(["itemB", "itemA"]);
       expect(chipResult.itemBText).toBe("Beta");
       const chipMove = (await readBridgeMessages(page)).find(
         (message) =>

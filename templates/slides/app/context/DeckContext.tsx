@@ -17,6 +17,10 @@ import {
   REALTIME_CAP_POLL_LIVE,
   subscribeSyncEvents,
 } from "@agent-native/core/client/use-db-sync";
+import {
+  addSurfaceVisibilityListener,
+  isSurfaceHidden,
+} from "@agent-native/core/shared";
 import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
 import {
   createLayoutFitRevision,
@@ -389,16 +393,55 @@ const DeckContext = createContext<DeckContextType | null>(null);
 const OPEN_DECK_FALLBACK_POLL_MS = 5_000;
 const DECK_LIST_FALLBACK_POLL_MS = 15_000;
 const LIVE_CHANNEL_IDLE_POLL_MS = 60_000;
+// A hidden tab with an open deck keeps reconciling: external agents (MCP,
+// WebMCP, CDP) edit decks in tabs that are never focused (#4393). Only the
+// cadence drops, and repeated failures park it until the tab is visible.
+const HIDDEN_OPEN_DECK_FALLBACK_POLL_MS = 30_000;
+const HIDDEN_MAX_CONSECUTIVE_FAILURES = 2;
+// The first retry is faster than the idle cadence so a visible error state
+// recovers quickly; later ones back off instead of hammering a failing server.
+const FAILURE_BACKOFF_POLL_MS = [5_000, 15_000, 60_000] as const;
+
+type PollTerminalStop =
+  | { scope: "session" }
+  | { scope: "deck"; deckId: string };
+
+type PollControl = {
+  pollNow: () => void;
+  onRead: (deckId: string | null, status: DeckRead["status"]) => void;
+  onRouteChange: (openDeckId: string | null) => void;
+};
+
+const IDLE_POLL_CONTROL: PollControl = {
+  pollNow: () => {},
+  onRead: () => {},
+  onRouteChange: () => {},
+};
+
+/** Returns `null` when the loop should not schedule another tick. */
 export function fallbackPollIntervalMs(state: {
   liveChannelConnected: boolean;
   hasOpenDeck: boolean;
-  hasLoadError: boolean;
-}): number {
-  if (state.hasLoadError) return OPEN_DECK_FALLBACK_POLL_MS;
-  if (state.liveChannelConnected) return LIVE_CHANNEL_IDLE_POLL_MS;
-  return state.hasOpenDeck
-    ? OPEN_DECK_FALLBACK_POLL_MS
-    : DECK_LIST_FALLBACK_POLL_MS;
+  hidden: boolean;
+  consecutiveFailures: number;
+}): number | null {
+  const { liveChannelConnected, hasOpenDeck, hidden, consecutiveFailures } =
+    state;
+  if (hidden) {
+    if (!hasOpenDeck) return null;
+    if (consecutiveFailures >= HIDDEN_MAX_CONSECUTIVE_FAILURES) return null;
+    if (consecutiveFailures > 0 || liveChannelConnected) {
+      return LIVE_CHANNEL_IDLE_POLL_MS;
+    }
+    return HIDDEN_OPEN_DECK_FALLBACK_POLL_MS;
+  }
+  if (consecutiveFailures > 0) {
+    return FAILURE_BACKOFF_POLL_MS[
+      Math.min(consecutiveFailures, FAILURE_BACKOFF_POLL_MS.length) - 1
+    ];
+  }
+  if (liveChannelConnected) return LIVE_CHANNEL_IDLE_POLL_MS;
+  return hasOpenDeck ? OPEN_DECK_FALLBACK_POLL_MS : DECK_LIST_FALLBACK_POLL_MS;
 }
 
 type DeckListActionResult = {
@@ -1010,9 +1053,11 @@ async function callDeckWriteAction<TResult>(
     const mergeablePatch =
       actionName === "patch-deck" && isMergeSafeDeckPatchOperations(operations);
     if (mergeablePatch && isDeckRevisionConflict(error)) {
-      const latest = await fetchDeckFromAPI(deckId);
-      if (latest) rememberDeckServerRevision(deckId, latest);
-      throw revisionConflictError(error, latest !== null);
+      const latest = await readDeckFromAPI(deckId);
+      if (latest.status === "ok") {
+        rememberDeckServerRevision(deckId, latest.deck);
+      }
+      throw revisionConflictError(error, latest.status === "ok");
     }
     throw error;
   }
@@ -1385,7 +1430,7 @@ function drainPendingDeckOps(
           }
           failedSaveDecks.delete(deckId);
         } else {
-          const latest = await fetchDeckFromAPI(deckId);
+          const latest = deckOrNull(await readDeckFromAPI(deckId));
           canRetryPendingOps = latest !== null;
           if (latest) rememberDeckServerRevision(deckId, latest);
           const details =
@@ -2632,9 +2677,39 @@ export function deriveDeckDiffOps(before: Deck, after: Deck): PatchDeckOp[] {
   return operations;
 }
 
-async function fetchDecksFromAPI(
-  includePreview = true,
-): Promise<Deck[] | null> {
+type DeckReadFailureStatus =
+  | "not-found"
+  | "forbidden"
+  | "unauthorized"
+  | "unavailable";
+
+type DeckReadFailure = {
+  status: DeckReadFailureStatus;
+  error: unknown;
+};
+
+type DeckRead = { status: "ok"; deck: Deck } | DeckReadFailure;
+
+type DeckListRead = { status: "ok"; decks: Deck[] } | DeckReadFailure;
+
+type OpenDeckSync = {
+  read: DeckRead["status"] | "superseded";
+  deck: Deck | null;
+};
+
+function classifyDeckReadFailure(error: unknown): DeckReadFailureStatus {
+  const status = (error as { status?: unknown } | undefined)?.status;
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not-found";
+  return "unavailable";
+}
+
+function deckOrNull(read: DeckRead): Deck | null {
+  return read.status === "ok" ? read.deck : null;
+}
+
+async function readDecksFromAPI(includePreview = true): Promise<DeckListRead> {
   try {
     const result = await callActionWithRetry<DeckListActionResult>(
       "list-decks",
@@ -2643,28 +2718,41 @@ async function fetchDecksFromAPI(
     );
     if (!Array.isArray(result?.decks)) {
       console.warn("Failed to fetch decks: invalid action response");
-      return null;
+      return {
+        status: "unavailable",
+        error: new Error("list-decks returned an invalid response"),
+      };
     }
-    return result.decks
-      .map((deck) => normalizeActionDeck(deck))
-      .filter((deck): deck is Deck => deck !== null);
+    return {
+      status: "ok",
+      decks: result.decks
+        .map((deck) => normalizeActionDeck(deck))
+        .filter((deck): deck is Deck => deck !== null),
+    };
   } catch (err) {
     console.error("Failed to fetch decks:", err);
-    return null;
+    return { status: classifyDeckReadFailure(err), error: err };
   }
 }
 
-async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
+async function readDeckFromAPI(id: string): Promise<DeckRead> {
   try {
     const result = await callActionWithRetry<unknown>(
       "get-deck",
       { id },
       { method: "GET" },
     );
-    return normalizeActionDeck(result);
+    const deck = normalizeActionDeck(result);
+    if (!deck) {
+      return {
+        status: "unavailable",
+        error: new Error(`get-deck returned an invalid deck for ${id}`),
+      };
+    }
+    return { status: "ok", deck };
   } catch (err) {
     console.error(`Failed to fetch deck ${id}:`, err);
-    return null;
+    return { status: classifyDeckReadFailure(err), error: err };
   }
 }
 
@@ -2695,7 +2783,8 @@ function replaceOpenDeckRouteWithDeckList(): void {
 export async function includeOpenDeckIfMissing(
   decks: Deck[],
   openDeckId: string | null,
-  fetchById: (id: string) => Promise<Deck | null> = fetchDeckFromAPI,
+  fetchById: (id: string) => Promise<Deck | null> = async (id) =>
+    deckOrNull(await readDeckFromAPI(id)),
 ): Promise<Deck[]> {
   if (!openDeckId || decks.some((deck) => deck.id === openDeckId)) {
     return decks;
@@ -2707,15 +2796,16 @@ export async function includeOpenDeckIfMissing(
 
 async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
   const currentOpenDeckId = currentOpenDeckIdFromWindow();
-  const loaded = await fetchDecksFromAPI();
-  if (loaded === null) {
+  const listRead = await readDecksFromAPI();
+  if (listRead.status !== "ok") {
     if (!currentOpenDeckId) return null;
-    const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
+    const directDeck = deckOrNull(await readDeckFromAPI(currentOpenDeckId));
     return directDeck ? [directDeck] : null;
   }
+  const loaded = listRead.decks;
   if (!currentOpenDeckId) return loaded;
 
-  const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
+  const directDeck = deckOrNull(await readDeckFromAPI(currentOpenDeckId));
   if (!directDeck) return loaded;
   const index = loaded.findIndex((deck) => deck.id === currentOpenDeckId);
   if (index < 0) return [...loaded, directDeck];
@@ -2961,9 +3051,11 @@ function refuseRenderArtifactWrite(
 export function DeckProvider({
   children,
   realtimeEnabled = false,
+  openDeckId,
 }: {
   children: ReactNode;
   realtimeEnabled?: boolean;
+  openDeckId?: string | null;
 }) {
   const { data: org, isLoading: orgLoading } = useOrg();
   const t = useT();
@@ -2977,8 +3069,6 @@ export function DeckProvider({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [deckListRefreshCount, setDeckListRefreshCount] = useState(0);
-  const loadErrorRef = useRef(loadError);
-  loadErrorRef.current = loadError;
   const decksRef = useRef<Deck[]>([]);
 
   const [undoAvailability, setUndoAvailability] = useState<
@@ -3013,7 +3103,7 @@ export function DeckProvider({
   const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
   const liveChannelConnectedRef = useRef(false);
   const sseStreamConnectedRef = useRef(false);
-  const pollNowRef = useRef<() => void>(() => {});
+  const pollControlRef = useRef<PollControl>(IDLE_POLL_CONTROL);
   const syncListRefreshInFlightRef = useRef(false);
   const syncListRefreshPendingRef = useRef(false);
   const staleDeckIdsRef = useRef<Set<string>>(new Set());
@@ -3322,7 +3412,7 @@ export function DeckProvider({
       };
 
       try {
-        const remoteDeck = await fetchDeckFromAPI(deckId);
+        const remoteDeck = deckOrNull(await readDeckFromAPI(deckId));
         if (scopeGeneration !== deckScopeGenerationRef.current) {
           return { status: "unresolved", reason: "conflict-not-found" };
         }
@@ -3391,7 +3481,7 @@ export function DeckProvider({
         try {
           await persistDeckOps(deckId, [op]);
         } catch (error) {
-          const latestRemoteDeck = await fetchDeckFromAPI(deckId);
+          const latestRemoteDeck = deckOrNull(await readDeckFromAPI(deckId));
           if (
             latestRemoteDeck &&
             scopeGeneration === deckScopeGenerationRef.current
@@ -3722,7 +3812,9 @@ export function DeckProvider({
     [clearDeckDeleteTombstones],
   );
 
-  const refreshDeckListIfChanged = useCallback(async () => {
+  const refreshDeckListIfChanged = useCallback(async (): Promise<
+    DeckRead["status"] | "superseded"
+  > => {
     const requestId = ++deckListRequestIdRef.current;
     const createSeqAtRequest = localCreateSeqRef.current;
     const includePreview = currentOpenDeckIdFromWindow() === null;
@@ -3734,13 +3826,14 @@ export function DeckProvider({
     const writeSeqAtRequest = new Map(
       decksRef.current.map((d) => [d.id, deckLocalWriteSeq.get(d.id) ?? 0]),
     );
-    const fresh = await fetchDecksFromAPI(includePreview);
-    if (requestId !== deckListRequestIdRef.current) return;
-    if (fresh === null) {
-      loadErrorRef.current = true;
+    const listRead = await readDecksFromAPI(includePreview);
+    if (requestId !== deckListRequestIdRef.current) return "superseded";
+    pollControlRef.current.onRead(null, listRead.status);
+    if (listRead.status !== "ok") {
       setLoadError(true);
-      return;
+      return listRead.status;
     }
+    const fresh = listRead.decks;
     staleDeckIdsRef.current.clear();
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
@@ -3786,16 +3879,17 @@ export function DeckProvider({
       removed.length === 0 &&
       changedMetadataIds.length === 0
     ) {
-      loadErrorRef.current = false;
       setLoadError(false);
-      return;
+      return "ok";
     }
 
     const addedResults = await Promise.all(
-      addedIds.map((id) => fetchDeckFromAPI(id)),
+      addedIds.map((id) => readDeckFromAPI(id)),
     );
-    if (requestId !== deckListRequestIdRef.current) return;
-    const addedDecks = addedResults.filter((d): d is Deck => d !== null);
+    if (requestId !== deckListRequestIdRef.current) return "superseded";
+    const addedDecks = addedResults.flatMap((read) =>
+      read.status === "ok" ? [read.deck] : [],
+    );
     const hydratedEveryAddedDeck = addedDecks.length === addedIds.length;
 
     lastExternalUpdateRef.current = Date.now();
@@ -3821,18 +3915,19 @@ export function DeckProvider({
       return next;
     });
     if (hydratedEveryAddedDeck) {
-      loadErrorRef.current = false;
       setLoadError(false);
     } else {
-      loadErrorRef.current = true;
       setLoadError(true);
     }
+    return "ok";
   }, [isNewerThanSnapshot]);
 
-  const refetchDeckListIfChanged = useCallback(async () => {
+  const refetchDeckListIfChanged = useCallback(async (): Promise<
+    DeckRead["status"] | "superseded"
+  > => {
     setDeckListRefreshCount((count) => count + 1);
     try {
-      await refreshDeckListIfChanged();
+      return await refreshDeckListIfChanged();
     } finally {
       setDeckListRefreshCount((count) => count - 1);
     }
@@ -3861,28 +3956,30 @@ export function DeckProvider({
     if (staleDeckIdsRef.current.size > 0) runHomeGridListRefresh();
   }, [runHomeGridListRefresh]);
 
-  const refetchOpenDeckIfChanged = useCallback(
+  const syncOpenDeck = useCallback(
     async (
       currentOpenId: string,
       options?: { clearPendingWrites?: boolean },
-    ): Promise<Deck | null> => {
+    ): Promise<OpenDeckSync> => {
       const snapshotGeneration = serverSnapshotGenerationRef.current;
       const requestId = nextOpenDeckRequestId(currentOpenId);
       const pendingAtReadStart = pendingWriteSlideIds(
         decksRef.current.find((d) => d.id === currentOpenId),
       );
       const writeSeqAtReadStart = deckLocalWriteSeq.get(currentOpenId) ?? 0;
-      const fetchedServerDeck = await fetchDeckFromAPI(currentOpenId);
+      const read = await readDeckFromAPI(currentOpenId);
       if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
-        return null;
+        return { read: "superseded", deck: null };
       }
+      pollControlRef.current.onRead(currentOpenId, read.status);
       if (
         !options?.clearPendingWrites &&
         (deckLocalWriteSeq.get(currentOpenId) ?? 0) !== writeSeqAtReadStart
       ) {
-        return null;
+        return { read: read.status, deck: null };
       }
-      if (!fetchedServerDeck) return null;
+      if (read.status !== "ok") return { read: read.status, deck: null };
+      const fetchedServerDeck = read.deck;
       if (options?.clearPendingWrites) {
         clearDeckDeleteTombstones(currentOpenId);
       }
@@ -3891,11 +3988,13 @@ export function DeckProvider({
         snapshotGeneration,
       );
       const clientDeck = decksRef.current.find((d) => d.id === currentOpenId);
-      if (staleFullReplaceDrafts.has(currentOpenId)) return serverDeck;
+      if (staleFullReplaceDrafts.has(currentOpenId)) {
+        return { read: "ok", deck: serverDeck };
+      }
       if (options?.clearPendingWrites) {
         lastExternalUpdateRef.current = Date.now();
         applyRemoteDeckUpdate(serverDeck, { clearPendingWrites: true });
-        return serverDeck;
+        return { read: "ok", deck: serverDeck };
       }
 
       const hasLocalEdits =
@@ -3917,20 +4016,20 @@ export function DeckProvider({
                 ?.has(slide.id),
           },
         );
-        if (merged === clientDeck) return serverDeck;
+        if (merged === clientDeck) return { read: "ok", deck: serverDeck };
         lastExternalUpdateRef.current = Date.now();
         applyRemoteDeckUpdate(merged);
-        return serverDeck;
+        return { read: "ok", deck: serverDeck };
       }
 
       const changed =
         !clientDeck ||
         clientDeck.updatedAt !== serverDeck.updatedAt ||
         deckContentSignature(clientDeck) !== deckContentSignature(serverDeck);
-      if (!changed) return serverDeck;
+      if (!changed) return { read: "ok", deck: serverDeck };
       lastExternalUpdateRef.current = Date.now();
       applyRemoteDeckUpdate(serverDeck);
-      return serverDeck;
+      return { read: "ok", deck: serverDeck };
     },
     [
       applyRemoteDeckUpdate,
@@ -3938,6 +4037,15 @@ export function DeckProvider({
       nextOpenDeckRequestId,
       reconcileServerDeckWithDeleteTombstones,
     ],
+  );
+
+  const refetchOpenDeckIfChanged = useCallback(
+    async (
+      currentOpenId: string,
+      options?: { clearPendingWrites?: boolean },
+    ): Promise<Deck | null> =>
+      (await syncOpenDeck(currentOpenId, options)).deck,
+    [syncOpenDeck],
   );
 
   const resyncDeckState = useCallback(async () => {
@@ -4177,33 +4285,94 @@ export function DeckProvider({
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastListFetchAt = 0;
+    let consecutiveFailures = 0;
+    // A terminal read (401, or 403/404 on the open deck) will fail the same way
+    // on every tick, so the loop parks until something can change the answer:
+    // focus, visibility, an announced write, navigation, or any successful read.
+    let terminalStop: PollTerminalStop | null = null;
+    let inFlight = false;
+    let rerunForced = false;
 
     const readOpenDeckId = (): string | null => {
       if (typeof window === "undefined") return null;
       return deckIdFromPathname(window.location.pathname);
     };
 
-    const isIdleHidden = () =>
-      typeof document !== "undefined" &&
-      document.visibilityState === "hidden" &&
-      !readOpenDeckId();
+    const isIdleHidden = () => isSurfaceHidden() && !readOpenDeckId();
 
-    const schedule = () => {
-      if (stopped || isIdleHidden()) return;
-      timer = setTimeout(
-        poll,
-        fallbackPollIntervalMs({
-          liveChannelConnected: liveChannelConnectedRef.current,
-          hasOpenDeck: Boolean(readOpenDeckId()),
-          hasLoadError: loadErrorRef.current,
-        }),
-      );
+    const clearTimer = () => {
+      if (!timer) return;
+      clearTimeout(timer);
+      timer = null;
     };
 
+    const schedule = () => {
+      clearTimer();
+      if (stopped || terminalStop) return;
+      const delay = fallbackPollIntervalMs({
+        liveChannelConnected: liveChannelConnectedRef.current,
+        hasOpenDeck: Boolean(readOpenDeckId()),
+        hidden: isSurfaceHidden(),
+        consecutiveFailures,
+      });
+      if (delay === null) return;
+      timer = setTimeout(poll, delay);
+    };
+
+    const resume = () => {
+      terminalStop = null;
+      consecutiveFailures = 0;
+    };
+
+    const onRead = (deckId: string | null, status: DeckRead["status"]) => {
+      if (stopped) return;
+      // A late 403/404 for a deck the route has already left must not park
+      // the loop that now serves the newly opened deck.
+      const stop: PollTerminalStop | null =
+        status === "unauthorized"
+          ? { scope: "session" }
+          : deckId !== null &&
+              deckId === readOpenDeckId() &&
+              (status === "not-found" || status === "forbidden")
+            ? { scope: "deck", deckId }
+            : null;
+      if (stop) {
+        terminalStop = stop;
+        clearTimer();
+        return;
+      }
+      if (status !== "ok" || !terminalStop) return;
+      if (terminalStop.scope === "deck" && terminalStop.deckId !== deckId) {
+        return;
+      }
+      resume();
+      schedule();
+    };
+
+    const onRouteChange = (openDeckId: string | null) => {
+      if (terminalStop?.scope !== "deck") return;
+      if (terminalStop.deckId === openDeckId) return;
+      resume();
+      pollNow();
+    };
+
+    const isFailedRead = (read: DeckRead["status"] | "superseded") =>
+      read !== "ok" && read !== "superseded";
+
     async function poll(force = false) {
-      if (stopped || (!force && isIdleHidden())) return;
+      if (stopped || terminalStop || (!force && isIdleHidden())) return;
+      // Focus and visibilitychange fire together on tab return. A trigger that
+      // lands mid-tick joins it instead of racing it, so one failing tick counts
+      // once; only an announced write reruns, since the read may predate it.
+      if (inFlight) {
+        rerunForced ||= force;
+        return;
+      }
+      inFlight = true;
+      clearTimer();
       const now = Date.now();
       const currentOpenId = readOpenDeckId();
+      let failed = false;
 
       try {
         if (
@@ -4211,42 +4380,49 @@ export function DeckProvider({
           now - lastListFetchAt >= DECK_LIST_FALLBACK_POLL_MS
         ) {
           lastListFetchAt = now;
-          await refetchDeckListIfChanged();
+          if (isFailedRead(await refetchDeckListIfChanged())) failed = true;
         }
 
-        if (currentOpenId) {
-          try {
-            await refetchOpenDeckIfChanged(currentOpenId);
-          } catch {}
+        if (currentOpenId && !terminalStop && !stopped) {
+          const { read } = await syncOpenDeck(currentOpenId);
+          if (isFailedRead(read)) failed = true;
         }
-      } catch {}
+      } catch (error) {
+        failed = true;
+        console.error("Deck fallback poll failed:", error);
+      }
+      inFlight = false;
+      if (stopped) return;
+      consecutiveFailures = failed ? consecutiveFailures + 1 : 0;
+      if (rerunForced) {
+        // The announcement is a resume trigger; a terminal result from the read
+        // it raced must not swallow it.
+        rerunForced = false;
+        terminalStop = null;
+        void poll(true);
+        return;
+      }
       schedule();
     }
 
     const pollNow = () => {
-      if (isIdleHidden()) return;
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
+      if (terminalStop || isIdleHidden()) return;
       void poll();
     };
 
+    const resumeAndPollNow = () => {
+      resume();
+      pollNow();
+    };
+
     const refreshNow = () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
+      resume();
       void poll(true);
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" || !isIdleHidden()) {
-        pollNow();
-      } else if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
+      if (isSurfaceHidden()) schedule();
+      else resumeAndPollNow();
     };
 
     const handlePopState = () => {
@@ -4254,27 +4430,32 @@ export function DeckProvider({
     };
 
     void poll();
-    pollNowRef.current = pollNow;
-    window.addEventListener("focus", pollNow);
+    const control: PollControl = { pollNow, onRead, onRouteChange };
+    pollControlRef.current = control;
+    window.addEventListener("focus", resumeAndPollNow);
     window.addEventListener("agentNative:refresh-data", refreshNow);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const removeVisibilityListener = addSurfaceVisibilityListener(
+      handleVisibilityChange,
+    );
     window.addEventListener("popstate", handlePopState);
 
     return () => {
       stopped = true;
-      if (timer) clearTimeout(timer);
-      if (pollNowRef.current === pollNow) pollNowRef.current = () => {};
-      window.removeEventListener("focus", pollNow);
+      clearTimer();
+      if (pollControlRef.current === control) {
+        pollControlRef.current = IDLE_POLL_CONTROL;
+      }
+      window.removeEventListener("focus", resumeAndPollNow);
       window.removeEventListener("agentNative:refresh-data", refreshNow);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      removeVisibilityListener();
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [
-    loading,
-    realtimeEnabled,
-    refetchDeckListIfChanged,
-    refetchOpenDeckIfChanged,
-  ]);
+  }, [loading, realtimeEnabled, refetchDeckListIfChanged, syncOpenDeck]);
+
+  useEffect(() => {
+    if (openDeckId === undefined) return;
+    pollControlRef.current.onRouteChange(openDeckId);
+  }, [openDeckId]);
 
   useEffect(() => {
     if (loading) return;
@@ -4425,7 +4606,7 @@ export function DeckProvider({
           if (hasConnectedOnce) void resyncDeckState();
           hasConnectedOnce = true;
         } else if (wasConnected) {
-          pollNowRef.current();
+          pollControlRef.current.pollNow();
         }
       },
     });
@@ -4627,7 +4808,7 @@ export function DeckProvider({
         return null;
       }
       if (source.slides.length === 0 && source.previewSlide) {
-        const hydrated = await fetchDeckFromAPI(sourceDeckId);
+        const hydrated = deckOrNull(await readDeckFromAPI(sourceDeckId));
         if (!hydrated) {
           pendingDuplicateSourceIdsRef.current.delete(sourceDeckId);
           return null;
@@ -5439,8 +5620,13 @@ export function DeckProvider({
 
   const resolveContentConflict = useCallback(
     async (deckId: string, slideId: string, resolution: "latest" | "draft") => {
-      const latest = await fetchDeckFromAPI(deckId);
-      if (!latest) throw new Error("Could not load the latest deck version");
+      const latestRead = await readDeckFromAPI(deckId);
+      if (latestRead.status !== "ok") {
+        throw new Error("Could not load the latest deck version", {
+          cause: latestRead.error,
+        });
+      }
+      const latest = latestRead.deck;
       const latestSlide = latest.slides.find((slide) => slide.id === slideId);
       if (!latestSlide)
         throw new Error("The conflicted slide no longer exists");

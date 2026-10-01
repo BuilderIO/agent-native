@@ -8,9 +8,11 @@ import {
   intendedHrefFromClick,
   isDynamicImportFailureMessage,
   isRouteModuleReloadMessage,
+  readStaleChunkRecoveryExhausted,
   recoverFromStaleChunkError,
   reloadForStaleChunk,
   rememberIntendedNavigation,
+  STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
 } from "./route-chunk-recovery.js";
 
 function createFakeWindow(
@@ -711,5 +713,65 @@ describe("route chunk recovery", () => {
       ),
     ).toBe(false);
     expect(fakeLocation.assign).not.toHaveBeenCalled();
+  });
+  describe("when a reload cannot recover the stale chunk", () => {
+    const staleChunk = new Error(
+      "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/x.js",
+    );
+
+    it("stays silent while a reload is actually attempted", () => {
+      const { fakeWindow } = createFakeWindow();
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+
+      expect(recoverFromStaleChunkError(staleChunk, fakeWindow)).toBe(true);
+
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+      expect(dispatchEvent).not.toHaveBeenCalled();
+    });
+
+    it("reports exactly once when the reload cooldown blocks it", () => {
+      const { fakeWindow } = createFakeWindow();
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+
+      expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
+      expect(reloadForStaleChunk(fakeWindow, 2_000)).toBe(false);
+      expect(reloadForStaleChunk(fakeWindow, 3_000)).toBe(false);
+
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
+        reason: "cooldown",
+      });
+      expect(dispatchEvent).toHaveBeenCalledTimes(1);
+      const event = dispatchEvent.mock.calls[0][0] as CustomEvent;
+      expect(event.type).toBe(STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT);
+      expect(event.detail).toEqual({ reason: "cooldown" });
+    });
+
+    it("reports exactly once on desktop, where it never reloads", () => {
+      const { fakeWindow, fakeLocation, dispatchWindow } = createFakeWindow(
+        "https://example.com/dispatch/apps",
+        { userAgent: "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7" },
+      );
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+      installRouteChunkRecovery(fakeWindow);
+
+      for (let i = 0; i < 3; i += 1) {
+        dispatchWindow("unhandledrejection", {
+          reason: staleChunk,
+          preventDefault: vi.fn(),
+        } as unknown as PromiseRejectionEvent);
+      }
+
+      expect(fakeLocation.assign).not.toHaveBeenCalled();
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
+        reason: "desktop",
+      });
+      expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    });
   });
 });

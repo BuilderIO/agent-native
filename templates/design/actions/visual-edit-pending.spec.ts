@@ -478,6 +478,8 @@ describe("visual-edit pending handoff", () => {
       pendingEditCount: 0,
       status: "empty",
       prompt: "",
+      clientRevision: null,
+      publisherId: null,
     });
 
     mocks.selectChain.limit.mockResolvedValueOnce([
@@ -486,6 +488,8 @@ describe("visual-edit pending handoff", () => {
         status: "ready",
         prompt: "Move the CTA to the right.",
         revision: 1,
+        clientRevision: 1,
+        publisherId,
         updatedAt: "2026-09-23T12:00:00.000Z",
       },
     ]);
@@ -496,6 +500,8 @@ describe("visual-edit pending handoff", () => {
       pendingEditCount: 1,
       status: "ready",
       prompt: "Move the CTA to the right.",
+      clientRevision: 1,
+      publisherId,
     });
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",

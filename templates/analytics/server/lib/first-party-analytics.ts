@@ -7,6 +7,7 @@ import { getDb, schema } from "../db/index.js";
 import {
   EXCEPTION_EVENT_NAME,
   ingestAnalyticsExceptionEvents,
+  recordErrorIngestFailure,
   type DerivedExceptionFields,
 } from "./error-capture.js";
 import {
@@ -818,7 +819,9 @@ export async function recordAnalyticsEvents(
         exceptionSources,
       );
     } catch (error) {
-      console.warn("[first-party-analytics] Exception ingest failed:", error);
+      // The raw `$exception` rows above are already stored, but none of these
+      // reached `error_issues`: count them and log at error level.
+      recordErrorIngestFailure(exceptionSources.length, error);
     }
   }
 

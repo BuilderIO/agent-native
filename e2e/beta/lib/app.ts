@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 const SIGN_IN_TEXT = /sign in|sign up|continue with google|create an account/i;
 const SIGN_IN_PATH = /\/(sign-in|login)\b/;
@@ -168,4 +168,118 @@ export function collectAppPageErrors(
   });
 
   return { errors, thirdParty };
+}
+
+export async function describeFocusedElement(page: Page): Promise<string> {
+  try {
+    return await page.evaluate(() => {
+      const active = document.activeElement as HTMLElement | null;
+      if (!active) return "no focused element";
+      return JSON.stringify({
+        tag: active.tagName,
+        id: active.id || null,
+        role: active.getAttribute("role"),
+        ariaLabel: active.getAttribute("aria-label"),
+        contentEditable: active.isContentEditable,
+        className: String(active.className).slice(0, 80),
+      });
+    });
+  } catch (error) {
+    return `focused element unreadable: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/**
+ * Press a shortcut until `target` shows, for a page whose key handler attaches
+ * after the first paint: a press that lands before it is lost, so one press and
+ * one long wait reports "missing" for a command that is only late. The target
+ * is checked before every press because a shortcut that toggles would close the
+ * menu a slow first press opened.
+ */
+export async function pressUntilVisible(
+  page: Page,
+  shortcut: string,
+  target: Locator,
+  { timeoutMs = 45_000, settleMs = 3_000 } = {},
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let presses = 0;
+  while (Date.now() < deadline) {
+    if (await target.isVisible()) return;
+    await page.keyboard.press(shortcut);
+    presses += 1;
+    const settledBy = Date.now() + settleMs;
+    while (Date.now() < settledBy) {
+      if (await target.isVisible()) return;
+      await page.waitForTimeout(100);
+    }
+  }
+  throw new Error(
+    `${shortcut} was pressed ${presses} time(s) over ${Math.round(timeoutMs / 1000)}s and ${target} never became visible at ${page.url()}. Focused element: ${await describeFocusedElement(page)}`,
+  );
+}
+
+export type PageVisibility = "visible" | "hidden";
+
+interface VisibilityControlWindow {
+  __betaVisibility?: { set(state: PageVisibility): void };
+}
+
+/**
+ * Runs in the page before any app script. Headless Chromium keeps every page
+ * in a context `visible` even after `bringToFront()` on another one, so a
+ * hidden-tab precondition can never be observed there. This overrides what the
+ * page reads and fires the event it listens for, which is the contract an app's
+ * pause-while-hidden code depends on. Exported only so it can be unit tested.
+ */
+export function visibilityControlScript(): void {
+  const control = window as unknown as VisibilityControlWindow;
+  if (control.__betaVisibility) return;
+  const nativeState = Object.getOwnPropertyDescriptor(
+    Document.prototype,
+    "visibilityState",
+  )?.get;
+  const nativeHidden = Object.getOwnPropertyDescriptor(
+    Document.prototype,
+    "hidden",
+  )?.get;
+  if (!nativeState || !nativeHidden) {
+    throw new Error("document.visibilityState is not an accessor here");
+  }
+  let forced: PageVisibility | null = null;
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => forced ?? nativeState.call(document),
+  });
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    get: () =>
+      forced === null ? nativeHidden.call(document) : forced === "hidden",
+  });
+  control.__betaVisibility = {
+    set(state) {
+      forced = state;
+      document.dispatchEvent(new Event("visibilitychange"));
+    },
+  };
+}
+
+export async function installVisibilityControl(page: Page): Promise<void> {
+  await page.addInitScript(visibilityControlScript);
+}
+
+export async function setPageVisibility(
+  page: Page,
+  state: PageVisibility,
+): Promise<void> {
+  await page.evaluate((next) => {
+    const control = (window as unknown as VisibilityControlWindow)
+      .__betaVisibility;
+    if (!control) {
+      throw new Error(
+        "installVisibilityControl() must run before this page navigates",
+      );
+    }
+    control.set(next);
+  }, state);
 }

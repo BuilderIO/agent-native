@@ -1889,7 +1889,7 @@ function subscribeInMemory(
                 phase: "memory-subscription-terminal",
                 runStatus: run.status,
               },
-              extra: { runId: run.runId, fromSeq },
+              extra: { runId: run.runId, threadId: run.threadId, fromSeq },
             },
           );
           try {
@@ -2156,7 +2156,9 @@ function subscribeFromSQL(
                 // the run's REAL terminal event, then the terminal_reason,
                 // before falling back to `done`. "completed" is still checked
                 // for chunk-boundary rows written before the truncated status
-                // existed, which linger for one retention window.
+                // existed, which linger for one retention window. A truncated
+                // row always hands its turn on, whatever its reason (a deferred
+                // handoff is truncated before its auto_continue is saved).
                 const existing = await getLastTerminalRunEvent(runId).catch(
                   () => null,
                 );
@@ -2164,7 +2166,9 @@ function subscribeFromSQL(
                   ? existing.event
                   : isContinuationTerminalReason(run.terminalReason)
                     ? { type: "auto_continue", reason: run.terminalReason }
-                    : { type: "done" };
+                    : run.status === "truncated"
+                      ? { type: "auto_continue", reason: "stream_ended" }
+                      : { type: "done" };
                 try {
                   controller.enqueue(
                     encoder.encode(
@@ -2559,7 +2563,12 @@ export async function abortRunDurably(
         source: "agent-run-manager",
         phase: "abort-run",
       },
-      extra: { runId, reason, abortedInMemory },
+      extra: {
+        runId,
+        threadId: activeRuns.get(runId)?.threadId,
+        reason,
+        abortedInMemory,
+      },
     });
     console.error(
       "[run-manager] durable abort persistence failed:",
@@ -2603,4 +2612,4 @@ export async function abortTurnDurably(
   }
 }
 
-export { tryClaimRunSlot } from "./run-store.js";
+export { getSlotHoldingRunId, tryClaimRunSlot } from "./run-store.js";

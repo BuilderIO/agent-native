@@ -36,7 +36,7 @@ import {
 } from "@/components/editor/editor-command-model";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { DeckProvider } from "@/context/DeckContext";
+import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
 import "@/lib/register-chat-renderers";
@@ -325,7 +325,11 @@ function AppContent() {
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
-      <DeckProvider key={DECK_KEY} realtimeEnabled={isDeckEditor}>
+      <DeckProvider
+        key={DECK_KEY}
+        realtimeEnabled={isDeckEditor}
+        openDeckId={deckIdFromPathname(location.pathname)}
+      >
         <AppLayout>
           <Outlet />
         </AppLayout>

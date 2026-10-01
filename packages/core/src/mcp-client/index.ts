@@ -217,6 +217,7 @@ function mcpToolToActionEntry(
       parameters: tool.inputSchema as any,
     },
     http: false,
+    fromMcpServer: true,
     planMode: {
       effect: (args) =>
         evaluateMcpToolCallPolicy({ mode: "read-only" }, tool, args).effect,
@@ -280,7 +281,10 @@ export function isVisibleToMcpApp(tool: McpTool): boolean {
   }
 }
 
-export function flattenMcpToolResult(result: unknown): string {
+export function flattenMcpToolResult(
+  result: unknown,
+  options: { preferStructuredContent?: boolean } = {},
+): string {
   if (
     result &&
     typeof result === "object" &&
@@ -288,6 +292,26 @@ export function flattenMcpToolResult(result: unknown): string {
   ) {
     const parts = (result as any).content as Array<Record<string, any>>;
     const text = parts.map(formatMcpContentPart).join("\n");
+    const structuredContent = (result as any).structuredContent;
+    if (
+      !(result as any).isError &&
+      options.preferStructuredContent &&
+      structuredContent !== null &&
+      typeof structuredContent === "object" &&
+      !Array.isArray(structuredContent)
+    ) {
+      const structuredText = JSON.stringify(structuredContent, null, 2);
+      if (structuredText !== undefined) {
+        const supplemental = parts
+          .filter((part) => part?.type !== "text")
+          .map(formatMcpContentPart)
+          .join("\n");
+        return supplemental
+          ? `${structuredText}\n${supplemental}`
+          : structuredText;
+      }
+    }
+
     const fallback =
       text ||
       (hasStructuredContent(result)
@@ -352,7 +376,9 @@ async function buildMcpActionResult(
   input: Record<string, unknown>,
   raw: unknown,
 ): Promise<McpActionResult> {
-  const text = flattenMcpToolResult(raw);
+  const text = flattenMcpToolResult(raw, {
+    preferStructuredContent: tool.annotations?.readOnlyHint === true,
+  });
   const mcpApp = await extractMcpAppPayload(manager, tool, input, raw);
   return {
     [MCP_ACTION_RESULT_MARKER]: true,
