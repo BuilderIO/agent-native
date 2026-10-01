@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   and,
   type AnyColumn,
@@ -53,6 +55,7 @@ export interface SessionEventScope {
 const MAX_PROPERTY_KEYS = 30;
 const PROPERTY_KEY_PATTERN = /^[A-Za-z0-9_.$:-]{1,64}$/;
 const MAX_EVENT_NAME_LENGTH = 200;
+const MAX_APP_LENGTH = 100;
 const MAX_SESSION_ID_LENGTH = 256;
 const STOPPED_FIRING_DAYS = 7;
 const SESSION_EVENT_INDEX_RETENTION_BUFFER_DAYS = 2;
@@ -79,10 +82,17 @@ function viewerTenantKeys(scope: SessionEventScope): string[] {
     : [sessionEventTenantKey(scope.userEmail, null)];
 }
 
-/** Never ends on half of a surrogate pair, which `stableId` cannot encode. */
-function eventNameOf(value: string | null | undefined): string {
-  const name = value?.trim().slice(0, MAX_EVENT_NAME_LENGTH) ?? "";
-  return /[\uD800-\uDBFF]$/.test(name) ? name.slice(0, -1) : name;
+/**
+ * Unique indexes hold event names and apps raw, so both are cut to a length
+ * that fits an index entry. Never ends on half of a surrogate pair, which
+ * Postgres would store as a replacement character.
+ */
+function boundedText(
+  value: string | null | undefined,
+  maxLength: number,
+): string {
+  const text = value?.trim().slice(0, maxLength) ?? "";
+  return /[\uD800-\uDBFF]$/.test(text) ? text.slice(0, -1) : text;
 }
 
 /**
@@ -97,8 +107,12 @@ function sessionIdOf(value: string | null | undefined): string | null {
     : null;
 }
 
+/** Hashed, so caller text never makes a primary key too long to index. */
 function stableId(prefix: string, parts: readonly string[]): string {
-  return `${prefix}_${parts.map((part) => encodeURIComponent(part)).join("|")}`;
+  const digest = createHash("sha256")
+    .update(JSON.stringify(parts))
+    .digest("hex");
+  return `${prefix}_${digest}`;
 }
 
 export function samplePropertyKeys(properties: string): string[] {
@@ -143,11 +157,11 @@ export function aggregateSessionEventIndexRows(
   >();
 
   for (const row of rows) {
-    const eventName = eventNameOf(row.eventName);
+    const eventName = boundedText(row.eventName, MAX_EVENT_NAME_LENGTH);
     if (!eventName || !row.ownerEmail || !row.timestamp) continue;
     const orgId = row.orgId || null;
     const tenantKey = sessionEventTenantKey(row.ownerEmail, orgId);
-    const app = row.app?.trim() ?? "";
+    const app = boundedText(row.app, MAX_APP_LENGTH);
 
     const sessionId = sessionIdOf(row.sessionId);
     if (sessionId) {

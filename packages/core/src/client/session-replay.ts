@@ -130,6 +130,7 @@ interface StoredReplaySession {
   startedAtMs?: number;
   sequence?: number;
   linkBaseUrl?: string;
+  analyticsEventCount?: number;
 }
 
 interface ReplayClaimMessage {
@@ -560,16 +561,12 @@ function getOrCreateReplaySession(
   startedAtMs: number;
   sequence: number;
   linkBaseUrl?: string;
+  analyticsEventCount: number;
   resumed: boolean;
 } {
   clearLegacyLocalStorageReplaySession();
   const parsed = readStoredReplaySession();
-  const parsedSequence =
-    typeof parsed?.sequence === "number" &&
-    Number.isFinite(parsed.sequence) &&
-    parsed.sequence >= 0
-      ? Math.floor(parsed.sequence)
-      : 0;
+  const parsedSequence = storedCount(parsed?.sequence);
   if (
     parsed?.sessionId === sessionId &&
     parsed.replayId &&
@@ -591,6 +588,7 @@ function getOrCreateReplaySession(
       startedAtMs,
       sequence,
       ...(resolvedLinkBaseUrl ? { linkBaseUrl: resolvedLinkBaseUrl } : {}),
+      analyticsEventCount: storedCount(parsed.analyticsEventCount),
       resumed: true,
     };
   }
@@ -608,8 +606,15 @@ function getOrCreateReplaySession(
     startedAtMs,
     sequence: 0,
     ...(linkBaseUrl ? { linkBaseUrl } : {}),
+    analyticsEventCount: 0,
     resumed: false,
   };
+}
+
+function storedCount(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : 0;
 }
 
 function openReplayBroadcastChannel(): BroadcastChannel | null {
@@ -723,6 +728,9 @@ function persistReplaySequence(
     sequence,
     ...(linkBaseUrl || existing?.linkBaseUrl
       ? { linkBaseUrl: linkBaseUrl ?? existing?.linkBaseUrl }
+      : {}),
+    ...(existing?.replayId === replayId && existing.analyticsEventCount
+      ? { analyticsEventCount: existing.analyticsEventCount }
       : {}),
   });
 }
@@ -3362,6 +3370,7 @@ async function startSessionReplayRecorder(
         ...(normalized.linkBaseUrl
           ? { linkBaseUrl: normalized.linkBaseUrl }
           : {}),
+        analyticsEventCount: 0,
         resumed: false,
       };
     }
@@ -3400,11 +3409,10 @@ async function startSessionReplayRecorder(
   state.lastAuthenticatedProperties = replayUserEmail(initialProperties)
     ? { ...initialProperties }
     : null;
-  // A resumed replay keeps its marker count. The count lives in memory, so a
-  // page reload starts it over.
+  // A resumed replay keeps its marker count, across page reloads too.
   if (state.analyticsEventReplayId !== state.replayId) {
     state.analyticsEventReplayId = state.replayId;
-    state.analyticsEventCount = 0;
+    state.analyticsEventCount = replaySession.analyticsEventCount;
   }
   state.active = true;
 
@@ -3642,6 +3650,13 @@ export function emitSessionReplayAnalyticsEvent(name: string): void {
   const bounded = name.trim().slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH);
   if (!bounded) return;
   state.analyticsEventCount += 1;
+  const stored = readStoredReplaySession();
+  if (stored?.replayId === state.replayId) {
+    writeStoredReplaySession({
+      ...stored,
+      analyticsEventCount: state.analyticsEventCount,
+    });
+  }
   emitReplayCustomEvent(state, SESSION_REPLAY_ANALYTICS_EVENT_TAG, {
     name: bounded,
   });

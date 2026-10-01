@@ -429,8 +429,8 @@ describe("session replay", () => {
     );
   });
 
-  it("caps app event markers per replay, including a resumed one", async () => {
-    const { storage } = installBrowser(
+  it("caps app event markers per replay, across restarts and reloads", async () => {
+    const { storage, fetchMock } = installBrowser(
       "https://clips.agent-native.com/library",
     );
     const addCustomEvent = vi.fn();
@@ -439,7 +439,11 @@ describe("session replay", () => {
         addCustomEvent: typeof addCustomEvent;
       }
     ).addCustomEvent = addCustomEvent;
-    recordMock.mockReturnValue(vi.fn());
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
     const {
       emitSessionReplayAnalyticsEvent,
       startSessionReplay,
@@ -448,6 +452,8 @@ describe("session replay", () => {
     const options = {
       publicKey: "anpk_test",
       endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
     };
 
     await startSessionReplay(options);
@@ -455,6 +461,9 @@ describe("session replay", () => {
       emitSessionReplayAnalyticsEvent("clip_viewed");
     }
     expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+    // An upload rewrites the stored replay session; the count must survive it.
+    recordOptions[0].emit({ type: 3, data: { href: "/library" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     await stopSessionReplay();
     await startSessionReplay(options);
@@ -462,9 +471,16 @@ describe("session replay", () => {
     expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
 
     await stopSessionReplay();
+    delete (globalThis as any)[replayStateKey];
+    const reloaded = await freshSessionReplay();
+    await reloaded.startSessionReplay(options);
+    reloaded.emitSessionReplayAnalyticsEvent("clip_viewed");
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+
+    await reloaded.stopSessionReplay();
     storage.delete("agent-native.session_replay_id");
-    await startSessionReplay(options);
-    emitSessionReplayAnalyticsEvent("clip_viewed");
+    await reloaded.startSessionReplay(options);
+    reloaded.emitSessionReplayAnalyticsEvent("clip_viewed");
     expect(addCustomEvent).toHaveBeenCalledTimes(1_001);
   });
 

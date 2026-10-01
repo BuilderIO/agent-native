@@ -162,6 +162,27 @@ describe("aggregateSessionEventIndexRows", () => {
       `user:${OWNER}`,
     ]);
   });
+
+  it("keeps every key short enough to index, whatever the caller sends", () => {
+    const long = "中".repeat(4096);
+    const { sessionEvents, catalog, catalogLatest } =
+      aggregateSessionEventIndexRows([
+        event({
+          eventName: long,
+          sessionId: "中".repeat(256),
+          app: long,
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+      ]);
+
+    const rows = [...sessionEvents, ...catalog, ...catalogLatest];
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.id.length).toBeLessThanOrEqual(80);
+      expect(row.eventName).toHaveLength(200);
+      expect(row.app).toHaveLength(100);
+    }
+  });
 });
 
 describe("session event index on Postgres", () => {
@@ -1076,6 +1097,40 @@ describe("session event index on Postgres", () => {
       "SELECT session_id FROM analytics_session_event_gaps",
     );
     expect(gaps.rows).toEqual([]);
+  });
+
+  it("lists every event in a batch when one carries an oversized app", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Random, so no index can compress it under its entry limit.
+    const longApp = Array.from({ length: 4096 }, () =>
+      String.fromCharCode(0x4e00 + Math.floor(Math.random() * 0x5000)),
+    ).join("");
+    await index(
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s1",
+          app: longApp,
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s1",
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+    const latest = await client.query(
+      "SELECT event_name, char_length(app) AS app_length FROM analytics_event_catalog_latest ORDER BY event_name",
+    );
+    expect(latest.rows).toEqual([
+      { event_name: "clip_viewed", app_length: 100 },
+      { event_name: "pageview", app_length: 5 },
+    ]);
   });
 
   it("still warns about an index failure right after a catalog failure", async () => {

@@ -68,9 +68,10 @@ agent answers about browser recordings in the Analytics template.
 ## App Events In Sessions
 
 - `trackEvent` also emits an `agent-native.event` custom event holding only
-  `{ name }` (120 chars max, 1000 per replay per page load). Telemetry names such as
-  `pageview`, `action.response`, and `session status` stay unmarked; lifecycle
-  aliases don't get a second marker. Never add event properties to the payload.
+  `{ name }` (120 chars max, 1000 per replay, counted across page reloads).
+  Telemetry names such as `pageview`, `action.response`, and `session status`
+  stay unmarked; lifecycle aliases don't get a second marker. Never add event
+  properties to the payload.
 - The replay viewer shows these markers, plus failed
   `/_agent-native/actions/<name>` requests as "Action failed", only while the
   Sessions triage Lab is on. With the Lab off the viewer and the agent timeline
@@ -87,6 +88,10 @@ agent answers about browser recordings in the Analytics template.
   The catalog keeps the 1,000 most recently seen events, sorted by volume, and
   sets `truncated` when it cut the list; its app flags still count every event
   in the range.
+- Unique indexes hold caller text raw, so it must stay short enough for an
+  index entry: index rows use hashed ids, event names and apps are cut to 200
+  and 100 characters, and a session id over 256 characters skips the index.
+  Bound any new caller value before it reaches a key.
 - Event filters exclude a session if any of its recordings started before the
   tenant's coverage start, because one analytics session can span tabs.
   Coverage starts only after a session write succeeds, and the reported start
