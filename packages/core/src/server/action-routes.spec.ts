@@ -870,7 +870,7 @@ describe("mountActionRoutes", () => {
     const event = { _method: "POST", req: { json: async () => ({}) } };
     const result = await mounted[0].handler(event);
 
-    expect(event._status).toBe(412);
+    expect(event._status).toBe(400);
     expect(result).toEqual({
       error: "Connect Builder.io or add a fallback AI key.",
       errorCode: "feature_not_configured",
