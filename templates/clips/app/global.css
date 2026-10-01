@@ -56,7 +56,7 @@
 }
 
 .dark {
-  --background: 0 0% 10%;
+  --background: 0 0% 13.33%;
   --foreground: 0 0% 90%;
   --card: 0 0% 14%;
   --card-foreground: 0 0% 90%;
@@ -78,7 +78,7 @@
   --input: 0 0% 24%;
   --ring: 0 0% 60%;
   --radius: 0.5rem;
-  --sidebar-background: 0 0% 13.33%;
+  --sidebar-background: 0 0% 10%;
   --sidebar-foreground: 0 0% 60%;
   --sidebar-primary: 0 0% 75%;
   --sidebar-primary-foreground: 0 0% 10%;

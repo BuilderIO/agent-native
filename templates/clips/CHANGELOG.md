@@ -7,6 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Dark mode gives the sidebars a darker surface than the center
 - Sidebars use clearer surface contrast
 - Recording saved notifications keep the Copy link action available.
 - Clips desktop confirms copied links with a check mark.
