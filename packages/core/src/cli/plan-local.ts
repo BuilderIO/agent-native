@@ -9,6 +9,7 @@ import http, {
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { getUrlOpenerCommand } from "./open-url.js";
 import {
   DEFAULT_PLAN_APP_URL,
   defaultPlanBlocksOut,
@@ -547,6 +548,7 @@ function writeLocalPlanUrlFile(dir: string, url: string, urlFile?: string) {
 function runOpenCommand(command: string, args: string[]): OpenLocalUrlResult {
   const result = spawnSync(command, args, {
     stdio: "ignore",
+    shell: false,
     windowsHide: true,
   });
   const commandDisplay = [command, ...args].join(" ");
@@ -581,10 +583,8 @@ function openLocalUrl(url: string): OpenLocalUrlResult {
     }
     return runOpenCommand("open", [url]);
   }
-  if (platform === "win32") {
-    return runOpenCommand("cmd", ["/c", "start", "", url]);
-  }
-  return runOpenCommand("xdg-open", [url]);
+  const { command, args } = getUrlOpenerCommand(url, platform);
+  return runOpenCommand(command, args);
 }
 
 function escapeHtml(value: string): string {
