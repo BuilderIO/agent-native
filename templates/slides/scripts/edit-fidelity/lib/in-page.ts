@@ -53,6 +53,7 @@ export interface SnapRecord {
   key: string;
   kind: "text" | "box";
   inside: boolean;
+  downstreamFlow?: boolean;
   tag?: string;
   inlineStyle?: string;
   props: Record<string, string>;
@@ -839,11 +840,81 @@ export function installInPageHelpers(chromeSelector: string) {
           editedEl.closest("ul, ol") ??
           editedEl)
         : null);
-    const targetBlock =
-      editedOwner ??
-      (edited.targetIndex === undefined && !edited.marker
-        ? editingBlock
-        : null);
+    const targetBlock = editingBlock ?? editedOwner;
+    const editedBox = editingBlock ?? targetBlock;
+    const isInNormalFlow = (el: Element | null) => {
+      if (!el) return false;
+      for (
+        let ancestor: Element | null = el;
+        ancestor && ancestor !== root;
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        if (
+          style.position === "absolute" ||
+          style.position === "fixed" ||
+          style.position === "sticky" ||
+          style.cssFloat !== "none" ||
+          style.transform !== "none" ||
+          (style.position === "relative" &&
+            [style.top, style.right, style.bottom, style.left].some(
+              (offset) => offset !== "auto" && Number.parseFloat(offset) !== 0,
+            ))
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+    const followsEditedFlow = (el: Element) => {
+      if (
+        !editedBox ||
+        editedBox === el ||
+        editedBox.contains(el) ||
+        el.contains(editedBox) ||
+        !isInNormalFlow(editedBox) ||
+        !isInNormalFlow(el)
+      ) {
+        return false;
+      }
+      let editedBranch: Element = editedBox;
+      while (
+        editedBranch.parentElement &&
+        !editedBranch.parentElement.contains(el)
+      ) {
+        editedBranch = editedBranch.parentElement;
+      }
+      let followingBranch: Element = el;
+      while (
+        followingBranch.parentElement &&
+        !followingBranch.parentElement.contains(editedBranch)
+      ) {
+        followingBranch = followingBranch.parentElement;
+      }
+      const parent = editedBranch.parentElement;
+      if (!parent || followingBranch.parentElement !== parent) return false;
+      const parentStyle = getComputedStyle(parent);
+      const editedOrder = Number.parseInt(
+        getComputedStyle(editedBranch).order,
+        10,
+      );
+      const followingOrder = Number.parseInt(
+        getComputedStyle(followingBranch).order,
+        10,
+      );
+      if (
+        parentStyle.display.includes("flex") &&
+        Number.isFinite(editedOrder) &&
+        Number.isFinite(followingOrder) &&
+        followingOrder < editedOrder
+      ) {
+        return false;
+      }
+      return Boolean(
+        editedBranch.compareDocumentPosition(followingBranch) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    };
     const insideEdited = (el: Element) =>
       (!!host && host.contains(el)) ||
       (!!targetBlock && (targetBlock === el || targetBlock.contains(el)));
@@ -856,6 +927,7 @@ export function installInPageHelpers(chromeSelector: string) {
       inside: boolean,
       props: Record<string, string>,
       rect: Rect,
+      downstreamFlow = false,
       textElement?: Pick<SnapRecord, "tag" | "inlineStyle">,
     ) => {
       const n = seen.get(base) ?? 0;
@@ -864,6 +936,7 @@ export function installInPageHelpers(chromeSelector: string) {
         key: `${base}#${n}`,
         kind,
         inside,
+        downstreamFlow,
         props,
         rect,
         ...textElement,
@@ -886,6 +959,7 @@ export function installInPageHelpers(chromeSelector: string) {
       if (host && editingBlock && el === editingBlock) return;
       const cs = getComputedStyle(el);
       const inside = insideEdited(el);
+      const downstreamFlow = followsEditedFlow(el);
       const text = norm(directText(el));
       if (text) {
         const range = document.createRange();
@@ -897,6 +971,7 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           { ...pick(cs, TEXT_PROPS), visible: String(visible(el)) },
           textRect,
+          downstreamFlow,
           {
             tag: el.tagName.toLowerCase(),
             inlineStyle: el.getAttribute("style") ?? "",
@@ -910,6 +985,7 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           boxProps(el, cs),
           rectOf(el.getBoundingClientRect(), origin),
+          downstreamFlow,
         );
       }
       for (const pseudo of ["::before", "::after"]) {
@@ -948,25 +1024,12 @@ export function installInPageHelpers(chromeSelector: string) {
       img: root.querySelectorAll("img").length,
       style: root.querySelectorAll("style").length,
     };
-    const editedBox = editingBlock ?? targetBlock;
-    let editedInFlow = Boolean(editedBox);
-    for (
-      let ancestor = editedBox;
-      ancestor && ancestor !== root;
-      ancestor = ancestor.parentElement
-    ) {
-      const position = getComputedStyle(ancestor).position;
-      if (position === "absolute" || position === "fixed") {
-        editedInFlow = false;
-        break;
-      }
-    }
     return {
       records,
       inventory,
       text: norm((root as HTMLElement).innerText),
       editedRect: editedBox ? rectOf(paintedRect(editedBox), origin) : null,
-      editedInFlow,
+      editedInFlow: isInNormalFlow(editedBox),
       editedText: editedEl ? lines(editedEl) : null,
     };
   }

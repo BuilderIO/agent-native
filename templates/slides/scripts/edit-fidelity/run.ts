@@ -2945,9 +2945,6 @@ async function runAuthoringCorpusQa(
           if (!target) {
             throw new Error(`no visible ${source.testTarget} text target`);
           }
-          const before = await snapshot(page, slideId, {
-            targetIndex: target.index,
-          });
           if (!(await enterEdit(page, slideId, target.point, []))) {
             throw new Error("could not enter in-place text editing");
           }
@@ -2956,6 +2953,10 @@ async function runAuthoringCorpusQa(
             (await editor.getAttribute("data-builder-id")) ??
             target.builderId ??
             undefined;
+          const before = await snapshot(page, slideId, {
+            targetIndex: target.index,
+            targetBuilderId: editedBuilderId,
+          });
           if (flow === "shortcut") {
             await editor.press(lineStartKey);
             await editor.pressSequentially("**bold** next");
@@ -3279,14 +3280,41 @@ async function runAuthoringCorpusQa(
               Math.abs(before.editedRect.height - after.editedRect.height) > 1);
           const naturalReflow =
             targetResized && before.editedInFlow && after.editedInFlow;
+          const beforeRecords = new Map(
+            before.records.map((record) => [record.key, record]),
+          );
+          const afterRecords = new Map(
+            after.records.map((record) => [record.key, record]),
+          );
+          const followsNaturalReflow = (
+            change: (typeof outside.geometry)[number],
+          ) => {
+            if (
+              !naturalReflow ||
+              (change.prop !== "x" && change.prop !== "y") ||
+              !beforeRecords.get(change.key)?.downstreamFlow ||
+              !afterRecords.get(change.key)?.downstreamFlow ||
+              !before.editedRect ||
+              !after.editedRect
+            ) {
+              return false;
+            }
+            const position =
+              change.prop === "x" ? ("x" as const) : ("y" as const);
+            const extent =
+              change.prop === "x" ? ("width" as const) : ("height" as const);
+            const expectedShift =
+              after.editedRect[position] +
+              after.editedRect[extent] -
+              before.editedRect[position] -
+              before.editedRect[extent];
+            const actualShift = Number(change.b) - Number(change.a);
+            return Math.abs(actualShift - expectedShift) <= 1;
+          };
           const outsideChanges = [
             ...outside.deltas,
             ...outside.geometry.filter(
-              (change) =>
-                !(
-                  naturalReflow &&
-                  (change.prop === "x" || change.prop === "y")
-                ),
+              (change) => !followsNaturalReflow(change),
             ),
             ...outside.missing,
             ...outside.added,
