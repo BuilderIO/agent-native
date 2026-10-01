@@ -5,6 +5,7 @@ import {
   registerTrackingProvider,
   unregisterTrackingProvider,
 } from "./index.js";
+import { redactErrorStack } from "./redaction.js";
 
 describe("tracking captureException", () => {
   afterEach(() => {
@@ -80,6 +81,20 @@ describe("tracking captureException", () => {
     const [event] = track.mock.calls[0];
     expect(event.properties.exceptionStack).not.toContain(privateValue);
     expect(event.properties.exceptionStack).toContain("at loadTranscript");
+  });
+
+  it("redacts raw SQL params behind the Error stack prefix", () => {
+    const privateValue = "private customer value";
+    const stack = redactErrorStack(
+      new Error(
+        `SELECT email FROM users WHERE email = $1\n\tparams: ${privateValue}`,
+      ),
+    );
+
+    expect(stack).toContain("Error: SELECT email FROM users");
+    expect(stack).toContain("params: <redacted>");
+    expect(stack).not.toContain(privateValue);
+    expect(stack).toMatch(/\n\s+at /);
   });
 
   it("never forwards a database error's bound parameters", () => {

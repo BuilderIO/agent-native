@@ -361,6 +361,10 @@ describe("server/sentry", () => {
     it.each([
       ["EXECUTE", "EXECUTE prepared_statement($1)"],
       ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
+      [
+        "DECLARE CURSOR",
+        "DECLARE customer_cursor CURSOR FOR SELECT email FROM users WHERE email = $1",
+      ],
     ])(
       "redacts parameterized PostgreSQL %s statements",
       async (_statement, query) => {
@@ -373,13 +377,13 @@ describe("server/sentry", () => {
         const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
         const result = beforeSend({
           message,
-          logentry: { message, params: [privateValue] },
+          logentry: { message, query, params: [privateValue] },
           exception: {
             values: [{ type: "DrizzleQueryError", value: message }],
           },
         } as never) as {
           message: string;
-          logentry: { message: string; params?: unknown[] };
+          logentry: { message: string; query: string; params?: unknown[] };
           exception: { values: Array<{ value: string }> };
         };
 
@@ -416,34 +420,89 @@ describe("server/sentry", () => {
       expect(JSON.stringify(result)).not.toContain(privateValue);
     });
 
-    it("redacts root extra params when SQL appears only in exception values", async () => {
+    it("redacts root params when raw SQL appears only in exception values", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
       await initServerSentry();
 
       const privateValue = "private customer value";
-      const query =
-        "DECLARE customer_cursor CURSOR FOR SELECT email FROM users WHERE email = $1";
-      const message = `Failed query: ${query}\n\tparams: ${privateValue}`;
+      const message = `Error: SELECT email FROM users WHERE email = $1\n\tparams: ${privateValue}`;
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
-        exception: { values: [{ type: "DrizzleQueryError", value: message }] },
-        logentry: { query, params: [privateValue] },
+        exception: { values: [{ type: "Error", value: message }] },
+        params: [privateValue],
         extra: {
           params: [privateValue],
           unrelated: { params: ["diagnostic"] },
         },
       } as never) as {
         exception: { values: Array<{ value: string }> };
-        logentry: { params?: unknown[] };
+        params: unknown;
         extra: { params: unknown; unrelated: { params: string[] } };
       };
 
       expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.params).toBe("<redacted>");
+      expect(result.extra.params).toBe("<redacted>");
+      expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("associates structured SQL logentries with root extra params", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const query = "INSERT INTO users (email) VALUES ($1)";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        logentry: { query, params: [privateValue] },
+        extra: {
+          params: [privateValue],
+          unrelated: { params: ["diagnostic"] },
+        },
+      } as never) as {
+        logentry: { params?: unknown[] };
+        extra: { params: unknown; unrelated: { params: string[] } };
+      };
+
       expect(result.logentry.params).toBeUndefined();
       expect(result.extra.params).toBe("<redacted>");
       expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
       expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("distinguishes CTE queries from diagnostics beginning with with", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const withQuery =
+        "WITH customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const recursiveQuery =
+        "WITH RECURSIVE customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const cteResults = [withQuery, recursiveQuery].map(
+        (query) =>
+          beforeSend({
+            logentry: { query, params: [privateValue] },
+          } as never) as { logentry: { params?: unknown[] } },
+      );
+      const diagnosticParams = ["report lookup details"];
+      const diagnostic = beforeSend({
+        logentry: {
+          query: "with request parameters omitted",
+          params: diagnosticParams,
+        },
+      } as never) as { logentry: { params: unknown[] } };
+
+      expect(cteResults.map((result) => result.logentry.params)).toEqual([
+        undefined,
+        undefined,
+      ]);
+      expect(diagnostic.logentry.params).toEqual(diagnosticParams);
     });
 
     it("redacts structured params associated with raw SQL messages", async () => {
