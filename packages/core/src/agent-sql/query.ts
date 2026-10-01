@@ -186,10 +186,15 @@ class QueryReader {
       start++;
       end--;
     }
-    return (
-      word(this.tokens[start]) === "select" ||
-      word(this.tokens[start]) === "with"
-    );
+    const keyword = word(this.tokens[start]);
+    // TABLE reads a relation without FROM and must not become an ordinary expression.
+    if (
+      this.dialect === "postgres" &&
+      (keyword === "table" || keyword === "values")
+    ) {
+      this.fail("Only SELECT query expressions are supported.", start);
+    }
+    return keyword === "select" || keyword === "with";
   }
 
   columns(start: number): number {

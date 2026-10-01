@@ -241,6 +241,40 @@ describe("readAgentSqlQuery", () => {
     ]);
   });
 
+  it("reads ARRAY SELECT sources at their own query depth", () => {
+    expect(
+      bindings("SELECT ARRAY(SELECT id FROM summaries) FROM events"),
+    ).toEqual([
+      ["summaries", false],
+      ["events", false],
+    ]);
+    expect(
+      bindings("SELECT EXISTS(SELECT id FROM summaries) FROM events"),
+    ).toEqual([
+      ["summaries", false],
+      ["events", false],
+    ]);
+  });
+
+  it.each([
+    "SELECT ARRAY(TABLE summaries) FROM events",
+    "SELECT ARRAY((TABLE summaries)) FROM events",
+    "SELECT (TABLE summaries) FROM events",
+    "SELECT id FROM events WHERE EXISTS (TABLE summaries)",
+    "SELECT EXISTS(TABLE hidden_rows) AS hidden_exists FROM events LIMIT 1",
+    "SELECT id FROM events WHERE id IN (TABLE summaries)",
+    "SELECT ARRAY(SELECT id FROM events UNION ALL TABLE summaries) FROM events",
+    "WITH visible AS (SELECT ARRAY(TABLE summaries)) SELECT * FROM events",
+  ])("refuses unsupported nested TABLE query expressions: %s", (sql) => {
+    expect(() => postgres(sql)).toThrow(AgentSqlSyntaxError);
+  });
+
+  it("refuses unsupported VALUES query expressions at the same boundary", () => {
+    expect(() => postgres("SELECT EXISTS(VALUES (1)) FROM events")).toThrow(
+      AgentSqlSyntaxError,
+    );
+  });
+
   it("finds scalar and condition subqueries without treating function FROM as a source", () => {
     const query = postgres(
       "SELECT EXTRACT(YEAR FROM created_at), TRIM(BOTH 'x' FROM name), (SELECT max(id) FROM summaries) FROM events e JOIN totals t ON t.id = (SELECT id FROM records) WHERE id IN (SELECT id FROM allowed)",
