@@ -7850,7 +7850,7 @@ export default function SlideEditor({
 
       // Pointer-down on a member of the current multi-selection drags the
       // whole group instead of the single-object flow below.
-      if (multiSelection.size > 0 && !additive) {
+      if (multiSelection.size > 0) {
         const id = findSelectableId(target, slideContent);
         if (id && multiSelection.has(id)) {
           startGroupDrag(e, multiSelection);

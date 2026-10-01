@@ -532,16 +532,14 @@ describe("SlideEditor render-phase safety", () => {
     ).toBeLessThan(clickBody.indexOf("commentPress &&"));
   });
 
-  it("starts a group drag when the pointer is on a selected text member", () => {
+  it("keeps group dragging available with additive modifiers", () => {
     const pointerStart = source.indexOf(
       "// Pointer-down on a member of the current multi-selection",
     );
     const selectedStart = source.indexOf("const selected =", pointerStart);
     const groupDragPath = source.slice(pointerStart, selectedStart);
 
-    expect(groupDragPath).toContain(
-      "if (multiSelection.size > 0 && !additive)",
-    );
+    expect(groupDragPath).toContain("if (multiSelection.size > 0)");
     expect(groupDragPath).toContain("if (id && multiSelection.has(id))");
     expect(groupDragPath).not.toContain("!targetIsEditableText");
   });
