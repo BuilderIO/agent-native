@@ -290,9 +290,16 @@ export default defineEventHandler(async (event) => {
 
 ## Data Scoping
 
-In production, the framework automatically restricts all agent SQL queries to the current user's data using temporary views. This is enforced at the SQL level — the agent cannot bypass it.
+In production, the framework automatically restricts all agent SQL queries to the current user's data using temporary views, and checks every statement before it runs so it can only reach those views.
 
-The `db-query` / `db-exec` tools (and the extension SQL bridge, which shares the same path) reject schema-qualified table references like `public.<table>` — a qualified name resolves to the base table and would skip the temp view. Use bare table names; scoping is applied automatically.
+The `db-query` / `db-exec` / `db-patch` tools (and the extension SQL bridge, which shares the same path) read each statement the way Postgres does and refuse anything that could reach data around the temp views:
+
+- schema- or database-qualified names like `public.<table>`, which resolve to the base table;
+- names that resolve to anything other than the current user's temp views, such as materialized views or tables the scoping does not cover;
+- app-defined SQL or PL/pgSQL functions and operators, whose bodies read tables without the views;
+- built-ins that run SQL text, change session settings, or reach outside the database (`query_to_xml`, `set_config`, `dblink`, most `pg_*` functions).
+
+`db-query` runs in a read-only transaction, and an `INSERT` must list its columns when the table has access-control columns. Use bare table names and plain expressions; scoping is applied automatically. When the agent needs data the views do not expose, add an app action with its own access checks.
 
 ### Per-User Scoping (`owner_email`)
 

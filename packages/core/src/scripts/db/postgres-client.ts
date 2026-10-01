@@ -8,8 +8,20 @@ export interface PostgresScriptRows extends Array<Record<string, unknown>> {
   count?: number;
 }
 
+export interface PostgresScriptQueryOptions {
+  /**
+   * Have the server refuse text with more than one statement. Set it for
+   * agent-written SQL, so the database enforces what the guards checked.
+   */
+  singleStatement?: boolean;
+}
+
 export interface PostgresScriptClient {
-  unsafe(sql: string, args?: unknown[]): Promise<PostgresScriptRows>;
+  unsafe(
+    sql: string,
+    args?: unknown[],
+    options?: PostgresScriptQueryOptions,
+  ): Promise<PostgresScriptRows>;
   begin<T>(fn: (tx: PostgresScriptClient) => Promise<T>): Promise<T>;
   end(): Promise<void>;
 }
@@ -24,6 +36,8 @@ function rowsResult(
   return result;
 }
 
+// PGlite's query() always uses the extended protocol, which runs one
+// statement, so singleStatement needs no handling here.
 function pgliteClient(client: any): PostgresScriptClient {
   return {
     async unsafe(sql, args) {
@@ -57,18 +71,35 @@ export async function createPostgresScriptClient(
   const { default: postgres } = await import("postgres");
   const client = postgres(url);
   return {
-    unsafe(sql, args) {
-      return args === undefined
-        ? (client.unsafe(sql) as Promise<PostgresScriptRows>)
-        : (client.unsafe(sql, args as any[]) as Promise<PostgresScriptRows>);
-    },
+    ...postgresJsQueries(client),
     async begin<T>(fn: (tx: PostgresScriptClient) => Promise<T>): Promise<T> {
       return client.begin((tx: any) =>
-        fn(tx as PostgresScriptClient),
+        fn({
+          ...postgresJsQueries(tx),
+          begin: () => {
+            throw new Error("Nested transactions are not supported.");
+          },
+          end: async () => {},
+        }),
       ) as Promise<T>;
     },
     end() {
       return client.end();
+    },
+  };
+}
+
+function postgresJsQueries(sql: any): Pick<PostgresScriptClient, "unsafe"> {
+  return {
+    unsafe(query, args, options) {
+      // postgres.js uses the simple protocol when there are no arguments, and
+      // that protocol runs every statement in the text. The extended protocol
+      // runs one.
+      return sql.unsafe(
+        query,
+        args ?? [],
+        options?.singleStatement ? { simple: false } : undefined,
+      ) as Promise<PostgresScriptRows>;
     },
   };
 }

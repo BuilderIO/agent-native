@@ -1,123 +1,281 @@
+import type { AgentSqlToken } from "../../agent-sql/lexer.js";
+import {
+  AgentSqlPolicyError,
+  assertAgentPostgresTokenPolicy,
+  readAgentPostgresStatement,
+  verifyAgentPostgresResolution,
+  type AgentPostgresStatement,
+  type AgentSqlQueryRunner,
+} from "../../agent-sql/postgres.js";
+import { toPostgresParams } from "../../db/client.js";
 import { fail } from "../utils.js";
 
-const SENSITIVE_FRAMEWORK_TABLE_RE =
-  /\b(app_secrets|oauth_tokens|user|users|session|sessions|account|accounts|verification|jwks|organization|member|invitation|org_members|org_invitations|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+// Every guard here reads the SQL with the shared agent-SQL lexer, so strings,
+// comments, quoted identifiers and dollar quotes are seen the way Postgres
+// sees them. Text the lexer cannot read is refused rather than skipped.
 
-function stripSqlNonIdentifiers(sql: string): string {
-  let out = "";
-  let state: "normal" | "single" | "line-comment" | "block-comment" = "normal";
-
-  for (let i = 0; i < sql.length; i++) {
-    const ch = sql[i];
-    const next = sql[i + 1];
-
-    if (state === "line-comment") {
-      if (ch === "\n") {
-        out += " ";
-        state = "normal";
-      }
-      continue;
+function guarded<T>(check: () => T, label?: string): T {
+  try {
+    return check();
+  } catch (error) {
+    if (error instanceof AgentSqlPolicyError) {
+      fail(prefixed(label, error.message));
     }
-
-    if (state === "block-comment") {
-      if (ch === "*" && next === "/") {
-        i++;
-        out += " ";
-        state = "normal";
-      }
-      continue;
-    }
-
-    if (state === "single") {
-      if (ch === "'" && next === "'") {
-        i++;
-      } else if (ch === "'") {
-        out += " ";
-        state = "normal";
-      }
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      i++;
-      state = "line-comment";
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      i++;
-      state = "block-comment";
-      continue;
-    }
-    if (ch === "'") {
-      state = "single";
-      continue;
-    }
-    out += ch;
+    throw error;
   }
+}
 
-  return out;
+async function guardedAsync(
+  check: () => Promise<void>,
+  label?: string,
+): Promise<void> {
+  try {
+    await check();
+  } catch (error) {
+    if (error instanceof AgentSqlPolicyError) {
+      fail(prefixed(label, error.message));
+    }
+    throw error;
+  }
+}
+
+function prefixed(label: string | undefined, message: string): string {
+  return label ? `${label}: ${message}` : message;
+}
+
+function isName(token: AgentSqlToken | undefined): token is AgentSqlToken {
+  return token?.kind === "word" || token?.kind === "quoted-identifier";
+}
+
+function isWord(token: AgentSqlToken | undefined, value: string): boolean {
+  return token?.kind === "word" && token.value === value;
+}
+
+function isPunctuation(token: AgentSqlToken | undefined, text: string) {
+  return token?.kind === "punctuation" && token.text === text;
+}
+
+const SENSITIVE_FRAMEWORK_TABLES = new Set([
+  "app_secrets",
+  "oauth_tokens",
+  "user",
+  "users",
+  "session",
+  "sessions",
+  "account",
+  "accounts",
+  "verification",
+  "jwks",
+  "organization",
+  "member",
+  "invitation",
+  "org_members",
+  "org_invitations",
+  "pg_catalog",
+  "information_schema",
+  "pg_class",
+  "pg_proc",
+  "pg_namespace",
+  "pg_user",
+  "pg_roles",
+  "pg_authid",
+  "pg_shadow",
+]);
+
+function sensitiveVerb(operation: "read" | "write" | "patch"): string {
+  return operation === "read"
+    ? "readable"
+    : operation === "write"
+      ? "writable"
+      : "patchable";
+}
+
+function assertNoSensitiveFrameworkTableTokens(
+  tokens: AgentSqlToken[],
+  operation: "read" | "write" | "patch",
+): void {
+  for (const token of tokens) {
+    if (!isName(token)) continue;
+    const name = token.value.toLowerCase();
+    if (!SENSITIVE_FRAMEWORK_TABLES.has(name)) continue;
+    fail(
+      `Sensitive framework table "${name}" is not ${sensitiveVerb(operation)} through raw DB tools. Use the framework auth, secrets, or OAuth APIs instead.`,
+    );
+  }
 }
 
 export function assertNoSensitiveFrameworkTables(
   sql: string,
   operation: "read" | "write" | "patch",
 ): void {
-  const cleanSql = stripSqlNonIdentifiers(sql);
-  const match = cleanSql.match(SENSITIVE_FRAMEWORK_TABLE_RE);
-  if (!match) return;
-
-  const verb =
-    operation === "read"
-      ? "readable"
-      : operation === "write"
-        ? "writable"
-        : "patchable";
-  fail(
-    `Sensitive framework table "${match[1]}" is not ${verb} through raw DB tools. Use the framework auth, secrets, or OAuth APIs instead.`,
-  );
+  const statement = guarded(() => readAgentPostgresStatement(sql));
+  assertNoSensitiveFrameworkTableTokens(statement.tokens, operation);
 }
 
-// Schema/database-qualified table references (e.g. `public.notes`,
-// `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
-// db-query / db-exec, because those views only shadow UNQUALIFIED table names.
-// A qualified reference resolves straight to the real base table, defeating the
-// owner_email / org_id scoping and exposing (or letting writes touch) every
-// tenant's rows. db-patch already rejects dotted identifiers via
-// isValidIdentifier; db-query / db-exec must reject them too.
-//
-// Two complementary detectors run on the comment/string-stripped SQL:
-//   1. The schemas that actually HOLD base tables and so defeat scoping when
-//      named explicitly: `public` (Postgres deployments),
-//      and the Postgres system catalogs. This fires in ANY position, so it also
-//      catches comma-joins (`FROM notes, public.other`) and `USING public.x`.
-//      `temp` / `pg_temp` are intentionally NOT listed — temporary objects (our
-//      scoping views) live there, so `temp.notes` resolves to the *scoped* view,
-//      not a bypass, and `temp` is a common table alias we must not reject.
-//      The schema may be bare or double-quoted (`"public"."notes"`).
-//   2. Any dotted reference in table position (FROM/JOIN/INTO/UPDATE, incl.
-//      ONLY/LATERAL), which also catches non-standard schema names. Column /
-//      alias references like `f.id` sit in select/where/on position, not table
-//      position, so they do not match — no false positives on ordinary joins.
-const DANGEROUS_SCHEMA_QUALIFIER_RE =
-  /(?:\b|")(?:main|public|pg_catalog|pg_toast|information_schema)"?\s*\.\s*(?:"|`|\[|[A-Za-z_])/i;
-const TABLE_POSITION_QUALIFIED_RE =
-  /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:ONLY\s+|LATERAL\s+)?(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)/i;
+const READ_KEYWORDS = new Set(["select", "with", "explain"]);
+const WRITE_KEYWORDS = new Set(["insert", "update", "delete"]);
 
-export function assertNoSchemaQualifiedTables(
-  sql: string,
-  operation: "read" | "write",
-): void {
-  const cleanSql = stripSqlNonIdentifiers(sql);
-  if (
-    !DANGEROUS_SCHEMA_QUALIFIER_RE.test(cleanSql) &&
-    !TABLE_POSITION_QUALIFIED_RE.test(cleanSql)
-  ) {
-    return;
+/**
+ * Reads one db-query statement and applies every check that needs no
+ * database. Returns the statement as it will run.
+ */
+export function readRawDbReadStatement(sql: string): AgentPostgresStatement {
+  const statement = guarded(() => readAgentPostgresStatement(sql));
+  if (!statement.keyword || !READ_KEYWORDS.has(statement.keyword)) {
+    fail(
+      "Only SELECT, WITH, and EXPLAIN queries are allowed. Use db-exec for writes.",
+    );
   }
-  const verb = operation === "read" ? "queried" : "written";
-  fail(
-    `Schema-qualified table references (e.g. "public.<table>") cannot be ${verb} through raw DB tools — a qualified name bypasses the per-user data scoping that isolates each tenant's rows. Use the bare table name; the current user's scoping is applied automatically.`,
+  guarded(() => assertAgentPostgresTokenPolicy(statement));
+  assertNoSensitiveFrameworkTableTokens(statement.tokens, "read");
+  return statement;
+}
+
+/**
+ * Reads one db-exec statement and applies every check that needs no
+ * database, including the access-control write rules. `label` prefixes
+ * errors, e.g. "Statement 2".
+ */
+export function readRawDbWriteStatement(
+  sql: string,
+  label?: string,
+): AgentPostgresStatement {
+  const statement = guarded(() => {
+    try {
+      return readAgentPostgresStatement(sql);
+    } catch (error) {
+      if (!(error instanceof AgentSqlPolicyError)) throw error;
+      const subject = label ?? "The statement";
+      if (error.code === "multiple_statements") {
+        fail(
+          `${subject} contains multiple SQL statements. Use --statements for batches so each write can be validated and run transactionally.`,
+        );
+      }
+      if (error.code === "empty") fail(`${subject} is empty`);
+      throw error;
+    }
+  }, label);
+  assertRawDbWriteKeyword(statement, label);
+  guarded(() => assertAgentPostgresTokenPolicy(statement), label);
+  assertNoSensitiveFrameworkTableTokens(statement.tokens, "write");
+  assertNoRawDbAccessControlWriteTokens(statement, label);
+  return statement;
+}
+
+function assertRawDbWriteKeyword(
+  statement: AgentPostgresStatement,
+  label: string | undefined,
+): void {
+  const keyword = statement.keyword ?? "";
+  if (READ_KEYWORDS.has(keyword)) {
+    fail(
+      prefixed(
+        label,
+        "use db-query for read statements. db-exec is for writes only.",
+      ),
+    );
+  }
+  if (keyword === "create" || keyword === "alter") {
+    fail(
+      prefixed(
+        label,
+        "schema changes are not allowed through db-exec. Additive schema changes must go through reviewed migrations or startup code.",
+      ),
+    );
+  }
+  if (!WRITE_KEYWORDS.has(keyword)) {
+    fail(
+      prefixed(
+        label,
+        "only INSERT, UPDATE, DELETE statements are allowed. Dangerous operations such as DROP, TRUNCATE, GRANT, and REVOKE are blocked.",
+      ),
+    );
+  }
+}
+
+/**
+ * Converts `?` placeholders and re-reads the result, so the guards have seen
+ * exactly the text that executes. Refuses if converting again would change
+ * the text, since the PGlite client converts a second time.
+ */
+export function finalRawDbSql(
+  sql: string,
+  kind: "read" | "write" | "patch",
+  label?: string,
+): { sql: string; statement: AgentPostgresStatement } {
+  const finalSql = toPostgresParams(sql);
+  if (toPostgresParams(finalSql) !== finalSql) {
+    fail(
+      prefixed(
+        label,
+        "The SQL could not be read safely: its placeholders are ambiguous.",
+      ),
+    );
+  }
+  const statement = guarded(() => readAgentPostgresStatement(finalSql), label);
+  // toPostgresParams converts every "?" it reads as code. One left over means
+  // it read that text as a string or comment and Postgres will not, so the
+  // two disagree about where the statement's code is.
+  if (
+    statement.tokens.some(
+      (token) =>
+        (token.kind === "parameter" || token.kind === "operator") &&
+        token.text.includes("?"),
+    )
+  ) {
+    fail(
+      prefixed(
+        label,
+        "The SQL could not be read safely: its placeholders are ambiguous.",
+      ),
+    );
+  }
+  if (kind === "read") {
+    if (!statement.keyword || !READ_KEYWORDS.has(statement.keyword)) {
+      fail("Only SELECT, WITH, and EXPLAIN queries are allowed.");
+    }
+  } else if (kind === "patch") {
+    if (statement.keyword !== "update") {
+      fail("--where must be a single condition.");
+    }
+  } else {
+    assertRawDbWriteKeyword(statement, label);
+  }
+  guarded(() => assertAgentPostgresTokenPolicy(statement), label);
+  assertNoSensitiveFrameworkTableTokens(statement.tokens, kind);
+  return { sql: finalSql, statement };
+}
+
+/**
+ * The database-side checks: run inside the transaction, after the per-user
+ * views exist and immediately before the statement executes.
+ * `columnsByTable` comes from the scoping context; it lets an INSERT without a
+ * column list be refused when the table has access-control columns.
+ */
+export async function verifyRawDbStatement(
+  db: AgentSqlQueryRunner,
+  statement: AgentPostgresStatement,
+  options: { columnsByTable?: Map<string, string[]>; label?: string } = {},
+): Promise<void> {
+  await guardedAsync(
+    () => verifyAgentPostgresResolution(db, statement),
+    options.label,
   );
+  if (statement.keyword !== "insert" || !options.columnsByTable) return;
+  const target = writeTarget(statement);
+  if (!target || target.insertColumns !== null) return;
+  const columns = options.columnsByTable.get(target.table) ?? [];
+  const sensitive = columns.find((column) =>
+    hasSensitiveToken(column, ACCESS_CONTROL_COLUMN_TOKENS),
+  );
+  if (sensitive) {
+    fail(
+      prefixed(
+        options.label,
+        `INSERT into "${target.table}" must list its columns, because the table has the access-control column "${sensitive}". Name the columns you are setting.`,
+      ),
+    );
+  }
 }
 
 const ACCESS_CONTROL_TABLE_TOKENS = new Set([
@@ -165,16 +323,8 @@ const ACCESS_CONTROL_COLUMN_TOKENS = new Set([
   "roles",
 ]);
 
-function normalizeIdentifier(value: string): string {
-  return value
-    .trim()
-    .replace(/^["'`[]/, "")
-    .replace(/["'`\]]$/, "")
-    .toLowerCase();
-}
-
 function identifierTokens(identifier: string): Set<string> {
-  const normalized = normalizeIdentifier(identifier);
+  const normalized = identifier.trim().toLowerCase();
   const tokens = new Set<string>([normalized]);
   for (const token of normalized.split(/[^a-z0-9]+/).filter(Boolean)) {
     tokens.add(token);
@@ -192,74 +342,177 @@ function hasSensitiveToken(
   return null;
 }
 
-function tableNameFromWriteSql(sql: string): string | null {
-  const match = sql.match(
-    /^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+((?:"[^"]+"|'[^']+'|`[^`]+`|[\w]+)(?:\s*\.\s*(?:"[^"]+"|'[^']+'|`[^`]+`|[\w]+))?)/i,
-  );
-  if (!match) return null;
-  return normalizeIdentifier(match[1].split(".").pop() ?? match[1]);
+interface WriteTarget {
+  table: string;
+  /** Columns named by INSERT, or null when it names none and so writes all. */
+  insertColumns: string[] | null;
+  /** Columns assigned in any SET clause, including ON CONFLICT DO UPDATE. */
+  setColumns: string[];
 }
 
-function splitColumnList(columns: string): string[] {
-  return columns
-    .split(",")
-    .map((column) => normalizeIdentifier(column))
-    .filter(Boolean);
+/** Reads `name` or `a.b.name` at `index`; returns the last name and the next index. */
+function readNameChain(
+  tokens: AgentSqlToken[],
+  index: number,
+): { name: string; next: number } | null {
+  if (!isName(tokens[index])) return null;
+  let cursor = index;
+  while (isPunctuation(tokens[cursor + 1], ".") && isName(tokens[cursor + 2])) {
+    cursor += 2;
+  }
+  return { name: tokens[cursor].value, next: cursor + 1 };
 }
 
-function insertColumnsFromSql(sql: string): string[] {
-  const match = sql.match(
-    /^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE(?:\s+OR\s+\w+)?\s+INTO)\s+(?:"[^"]+"|'[^']+'|`[^`]+`|[\w]+)(?:\s*\.\s*(?:"[^"]+"|'[^']+'|`[^`]+`|[\w]+))?\s*\(([^)]+)\)/i,
-  );
-  return match ? splitColumnList(match[1]) : [];
+const PARENTHESIZED_QUERY_KEYWORDS = new Set([
+  "select",
+  "with",
+  "values",
+  "table",
+]);
+
+function isOpening(token: AgentSqlToken | undefined): boolean {
+  return isPunctuation(token, "(") || isPunctuation(token, "[");
 }
 
-function updateColumnsFromSql(sql: string): string[] {
-  const setMatch = /\bSET\b/i.exec(sql);
-  if (!setMatch) return [];
-  const tail = sql.slice(setMatch.index + setMatch[0].length);
-  const endMatch = /\b(?:WHERE|RETURNING)\b/i.exec(tail);
-  const setClause = endMatch ? tail.slice(0, endMatch.index) : tail;
+function isClosing(token: AgentSqlToken | undefined): boolean {
+  return isPunctuation(token, ")") || isPunctuation(token, "]");
+}
+
+/**
+ * The table an INSERT writes and the columns it lists, or null when the
+ * statement is not an INSERT the guards can read. `columns` is null when the
+ * INSERT has no column list.
+ */
+export function rawDbInsertTarget(
+  statement: AgentPostgresStatement,
+): { table: string; columns: string[] | null } | null {
+  if (statement.keyword !== "insert") return null;
+  const target = writeTarget(statement);
+  return target ? { table: target.table, columns: target.insertColumns } : null;
+}
+
+function writeTarget(statement: AgentPostgresStatement): WriteTarget | null {
+  const { tokens } = statement;
+  let index = 1;
+  if (statement.keyword === "insert") {
+    if (!isWord(tokens[index], "into")) return null;
+    index++;
+  } else if (statement.keyword === "delete") {
+    if (!isWord(tokens[index], "from")) return null;
+    index++;
+  } else if (statement.keyword !== "update") {
+    return null;
+  }
+  if (isWord(tokens[index], "only")) index++;
+  const chain = readNameChain(tokens, index);
+  if (!chain) return null;
+
+  let insertColumns: string[] | null = null;
+  if (statement.keyword === "insert") {
+    let cursor = chain.next;
+    if (isWord(tokens[cursor], "as")) cursor += 2;
+    const opensQuery =
+      isPunctuation(tokens[cursor + 1], "(") ||
+      (tokens[cursor + 1]?.kind === "word" &&
+        PARENTHESIZED_QUERY_KEYWORDS.has(tokens[cursor + 1].value));
+    // `INSERT INTO t (SELECT ...)` is a parenthesized query, not a column list.
+    if (isPunctuation(tokens[cursor], "(") && !opensQuery) {
+      insertColumns = [];
+      let depth = 0;
+      for (; cursor < tokens.length; cursor++) {
+        const token = tokens[cursor];
+        if (isOpening(token)) depth++;
+        else if (isClosing(token) && --depth === 0) break;
+        else if (isName(token)) insertColumns.push(token.value);
+      }
+    } else if (isWord(tokens[cursor], "default")) {
+      insertColumns = [];
+    }
+  }
+
+  return {
+    table: chain.name,
+    insertColumns,
+    setColumns: setClauseColumns(tokens),
+  };
+}
+
+const SET_CLAUSE_END = new Set(["from", "where", "returning"]);
+
+/**
+ * Every assignment target in every top-level SET clause: `a = 1`,
+ * `(a, b) = (1, 2)`, `a[1] = 1`, and ON CONFLICT DO UPDATE SET.
+ */
+function setClauseColumns(tokens: AgentSqlToken[]): string[] {
   const columns: string[] = [];
-  const columnRe =
-    /(?:^|,)\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`|([A-Za-z_][A-Za-z0-9_]*))\s*=/g;
-  let match: RegExpExecArray | null;
-  while ((match = columnRe.exec(setClause)) !== null) {
-    columns.push(
-      normalizeIdentifier(match[1] ?? match[2] ?? match[3] ?? match[4]),
-    );
+  let depth = 0;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (isOpening(token)) depth++;
+    else if (isClosing(token)) depth--;
+    if (depth !== 0 || !isWord(token, "set")) continue;
+
+    let assignmentDepth = 0;
+    let inTarget = true;
+    for (index++; index < tokens.length; index++) {
+      const inner = tokens[index];
+      if (isOpening(inner)) assignmentDepth++;
+      else if (isClosing(inner)) assignmentDepth--;
+      if (assignmentDepth === 0) {
+        if (
+          inner.kind === "word" &&
+          SET_CLAUSE_END.has(inner.value) &&
+          !isWord(tokens[index - 1], "distinct")
+        ) {
+          break;
+        }
+        if (isPunctuation(inner, ",")) {
+          inTarget = true;
+          continue;
+        }
+        if (inner.kind === "operator" && inner.text === "=") {
+          inTarget = false;
+          continue;
+        }
+      }
+      if (inTarget && isName(inner)) columns.push(inner.value);
+    }
+    index--;
   }
   return columns;
 }
 
-function writeColumnsFromSql(sql: string): string[] {
-  const upper = sql.trim().toUpperCase();
-  if (upper.startsWith("UPDATE")) return updateColumnsFromSql(sql);
-  if (upper.startsWith("INSERT") || upper.startsWith("REPLACE")) {
-    return insertColumnsFromSql(sql);
-  }
-  return [];
-}
-
-export function assertNoRawDbAccessControlWrite(sql: string): void {
-  const tableName = tableNameFromWriteSql(sql);
-  if (tableName) {
-    const tableToken = hasSensitiveToken(
-      tableName,
-      ACCESS_CONTROL_TABLE_TOKENS,
-    );
-    if (tableToken) {
-      fail(
-        `Sensitive identity/access-control table "${tableName}" is not writable through raw DB tools. Use a dedicated app action or implement the permission change in reviewed code.`,
-      );
-    }
-  }
-
-  for (const column of writeColumnsFromSql(sql)) {
-    const columnToken = hasSensitiveToken(column, ACCESS_CONTROL_COLUMN_TOKENS);
-    if (!columnToken) continue;
+function assertNoRawDbAccessControlWriteTokens(
+  statement: AgentPostgresStatement,
+  label: string | undefined,
+): void {
+  const target = writeTarget(statement);
+  if (!target) {
     fail(
-      `Sensitive identity/access-control column "${column}" is not writable through raw DB tools. Use a dedicated app action or implement the permission change in reviewed code.`,
+      prefixed(
+        label,
+        "could not identify the table this statement writes. Write one table by its bare name.",
+      ),
+    );
+  }
+  if (hasSensitiveToken(target.table, ACCESS_CONTROL_TABLE_TOKENS)) {
+    fail(
+      prefixed(
+        label,
+        `Sensitive identity/access-control table "${target.table}" is not writable through raw DB tools. Use a dedicated app action or implement the permission change in reviewed code.`,
+      ),
+    );
+  }
+  for (const column of [
+    ...(target.insertColumns ?? []),
+    ...target.setColumns,
+  ]) {
+    if (!hasSensitiveToken(column, ACCESS_CONTROL_COLUMN_TOKENS)) continue;
+    fail(
+      prefixed(
+        label,
+        `Sensitive identity/access-control column "${column}" is not writable through raw DB tools. Use a dedicated app action or implement the permission change in reviewed code.`,
+      ),
     );
   }
 }
@@ -268,16 +521,72 @@ export function assertNoRawDbAccessControlPatchTarget(
   table: string,
   column: string,
 ): void {
-  const tableName = normalizeIdentifier(table);
+  const tableName = table.trim().toLowerCase();
   if (hasSensitiveToken(tableName, ACCESS_CONTROL_TABLE_TOKENS)) {
     fail(
       `Sensitive identity/access-control table "${tableName}" is not patchable through raw DB tools. Use a dedicated app action or implement the permission change in reviewed code.`,
     );
   }
-  const columnName = normalizeIdentifier(column);
+  const columnName = column.trim().toLowerCase();
   if (hasSensitiveToken(columnName, ACCESS_CONTROL_COLUMN_TOKENS)) {
     fail(
       `Sensitive identity/access-control column "${columnName}" is not patchable through raw DB tools. Use a dedicated app action or implement the permission change in reviewed code.`,
     );
   }
+}
+
+const BLOCKED_WHERE_KEYWORDS = new Set([
+  "insert",
+  "update",
+  "delete",
+  "merge",
+  "drop",
+  "alter",
+  "create",
+  "truncate",
+  "grant",
+  "revoke",
+  "copy",
+  "call",
+]);
+
+/**
+ * Validates db-patch's `--where`, which is spliced into a SELECT and an
+ * UPDATE. Both full statements are read and verified again before they run.
+ */
+export function validateRawDbPatchWhere(where: string): void {
+  // Stricter than the lexer needs: a condition never needs a ';' or a comment.
+  if (where.includes(";")) fail("--where must not contain ';'");
+  const statement = guarded(() => readAgentPostgresStatement(where));
+  let previousEnd = 0;
+  for (const gap of [
+    ...statement.tokens.map((token) => {
+      const text = where.slice(previousEnd, token.start);
+      previousEnd = token.end;
+      return text;
+    }),
+    where.slice(previousEnd),
+  ]) {
+    if (gap.includes("--")) fail('--where must not contain "--"');
+    if (gap.includes("/*")) fail('--where must not contain "/*"');
+  }
+  for (const token of statement.tokens) {
+    if (token.kind === "word" && BLOCKED_WHERE_KEYWORDS.has(token.value)) {
+      fail(`--where must not contain "${token.value.toUpperCase()}"`);
+    }
+  }
+}
+
+/** Reads a statement db-patch built from its arguments. */
+export function readRawDbPatchStatement(
+  sql: string,
+  keyword: "select" | "update",
+): AgentPostgresStatement {
+  const statement = guarded(() => readAgentPostgresStatement(sql));
+  if (statement.keyword !== keyword) {
+    fail("--where must be a single condition.");
+  }
+  guarded(() => assertAgentPostgresTokenPolicy(statement));
+  assertNoSensitiveFrameworkTableTokens(statement.tokens, "patch");
+  return statement;
 }

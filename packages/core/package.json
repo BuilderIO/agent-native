@@ -140,6 +140,7 @@
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"
     },
+    "./agent-sql": "./dist/agent-sql/index.js",
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
     "./db-admin": "./dist/db-admin/index.js",

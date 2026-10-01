@@ -119,8 +119,8 @@ function buildScopedTables(
         // prompt-injection exfiltration channel (read own secret → send to
         // attacker URL) and also hides any legacy plaintext rows that predate
         // encryption plus the recoverable last4/preview. Schema-qualified attempts
-        // to reach the base table (public.settings) are
-        // rejected separately by assertNoSchemaQualifiedTables in safety.ts.
+        // to reach the base table (public.settings) are rejected separately
+        // by the agent-SQL guards in safety.ts.
         whereSql =
           `"${coreScoping.column}" LIKE '${prefix}%' ESCAPE '\\'` +
           ` AND "${coreScoping.column}" NOT LIKE '${prefix}credential:%' ESCAPE '\\'`;
@@ -188,6 +188,7 @@ export interface ScopingContext {
   ownerEmailTables: Set<string>;
   orgIdTables: Set<string>;
   tablePredicates: Map<string, string>;
+  columnsByTable: Map<string, string[]>;
 }
 
 export async function buildScopingPostgres(client: {
@@ -223,5 +224,6 @@ export async function buildScopingPostgres(client: {
     ownerEmailTables,
     orgIdTables,
     tablePredicates: new Map(scoped.map((s) => [s.name, s.predicate])),
+    columnsByTable,
   };
 }
