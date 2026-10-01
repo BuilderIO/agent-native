@@ -444,6 +444,22 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
       `,
     },
   },
+  {
+    version: 10,
+    name: "better-auth-user-first-touch-attribution",
+    sql: {
+      postgres: `
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_utm_source" TEXT;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_utm_medium" TEXT;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_utm_campaign" TEXT;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_utm_term" TEXT;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_gclid" TEXT;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_msclkid" TEXT;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_vector_source" TEXT;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_referrer" TEXT
+      `,
+    },
+  },
 ];
 
 export async function runBetterAuthMigrations(

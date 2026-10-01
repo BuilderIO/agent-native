@@ -132,6 +132,7 @@ import {
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
 import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
+import { persistUserFirstTouchAttribution } from "./user-first-touch-attribution.js";
 
 function identityRekeyDbFromExec(
   exec: Awaited<ReturnType<typeof getDbExec>>,
@@ -270,6 +271,21 @@ export async function emitSignupEventForCreatedUser(
     anonymousId = browser?.anonymousId;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
+  }
+
+  if (user.id && attribution) {
+    try {
+      await persistUserFirstTouchAttribution(user.id, attribution);
+    } catch (err) {
+      // The signup itself already succeeded; the event below still carries
+      // the attribution, so only the row copy is missing, and loudly so.
+      console.error("[auth] failed to persist signup attribution", err);
+      const { captureError } = await import("./capture-error.js");
+      captureError(err, {
+        route: "auth.signup",
+        tags: { failureClass: "signup-attribution-persist" },
+      });
+    }
   }
 
   await trackSignupEvent({

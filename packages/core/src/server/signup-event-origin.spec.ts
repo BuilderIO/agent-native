@@ -23,6 +23,20 @@ vi.mock("../tracking/index.js", () => ({
 const AUTH_SECRET = "test-secret-for-magic-link-attribution";
 vi.mock("./app-url.js", () => ({ getAppProductionUrl: () => undefined }));
 
+const persisted: Array<{
+  userId: string;
+  attribution: Record<string, string | undefined> | undefined;
+}> = [];
+vi.mock("./user-first-touch-attribution.js", () => ({
+  persistUserFirstTouchAttribution: async (
+    userId: string,
+    attribution: Record<string, string | undefined> | undefined,
+  ) => {
+    persisted.push({ userId, attribution });
+    return true;
+  },
+}));
+
 let requestContext: Record<string, unknown> | undefined;
 vi.mock("./request-context.js", () => ({
   getRequestContext: () => requestContext,
@@ -46,6 +60,7 @@ function headersWithCookie(cookie: string): Headers {
 
 beforeEach(() => {
   tracked.length = 0;
+  persisted.length = 0;
   requestContext = undefined;
   process.env.BETTER_AUTH_SECRET = AUTH_SECRET;
 });
@@ -151,6 +166,51 @@ describe("emitSignupEventForCreatedUser", () => {
 
     expect(tracked[0].source?.anonymousId).toBe("anon_magic_1");
     expect(tracked[0].properties).toMatchObject({ utm_source: "newsletter" });
+    expect(persisted).toEqual([
+      {
+        userId: "user_1",
+        attribution: expect.objectContaining({ utm_source: "newsletter" }),
+      },
+    ]);
+  });
+
+  it("persists paid first-touch parameters on the user row for a browser signup", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: headersWithCookie(
+        `an_aid=anon_paid; ${firstTouchCookie({
+          utm_source: "bing",
+          utm_medium: "cpc",
+          utm_campaign: "slides-competitors",
+          utm_term: "gamma presentations",
+          msclkid: "click-1",
+          vector_source: "GOOGLE",
+          landing_referrer: "www.bing.com",
+          landing_path: "/",
+        })}`,
+      ),
+    });
+
+    expect(persisted).toEqual([
+      {
+        userId: "user_1",
+        attribution: expect.objectContaining({
+          utm_source: "bing",
+          utm_medium: "cpc",
+          utm_campaign: "slides-competitors",
+          utm_term: "gamma presentations",
+          msclkid: "click-1",
+          vector_source: "GOOGLE",
+          landing_referrer: "www.bing.com",
+        }),
+      },
+    ]);
+  });
+
+  it("persists nothing for a row created with no browser attribution", async () => {
+    await emitSignupEventForCreatedUser(USER, { headers: new Headers() });
+    await emitSignupEventForCreatedUser(USER, null);
+
+    expect(persisted).toEqual([]);
   });
 
   // The handoff header is unsigned and outranks the cookie, so a request that
