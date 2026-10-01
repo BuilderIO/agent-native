@@ -2,7 +2,10 @@ import { createHash } from "crypto";
 
 import { getDbExec } from "@agent-native/core/db";
 
-import type { AnalyticsQueryResult } from "./first-party-analytics.js";
+import type {
+  AnalyticsQueryResult,
+  AnalyticsScope,
+} from "./first-party-analytics.js";
 
 interface L1Entry {
   result: AnalyticsQueryResult;
@@ -24,12 +27,22 @@ export interface FirstPartyCacheOptions {
   timeoutMs?: number;
 }
 
+/**
+ * The key names the actor and tenant explicitly, so a cached result is never
+ * served to another caller even when two scopes compile to the same SQL.
+ */
 export function firstPartyCacheKey(
   scopedSql: string,
   args: Array<string | null>,
+  scope: AnalyticsScope,
 ): string {
+  const caller = {
+    actor: scope.userEmail.trim().toLowerCase(),
+    orgId: scope.orgId ?? null,
+    credentialScope: scope.credentialScope ?? null,
+  };
   return createHash("sha256")
-    .update(`${scopedSql}\n${JSON.stringify(args)}`)
+    .update(`${JSON.stringify(caller)}\n${scopedSql}\n${JSON.stringify(args)}`)
     .digest("hex");
 }
 

@@ -26,6 +26,11 @@ agent answers about browser recordings in the Analytics template.
   browser or agent.
 - Playback bytes must go through scoped server helpers that check
   `session-recording` access before reading private blob refs.
+- First-party SQL (`query-agent-native-analytics`, dashboard panels) reads
+  `session_recordings` through the same `session-recording` access rule as
+  the UI: the caller's own recordings, org-visible recordings in the active
+  org, and recordings shared with the caller or their org. Any new SQL path
+  over recordings must use that rule, not an `org_id` match.
 - SQL inline chunks are a local/dev fallback only; production should use
   private or encrypted blob storage.
 - A local Analytics app pointed at a production database must also use the key

@@ -1,6 +1,9 @@
+import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { getDb, schema } from "../db/index.js";
@@ -1298,6 +1301,10 @@ function scopedTableSource(
     };
   }
 
+  if (tableName === "session_recordings") {
+    return scopedSessionRecordingSource(scope, today, parameterOffset);
+  }
+
   const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
     const orgParameter = parameterOffset + 1;
@@ -1319,6 +1326,67 @@ function scopedTableSource(
   return {
     sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)})`,
     args: [ownerEmail, today],
+  };
+}
+
+const pgDialect = new PgDialect();
+
+/**
+ * Recordings are shareable resources, so agent SQL reads them through the
+ * same rule as the app: the caller's own recordings, org-visible recordings
+ * in their org, and recordings shared with them or their org. An org
+ * credential additionally keeps the read on the organization's rows.
+ */
+function scopedSessionRecordingSource(
+  scope: AnalyticsScope,
+  today: string,
+  parameterOffset: number,
+): { sql: string; args: Array<string | null> } {
+  if (scope.credentialScope === "org" && !scope.orgId) {
+    return { sql: "(SELECT * FROM session_recordings WHERE 1 = 0)", args: [] };
+  }
+  const access = pgDialect.sqlToQuery(
+    accessFilter(schema.sessionRecordings, schema.sessionRecordingShares, {
+      userEmail: scope.userEmail,
+      orgId: scope.orgId ?? undefined,
+    }),
+  );
+  const args: Array<string | null> = access.params.map((value) => {
+    if (typeof value !== "string") {
+      throw new Error("Session recording access filter has a non-text value");
+    }
+    return value;
+  });
+  // Re-emit the compiled filter token by token: binds move past the
+  // parameters already used, and layout whitespace collapses to one space.
+  let accessSql = "";
+  let previousEnd: number | null = null;
+  for (const token of lexAgentSql(access.sql, { dialect: "postgres" })) {
+    if (previousEnd !== null && token.start > previousEnd) accessSql += " ";
+    previousEnd = token.end;
+    if (token.kind !== "parameter") {
+      accessSql += token.text;
+      continue;
+    }
+    const index = Number(token.text.slice(1));
+    if (!token.text.startsWith("$") || !Number.isInteger(index)) {
+      throw new Error("Session recording access filter has an unexpected bind");
+    }
+    accessSql += `$${parameterOffset + index}`;
+  }
+
+  const conditions = [`(${accessSql})`];
+  if (scope.credentialScope === "org") {
+    args.push(scope.orgId);
+    conditions.push(`org_id = $${parameterOffset + args.length}`);
+  }
+  args.push(today);
+  conditions.push(
+    freshnessClause("session_recordings", parameterOffset + args.length),
+  );
+  return {
+    sql: `(SELECT * FROM session_recordings WHERE ${conditions.join(" AND ")})`,
+    args,
   };
 }
 
@@ -1433,7 +1501,7 @@ export async function queryFirstPartyAnalytics(
     1,
     options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
   );
-  const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args);
+  const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args, scope);
   const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   const compute = async (
     queryTimeoutMs = timeoutMs,

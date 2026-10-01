@@ -798,15 +798,44 @@ describe("scopedAnalyticsSql", () => {
     expect(scoped.args).toEqual([]);
   });
 
-  it("adds freshness guards around session recording reads", () => {
+  it("reads session recordings through the sharing rule, with a freshness guard", () => {
     const scoped = scopedAnalyticsSql(
       "SELECT COUNT(*) AS recordings FROM session_recordings",
       { userEmail: "alice@example.com", orgId: null },
       "2026-07-01",
     );
 
-    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= $2");
-    expect(scoped.args).toEqual(["alice@example.com", "2026-07-01"]);
+    expect(scoped.sql).toContain(
+      'lower("session_recordings"."owner_email") = $1',
+    );
+    expect(scoped.sql).toContain('from "session_recording_shares"');
+    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= $3");
+    expect(scoped.sql).not.toContain("\n");
+    expect(scoped.args).toEqual([
+      "alice@example.com",
+      "alice@example.com",
+      "2026-07-01",
+    ]);
+  });
+
+  it("numbers recording binds after earlier sources in the same query", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT e.event_name FROM analytics_events e JOIN session_recordings r ON r.session_id = e.session_id",
+      { userEmail: "alice@example.com", orgId: null },
+      "2026-07-01",
+    );
+
+    expect(scoped.args).toEqual([
+      "alice@example.com",
+      "2026-07-01",
+      "alice@example.com",
+      "alice@example.com",
+      "2026-07-01",
+    ]);
+    expect(scoped.sql).toContain(
+      'lower("session_recordings"."owner_email") = $3',
+    );
+    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= $5");
   });
 
   it("scopes rollups by tenant key without changing all-time lower bounds", () => {
