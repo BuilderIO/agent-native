@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -68,7 +68,12 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
     const userEmail = getRequestUserEmail();
-    if (!userEmail) throw new Error("no authenticated user");
+    if (!userEmail) {
+      fail("no authenticated user", {
+        errorCode: "unauthenticated",
+        statusCode: 401,
+      });
+    }
     const orgId = getRequestOrgId() || null;
     await assertSessionsTriageLabEnabled(userEmail, orgId);
     const dictionary = await dataDictionaryDescriptions(userEmail, orgId);
