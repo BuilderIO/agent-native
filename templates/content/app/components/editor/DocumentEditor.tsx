@@ -395,6 +395,22 @@ export function suggestionAmendmentTargetIsResolved(
   return !!suggestion && suggestion.status !== "pending";
 }
 
+export function suggestionAmendmentResolutionConflicts(
+  editingSuggestionId: string | null,
+  suggestions: Array<Pick<ResourceSuggestion, "id" | "status">>,
+  ownedDecisions: ReadonlyArray<{ id: string; decision: SuggestionDecision }>,
+) {
+  if (!suggestionAmendmentTargetIsResolved(editingSuggestionId, suggestions))
+    return false;
+  const suggestion = suggestions.find(
+    (candidate) => candidate.id === editingSuggestionId,
+  );
+  return !ownedDecisions.some(
+    (owned) =>
+      owned.id === editingSuggestionId && owned.decision === suggestion?.status,
+  );
+}
+
 export function suggestionDecisionPreviewContent(
   suggestion: Pick<ResourceSuggestion, "operations">,
   decision: SuggestionDecision,
@@ -2226,6 +2242,7 @@ function PageEditorSessionBody({
   const [pendingProposalDecision, setPendingProposalDecision] = useState<{
     generation: number;
     continueSuggesting: boolean;
+    requestedDecision: SuggestionDecision;
     accepted: boolean;
     members: ResourceSuggestion[];
     beforeContent: string;
@@ -4679,15 +4696,39 @@ function PageEditorSessionBody({
     suggestionBaseRef.current?.existingSuggestion &&
     suggestionDraft !== suggestionBaseRef.current.initialContent,
   );
+  const amendmentResolutionConflicts = suggestionAmendmentResolutionConflicts(
+    editingSuggestionId,
+    savedSuggestions,
+    pendingSuggestionDecision?.optimistic &&
+      activeSuggestionDecisionIdRef.current ===
+        pendingSuggestionDecision.suggestion.id
+      ? [
+          {
+            id: pendingSuggestionDecision.suggestion.id,
+            decision: pendingSuggestionDecision.decision,
+          },
+        ]
+      : pendingProposalDecision?.generation ===
+          suggestionDecisionGenerationRef.current
+        ? pendingProposalDecision.members.map((member) => ({
+            id: member.id,
+            decision: pendingProposalDecision.requestedDecision,
+          }))
+        : [],
+  );
 
   useEffect(() => {
-    if (!isSuggesting || !amendmentDraftIsDirty || !amendmentTargetIsResolved)
+    if (
+      !isSuggesting ||
+      !amendmentDraftIsDirty ||
+      !amendmentResolutionConflicts
+    )
       return;
     setSuggestionAmendmentConflict(true);
     void queryClient.invalidateQueries(documentQueryFilter(documentId));
   }, [
     amendmentDraftIsDirty,
-    amendmentTargetIsResolved,
+    amendmentResolutionConflicts,
     documentId,
     isSuggesting,
     queryClient,
@@ -6844,6 +6885,7 @@ function PageEditorSessionBody({
         setPendingProposalDecision({
           generation: decisionGeneration,
           continueSuggesting,
+          requestedDecision: decision,
           accepted: decision === "accepted",
           members,
           beforeContent: document.content,

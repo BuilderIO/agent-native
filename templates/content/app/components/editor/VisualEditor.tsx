@@ -136,6 +136,7 @@ import {
 } from "./extensions/registryBlocks";
 import {
   SuggestionHighlight,
+  acceptedSuggestionAtRange,
   setSuggestionHighlights,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
@@ -1393,6 +1394,18 @@ export function suggestionHighlightSpec(
   if (beforePresentation === null || afterPresentation === null) return null;
   const range = suggestionAnchorRange(doc, suggestion);
   if (!range) return null;
+  if (
+    suggestion.presentation === "settling" &&
+    suggestion.beforePresentation &&
+    suggestion.afterPresentation &&
+    acceptedSuggestionAtRange(
+      doc,
+      range,
+      suggestion.beforePresentation,
+      suggestion.afterPresentation,
+    )
+  )
+    return null;
   if (
     suggestion.presentation === "settling" &&
     canProjectAcceptedSuggestion(suggestion)

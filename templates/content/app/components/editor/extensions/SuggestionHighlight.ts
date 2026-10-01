@@ -1,4 +1,9 @@
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
+import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import {
+  resolveMarkdownSuggestionRange,
+  resolveMarkdownSuggestionRangeInContext,
+} from "@shared/suggestion-rebase";
 import {
   suggestionTextPresentationForSource,
   suggestionTextPresentation,
@@ -9,6 +14,8 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+
+import { buildDocText } from "../comment-anchors";
 
 export type SuggestionHighlightKind =
   | "delete"
@@ -214,16 +221,74 @@ function anchoredNfmMatches(
   );
 }
 
+export function acceptedSuggestionAtRange(
+  doc: ProseMirrorNode,
+  mounted: Range,
+  before: SuggestionPresentationContext,
+  after: SuggestionPresentationContext,
+): boolean {
+  const source = docToNfm(doc.toJSON());
+  const beforeText = before.source.slice(before.from, before.to);
+  const afterText = after.source.slice(after.from, after.to);
+  const operation = (
+    original: SuggestionPresentationContext,
+    proposed: SuggestionPresentationContext,
+  ) => ({
+    before: {
+      markdown: original.source,
+      changedText: original.source.slice(original.from, original.to),
+    },
+    after: {
+      markdown: proposed.source,
+      changedText: proposed.source.slice(proposed.from, proposed.to),
+    },
+    anchor: {
+      from: original.from,
+      to: original.to,
+      prefix: original.source.slice(
+        Math.max(0, original.from - 32),
+        original.from,
+      ),
+      suffix: original.source.slice(original.to, original.to + 32),
+    },
+  });
+  if (
+    beforeText === afterText ||
+    (beforeText &&
+      resolveMarkdownSuggestionRange(source, operation(before, after)))
+  )
+    return false;
+  const accepted = resolveMarkdownSuggestionRangeInContext(
+    source,
+    operation(after, before),
+  );
+  if (!accepted) return false;
+  const mapped = suggestionFormattingSourceRange(
+    source,
+    accepted.from,
+    accepted.to,
+  );
+  if (!mapped || mapped.text !== buildDocText(doc).text) return false;
+  const from = doc.textBetween(0, mounted.from, "").length;
+  const to = doc.textBetween(0, mounted.to, "").length;
+  // Insertions map to the accepted span's end when canonical text arrives.
+  return before.from === before.to
+    ? from === mapped.from || from === mapped.to
+    : Math.min(from, to) === mapped.from && Math.max(from, to) === mapped.to;
+}
+
 function settledAtOperation(
   doc: ProseMirrorNode,
   spec: SuggestionHighlightSpec,
 ) {
   const presentation = spec.insertedPresentation;
   if (!presentation) return false;
+  const before = spec.settlingBeforePresentation;
+  if (before && acceptedSuggestionAtRange(doc, spec, before, presentation))
+    return true;
   if (spec.kind === "insert")
     return insertionAtOperationAnchor(doc, spec.from, spec.insertedText);
   if (spec.kind !== "delete" && spec.kind !== "replace") return false;
-  const before = spec.settlingBeforePresentation;
   if (!before) return false;
   if (spec.kind === "replace")
     return anchoredNfmMatches(doc, spec.from, spec.to, spec.insertedText ?? "");

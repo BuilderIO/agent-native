@@ -250,6 +250,42 @@ export function resolveMarkdownSuggestionRange(
   );
 }
 
+export function resolveMarkdownSuggestionRangeInContext(
+  currentMarkdown: string,
+  operation: ContextualMarkdownOperation,
+): { from: number; to: number } | null {
+  if (!resolveMarkdownSuggestionRange(currentMarkdown, operation)) return null;
+  // A moved exact quote is enough to review, but not to confirm application.
+  const before = operation.before as { markdown: string };
+  const anchor = operation.anchor as MarkdownAnchor;
+  if (currentMarkdown === before.markdown)
+    return { from: anchor.from, to: anchor.to };
+  const context = canonicalizeNfm(before.markdown);
+  const contextualRange =
+    context === before.markdown
+      ? anchor
+      : resolveCanonicalizedRange(before.markdown, context, anchor);
+  if (!contextualRange) return null;
+  if (
+    blockRanges(context).some(
+      (block) =>
+        block.paragraph &&
+        contextualRange.from >= block.from &&
+        contextualRange.to <= block.to,
+    )
+  )
+    return resolveParagraphRange(context, currentMarkdown, {
+      ...anchor,
+      ...contextualRange,
+    });
+  return (
+    resolveCanonicalizedRange(before.markdown, currentMarkdown, anchor) ??
+    resolveOutsideChange(before.markdown, currentMarkdown, anchor) ??
+    resolveParagraphRange(before.markdown, currentMarkdown, anchor) ??
+    resolveAcrossSiblingRanges(before.markdown, currentMarkdown, anchor)
+  );
+}
+
 function resolveAcrossSiblingRanges(
   before: string,
   current: string,
