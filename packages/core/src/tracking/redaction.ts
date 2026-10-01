@@ -6,10 +6,16 @@ export const MAX_EXTRA_VALUE_LENGTH = 1000;
 
 const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
 const SQL_PARAMS_RE =
-  /\b(?:failed query|query failed):[\s\S]*?(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
+  /\b(?:failed query|query failed):\s*(?:select|insert|update|delete|with)\b[\s\S]*?(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
+const SQL_QUERY_FAILURE_RE =
+  /\b(?:failed query|query failed):\s*(?:select|insert|update|delete|with)\b/i;
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
+
+export function isSqlQueryFailureText(value: string): boolean {
+  return SQL_QUERY_FAILURE_RE.test(value);
+}
 
 export function redact(value: string): string {
   return value

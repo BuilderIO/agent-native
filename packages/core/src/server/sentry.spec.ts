@@ -212,6 +212,39 @@ describe("server/sentry", () => {
       expect(result.logentry.params).toBeUndefined();
     });
 
+    it("keeps unrelated parameters for non-SQL query diagnostics", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "example transcript content";
+      const diagnosticValue = "report lookup details";
+      const sqlFailure = `DrizzleQueryError: Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`;
+      const diagnostic = `query failed: report service timed out\nparams: ${diagnosticValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message: diagnostic,
+        logentry: { message: diagnostic, params: [diagnosticValue] },
+        exception: {
+          values: [{ type: "DrizzleQueryError", value: sqlFailure }],
+        },
+        contexts: {
+          report: { message: diagnostic, params: [diagnosticValue] },
+        },
+      } as never) as {
+        message: string;
+        logentry: { message: string; params: unknown[] };
+        exception: { values: Array<{ value: string }> };
+        contexts: { report: { params: string[] } };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.message).toContain(`params: ${diagnosticValue}`);
+      expect(result.logentry.params).toEqual([diagnosticValue]);
+      expect(result.contexts.report.params).toEqual([diagnosticValue]);
+    });
+
     it("redacts nested serialized SQL errors with bound parameters", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");

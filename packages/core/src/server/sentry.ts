@@ -1,5 +1,5 @@
 import { loadOptionalPeer } from "../shared/optional-peer.js";
-import { redact } from "../tracking/redaction.js";
+import { isSqlQueryFailureText, redact } from "../tracking/redaction.js";
 import type { AuthSession } from "./auth.js";
 import {
   resolveDeployEnvironment,
@@ -16,8 +16,6 @@ let Sentry: typeof import("@sentry/node") | undefined;
 let _initPromise: Promise<boolean> | undefined;
 let _initSucceeded = false;
 
-const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):/i;
-
 function parseTracesSampleRate(): number {
   const raw = process.env.SENTRY_SERVER_TRACES_SAMPLE_RATE;
   if (!raw) return 0;
@@ -30,7 +28,7 @@ function containsSqlQueryFailure(
   value: unknown,
   seen = new WeakSet<object>(),
 ): boolean {
-  if (typeof value === "string") return SQL_QUERY_FAILURE_RE.test(value);
+  if (typeof value === "string") return isSqlQueryFailureText(value);
   if (value == null || typeof value !== "object" || seen.has(value)) {
     return false;
   }
@@ -66,8 +64,7 @@ function redactSentryEventPayload(
         "params" in value &&
         ("query" in value || "sql" in value)) ||
         Object.values(record).some(
-          (child) =>
-            typeof child === "string" && SQL_QUERY_FAILURE_RE.test(child),
+          (child) => typeof child === "string" && isSqlQueryFailureText(child),
         )));
   for (const [key, child] of Object.entries(record)) {
     if (redactSqlParams && key.toLowerCase() === "params") {
@@ -113,12 +110,7 @@ export function initServerSentry(): Promise<boolean> {
             return null;
           }
 
-          const hasSqlLogEntryFailure = containsSqlQueryFailure([
-            event.message,
-            event.logentry,
-            event.exception,
-            event.extra?.__serialized__,
-          ]);
+          const hasSqlLogEntryFailure = containsSqlQueryFailure(event.logentry);
           redactSentryEventPayload(event, false, true);
           if (hasSqlLogEntryFailure && event.logentry) {
             delete event.logentry.params;
