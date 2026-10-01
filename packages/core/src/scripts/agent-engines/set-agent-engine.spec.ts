@@ -80,6 +80,8 @@ vi.mock("../../labs/store.js", () => ({
 
 const { run: runManage } = await import("./manage-agent-engine.js");
 const { run: runSet } = await import("./set-agent-engine.js");
+const { readAgentAppModelDefaultSettings } =
+  await import("../../agent/app-model-defaults.js");
 const { readDefaultAgentEngineSettingDetailed } =
   await import("../../agent/default-agent-engine.js");
 const { runWithRequestContext } =
@@ -262,6 +264,61 @@ describe("manage-agent-engine set", () => {
     ).resolves.toMatchObject({
       source: "user",
       value: { engine: "chatgpt-subscription", model: "personal-model" },
+    });
+  });
+
+  it("rejects ChatGPT plan access as an organization app default before loading its catalog", async () => {
+    const result = await as("admin@a.test", "org-a", () =>
+      runManage({
+        action: "set-app-default",
+        appId: "mail",
+        engine: "chatgpt-subscription",
+        model: "personal-model",
+      }),
+    );
+
+    expect(result).toBe(
+      "Error: ChatGPT plan access is personal and cannot be selected as an organization default.",
+    );
+    expect(listChatGPTSubscriptionModels).not.toHaveBeenCalled();
+    await expect(
+      readAgentAppModelDefaultSettings(
+        { userEmail: "admin@a.test", orgId: "org-a" },
+        "mail",
+      ),
+    ).resolves.toMatchObject({ engine: null, model: null, source: "default" });
+  });
+
+  it("lets a user without an organization set their ChatGPT app default", async () => {
+    const result = JSON.parse(
+      await as("solo@example.test", undefined, () =>
+        runManage({
+          action: "set-app-default",
+          appId: "mail",
+          engine: "chatgpt-subscription",
+          model: "personal-model",
+        }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      engine: "chatgpt-subscription",
+      model: "personal-model",
+      source: "user",
+    });
+    expect(listChatGPTSubscriptionModels).toHaveBeenCalledWith(
+      "solo@example.test",
+    );
+    await expect(
+      readAgentAppModelDefaultSettings(
+        { userEmail: "solo@example.test" },
+        "mail",
+      ),
+    ).resolves.toMatchObject({
+      engine: "chatgpt-subscription",
+      model: "personal-model",
+      source: "user",
     });
   });
 
