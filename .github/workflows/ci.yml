@@ -862,10 +862,10 @@ jobs:
             }
           '
           pnpm install
-          # Build the calendar app — catches missing peer/runtime deps that
-          # `pnpm install` alone won't surface (e.g. core importing a peer
-          # dep that templates don't declare).
+          # Build generated apps to catch missing peer/runtime deps that
+          # `pnpm install` alone won't surface.
           pnpm --filter ./apps/calendar build
+          pnpm --filter ./apps/dispatch build
 
   ssr-boot-smoke:
     name: SSR cold-start smoke
