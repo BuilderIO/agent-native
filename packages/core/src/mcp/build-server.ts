@@ -363,6 +363,10 @@ export function selectMcpActionSurface(
     : config.actions;
 }
 
+export function getConfiguredMcpOwnerEmail(): string | undefined {
+  return process.env.AGENT_NATIVE_OWNER_EMAIL?.trim() || undefined;
+}
+
 export function validateMcpDirectoryProfile(
   config: MCPConfig,
   sourceActions = config.productionActions ?? config.actions,
@@ -1582,7 +1586,7 @@ export async function createMCPServerForRequest(
     inputRequired,
   } = await import("@modelcontextprotocol/server");
 
-  const ownerFromEnv = process.env.AGENT_NATIVE_OWNER_EMAIL?.trim();
+  const ownerFromEnv = getConfiguredMcpOwnerEmail();
   const effectiveIdentity: MCPCallerIdentity | undefined =
     identity ??
     (ownerFromEnv
@@ -2600,7 +2604,7 @@ function deriveStaticTokenIdentity(
   ownerEmailHeader: string | undefined,
 ): MCPCallerIdentity | undefined {
   const owner =
-    process.env.AGENT_NATIVE_OWNER_EMAIL?.trim() ||
+    getConfiguredMcpOwnerEmail() ||
     (typeof ownerEmailHeader === "string" && ownerEmailHeader.trim()) ||
     "";
   if (!owner) return undefined;
