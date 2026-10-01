@@ -25,6 +25,7 @@ import {
   describeToolResultImages,
   extractAgentImagesFromActionResult,
 } from "../agent/tool-result-images.js";
+import { getAppConfig } from "../app-config/store.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -355,16 +356,15 @@ export class McpDirectoryProfileValidationError extends Error {
 export function selectMcpActionSurface(
   config: MCPConfig,
   requestMeta?: MCPRequestMeta,
-  ownerConfigured = false,
 ): Record<string, ActionEntry> {
-  const useFullSurface = requestMeta?.fullSurface === true || ownerConfigured;
+  const useFullSurface = requestMeta?.fullSurface === true;
   return useFullSurface && config.productionActions
     ? config.productionActions
     : config.actions;
 }
 
 export function getConfiguredMcpOwnerEmail(): string | undefined {
-  return process.env.AGENT_NATIVE_OWNER_EMAIL?.trim() || undefined;
+  return getAppConfig().auth.mcpOwnerEmail;
 }
 
 export function validateMcpDirectoryProfile(
@@ -1627,11 +1627,7 @@ export async function createMCPServerForRequest(
     };
   }
 
-  const baseActions = selectMcpActionSurface(
-    config,
-    requestMeta,
-    !!ownerFromEnv,
-  );
+  const baseActions = selectMcpActionSurface(config, requestMeta);
   const appCatalog = config.catalogMode === "app";
   const directoryCatalog = config.catalogMode === "directory";
   const directoryNames = config.connectorCatalog ?? [];

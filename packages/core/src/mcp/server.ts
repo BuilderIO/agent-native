@@ -23,7 +23,6 @@ import {
   validateMcpDirectoryProfile,
   validateMcpDirectoryWidgetDomain,
   selectMcpActionSurface,
-  getConfiguredMcpOwnerEmail,
   type MCPConfig,
   type MCPCallerIdentity,
   type MCPRequestMeta,
@@ -349,11 +348,7 @@ export async function handleMcpRequest(
     try {
       validateMcpDirectoryProfile(
         requestConfig,
-        selectMcpActionSurface(
-          requestConfig,
-          serverRequestMeta,
-          Boolean(getConfiguredMcpOwnerEmail()),
-        ),
+        selectMcpActionSurface(requestConfig, serverRequestMeta),
       );
       validateMcpDirectoryWidgetDomain(requestConfig.widgetDomain);
     } catch (error) {

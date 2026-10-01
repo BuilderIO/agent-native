@@ -815,8 +815,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("keeps dev-open directory requests on the sparse action surface", async () => {
+  it("keeps dev-open directory requests sparse with a configured owner", async () => {
     process.env.AGENT_NATIVE_MCP_DEV_OPEN = "1";
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
@@ -867,64 +868,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect.any(Error),
     );
     logError.mockRestore();
-  });
-
-  it("uses the configured owner surface for directory prevalidation", async () => {
-    process.env.AGENT_NATIVE_MCP_DEV_OPEN = "1";
-    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
-    delete process.env.ACCESS_TOKEN;
-    delete process.env.ACCESS_TOKENS;
-    delete process.env.A2A_SECRET;
-    delete process.env.BETTER_AUTH_SECRET;
-
-    const productionOnlyAction = defineAction({
-      description: "A production-only directory action.",
-      parameters: {},
-      readOnly: true,
-      mcpAnnotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        openWorldHint: false,
-      },
-      run: async () => ({ ok: true }),
-    });
-    const directoryConfig = {
-      ...config,
-      actions: { "echo-thing": config.actions["echo-thing"]! },
-      productionActions: {
-        ...config.actions,
-        "production-only": productionOnlyAction,
-      },
-      directoryProfile: { connectorCatalog: ["production-only"] },
-    };
-    const event = makeWebEvent({
-      path: "/",
-      ip: "127.0.0.1",
-      body: { jsonrpc: "2.0", id: 146, method: "tools/list", params: {} },
-      headers: {
-        authorization: "",
-        host: "localhost:8100",
-        "x-forwarded-proto": "https",
-      },
-    });
-
-    const verifyAuth = vi
-      .spyOn(mcpBuildServer, "verifyAuth")
-      .mockResolvedValue({ authed: true, fullSurface: false });
-    try {
-      const result = await handleMcpRequest(
-        event,
-        directoryConfig as any,
-        MCP_DIRECTORY_ROUTE_PREFIX,
-      );
-
-      expect(verifyAuth).toHaveBeenCalledOnce();
-      expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(200);
-      expect(await (result as Response).text()).toContain("production-only");
-    } finally {
-      verifyAuth.mockRestore();
-    }
   });
 
   it("passes catalog mode to MCP App CSP and HTML builders", async () => {
