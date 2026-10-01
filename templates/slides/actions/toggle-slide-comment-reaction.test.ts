@@ -88,6 +88,11 @@ vi.mock("../server/db/index.js", () => {
   return { getDb: () => db, schema };
 });
 
+const mockNotifyClients = vi.hoisted(() => vi.fn());
+vi.mock("../server/handlers/decks.js", () => ({
+  notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
+}));
+
 import action from "./toggle-slide-comment-reaction";
 
 function run(args: { commentId: string; deckId: string; emoji: string }) {
@@ -108,6 +113,23 @@ beforeEach(() => {
 });
 
 describe("toggle-slide-comment-reaction", () => {
+  it("emits a comments-changed deck event after a reaction toggle", async () => {
+    await run({ commentId: "comment-1", deckId: "deck-1", emoji: "👍" });
+
+    expect(mockNotifyClients).toHaveBeenCalledWith(
+      "deck-1",
+      "comments-changed",
+    );
+  });
+
+  it("does not emit when the comment is outside the deck", async () => {
+    await expect(
+      run({ commentId: "comment-1", deckId: "other-deck", emoji: "👍" }),
+    ).rejects.toThrow();
+
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
   it("adds a reaction with commenter access and returns viewer state", async () => {
     const result = await run({
       commentId: "comment-1",

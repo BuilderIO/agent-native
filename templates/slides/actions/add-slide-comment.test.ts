@@ -102,6 +102,11 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+const mockNotifyClients = vi.hoisted(() => vi.fn());
+vi.mock("../server/handlers/decks.js", () => ({
+  notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
+}));
+
 import action from "./add-slide-comment";
 
 const run = (
@@ -110,6 +115,7 @@ const run = (
 ) => (action as any).run(args, ctx);
 
 beforeEach(() => {
+  mockNotifyClients.mockClear();
   state.deckData = JSON.stringify({
     slides: [{ id: "slide-1" }, { id: "slide-2" }],
   });
@@ -136,6 +142,31 @@ beforeEach(() => {
 });
 
 describe("add-slide-comment", () => {
+  it("emits a comments-changed deck event so collaborators refresh within a second", async () => {
+    await run({ deckId: "deck-1", slideId: "slide-1", content: "Looks good" });
+    await run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      content: "Reply",
+      threadId: "thread-1",
+      parentId: "root-1",
+    });
+
+    expect(mockNotifyClients).toHaveBeenCalledTimes(2);
+    expect(mockNotifyClients).toHaveBeenCalledWith(
+      "deck-1",
+      "comments-changed",
+    );
+  });
+
+  it("does not emit when the insert is rejected", async () => {
+    await expect(
+      run({ deckId: "deck-1", slideId: "slide-missing", content: "Comment" }),
+    ).rejects.toThrow();
+
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
   it("keeps the authenticated profile name for frontend comments", async () => {
     await run({ deckId: "deck-1", slideId: "slide-1", content: "Looks good" });
 

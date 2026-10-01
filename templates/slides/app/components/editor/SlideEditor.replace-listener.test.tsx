@@ -323,6 +323,46 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     expect(text.getAttribute("contenteditable")).toBe("true");
   });
 
+  it("lets a modifier-click on commented text toggle multi-selection instead of opening the thread", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    vi.spyOn(slideCommentAnchor, "slideCommentThreadAtPoint").mockReturnValue(
+      "thread-1",
+    );
+    const onSelectCommentThread = vi.fn();
+    const noop = () => {};
+    const slide = {
+      id: "slide-comment-modifier",
+      content: '<div class="fmd-slide"><h2>Title</h2><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    const { container } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+        onSelectCommentThread={onSelectCommentThread}
+      />,
+      { wrapper: Providers },
+    );
+    const text = container.querySelector<HTMLElement>(".slide-content p")!;
+
+    for (const modifier of ["shiftKey", "metaKey", "ctrlKey"] as const) {
+      const point = { button: 0, clientX: 10, clientY: 10, [modifier]: true };
+      fireEvent.pointerDown(text, point);
+      fireEvent.click(text, point);
+    }
+    expect(onSelectCommentThread).not.toHaveBeenCalled();
+
+    const plain = { button: 0, clientX: 10, clientY: 10 };
+    fireEvent.pointerDown(text, plain);
+    fireEvent.click(text, plain);
+    expect(onSelectCommentThread).toHaveBeenCalledWith("thread-1");
+  });
+
   it("cancels a plain link drop without treating it as an image", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const onDropImageUrl = vi.fn();

@@ -51,6 +51,7 @@ import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
 } from "../lib/normalize-slide-padding";
+import { mergeSlideContent } from "../lib/slide-content-merge";
 import { renderArtifactGrowth } from "../lib/slide-source-map";
 
 type GranularOp =
@@ -568,6 +569,9 @@ const sentSlideContent = new Map<
   Map<string, { content: string; over: string }>
 >();
 const confirmedSlideContentHashes = new Map<string, Map<string, string>>();
+// Content behind each confirmed hash: the common ancestor for a three-way
+// merge when another writer saved the same slide first.
+const confirmedSlideContents = new Map<string, Map<string, string>>();
 const draftCommittedContent = new WeakMap<GranularOp, string>();
 
 const deckLocalWriteSeq = new Map<string, number>();
@@ -576,6 +580,14 @@ const inFlightOpSlides = new Map<string, GranularOp[]>();
 
 function confirmedSlideContentHash(deckId: string, slideId: string) {
   return confirmedSlideContentHashes.get(deckId)?.get(slideId);
+}
+
+function confirmedSlideBaseContent(deckId: string, slideId: string) {
+  const content = confirmedSlideContents.get(deckId)?.get(slideId);
+  return content !== undefined &&
+    hashSlideContent(content) === confirmedSlideContentHash(deckId, slideId)
+    ? content
+    : undefined;
 }
 
 function fullReplaceConflictSlides(
@@ -643,6 +655,31 @@ function fullReplaceConflictSlides(
   return conflicts;
 }
 
+/**
+ * Merge this client's unsaved draft of a slide with the copy another writer
+ * saved first. `null` when the edits overlap or the shared ancestor is gone.
+ */
+function mergeConflictedDraft(
+  deckId: string,
+  slideId: string,
+  ops: GranularOp[],
+  remoteContent: string,
+): string | null {
+  let draft: string | undefined;
+  for (const op of ops) {
+    if (
+      op.op === "patch-slide" &&
+      op.slideId === slideId &&
+      typeof op.fields.content === "string"
+    ) {
+      draft = op.fields.content;
+    }
+  }
+  const base = confirmedSlideBaseContent(deckId, slideId);
+  if (draft === undefined || base === undefined) return null;
+  return mergeSlideContent(base, draft, remoteContent);
+}
+
 function rememberConfirmedSlideContent(
   deckId: string,
   slideId: string,
@@ -651,6 +688,9 @@ function rememberConfirmedSlideContent(
   const hashes = confirmedSlideContentHashes.get(deckId) ?? new Map();
   hashes.set(slideId, hashSlideContent(content));
   confirmedSlideContentHashes.set(deckId, hashes);
+  const contents = confirmedSlideContents.get(deckId) ?? new Map();
+  contents.set(slideId, content);
+  confirmedSlideContents.set(deckId, contents);
 }
 
 function rememberPersistedSlideContent(deckId: string, ops: GranularOp[]) {
@@ -663,6 +703,10 @@ function rememberPersistedSlideContent(deckId: string, ops: GranularOp[]) {
         ]),
       );
       confirmedSlideContentHashes.set(deckId, hashes);
+      confirmedSlideContents.set(
+        deckId,
+        new Map(op.deck.slides.map((slide) => [slide.id, slide.content])),
+      );
       staleContentRetrySlides.delete(deckId);
     } else if (
       op.op === "patch-slide" &&
@@ -678,6 +722,7 @@ function rememberPersistedSlideContent(deckId: string, ops: GranularOp[]) {
       const hashes = confirmedSlideContentHashes.get(deckId);
       hashes?.delete(op.slideId);
       if (hashes?.size === 0) confirmedSlideContentHashes.delete(deckId);
+      confirmedSlideContents.get(deckId)?.delete(op.slideId);
       const retries = staleContentRetrySlides.get(deckId);
       retries?.delete(op.slideId);
       if (retries?.size === 0) staleContentRetrySlides.delete(deckId);
@@ -764,7 +809,39 @@ export function clearSlideEditingActive(deckId: string, slideId: string) {
   if (!set) return;
   set.delete(slideId);
   if (set.size === 0) activeInlineEditSlides.delete(deckId);
+  flushDeferredRemoteSyncs();
 }
+
+// A remote change that arrived while local edits were pending is only partly
+// applied (see `mergeServerSlideUpdate`), and nothing else re-reads the deck
+// until the next idle poll. Remember it and re-read once the local writes
+// settle.
+const deferredRemoteSyncDecks = new Set<string>();
+const deckResyncHandlers = new Set<(deckId: string) => void>();
+
+function requestDeckResync(deckId: string) {
+  for (const handler of deckResyncHandlers) handler(deckId);
+}
+
+function flushDeferredRemoteSyncs() {
+  for (const deckId of [...deferredRemoteSyncDecks]) {
+    if (
+      hasUnsavedDeckChanges(deckId) ||
+      (activeInlineEditSlides.get(deckId)?.size ?? 0) > 0
+    ) {
+      continue;
+    }
+    deferredRemoteSyncDecks.delete(deckId);
+    setTimeout(() => requestDeckResync(deckId), 0);
+  }
+}
+
+// Slides whose pending save carries a merge of another writer's edits, with
+// the local draft the merge started from. Until the editor re-reads the merged
+// result its content still derives from that draft, so the draft - not the
+// merged text - is what the next write must be based on; otherwise the next
+// keystroke save would silently overwrite the merged-in edits.
+const mergedSlideDrafts = new Map<string, Map<string, string>>();
 
 type SaveStateSnapshot = {
   saving: boolean;
@@ -819,6 +896,7 @@ function notifySaveListeners() {
       fn();
     } catch {}
   });
+  flushDeferredRemoteSyncs();
 }
 
 export function subscribeSaveState(listener: () => void): () => void {
@@ -1398,6 +1476,20 @@ function drainPendingDeckOps(
       deckSaveRetryAttempts.delete(deckId);
       deckRevisionConflictRetryAttempts.delete(deckId);
       failedSaveDecks.delete(deckId);
+      const mergedDrafts = mergedSlideDrafts.get(deckId);
+      if (mergedDrafts) {
+        for (const op of ops) {
+          const draft =
+            op.op === "patch-slide" ? mergedDrafts.get(op.slideId) : undefined;
+          if (op.op !== "patch-slide" || draft === undefined) continue;
+          mergedDrafts.delete(op.slideId);
+          rememberConfirmedSlideContent(deckId, op.slideId, draft);
+          const sent = sentSlideContent.get(deckId)?.get(op.slideId);
+          if (sent) sent.content = draft;
+          deferredRemoteSyncDecks.add(deckId);
+        }
+        if (mergedDrafts.size === 0) mergedSlideDrafts.delete(deckId);
+      }
     })
     .catch(async (err) => {
       if (!isCurrentGeneration()) return;
@@ -1555,6 +1647,7 @@ function drainPendingDeckOps(
             attemptedContentHashes.set(op.slideId, hashes);
           }
           const safeToRebase = new Map<string, string>();
+          const mergedContent = new Map<string, string>();
           const conflicts = new Set(previousConflicts ?? []);
           const candidateSlideIds = new Set([
             ...contentOps.map((op) => op.slideId),
@@ -1577,6 +1670,24 @@ function drainPendingDeckOps(
               (remoteHash === confirmedHash ||
                 attemptedContentHashes.get(slideId)?.has(remoteHash))
             ) {
+              safeToRebase.set(slideId, remoteHash);
+              retrySlides.add(slideId);
+              continue;
+            }
+            const merged =
+              !globallyConflicted &&
+              !conflicts.has(slideId) &&
+              remoteHash &&
+              remoteSlide
+                ? mergeConflictedDraft(
+                    deckId,
+                    slideId,
+                    allOps,
+                    remoteSlide.content,
+                  )
+                : null;
+            if (merged !== null && remoteHash) {
+              mergedContent.set(slideId, merged);
               safeToRebase.set(slideId, remoteHash);
               retrySlides.add(slideId);
             } else {
@@ -1626,6 +1737,15 @@ function drainPendingDeckOps(
               fields: { ...previous?.op.fields, ...op.fields },
               baseContentHash: safeToRebase.get(op.slideId),
             };
+            const merged = mergedContent.get(op.slideId);
+            if (merged !== undefined) {
+              const drafts = mergedSlideDrafts.get(deckId) ?? new Map();
+              if (!drafts.has(op.slideId)) {
+                drafts.set(op.slideId, rebasedOp.fields.content as string);
+              }
+              mergedSlideDrafts.set(deckId, drafts);
+              rebasedOp.fields.content = merged;
+            }
             const remoteContent = remoteSlides.get(op.slideId)?.content;
             if (typeof remoteContent === "string") {
               draftCommittedContent.set(rebasedOp, remoteContent);
@@ -2249,6 +2369,7 @@ function discardPendingDeckOps(deckId: string) {
   staleContentDrafts.delete(deckId);
   staleContentRemoteSlides.delete(deckId);
   confirmedSlideContentHashes.delete(deckId);
+  confirmedSlideContents.delete(deckId);
   immediateFlushRequests.delete(deckId);
   notifySaveListeners();
 }
@@ -3767,6 +3888,8 @@ export function DeckProvider({
       }
       const confirmedHashes =
         confirmedSlideContentHashes.get(updated.id) ?? new Map();
+      const confirmedContents =
+        confirmedSlideContents.get(updated.id) ?? new Map();
       const updatedSlideIds = new Set(updated.slides.map((slide) => slide.id));
       for (const slideId of confirmedHashes.keys()) {
         if (
@@ -3774,17 +3897,21 @@ export function DeckProvider({
           !hasPendingWriteForSlide(updated.id, slideId)
         ) {
           confirmedHashes.delete(slideId);
+          confirmedContents.delete(slideId);
         }
       }
       for (const slide of updated.slides) {
         if (!hasPendingWriteForSlide(updated.id, slide.id)) {
           confirmedHashes.set(slide.id, hashSlideContent(slide.content));
+          confirmedContents.set(slide.id, slide.content);
         }
       }
       if (confirmedHashes.size > 0) {
         confirmedSlideContentHashes.set(updated.id, confirmedHashes);
+        confirmedSlideContents.set(updated.id, confirmedContents);
       } else {
         confirmedSlideContentHashes.delete(updated.id);
+        confirmedSlideContents.delete(updated.id);
       }
       const sentContent = sentSlideContent.get(updated.id);
       if (sentContent) {
@@ -3976,6 +4103,7 @@ export function DeckProvider({
         !options?.clearPendingWrites &&
         (deckLocalWriteSeq.get(currentOpenId) ?? 0) !== writeSeqAtReadStart
       ) {
+        deferredRemoteSyncDecks.add(currentOpenId);
         return { read: read.status, deck: null };
       }
       if (read.status !== "ok") return { read: read.status, deck: null };
@@ -4004,6 +4132,7 @@ export function DeckProvider({
         pendingAtReadStart.size > 0;
 
       if (hasLocalEdits && clientDeck) {
+        deferredRemoteSyncDecks.add(currentOpenId);
         const merged = mergeServerSlideUpdate(
           clientDeck,
           serverDeck,
@@ -4099,6 +4228,10 @@ export function DeckProvider({
                 hashSlideContent(slide.content),
               ]),
             ),
+          );
+          confirmedSlideContents.set(
+            deck.id,
+            new Map(deck.slides.map((slide) => [slide.id, slide.content])),
           );
         }
       }
@@ -4456,6 +4589,22 @@ export function DeckProvider({
     if (openDeckId === undefined) return;
     pollControlRef.current.onRouteChange(openDeckId);
   }, [openDeckId]);
+
+  useEffect(() => {
+    const resync = (deckId: string) => {
+      if (currentOpenDeckIdFromWindow() !== deckId) return;
+      void refetchOpenDeckIfChanged(deckId).catch((error) => {
+        console.error(
+          `Failed to re-read deck ${deckId} after local writes:`,
+          error,
+        );
+      });
+    };
+    deckResyncHandlers.add(resync);
+    return () => {
+      deckResyncHandlers.delete(resync);
+    };
+  }, [refetchOpenDeckIfChanged]);
 
   useEffect(() => {
     if (loading) return;

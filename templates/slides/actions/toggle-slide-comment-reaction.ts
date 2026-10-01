@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyClients } from "../server/handlers/decks.js";
 import {
   parseSlideCommentReactionBuckets,
   serializeSlideCommentReactionBuckets,
@@ -79,6 +80,7 @@ export default defineAction({
         .returning({ id: schema.slideComments.id });
 
       if (updated.length > 0) {
+        await notifyClients(deckId, "comments-changed");
         return {
           id: commentId,
           emoji: normalizedEmoji,

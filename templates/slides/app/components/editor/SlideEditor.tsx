@@ -7825,7 +7825,8 @@ export default function SlideEditor({
       ) {
         return;
       }
-      if (!editingEl && !pinMode && !drawMode) {
+      // A modifier press is multi-select, never an open-thread press.
+      if (!editingEl && !pinMode && !drawMode && !additive) {
         const threadId = slideCommentThreadAtPoint(
           comments,
           slideContent,
