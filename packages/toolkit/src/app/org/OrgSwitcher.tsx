@@ -132,9 +132,11 @@ export type AccountMenuUtilityLink = OrgSwitcherUtilityLink;
 
 export function BuilderCreditNotice({
   compact = false,
+  showAtLimitOnly = false,
   className,
 }: {
   compact?: boolean;
+  showAtLimitOnly?: boolean;
   className?: string;
 }) {
   const { data: org } = useOrg();
@@ -176,7 +178,10 @@ export function BuilderCreditNotice({
     exhausted ||
     Boolean(usage && usage.quota.remaining <= usage.quota.limit * 0.2);
 
-  if (builderCreditStatus.isError || !nearLimit) {
+  if (
+    builderCreditStatus.isError ||
+    !(showAtLimitOnly ? exhausted : nearLimit)
+  ) {
     return null;
   }
 
