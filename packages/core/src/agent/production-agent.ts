@@ -10287,7 +10287,11 @@ export function createProductionAgentHandler(
           return;
         }
 
-        send({ type: "activity", label: "Starting agent" });
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:starting-agent`,
+          label: "Starting agent",
+        });
 
         if (isBackgroundWorker) {
           await recordRunDiagnostic(
@@ -10570,7 +10574,11 @@ export function createProductionAgentHandler(
             : {}),
         };
 
-        send({ type: "activity", label: "Contacting model" });
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:contacting-model`,
+          label: "Contacting model",
+        });
 
         let instrumented = false;
         try {
