@@ -52,6 +52,11 @@
       "exportAs": "design-systems"
     },
     {
+      "path": ".agents/skills/slide-design",
+      "visibility": "both",
+      "exportAs": "slide-design"
+    },
+    {
       "path": ".agents/skills/creative-context",
       "visibility": "internal"
     }
