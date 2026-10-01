@@ -683,7 +683,9 @@ export default function Index() {
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const designSystemId =
-        selectedTemplate && !newDesignSystemWasChosenRef.current
+        selectedTemplate &&
+        newDesignMode === "design" &&
+        !newDesignSystemWasChosenRef.current
           ? undefined
           : newDesignSystemId;
 

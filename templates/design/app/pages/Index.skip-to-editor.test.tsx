@@ -800,6 +800,24 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps?.selectedDesignSystemId).toBe("linked-system");
   });
 
+  it("uses the linked template system when creating an app", async () => {
+    mocks.fullAppBuilding = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Build an app", [], {});
+    });
+
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "linked-system" }),
+    );
+    expect(mocks.createFromTemplate).not.toHaveBeenCalled();
+  });
+
   it("clears an inaccessible linked system after loading before template copy", async () => {
     mocks.systemsLoading = true;
     await act(async () => root.render(<Index />));
