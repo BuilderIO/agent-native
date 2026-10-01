@@ -44,7 +44,7 @@ import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "../editor/FigmaLinkComposerBubble";
-import { Header, MobileHeaderActions } from "./Header";
+import { Header, isDesignHomeRoute, MobileHeaderActions } from "./Header";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
@@ -112,7 +112,7 @@ export function Layout({ children }: LayoutProps) {
   // renders full width.
   const isSettingsRoute = isSettingsPathname(location.pathname);
   const showAppNav = !standaloneEditor && !isSettingsRoute;
-  const showMobileTopBar = showAppNav;
+  const showMobileTopBar = showAppNav && !isDesignHomeRoute(location.pathname);
   const browserTabId = getBrowserTabId();
   const {
     link: detectedFigmaComposerLink,
@@ -154,7 +154,7 @@ export function Layout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -297,8 +297,10 @@ export function Layout({ children }: LayoutProps) {
         )}
         {!hideHeader && (
           <>
-            <MobileHeaderActions />
-            <Header />
+            {!isDesignHomeRoute(location.pathname) ? (
+              <MobileHeaderActions />
+            ) : null}
+            <Header onOpenNavigation={openMobileSidebar} />
           </>
         )}
         <main

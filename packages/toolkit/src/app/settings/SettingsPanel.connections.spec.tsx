@@ -405,7 +405,12 @@ describe("ConnectionsSettingsContent", () => {
     chatgptLab.enabled = true;
     callActionMock.mockImplementation((actionName: string) =>
       actionName === "get-chatgpt-subscription-status"
-        ? Promise.resolve({ connected: false, reconnectRequired: false })
+        ? Promise.resolve({
+            supported: true,
+            connected: false,
+            reconnectRequired: false,
+            legacyRegistrationCleanupAvailable: false,
+          })
         : Promise.resolve({
             engines: [],
             current: { engine: "anthropic", model: "" },
@@ -413,7 +418,22 @@ describe("ConnectionsSettingsContent", () => {
     );
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("{}")),
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("get-chatgpt-subscription-status")
+          ? Response.json({
+              supported: true,
+              localLoopback: true,
+              supportReason: null,
+              connected: false,
+              reconnectRequired: false,
+              accountId: null,
+              activeAccountId: null,
+              activeAccount: null,
+              accounts: [],
+              legacyRegistrationCleanupAvailable: false,
+            })
+          : new Response("{}"),
+      ),
     );
 
     const popup = { closed: false } as Window;
@@ -438,11 +458,11 @@ describe("ConnectionsSettingsContent", () => {
     });
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Connect ChatGPT");
+      expect(container.textContent).toContain("Continue with ChatGPT");
     });
     const connectButton = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.trim() === "Connect ChatGPT");
+    ).find((button) => button.textContent?.trim() === "Continue with ChatGPT");
     expect(connectButton).toBeDefined();
     vi.useFakeTimers();
     await act(async () => {
@@ -459,7 +479,7 @@ describe("ConnectionsSettingsContent", () => {
     expect(container.textContent).not.toContain("Connecting…");
     expect(
       Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => button.textContent?.trim() === "Connect ChatGPT",
+        (button) => button.textContent?.trim() === "Continue with ChatGPT",
       )?.disabled,
     ).toBe(false);
 

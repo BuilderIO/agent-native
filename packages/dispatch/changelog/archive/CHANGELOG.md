@@ -1,3 +1,76 @@
+## 0.27.3
+
+### Patch Changes
+
+- 81fb79e: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
+- 81fb79e: Avoid querying admin-only vault grants from workspace member key panels and
+  return a proper forbidden response for unauthorized grant requests.
+- 81fb79e: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
+- 81fb79e: Keep selected chat-first apps visible and open granted external apps from Dispatch.
+- 81fb79e: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
+- Updated dependencies [81fb79e]
+  - @agent-native/toolkit@0.16.3
+
+## 0.27.2
+
+### Patch Changes
+
+- 43fa797: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
+- 43fa797: Avoid querying admin-only vault grants from workspace member key panels and
+  return a proper forbidden response for unauthorized grant requests.
+- 43fa797: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
+- 43fa797: Keep selected chat-first apps visible and open granted external apps from Dispatch.
+- 43fa797: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
+- Updated dependencies [43fa797]
+  - @agent-native/toolkit@0.16.2
+
+## 0.27.1
+
+### Patch Changes
+
+- fb18771: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
+- fb18771: Avoid querying admin-only vault grants from workspace member key panels and
+  return a proper forbidden response for unauthorized grant requests.
+- fb18771: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
+- fb18771: Keep selected chat-first apps visible and open granted external apps from Dispatch.
+- Updated dependencies [fb18771]
+  - @agent-native/toolkit@0.16.1
+
+## 0.27.0
+
+### Minor Changes
+
+- 9e21e1b: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
+
+### Patch Changes
+
+- 9e21e1b: Refresh workspace app lists after starting a Builder app creation.
+- 9e21e1b: Keep embedded workspace apps synchronized with their parent light or dark theme.
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+  - @agent-native/toolkit@0.16.0
+
+## 0.26.0
+
+### Minor Changes
+
+- 73c4a97: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
+
+### Patch Changes
+
+- 73c4a97: Refresh workspace app lists after starting a Builder app creation.
+- Updated dependencies [73c4a97]
+- Updated dependencies [73c4a97]
+  - @agent-native/toolkit@0.15.1
+
+## 0.25.1
+
+### Patch Changes
+
+- Updated dependencies [f07ec04]
+  - @agent-native/toolkit@0.15.0
+
 ## 0.25.0
 
 ### Minor Changes

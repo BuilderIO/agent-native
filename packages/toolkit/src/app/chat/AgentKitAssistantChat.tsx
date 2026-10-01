@@ -18,6 +18,7 @@ import type {
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   appendAgentChatContextToMessage,
   filterAgentChatContextItems,
@@ -460,6 +461,15 @@ type AgentKitSuggestionSubmitOptions = PromptComposerSubmitOptions & {
   queuedWhileRunActive?: boolean;
 };
 
+function preserveQueuedIntent(
+  preparedOptions: PromptComposerSubmitOptions,
+  originalOptions: PromptComposerSubmitOptions,
+): PromptComposerSubmitOptions {
+  return originalOptions.intent === "queued"
+    ? { ...preparedOptions, intent: "queued" }
+    : preparedOptions;
+}
+
 function captureQueuedRunState(
   options: PromptComposerSubmitOptions,
   runWasActive: boolean,
@@ -502,6 +512,9 @@ interface AgentKitSurfaceContextValue {
   setupBouncePulse: number;
   bounceSetupCard: () => void;
   isSubmissionInFlight: boolean;
+  composerSubmissionPending: boolean;
+  onComposerSubmissionPendingChange: (pending: boolean) => void;
+  isThinkingVisibleInTranscript: boolean;
   contextItems: AgentChatContextItem[];
   suggestions: AgentSuggestionInput[];
   showSuggestions: boolean;
@@ -523,7 +536,7 @@ interface AgentKitSurfaceContextValue {
     text: string,
     recoveryAction: "continue" | "retry",
     images?: string[],
-    attachments?: AgentChatAttachment[],
+    fileParts?: FilePart[],
     references?: Reference[],
     recoveryOptions?: Pick<
       AgentKitInternalSendOptions,
@@ -1140,6 +1153,8 @@ const AgentKitAssistantChatBody = forwardRef<
   const isRestoring =
     history?.isRestoring === true || props.threadRestore.status === "loading";
   const isSubmissionInFlight = history?.isSubmissionInFlight === true;
+  const [composerSubmissionPending, setComposerSubmissionPending] =
+    useState(false);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -1286,6 +1301,11 @@ const AgentKitAssistantChatBody = forwardRef<
     [thread.messages],
   );
   const isRunning = hasActiveAgentRuns(thread);
+  const lastMessage = thread.messages.at(-1);
+  const isThinkingVisibleInTranscript =
+    (isRunning || isSubmissionInFlight) &&
+    lastMessage?.role === "user" &&
+    lastMessage.metadata?.hideUserMessage !== true;
   const isThreadRunning = useCallback(
     () => hasActiveAgentRuns(controller.getThread(threadId)),
     [controller, threadId],
@@ -2065,20 +2085,19 @@ const AgentKitAssistantChatBody = forwardRef<
             const selectionRevision = selectionRevisionRef.current;
             const attachments = options.attachments ?? [];
             const needsFileStorage =
-              files.length > 0 ||
-              attachments.some(
-                (attachment) => !attachment.displayOnly && !attachment.url,
-              );
+              !options.deferredFileParts &&
+              (files.length > 0 ||
+                attachments.some(
+                  (attachment) => !attachment.displayOnly && !attachment.url,
+                ));
             if (needsFileStorage && !fileStorageConfigured) {
               throw new Error(t("onboarding.fileStorage.title"));
             }
             // Persist only URLs or opaque file handles; application_state is
             // not a file store and must never receive attachment bodies.
-            const fileParts = await uploadAgentChatAttachments(
-              control,
-              attachments,
-              files,
-            );
+            const fileParts =
+              options.deferredFileParts ??
+              (await uploadAgentChatAttachments(control, attachments, files));
             const selectionChangedDuringUpload =
               selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
@@ -2219,7 +2238,7 @@ const AgentKitAssistantChatBody = forwardRef<
           try {
             const preparedOptions = prepare ? await prepare() : composerOptions;
             const submittedOptions = captureQueuedRunState(
-              preparedOptions,
+              preserveQueuedIntent(preparedOptions, composerOptions),
               runWasActiveAtSubmit,
             );
             const result = await submit(
@@ -2246,7 +2265,10 @@ const AgentKitAssistantChatBody = forwardRef<
           text,
           files,
           references,
-          captureQueuedRunState(preparedOptions, runWasActiveAtSubmit),
+          captureQueuedRunState(
+            preserveQueuedIntent(preparedOptions, composerOptions),
+            runWasActiveAtSubmit,
+          ),
         );
       } catch (error) {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
@@ -2533,7 +2555,7 @@ const AgentKitAssistantChatBody = forwardRef<
       text: string,
       recoveryAction: "continue" | "retry",
       images?: string[],
-      attachments?: AgentChatAttachment[],
+      fileParts?: FilePart[],
       references?: Reference[],
       recoveryOptions?: Pick<
         AgentKitInternalSendOptions,
@@ -2553,13 +2575,16 @@ const AgentKitAssistantChatBody = forwardRef<
           recoveryAction,
           recoveryReferences: references,
           ...recoveryOptions,
-          attachments: [
-            ...(attachments ?? []),
-            ...(images ?? []).map((url) => ({
-              type: "image",
-              name: "image",
-              url,
-            })),
+          deferredFileParts: [
+            ...(fileParts ?? []),
+            ...(images ?? []).map(
+              (url): FilePart => ({
+                type: "file",
+                name: "image",
+                mediaType: "image",
+                url,
+              }),
+            ),
           ],
         },
       );
@@ -2567,23 +2592,32 @@ const AgentKitAssistantChatBody = forwardRef<
     [isThreadRunning, submit],
   );
   const resumeIntegrationPrompt = useCallback(
-    (message: string) => {
-      if (props.isActiveComposer === false) return;
-      void send(message).catch((error) => {
+    async (message: string) => {
+      if (props.isActiveComposer === false) {
+        throw new Error("Cannot resume a request in an inactive chat.");
+      }
+      try {
+        const result = await send(message);
+        if (result.status === "rejected") {
+          throw new Error(`Chat resume was rejected: ${result.reason}.`);
+        }
+      } catch (error) {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
-      });
+        throw error;
+      }
     },
     [props.isActiveComposer, props.tabId, send, threadId],
   );
   const submitSuggestion = useCallback(
     (suggestion: AgentSuggestionInput) => {
+      if (composerSubmissionPending) return;
       const handler = suggestionSubmitRef.current;
       if (!handler || handler.threadId !== threadId) return;
       void handler.submit(suggestion).catch((error) => {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
       });
     },
-    [props.tabId, threadId],
+    [composerSubmissionPending, props.tabId, threadId],
   );
   const retryDeferredSubmission = useCallback(async () => {
     if (!deferredProviderSubmissionFailureId) return;
@@ -2763,6 +2797,9 @@ const AgentKitAssistantChatBody = forwardRef<
     setupBouncePulse,
     bounceSetupCard,
     isSubmissionInFlight,
+    composerSubmissionPending,
+    onComposerSubmissionPendingChange: setComposerSubmissionPending,
+    isThinkingVisibleInTranscript,
     contextItems,
     voiceTranscriptMessages,
     selectionLength,
@@ -2790,15 +2827,19 @@ const AgentKitAssistantChatBody = forwardRef<
             { threadId: targetThreadId, runId, requestId },
             request,
           ) => {
-            if (targetThreadId !== threadId) return;
+            if (targetThreadId !== threadId) {
+              throw new Error(
+                "Cannot resume a connection request in another chat.",
+              );
+            }
             return control.resolveConnectionRequest(runId, requestId, {
               status: "connected",
               message: request.message,
             });
           }}
-          onMessageResume={(request) => {
-            resumeIntegrationPrompt(request.message);
-          }}
+          onMessageResume={(request) =>
+            resumeIntegrationPrompt(request.message)
+          }
         />
       )}
       <RunStuckBanner
@@ -2820,6 +2861,24 @@ const AgentKitAssistantChatBody = forwardRef<
           void sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
         }
       />
+      {history?.historyLoadFailed ? (
+        <div
+          role="alert"
+          className="mx-3 mb-2 flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs"
+        >
+          <span className="text-muted-foreground">
+            {t("agentChat.message.historyUnavailable")}
+          </span>
+          <button
+            type="button"
+            onClick={history.retryHistory}
+            disabled={history.isRetryingHistory}
+            className="shrink-0 font-medium text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
+      ) : null}
       <AgentKitChat
         className={props.className}
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
@@ -2925,7 +2984,8 @@ function AgentKitEmptyState({ threadId }: { threadId: string }) {
                     disabled={
                       !surface.canChat ||
                       surface.props.composerDisabled ||
-                      surface.props.composerSubmissionDisabled
+                      surface.props.composerSubmissionDisabled ||
+                      surface.composerSubmissionPending
                     }
                     onClick={() => surface.submitSuggestion(suggestion)}
                     className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-left text-[13px] text-muted-foreground shadow-sm transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -3025,7 +3085,8 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   );
   const lastMessage = thread.messages.at(-1);
   const showThinking =
-    (surface.isRunning || surface.isSubmissionInFlight) &&
+    surface.isSubmissionInFlight &&
+    !surface.isRunning &&
     lastMessage?.role === "user" &&
     lastMessage.metadata?.hideUserMessage !== true;
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
@@ -3048,7 +3109,8 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           !surface.canChat ||
           surface.props.composerDisabled ||
           surface.props.composerSubmissionDisabled ||
-          surface.isSubmissionInFlight
+          surface.isSubmissionInFlight ||
+          surface.composerSubmissionPending
         }
         onSelect={surface.submitSuggestion}
         className="agentkit-host-suggestions"
@@ -3206,11 +3268,19 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       ))}
       {showThinking ? (
         <div
+          className="agentkit-activities agentkit-activities-summary-content"
           role="status"
           aria-live="polite"
-          className="px-3 py-2 text-sm text-muted-foreground"
         >
-          {t("agentChat.status.thinking")}
+          <span
+            className="agentkit-activities-current"
+            data-running="true"
+            data-agentkit-current-activity="true"
+          >
+            <span className="agentkit-activities-current-label agent-running-shimmer">
+              {t("agentChat.status.thinking")}
+            </span>
+          </span>
         </div>
       ) : null}
       {guided.questions?.length ? (
@@ -3353,6 +3423,9 @@ function AgentKitComposerSurface({
   isRunning,
   isRestoring,
   isSubmissionInFlight,
+  composerSubmissionPending,
+  onComposerSubmissionPendingChange,
+  isThinkingVisibleInTranscript,
   hasRenderedMessages,
   threadRestore,
   suggestions,
@@ -3388,6 +3461,9 @@ function AgentKitComposerSurface({
   isRunning: boolean;
   isRestoring: boolean;
   isSubmissionInFlight: boolean;
+  composerSubmissionPending: boolean;
+  onComposerSubmissionPendingChange: (pending: boolean) => void;
+  isThinkingVisibleInTranscript: boolean;
   hasRenderedMessages: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
@@ -3633,7 +3709,8 @@ function AgentKitComposerSurface({
             !canChat ||
             props.composerDisabled ||
             props.composerSubmissionDisabled ||
-            isSubmissionInFlight
+            isSubmissionInFlight ||
+            composerSubmissionPending
           }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"
@@ -3707,6 +3784,8 @@ function AgentKitComposerSurface({
           requireAgentEngine={false}
           onTextChange={onTextChange}
           onBeforeSubmit={onBeforeSubmit}
+          announcePendingSubmission={!isThinkingVisibleInTranscript}
+          onSubmissionPendingChange={onComposerSubmissionPendingChange}
           contextItems={visibleContextItems}
           contextMenuItems={composerContext?.menuItems}
           onRemoveContextItem={(key) => {
@@ -3715,7 +3794,6 @@ function AgentKitComposerSurface({
             else onRemoveContextItem(key);
           }}
           onRetryContextItem={composerContext?.onRetryContextItem}
-          onInspectContextItem={composerContext?.onInspectContextItem}
           interceptBuildRequestsForBuilder={isInBuilderFrame()}
           selectedModel={props.selectedModel ?? props.defaultModel}
           selectedEngine={props.selectedEngine}
@@ -3750,7 +3828,24 @@ function AgentKitComposerSurface({
           onConnectLocalRuntime={props.onConnectLocalRuntime}
           imageModelMenu={props.imageModelMenu}
           voiceEnabled
-          toolbarSlot={props.composerToolbarSlot}
+          toolbarSlot={
+            <>
+              {props.selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME ? (
+                <span className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span>{t("agentChat.composer.chatgptPlanUsing")}</span>
+                  <a
+                    href="https://chatgpt.com/settings/usage"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    {t("agentChat.composer.chatgptManageUsage")}
+                  </a>
+                </span>
+              ) : null}
+              {props.composerToolbarSlot}
+            </>
+          }
           extraActionButton={props.composerExtraActionButton}
           includeDefaultSlashCommands
           includeDefaultSlashSkills
@@ -3850,7 +3945,8 @@ function AgentKitComposerSurface({
             !canChat ||
             props.composerDisabled ||
             props.composerSubmissionDisabled ||
-            isSubmissionInFlight
+            isSubmissionInFlight ||
+            composerSubmissionPending
           }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"
@@ -3997,12 +4093,25 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
   const surface = useAgentKitSurface();
   const metadata = value.metadata ?? {};
   const input = asRecord(value.input) ?? {};
+  const errorOutput =
+    value.status === "failed"
+      ? Array.from(
+          new Set(
+            [
+              value.error?.message?.trim(),
+              formatErrorDetails(value.error?.details),
+              formatErrorDetails(value.output),
+            ].filter((detail): detail is string => Boolean(detail?.trim())),
+          ),
+        ).join("\n\n") || undefined
+      : undefined;
   const output =
-    typeof value.output === "string"
+    errorOutput ??
+    (typeof value.output === "string"
       ? value.output
       : value.output === undefined
         ? undefined
-        : JSON.stringify(value.output);
+        : JSON.stringify(value.output));
   return (
     <ChatRunningContext.Provider
       value={active === true || value.status === "running"}
@@ -4016,8 +4125,8 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           args={input}
           argsText={JSON.stringify(input)}
           result={output}
+          isError={value.status === "failed"}
           isRunning={value.status === "running"}
-          outcome={value.status === "failed" ? "unknown" : undefined}
           structuredMeta={metadata}
           mcpApp={asRecord(metadata.mcpApp) as never}
           chatUI={asRecord(metadata.chatUI) as never}
@@ -4143,6 +4252,10 @@ function AgentKitConnectionRequest({
     <McpAgentKitConnectionRequestCard
       provider={value.provider}
       detail={value.detail}
+      reason={value.reason}
+      status={value.status}
+      appId={value.appId}
+      source={value.source}
       target={{ threadId, runId, requestId: value.id }}
       onConnected={() =>
         control.resolveConnectionRequest(runId, value.id, {
@@ -4247,19 +4360,11 @@ function AgentKitRunFailure({
     const value = retryMetadata?.[key] ?? retryCustomMetadata?.[key];
     return typeof value === "string" && value.trim() ? value : undefined;
   };
-  const retryAttachments =
-    lastUserMessage?.parts.flatMap((part) =>
-      part.type === "file"
-        ? [
-            {
-              type: "file",
-              name: part.name,
-              ...(part.mediaType ? { contentType: part.mediaType } : {}),
-              ...(part.url ? { url: part.url } : {}),
-            },
-          ]
-        : [],
-    ) ?? [];
+  const retryFileParts =
+    lastUserMessage?.parts.filter((part) => part.type === "file") ?? [];
+  const retryHasUnavailableAttachment = retryFileParts.some(
+    (part) => !part.url && !part.fileId,
+  );
   const retryReferences = Array.isArray(retryMetadata?.references)
     ? (retryMetadata.references as Reference[])
     : [];
@@ -4275,7 +4380,7 @@ function AgentKitRunFailure({
           retryText || "Please retry the last request.",
           "retry",
           undefined,
-          retryAttachments,
+          retryFileParts,
           retryReferences,
           {
             recoveryModel: metadataString("model"),
@@ -4287,6 +4392,7 @@ function AgentKitRunFailure({
           },
         )
       }
+      retryHasUnavailableAttachment={retryHasUnavailableAttachment}
       onFork={async () => {
         if (!lastUserMessage) return surface.props.onForkChat?.();
         const fork = await control.fork(lastUserMessage.id);
@@ -4306,6 +4412,12 @@ function AgentKitConnectionError({
   recoveryError,
 }: AgentConnectionErrorRenderProps) {
   const t = useT();
+  const surface = useAgentKitSurface();
+  const chatGPTPlanUsageError =
+    surface.props.selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+    `${error.code} ${error.message}`.match(
+      /subscription_sharing_usage_limit_(exceeded|unavailable)/,
+    )?.[1];
   return (
     <div
       className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground"
@@ -4316,7 +4428,27 @@ function AgentKitConnectionError({
       <strong className="mr-2 font-medium text-foreground">
         {t("agentChat.error.failed")}
       </strong>
-      <span>{formatAgentKitErrorText(error, t)}</span>
+      {chatGPTPlanUsageError ? (
+        <>
+          <span>
+            {t(
+              chatGPTPlanUsageError === "exceeded"
+                ? "agentChat.error.chatgptPlanUsageLimit"
+                : "agentChat.error.chatgptPlanUsageUnavailable",
+            )}
+          </span>
+          <a
+            href="https://chatgpt.com/settings/usage"
+            target="_blank"
+            rel="noreferrer"
+            className="ml-3 font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            {t("agentChat.composer.chatgptManageUsage")}
+          </a>
+        </>
+      ) : (
+        <span>{formatAgentKitErrorText(error, t)}</span>
+      )}
       {error.retryable ? (
         <button
           type="button"

@@ -317,6 +317,7 @@ describe("AgentKit composer context submission", () => {
       expect(capture.props).toMatchObject({
         contextItems: source,
         contextMenuItems,
+        clearOnSubmitImmediately: true,
         onRemoveContextItem,
         onInspectContextItem,
         onRetryContextItem,
@@ -332,6 +333,7 @@ describe("AgentKit composer context submission", () => {
       ];
       let pending: void | Promise<void>;
       await act(async () => {
+        capture.props!.onSubmissionPendingChange?.(true);
         pending = capture.props!.onSubmit("Review", [], references, {
           contextItems: source,
           composerModeContext: "Use scheduling tools for this request.",
@@ -341,6 +343,9 @@ describe("AgentKit composer context submission", () => {
       expect(beforeSend).toHaveBeenCalledOnce();
       expect(runtime.startRun).not.toHaveBeenCalled();
       expect(runtime.queueMessage).not.toHaveBeenCalled();
+      expect(container.querySelector('[role="status"]')?.textContent).toBe(
+        "Thinking",
+      );
       expect(Object.isFrozen(saved)).toBe(true);
       expect(Object.isFrozen(saved!.contextItems![0])).toBe(true);
       expect(Object.isFrozen(saved!.references[0].metadata)).toBe(true);
@@ -349,7 +354,9 @@ describe("AgentKit composer context submission", () => {
       await act(async () => {
         release();
         await pending;
+        capture.props!.onSubmissionPendingChange?.(false);
       });
+      expect(container.querySelector('[role="status"]')).toBeNull();
       const input =
         intent === "queued"
           ? runtime.queueMessage.mock.calls[0][0]

@@ -1,0 +1,203 @@
+---
+title: "حزمة الإعدادات (Settings Kit)"
+description: "صفحة إعدادات واحدة قابلة للبحث، تضم مجموعات الحساب والاتصالات والوكيل والمؤسسة نفسها في كل تطبيق، إضافة إلى مجموعة لإعدادات التطبيق نفسه."
+---
+
+# حزمة الإعدادات (Settings Kit)
+
+تمنح حزمة الإعدادات كل تطبيق صفحة إعدادات واحدة بالبنية نفسها. ويبين موضع الإعداد ما الذي يؤثر فيه: **الحساب** و**الاتصالات** و**الوكيل** و**المؤسسة** متطابقة في جميع التطبيقات، بينما تضم مجموعة واحدة تحمل اسم التطبيق إعداداته الخاصة فقط. وهكذا لا يحتار المستخدم في معرفة ما إذا كان مفتاح النموذج موجودًا في صفحة التطبيق أو الشريط الجانبي للوكيل أو بطاقة إعداد موفر الخدمة.
+
+يمكن فتح الإعدادات من قائمة الحساب (صورتك واسمك أسفل الشريط الجانبي)، أو باستخدام **⌘,** (**Ctrl+,** على Windows وLinux) من أي مكان في التطبيق. وتضم قائمة الأوامر (⌘K) أمر **الإعدادات** أيضًا. كل صفحة قابلة للبحث مباشرة: اكتب «اللغة» أو «S3» أو «مفتاح API» للانتقال إلى الصف المطلوب ضمن أي صفحة يستطيع المستخدم رؤيتها.
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:3px'><div class='wf-muted' style='display:flex;align-items:center;gap:6px;margin-bottom:6px'><span data-icon='chevronLeft'></span> العودة إلى البريد</div><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>بحث</span><span class='wf-pill'>/</span></div><small class='wf-muted'>الحساب</small><div style='padding:4px 9px'>الملف الشخصي</div><div style='padding:4px 9px'>التفضيلات</div><small class='wf-muted' style='margin-top:6px'>الاتصالات</small><div style='padding:4px 9px'>التكاملات</div><div style='padding:4px 9px'>مفاتيح API</div><small class='wf-muted' style='margin-top:6px'>الوكيل</small><div style='padding:4px 9px;border-radius:8px;background:var(--wf-accent-soft)'>النموذج</div><div style='padding:4px 9px'>التعليمات</div><div style='padding:4px 9px'>الوكلاء الفرعيون</div><small class='wf-muted' style='margin-top:6px'>المؤسسة</small><div style='padding:4px 9px'>الأعضاء</div><div style='padding:4px 9px'>الاستخدام</div><small class='wf-muted' style='margin-top:6px'>البريد</small><div style='padding:4px 9px'>عام</div><div style='padding:4px 9px'>القنوات</div><div style='flex:1'></div><div class='wf-muted' style='padding:4px 9px'>المختبرات · ما الجديد</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>النموذج</h2><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>موفرو المؤسسة</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Builder.io</div><span class='wf-pill'>متصل</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Anthropic</div><button>إدارة</button></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>موفرو الحساب الشخصي</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>OpenAI</div><button>إضافة</button></div></div><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>النموذج الافتراضي</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Claude Sonnet</div><span data-icon='chevronDown'></span></div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## المجموعات والصفحات {#groups-and-pages}
+
+معرّفات الصفحات مقاطع ثابتة في عناوين URL (`/settings/<page>` و`/settings/<page>/<sub>`)، وأهداف للبحث، والاسم الذي يستخدمه الوكيل للصفحة.
+
+| المجموعة    | الصفحة (المعرّف)                                                                                                                                | مرئية لـ            |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| الحساب      | الملف الشخصي (`profile`)، التفضيلات (`preferences`)، الأمان (`security`)                                                                        | الجميع              |
+| الاتصالات   | التكاملات (`integrations`، مع `integrations/builder` لـ Builder.io)، مفاتيح API (`api-keys`)                                                    | الجميع              |
+| الوكيل      | النموذج (`model`)، التعليمات (`instructions`)، الذاكرة (`memory`)، المهارات (`skills`)، الملفات (`files`)، الوكلاء الفرعيون (`sub-agents`)      | الجميع              |
+| المؤسسة     | عام (`org`)، الأعضاء (`members`)، الاستخدام (`usage`)                                                                                           | الجميع              |
+| المؤسسة     | المصادقة (`auth`)، التطبيقات (`apps`)، البنية التحتية (`infra`)، سجل التدقيق (`audit`)                                                          | المالكون والمسؤولون |
+| اسم التطبيق | عام (`app`)، الإشعارات (`notifications`)، الأتمتة (`automations`)، القنوات (`channels`)، خادم MCP (`mcp`)، السياق الإبداعي (`creative-context`) | الجميع              |
+| التذييل     | المختبرات (`labs`)، ما الجديد (`whats-new`)                                                                                                     | الجميع              |
+
+تستخدم مجموعة التطبيق اسم التطبيق وأيقونته. لا تظهر صفحة الإشعارات إلا إذا مرّر التطبيق إعدادات الإشعارات، ولا يظهر السياق الإبداعي إلا عندما يكون المختبر المرتبط به مفعّلًا. إذا تعذّر على المشاهد رؤية صفحة، تُفتح صفحة الملف الشخصي بدلًا منها؛ وتُفتح الإعدادات على صفحة الملف الشخصي ما لم يحدد الرابط صفحة أخرى. إخفاء الصفحة يغيّر طريقة العرض فقط: كل إجراء مرتبط بها يفرض دور المشاهد على الخادم.
+
+## عقد الصفحة {#page-contract}
+
+يوفّر كل تطبيق المسار `/settings` بالإضافة إلى مسار شامل (`settings.$.tsx` يعيد تصدير مسار الإعدادات)، لكي يعمل `/settings/<page>/<sub>`. يعرض المسار `<SettingsTabsPage>`؛ وتتولى الحزمة الأساسية صفحات الحساب والاتصالات والوكيل والمؤسسة، بينما يضيف التطبيق محتواه الخاص فقط.
+
+```tsx
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+
+  return (
+    <div className="h-dvh">
+      <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
+        generalGroups={<RecordingDefaults />}
+        appAreas={[
+          { id: "meetings", label: "Meetings", content: <MeetingSettings /> },
+        ]}
+        notifications={<EmailNotificationSettings />}
+        mcpAbout="Record, search, and share clips from any MCP host."
+        whatsNewMarkdown={changelog}
+      />
+    </div>
+  );
+}
+```
+
+تتضمن الإعدادات رابطًا للعودة إلى التطبيق، والتنقل، ورأس الصفحة؛ لذلك يخفي تخطيط التطبيق الشريط الجانبي والرأس في مسارات الإعدادات (`isSettingsPathname(pathname)`).
+
+| الخاصية                                       | مكان ظهورها                                                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generalGroups`                               | مجموعات `SettingsGroup` الخاصة بالتطبيق في التطبيق › عام، بين الوكيل › النموذج الافتراضي في core وهذا المتصفح › الوضع التجريبي.                    |
+| `appAreas`                                    | علامات تبويب في التطبيق › عام، على المسار `/settings/app/<id>`: `{ id, label, content, visible?, icon?, keywords?, searchEntries? }`.              |
+| `notifications`, `notificationsSearchEntries` | التطبيق › الإشعارات. لا تظهر الصفحة إلا عند تمرير `notifications`.                                                                                 |
+| `mcpAbout`                                    | سطر التعريف المترجم في التطبيق › خادم MCP، ويذكر ما يمكن لمضيف MCP تنفيذه في هذا التطبيق.                                                          |
+| `labs`                                        | تعريفات المختبرات في صفحة المختبرات.                                                                                                               |
+| `whatsNewMarkdown` or `whatsNew`              | صفحة ما الجديد، مع نقطة لتمييزها كغير مقروءة حتى زيارتها.                                                                                          |
+| `appName`, `appIcon`, `appId`                 | اسم مجموعة التطبيق وأيقونتها. والقيمتان الافتراضيتان هما اسم القالب وأيقونته.                                                                      |
+| `extraTabs`                                   | علامات تبويب التطبيق الأخرى. تصبح كل واحدة صفحة مستقلة في مجموعة التطبيق؛ ويجعل `settingsPlacement: "app-area"` منها علامة تبويب في التطبيق › عام. |
+
+اضبط `visible: false` لمنطقة تطبيق عندما يكون المختبر الذي تعتمد عليه متوقفًا. تستقبل `useLab(ref)` و`useLabState(ref)` قيمة `LabReference`، إما مفتاحًا أو `{ key, defaultEnabled? }`. مرّر تعريف المختبر بدلًا من مفتاح مجرد كي يستخدم المختبر قيمة `defaultEnabled` أثناء تحميل المختبرات. لا تضف صفًا للنموذج الافتراضي أو اللغة أو الوضع التجريبي إلى مجموعات التطبيق؛ فالحزمة الأساسية تعرضها بالفعل.
+
+### تسجيل صفحة {#registering-a-page}
+
+تبدأ صفحة التطبيق عادةً بعنصر `extraTabs` الذي يصبح صفحة مستقلة ضمن مجموعة التطبيق. لمزيد من التحكم، سجّل `SettingsPageDefinition` (`id` و`group` و`order` و`label` و`icon` و`component`، واختياريًا `visible` و`subpages` و`searchEntries`) باستخدام `registerSettingsPages` على مستوى الوحدة. يحل التعريف الذي يحمل المعرّف نفسه محل الصفحة الموجودة؛ وبهذه الطريقة يستبدل التطبيق إحدى صفحات الحزمة الأساسية بنسخته. يستخدم Dispatch هذه الطريقة لإضافة عمود أدوار التطبيق إلى صفحة الأعضاء:
+
+```tsx
+import { OrgMembersPage } from "@agent-native/core/client/org";
+import {
+  CORE_SETTINGS_PAGES,
+  registerSettingsPages,
+} from "@agent-native/toolkit/app/settings";
+
+const coreMembersPage = CORE_SETTINGS_PAGES.find(
+  (page) => page.id === "members",
+)!;
+
+registerSettingsPages([
+  {
+    ...coreMembersPage,
+    component: () => <OrgMembersPage appRoles={dispatchAccessDescriptor} />,
+  },
+]);
+```
+
+يستقبل مكوّن الصفحة `{ pageId, sub, context, bridge }`، حيث يحتوي `context` على دور المشاهد والمختبرات والأعلام. داخل الصفحة، يضبط `useSettingsPageHeader({ title?, action?, badge? })` مسار التنقل الفرعي أو الإجراء الأساسي في الرأس أو شارة بجانب العنوان.
+
+يمكن للتطبيق إضافة قسم إلى صفحة إحدى القنوات باستخدام `registerChannelSettingsExtensions([{ id, platform, component }])` على مستوى الوحدة بجوار مسار الإعدادات. ويستخدم Clips وMail هذه الطريقة لمجموعات Slack الخاصة بهما.
+
+## الروابط {#links}
+
+لا تكتب سلاسل `/settings/...` يدويًا. أنشئ الروابط باستخدام مساعد المسارات:
+
+```ts
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+
+buildSettingsRoute("integrations", "builder"); // /settings/integrations/builder
+buildSettingsRoute("app", "recordings"); // /settings/app/recordings
+buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limits
+```
+
+تظل الروابط القديمة صالحة. وتُعالج معرّفات علامات التبويب السابقة (`agent` و`keys` و`team`)، والمعرّفات المتداخلة (`agent:resources:memory`)، ومُعرّفات أقسام الصفحة (`#llm` و`#secrets:OPENAI_API_KEY`)، وأقسام `agent-panel:open-settings` كلها عبر جدول إعادة توجيه واحد في `packages/core/src/navigation/settings-redirects.ts`. لنقل رابط قديم، غيّر صفه هناك وأضف حالة إلى `settings-redirects.spec.ts`.
+
+تفتح `openSettingsPage(page?)` من `@agent-native/core/client/navigation` الإعدادات من أي مكان، بما في ذلك خارج الموجّه. يربط `AppProviders` الاختصار **⌘,** مسبقًا عبر `useSettingsShortcut()`، لذا لا يعيد التطبيق ربطه.
+
+## البحث {#search}
+
+يفهرس البحث أسماء الصفحات بالإضافة إلى `searchEntries` التي تعرّفها كل صفحة، من دون عرض الصفحات. تعرض النتيجة اسم الصف وموقعه («الوكيل › النموذج»). وعند الضغط على Enter تُفتح الصفحة ويُبرَز الصف.
+
+- في تعريف الصفحة، يشير `anchor` ضمن مدخل البحث إلى معرّف `SettingsRow` الخاص بالصف.
+- في منطقة تطبيق أو `notificationsSearchEntries`، تشير `hash` ضمن المدخل إلى معرّف `SettingsRow` الخاص بالصف.
+- أضف `keywords` للمرادفات وأسماء موفري الخدمة التي لا يتضمنها الاسم، مثل «S3» و«R2» و«bucket» لتخزين الملفات.
+
+امنح كل `SettingsRow` أو `SettingsGroup` قابل للبحث قيمة `id` ثابتة. فهذه المعرّفات هي أيضًا مراسٍ للروابط، لذا لا تغيّرها.
+
+## تكافؤ الوكيل {#agent-parity}
+
+يمكن للوكيل قراءة كل ما في هذه الصفحات وتغييره عبر الإجراءات، كما يعرف الصفحة المفتوحة لدى المستخدم:
+
+- تحفظ واجهة الإعدادات حالة التطبيق `settings-view` = `{ page, sub, label }` لعلامة تبويب المتصفح، ويعرض `<current-url>` هذه الحالة مثل `settingsPage: integrations/builder (Connections › Integrations › Builder.io)`.
+- تفتح أداة `open-settings-page` المدمجة أي صفحة باستخدام معرّفها، مع إمكانية تحديد `sub` و`anchor`. كما تظل معرّفات علامات التبويب والأقسام السابقة صالحة.
+
+| الصفحة                 | الإجراءات                                                                                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| الملف الشخصي           | `get-user-profile`, `update-user-profile`                                                                                                          |
+| التكاملات › Builder.io | `manage-builder-connection`                                                                                                                        |
+| مفاتيح API             | `list-api-keys`, `preview-secret-removal`, `delete-api-key`                                                                                        |
+| النموذج                | `list-model-providers`, `check-provider-key`, `get-provider-models`, `manage-provider-models`, `manage-provider-key-policy`, `manage-agent-engine` |
+| الاستخدام              | `get-usage-metrics`, `manage-usage-alert`                                                                                                          |
+| المصادقة               | `list-sign-in-methods`                                                                                                                             |
+| التطبيقات              | `list-workspace-app-access`, `set-workspace-app-access`                                                                                            |
+| البنية التحتية         | `get-infrastructure-status`, `get-file-storage`, `manage-file-storage`, `manage-service-providers`                                                 |
+| سجل التدقيق            | `list-audit-events`, `get-audit-event`, `export-audit-events`                                                                                      |
+| التطبيق › الأتمتة      | `manage-automations`                                                                                                                               |
+| التطبيق › القنوات      | `list-messaging-channels`, `manage-messaging-channel`                                                                                              |
+
+تتبع صفوف التطبيق نفسه القاعدة ذاتها: يحفظ كل عنصر تحكم ضمن `generalGroups` أو `appAreas` أو `notifications` عبر إجراء خاص بالتطبيق يستطيع الوكيل استدعاءه.
+
+## الأدوار {#roles}
+
+| الصلاحية                                                                          | عضو               | مسؤول                                    | مالك               |
+| --------------------------------------------------------------------------------- | ----------------- | ---------------------------------------- | ------------------ |
+| صفحات الحساب وربط التكاملات للاستخدام الشخصي                                      | نعم               | نعم                                      | نعم                |
+| موفرو الخدمة الشخصيون واتصال Builder.io شخصي                                      | نعم، ما لم يُقيّد | مفاتيحه الخاصة؛ يُربط Builder.io للمؤسسة | مثل المسؤول        |
+| موفرو المؤسسة والنموذج الافتراضي والحد الأقصى للتكرارات وتقييد مفاتيح API الشخصية | للقراءة فقط       | نعم                                      | نعم                |
+| تعليمات المؤسسة وذاكرتها ومهاراتها وملفاتها                                       | للقراءة فقط       | نعم                                      | نعم                |
+| دعوة أعضاء                                                                        | لا                | الأعضاء                                  | الأعضاء والمسؤولون |
+| تغيير أدوار الأعضاء                                                               | لا                | لا                                       | نعم                |
+| المصادقة والتطبيقات والبنية التحتية وسجل التدقيق                                  | مخفي              | نعم                                      | نعم                |
+| سر A2A المشترك وحذف المؤسسة                                                       | لا                | لا                                       | نعم                |
+
+## معيار تجربة المستخدم {#ux-standard}
+
+- احتفظ بالإعدادات الدائمة في صفحة الإعدادات. يفتح رابط الشريط الجانبي للوكيل صفحة الإعدادات بدلًا من عرضها ضمن الشريط.
+- أضف مفتاح موفر الخدمة أو غيّره أو أزله من مربع حوار واحد، أيًا كانت الصفحة التي فتحته.
+- تعرض الصفوف للقراءة فقط القيمة مع قفل وتلميح يوضح من يستطيع تغييرها (`ReadOnlySettingValue`). يؤدي حذف مفتاح أو فصل Builder.io أو تقييد المفاتيح الشخصية إلى فتح مربع تأكيد يوضح ما الذي سيتوقف عن العمل.
+- يتكون الصف من تسمية ووصف اختياري وعنصر تحكم واحد. لا تضف عناوين فرعية للصفحة أو عناوين تمهيدية أو شرائط أعداد.
+- سجّل مدخل بحث لكل صف ذي معنى.
+
+## تسجيل الدخول باستخدام ChatGPT لتطبيقات مفتوحة المصدر {#chatgpt-subscription-lab}
+
+يستخدم Agent-Native تدفق مشاركة الرموز الرسمي Sign in with ChatGPT من OpenAI للاستخدام المؤهل في التطبيقات مفتوحة المصدر. ويتيح للتطبيق المحلي إرسال الطلبات المؤهلة إلى Responses API العامة لدى OpenAI باستخدام خطة ChatGPT للمستخدم الذي سجّل الدخول. ولا يمنح التطبيق حق الوصول إلى محادثات المستخدم في ChatGPT أو سجلها.
+
+ميزة استخدام خطة ChatGPT ضمن Labs معطّلة افتراضيًا؛ فعّلها من الإعدادات → Labs.
+
+لا يحتاج مستخدمو التطبيقات المحلية مفتوحة المصدر إلى موافقة الشركاء أو إلى إعداد معرّف عميل مسبقًا. تصدر OpenAI معرّف العميل عند أول تسجيل دخول، ويعيد التطبيق استخدامه لحساب ChatGPT نفسه.
+
+يتطلب تدفق الخدمة الذاتية من OpenAI استدعاء OAuth عبر HTTP على `127.0.0.1`، وهو عنوان loopback على جهاز المستخدم. لذلك لا تعمل التطبيقات المستضافة عن بُعد، بما فيها المواقع على `*.agent-native.com`، كما أن `localhost` ليس بديلًا مقبولًا عن `127.0.0.1`. تخص موافقة الشركاء مشغّل التطبيق المستضاف، لا كل مستخدم؛ ويمكن للمشغّل طلبها من OpenAI عبر [نموذج إبداء الاهتمام](https://openai.com/form/sign-in-with-chatgpt-interest).
+
+<Steps>
+
+### ربط ChatGPT
+
+افتح **الإعدادات → الوكيل → النموذج**، ثم اربط ChatGPT من قائمة موفري الخدمة الشخصية. سجّل الدخول بالحساب الذي تتبع له خطة ChatGPT التي تريد استخدامها، ثم وافق على الأذونات المطلوبة. بعد الربط، اختر نموذجًا متاحًا من منتقي النماذج في المحادثة. ويمكنك فصل ChatGPT من صف الإعدادات نفسه. حتى إذا تعذّر على OpenAI تأكيد إلغاء التفويض عن بُعد، تُحذف الرموز المحلية؛ استخدم رابط التحذير لإدارة وصول هذا التطبيق من **إعدادات ChatGPT → الاستخدام**.
+
+</Steps>
+
+استخدم Responses API العامة وحدها للاستدلال. لا تشمل هذه الموافقة نقاط النهاية الخاصة بالخلفية في ChatGPT أو بيانات محادثاته. تصف OpenAI تدفق مشاركة الرموز بأنه إصدار معاينة، لذا قد يتغير توفر النماذج والحدود وميزات API المدعومة. راجع [نظرة عامة على Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)، و[التسجيل وتسجيل الدخول](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)، و[الحسابات والجلسات](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)، و[النماذج والاستدلال](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)، و[قيود المعاينة](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)، و[استعادة الخدمة بعد الأخطاء](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery)، و[إرشادات واجهة وتجربة المستخدم](https://developers.openai.com/siwc/ui-ux-guidelines).
+
+## الخطوات التالية
+
+- [**التدويل**](/docs/internationalization) — عرّب نصوص إعدادات التطبيق.
+- [**الإعداد الأولي**](/docs/onboarding) — سجّل خطوات الإعداد التي تنقل إليها روابط الإعدادات المباشرة المستخدمين.
+- [**اتصالات مساحة العمل**](/docs/workspace-connections) — نموذج اتصال موفري الخدمة المشترك الذي يحدد جاهزيتهم.

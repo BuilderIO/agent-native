@@ -160,6 +160,11 @@ export default {
     openAgentSettings: "管理代理",
     labTweaks: "设计微调",
     labTweaksDescription: "试用 AI 设计微调功能。",
+    labFullAppBuilding: "构建完整应用",
+    labFullAppBuildingDescription:
+      "试用 Builder，根据你的设计构建可运行的应用。",
+    labDesignReviewTools: "设计审查工具",
+    labDesignReviewToolsDescription: "检查设计中的无障碍问题并比较视觉变化。",
     mcpAbout:
       "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
@@ -1224,6 +1229,7 @@ export default {
       verifying: "正在验证源文件和运行时…",
       retryWithAgent: "重试源文件验证",
       copyPrompt: "将提示复制给你的代理",
+      copyAgentPrompt: "复制代理提示",
       copyFullPrompt: "复制完整提示",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",

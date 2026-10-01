@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -5,11 +6,20 @@ const mocks = vi.hoisted(() => ({
   createDbExec: vi.fn(),
   orgId: null as string | null,
   ownerEmail: "owner@example.com",
+  dispatchConfig: {
+    adminEmails: [] as string[],
+    workspaceOwnerEmails: [] as string[],
+    defaultOwnerEmail: undefined as string | undefined,
+  },
 }));
 
 vi.mock("@agent-native/core/db", () => ({
   createDbExec: mocks.createDbExec,
   getDbExec: () => ({ execute: mocks.currentExecute }),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getAppConfig: () => ({ dispatch: mocks.dispatchConfig }),
 }));
 
 vi.mock("./dispatch-store.js", () => ({
@@ -100,6 +110,9 @@ describe("thread-debug-store", () => {
   beforeEach(() => {
     mocks.orgId = null;
     mocks.ownerEmail = "owner@example.com";
+    mocks.dispatchConfig.adminEmails = [];
+    mocks.dispatchConfig.workspaceOwnerEmails = [];
+    mocks.dispatchConfig.defaultOwnerEmail = undefined;
     mocks.currentExecute.mockReset();
     mocks.createDbExec.mockReset();
     mocks.currentExecute.mockImplementation(async ({ sql, args }) => ({
@@ -260,7 +273,7 @@ describe("thread-debug-store", () => {
   });
 
   it("merges all admin-visible sources, sorts globally, limits, and preserves partial health", async () => {
-    vi.stubEnv("DISPATCH_ADMIN_EMAILS", "owner@example.com");
+    mocks.dispatchConfig.defaultOwnerEmail = "Owner@Example.com";
     vi.stubEnv("REMOTE_A_DATABASE_URL", "postgres://remote-a/db");
     vi.stubEnv("REMOTE_B_DATABASE_URL", "postgres://remote-b/db");
     vi.stubEnv("REMOTE_C_DATABASE_URL", "postgres://remote-c/db");
@@ -327,7 +340,7 @@ describe("thread-debug-store", () => {
   });
 
   it("retains disconnected configured sources without attempting a connection", async () => {
-    vi.stubEnv("DISPATCH_ADMIN_EMAILS", "owner@example.com");
+    mocks.dispatchConfig.adminEmails = ["owner@example.com"];
     vi.stubEnv(
       "AGENT_NATIVE_THREAD_DEBUG_DATABASES",
       JSON.stringify([
@@ -362,9 +375,19 @@ describe("thread-debug-store", () => {
       ]),
     );
     expect(mocks.createDbExec).not.toHaveBeenCalled();
-    await expect(
-      listAgentRunFailures({ sourceId: "missing-prod" }),
-    ).rejects.toThrow("configured but disconnected");
+    // Asking for that one source is a deploy misconfiguration, not a user
+    // state: an untyped error the action boundary captures as a 500.
+    const disconnected = await listAgentRunFailures({
+      sourceId: "missing-prod",
+    }).catch((error: unknown) => error);
+    expect(disconnected).toBeInstanceOf(Error);
+    expect((disconnected as Error).message).toContain(
+      "configured but disconnected",
+    );
+    expect(isActionContractError(disconnected)).toBe(false);
+    expect(
+      (disconnected as { statusCode?: unknown }).statusCode,
+    ).toBeUndefined();
   });
 
   it("does not misclassify a missing additive column as a missing table", async () => {

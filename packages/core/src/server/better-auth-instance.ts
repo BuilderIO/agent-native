@@ -538,6 +538,13 @@ export function resolvePersistedDevAuthSecret(
  * to sign in again. We still read explicit env configuration, but never
  * auto-write a generated secret into env files.
  */
+// One refusal per process and missing key: every caller rethrows the same
+// error instead of rebuilding the report, so error capture sees one failure,
+// not one new error per request.
+let missingAuthSecretRefusal:
+  | { key: string; error: MissingAuthSecretError }
+  | undefined;
+
 function resolveAuthSecret(appRoot = process.cwd()): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
   const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
@@ -550,7 +557,11 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   // every deploy that hits it — both are serious enough to fail the boot loudly
   // so the deployer notices. The setup page that replaces sign-in reports the
   // same decision through getMissingDeploySettings(), so keep it the only one.
-  if (getMissingAuthSecretKey() !== null) {
+  const missingKey = getMissingAuthSecretKey();
+  if (missingKey !== null) {
+    if (missingAuthSecretRefusal?.key === missingKey) {
+      throw missingAuthSecretRefusal.error;
+    }
     const report = getRuntimeConfigReport(
       process.env,
       { authEnabled: true, databaseRequired: false },
@@ -560,7 +571,11 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
         appName: process.env.APP_NAME,
       },
     );
-    throw new MissingAuthSecretError(formatRuntimeConfigReport(report));
+    const refusal = new MissingAuthSecretError(
+      formatRuntimeConfigReport(report),
+    );
+    missingAuthSecretRefusal = { key: missingKey, error: refusal };
+    throw refusal;
   }
 
   const existing = readEnvLocalSecret(path.resolve(appRoot, ".env.local"));

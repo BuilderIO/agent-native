@@ -12,7 +12,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { classifyUploadResponseError } from "@shared/recording-core.js";
 import { and, eq, isNull } from "drizzle-orm";
@@ -24,7 +23,6 @@ import {
   type H3Event,
 } from "h3";
 
-import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import {
   isRetryableUploadInterruption,
   retryableUploadInterruptionReason,
@@ -34,6 +32,7 @@ import {
   normalizeRecordingFailureCode,
   trackRecordingFailure,
 } from "../../../../lib/recording-failures.js";
+import { getUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -52,13 +51,7 @@ export default defineEventHandler(async (event: H3Event) => {
     orgId,
     authUserId,
   } = await getEventOwnerContext(event);
-  if (
-    !(await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
-      userEmail: ownerEmail,
-      userKey: ownerEmail,
-      orgId,
-    }))
-  ) {
+  if (!(await getUploadRecoveryPolicy(ownerEmail, orgId, recordingId))) {
     return abortUpload(event);
   }
   const body = (await readBody(event).catch(() => null)) as {

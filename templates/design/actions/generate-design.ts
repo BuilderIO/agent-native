@@ -657,6 +657,11 @@ const generateDesignAction = defineAction({
       height: 680,
     }),
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (
     {
       designId,

@@ -69,11 +69,12 @@ import {
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import {
-  getStaleContentConflictSlideId,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
+  useDeckContentConflicts,
   useDecks,
   useSaveState,
+  type DeckContentConflictChoice,
   type Deck,
   type Slide,
 } from "@/context/DeckContext";
@@ -92,7 +93,10 @@ import {
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
-import { parseUploadResponse } from "@/lib/upload-response";
+import {
+  parseUploadResponse,
+  promptImportResponseError,
+} from "@/lib/upload-response";
 
 import {
   registerEditorCommands,
@@ -230,7 +234,7 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
-  const { resolveContentConflict } = useDecks();
+  const { resolveDeckContentConflict } = useDecks();
   const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   const editorUrl =
@@ -258,9 +262,21 @@ export default function EditorToolbar({
   const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
 
   const { saving } = useSaveState();
+  const conflict = useDeckContentConflicts(deckId)[0];
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
-  const contentConflictSlideId = getStaleContentConflictSlideId(deckId);
+  const resolveConflict = useCallback(
+    async (choice: DeckContentConflictChoice) => {
+      if (!conflict) return;
+      const result = await resolveDeckContentConflict(
+        deckId,
+        conflict.slideId,
+        choice,
+      );
+      if (result.status !== "resolved") throw new Error(result.reason);
+    },
+    [conflict, deckId, resolveDeckContentConflict],
+  );
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -342,6 +358,14 @@ export default function EditorToolbar({
       e.target.value = "";
       return;
     }
+    try {
+      await importFileOnce(file);
+    } finally {
+      e.target.value = "";
+    }
+  };
+
+  const importFileOnce = async (file: File) => {
     setImporting(true);
     let uploadedFiles: UploadedFile[] = [];
     toast(t("editorToolbar.importingFile"), {
@@ -385,7 +409,11 @@ export default function EditorToolbar({
         t("editorToolbar.importFailed"),
       );
       if (!importRes.ok || importData?.error) {
-        throw new Error(importData?.error || t("editorToolbar.importFailed"));
+        throw promptImportResponseError(
+          importRes.status,
+          importData,
+          t("editorToolbar.importFailed"),
+        );
       }
       toast.success(t("editorToolbar.importComplete"), {
         description:
@@ -402,7 +430,21 @@ export default function EditorToolbar({
       console.error("Import failed:", err);
       const storageSetupRequired = isStorageSetupRequiredError(err);
       if (storageSetupRequired) void storageQuery.refetch();
+      // A timeout, a gateway page or a dropped connection says nothing about
+      // the file, so the same import is offered again rather than a new pick.
+      const retryable =
+        !storageSetupRequired &&
+        !(err instanceof DeckBackupError) &&
+        isPromptUploadNetworkError(err);
       toast.error(t("editorToolbar.importFailed"), {
+        ...(retryable
+          ? {
+              action: {
+                label: t("home.retry"),
+                onClick: () => void importFileOnce(file),
+              },
+            }
+          : {}),
         description: formatPromptUploadFailure(
           err,
           storageSetupRequired
@@ -425,7 +467,6 @@ export default function EditorToolbar({
     } finally {
       await cleanupUploadedPromptFiles(uploadedFiles);
       setImporting(false);
-      e.target.value = "";
     }
   };
 
@@ -772,6 +813,7 @@ export default function EditorToolbar({
       <input
         type="text"
         value={deckTitle}
+        readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
         className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
@@ -802,18 +844,21 @@ export default function EditorToolbar({
           saving={saving}
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
-          contentConflict={contentConflictSlideId !== undefined}
-          onResolveContentConflict={
-            contentConflictSlideId === undefined
-              ? undefined
-              : (resolution) =>
-                  resolveContentConflict(
-                    deckId,
-                    contentConflictSlideId,
-                    resolution,
-                  )
-          }
           offline={offline}
+          conflict={
+            conflict
+              ? {
+                  slideNumber: Math.max(
+                    1,
+                    deck.slides.findIndex(
+                      (slide) => slide.id === conflict.slideId,
+                    ) + 1,
+                  ),
+                  canResolve: conflict.canResolve,
+                }
+              : undefined
+          }
+          onResolveConflict={resolveConflict}
           onDownloadBackup={onDownloadBackup}
           onImportBackup={
             onImportDeckBackup

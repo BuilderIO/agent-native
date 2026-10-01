@@ -20,6 +20,7 @@ const backendMocks = vi.hoisted(() => ({
 }));
 const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
+  recordFailure: vi.fn(),
 }));
 const deliveryMocks = vi.hoisted(() => ({
   queueMissing: vi.fn(),
@@ -84,6 +85,7 @@ vi.mock("./first-party-analytics-rollups.js", () => ({
 vi.mock("./error-capture.js", () => ({
   EXCEPTION_EVENT_NAME: "$exception",
   ingestAnalyticsExceptionEvents: exceptionMocks.ingest,
+  recordErrorIngestFailure: exceptionMocks.recordFailure,
 }));
 vi.mock("./first-party-analytics-health.js", () => ({
   classifyFirstPartyAnalyticsQuery: healthMocks.classify,
@@ -156,6 +158,7 @@ beforeEach(() => {
     }));
   backendMocks.query.mockReset();
   exceptionMocks.ingest.mockReset();
+  exceptionMocks.recordFailure.mockReset();
   deliveryMocks.queueMissing.mockReset();
   deliveryMocks.queueMissing.mockReturnValue(false);
   backendMocks.get.mockResolvedValue({
@@ -494,6 +497,20 @@ describe("recordAnalyticsEvents", () => {
       },
       [expect.objectContaining({ derived: expect.any(Object) })],
     );
+  });
+
+  it("counts a failed exception ingest instead of swallowing it", async () => {
+    const failure = new Error("password authentication failed");
+    exceptionMocks.ingest.mockRejectedValueOnce(failure);
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [
+        { event: "$exception", properties: { error: "a", app: "analytics" } },
+        { event: "$exception", properties: { error: "b", app: "analytics" } },
+      ]),
+    ).resolves.toMatchObject({ accepted: 2 });
+
+    expect(exceptionMocks.recordFailure).toHaveBeenCalledWith(2, failure);
   });
 
   it("preserves SQL exception issues while warehouse delivery is pending", async () => {

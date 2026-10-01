@@ -473,6 +473,7 @@ export function FeatureFlagsEditor({
   const sortedFlags = useMemo(
     () =>
       flags
+        .filter((flag) => flag.canManage !== false)
         .map((flag) => ({
           ...flag,
           rules: normalizeFeatureFlagRules(flag.rules),

@@ -2,6 +2,11 @@ import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { archiveFailureToastMessage } from "@shared/archive-errors";
+import {
+  gmailCooldownFromError,
+  gmailReadState,
+  type GmailReadState,
+} from "@shared/gmail-freshness";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import type {
   ComposeAttachment,
@@ -91,7 +96,12 @@ function assertActionSuccess<T>(result: T): T {
   return result;
 }
 
-export type ApiError = Error & { status?: number; retryAfterMs?: number };
+export type ApiError = Error & {
+  status?: number;
+  retryAfterMs?: number;
+  errorCode?: string;
+  cooldownUntil?: number;
+};
 
 export async function apiFetch<T>(
   url: string,
@@ -121,6 +131,13 @@ export async function apiFetch<T>(
       retryAfter > 0
     ) {
       error.retryAfterMs = retryAfter * 1000;
+    }
+    if (typeof body?.errorCode === "string") error.errorCode = body.errorCode;
+    if (typeof body?.retryAfterMs === "number" && body.retryAfterMs > 0) {
+      error.retryAfterMs = body.retryAfterMs;
+    }
+    if (typeof body?.cooldownUntil === "number") {
+      error.cooldownUntil = body.cooldownUntil;
     }
     throw error;
   }
@@ -377,19 +394,21 @@ export function useAddOptimisticReply() {
       ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
     };
 
-    const prior = getCachedThread(threadId) ?? [];
+    const prior = getCachedThread(threadId, data.accountEmail) ?? [];
     setCachedThread(
       threadId,
       [...prior, optimisticMessage].sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
       ),
+      data.accountEmail,
     );
 
     return () => {
-      const current = getCachedThread(threadId) ?? [];
+      const current = getCachedThread(threadId, data.accountEmail) ?? [];
       setCachedThread(
         threadId,
         current.filter((m) => m.id !== optimisticMessage.id),
+        data.accountEmail,
       );
     };
   };
@@ -871,11 +890,12 @@ function applyEmailBooleanMutationStates(
 function applyReadMutationStates(
   states: Map<string, boolean | undefined | null>,
   threadId?: string,
+  accountEmail?: string,
 ) {
   const resolved = applyEmailBooleanMutationStates(states, "isRead");
   if (resolved.size === 0) return;
   if (!threadId) return;
-  const thread = getCachedThread(threadId);
+  const thread = getCachedThread(threadId, accountEmail);
   if (!thread) return;
   setCachedThread(
     threadId,
@@ -884,33 +904,54 @@ function applyReadMutationStates(
         ? { ...message, isRead: resolved.get(message.id)! }
         : message,
     ),
+    accountEmail,
   );
 }
 
 function applyStarMutationStates(
   states: Map<string, boolean | undefined | null>,
   threadIdsByEmailId?: Readonly<Record<string, string>> | string,
+  accountEmailByEmailId?: Readonly<Record<string, string | undefined>> | string,
 ) {
   const resolved = applyEmailBooleanMutationStates(states, "isStarred");
   if (resolved.size === 0 || !threadIdsByEmailId) return;
-  const threadIds =
-    typeof threadIdsByEmailId === "string"
-      ? new Map([...resolved.keys()].map((id) => [id, threadIdsByEmailId]))
-      : new Map(
-          [...resolved.keys()]
-            .map((id) => [id, threadIdsByEmailId[id]] as const)
-            .filter((entry): entry is [string, string] => Boolean(entry[1])),
-        );
-  for (const threadId of new Set(threadIds.values())) {
-    const thread = getCachedThread(threadId);
+  const threads = new Map<
+    string,
+    { accountEmail?: string; threadId: string; states: Map<string, boolean> }
+  >();
+  for (const [emailId, isStarred] of resolved) {
+    const threadId =
+      typeof threadIdsByEmailId === "string"
+        ? threadIdsByEmailId
+        : threadIdsByEmailId[emailId];
+    if (!threadId) continue;
+    const accountEmail =
+      typeof accountEmailByEmailId === "string"
+        ? accountEmailByEmailId
+        : accountEmailByEmailId?.[emailId];
+    const key = JSON.stringify([threadId, accountEmail?.toLowerCase() ?? null]);
+    let thread = threads.get(key);
+    if (!thread) {
+      thread = { accountEmail, threadId, states: new Map() };
+      threads.set(key, thread);
+    }
+    thread.states.set(emailId, isStarred);
+  }
+  for (const {
+    accountEmail,
+    states: threadStates,
+    threadId,
+  } of threads.values()) {
+    const thread = getCachedThread(threadId, accountEmail);
     if (!thread) continue;
     setCachedThread(
       threadId,
       thread.map((message) =>
-        resolved.has(message.id)
-          ? { ...message, isStarred: resolved.get(message.id)! }
+        threadStates.has(message.id)
+          ? { ...message, isStarred: threadStates.get(message.id)! }
           : message,
       ),
+      accountEmail,
     );
   }
 }
@@ -1141,6 +1182,8 @@ export interface EmailsPage {
   nextPageToken?: string;
   totalEstimate?: number;
   accountErrors?: AccountError[];
+  /** Present when the page came from the synced store during a cooldown. */
+  read?: GmailReadState;
   providerSnapshotId?: number;
   suppressionFence?: number;
 }
@@ -1166,12 +1209,13 @@ export function emailListRefetchInterval(
   state: { status: string; fetchFailureCount: number; error: unknown },
   search?: string,
 ): number | false {
-  if (
-    search ||
-    isAuthFailure(state.error) ||
-    (state.error as { status?: unknown } | undefined)?.status === 429
-  ) {
-    return false;
+  if (search || isAuthFailure(state.error)) return false;
+  if ((state.error as { status?: unknown } | undefined)?.status === 429) {
+    // Gmail named when it is ready again: look once then, never sooner.
+    const cooldown = gmailCooldownFromError(state.error, Date.now());
+    return cooldown
+      ? Math.min(cooldown.retryAfterMs + 1_000, 5 * 60_000)
+      : false;
   }
   const base = 2 * 60_000;
   if (state.status === "error") {
@@ -1325,6 +1369,10 @@ export function useEmails(
       providerSnapshotId === lastProviderSnapshotId.current
     )
       return;
+    // Rows served from the synced store while Gmail cools down are not
+    // evidence of what Gmail lists.
+    const firstPage = q.data.pages[0] as EmailsPage | undefined;
+    if (firstPage?.read && firstPage.read.freshness !== "live") return;
     lastProviderSnapshotId.current = providerSnapshotId;
     reconcileSuppressionEvidence(q.data.pages, view, label, search);
     if (!search) reconcileOptimisticOverrides(q.data.pages);
@@ -1355,9 +1403,27 @@ export function useEmails(
 
   const canPaginate = !q.isPlaceholderData;
   const hasCurrentQueryData = Boolean(q.data) && !q.isPlaceholderData;
+  const pageRead = hasCurrentQueryData
+    ? (q.data?.pages[0] as EmailsPage | undefined)?.read
+    : undefined;
+  // A cooldown that failed a refetch must not blank the list it already has:
+  // keep the rows and report them as stale until Gmail is ready again.
+  const refetchCooldown =
+    q.isError && hasCurrentQueryData
+      ? gmailCooldownFromError(q.error, q.errorUpdatedAt)
+      : undefined;
+  const read: GmailReadState | undefined =
+    refetchCooldown && q.data
+      ? gmailReadState(
+          refetchCooldown,
+          pageRead?.staleSince ?? q.dataUpdatedAt,
+          q.errorUpdatedAt,
+        )
+      : pageRead;
 
   return {
     data,
+    read,
     isLoading: q.isLoading,
     isFetching: q.isFetching,
     isRefetching: q.isRefetching,
@@ -1467,8 +1533,9 @@ export function useMarkRead() {
         target?.threadId ||
         findInboxThreadIdByMessageId(qc, id) ||
         target?.id;
+      const resolvedAccountEmail = accountEmail ?? target?.accountEmail;
       const previousThread = resolvedThreadId
-        ? getCachedThread(resolvedThreadId)
+        ? getCachedThread(resolvedThreadId, resolvedAccountEmail)
         : undefined;
       const previousReadState =
         previousThread?.find((message) => message.id === id)?.isRead ??
@@ -1491,7 +1558,7 @@ export function useMarkRead() {
             )
           : undefined;
       const restartThread = resolvedThreadId
-        ? supersedeCachedThreadFetch(resolvedThreadId)
+        ? supersedeCachedThreadFetch(resolvedThreadId, resolvedAccountEmail)
         : false;
       if (resolvedThreadId) {
         if (previousThread) {
@@ -1500,6 +1567,7 @@ export function useMarkRead() {
             previousThread.map((message) =>
               message.id === id ? { ...message, isRead } : message,
             ),
+            resolvedAccountEmail,
           );
         }
       }
@@ -1516,6 +1584,7 @@ export function useMarkRead() {
         mutationVersion,
         readIntent,
         threadId: resolvedThreadId,
+        accountEmail: resolvedAccountEmail,
         inboxMutationId,
         refreshThread:
           resolvedThreadId && restartThread
@@ -1530,6 +1599,7 @@ export function useMarkRead() {
           [id, confirmReadMutation(id, context.mutationVersion, isRead)],
         ]),
         context.threadId,
+        context.accountEmail,
       );
     },
     onError: (err, { id }, context) => {
@@ -1539,6 +1609,7 @@ export function useMarkRead() {
       applyReadMutationStates(
         new Map([[id, confirmedState]]),
         context?.threadId,
+        context?.accountEmail,
       );
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
@@ -1601,7 +1672,11 @@ export function useMarkThreadRead() {
       });
       const allEmails =
         previous.flatMap(([, data]) => flattenInfiniteEmails(data)) ?? [];
-      const previousThread = getCachedThread(threadId);
+      const resolvedAccountEmail =
+        accountEmail ??
+        allEmails.find((email) => (email.threadId || email.id) === threadId)
+          ?.accountEmail;
+      const previousThread = getCachedThread(threadId, resolvedAccountEmail);
       const unreadIds = new Set(
         [...allEmails, ...(previousThread ?? [])]
           .filter(
@@ -1614,7 +1689,10 @@ export function useMarkThreadRead() {
         id,
         version: beginReadMutation(id, false, true),
       }));
-      const restartThread = supersedeCachedThreadFetch(threadId);
+      const restartThread = supersedeCachedThreadFetch(
+        threadId,
+        resolvedAccountEmail,
+      );
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
       }
@@ -1627,6 +1705,7 @@ export function useMarkThreadRead() {
         setCachedThread(
           threadId,
           previousThread.map((message) => ({ ...message, isRead: true })),
+          resolvedAccountEmail,
         );
       }
       try {
@@ -1643,14 +1722,11 @@ export function useMarkThreadRead() {
         mutations,
         retryIntent,
         inboxMutationId,
+        accountEmail: resolvedAccountEmail,
         refreshThread: restartThread
           ? {
               threadId,
-              accountEmail:
-                accountEmail ??
-                allEmails.find(
-                  (email) => (email.threadId || email.id) === threadId,
-                )?.accountEmail,
+              accountEmail: resolvedAccountEmail,
             }
           : undefined,
       };
@@ -1663,7 +1739,7 @@ export function useMarkThreadRead() {
           confirmReadMutation(mutation.id, mutation.version, true),
         );
       }
-      applyReadMutationStates(confirmed, threadId);
+      applyReadMutationStates(confirmed, threadId, context?.accountEmail);
     },
     onError: (err, { threadId }, context) => {
       const rollback = new Map<string, boolean | undefined | null>();
@@ -1673,7 +1749,7 @@ export function useMarkThreadRead() {
           rollbackReadMutation(mutation.id, mutation.version),
         );
       }
-      applyReadMutationStates(rollback, threadId);
+      applyReadMutationStates(rollback, threadId, context?.accountEmail);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -1751,7 +1827,7 @@ export function useToggleStar() {
         accountEmail,
         flag: isStarred,
       }),
-    onMutate: async ({ id, isStarred, threadId }) => {
+    onMutate: async ({ id, isStarred, threadId, accountEmail }) => {
       const target = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data))
@@ -1761,8 +1837,9 @@ export function useToggleStar() {
         target?.threadId ||
         findInboxThreadIdByMessageId(qc, id) ||
         target?.id;
+      const resolvedAccountEmail = accountEmail ?? target?.accountEmail;
       const previousThread = resolvedThreadId
-        ? getCachedThread(resolvedThreadId)
+        ? getCachedThread(resolvedThreadId, resolvedAccountEmail)
         : undefined;
       const mutationVersion = beginStarMutation(
         id,
@@ -1811,6 +1888,7 @@ export function useToggleStar() {
           previousThread.map((message) =>
             message.id === id ? { ...message, isStarred } : message,
           ),
+          resolvedAccountEmail,
         );
       }
       await Promise.all([
@@ -1823,6 +1901,7 @@ export function useToggleStar() {
         inboxSnapshot,
         inboxMutationId,
         mutationVersion,
+        accountEmail: resolvedAccountEmail,
       };
     },
     onSuccess: (_data, { id, isStarred }, context) => {
@@ -1832,13 +1911,18 @@ export function useToggleStar() {
           [id, confirmStarMutation(id, context.mutationVersion, isStarred)],
         ]),
         context.threadId,
+        context.accountEmail,
       );
     },
     onError: (err, { id }, context) => {
       const state = context
         ? rollbackStarMutation(id, context.mutationVersion)
         : null;
-      applyStarMutationStates(new Map([[id, state]]), context?.threadId);
+      applyStarMutationStates(
+        new Map([[id, state]]),
+        context?.threadId,
+        context?.accountEmail,
+      );
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -2401,6 +2485,13 @@ export function useBulkToggleStar() {
         flattenInfiniteEmails(data),
       );
       const threadIdsByEmailId = resolveBulkThreadIds(qc, targets);
+      const accountEmailsByEmailId = Object.fromEntries(
+        targets.map((target) => [
+          target.id,
+          target.accountEmail ??
+            allEmails.find((email) => email.id === target.id)?.accountEmail,
+        ]),
+      );
       const mutationVersions: Record<string, number> = {};
       for (const id of ids) {
         mutationVersions[id] = beginStarMutation(
@@ -2419,7 +2510,12 @@ export function useBulkToggleStar() {
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      return { mutationVersions, threadIdsByEmailId, inboxMutationId };
+      return {
+        accountEmailsByEmailId,
+        mutationVersions,
+        threadIdsByEmailId,
+        inboxMutationId,
+      };
     },
     onSuccess: (_data, vars, context) => {
       if (!context) return;
@@ -2427,7 +2523,11 @@ export function useBulkToggleStar() {
       for (const [id, version] of Object.entries(context.mutationVersions)) {
         states.set(id, confirmStarMutation(id, version, vars.isStarred));
       }
-      applyStarMutationStates(states, context.threadIdsByEmailId);
+      applyStarMutationStates(
+        states,
+        context.threadIdsByEmailId,
+        context.accountEmailsByEmailId,
+      );
     },
     onError: (err, vars, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
@@ -2451,7 +2551,11 @@ export function useBulkToggleStar() {
             ),
           );
         }
-        applyStarMutationStates(states, context.threadIdsByEmailId);
+        applyStarMutationStates(
+          states,
+          context.threadIdsByEmailId,
+          context.accountEmailsByEmailId,
+        );
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
@@ -2461,7 +2565,11 @@ export function useBulkToggleStar() {
         for (const [id, version] of Object.entries(context.mutationVersions)) {
           states.set(id, rollbackStarMutation(id, version));
         }
-        applyStarMutationStates(states, context.threadIdsByEmailId);
+        applyStarMutationStates(
+          states,
+          context.threadIdsByEmailId,
+          context.accountEmailsByEmailId,
+        );
       }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
@@ -2795,7 +2903,9 @@ export function useSendEmail() {
         data.replyToId ||
         makeTempId("thread");
 
-      const previousThread = getCachedThread(threadId);
+      const resolvedAccountEmail =
+        data.accountEmail ?? replyTarget?.accountEmail;
+      const previousThread = getCachedThread(threadId, resolvedAccountEmail);
       const previousLists = getRecentSentListSnapshots(qc);
 
       const existingMessages = previousThread ?? [];
@@ -2844,6 +2954,7 @@ export function useSendEmail() {
           [...existingMessages, optimisticMessage].sort(
             (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
           ),
+          resolvedAccountEmail,
         );
       }
 
@@ -2858,6 +2969,7 @@ export function useSendEmail() {
         previousThread: rollbackThread,
         optimisticMessage,
         threadId,
+        accountEmail: resolvedAccountEmail,
         previousLists,
       };
     },
@@ -2868,7 +2980,11 @@ export function useSendEmail() {
         qc.setQueryData(key, data),
       );
       if (context.previousThread) {
-        setCachedThread(context.threadId, context.previousThread);
+        setCachedThread(
+          context.threadId,
+          context.previousThread,
+          context.accountEmail,
+        );
       } else {
         invalidateCachedThread(context.threadId);
       }
@@ -2879,9 +2995,9 @@ export function useSendEmail() {
 
       const sourceThreadId = context.threadId;
       const current =
-        getCachedThread(threadId) ??
+        getCachedThread(threadId, context.accountEmail) ??
         (sourceThreadId !== threadId
-          ? getCachedThread(sourceThreadId)
+          ? getCachedThread(sourceThreadId, context.accountEmail)
           : undefined) ??
         [];
       const replacement = {
@@ -2916,6 +3032,7 @@ export function useSendEmail() {
         ).sort(
           (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
         ),
+        context.accountEmail,
       );
       if (sourceThreadId !== threadId) {
         invalidateCachedThread(sourceThreadId);

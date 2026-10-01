@@ -16,7 +16,8 @@ jobs:
   e2e:
     name: Shard ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Reserve time after the shard timeout for setup and report upload.
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
@@ -75,7 +76,9 @@ jobs:
         run: pnpm migrate:production
 
       - name: Run shard
+        id: run-shard
         working-directory: templates/design
+        timeout-minutes: 37
         env:
           E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
         run: |
@@ -83,10 +86,10 @@ jobs:
           pnpm exec playwright test --shard=${{ matrix.shard }}/8
 
       - name: Upload report on failure
-        if: ${{ failure() }}
+        if: ${{ !cancelled() && steps.run-shard.outcome != 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: design-e2e-report-${{ matrix.shard }}
           path: templates/design/test-results
           retention-days: 7
-          if-no-files-found: ignore
+          if-no-files-found: warn

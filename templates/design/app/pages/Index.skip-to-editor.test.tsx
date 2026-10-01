@@ -91,11 +91,9 @@ vi.mock("@/components/QueryErrorState", () => ({
   ),
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/client/feature-flags")
-  >()),
-  useFeatureFlag: () => mocks.fullAppBuilding,
+vi.mock("@agent-native/core/client/labs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/labs")>()),
+  useLab: () => mocks.fullAppBuilding,
 }));
 
 vi.mock("@agent-native/core/client/collab", async (importOriginal) => ({

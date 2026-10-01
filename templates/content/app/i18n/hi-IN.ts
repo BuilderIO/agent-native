@@ -1230,6 +1230,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "कॉन्टेंट",
+    loadingContent: "कॉन्टेंट लोड हो रहा है",
     commandSearchDocuments: "दस्तावेज़ खोजें",
     searchSince: "{{date}} से",
     searchModifiedSince: "{{date}} से संशोधित",

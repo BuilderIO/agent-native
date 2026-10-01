@@ -80,6 +80,9 @@ test("Content beta saves a page edit and comment", async ({ browser }) => {
       timeout: 45_000,
     });
     const editor = page.locator(".notion-editor.ProseMirror");
+    await expect(editor).toHaveAttribute("contenteditable", "true", {
+      timeout: 60_000,
+    });
     await expect(editor).toContainText(originalBody, { timeout: 60_000 });
     await editor.fill(editedBody);
     await expect
@@ -91,7 +94,11 @@ test("Content beta saves a page edit and comment", async ({ browser }) => {
         { timeout: 60_000 },
       )
       .toContain(editedBody);
+
     await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 });
+    await expect(editor).toHaveAttribute("contenteditable", "true", {
+      timeout: 60_000,
+    });
     await expect(editor).toContainText(editedBody, { timeout: 60_000 });
 
     await editor.selectText();

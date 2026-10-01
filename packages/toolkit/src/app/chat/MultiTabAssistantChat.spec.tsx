@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
   AGENT_CHAT_CONTEXT_CHANGED_EVENT,
@@ -252,6 +253,26 @@ function stubCatalog(
   );
 }
 
+function chatgptCatalog(model: string) {
+  const groups = buildChatModelGroups({
+    engines: [
+      {
+        name: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+        label: "ChatGPT plan access",
+        supportedModels: [model],
+        requiredEnvVars: [],
+        configured: true,
+      },
+    ],
+  });
+  return {
+    state: "available" as const,
+    groups,
+    defaultModel: model,
+    loadLiveGroups: async () => null,
+  };
+}
+
 async function mountWithCatalog(
   engines: unknown[],
   configuredKeys: string[],
@@ -303,7 +324,11 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         selectedModel?: string;
         selectedEngine?: string;
         selectedEffort?: string;
-        availableModels?: Array<{ engine: string; configured: boolean }>;
+        availableModels?: Array<{
+          engine: string;
+          configured: boolean;
+          models?: string[];
+        }>;
         composerDisabled?: boolean;
         composerDisabledPlaceholder?: string;
         isActiveComposer?: boolean;
@@ -341,6 +366,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           data-reasoning-effort={props.selectedEffort}
           data-model-catalog={props.availableModels
             ?.map((group) => `${group.engine}:${group.configured}`)
+            .join(",")}
+          data-model-options={props.availableModels
+            ?.flatMap((group) => group.models ?? [])
             .join(",")}
           data-composer-disabled={props.composerDisabled ? "true" : "false"}
           data-composer-submission-disabled={
@@ -989,6 +1017,92 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(view.engineOf()).toBe("anthropic");
     expect(view.modelOf()).toBe("claude-sonnet-5");
     await view.cleanup();
+  });
+
+  it("reconciles a saved ChatGPT model with the selected account catalog", async () => {
+    window.localStorage.setItem(
+      "agent-native:chat-models:selection:catalog-test",
+      JSON.stringify({
+        model: "model-from-previous-account",
+        engine: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      }),
+    );
+    const view = await mountWithCatalog(
+      [
+        {
+          name: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+          label: "ChatGPT plan access",
+          supportedModels: ["model-on-current-account"],
+          configured: true,
+          requiredEnvVars: [],
+        },
+      ],
+      [],
+    );
+
+    expect(view.engineOf()).toBe(CHATGPT_SUBSCRIPTION_ENGINE_NAME);
+    expect(view.modelOf()).toBe("model-on-current-account");
+    await view.cleanup();
+  });
+
+  it("keeps the selected account catalog when an older ChatGPT read finishes late", async () => {
+    await act(async () => root.unmount());
+    stubCatalog([], []);
+    modelCatalogMocks.load = async () =>
+      chatgptCatalog("model-from-previous-account");
+
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-options"),
+    ).toBe("model-from-previous-account");
+
+    const pendingCatalogs: Array<(value: unknown) => void> = [];
+    modelCatalogMocks.load = () =>
+      new Promise((resolve) => pendingCatalogs.push(resolve));
+
+    act(() => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    });
+    expect(pendingCatalogs).toHaveLength(1);
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-options"),
+    ).toBe("");
+
+    act(() => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    });
+    expect(pendingCatalogs).toHaveLength(2);
+
+    await act(async () => {
+      pendingCatalogs[1](chatgptCatalog("model-on-selected-account"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-options"),
+    ).toBe("model-on-selected-account");
+
+    await act(async () => {
+      pendingCatalogs[0](chatgptCatalog("model-from-superseded-read"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-options"),
+    ).toBe("model-on-selected-account");
   });
 
   it("applies a submitted model override sent without an engine", () => {
@@ -2966,6 +3080,9 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
 
   it("replaces an active missing thread with a fresh chat", async () => {
     const replacementId = "thread-replacement";
+    window.history.replaceState({}, "", "/?thread=missing-thread");
+    threadMocks.activeThreadId = "missing-thread";
+    threadMocks.threads = [makeThread("missing-thread")];
     threadMocks.createThread.mockImplementationOnce(async () => {
       threadMocks.activeThreadId = replacementId;
       threadMocks.threads = [makeThread(replacementId), ...threadMocks.threads];
@@ -3000,6 +3117,15 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     });
 
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([replacementId]);
+    expect(new URL(window.location.href).searchParams.has("thread")).toBe(
+      false,
+    );
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "missing-thread-test",
+      null,
+      expect.objectContaining({ routeThreadId: undefined }),
+    );
   });
 
   it("does not replace a desktop thread before identity restore settles", async () => {
@@ -3349,7 +3475,7 @@ describe("MultiTabAssistantChat page overlay", () => {
     ).not.toBeNull();
   });
 
-  it("reserves the page top bar even when its actions are temporarily empty", async () => {
+  it("reserves one page-header height when its actions are temporarily empty", async () => {
     await act(async () => {
       root.render(
         <MultiTabAssistantChat
@@ -3363,7 +3489,7 @@ describe("MultiTabAssistantChat page overlay", () => {
       "[data-agent-page-chat-topbar]",
     );
     expect(topbar).not.toBeNull();
-    expect(topbar?.className).toContain("pt-14");
+    expect(topbar?.className).toContain("pt-12");
   });
 });
 
@@ -3506,6 +3632,7 @@ describe("MultiTabAssistantChat history popover", () => {
     ).find((span) => span.classList.contains("w-px"));
     expect(anchor).toBeDefined();
     expect(anchor?.className).toContain("start-2");
+    expect(anchor?.className).toContain("top-12");
     expect(anchor?.className).not.toContain("end-2");
   });
 

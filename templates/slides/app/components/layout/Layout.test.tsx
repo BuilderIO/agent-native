@@ -272,6 +272,17 @@ describe("Slides Layout", () => {
     expect(screen.getByTestId("page-content")).toBeTruthy();
   });
 
+  it("keeps malformed chat history distinct from an empty version list", () => {
+    renderLayout("/deck/deck-1");
+
+    const history = agentSidebarMock.mock.lastCall![0].chatHistory as {
+      list: { getVersions: (result: unknown) => unknown };
+    };
+
+    expect(history.list.getVersions({ versions: [] })).toEqual([]);
+    expect(history.list.getVersions({ versions: null })).toBeNull();
+  });
+
   it("acknowledges a mobile flush only after the matching deck is saved", async () => {
     const postMessage = vi.fn();
     Object.defineProperty(window, "ReactNativeWebView", {

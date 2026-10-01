@@ -17,9 +17,11 @@ import {
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
 
+import { CHATGPT_SUBSCRIPTION_CALLBACK_PATH } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
+import type { CredentialFixer } from "../agent/engine/credential-state.js";
 import {
   OPENAI_BASE_URL_ENV_VAR,
   PROVIDER_ENV_META,
@@ -78,8 +80,6 @@ import {
 import { uploadFile } from "../file-upload/index.js";
 import { listFileUploadProviderStatusesForRequest } from "../file-upload/registry.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
-import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
-import { registerLabs } from "../labs/registry.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -249,6 +249,10 @@ import {
   resolveSecret,
 } from "./credential-provider.js";
 import {
+  decideCredentialWriteScope,
+  type CredentialWriteRefusal,
+} from "./credential-write-scope.js";
+import {
   readDatabaseIdentity,
   resolveRunningAppIdentity,
   type DatabaseIdentityReadResult,
@@ -260,7 +264,6 @@ import {
 } from "./deploy-environment.js";
 import { getMissingDeploySettings } from "./deploy-settings.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
-import { shouldReportError } from "./error-noise-filter.js";
 import {
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
@@ -526,22 +529,38 @@ export async function resolveBuilderOrgMutation(
   orgId: string | null;
   role: string | null;
   deny: string | null;
+  whoCanFix?: CredentialFixer;
 }> {
-  let orgId: string | null = null;
-  let role: string | null = null;
+  let orgCtx: Awaited<ReturnType<typeof getOrgContext>>;
   try {
-    const orgCtx = await getOrgContext(event);
-    orgId = orgCtx.orgId ?? null;
-    role = orgCtx.role ?? null;
-  } catch {
-    // coercion-ok: org is missing, it will fail closed
+    orgCtx = await getOrgContext(event);
+  } catch (error) {
+    console.warn(
+      "[builder-connect] could not read organization membership:",
+      error instanceof Error ? error.message : error,
+    );
+    return {
+      orgId: null,
+      role: null,
+      deny: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
+      whoCanFix: "self",
+    };
   }
+  const orgId = orgCtx.orgId ?? null;
+  const role = orgCtx.role ?? null;
   if (options.allowMemberInitiation) {
     if (orgId) return { orgId, role, deny: null };
+    // No session email means this window never saw the app's sign-in cookie:
+    // a Builder preview or embedded browser whose connect popup proved its
+    // owner only with the signed connect token. The OAuth callback needs that
+    // cookie too, so the fix is the app's own tab, not an org invite.
     return {
       orgId,
       role,
-      deny: "Only signed-in organization members can connect Builder.",
+      deny: orgCtx.email
+        ? BUILDER_CONNECT_NEEDS_ORGANIZATION
+        : BUILDER_CONNECT_SESSION_NOT_SHARED,
+      whoCanFix: "self",
     };
   }
   if (role !== "owner" && role !== "admin") {
@@ -552,6 +571,16 @@ export async function resolveBuilderOrgMutation(
 
 const BUILDER_ORG_CONNECTION_DENIED =
   "Only an organization owner or admin can change the shared Builder connection.";
+export const BUILDER_CONNECT_NEEDS_ORGANIZATION =
+  "Builder.io connects through an organization. Switch to one you belong to, or ask an organization owner or admin to invite you, then connect Builder again.";
+export const BUILDER_CONNECT_SESSION_NOT_SHARED =
+  "This window can't see your sign-in, which happens in previews and embedded browsers. Open the app in its own browser tab, sign in, then connect Builder there.";
+export const BUILDER_ORG_MEMBERSHIP_UNREADABLE =
+  "Couldn't check your organization membership. Try connecting Builder again in a moment.";
+export const BUILDER_ORG_ALREADY_CONNECTED =
+  "Your organization already has a Builder.io connection, and a new account would take its place. An organization owner or admin can reconnect it in Settings.";
+export const BUILDER_ORG_RECONNECT_BY_LOGIN =
+  "Your organization already has a Builder.io account. Log in to Builder to reconnect it.";
 
 /** Query/body field naming which Builder.io connection a request targets. */
 export const BUILDER_CONNECTION_SCOPE_PARAM = "scope";
@@ -653,46 +682,133 @@ export function resolveBuilderCallbackWrite(input: {
   if (input.pendingOrgId !== null && input.currentRole === null) {
     return { deny: BUILDER_CONNECTION_MEMBERSHIP_ENDED };
   }
-  const managerRole =
-    input.pendingOrgId !== null && isBuilderOrgManagerRole(input.currentRole)
-      ? input.currentRole
-      : null;
-  if (input.requestedScope === "org") {
-    return managerRole
-      ? { scope: "org", role: managerRole }
-      : { deny: BUILDER_ORG_CONNECTION_DENIED };
+  const decision = decideCredentialWriteScope({
+    action: "connect",
+    role: input.currentRole,
+    orgId: input.pendingOrgId,
+    requestedScope: input.requestedScope,
+    personalAllowed: input.personalAllowed,
+  });
+  if ("refuse" in decision) {
+    return { deny: BUILDER_WRITE_REFUSALS[decision.refuse] };
   }
-  if (managerRole) {
-    return input.requestedScope === "personal"
-      ? { deny: BUILDER_PERSONAL_CONNECTION_DENIED }
-      : { role: managerRole };
-  }
-  if (!input.personalAllowed) {
-    return { deny: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE };
-  }
-  return input.requestedScope === "personal"
-    ? { scope: "user", role: null }
-    : { role: null };
+  const role = decision.scope === "org" ? input.currentRole : null;
+  return input.requestedScope
+    ? { scope: builderOAuthScopeFor(decision.scope), role }
+    : { role };
 }
 
+const BUILDER_WRITE_REFUSALS: Record<CredentialWriteRefusal, string> = {
+  org_admin_required: BUILDER_ORG_CONNECTION_DENIED,
+  managers_write_for_org: BUILDER_PERSONAL_CONNECTION_DENIED,
+  personal_restricted: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+  org_already_connected: BUILDER_ORG_ALREADY_CONNECTED,
+  org_reconnect_by_login: BUILDER_ORG_RECONNECT_BY_LOGIN,
+};
+
 /**
- * Where a new Builder.io account from account activation is stored: the
- * organization only when the connect names the org connection (owner/admin is
- * checked before this), personally otherwise. An activation that names no
- * connection stays personal for every role, so an owner or admin clicking a
- * generic prompt never swaps the org's Builder account, and the quota every
- * member bills, for a newly created one.
+ * Where a new Builder.io account from account activation is stored, or why it
+ * is refused (see `decideCredentialWriteScope`). The connect route has already
+ * refused a personal write the org's policy restricts.
  */
 export function resolveBuilderActivationWrite(input: {
   requestedScope: BuilderConnectionScope | null;
   orgId: string | null;
   role: string | null;
-}): { orgId: string; role: string } | null {
-  return input.requestedScope === "org" &&
-    input.orgId &&
-    isBuilderOrgManagerRole(input.role)
-    ? { orgId: input.orgId, role: input.role as string }
+  /** The org already holds a Builder.io grant or key pair. */
+  orgConnected: boolean;
+}):
+  | { orgId: string; role: string }
+  | null
+  | { deny: string; code: "account_exists" | "not_permitted" } {
+  const decision = decideCredentialWriteScope({
+    action: "activate",
+    role: input.role,
+    orgId: input.orgId,
+    requestedScope: input.requestedScope,
+    personalAllowed: true,
+    orgConnected: input.orgConnected,
+  });
+  if ("refuse" in decision) {
+    return {
+      deny: BUILDER_WRITE_REFUSALS[decision.refuse],
+      // `account_exists` turns the connect popover into "Log in", the OAuth
+      // reconnect that rewrites the org's expired or revoked grant.
+      code:
+        decision.refuse === "org_reconnect_by_login"
+          ? "account_exists"
+          : "not_permitted",
+    };
+  }
+  return decision.scope === "org" && input.orgId && input.role
+    ? { orgId: input.orgId, role: input.role }
     : null;
+}
+
+/**
+ * Whether account activation may provision a new Builder.io account, and where
+ * it is stored. Decided before provisioning, so a refused activation never
+ * leaves an orphaned account behind.
+ */
+export async function decideBuilderActivation(
+  event: H3Event,
+  input: {
+    ownerEmail: string;
+    requestedScope: BuilderConnectionScope | null;
+    /** The membership a named-scope connect already resolved. */
+    member?: { orgId: string | null; role: string | null; deny: string | null };
+  },
+  hasOrgConnection: typeof hasBuilderOrgConnection = hasBuilderOrgConnection,
+): Promise<
+  | { write: { orgId: string; role: string } | null }
+  | {
+      refuse: { status: number; message: string; reason: string; code: string };
+    }
+> {
+  const member =
+    input.member ??
+    (await resolveBuilderOrgMutation(event, { allowMemberInitiation: true }));
+  // Without the membership the org's connection cannot be seen, and a new
+  // personal account would shadow it (reads try personal first).
+  if (member.deny === BUILDER_ORG_MEMBERSHIP_UNREADABLE) {
+    return {
+      refuse: {
+        status: 503,
+        message: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
+        reason: "membership_unreadable",
+        code: "membership_unreadable",
+      },
+    };
+  }
+  const write = resolveBuilderActivationWrite({
+    requestedScope: input.requestedScope,
+    orgId: member.orgId,
+    role: member.role,
+    orgConnected: member.orgId
+      ? await hasOrgConnection(input.ownerEmail, member.orgId)
+      : false,
+  });
+  return write && "deny" in write
+    ? {
+        refuse: {
+          status: 409,
+          message: write.deny,
+          reason: "activation_refused",
+          code: write.code,
+        },
+      }
+    : { write };
+}
+
+async function hasBuilderOrgConnection(
+  ownerEmail: string,
+  orgId: string,
+): Promise<boolean> {
+  const [oauth, keys] = await Promise.all([
+    getBuilderOAuthGrants(ownerEmail, orgId),
+    getBuilderKeyConnections(ownerEmail, orgId),
+  ]);
+  return Boolean(oauth.org || keys.org);
 }
 
 export type BuilderEffectiveConnection =
@@ -2336,12 +2452,13 @@ function wireRouteErrorCapture(nitroApp: any): void {
           }
         })();
 
-        if (!shouldReportError(error, { tags: { route } })) return;
-
+        // The shared noise rules and flood control live in `captureError()`, so
+        // this hook and every explicit call site go through the same boundary.
         captureError(error, {
           route,
           method: event ? getMethod(event) : undefined,
           userAgent,
+          handled: false,
         });
         // coercion-ok: rethrowing here would replace the app's real error
       } catch {
@@ -2418,6 +2535,46 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
 
 const OAUTH_POPUP_WAITING_HTML =
   '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title></title></head><body></body></html>';
+const OAUTH_POPUP_COMPLETE_HTML =
+  '<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>window.opener?.postMessage({type:"agent-native:workspace-connection-complete"},window.location.origin);window.close();</script></body></html>';
+const OAUTH_POPUP_RESUME_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function oauthPopupCompletionHtml(completionId: string): string {
+  const storageKey = `agent-native:mcp-connection-completion:${completionId}`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>try{localStorage.setItem("${storageKey}","1")}catch(error){console.error("Could not persist OAuth completion",error)}window.opener?.postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"},window.location.origin);window.close();</script></body></html>`;
+}
+
+export function createOpenAiAppsChallengeHandler(
+  getToken: () => string | undefined = () =>
+    getAppConfig().openAiApps.challengeToken,
+) {
+  return defineEventHandler((event: H3Event) => {
+    setResponseHeader(event, "Cache-Control", "no-store");
+    const mountedPathname = (event.context as Record<string, unknown>)
+      ._mountedPathname;
+    const pathname =
+      typeof mountedPathname === "string"
+        ? mountedPathname
+        : getRequestURL(event).pathname;
+    if (pathname !== "/.well-known/openai-apps-challenge") {
+      setResponseStatus(event, 404);
+      return "";
+    }
+    if (getMethod(event) !== "GET") {
+      setResponseHeader(event, "Allow", "GET");
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const token = getToken();
+    if (!token) {
+      setResponseStatus(event, 404);
+      return "";
+    }
+    setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
+    return token;
+  });
+}
 
 export function createOAuthPopupWaitingHandler() {
   return defineEventHandler((event: H3Event) => {
@@ -2425,12 +2582,22 @@ export function createOAuthPopupWaitingHandler() {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
     }
+    const completingWorkspaceConnection =
+      getRequestURL(event).searchParams.get("complete") ===
+      "workspace-connection";
+    const resumeId = getRequestURL(event).searchParams.get("resume");
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    setResponseHeader(event, "Cache-Control", "public, max-age=300");
+    setResponseHeader(
+      event,
+      "Cache-Control",
+      completingWorkspaceConnection ? "no-store" : "public, max-age=300",
+    );
     setResponseHeader(
       event,
       "Content-Security-Policy",
-      "default-src 'none'; frame-ancestors 'none'",
+      completingWorkspaceConnection
+        ? "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'"
+        : "default-src 'none'; frame-ancestors 'none'",
     );
     setResponseHeader(event, "X-Frame-Options", "DENY");
     // Keep the opener alive until the client replaces this inert page with the
@@ -2438,7 +2605,11 @@ export function createOAuthPopupWaitingHandler() {
     // or `same-origin-allow-popups` (security-headers.ts); an opener sending
     // `same-origin` severs the popup here and leaves it blank.
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
-    return OAUTH_POPUP_WAITING_HTML;
+    return completingWorkspaceConnection
+      ? resumeId && OAUTH_POPUP_RESUME_ID.test(resumeId)
+        ? oauthPopupCompletionHtml(resumeId)
+        : OAUTH_POPUP_COMPLETE_HTML
+      : OAUTH_POPUP_WAITING_HTML;
   });
 }
 
@@ -2521,7 +2692,6 @@ export function createCoreRoutesPlugin(
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
     registerFeatureFlags([BUILDER_CREDIT_USAGE_REPORTING_FLAG]);
-    registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
     let resolveInit: () => void = () => {};
@@ -2542,6 +2712,7 @@ export function createCoreRoutesPlugin(
         `${FRAMEWORK_ROUTE_PREFIX}/oauth/popup`,
         `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
         `${FRAMEWORK_ROUTE_PREFIX}/application-state`,
+        "/.well-known/openai-apps-challenge",
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
     });
@@ -2552,6 +2723,10 @@ export function createCoreRoutesPlugin(
         `${P}/automations/email-unsubscribe`,
         createAutomationFailureUnsubscribeHandler(),
       );
+      getH3App(nitroApp).use(
+        "/.well-known/openai-apps-challenge",
+        createOpenAiAppsChallengeHandler(),
+      );
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
@@ -2559,6 +2734,7 @@ export function createCoreRoutesPlugin(
         `${P}/oauth/popup`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
         ...(!options.disableAppState ? [`${P}/application-state`] : []),
+        "/.well-known/openai-apps-challenge",
       ]);
 
       // Keep the framework-owned S3-compatible provider available even when an
@@ -2577,7 +2753,7 @@ export function createCoreRoutesPlugin(
         createChatGPTSubscriptionOAuthStartHandler(),
       );
       getH3App(nitroApp).use(
-        `${P}/agent-engine/chatgpt-subscription/callback`,
+        CHATGPT_SUBSCRIPTION_CALLBACK_PATH,
         createChatGPTSubscriptionOAuthCallbackHandler(),
       );
 
@@ -3037,7 +3213,7 @@ export function createCoreRoutesPlugin(
           : undefined;
         captureException(error, {
           ...context,
-          handled: false,
+          handled: context.handled ?? true,
           runtime: "node",
           source: "server",
           release: resolveServerRelease(),
@@ -4155,16 +4331,18 @@ export function createCoreRoutesPlugin(
             }
 
             try {
-              const activationMember =
-                scopedConnectAuthorization ??
-                (await resolveBuilderOrgMutation(event, {
-                  allowMemberInitiation: true,
-                }));
-              const activationOrg = resolveBuilderActivationWrite({
+              const activation = await decideBuilderActivation(event, {
+                ownerEmail,
                 requestedScope: requestedConnectionScope,
-                orgId: activationMember.orgId,
-                role: activationMember.role,
+                ...(scopedConnectAuthorization
+                  ? { member: scopedConnectAuthorization }
+                  : {}),
               });
+              if ("refuse" in activation) {
+                const { status, message, reason, code } = activation.refuse;
+                return failProvisioning(status, message, reason, code);
+              }
+              const activationOrg = activation.write;
               const credentials = await provisionBuilderAccount({
                 email: ownerEmail,
                 name: ownerContext.session.name,

@@ -1,4 +1,3 @@
-import { CHATGPT_SUBSCRIPTION_LAB } from "@agent-native/core/labs/core-labs";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
@@ -106,14 +105,11 @@ describe("settings shell bridge", () => {
     expect(bridge.appAreas.map((area) => area.id)).toEqual(["recordings"]);
   });
 
-  it("always shows the core labs next to the app's", () => {
+  it("keeps app-provided labs", () => {
     const bridge = createSettingsBridge({
       labs: [{ key: "clips.meetings", displayName: "Meetings" }],
     });
-    expect(bridge.labs.map((lab) => lab.key)).toEqual([
-      CHATGPT_SUBSCRIPTION_LAB.key,
-      "clips.meetings",
-    ]);
+    expect(bridge.labs.map((lab) => lab.key)).toEqual(["clips.meetings"]);
   });
 
   it("finds a legacy tab by the first id that exists", () => {
@@ -277,13 +273,7 @@ describe("settings shell bridge", () => {
       ]);
       expect(
         entries.get("labs")?.map((entry) => [entry.id, entry.anchor]),
-      ).toEqual([
-        [
-          `lab:${CHATGPT_SUBSCRIPTION_LAB.key}`,
-          `lab-${CHATGPT_SUBSCRIPTION_LAB.key}`,
-        ],
-        ["lab:clips.meetings", "lab-clips.meetings"],
-      ]);
+      ).toEqual([["lab:clips.meetings", "lab-clips.meetings"]]);
     });
   });
 });

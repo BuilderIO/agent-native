@@ -732,6 +732,11 @@ const messages = {
     agentTitle: "Manage agent",
     pageTitle: "Settings · Clips",
     labs: "Labs",
+    labResilientRecording: "Resilient recording",
+    labResilientRecordingDescription:
+      "Try faster recording uploads and improved recovery after interruptions.",
+    labResilientRecordingMixedDescription:
+      "Previous recording settings are still active. Choose On or Off to use one setting.",
     labsIntro:
       "These are new, unstable features and may have bugs. We value your feedback.",
     labVideoEditing: "Video editing",
@@ -1925,6 +1930,8 @@ const messages = {
     retry: "Retry",
     retrying: "Retrying…",
     retryFailed: "Couldn't retry this upload.",
+    retryCheckFailed:
+      "Couldn’t check whether this upload can be retried. Refresh to try again.",
     retryUnavailableHere:
       "Retry is only available on the device or browser where this was recorded.",
     viewsCount: "{{count}} views",

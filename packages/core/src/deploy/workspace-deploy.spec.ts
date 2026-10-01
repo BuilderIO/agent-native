@@ -383,6 +383,57 @@ describe("workspace deploy", () => {
     ).toContain('AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated"');
   });
 
+  it.each([
+    { app: "assets", mounted: true },
+    { app: "starter", mounted: true },
+    { app: "starter", mounted: false },
+  ])(
+    "preserves Netlify client files for $app (mounted=$mounted)",
+    async ({ app, mounted }) => {
+      makeWorkspaceApp(tmpDir, app);
+      execFile.mockImplementation(((_cmd, args) => {
+        const name = String(args[1]);
+        writeAppBuildOutput(tmpDir, name);
+        if (!mounted) {
+          const dist = path.join(tmpDir, "apps", name, "dist");
+          const unmounted = path.join(tmpDir, "unmounted-output");
+          fs.rmSync(path.join(dist, name, name), {
+            recursive: true,
+            force: true,
+          });
+          fs.renameSync(path.join(dist, name), unmounted);
+          fs.rmSync(dist, { recursive: true, force: true });
+          fs.renameSync(unmounted, dist);
+        }
+        return Buffer.from("");
+      }) as typeof execFileSync);
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=netlify", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      });
+
+      const target = path.join(tmpDir, "dist", "_workspace_static", app);
+      for (const file of ["app.js", "app-aB12_cdE.js"]) {
+        expect(fs.readFileSync(path.join(target, "assets", file), "utf8")).toBe(
+          "export {};",
+        );
+      }
+      expect(fs.readFileSync(path.join(target, "favicon.svg"), "utf8")).toBe(
+        "<svg></svg>",
+      );
+      expect(
+        fs.readFileSync(path.join(tmpDir, "dist", "_redirects"), "utf8"),
+      ).toContain(
+        `/${app}/assets/* /_workspace_static/${app}/assets/:splat 200`,
+      );
+      if (app !== "assets") {
+        expect(fs.existsSync(path.join(target, app))).toBe(false);
+      }
+    },
+  );
+
   it("collects Netlify static assets, functions, and redirects for a workspace", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");

@@ -1797,7 +1797,7 @@ export function formatPendingVisualStylePrompt(args: {
 export function formatVisualEditClipboardPrompt(
   prompt: string,
   host: "chatgpt" | "claude" | "codex" | "webmcp" | null | undefined,
-  fullPrompt = false,
+  fullPrompt = true,
   designId?: string | null,
 ): string {
   const design = designId
@@ -1805,20 +1805,31 @@ export function formatVisualEditClipboardPrompt(
     : " using the design ID from this URL";
   if (fullPrompt) {
     return [
-      `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : ""}`,
+      `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : " Use the design ID from this URL."}`,
       "Use the supplied source provenance to make idiomatic code changes; do not leave editor-only DOM or inline-style mutations as the implementation. Verify the running app after HMR, then use the Agent-Native Design MCP tool get-visual-edit-pending to obtain the current revision, acknowledge only after verification, and pull again to confirm it cleared.",
+      "If Design MCP is unavailable, apply the included edits and verify the running app. This copied prompt cannot acknowledge the handoff, so it will remain pending until Design MCP is available; then pull the current revision, verify the edits are already present (apply only anything missing), acknowledge that revision, and pull again to confirm it cleared.",
       "",
       prompt,
     ].join("\n");
   }
-  const mcpHandoff = `Use the Agent-Native Design MCP tool get-visual-edit-pending with${design} to pull the latest edits. Apply its instructions to the connected app source, verify the running app, then call acknowledge-visual-edit-pending with the returned revision and pull again to confirm the handoff cleared.`;
+  const mcpHandoff = [
+    `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : ""}`,
+    `Use the Agent-Native Design MCP tool get-visual-edit-pending with${design} to pull the latest revision, then verify the running app and call acknowledge-visual-edit-pending with that revision.`,
+    `If Design MCP is unavailable, apply the included edit details directly and verify the running app. This copied prompt cannot acknowledge the handoff, so it will remain pending until Design MCP is available; then pull the current revision, verify the edits are already present (apply only anything missing), acknowledge that revision, and pull again to confirm it cleared. This Visual Edit page has no "Apply design updates in Design" button.`,
+    "",
+    prompt,
+  ].join("\n");
   return host === "webmcp"
-    ? `${mcpHandoff} If you cannot access the Design MCP server but can use this open Design tab, use its page-local get-visual-edit-prompt WebMCP tool instead.`
+    ? `${mcpHandoff}\n\nIf you cannot access the Design MCP server but can use this open Design tab, use its page-local get-visual-edit-prompt WebMCP tool to retrieve edit details; it cannot acknowledge or clear the handoff.`
     : mcpHandoff;
 }
 
 export function isVisualEditHandoffAcknowledged(args: {
-  currentRevision: number;
+  expectedPublisherId: string;
+  expectedClientRevision: number | null;
+  publisherId: string | null;
+  clientRevision: number | null;
+  serverRevision: number | null;
   pendingEditCount: number;
   revision: number | null;
   status: string;
@@ -1826,7 +1837,12 @@ export function isVisualEditHandoffAcknowledged(args: {
   return (
     args.pendingEditCount > 0 &&
     args.status === "empty" &&
-    args.revision === args.currentRevision
+    args.publisherId === args.expectedPublisherId &&
+    args.expectedClientRevision !== null &&
+    args.clientRevision === args.expectedClientRevision &&
+    args.serverRevision !== null &&
+    args.revision !== null &&
+    args.revision >= args.serverRevision
   );
 }
 

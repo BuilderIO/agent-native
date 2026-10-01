@@ -44,9 +44,9 @@ renders as unstyled browser defaults. Bake the values.
 
 These are fallback defaults only. When a design system is linked, its hydrated
 tokens control color, typography, spacing, borders, imagery, and slide defaults;
-a reference deck controls composition and markup idiom only. The generic
-Impeccable-inspired quality bar can flag hierarchy, contrast, density, and
-anti-pattern issues, but it cannot replace the active system.
+a reference deck controls composition and markup idiom only. For "make it
+beautiful" or any polish request, read `slide-design`; its craft rules apply
+inside the active system and cannot replace it.
 
 When no system is linked, establish one deck-level contract before changing a
 slide: choose a subject-appropriate background family, text and surface roles,

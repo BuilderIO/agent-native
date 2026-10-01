@@ -106,6 +106,7 @@ export interface PromptComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
   /** Handle file paste/drop errors in the host chat surface. */
@@ -118,6 +119,8 @@ export interface PromptComposerProps {
   disabled?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
   submissionDisabled?: boolean;
+  /** Disable only the send control while the submission is being accepted. */
+  sendButtonDisabled?: boolean;
   /** Prevent submission while preserving editor focus and draft entry. */
   submitting?: boolean;
   /** Present the primary action as queueing instead of immediate send. */
@@ -608,6 +611,7 @@ function PromptComposerInner({
   ariaLabel,
   disabled,
   submissionDisabled,
+  sendButtonDisabled,
   submitting,
   willQueue = false,
   onDisabledClick,
@@ -680,6 +684,7 @@ function PromptComposerInner({
   imageModelMenu,
   composerRef,
   onBeforeSubmit,
+  onSubmissionPendingChange,
   getSubmitFailureDraftScope,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -890,6 +895,7 @@ function PromptComposerInner({
           disabled={disabled}
           contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled || engineSubmissionBlocked}
+          sendButtonDisabled={sendButtonDisabled}
           submitting={submitting}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
@@ -899,6 +905,7 @@ function PromptComposerInner({
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
           onBeforeSubmit={onBeforeSubmit}
+          onSubmissionPendingChange={onSubmissionPendingChange}
           getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           onAttachmentError={onAttachmentError}
           interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}

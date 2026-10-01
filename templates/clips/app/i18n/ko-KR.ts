@@ -797,6 +797,11 @@ const messages = {
     agentTitle: "에이전트 관리",
     pageTitle: "설정 · Clips",
     labs: "Labs",
+    labResilientRecording: "안정적인 녹화",
+    labResilientRecordingDescription:
+      "더 빠른 녹화 업로드와 중단 후 향상된 복구를 사용해 보세요.",
+    labResilientRecordingMixedDescription:
+      "이전 녹화 설정이 계속 적용됩니다. 켜기 또는 끄기를 선택해 하나의 설정을 사용하세요.",
     labsIntro:
       "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
     labVideoEditing: "동영상 편집",
@@ -1938,6 +1943,8 @@ const messages = {
     retry: "다시 시도",
     retrying: "다시 시도 중…",
     retryFailed: "이 업로드를 다시 시도할 수 없습니다.",
+    retryCheckFailed:
+      "이 업로드를 다시 시도할 수 있는지 확인하지 못했습니다. 새로고침한 후 다시 시도하세요.",
     retryUnavailableHere:
       "다시 시도는 이 녹화를 만든 기기 또는 브라우저에서만 가능합니다.",
     viewsCount: "조회수 {{count}}회",

@@ -73,6 +73,7 @@ export interface A2AConnectionRequestMetadata {
   reason: "connect" | "grant" | "reauthorize" | "admin_required";
   appId?: string;
   detail?: string;
+  source?: { id: string; kind: "workspace_connection"; label?: string };
 }
 
 export interface AgentSkill {

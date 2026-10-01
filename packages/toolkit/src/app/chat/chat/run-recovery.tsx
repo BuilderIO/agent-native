@@ -4,6 +4,7 @@ import {
   localizeKnownChatErrorText,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
@@ -205,10 +206,12 @@ export function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
     /no llm provider(?: key)? (?:is connected|was found)|missing credentials|missing api key|missing_api_key|(?:api[_ -]?key|auth[_ -]?token)\s*(?:(?:is|was)\s+)?(?:not\s+(?:set|configured|available|present|provided|found)|missing|unavailable|empty|unset|unconfigured)/i.test(
       text,
     );
+  // The code decides; the text is any message, including one read back from
+  // the run's record ("The agent run failed.").
   return (
-    hasCredentialSetupText ||
-    ((code === "missing_credentials" || code === "missing_api_key") &&
-      !text.trim())
+    code === "missing_credentials" ||
+    code === "missing_api_key" ||
+    hasCredentialSetupText
   );
 }
 
@@ -512,6 +515,7 @@ export function RunErrorRecoveryCard({
   info,
   onContinue,
   onRetry,
+  retryHasUnavailableAttachment = false,
   onFork,
   onDismiss,
   onProviderConnected,
@@ -519,6 +523,7 @@ export function RunErrorRecoveryCard({
   info: RunErrorInfo;
   onContinue: () => void;
   onRetry: () => void;
+  retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
   onProviderConnected?: () => void;
@@ -570,10 +575,14 @@ export function RunErrorRecoveryCard({
       ? t("agentChat.recovery.copyDebug")
       : t("agentChat.common.copy");
   const copyDetails = useCallback(() => {
+    // The packet names app, thread link, run, code, time and build, so a pasted
+    // report opens the failing run without asking the reporter for anything.
     const text = [
-      info.message,
-      info.errorCode ? `Code: ${info.errorCode}` : "",
-      info.runId ? `Run: ${info.runId}` : "",
+      formatClientFailureReport({
+        message: info.message,
+        ...(info.errorCode ? { errorCode: info.errorCode } : {}),
+        ...(info.runId ? { runId: info.runId } : {}),
+      }),
       info.details ? `Details:\n${info.details}` : "",
     ]
       .filter(Boolean)
@@ -595,18 +604,19 @@ export function RunErrorRecoveryCard({
 
   const handleProviderConnected = useCallback(() => {
     onProviderConnected?.();
+    if (retryHasUnavailableAttachment) return;
     onRetry();
     onDismiss();
-  }, [onDismiss, onProviderConnected, onRetry]);
+  }, [onDismiss, onProviderConnected, onRetry, retryHasUnavailableAttachment]);
 
   const handleMissingProviderConnected = useCallback(() => {
     onProviderConnected?.();
   }, [onProviderConnected]);
   const handleMissingProviderRetry = useCallback(() => {
-    if (retryRequestedRef.current) return;
+    if (retryRequestedRef.current || retryHasUnavailableAttachment) return;
     retryRequestedRef.current = true;
     onRetry();
-  }, [onRetry]);
+  }, [onRetry, retryHasUnavailableAttachment]);
 
   const handleFork = useCallback(async () => {
     if (!onFork || forking) return;
@@ -641,8 +651,17 @@ export function RunErrorRecoveryCard({
               ? handleProviderConnected
               : handleMissingProviderConnected
           }
-          onRetry={handleMissingProviderRetry}
+          onRetry={
+            retryHasUnavailableAttachment
+              ? undefined
+              : handleMissingProviderRetry
+          }
         />
+        {retryHasUnavailableAttachment && (
+          <p className="mx-auto mt-1 w-full max-w-[42rem] px-3 text-xs leading-relaxed text-muted-foreground">
+            {t("agentChat.recovery.retryAttachmentUnavailable")}
+          </p>
+        )}
         {/*
           Deliberately not gated on `providerConnected`. That gate assumed
           connecting here is the only route out, which is false for the reader
@@ -719,6 +738,11 @@ export function RunErrorRecoveryCard({
               {t("agentChat.recovery.newChatHint")}
             </p>
           )}
+          {retryHasUnavailableAttachment && (
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {t("agentChat.recovery.retryAttachmentUnavailable")}
+            </p>
+          )}
           {(info.runId || info.errorCode || info.details) && (
             <button
               type="button"
@@ -784,7 +808,7 @@ export function RunErrorRecoveryCard({
           </button>
         )}
         <div className="flex shrink-0 items-center gap-0.5">
-          {canRetry && (
+          {canRetry && !retryHasUnavailableAttachment && (
             <button
               type="button"
               onClick={onRetry}

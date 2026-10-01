@@ -1,3 +1,4 @@
+import { LLM_MISSING_CREDENTIALS_ERROR_CODE } from "../agent/engine/credential-errors.js";
 import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 import {
   automationMatchesEventOwner,
@@ -8,6 +9,20 @@ import { isProductionServerlessFunctionRuntime } from "../db/client.js";
 import { subscribe, unsubscribe } from "../event-bus/index.js";
 import type { EventMeta } from "../event-bus/types.js";
 import {
+  countAutomationCredentialState,
+  trackAutomationPaused,
+} from "../jobs/automation-events.js";
+import {
+  applyAutomationFailure,
+  classifyAutomationFailure,
+  CLEAR_FAILURE_STATE,
+  CONFIG_INVALID_ERROR_CODE,
+  OWNER_MISSING_ERROR_CODE,
+  pauseNow,
+  type AutomationFailure,
+} from "../jobs/automation-outcome.js";
+import {
+  BackgroundAutomationRunError,
   isBackgroundAutomationRunActive,
   runBackgroundAutomation,
   type BackgroundAutomationContext,
@@ -18,6 +33,7 @@ import {
   jobBelongsToApp,
   parseJobResource,
   patchJobFrontmatterFields,
+  type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
 import {
   registerRecurringSweepHandler,
@@ -191,6 +207,17 @@ async function recordTriggerExecutionOutcome(
     TriggerFrontmatter,
     "lastCheck" | "lastStatus" | "lastError" | "lastRun"
   >,
+  /**
+   * `failure` advances the consecutive-failure streak and may pause the
+   * automation; `pauseImmediately` is for a failure that nothing can retry
+   * (the owner is gone, the identity config is broken). `eventId` counts the
+   * streak once per event, however many times the queue retries it.
+   */
+  failed?: {
+    failure: AutomationFailure;
+    pauseImmediately?: boolean;
+    eventId?: string;
+  },
 ): Promise<boolean> {
   const latest = await resourceGetByPath(resource.owner, resource.path);
   if (!latest) {
@@ -207,7 +234,27 @@ async function recordTriggerExecutionOutcome(
   }
 
   const current = parseTriggerFrontmatter(latest.content);
+  let extra: JobFrontmatterPatch = {};
+  let pausedAfter: number | undefined;
+  if (failed) {
+    const now = new Date();
+    const transition = failed.pauseImmediately
+      ? pauseNow(failed.failure, now)
+      : applyAutomationFailure(current.meta, failed.failure, now, {
+          eventId: failed.eventId,
+        });
+    extra = transition.patch;
+    if (transition.pause) {
+      pausedAfter = transition.consecutiveFailures;
+      console.warn(
+        `[triggers] Paused "${resource.path}" after ${transition.consecutiveFailures} consecutive ${failed.failure.code} failures: ${failed.failure.message}`,
+      );
+    }
+  } else if (outcome.lastStatus === "success") {
+    extra = CLEAR_FAILURE_STATE;
+  }
   const unchanged =
+    !failed &&
     current.meta.lastStatus === outcome.lastStatus &&
     current.meta.lastError === outcome.lastError &&
     (outcome.lastRun === undefined || current.meta.lastRun === outcome.lastRun);
@@ -218,7 +265,10 @@ async function recordTriggerExecutionOutcome(
   const written = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,
-    content: patchJobFrontmatterFields(latest.content, outcome),
+    content: patchJobFrontmatterFields(latest.content, {
+      ...outcome,
+      ...extra,
+    }),
     expectedId: latest.id,
     expectedUpdatedAt: latest.updatedAt,
     expectedContent: latest.content,
@@ -228,6 +278,15 @@ async function recordTriggerExecutionOutcome(
       `[triggers] "${resource.path}" changed while its outcome was being recorded; dropping the outcome.`,
     );
     return false;
+  }
+  if (failed) countAutomationCredentialState(failed.failure.code);
+  if (failed && pausedAfter !== undefined) {
+    trackAutomationPaused({
+      name: resource.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
+      failure: failed.failure,
+      consecutiveFailures: pausedAfter,
+      surface: failed.pauseImmediately ? "preflight" : "trigger",
+    });
   }
   return true;
 }
@@ -914,6 +973,27 @@ async function dispatchQueuedAutomationEvent(
       throw error;
     }
     if (!resolved.ok) {
+      // A creator who is gone or an identity config that cannot be valid will
+      // not heal by itself: disable once, with the reason, so the event keeps
+      // neither re-skipping nor re-subscribing.
+      if (
+        resolved.code === OWNER_MISSING_ERROR_CODE ||
+        resolved.code === CONFIG_INVALID_ERROR_CODE
+      ) {
+        await recordTriggerExecutionOutcome(
+          resource,
+          { lastCheck: new Date().toISOString() },
+          {
+            failure: {
+              code: resolved.code,
+              message: resolved.reason,
+              precondition: true,
+            },
+            pauseImmediately: true,
+          },
+        );
+        return "completed";
+      }
       await recordTriggerSkip(resource, "skipped", resolved.reason);
       return "completed";
     }
@@ -923,22 +1003,35 @@ async function dispatchQueuedAutomationEvent(
     identity = resolved.identity;
   }
 
+  // The key only feeds the natural-language condition check; the run itself
+  // verifies the LLM credential before it starts a thread, with the same
+  // identity-aware check as interactive chat.
   const apiKey =
     (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
-  if (!apiKey) {
-    await recordTriggerSkip(
+  if (!apiKey && meta.condition?.trim()) {
+    await recordTriggerExecutionOutcome(
       resource,
-      "error",
-      "No API key is available for this automation",
+      { lastCheck: new Date().toISOString() },
+      {
+        failure: {
+          code: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+          message:
+            "No API key is available to evaluate this automation's condition.",
+          precondition: true,
+        },
+      },
     );
     return "completed";
   }
 
   let matches: boolean;
   try {
-    matches = await evaluateCondition(meta.condition, queued.payload, apiKey, {
-      deadlineAt: hardDeadlineAt,
-    });
+    matches = await evaluateCondition(
+      meta.condition,
+      queued.payload,
+      apiKey ?? "",
+      { deadlineAt: hardDeadlineAt },
+    );
   } catch (error) {
     const reason =
       error instanceof Error ? error.message : "Condition evaluation failed";
@@ -1012,14 +1105,23 @@ export async function dispatchAutomationWebhookTask(
   const identity = resolved.identity;
   const apiKey =
     (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
-  if (!apiKey) throw new Error("No API key is available for this automation.");
+  if (!apiKey && meta.condition?.trim()) {
+    throw new BackgroundAutomationRunError(
+      "No API key is available to evaluate this automation's condition.",
+      LLM_MISSING_CREDENTIALS_ERROR_CODE,
+    );
+  }
 
   if (isBackgroundAutomationRunActive(meta)) {
     return "retry";
   }
   let matches: boolean;
   try {
-    matches = await evaluateCondition(meta.condition, task.payload, apiKey);
+    matches = await evaluateCondition(
+      meta.condition,
+      task.payload,
+      apiKey ?? "",
+    );
   } catch (err) {
     const reason =
       err instanceof Error ? err.message : "Condition evaluation failed";
@@ -1166,6 +1268,7 @@ async function dispatchAgentic(
         runIdPrefix: `automation-${triggerName}`,
         usageLabel: `automation:${triggerName}`,
         usageRefId: eventMeta.eventId,
+        eventId: eventMeta.eventId,
         requestContext,
         actionCaller: "automation",
         actionAutomation: {
@@ -1185,13 +1288,19 @@ async function dispatchAgentic(
     console.log(`[triggers] "${triggerName}" completed successfully`);
     return true;
   } catch (err) {
-    const lastError =
-      err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-    await recordTriggerExecutionOutcome(latest, {
-      lastStatus: "error",
-      lastError,
-    });
-    console.error(`[triggers] "${triggerName}" failed:`, lastError);
+    const failure = classifyAutomationFailure(err);
+    await recordTriggerExecutionOutcome(
+      latest,
+      {
+        lastStatus: "error",
+        lastError: failure.message.slice(0, 200),
+      },
+      { failure, eventId: eventMeta.eventId },
+    );
+    console.error(
+      `[triggers] "${triggerName}" failed (${failure.code}):`,
+      failure.message.slice(0, 200),
+    );
     throw err;
   }
 }

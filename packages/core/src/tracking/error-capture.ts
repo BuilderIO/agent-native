@@ -1,5 +1,6 @@
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import type { CaptureErrorContext } from "../server/capture-error.js";
+import { stripSqlParams } from "../shared/error-noise.js";
 import {
   boundedText,
   exceptionParts,
@@ -31,7 +32,14 @@ export function captureException(
   context: TrackingExceptionContext = {},
 ): void {
   try {
-    const parts = exceptionParts(error);
+    const raw = exceptionParts(error);
+    // A database error's bound parameters ride on the message and stack; they
+    // must not reach the tracker, where they become the issue title and culprit.
+    const parts = {
+      ...raw,
+      message: stripSqlParams(raw.message),
+      ...(raw.stack ? { stack: stripSqlParams(raw.stack) } : {}),
+    };
     const tags = safeTags({
       ...context.tags,
       ...(context.route ? { route: context.route } : {}),

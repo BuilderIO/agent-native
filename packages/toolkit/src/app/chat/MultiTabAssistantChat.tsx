@@ -1,4 +1,5 @@
 import type { AgentChatAttachment } from "@agent-native/core";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import {
   DEFAULT_MODEL,
@@ -243,7 +244,10 @@ function resolveModelSelection(
   const fallbackGroup = matchingConfiguredGroup ?? fallbackConfiguredGroup;
   const engine = suppliedEngineGroup?.engine ?? fallbackGroup?.engine;
   const model = suppliedEngineGroup
-    ? selection.model
+    ? suppliedEngineGroup.engine === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+      !suppliedEngineGroup.models.includes(selection.model)
+      ? suppliedEngineGroup.models[0]
+      : selection.model
     : matchingConfiguredGroup?.models.includes(selection.model)
       ? selection.model
       : fallbackGroup?.models[0];
@@ -497,7 +501,7 @@ function HistoryPopover({
       <PopoverAnchor asChild>
         <span
           aria-hidden
-          className={`absolute top-0 h-px w-px ${popoverAlign === "start" ? "start-2" : "end-2"}`}
+          className={`absolute h-px w-px ${popoverAlign === "start" ? "top-12 start-2" : "top-0 end-2"}`}
         />
       </PopoverAnchor>
       <PopoverContent
@@ -989,9 +993,32 @@ export function MultiTabAssistantChat({
 
   const writeThreadUrl = useCallback(
     (threadId: string | null, options: { replace?: boolean } = {}): void => {
-      if (!threadUrlSyncEnabled || typeof window === "undefined") return;
+      if (typeof window === "undefined") return;
+      const normalizedThreadId = normalizeUrlThreadId(threadId);
+      if (!threadUrlSyncEnabled) {
+        if (
+          !activeDeepLinkedThreadId ||
+          normalizedThreadId === activeDeepLinkedThreadId
+        ) {
+          return;
+        }
+        setActiveDeepLinkedThreadId(null);
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete(DEFAULT_THREAD_URL_PARAM);
+          url.searchParams.delete("threadId");
+          window.history.replaceState(
+            window.history.state,
+            "",
+            `${url.pathname}${url.search}${url.hash}`,
+          );
+        } catch (error) {
+          console.error("Could not clear the stale thread URL:", error);
+        }
+        window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
+        return;
+      }
       try {
-        const normalizedThreadId = normalizeUrlThreadId(threadId);
         let next: string;
         if (getThreadPath) {
           next = getThreadPath(normalizedThreadId);
@@ -1035,6 +1062,7 @@ export function MultiTabAssistantChat({
     [
       getThreadPath,
       navigateThreadUrl,
+      activeDeepLinkedThreadId,
       threadUrlParamName,
       threadUrlSyncEnabled,
     ],
@@ -1129,6 +1157,7 @@ export function MultiTabAssistantChat({
     ? (hostModelListLoading ?? false)
     : discoveredModelsLoading;
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
+  const engineCatalogRequestRef = useRef(0);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
   >(new Map());
@@ -1363,9 +1392,18 @@ export function MultiTabAssistantChat({
 
   const refreshEngines = useCallback(() => {
     if (hostManagedModels) return;
+    const requestId = ++engineCatalogRequestRef.current;
+    const isCurrentRequest = () =>
+      requestId === engineCatalogRequestRef.current;
+    setDiscoveredModels((groups) =>
+      groups.filter(
+        (group) => group.engine !== CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      ),
+    );
     setModelListLoading(true);
     loadChatModelCatalog()
       .then((catalog) => {
+        if (!isCurrentRequest()) return;
         if (catalog.state !== "available") {
           if (catalog.enginesUnavailable) {
             // Leaves `availableModels` empty for the session, so an override
@@ -1379,21 +1417,27 @@ export function MultiTabAssistantChat({
         setDiscoveredModels(catalog.groups);
         setDefaultModel(catalog.defaultModel);
         void catalog.loadLiveGroups().then((liveGroups) => {
-          if (liveGroups) setDiscoveredModels(liveGroups);
+          if (isCurrentRequest() && liveGroups) {
+            setDiscoveredModels(liveGroups);
+          }
         });
       })
       .catch(() => {})
-      .finally(() => setModelListLoading(false));
+      .finally(() => {
+        if (isCurrentRequest()) setModelListLoading(false);
+      });
   }, [hostManagedModels]);
 
   useEffect(() => {
     refreshEngines();
     window.addEventListener("agent-engine:configured-changed", refreshEngines);
-    return () =>
+    return () => {
       window.removeEventListener(
         "agent-engine:configured-changed",
         refreshEngines,
       );
+      engineCatalogRequestRef.current += 1;
+    };
   }, [refreshEngines]);
 
   // Parent-child thread mapping — persisted to localStorage.
@@ -3090,7 +3134,7 @@ export function MultiTabAssistantChat({
       <div
         className={cn(
           "relative flex-1 flex flex-col min-h-0",
-          renderOverlay && "pt-14",
+          renderOverlay && "pt-12",
         )}
         data-agent-page-chat-topbar={renderOverlay ? "" : undefined}
         data-agent-page-chat-scrolled={
