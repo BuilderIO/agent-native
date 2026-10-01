@@ -423,6 +423,17 @@ export default function Index() {
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
 
+  useEffect(() => {
+    if (newDesignSystemWasChosenRef.current || designSystemsLoading) return;
+    const linkedSystemId = selectedTemplate?.designSystemId;
+    setNewDesignSystemId(
+      linkedSystemId &&
+        designSystems.some((system) => system.id === linkedSystemId)
+        ? linkedSystemId
+        : null,
+    );
+  }, [designSystems, designSystemsLoading, selectedTemplate]);
+
   const showAuthors = designFilter === "all";
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
@@ -457,18 +468,12 @@ export default function Index() {
       if (newDesignSystemWasChosenRef.current) return;
       const linkedSystemId =
         template?.designSystemId &&
-        (designSystemsLoading ||
-          designSystems.some((system) => system.id === template.designSystemId))
+        designSystems.some((system) => system.id === template.designSystemId)
           ? template.designSystemId
           : null;
       setNewDesignSystemId(linkedSystemId);
     },
-    [
-      designSystems,
-      designSystemsLoading,
-      syncSelectedTemplate,
-      templateOptions,
-    ],
+    [designSystems, syncSelectedTemplate, templateOptions],
   );
 
   const handleNewDesignSystemChange = useCallback(
@@ -687,7 +692,12 @@ export default function Index() {
       if (!canChatRef.current) return;
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
-      const designSystemId = newDesignSystemId;
+      const designSystemId =
+        selectedTemplate &&
+        !newDesignSystemWasChosenRef.current &&
+        designSystemsLoading
+          ? undefined
+          : newDesignSystemId;
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
@@ -859,6 +869,7 @@ export default function Index() {
       createFromTemplateMutation,
       createFusionAppMutation,
       designSystems,
+      designSystemsLoading,
       fullAppBuildingEnabled,
       handleGenerateDesignTitle,
       navigate,

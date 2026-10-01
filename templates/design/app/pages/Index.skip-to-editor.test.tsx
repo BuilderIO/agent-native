@@ -10,6 +10,8 @@ import Index from "./Index";
 
 const mocks = vi.hoisted(() => ({
   systemsEnabled: true,
+  systemsLoading: false,
+  systemIds: ["default-system", "linked-system", "override-system"],
   systemsQuery: vi.fn(),
   createDesign: vi.fn(),
   createFromTemplate: vi.fn(),
@@ -317,33 +319,35 @@ vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (
     mocks.systemsQuery(enabled),
     {
-      designSystems: [
-        {
-          id: "default-system",
-          title: "Default system",
-          isDefault: true,
-          data: "{}",
-        },
-        {
-          id: "linked-system",
-          title: "Linked system",
-          isDefault: false,
-          data: "{}",
-        },
-        {
-          id: "override-system",
-          title: "Override system",
-          isDefault: false,
-          data: "{}",
-        },
-      ],
+      designSystems: mocks.systemsLoading
+        ? []
+        : [
+            {
+              id: "default-system",
+              title: "Default system",
+              isDefault: true,
+              data: "{}",
+            },
+            {
+              id: "linked-system",
+              title: "Linked system",
+              isDefault: false,
+              data: "{}",
+            },
+            {
+              id: "override-system",
+              title: "Override system",
+              isDefault: false,
+              data: "{}",
+            },
+          ].filter((system) => mocks.systemIds.includes(system.id)),
       defaultSystem: {
         id: "default-system",
         title: "Default system",
         isDefault: true,
         data: "{}",
       },
-      isLoading: false,
+      isLoading: mocks.systemsLoading,
     }
   ),
 }));
@@ -384,6 +388,8 @@ beforeEach(async () => {
   mocks.headerActions = null;
   mocks.fullAppBuilding = false;
   mocks.systemsEnabled = true;
+  mocks.systemsLoading = false;
+  mocks.systemIds = ["default-system", "linked-system", "override-system"];
   mocks.ownCount = 0;
   mocks.ownedCount = 0;
   mocks.ownStatus = "success";
@@ -779,6 +785,59 @@ describe("Index skip to editor", () => {
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/design/copied-design");
     expect(shouldClose).toBe(false);
+  });
+
+  it("resolves a linked system after the design systems finish loading", async () => {
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+
+    mocks.systemsLoading = false;
+    await act(async () => root.render(<Index />));
+    expect(mocks.promptProps?.selectedDesignSystemId).toBe("linked-system");
+  });
+
+  it("clears an inaccessible linked system after loading before template copy", async () => {
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+
+    mocks.systemIds = ["default-system", "override-system"];
+    mocks.systemsLoading = false;
+    await act(async () => root.render(<Index />));
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Copy this template", [], {});
+    });
+    expect(mocks.createFromTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateId: "saved-template",
+        designSystemId: null,
+      }),
+    );
+  });
+
+  it("leaves template system resolution to the copy action while systems load", async () => {
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Copy this template", [], {});
+    });
+    expect(mocks.createFromTemplate).toHaveBeenCalledTimes(1);
+    expect(mocks.createFromTemplate.mock.calls[0][0]).not.toHaveProperty(
+      "designSystemId",
+    );
   });
 
   it("opens a copied template without waiting for the designs list to refresh", async () => {
