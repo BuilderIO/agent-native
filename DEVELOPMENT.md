@@ -175,7 +175,12 @@ On Windows, the guards need a checkout with LF line endings and real symlinks
    `git config core.symlinks true`.
 2. If the clone predates the `eol=lf` rule in `.gitattributes` or was made
    without symlinks, commit or stash your changes, then rewrite the tracked
-   files once: `git rm --cached -r -q . && git reset --hard`.
+   files once:
+
+   ```bash
+   git rm --cached -r -q .
+   git reset --hard
+   ```
 
 ## Building
 
