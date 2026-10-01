@@ -511,6 +511,22 @@ function reconcileDurableMessages(
       .map((run) => run.id),
     ...completedDurableRunIds(durable),
   ]);
+  const durableAssistantRunIds = new Set(
+    durable.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        ["complete", "error"].includes(message.status ?? "") &&
+        custom?.continued !== true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+  const recoverableAssistantRunIds = new Set([
+    ...completedRunIds,
+    ...durableAssistantRunIds,
+  ]);
   for (const message of durable) {
     if (
       message.role !== "assistant" ||
@@ -519,7 +535,9 @@ function reconcileDurableMessages(
       continue;
     }
     const runId = asRecord(message.metadata)?.runId;
-    if (typeof runId !== "string" || !completedRunIds.has(runId)) continue;
+    if (typeof runId !== "string" || !recoverableAssistantRunIds.has(runId)) {
+      continue;
+    }
     if (representedAssistantRunIds.has(runId)) continue;
     const eventIds = assistantIdsByRun.get(runId);
     if (
@@ -595,6 +613,7 @@ function reconcileDurableMessages(
 
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
   const status = asRecord(value)?.type ?? value;
+  if (status === "incomplete") return "error";
   return status === "streaming" || status === "complete" || status === "error"
     ? status
     : undefined;
@@ -1275,14 +1294,10 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  async function snapshot(
-    threadId: string,
-  ): Promise<AgentThreadSnapshot | null> {
-    const stored = await fetchThread(threadId);
-    if (!stored) return null;
-    const thread = projectThread(threadId, stored);
-    // A message parked by a send still waiting on this page is delivered by
-    // that wait; listing it as queued here would let a promotion race it.
+  function withoutParkedMessages(
+    thread: AgentThreadSnapshot,
+  ): AgentThreadSnapshot {
+    // The original send waiter owns delivery of its parked queue entry.
     return parkedMessageIds.size === 0
       ? thread
       : {
@@ -1291,6 +1306,14 @@ export function createAgentNativeAgentKitTransport(
             (message) => !parkedMessageIds.has(message.id),
           ),
         };
+  }
+
+  async function snapshot(
+    threadId: string,
+  ): Promise<AgentThreadSnapshot | null> {
+    const stored = await fetchThread(threadId);
+    if (!stored) return null;
+    return withoutParkedMessages(projectThread(threadId, stored));
   }
 
   async function activeRunSnapshot(
@@ -1369,12 +1392,9 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<AgentThreadSnapshot | null> {
     const stored = await fetchThread(threadId);
     const thread = stored ? projectThread(threadId, stored) : null;
-    if (
-      !stored ||
-      !thread ||
-      (options.runtime && options.runtime.kind !== "agent-native")
-    ) {
-      return thread;
+    if (!stored || !thread) return thread;
+    if (options.runtime && options.runtime.kind !== "agent-native") {
+      return withoutParkedMessages(thread);
     }
     const durableMessages = storedMessages(
       storedRepository(stored).messages,
@@ -1383,13 +1403,8 @@ export function createAgentNativeAgentKitTransport(
     );
     const completedRunIds = completedDurableRunIds(durableMessages);
     const activeRun = await activeRunSnapshot(threadId);
-    if (activeRun === undefined) return thread;
-    const discoveredRun =
-      activeRun &&
-      completedRunIds.has(activeRun.id) &&
-      !["completed", "failed", "cancelled"].includes(activeRun.status)
-        ? { ...activeRun, status: "completed" as const }
-        : activeRun;
+    if (activeRun === undefined) return withoutParkedMessages(thread);
+    const discoveredRun = activeRun;
     const knownActiveRunId =
       discoveredRun &&
       !["completed", "failed", "cancelled"].includes(discoveredRun.status)
@@ -1398,13 +1413,23 @@ export function createAgentNativeAgentKitTransport(
     const runs = (thread.runs ?? [])
       .filter((entry) => entry.id !== discoveredRun?.id)
       .map((run) => {
-        if (completedRunIds.has(run.id)) {
+        if (
+          activeRun === null &&
+          run.status === "running" &&
+          completedRunIds.has(run.id)
+        ) {
           return { ...run, status: "completed" as const };
         }
         if (
           activeRun !== undefined &&
           run.id !== knownActiveRunId &&
-          !["completed", "failed", "cancelled"].includes(run.status)
+          ![
+            "completed",
+            "failed",
+            "cancelled",
+            "awaiting_approval",
+            "awaiting_input",
+          ].includes(run.status)
         ) {
           return {
             ...run,
@@ -1424,7 +1449,13 @@ export function createAgentNativeAgentKitTransport(
       discoveredRun &&
       !["completed", "failed", "cancelled"].includes(discoveredRun.status)
         ? [discoveredRun.id]
-        : [];
+        : activeRun === null
+          ? runs
+              .filter((run) =>
+                ["awaiting_approval", "awaiting_input"].includes(run.status),
+              )
+              .map((run) => run.id)
+          : [];
     const messages = reconcileDurableMessages(
       thread.messages,
       durableMessages,
@@ -1449,23 +1480,21 @@ export function createAgentNativeAgentKitTransport(
     }
     const messagesForReplay = replayFromStart
       ? messages.filter((message) => {
-          if (message.role !== "assistant" || message.status !== "streaming") {
-            return true;
-          }
+          if (message.role !== "assistant") return true;
           const runId = asRecord(message.metadata)?.runId;
           return !(
             runId === discoveredRun?.id || replayedMessageIds.has(message.id)
           );
         })
       : messages;
-    return {
+    return withoutParkedMessages({
       ...thread,
       // Replay starts at sequence zero, so rebuild an active assistant instead
       // of appending the same prefix to its persisted partial projection.
       messages: messagesForReplay,
       runs,
       activeRunIds,
-    };
+    });
   }
 
   async function persistThreadSnapshot(input: {

@@ -1832,89 +1832,95 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("rebuilds a partial assistant once when an active run replays from sequence zero", async () => {
-    const threadId = "thread-partial-assistant-replay";
-    const requestUrls: string[] = [];
-    const fetcher = vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
-      requestUrls.push(url);
-      if (url.endsWith(`/threads/${threadId}`)) {
-        return json({
-          id: threadId,
-          threadData: JSON.stringify({
-            messages: [],
-            agentKit: {
-              messages: [
-                {
-                  id: "assistant-partial",
-                  role: "assistant",
-                  status: "streaming",
-                  parts: [{ type: "text", text: "Slow stream" }],
-                  metadata: { runId: "run-replay" },
-                },
-              ],
-            },
-          }),
-        });
-      }
-      if (url.includes(`/runs/active?threadId=${threadId}`)) {
-        return json({ active: true, status: "running", runId: "run-replay" });
-      }
-      if (url.includes("/runs/latest?") && url.includes("runId=run-replay")) {
-        return json({
-          runId: "run-replay",
-          turnId: "turn-replay",
-          status: "running",
-        });
-      }
-      if (url.endsWith("/runs/run-replay/events?after=0")) {
-        const stream = [
-          { type: "text", text: "Slow stream", seq: 1 },
-          { type: "text", text: " resumed after reload.", seq: 2 },
-          { type: "done", seq: 3 },
-        ]
-          .map((event) => `data: ${JSON.stringify(event)}\n\n`)
-          .join("");
-        return new Response(stream, {
-          headers: { "content-type": "text/event-stream" },
-        });
-      }
-      return json({ error: "Not found" }, 404);
-    }) as typeof fetch;
-    const transport = createAgentNativeAgentKitTransport({
-      apiUrl: "/_agent-native/agent-chat",
-      fetch: fetcher,
-      runtime: createAgentNativeChatRuntime({
+  it.each(["streaming", "complete"] as const)(
+    "rebuilds a %s assistant once when an active run replays from sequence zero",
+    async (messageStatus) => {
+      const threadId = "thread-partial-assistant-replay";
+      const requestUrls: string[] = [];
+      const fetcher = vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        requestUrls.push(url);
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [],
+              agentKit: {
+                messages: [
+                  {
+                    id:
+                      messageStatus === "complete"
+                        ? "server-run-replay"
+                        : "assistant-partial",
+                    role: "assistant",
+                    status: messageStatus,
+                    parts: [{ type: "text", text: "Slow stream" }],
+                    metadata: { runId: "run-replay" },
+                  },
+                ],
+              },
+            }),
+          });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: true, status: "running", runId: "run-replay" });
+        }
+        if (url.includes("/runs/latest?") && url.includes("runId=run-replay")) {
+          return json({
+            runId: "run-replay",
+            turnId: "turn-replay",
+            status: "running",
+          });
+        }
+        if (url.endsWith("/runs/run-replay/events?after=0")) {
+          const stream = [
+            { type: "text", text: "Slow stream", seq: 1 },
+            { type: "text", text: " resumed after reload.", seq: 2 },
+            { type: "done", seq: 3 },
+          ]
+            .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+            .join("");
+          return new Response(stream, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch;
+      const transport = createAgentNativeAgentKitTransport({
         apiUrl: "/_agent-native/agent-chat",
         fetch: fetcher,
-      }),
-    });
-    const client = new AgentKitClient({ transport });
+        runtime: createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetcher,
+        }),
+      });
+      const client = new AgentKitClient({ transport });
 
-    await client.loadThread(threadId);
-    await vi.waitFor(() =>
-      expect(client.getThread(threadId).runs["run-replay"]?.status).toBe(
-        "completed",
-      ),
-    );
-    expect(client.getThread(threadId).runs["run-replay"]).toMatchObject({
-      status: "completed",
-    });
+      await client.loadThread(threadId);
+      await vi.waitFor(() =>
+        expect(client.getThread(threadId).runs["run-replay"]?.status).toBe(
+          "completed",
+        ),
+      );
+      expect(client.getThread(threadId).runs["run-replay"]).toMatchObject({
+        status: "completed",
+      });
 
-    expect(requestUrls).toContain(
-      "/_agent-native/agent-chat/runs/run-replay/events?after=0",
-    );
-    const assistantMessages = client
-      .getThread(threadId)
-      .messages.filter((message) => message.role === "assistant");
-    expect(assistantMessages).toHaveLength(1);
-    expect(assistantMessages[0]?.parts).toEqual([
-      { type: "text", text: "Slow stream resumed after reload." },
-    ]);
+      expect(requestUrls).toContain(
+        "/_agent-native/agent-chat/runs/run-replay/events?after=0",
+      );
+      const assistantMessages = client
+        .getThread(threadId)
+        .messages.filter((message) => message.role === "assistant");
+      expect(assistantMessages).toHaveLength(1);
+      expect(assistantMessages[0]?.parts).toEqual([
+        { type: "text", text: "Slow stream resumed after reload." },
+      ]);
 
-    await client.shutdown();
-    await transport.dispose();
-  });
+      await client.shutdown();
+      await transport.dispose();
+    },
+  );
 
   it("keeps a prior assistant projection when another run replays from sequence zero", async () => {
     const threadId = "thread-prior-assistant-replay";
@@ -2362,13 +2368,13 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("uses durable completion when the stored run still says running", async () => {
+  it("uses durable completion when an idle server leaves a stale run marked running", async () => {
     const threadId = "thread-stale-run";
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) => {
         const url = String(input);
         if (url.includes("/runs/active")) {
-          return json({ active: true, status: "running", runId: "run-stale" });
+          return json({ active: false, status: "idle" });
         }
         return json({
           id: threadId,
@@ -2421,6 +2427,127 @@ describe("createAgentNativeAgentKitTransport", () => {
       expect.objectContaining({ id: "run-stale", status: "completed" }),
     );
     expect(snapshot?.activeRunIds).not.toContain("run-stale");
+    await transport.dispose();
+  });
+
+  it.each([
+    { status: "awaiting_approval", active: true },
+    { status: "awaiting_input", active: true },
+    { status: "failed", active: true },
+    { status: "cancelled", active: true },
+    { status: "awaiting_approval", active: false },
+    { status: "awaiting_input", active: false },
+  ] as const)(
+    "preserves durable assistant run state $status when active=$active",
+    async ({ status, active }) => {
+      const threadId = `thread-durable-status-${status}-${active}`;
+      const runId = `run-${status}`;
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) => {
+          if (String(input).includes("/runs/active")) {
+            return json({ active, status: active ? status : "idle", runId });
+          }
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: `assistant-${runId}`,
+                    role: "assistant",
+                    content: [{ type: "text", text: "Before the pause" }],
+                    status: { type: "complete" },
+                    metadata: { runId },
+                  },
+                },
+              ],
+              agentKit: {
+                messages: [],
+                activeRunIds:
+                  status === "awaiting_approval" || status === "awaiting_input"
+                    ? [runId]
+                    : [],
+                runs: [
+                  {
+                    id: runId,
+                    threadId,
+                    status,
+                    lastSequence: 1,
+                  },
+                ],
+              },
+            }),
+          });
+        }) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+      expect(snapshot?.runs).toContainEqual(
+        expect.objectContaining({ id: runId, status }),
+      );
+      if (status === "awaiting_approval" || status === "awaiting_input") {
+        expect(snapshot?.activeRunIds).toContain(runId);
+      } else {
+        expect(snapshot?.activeRunIds).not.toContain(runId);
+      }
+      await transport.dispose();
+    },
+  );
+
+  it("restores a durable failed assistant reply without a saved run snapshot", async () => {
+    const threadId = "thread-durable-failed-assistant";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "assistant-failed-durable",
+                  role: "assistant",
+                  content: [{ type: "text", text: "The request failed." }],
+                  status: { type: "incomplete", reason: "error" },
+                  metadata: {
+                    runId: "run-failed-durable",
+                    custom: {
+                      runError: {
+                        message: "Provider unavailable",
+                        errorCode: "provider_unavailable",
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+            agentKit: { messages: [] },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages).toContainEqual(
+      expect.objectContaining({
+        id: "assistant-failed-durable",
+        role: "assistant",
+        status: "error",
+        metadata: {
+          runId: "run-failed-durable",
+          custom: {
+            runError: {
+              message: "Provider unavailable",
+              errorCode: "provider_unavailable",
+            },
+          },
+        },
+      }),
+    );
     await transport.dispose();
   });
 
@@ -3020,6 +3147,87 @@ describe("createAgentNativeAgentKitTransport", () => {
     });
 
     expect(activeRunChecks).toBe(4);
+    await transport.dispose();
+  });
+
+  it("hides a locally parked send from active-run snapshots while its waiter owns delivery", async () => {
+    const threadId = "thread-parked-snapshot";
+    let resolveAppend!: () => void;
+    const appendSaved = new Promise<void>((resolve) => {
+      resolveAppend = resolve;
+    });
+    let queuedMessages: Array<Record<string, unknown>> = [];
+    let activeRunChecks = 0;
+    let startRequests = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/agent-chat") && init?.method === "POST") {
+          startRequests += 1;
+          return json(
+            {
+              error: "Run already in progress for this thread",
+              code: "run_slot_busy",
+              retryable: true,
+              activeRunId: "run-existing",
+            },
+            409,
+          );
+        }
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          if (mutation.type === "append") {
+            queuedMessages = [mutation.message];
+            resolveAppend();
+          }
+          return json({ queuedMessages, message: mutation.message });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ queuedMessages }),
+          });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          activeRunChecks += 1;
+          return json({
+            active: true,
+            status: "running",
+            runId: "run-existing",
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+    const controller = new AbortController();
+    const send = transport.startRun(
+      {
+        threadId,
+        messages: [
+          {
+            id: "parked-send",
+            role: "user",
+            parts: [{ type: "text", text: "Wait behind the current run" }],
+          },
+        ],
+      },
+      { signal: controller.signal },
+    );
+
+    await appendSaved;
+    await vi.waitFor(() => expect(activeRunChecks).toBeGreaterThan(0));
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.queuedMessages).not.toContainEqual(
+      expect.objectContaining({ id: "parked-send" }),
+    );
+    controller.abort();
+    await expect(send).rejects.toMatchObject({ name: "AbortError" });
+    expect(startRequests).toBe(1);
     await transport.dispose();
   });
 
