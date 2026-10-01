@@ -1118,7 +1118,9 @@ export function AgentActivityGroup({
     durableToolResults.map(({ tool }) => tool.id),
   );
   const isInternalActivity = (activity: AgentActivity) =>
-    activity.id.startsWith("agentkit:internal:");
+    activity.id.startsWith("agentkit:internal:") ||
+    activity.id === "activity:Starting agent" ||
+    activity.id === "activity:Contacting model";
   const activityItems = items.filter(
     (activity) =>
       !durableToolResultIds.has(activity.id) && !isInternalActivity(activity),

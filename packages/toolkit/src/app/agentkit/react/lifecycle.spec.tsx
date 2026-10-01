@@ -2940,20 +2940,50 @@ describe("AgentChat lifecycle", () => {
           status: "completed",
         },
       }))
-      .concat({
-        id: "provider-contacting-model",
-        threadId,
-        runId,
-        sequence: 4,
-        occurredAt: "2026-08-31T00:00:04.000Z",
-        type: "activity.completed",
-        activity: {
-          id: "provider:contacting-model",
-          kind: "status",
-          label: "Contacting model",
-          status: "completed",
+      .concat([
+        {
+          id: "legacy-starting-agent",
+          threadId,
+          runId,
+          sequence: 4,
+          occurredAt: "2026-08-31T00:00:04.000Z",
+          type: "activity.completed",
+          activity: {
+            id: "activity:Starting agent",
+            kind: "status",
+            label: "Starting agent",
+            status: "completed",
+          },
         },
-      });
+        {
+          id: "legacy-contacting-model",
+          threadId,
+          runId,
+          sequence: 5,
+          occurredAt: "2026-08-31T00:00:05.000Z",
+          type: "activity.completed",
+          activity: {
+            id: "activity:Contacting model",
+            kind: "status",
+            label: "Contacting model",
+            status: "completed",
+          },
+        },
+        {
+          id: "provider-contacting-model",
+          threadId,
+          runId,
+          sequence: 6,
+          occurredAt: "2026-08-31T00:00:06.000Z",
+          type: "activity.completed",
+          activity: {
+            id: "provider:contacting-model",
+            kind: "status",
+            label: "Contacting model",
+            status: "completed",
+          },
+        },
+      ]);
     const thread = { ...createAgentThreadState(threadId), events };
     const observable = observableController({
       connection: "connected",
