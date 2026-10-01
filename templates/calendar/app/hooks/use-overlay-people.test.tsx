@@ -63,7 +63,8 @@ function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
 
 function statusProbeCalls() {
   return callAction.mock.calls.filter(
-    ([name, params]) => name === "list-events" && params?.format === "inventory",
+    ([name, params]) =>
+      name === "list-events" && params?.format === "inventory",
   ).length;
 }
 
