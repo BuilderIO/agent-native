@@ -1460,6 +1460,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "你的預估費用",
   "settings.usage.yourCreditSpend": "你的 Builder.io 點數用量",
   "settings.usage.calls": "呼叫",
+  "settings.usage.chatgptPlanUsage": "ChatGPT 方案用量",
   "settings.usage.tokens": "Token",
   "settings.usage.activePeople": "活躍成員",
   "settings.usage.history": "用量紀錄",
@@ -2510,14 +2511,17 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "正在連線…",
   "settingsModel.chatgptContinue": "繼續使用 ChatGPT",
   "settingsModel.chatgptDisconnect": "中斷連線",
+  "settingsModel.chatgptDisconnectTitle": "要中斷 ChatGPT 連線嗎？",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} 將登出此應用程式，代理程式也將不再使用你的 ChatGPT 方案。你可以隨時重新登入。",
+  "settingsModel.chatgptDisconnecting": "正在中斷連線…",
   "settingsModel.chatgptRemoveLegacySignIn": "移除舊版登入",
   "settingsModel.chatgptLegacySignInDetails":
     "此處儲存了舊版 ChatGPT 登入資訊，官方流程無法使用。",
-  "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理存取權",
+  "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "已在此處登出，但 OpenAI 未確認遠端撤銷。",
-  "settingsModel.chatgptLocalOnly":
-    "此開源登入流程需要本機或自架應用程式。託管或付費應用程式需要 OpenAI 合作夥伴存取權。",
+    "已在此處中斷連線。在 ChatGPT 中，存取權可能仍然有效。",
+  "settingsModel.chatgptLocalOnly": "託管應用程式需要 OpenAI 合作夥伴存取權。",
   "settingsModel.chatgptNoDirectUse":
     "重新連線並允許模型直接存取，才能使用此 ChatGPT 帳戶。",
   "settingsModel.chatgptPartnerInterest": "申請合作夥伴存取權",

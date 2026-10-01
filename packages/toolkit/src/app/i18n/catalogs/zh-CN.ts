@@ -1456,6 +1456,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "你的预计费用",
   "settings.usage.yourCreditSpend": "你的 Builder.io 积分消耗",
   "settings.usage.calls": "调用",
+  "settings.usage.chatgptPlanUsage": "ChatGPT 方案用量",
   "settings.usage.tokens": "Token",
   "settings.usage.activePeople": "活跃人员",
   "settings.usage.history": "用量历史",
@@ -2498,14 +2499,17 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "正在连接…",
   "settingsModel.chatgptContinue": "继续使用 ChatGPT",
   "settingsModel.chatgptDisconnect": "断开连接",
+  "settingsModel.chatgptDisconnectTitle": "断开 ChatGPT 连接？",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} 将退出此应用，智能体将不再使用你的 ChatGPT 方案。你可以随时重新登录。",
+  "settingsModel.chatgptDisconnecting": "正在断开连接…",
   "settingsModel.chatgptRemoveLegacySignIn": "移除旧版登录",
   "settingsModel.chatgptLegacySignInDetails":
     "此处保存了旧版 ChatGPT 登录信息，官方流程无法使用。",
-  "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理访问权限",
+  "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "已在此处退出登录，但 OpenAI 未确认远程撤销。",
-  "settingsModel.chatgptLocalOnly":
-    "此开源登录流程需要本地或自托管应用。托管或付费应用需要 OpenAI 合作伙伴访问权限。",
+    "已在此处断开连接。在 ChatGPT 中，访问权限可能仍然有效。",
+  "settingsModel.chatgptLocalOnly": "托管应用需要 OpenAI 合作伙伴访问权限。",
   "settingsModel.chatgptNoDirectUse":
     "重新连接并允许直接访问模型，才能使用此 ChatGPT 账户。",
   "settingsModel.chatgptPartnerInterest": "申请合作伙伴访问权限",

@@ -218,6 +218,46 @@ describe("model page state", () => {
     ]);
   });
 
+  it("offers a connected ChatGPT plan's models last, whichever way the default is scoped", () => {
+    const chatgpt = {
+      label: "ChatGPT",
+      models: ["gpt-5.5"],
+      displayNames: { "gpt-5.5": "GPT-5.5" },
+    };
+    const groups = defaultModelGroups({
+      listing: listing(),
+      models,
+      builderConnected: false,
+      builderLabel: "Builder.io",
+      chatgpt,
+    });
+    expect(groups.at(-1)).toEqual({
+      engine: "chatgpt-subscription",
+      provider: "chatgpt",
+      label: "ChatGPT",
+      models: ["gpt-5.5"],
+      modelDisplayNames: { "gpt-5.5": "GPT-5.5" },
+    });
+    expect(
+      defaultModelGroups({
+        listing: listing({ hasOrganization: false }),
+        models: { providers: [] },
+        builderConnected: false,
+        builderLabel: "Builder.io",
+        chatgpt,
+      }).map((group) => group.engine),
+    ).toEqual(["chatgpt-subscription"]);
+    expect(
+      defaultModelGroups({
+        listing: listing(),
+        models,
+        builderConnected: false,
+        builderLabel: "Builder.io",
+        chatgpt: { ...chatgpt, models: [] },
+      }).some((group) => group.engine === "chatgpt-subscription"),
+    ).toBe(false);
+  });
+
   it("uses personal keys for the default of someone without an organization", () => {
     const groups = defaultModelGroups({
       listing: listing({ hasOrganization: false }),

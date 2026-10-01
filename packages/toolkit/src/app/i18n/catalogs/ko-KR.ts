@@ -1532,6 +1532,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "내 예상 비용",
   "settings.usage.yourCreditSpend": "내 Builder.io 크레딧 사용량",
   "settings.usage.calls": "호출",
+  "settings.usage.chatgptPlanUsage": "ChatGPT 요금제 사용량",
   "settings.usage.tokens": "토큰",
   "settings.usage.activePeople": "활성 사용자",
   "settings.usage.history": "사용 기록",
@@ -2693,14 +2694,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "연결 중…",
   "settingsModel.chatgptContinue": "ChatGPT로 계속",
   "settingsModel.chatgptDisconnect": "연결 해제",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT 연결을 해제할까요?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} 계정이 이 앱에서 로그아웃되고 에이전트가 ChatGPT 요금제를 더 이상 사용하지 않습니다. 언제든 다시 로그인할 수 있습니다.",
+  "settingsModel.chatgptDisconnecting": "연결 해제하는 중…",
   "settingsModel.chatgptRemoveLegacySignIn": "이전 로그인 삭제",
   "settingsModel.chatgptLegacySignInDetails":
     "이전 ChatGPT 로그인이 저장되어 있습니다. 공식 흐름에서는 사용할 수 없습니다.",
-  "settingsModel.chatgptManageAccess": "ChatGPT에서 액세스 관리",
+  "settingsModel.chatgptManageAccess": "ChatGPT에서 관리",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "여기서는 로그아웃했지만 OpenAI에서 원격 권한 취소를 확인하지 못했습니다.",
+    "여기서는 연결을 해제했습니다. ChatGPT에서는 액세스가 계속 유지될 수 있습니다.",
   "settingsModel.chatgptLocalOnly":
-    "이 오픈 소스 로그인 흐름을 사용하려면 로컬 또는 자체 호스팅 앱이 필요합니다. 호스팅 또는 유료 앱에는 OpenAI 파트너 액세스가 필요합니다.",
+    "호스팅 앱에는 OpenAI 파트너 액세스가 필요합니다.",
   "settingsModel.chatgptNoDirectUse":
     "이 ChatGPT 계정을 사용하려면 다시 연결하고 모델 직접 액세스를 허용하세요.",
   "settingsModel.chatgptPartnerInterest": "파트너 액세스 요청",

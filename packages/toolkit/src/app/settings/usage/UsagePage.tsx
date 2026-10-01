@@ -27,7 +27,12 @@ import {
   ToggleGroupItem,
 } from "@agent-native/toolkit/ui/toggle-group";
 import { cn } from "@agent-native/toolkit/utils";
-import { IconChartBar, IconChartLine, IconTool } from "@tabler/icons-react";
+import {
+  IconChartBar,
+  IconChartLine,
+  IconExternalLink,
+  IconTool,
+} from "@tabler/icons-react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
@@ -490,6 +495,18 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
           </SelectContent>
         </Select>
       ) : null}
+      {chatGPTStatus.data?.connected ? (
+        <Button asChild variant="ghost" size="sm" className="ml-auto">
+          <a
+            href="https://chatgpt.com/settings/usage"
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("agentChat.settings.usage.chatgptPlanUsage")}
+            <IconExternalLink aria-hidden />
+          </a>
+        </Button>
+      ) : null}
     </div>
   );
 
@@ -578,19 +595,6 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
           ) : (
             <BuilderCreditUsageSkeleton />
           )
-        ) : null}
-        {chatGPTStatus.data?.connected ? (
-          <div className="flex justify-end">
-            <Button asChild variant="link" size="sm" className="px-0">
-              <a
-                href="https://chatgpt.com/settings/usage"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t("agentChat.composer.chatgptManageUsage")}
-              </a>
-            </Button>
-          </div>
         ) : null}
         <div
           className={cn(

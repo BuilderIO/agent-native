@@ -1,4 +1,5 @@
 import type { ProviderKeyPolicyStatus } from "@agent-native/core/agent/actions/manage-provider-key-policy";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   setAgentEngineDefaultModel,
   type AgentEngineKeyScope,
@@ -12,6 +13,7 @@ import {
   getAgentProviderOption,
   type AgentProviderId,
 } from "@agent-native/core/client/agent-provider-catalog";
+import type { ChatModelEngineEntry } from "@agent-native/core/client/chat-model-groups";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
@@ -50,7 +52,10 @@ import {
   type BuilderConnectFlow,
   type BuilderConnectionScope,
 } from "../useBuilderStatus.js";
-import { ChatGPTSubscriptionRow } from "./ChatGPTSubscriptionRow.js";
+import {
+  ChatGPTSubscriptionRow,
+  useChatGPTSubscriptionStatus,
+} from "./ChatGPTSubscriptionRow.js";
 import {
   addableProviders,
   defaultModelGroups,
@@ -59,6 +64,7 @@ import {
   parseDefaultModelValue,
   providerForEngine,
   providerRows,
+  type ChatGPTModelCatalog,
   type ModelProvidersListing,
   type ProviderKeyRow,
   type ProviderModelsRead,
@@ -74,6 +80,7 @@ const MAX_ITERATIONS_LABEL = "agentChat.settingsShell.search.maxIterations";
 const BUILDER_LABEL = "Builder.io";
 const CHATGPT_LABEL = "ChatGPT";
 const POLICY_QUERY_KEY = ["action", "manage-provider-key-policy", {}] as const;
+const ENGINES_QUERY_KEY = ["action", "manage-agent-engine", { action: "list" }];
 const LOOP_QUERY_KEY = [
   "action",
   "manage-agent-loop-settings",
@@ -89,6 +96,45 @@ type ModelsReadState =
   | { status: "loading" }
   | { status: "error"; retry: () => void }
   | { status: "ready"; data: ProviderModelsRead };
+
+/** The signed-in ChatGPT account's model list, read only while it is connected. */
+type ChatGPTModelsState =
+  | { status: "off" }
+  | { status: "loading" }
+  | { status: "error"; retry: () => void }
+  | { status: "ready"; catalog: ChatGPTModelCatalog };
+
+function useChatGPTModels(connected: boolean): ChatGPTModelsState {
+  const query = useQuery({
+    queryKey: ENGINES_QUERY_KEY,
+    enabled: connected,
+    queryFn: () =>
+      callAction<{ engines?: ChatModelEngineEntry[] }>(
+        "manage-agent-engine" as never,
+        { action: "list" } as never,
+      ),
+    select: (result): ChatGPTModelCatalog => {
+      const entry = result.engines?.find(
+        (engine) => engine.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      );
+      // A catalog the server couldn't read is an error, not an empty list.
+      if (!entry || entry.configuredError) {
+        throw new Error(entry?.configuredError ?? "No ChatGPT model list.");
+      }
+      return {
+        label: CHATGPT_LABEL,
+        models: [...(entry.supportedModels ?? [])],
+        displayNames: { ...entry.modelDisplayNames },
+      };
+    },
+  });
+  if (!connected) return { status: "off" };
+  if (query.data) return { status: "ready", catalog: query.data };
+  if (query.isError) {
+    return { status: "error", retry: () => void query.refetch() };
+  }
+  return { status: "loading" };
+}
 
 /**
  * Settings › Agent › Model: Organization providers, Personal providers, and
@@ -112,6 +158,15 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [removing, setRemoving] = useState<ProviderKeyRow | null>(null);
 
+  const chatgptStatus = useChatGPTSubscriptionStatus();
+  // Null until the status read answers, so the empty state doesn't flash.
+  const chatgptConnected = chatgptStatus.data
+    ? chatgptStatus.data.connected
+    : chatgptStatus.isError
+      ? false
+      : null;
+  const chatgptModels = useChatGPTModels(chatgptConnected === true);
+
   const canAdd = listing.data
     ? addableProviders(listing.data).length > 0
     : false;
@@ -120,6 +175,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
         listing.data,
         providerRows(listing.data, models.data),
         builder,
+        chatgptConnected,
       )
     : false;
   // The empty state carries the page's actions, so the header stays empty
@@ -204,6 +260,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
         <OrganizationSettingsGroup
           listing={data}
           models={modelsRead}
+          chatgpt={chatgptModels}
           builder={builder}
           hasProvider={!needsProvider}
         />
@@ -250,18 +307,20 @@ function AddProviderButton({
 }
 
 /**
- * Whether the agent has a provider to answer with: a connected Builder.io or
- * an organization key, or for members (while personal API keys aren't
- * restricted) and people without an organization, one of their own. Unknown
- * Builder.io status counts as a provider, so the empty state never flashes
- * before the status read answers.
+ * Whether the agent has a provider to answer with: a connected ChatGPT plan
+ * (the viewer's own, and not an API key, so personal key restrictions don't
+ * apply), a connected Builder.io or an organization key, or for members (while
+ * personal API keys aren't restricted) and people without an organization, one
+ * of their own. Unknown Builder.io or ChatGPT status (`null`) counts as a
+ * provider, so the empty state never flashes before the status read answers.
  */
 function hasAnyProvider(
   listing: ModelProvidersListing,
   rows: { org: ProviderKeyRow[]; personal: ProviderKeyRow[] },
   builder: BuilderConnectFlow,
+  chatgptConnected: boolean | null,
 ): boolean {
-  if (!builder.hasFetchedStatus) return true;
+  if (chatgptConnected !== false || !builder.hasFetchedStatus) return true;
   if (!listing.hasOrganization) {
     return builder.configured || rows.personal.length > 0;
   }
@@ -635,11 +694,13 @@ function KeyProviderRow({
 function OrganizationSettingsGroup({
   listing,
   models,
+  chatgpt,
   builder,
   hasProvider,
 }: {
   listing: ModelProvidersListing;
   models: ModelsReadState;
+  chatgpt: ChatGPTModelsState;
   builder: BuilderConnectFlow;
   hasProvider: boolean;
 }) {
@@ -654,6 +715,7 @@ function OrganizationSettingsGroup({
       <DefaultModelRow
         listing={listing}
         models={models}
+        chatgpt={chatgpt}
         builder={builder}
         hasProvider={hasProvider}
       />
@@ -666,11 +728,13 @@ function OrganizationSettingsGroup({
 function DefaultModelRow({
   listing,
   models: modelsRead,
+  chatgpt,
   builder,
   hasProvider,
 }: {
   listing: ModelProvidersListing;
   models: ModelsReadState;
+  chatgpt: ChatGPTModelsState;
   builder: BuilderConnectFlow;
   hasProvider: boolean;
 }) {
@@ -691,6 +755,7 @@ function DefaultModelRow({
     models,
     builderConnected,
     builderLabel: BUILDER_LABEL,
+    chatgpt: chatgpt.status === "ready" ? chatgpt.catalog : undefined,
   });
   const stored = listing.defaultModel
     ? {
@@ -759,6 +824,12 @@ function DefaultModelRow({
 
   // Until a provider is added there is nothing to choose; the row says so.
   const waitingForProvider = !hasProvider;
+  const retryRead =
+    modelsRead.status === "error"
+      ? modelsRead.retry
+      : chatgpt.status === "error"
+        ? chatgpt.retry
+        : null;
 
   return (
     <SettingsRow
@@ -770,7 +841,7 @@ function DefaultModelRow({
           : t(`${K}defaultModelDescription`)
       }
       control={
-        modelsRead.status === "loading" ? (
+        modelsRead.status === "loading" || chatgpt.status === "loading" ? (
           <Skeleton
             className="h-8 w-64 max-w-full"
             data-default-model-loading=""
@@ -813,7 +884,10 @@ function DefaultModelRow({
                       key={model}
                       value={defaultModelValue(group.engine, model)}
                     >
-                      {t(`${K}modelOption`, { model, provider: group.label })}
+                      {t(`${K}modelOption`, {
+                        model: group.modelDisplayNames?.[model] ?? model,
+                        provider: group.label,
+                      })}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -830,15 +904,10 @@ function DefaultModelRow({
           {error}
         </p>
       ) : null}
-      {modelsRead.status === "error" ? (
+      {retryRead ? (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
           <p className="text-destructive">{t(`${K}settingLoadFailed`)}</p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={modelsRead.retry}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={retryRead}>
             {t("agentChat.common.retry")}
           </Button>
         </div>

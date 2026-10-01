@@ -1540,6 +1540,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "आपका अनुमानित खर्च",
   "settings.usage.yourCreditSpend": "आपका Builder.io क्रेडिट खर्च",
   "settings.usage.calls": "कॉल",
+  "settings.usage.chatgptPlanUsage": "ChatGPT प्लान का उपयोग",
   "settings.usage.tokens": "टोकन",
   "settings.usage.activePeople": "सक्रिय लोग",
   "settings.usage.history": "उपयोग इतिहास",
@@ -2683,14 +2684,17 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "कनेक्ट हो रहा है…",
   "settingsModel.chatgptContinue": "ChatGPT के साथ जारी रखें",
   "settingsModel.chatgptDisconnect": "डिस्कनेक्ट करें",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT को डिस्कनेक्ट करें?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} इस ऐप से साइन आउट हो जाएगा और एजेंट आपके ChatGPT प्लान का उपयोग करना बंद कर देगा। आप कभी भी फिर से साइन इन कर सकते हैं।",
+  "settingsModel.chatgptDisconnecting": "डिस्कनेक्ट हो रहा है…",
   "settingsModel.chatgptRemoveLegacySignIn": "पुराना साइन-इन हटाएँ",
   "settingsModel.chatgptLegacySignInDetails":
     "यहाँ ChatGPT का पुराना साइन-इन सहेजा है। आधिकारिक फ़्लो इसका उपयोग नहीं कर सकता।",
-  "settingsModel.chatgptManageAccess": "ChatGPT में एक्सेस प्रबंधित करें",
+  "settingsModel.chatgptManageAccess": "ChatGPT में प्रबंधित करें",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "यहाँ से साइन आउट किया गया, लेकिन OpenAI ने रिमोट रद्द करने की पुष्टि नहीं की।",
-  "settingsModel.chatgptLocalOnly":
-    "इस ओपन-सोर्स साइन-इन फ़्लो के लिए लोकल या सेल्फ़-होस्टेड ऐप ज़रूरी है। होस्टेड या पेड ऐप्स के लिए OpenAI पार्टनर ऐक्सेस चाहिए।",
+    "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
+  "settingsModel.chatgptLocalOnly": "होस्टेड ऐप्स के लिए OpenAI पार्टनर ऐक्सेस चाहिए।",
   "settingsModel.chatgptNoDirectUse":
     "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
   "settingsModel.chatgptPartnerInterest": "पार्टनर ऐक्सेस का अनुरोध करें",

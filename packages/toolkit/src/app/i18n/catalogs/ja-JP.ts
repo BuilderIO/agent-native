@@ -1554,6 +1554,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "あなたの推定費用",
   "settings.usage.yourCreditSpend": "あなたの Builder.io クレジット使用量",
   "settings.usage.calls": "呼び出し",
+  "settings.usage.chatgptPlanUsage": "ChatGPT プランの使用状況",
   "settings.usage.tokens": "トークン",
   "settings.usage.activePeople": "アクティブなメンバー",
   "settings.usage.history": "使用履歴",
@@ -2733,14 +2734,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "接続中…",
   "settingsModel.chatgptContinue": "ChatGPTで続行",
   "settingsModel.chatgptDisconnect": "接続を解除",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT の接続を解除しますか？",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} はこのアプリからサインアウトされ、エージェントは ChatGPT プランを使用しなくなります。いつでもサインインし直せます。",
+  "settingsModel.chatgptDisconnecting": "接続を解除しています…",
   "settingsModel.chatgptRemoveLegacySignIn": "古いサインインを削除",
   "settingsModel.chatgptLegacySignInDetails":
     "以前の ChatGPT サインインが保存されています。公式フローでは使用できません。",
-  "settingsModel.chatgptManageAccess": "ChatGPT でアクセスを管理",
+  "settingsModel.chatgptManageAccess": "ChatGPT で管理",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "ここではサインアウトしましたが、OpenAI はリモートでの取り消しを確認できませんでした。",
+    "ここでは接続を解除しました。ChatGPT ではアクセスが有効なままの場合があります。",
   "settingsModel.chatgptLocalOnly":
-    "このオープンソースのサインインフローには、ローカルまたはセルフホストのアプリが必要です。ホスト型または有料アプリにはOpenAIのパートナーアクセスが必要です。",
+    "ホスト型アプリにはOpenAIのパートナーアクセスが必要です。",
   "settingsModel.chatgptNoDirectUse":
     "このChatGPTアカウントを使用するには、再接続してモデルへの直接アクセスを許可してください。",
   "settingsModel.chatgptPartnerInterest": "パートナーアクセスをリクエスト",

@@ -1642,6 +1642,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "Deine geschätzten Kosten",
   "settings.usage.yourCreditSpend": "Dein Builder.io-Credit-Verbrauch",
   "settings.usage.calls": "Aufrufe",
+  "settings.usage.chatgptPlanUsage": "Nutzung des ChatGPT-Plans",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Aktive Personen",
   "settings.usage.history": "Nutzungsverlauf",
@@ -2867,14 +2868,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "Wird verbunden…",
   "settingsModel.chatgptContinue": "Mit ChatGPT fortfahren",
   "settingsModel.chatgptDisconnect": "Trennen",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT trennen?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} wird von dieser App abgemeldet und der Agent verwendet deinen ChatGPT-Plan nicht mehr. Du kannst dich jederzeit wieder anmelden.",
+  "settingsModel.chatgptDisconnecting": "Wird getrennt…",
   "settingsModel.chatgptRemoveLegacySignIn": "Alte ChatGPT-Anmeldung entfernen",
   "settingsModel.chatgptLegacySignInDetails":
     "Eine ältere ChatGPT-Anmeldung ist hier gespeichert. Der offizielle Ablauf kann sie nicht verwenden.",
-  "settingsModel.chatgptManageAccess": "Zugriff in ChatGPT verwalten",
+  "settingsModel.chatgptManageAccess": "In ChatGPT verwalten",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "Hier abgemeldet, aber OpenAI hat den Widerruf nicht bestätigt.",
+    "Hier getrennt. Der Zugriff kann in ChatGPT weiterhin aktiv sein.",
   "settingsModel.chatgptLocalOnly":
-    "Dieser Open-Source-Anmeldeablauf erfordert eine lokale oder selbst gehostete App. Für gehostete oder kostenpflichtige Apps ist Partnerzugriff von OpenAI erforderlich.",
+    "Gehostete Apps benötigen Partnerzugriff von OpenAI.",
   "settingsModel.chatgptNoDirectUse":
     "Verbinde dich erneut und erlaube den direkten Modellzugriff, um dieses ChatGPT-Konto zu verwenden.",
   "settingsModel.chatgptPartnerInterest": "Partnerzugriff anfragen",

@@ -1688,6 +1688,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "إنفاقك التقديري",
   "settings.usage.yourCreditSpend": "إنفاقك من أرصدة Builder.io",
   "settings.usage.calls": "الاستدعاءات",
+  "settings.usage.chatgptPlanUsage": "استخدام خطة ChatGPT",
   "settings.usage.tokens": "الرموز",
   "settings.usage.activePeople": "الأشخاص النشطون",
   "settings.usage.history": "سجل الاستخدام",
@@ -2873,14 +2874,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "جارٍ الاتصال…",
   "settingsModel.chatgptContinue": "المتابعة باستخدام ChatGPT",
   "settingsModel.chatgptDisconnect": "قطع الاتصال",
+  "settingsModel.chatgptDisconnectTitle": "هل تريد قطع الاتصال بـ ChatGPT؟",
+  "settingsModel.chatgptDisconnectDescription":
+    "سيتم تسجيل خروج {{account}} من هذا التطبيق، وسيتوقف الوكيل عن استخدام خطة ChatGPT الخاصة بك. يمكنك تسجيل الدخول مرة أخرى في أي وقت.",
+  "settingsModel.chatgptDisconnecting": "جارٍ قطع الاتصال…",
   "settingsModel.chatgptRemoveLegacySignIn": "إزالة تسجيل الدخول القديم",
   "settingsModel.chatgptLegacySignInDetails":
     "تم حفظ تسجيل دخول قديم إلى ChatGPT هنا. لا يمكن استخدامه في التدفق الرسمي.",
-  "settingsModel.chatgptManageAccess": "إدارة الوصول في ChatGPT",
+  "settingsModel.chatgptManageAccess": "الإدارة في ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "تم تسجيل الخروج هنا، لكن OpenAI لم يؤكد إلغاء الجلسة عن بُعد.",
+    "تم قطع الاتصال هنا. قد يظل الوصول نشطًا في ChatGPT.",
   "settingsModel.chatgptLocalOnly":
-    "يتطلب تدفق تسجيل الدخول مفتوح المصدر هذا تطبيقًا محليًا أو مستضافًا ذاتيًا. تحتاج التطبيقات المستضافة أو المدفوعة إلى وصول الشركاء من OpenAI.",
+    "تحتاج التطبيقات المستضافة إلى وصول الشركاء من OpenAI.",
   "settingsModel.chatgptNoDirectUse":
     "أعِد الاتصال واسمح بالوصول المباشر إلى النماذج لاستخدام حساب ChatGPT هذا.",
   "settingsModel.chatgptPartnerInterest": "طلب وصول الشركاء",

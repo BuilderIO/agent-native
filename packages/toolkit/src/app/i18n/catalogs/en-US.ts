@@ -1566,6 +1566,7 @@ const messages = {
   "settings.usage.yourEstimatedSpend": "Your estimated spend",
   "settings.usage.yourCreditSpend": "Your Builder.io credit spend",
   "settings.usage.calls": "Calls",
+  "settings.usage.chatgptPlanUsage": "ChatGPT plan usage",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Active people",
   "settings.usage.history": "Usage history",
@@ -2745,14 +2746,17 @@ const messages = {
   "settingsModel.chatgptConnecting": "Connecting…",
   "settingsModel.chatgptContinue": "Continue with ChatGPT",
   "settingsModel.chatgptDisconnect": "Disconnect",
+  "settingsModel.chatgptDisconnectTitle": "Disconnect ChatGPT?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} will be signed out of this app and the agent will stop using your ChatGPT plan. You can sign in again anytime.",
+  "settingsModel.chatgptDisconnecting": "Disconnecting…",
   "settingsModel.chatgptRemoveLegacySignIn": "Remove old sign-in",
   "settingsModel.chatgptLegacySignInDetails":
     "An older ChatGPT sign-in is saved here. The official flow cannot use it.",
-  "settingsModel.chatgptManageAccess": "Manage access in ChatGPT",
+  "settingsModel.chatgptManageAccess": "Manage in ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "Signed out here, but OpenAI did not confirm remote revocation.",
-  "settingsModel.chatgptLocalOnly":
-    "This open-source sign-in flow requires a local or self-hosted app. Hosted or paid apps need OpenAI partner access.",
+    "Disconnected here. Access may remain active in ChatGPT.",
+  "settingsModel.chatgptLocalOnly": "Hosted apps need OpenAI partner access.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnect and allow direct model access to use this ChatGPT account.",
   "settingsModel.chatgptPartnerInterest": "Request partner access",

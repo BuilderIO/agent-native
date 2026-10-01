@@ -12,15 +12,18 @@ const messages = {
       chatgptDescription:
         "Use eligible OpenAI models through your ChatGPT plan.",
       chatgptDisconnect: "Disconnect",
-      chatgptLocalOnly:
-        "This open-source sign-in flow requires a local or self-hosted app. Hosted or paid apps need OpenAI partner access.",
-      chatgptManageAccess: "Manage access in ChatGPT",
+      chatgptDisconnectDescription:
+        "{{account}} will be signed out of this app and the agent will stop using your ChatGPT plan. You can sign in again anytime.",
+      chatgptDisconnectTitle: "Disconnect ChatGPT?",
+      chatgptDisconnecting: "Disconnecting…",
+      chatgptLocalOnly: "Hosted apps need OpenAI partner access.",
+      chatgptManageAccess: "Manage in ChatGPT",
       chatgptNoDirectUse:
         "Reconnect and allow direct model access to use this ChatGPT account.",
       chatgptPartnerInterest: "Request partner access",
       chatgptReconnect: "Reconnect",
       chatgptRemoteRevocationUnconfirmed:
-        "Signed out here, but OpenAI did not confirm remote revocation.",
+        "Disconnected here. Access may remain active in ChatGPT.",
       chatgptSelectAccount: "ChatGPT account",
       chatgptTitle: "ChatGPT plan access",
       chatgptUsageLimit: "Your ChatGPT plan usage limit has been reached.",

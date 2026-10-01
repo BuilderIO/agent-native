@@ -32,6 +32,7 @@ const state = vi.hoisted(() => ({
   },
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
+const popupMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const dialogProps = vi.hoisted(() => ({ last: null as unknown }));
 const loopMock = vi.hoisted(() => ({ save: vi.fn() }));
@@ -59,8 +60,11 @@ vi.mock("@agent-native/core/client/org", () => ({
 
 vi.mock("../useBuilderStatus.js", () => ({
   useBuilderConnectFlow: () => state.builder,
-  isPopupClosed: () => false,
-  POPUP_CLOSED_CONFIRMATION_GRACE_MS: 20_000,
+  isPopupClosed: (popup: { closed?: boolean } | null) => popup?.closed === true,
+}));
+
+vi.mock("@agent-native/core/client/oauth-popup", () => ({
+  openOAuthPopup: popupMock,
 }));
 
 vi.mock("../deferred-builder-connect-popover.js", () => ({
@@ -234,6 +238,52 @@ function prominence(element: HTMLElement): string[] {
   });
 }
 
+const ACCOUNT = {
+  id: "siwc_test-account",
+  email: "person@example.test",
+  label: "person@example.test",
+  connected: true,
+  reconnectRequired: false,
+  planUsageEnabled: true,
+  active: true,
+};
+
+function connectedChatGPT(accounts: Array<typeof ACCOUNT> = [ACCOUNT]) {
+  return {
+    supported: true,
+    supportReason: null,
+    connected: true,
+    reconnectRequired: false,
+    activeAccountId: accounts[0]!.id,
+    activeAccount: accounts[0],
+    accounts,
+    legacyRegistrationCleanupAvailable: false,
+  };
+}
+
+function pointerDown(element: Element | null | undefined) {
+  if (!element) throw new Error("Nothing to open");
+  element.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      pointerType: "mouse",
+    }),
+  );
+}
+
+function chatgptMenuTrigger(): HTMLElement {
+  return row("chatgpt-subscription").querySelector(
+    'button[aria-label="Manage"]',
+  ) as HTMLElement;
+}
+
+function listed(selector: string): string[] {
+  return [...document.body.querySelectorAll(selector)].map(
+    (element) => element.textContent?.trim() ?? "",
+  );
+}
+
 describe("ModelSettingsPage", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -257,6 +307,8 @@ describe("ModelSettingsPage", () => {
     state.header = null;
     state.loop = { ...state.loop, canUpdate: true };
     callActionMock.mockReset();
+    callActionMock.mockResolvedValue({ engines: [] });
+    popupMock.mockReset();
     navigateMock.mockReset();
     loopMock.save.mockReset();
     container = document.createElement("div");
@@ -705,43 +757,308 @@ describe("ModelSettingsPage", () => {
     expect(buttons(chatgpt)).toEqual(["Continue with ChatGPT"]);
   });
 
-  it("shows where to revoke ChatGPT access after an unconfirmed sign-out", async () => {
-    const account = {
-      id: "siwc_test-account",
-      email: "person@example.test",
-      label: "person@example.test",
-      connected: true,
-      reconnectRequired: false,
-      planUsageEnabled: true,
-      active: true,
-    };
+  it("counts a connected ChatGPT plan as a provider and offers its models as the default", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      canUpdateDefault: true,
+      defaultModel: null,
+    });
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    state.chatgpt = connectedChatGPT();
+    callActionMock.mockImplementation(async (name: string) =>
+      name === "manage-agent-engine"
+        ? {
+            engines: [
+              {
+                name: "chatgpt-subscription",
+                label: "ChatGPT plan access",
+                supportedModels: ["gpt-5.5", "gpt-5.4"],
+                modelDisplayNames: { "gpt-5.5": "GPT-5.5" },
+              },
+            ],
+          }
+        : {},
+    );
+    await render();
+
+    expect(container.textContent).not.toContain("Add a model provider");
+    expect(state.header?.action).toBeTruthy();
+    const defaultRow = row("default-model");
+    expect(defaultRow.textContent).not.toContain(
+      "Add a provider to choose a default model.",
+    );
+    const select = await vi.waitFor(() => {
+      const found =
+        defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]');
+      if (!found) throw new Error("no select yet");
+      return found;
+    });
+    expect(select.disabled).toBe(false);
+    await act(async () => pointerDown(select));
+    expect(listed('[role="option"]')).toEqual([
+      "GPT-5.5 · ChatGPT",
+      "gpt-5.4 · ChatGPT",
+    ]);
+    expect(callActionMock).toHaveBeenCalledWith("manage-agent-engine", {
+      action: "list",
+    });
+  });
+
+  it("says the ChatGPT models couldn't load instead of leaving the default empty", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      canUpdateDefault: true,
+      defaultModel: null,
+    });
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    state.chatgpt = connectedChatGPT();
+    callActionMock.mockImplementation(async (name: string) => {
+      if (name === "manage-agent-engine") {
+        return {
+          engines: [
+            {
+              name: "chatgpt-subscription",
+              supportedModels: [],
+              configuredError: "OpenAI ChatGPT model listing failed",
+            },
+          ],
+        };
+      }
+      return {};
+    });
+    await render();
+
+    const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(defaultRow.querySelector('[role="alert"]')?.textContent).toContain(
+        "Couldn't load this setting.",
+      );
+    });
+    expect(defaultRow.querySelector('[role="combobox"]')).not.toBeNull();
+  });
+
+  it("doesn't flash the empty state before the ChatGPT status answers", async () => {
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: false, personal: false },
+    });
+    state.chatgpt = undefined;
+    await render();
+    expect(container.textContent).not.toContain("Add a model provider");
+  });
+
+  it("shows only Continue with ChatGPT when signed out, even with saved accounts", async () => {
+    const saved = { ...ACCOUNT, connected: false, active: false };
     state.chatgpt = {
-      supported: true,
-      supportReason: null,
-      connected: true,
-      reconnectRequired: false,
-      activeAccountId: account.id,
-      activeAccount: account,
-      accounts: [account],
+      ...connectedChatGPT([saved, { ...saved, id: "siwc_other" }]),
+      connected: false,
+      activeAccountId: null,
+      activeAccount: null,
     };
+    await render();
+    const chatgpt = row("chatgpt-subscription");
+    expect(buttons(chatgpt)).toEqual(["Continue with ChatGPT"]);
+    expect(chatgpt.querySelector('[role="combobox"]')).toBeNull();
+  });
+
+  it("acknowledges Continue with ChatGPT at once and recovers if the window is closed", async () => {
+    vi.useFakeTimers();
+    try {
+      const popup = { closed: false };
+      popupMock.mockReturnValue(popup);
+      await render();
+      const chatgpt = row("chatgpt-subscription");
+      await act(async () => {
+        (chatgpt.querySelector("button") as HTMLElement).click();
+      });
+      const pending = chatgpt.querySelector("button") as HTMLButtonElement;
+      expect(pending.textContent).toContain("Connecting…");
+      expect(pending.disabled).toBe(true);
+
+      popup.closed = true;
+      await act(async () => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(buttons(chatgpt)).toEqual(["Continue with ChatGPT"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says when the browser blocked the ChatGPT sign-in window", async () => {
+    popupMock.mockReturnValue(null);
+    await render();
+    const chatgpt = row("chatgpt-subscription");
+    await act(async () => {
+      (chatgpt.querySelector("button") as HTMLElement).click();
+    });
+    expect(chatgpt.querySelector('[role="alert"]')?.textContent).toBe(
+      "Allow pop-ups for this site, then try again.",
+    );
+    expect(buttons(chatgpt)).toEqual(["Continue with ChatGPT"]);
+  });
+
+  it("shows a connected account's email with one menu for the rest", async () => {
+    state.chatgpt = connectedChatGPT();
+    await render();
+    const chatgpt = row("chatgpt-subscription");
+    expect(chatgpt.textContent).toContain("person@example.test");
+    expect(buttons(chatgpt)).toEqual([""]);
+    expect(chatgpt.querySelector('[role="combobox"]')).toBeNull();
+
+    await act(async () => pointerDown(chatgptMenuTrigger()));
+    expect(listed('[role="menuitem"]')).toEqual([
+      "Add another account",
+      "Disconnect",
+    ]);
+  });
+
+  it("switches between connected accounts only", async () => {
+    const second = {
+      ...ACCOUNT,
+      id: "siwc_second",
+      label: "second@example.test",
+    };
+    const signedOut = {
+      ...ACCOUNT,
+      id: "siwc_old",
+      label: "old@example.test",
+      connected: false,
+    };
+    state.chatgpt = connectedChatGPT([ACCOUNT, second, signedOut]);
+    callActionMock.mockResolvedValue({});
+    await render();
+    const chatgpt = row("chatgpt-subscription");
+    await act(async () =>
+      pointerDown(chatgpt.querySelector('[role="combobox"]')),
+    );
+    expect(listed('[role="option"]')).toEqual([
+      "person@example.test",
+      "second@example.test",
+    ]);
+    await act(async () => {
+      (
+        [...document.body.querySelectorAll('[role="option"]')].find(
+          (option) => option.textContent === "second@example.test",
+        ) as HTMLElement
+      ).click();
+    });
+    expect(callActionMock).toHaveBeenCalledWith(
+      "select-chatgpt-subscription-account",
+      { accountId: "siwc_second" },
+    );
+  });
+
+  it("confirms before disconnecting and says where to revoke access afterwards", async () => {
+    state.chatgpt = connectedChatGPT();
     callActionMock.mockResolvedValue({ remoteRevocationConfirmed: false });
     await render();
 
-    const chatgpt = row("chatgpt-subscription");
+    await act(async () => pointerDown(chatgptMenuTrigger()));
     await act(async () => {
-      const disconnect = [...chatgpt.querySelectorAll("button")].find(
-        (button) => button.textContent === "Disconnect",
-      ) as HTMLElement;
-      disconnect.click();
+      (
+        [...document.body.querySelectorAll('[role="menuitem"]')].find(
+          (item) => item.textContent === "Disconnect",
+        ) as HTMLElement
+      ).click();
     });
+    const dialog = document.body.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("Disconnect ChatGPT?");
+    expect(dialog?.textContent).toContain(
+      "person@example.test will be signed out of this app and the agent will stop using your ChatGPT plan.",
+    );
+    expect(callActionMock).not.toHaveBeenCalledWith(
+      "disconnect-chatgpt-subscription",
+      expect.anything(),
+    );
 
+    await act(async () => {
+      (
+        [...(dialog?.querySelectorAll("button") ?? [])].find(
+          (button) => button.textContent === "Disconnect",
+        ) as HTMLElement
+      ).click();
+    });
+    expect(callActionMock).toHaveBeenCalledWith(
+      "disconnect-chatgpt-subscription",
+      { accountId: ACCOUNT.id },
+    );
+    expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+
+    const chatgpt = row("chatgpt-subscription");
     expect(chatgpt.textContent).toContain(
-      "Signed out here, but OpenAI did not confirm remote revocation.",
+      "Disconnected here. Access may remain active in ChatGPT.",
     );
     const manageAccess = chatgpt.querySelector(
       'a[href="https://chatgpt.com/settings/usage"]',
     ) as HTMLAnchorElement;
-    expect(manageAccess.textContent).toBe("Manage access in ChatGPT");
+    expect(manageAccess.textContent).toBe("Manage in ChatGPT");
+  });
+
+  it("leaves the account connected when the disconnect is cancelled", async () => {
+    state.chatgpt = connectedChatGPT();
+    await render();
+
+    await act(async () => pointerDown(chatgptMenuTrigger()));
+    await act(async () => {
+      (
+        [...document.body.querySelectorAll('[role="menuitem"]')].find(
+          (item) => item.textContent === "Disconnect",
+        ) as HTMLElement
+      ).click();
+    });
+    await act(async () => {
+      (
+        [
+          ...(document.body
+            .querySelector('[role="alertdialog"]')
+            ?.querySelectorAll("button") ?? []),
+        ].find((button) => button.textContent === "Cancel") as HTMLElement
+      ).click();
+    });
+    expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(callActionMock).not.toHaveBeenCalledWith(
+      "disconnect-chatgpt-subscription",
+      expect.anything(),
+    );
+  });
+
+  it("shows why a disconnect failed instead of closing silently", async () => {
+    state.chatgpt = connectedChatGPT();
+    callActionMock.mockRejectedValue(
+      new Error("ChatGPT account was not found."),
+    );
+    await render();
+
+    await act(async () => pointerDown(chatgptMenuTrigger()));
+    await act(async () => {
+      (
+        [...document.body.querySelectorAll('[role="menuitem"]')].find(
+          (item) => item.textContent === "Disconnect",
+        ) as HTMLElement
+      ).click();
+    });
+    await act(async () => {
+      (
+        [
+          ...(document.body
+            .querySelector('[role="alertdialog"]')
+            ?.querySelectorAll("button") ?? []),
+        ].find((button) => button.textContent === "Disconnect") as HTMLElement
+      ).click();
+    });
+    expect(
+      row("chatgpt-subscription").querySelector('[role="alert"]')?.textContent,
+    ).toBe("ChatGPT account was not found.");
   });
 
   it("offers explicit removal of an unusable legacy ChatGPT sign-in", async () => {
@@ -777,7 +1094,7 @@ describe("ModelSettingsPage", () => {
       { removeLegacyCredential: true },
     );
     expect(chatgpt.textContent).toContain(
-      "Signed out here, but OpenAI did not confirm remote revocation.",
+      "Disconnected here. Access may remain active in ChatGPT.",
     );
   });
 
@@ -794,7 +1111,7 @@ describe("ModelSettingsPage", () => {
     await render();
     const chatgpt = row("chatgpt-subscription");
     expect(chatgpt.textContent).toContain(
-      "Hosted or paid apps need OpenAI partner access.",
+      "Hosted apps need OpenAI partner access.",
     );
     expect((chatgpt.querySelector("a") as HTMLAnchorElement).href).toBe(
       "https://openai.com/form/sign-in-with-chatgpt-interest/",

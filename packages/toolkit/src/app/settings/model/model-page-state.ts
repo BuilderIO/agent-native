@@ -10,6 +10,7 @@ import type {
   ModelProviderKeyScope,
   ModelProvidersListing,
 } from "@agent-native/core/agent/actions/list-model-providers";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   AGENT_PROVIDER_CATALOG,
   getAgentProviderOption,
@@ -206,9 +207,18 @@ export function providerForEngine(
 
 export interface DefaultModelGroup {
   engine: string;
-  provider: AgentProviderId | "builder";
+  provider: AgentProviderId | "builder" | "chatgpt";
   label: string;
   models: string[];
+  /** Names to show instead of the model ids, where the provider has them. */
+  modelDisplayNames?: Record<string, string>;
+}
+
+/** The models the signed-in ChatGPT account may use, from the engine list. */
+export interface ChatGPTModelCatalog {
+  label: string;
+  models: string[];
+  displayNames: Record<string, string>;
 }
 
 /**
@@ -216,13 +226,16 @@ export interface DefaultModelGroup {
  * so only organization providers are listed (Builder.io first when the
  * organization is connected), each with its organization-checked models. A
  * rejected key offers nothing until it's replaced. Without an organization
- * the default is the user's own, so their personal keys fill it instead.
+ * the default is the user's own, so their personal keys fill it instead. A
+ * connected ChatGPT plan is the viewer's own whichever way the default is
+ * scoped, so its models are offered last when the account has any.
  */
 export function defaultModelGroups(input: {
   listing: ModelProvidersListing;
   models: ProviderModelsRead | undefined;
   builderConnected: boolean;
   builderLabel: string;
+  chatgpt?: ChatGPTModelCatalog | undefined;
 }): DefaultModelGroup[] {
   const { listing, models } = input;
   const scope: ModelProviderKeyScope = listing.hasOrganization ? "org" : "user";
@@ -248,6 +261,15 @@ export function defaultModelGroups(input: {
       provider: entry.provider,
       label: entry.label,
       models: checked,
+    });
+  }
+  if (input.chatgpt && input.chatgpt.models.length > 0) {
+    groups.push({
+      engine: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      provider: "chatgpt",
+      label: input.chatgpt.label,
+      models: input.chatgpt.models,
+      modelDisplayNames: input.chatgpt.displayNames,
     });
   }
   return groups;

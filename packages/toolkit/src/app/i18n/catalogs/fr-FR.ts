@@ -1676,6 +1676,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "Vos dépenses estimées",
   "settings.usage.yourCreditSpend": "Vos crédits Builder.io dépensés",
   "settings.usage.calls": "Appels",
+  "settings.usage.chatgptPlanUsage": "Utilisation du forfait ChatGPT",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Personnes actives",
   "settings.usage.history": "Historique d'utilisation",
@@ -2921,14 +2922,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptConnecting": "Connexion…",
   "settingsModel.chatgptContinue": "Continuer avec ChatGPT",
   "settingsModel.chatgptDisconnect": "Déconnecter",
+  "settingsModel.chatgptDisconnectTitle": "Déconnecter ChatGPT ?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} sera déconnecté de cette application et l’agent cessera d’utiliser votre forfait ChatGPT. Vous pouvez vous reconnecter à tout moment.",
+  "settingsModel.chatgptDisconnecting": "Déconnexion…",
   "settingsModel.chatgptRemoveLegacySignIn": "Supprimer l’ancienne connexion",
   "settingsModel.chatgptLegacySignInDetails":
     "Une ancienne connexion ChatGPT est enregistrée ici. Le parcours officiel ne peut pas l’utiliser.",
-  "settingsModel.chatgptManageAccess": "Gérer l’accès dans ChatGPT",
+  "settingsModel.chatgptManageAccess": "Gérer dans ChatGPT",
   "settingsModel.chatgptRemoteRevocationUnconfirmed":
-    "Déconnecté ici, mais OpenAI n’a pas confirmé la révocation à distance.",
+    "Déconnecté ici. L’accès peut rester actif dans ChatGPT.",
   "settingsModel.chatgptLocalOnly":
-    "Ce flux de connexion open source nécessite une application locale ou auto-hébergée. Les applications hébergées ou payantes nécessitent un accès partenaire OpenAI.",
+    "Les applications hébergées nécessitent un accès partenaire OpenAI.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnectez-vous et autorisez l’accès direct aux modèles pour utiliser ce compte ChatGPT.",
   "settingsModel.chatgptPartnerInterest": "Demander un accès partenaire",
