@@ -7883,6 +7883,10 @@ export default function SlideEditor({
         return;
       }
       const clicked = findSelectableElement(target, slideContent);
+      if (additive && clicked) {
+        e.preventDefault();
+        return;
+      }
       const dragTarget = resolveSlidesCanvasDragTarget(
         selected && !isSlideCanvasShell(selected) ? selected : null,
         clicked && !isSlideCanvasShell(clicked) ? clicked : null,
