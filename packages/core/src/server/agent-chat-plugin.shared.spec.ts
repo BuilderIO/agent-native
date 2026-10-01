@@ -42,6 +42,17 @@ describe("agent chat run lifecycle tracking", () => {
         "attempt-1",
         "owner@example.com",
       );
+      trackAgentChatRunLifecycle(
+        "run_finished",
+        "thread-1",
+        "attempt-3",
+        "owner@example.com",
+        {
+          status: "errored",
+          failure_code: "missing_credentials",
+          engine: "anthropic",
+        },
+      );
       trackAgentChatRunLifecycle("run_started", undefined, "attempt-2");
     } finally {
       unregisterTrackingProvider("agent-chat-run-lifecycle-test");
@@ -57,6 +68,17 @@ describe("agent chat run lifecycle tracking", () => {
         name: "run_no_reply",
         userId: "owner@example.com",
         properties: { thread_id: "thread-1", attempt_id: "attempt-1" },
+      },
+      {
+        name: "run_finished",
+        userId: "owner@example.com",
+        properties: {
+          thread_id: "thread-1",
+          attempt_id: "attempt-3",
+          status: "errored",
+          failure_code: "missing_credentials",
+          engine: "anthropic",
+        },
       },
     ]);
   });

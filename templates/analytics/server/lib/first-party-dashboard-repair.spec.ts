@@ -601,7 +601,10 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(base).toContain("'recording_ready', 'run_started')");
     expect(base).toContain("generation_completed");
     expect(base).toContain(
-      "COALESCE(NULLIF(JSON_VALUE(properties, '$.auth_user_id'), ''), NULLIF(user_key, '')) AS user_key",
+      "NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') AS user_key",
+    );
+    expect(base).toContain(
+      "NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL",
     );
     expect(base).not.toContain("session status");
     expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).not.toContain("session status");

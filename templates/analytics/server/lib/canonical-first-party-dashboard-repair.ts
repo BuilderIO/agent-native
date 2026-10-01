@@ -29,7 +29,7 @@ const BIGQUERY_CONTENT_OR_CHAT_ACTIVITY_FILTER = `(
   OR event_name IN ('generation_completed', 'design_created', 'plan_created', 'recording_ready', 'run_started')
   OR (event_name = 'app.first_action' AND JSON_VALUE(properties, '$.action') = 'chat_submit')
   OR (event_name = 'core_action_started' AND JSON_VALUE(properties, '$.action_name') = 'chat_submit')
-)`;
+) AND NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL`;
 
 export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
   SELECT
@@ -187,7 +187,7 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
     )
     .replace(
       "SELECT NULLIF(user_key, '') AS user_key",
-      "SELECT COALESCE(NULLIF(JSON_VALUE(properties, '$.auth_user_id'), ''), NULLIF(user_key, '')) AS user_key",
+      "SELECT NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') AS user_key",
     )
     .replace(PRE_CUSTOM_RETENTION_BASE_RANGE, CUSTOM_RETENTION_BASE_RANGE)
     .replace(

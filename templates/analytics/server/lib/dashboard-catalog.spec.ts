@@ -365,7 +365,10 @@ describe("dashboard catalog", () => {
         expect(sql).toContain("event_name = 'run_started'");
         expect(sql).toContain("generation_completed");
         expect(sql).toContain(
-          "COALESCE(NULLIF(properties::jsonb ->> 'auth_user_id', ''), NULLIF(user_key, ''))",
+          "NULLIF(properties::jsonb ->> 'auth_user_id', '') AS user_key",
+        );
+        expect(sql).toContain(
+          "NULLIF(properties::jsonb ->> 'auth_user_id', '') IS NOT NULL",
         );
       }
     }

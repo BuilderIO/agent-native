@@ -190,6 +190,7 @@ function ChatRunFailure({
   const { controller } = useAgentKit();
   const t = useT();
   const [retryError, setRetryError] = useState<ChatRetryError | null>(null);
+  const retryStartedForRunsRef = useRef(new Set<string>());
   const recoveryMetadata = (message: (typeof thread.messages)[number]) =>
     (
       message.metadata as
@@ -213,6 +214,7 @@ function ChatRunFailure({
       recoveryMetadata(message)?.agentNativeRecoveryOfRunId === runId,
   );
   const retryFirstMessage = useCallback(() => {
+    if (retryStartedForRunsRef.current.has(runId)) return;
     const attachments =
       originalRequest?.parts.filter((part) => part.type === "file") ?? [];
     if (attachments.some((part) => part.fileId && !part.url)) {
@@ -220,21 +222,31 @@ function ChatRunFailure({
       return;
     }
     setRetryError(null);
+    retryStartedForRunsRef.current.add(runId);
     const prompt =
       originalRequest?.parts
         .filter((part) => part.type === "text")
         .map((part) => part.text)
         .join("\n") ?? "";
-    void controller.sendMessage({
-      threadId,
-      text: prompt || t("chat.retryPreviousRequest"),
-      ...(attachments.length ? { attachments } : {}),
-      metadata: {
-        custom: {
-          agentNativeRecoveryAction: "retry",
-          agentNativeRecoveryOfRunId: runId,
+    let send: unknown;
+    try {
+      send = controller.sendMessage({
+        threadId,
+        text: prompt || t("chat.retryPreviousRequest"),
+        ...(attachments.length ? { attachments } : {}),
+        metadata: {
+          custom: {
+            agentNativeRecoveryAction: "retry",
+            agentNativeRecoveryOfRunId: runId,
+          },
         },
-      },
+      });
+    } catch (error) {
+      retryStartedForRunsRef.current.delete(runId);
+      throw error;
+    }
+    void Promise.resolve(send).catch(() => {
+      retryStartedForRunsRef.current.delete(runId);
     });
   }, [controller, originalRequest, runId, t, threadId]);
   const isFirstMessage = userRequests.length === 1 && !hasRetryForThisRun;
@@ -251,6 +263,7 @@ function ChatRunFailure({
         <BuilderSetupCard
           fullWidth
           layout="sidebar"
+          onConnected={retryFirstMessage}
           onRetry={retryFirstMessage}
         />
         {retryError?.runId === runId &&

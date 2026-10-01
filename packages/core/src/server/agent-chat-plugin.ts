@@ -280,15 +280,16 @@ export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
 export function trackAgentChatRunLifecycle(
-  event: "run_started" | "run_no_reply",
+  event: "run_started" | "run_finished" | "run_no_reply",
   threadId: string | undefined,
   attemptId: string | undefined,
   userId?: string,
+  properties: Record<string, unknown> = {},
 ): void {
   if (!threadId?.trim() || !attemptId?.trim()) return;
   track(
     event,
-    { thread_id: threadId, attempt_id: attemptId },
+    { ...properties, thread_id: threadId, attempt_id: attemptId },
     userId ? { userId } : undefined,
   );
 }
@@ -3423,6 +3424,26 @@ export function createAgentChatPlugin(
               Number.isFinite(run.startedAt)
                 ? Math.max(0, Date.now() - run.startedAt)
                 : undefined,
+          },
+        );
+        const runContext = getRequestRunContext();
+        const failureCode =
+          run.status === "errored"
+            ? [...(run.events ?? [])]
+                .reverse()
+                .find(({ event }) => event.type === "error")?.event
+            : undefined;
+        trackAgentChatRunLifecycle(
+          "run_finished",
+          runThreadId || undefined,
+          run.runId,
+          runContext?.owner,
+          {
+            status: run.status,
+            engine: runContext?.engine?.name ?? "unknown",
+            ...(failureCode?.type === "error"
+              ? { failure_code: failureCode.errorCode ?? "unknown" }
+              : {}),
           },
         );
         if (!assistantMsg) {

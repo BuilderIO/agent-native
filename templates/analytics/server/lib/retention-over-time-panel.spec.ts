@@ -40,7 +40,7 @@ async function seedFirstSeenEvent(
   userKey: string,
   date: string,
   template = "chat",
-  authUserId?: string,
+  authUserId: string | null = userKey,
 ) {
   const rowId = `row-${nextRowId++}`;
   await client.query(
@@ -241,6 +241,65 @@ describe("retention-over-time panel SQL", () => {
         (row) => row.date === cohortDate && row.period === "1-7d return",
       ),
     ).toMatchObject({ cohort_users: 5, retained_users: 1, rate: 0.2 });
+  });
+
+  it("requires auth_user_id and uses it as the cohort key", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(cohortDate, -3);
+
+    for (let index = 0; index < 5; index++) {
+      await seedFirstSeenEvent(
+        client,
+        `session-${index}`,
+        cohortDate,
+        "chat",
+        `auth-${index}`,
+      );
+      await seedFirstSeenEvent(
+        client,
+        `changed-session-${index}`,
+        returnDate,
+        "chat",
+        `auth-${index}`,
+      );
+      await seedFirstSeenEvent(
+        client,
+        `anonymous-${index}`,
+        cohortDate,
+        "chat",
+        null,
+      );
+    }
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number | null;
+          rate: number | null;
+        }>;
+      }
+    ).rows;
+
+    expect(
+      rows.find(
+        (row) => row.date === cohortDate && row.period === "1-7d return",
+      ),
+    ).toMatchObject({ cohort_users: 5, retained_users: 5, rate: 1 });
   });
 
   it("sizes a bounded spine to the same calendar days as the shared time-range filter", async () => {

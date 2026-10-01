@@ -600,6 +600,17 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
   }));
 }
 
+function mergeStoredAndIncomingMessages(
+  stored: AgentMessage[],
+  incoming: AgentMessage[],
+): AgentMessage[] {
+  const messages = new Map(stored.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    if (!messages.has(message.id)) messages.set(message.id, message);
+  }
+  return [...messages.values()];
+}
+
 function persistedActionWidgets(
   widgets: AgentWidgetSnapshot[] = [],
   messageIds: ReadonlySet<string>,
@@ -1079,6 +1090,7 @@ export function createAgentNativeAgentKitTransport(
     snapshot: AgentThreadSnapshot;
   }): Promise<void> {
     let stored = await fetchThread(input.threadId);
+    let createdByAnotherRequest = false;
     if (!stored) {
       const requestHeaders = await headers({ sessionId: input.threadId });
       requestHeaders.set("content-type", "application/json");
@@ -1097,6 +1109,7 @@ export function createAgentNativeAgentKitTransport(
         const racedThread = await fetchThread(input.threadId);
         if (!racedThread) throw await responseError(response);
         stored = racedThread;
+        createdByAnotherRequest = true;
       } else {
         if (!response.ok) throw await responseError(response);
         const value = await response.json();
@@ -1108,6 +1121,19 @@ export function createAgentNativeAgentKitTransport(
     }
     const repository = storedRepository(stored);
     const previousAgentKit = asRecord(repository.agentKit) ?? {};
+    const snapshotMessages = createdByAnotherRequest
+      ? mergeStoredAndIncomingMessages(
+          mergeStoredAndIncomingMessages(
+            projectThread(input.threadId, stored).messages,
+            storedMessages(
+              repository.messages,
+              now,
+              options.adapter?.textFormat,
+            ),
+          ),
+          input.snapshot.messages,
+        )
+      : input.snapshot.messages;
     const compactEvents = persistedHistoryEvents(input.snapshot.events);
     const compactRunIds = new Set(compactEvents.map((event) => event.runId));
     const eventsById = new Map<string, unknown>();
@@ -1136,7 +1162,7 @@ export function createAgentNativeAgentKitTransport(
       if (typeof record?.id === "string") runsById.set(record.id, run);
     }
     const snapshotMessageIds = new Set(
-      input.snapshot.messages.map((message) => message.id),
+      snapshotMessages.map((message) => message.id),
     );
     const annotations =
       input.snapshot.annotations ??
@@ -1145,7 +1171,7 @@ export function createAgentNativeAgentKitTransport(
         : []);
     const agentKit = {
       ...previousAgentKit,
-      messages: persistedMessages(input.snapshot.messages),
+      messages: persistedMessages(snapshotMessages),
       widgets: persistedActionWidgets(
         input.snapshot.widgets,
         new Set(input.snapshot.messages.map((message) => message.id)),

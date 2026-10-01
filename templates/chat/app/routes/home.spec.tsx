@@ -123,8 +123,21 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
   },
 }));
 vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
-  BuilderSetupCard: ({ onRetry }: { onRetry?: () => void }) => (
-    <button data-testid="chat-builder-setup" onClick={onRetry} />
+  BuilderSetupCard: ({
+    onConnected,
+    onRetry,
+  }: {
+    onConnected?: () => void;
+    onRetry?: () => void;
+  }) => (
+    <div data-testid="chat-builder-setup">
+      {onConnected ? (
+        <button data-testid="chat-builder-connected" onClick={onConnected} />
+      ) : null}
+      {onRetry ? (
+        <button data-testid="chat-builder-setup-retry" onClick={onRetry} />
+      ) : null}
+    </div>
   ),
   isMissingLlmProviderRunError: ({
     errorCode,
@@ -426,7 +439,9 @@ describe("ChatRoute AgentKit surface", () => {
 
     act(() =>
       container
-        .querySelector<HTMLButtonElement>("[data-testid='chat-builder-setup']")
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
         ?.click(),
     );
 
@@ -541,6 +556,63 @@ describe("ChatRoute AgentKit surface", () => {
     ).not.toBeNull();
   });
 
+  it("retries after Builder connects and ignores a racing manual retry", () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Draft a launch plan" }],
+      },
+    ];
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    act(() =>
+      root.render(
+        React.createElement(slots.runFailure, {
+          error: {
+            code: "missing_credentials",
+            message: "Missing credentials",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-connected']",
+        )
+        ?.click();
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
+        ?.click();
+    });
+
+    expect(routeState.sendMessage).toHaveBeenCalledOnce();
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).toEqual({
+      threadId: "thread-one",
+      text: "Draft a launch plan",
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: "run-one",
+        },
+      },
+    });
+  });
+
   it("does not retry a file-ID-only attachment and shows a typed error", () => {
     routeState.threadId = "thread-one";
     routeState.messages = [
@@ -578,7 +650,9 @@ describe("ChatRoute AgentKit surface", () => {
 
     act(() =>
       container
-        .querySelector<HTMLButtonElement>("[data-testid='chat-builder-setup']")
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-connected']",
+        )
         ?.click(),
     );
 

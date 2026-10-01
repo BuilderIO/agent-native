@@ -127,6 +127,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                     content: "Keep the typed prompt",
                   },
                 ],
+                agentKit: { messages: [] },
               }),
             });
           }
@@ -163,8 +164,21 @@ describe("createAgentNativeAgentKitTransport", () => {
       "GET",
       "PUT",
     ]);
-    expect(JSON.parse(savedThreadData ?? "{}").messages).toEqual([
+    const saved = JSON.parse(savedThreadData ?? "{}");
+    expect(saved.messages).toEqual([
       expect.objectContaining({ id: "saved-prompt", role: "user" }),
+    ]);
+    expect(saved.agentKit.messages).toEqual([
+      expect.objectContaining({
+        id: "saved-prompt",
+        role: "user",
+        parts: [
+          expect.objectContaining({
+            type: "text",
+            text: "Keep the typed prompt",
+          }),
+        ],
+      }),
     ]);
   });
 
