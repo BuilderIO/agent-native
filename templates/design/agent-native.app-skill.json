@@ -77,7 +77,7 @@
       "displayName": "Agent-Native Design",
       "shortDescription": "Interactive prototypes",
       "longDescription": "Create interactive prototypes in your Agent-Native Design workspace. Browse saved designs, templates, design systems, and snapshots; start new designs, generate visual directions, and refine saved prototypes through chat. This connection works with designs in the connected Agent-Native workspace. It does not connect to local repositories, modify a running website, export files, or deploy an application.",
-      "developerName": "Agent-Native",
+      "developerName": "Builder.io",
       "category": "Creativity",
       "capabilities": [
         "Create interactive prototypes",
