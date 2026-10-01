@@ -5,22 +5,57 @@ export const MAX_EXTRA_KEYS = 30;
 export const MAX_EXTRA_VALUE_LENGTH = 1000;
 
 const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
-const SQL_PARAMS_RE =
-  /\b((?:failed query|query failed):\s*(?:select|insert|update|delete|merge|with|values)\b[\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
-const SQL_QUERY_FAILURE_RE =
-  /\b(?:failed query|query failed):\s*(?:select|insert|update|delete|merge|with|values)\b/i;
+const SQL_PARAMS_RE = /^([\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
+const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):\s*/i;
 const SQL_STATEMENT_RE =
-  /^\s*(?:select|insert|update|delete|merge|with|values)\b/i;
+  /^(?:select|insert|update|delete|merge|with|values|explain)\b/i;
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
 
+function afterLeadingSqlComments(value: string): string {
+  let statement = value.trimStart();
+  while (statement.startsWith("--") || statement.startsWith("/*")) {
+    if (statement.startsWith("--")) {
+      const end = statement.indexOf("\n");
+      if (end < 0) return "";
+      statement = statement.slice(end + 1).trimStart();
+      continue;
+    }
+
+    let depth = 1;
+    let end = 2;
+    while (depth > 0 && end < statement.length) {
+      if (statement.startsWith("/*", end)) {
+        depth++;
+        end += 2;
+      } else if (statement.startsWith("*/", end)) {
+        depth--;
+        end += 2;
+      } else {
+        end++;
+      }
+    }
+    if (depth > 0) return "";
+    statement = statement.slice(end).trimStart();
+  }
+  return statement;
+}
+
+function startsWithSqlStatement(value: string): boolean {
+  return SQL_STATEMENT_RE.test(afterLeadingSqlComments(value));
+}
+
 export function isSqlQueryFailureText(value: string): boolean {
-  return SQL_QUERY_FAILURE_RE.test(value);
+  const match = SQL_QUERY_FAILURE_RE.exec(value);
+  return (
+    match !== null &&
+    startsWithSqlStatement(value.slice(match.index + match[0].length))
+  );
 }
 
 export function isSqlStatementText(value: string): boolean {
-  return SQL_STATEMENT_RE.test(value) || isSqlQueryFailureText(value);
+  return startsWithSqlStatement(value) || isSqlQueryFailureText(value);
 }
 
 export function redact(value: string): string {
@@ -30,7 +65,9 @@ export function redact(value: string): string {
       /([A-Za-z0-9_$.-]*(?:authorization|cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)[A-Za-z0-9_$.-]*\s*[:=]\s*)([^\s,;}]+)/gi,
       "$1<redacted>",
     )
-    .replace(SQL_PARAMS_RE, "$1$2<redacted>");
+    .replace(SQL_PARAMS_RE, (match, query: string, params: string) =>
+      isSqlStatementText(query) ? `${query}${params}<redacted>` : match,
+    );
 }
 
 export function boundedText(value: unknown, max: number): string {

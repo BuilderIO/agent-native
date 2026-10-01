@@ -47,9 +47,10 @@ function isStructuredSqlQuery(value: object): value is Record<string, unknown> {
   if (Array.isArray(value) || !("params" in value)) return false;
   const query = "query" in value ? value.query : undefined;
   const sql = "sql" in value ? value.sql : undefined;
-  return (
-    (typeof query === "string" && isSqlStatementText(query)) ||
-    (typeof sql === "string" && isSqlStatementText(sql))
+  const message = "message" in value ? value.message : undefined;
+  return [query, sql, message].some(
+    (candidate) =>
+      typeof candidate === "string" && isSqlStatementText(candidate),
   );
 }
 
@@ -65,11 +66,11 @@ function redactSentryEventPayload(
   const record = value as Record<string, unknown>;
   const redactSqlParams =
     sqlFailure ||
+    isStructuredSqlQuery(value) ||
     (!eventRoot &&
-      (isStructuredSqlQuery(value) ||
-        Object.values(record).some(
-          (child) => typeof child === "string" && isSqlQueryFailureText(child),
-        )));
+      Object.values(record).some(
+        (child) => typeof child === "string" && isSqlQueryFailureText(child),
+      ));
   const stackContext = { name: record.name, message: record.message };
   for (const [key, child] of Object.entries(record)) {
     if (redactSqlParams && key.toLowerCase() === "params") {
@@ -81,7 +82,12 @@ function redactSentryEventPayload(
             redact(child))
           : redact(child);
     } else {
-      redactSentryEventPayload(child, redactSqlParams, false, seen);
+      redactSentryEventPayload(
+        child,
+        eventRoot ? false : redactSqlParams,
+        false,
+        seen,
+      );
     }
   }
 }

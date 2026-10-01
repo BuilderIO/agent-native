@@ -312,6 +312,66 @@ describe("server/sentry", () => {
       expect(JSON.stringify(result)).not.toContain(privateValue);
     });
 
+    it("redacts EXPLAIN queries after leading SQL comments", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const message =
+        `Failed query: /* plan */\n-- analyze the plan\n` +
+        `EXPLAIN ANALYZE SELECT id FROM customers\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: { values: [{ type: "DrizzleQueryError", value: message }] },
+        logentry: { message, params: [privateValue] },
+      } as never) as {
+        exception: { values: Array<{ value: string }> };
+        logentry: { params?: unknown[] };
+      };
+
+      expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.logentry.params).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("redacts structured params associated with raw SQL messages", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const message =
+        `/* insert customer */ INSERT INTO customers (name) VALUES ($1)` +
+        `\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message,
+        params: [privateValue],
+        logentry: { message, params: [privateValue] },
+        extra: {
+          cause: { message, params: [privateValue] },
+          unrelated: { params: ["diagnostic"] },
+        },
+      } as never) as {
+        message: string;
+        params: unknown;
+        logentry: { message: string; params?: unknown[] };
+        extra: {
+          cause: { params: unknown };
+          unrelated: { params: string[] };
+        };
+      };
+
+      expect(result.message).toContain("params: <redacted>");
+      expect(result.params).toBe("<redacted>");
+      expect(result.logentry.message).toContain("params: <redacted>");
+      expect(result.logentry.params).toBeUndefined();
+      expect(result.extra.cause.params).toBe("<redacted>");
+      expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
     it("redacts nested serialized SQL errors with bound parameters", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
