@@ -5,7 +5,6 @@ export const MAX_EXTRA_KEYS = 30;
 export const MAX_EXTRA_VALUE_LENGTH = 1000;
 
 const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
-// ponytail: Drizzle values can contain newlines; preserve later stack frames only with driver-provided value boundaries.
 const SQL_PARAMS_RE =
   /\b(?:failed query|query failed):[\s\S]*?(\r?\nparams:\s*)[\s\S]*$/i;
 
@@ -26,6 +25,30 @@ export function boundedText(value: unknown, max: number): string {
   const text = typeof value === "string" ? value : String(value ?? "");
   const safe = redact(text);
   return safe.length > max ? safe.slice(0, max) : safe;
+}
+
+export function redactErrorStack(error: unknown): string | undefined {
+  const stack =
+    error instanceof Error
+      ? error.stack
+      : error && typeof error === "object" && "stack" in error
+        ? error.stack
+        : undefined;
+  if (typeof stack !== "string") return undefined;
+
+  if (error instanceof Error) {
+    const prefix = `${error.name || "Error"}${error.message ? `: ${error.message}` : ""}`;
+    const suffix = stack.slice(prefix.length);
+    if (stack.startsWith(prefix) && (!suffix || /^\r?\n/.test(suffix))) {
+      const safe = `${redact(prefix)}${redact(suffix)}`;
+      return safe.length > MAX_STACK_LENGTH
+        ? safe.slice(0, MAX_STACK_LENGTH)
+        : safe;
+    }
+  }
+
+  // ponytail: Unknown stack formats lose frames; keep whole-tail redaction until the source exposes a message boundary.
+  return boundedText(stack, MAX_STACK_LENGTH);
 }
 
 export function safeValue(value: unknown, depth = 2): unknown {
@@ -79,15 +102,14 @@ export interface ExceptionParts {
 
 export function exceptionParts(error: unknown): ExceptionParts {
   if (error instanceof Error) {
+    const stack = redactErrorStack(error);
     return {
       type: boundedText(error.name || "Error", 200),
       message: boundedText(
         error.message || error.name || "Error",
         MAX_MESSAGE_LENGTH,
       ),
-      ...(error.stack
-        ? { stack: boundedText(error.stack, MAX_STACK_LENGTH) }
-        : {}),
+      ...(stack ? { stack } : {}),
     };
   }
   return {

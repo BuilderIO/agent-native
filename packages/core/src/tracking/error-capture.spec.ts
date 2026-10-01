@@ -61,6 +61,7 @@ describe("tracking captureException", () => {
     expect(event.properties.exceptionMessage).toContain("params: <redacted>");
     expect(event.properties.exceptionMessage).not.toContain(privateValue);
     expect(event.properties.exceptionStack).not.toContain(privateValue);
+    expect(event.properties.exceptionStack).toMatch(/\n\s+at /);
   });
 
   it("keeps tags after an undefined one instead of dropping the rest", () => {

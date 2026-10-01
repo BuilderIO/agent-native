@@ -853,6 +853,7 @@ describe("mountActionRoutes", () => {
     expect(JSON.stringify(consoleError.mock.calls)).toContain(
       "params: <redacted>",
     );
+    expect(consoleError.mock.calls[0]?.[1]?.error).toMatch(/\n\s+at /);
   });
 
   it("preserves safe action contract metadata for retryable server failures", async () => {
