@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   markdownSuggestionOperations,
+  markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForFindReplace,
   markdownSuggestionOperationsForReplacements,
 } from "./suggestion-diff.js";
+import { suggestionMarkedSourceRanges } from "./suggestion-formatting.js";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
 
 function proposedFrom(
@@ -20,6 +22,41 @@ function proposedFrom(
         text.slice(operation.anchor.to),
       before,
     );
+}
+
+function expectIntactOperations(
+  before: string,
+  after: string,
+  operations: ReturnType<typeof markdownSuggestionOperations>,
+) {
+  expect(proposedFrom(before, operations)).toBe(after);
+  const beforeRanges = suggestionMarkedSourceRanges(before) ?? [];
+  const afterRanges = suggestionMarkedSourceRanges(after) ?? [];
+  let delta = 0;
+  for (const operation of operations) {
+    const { from, to } = operation.anchor;
+    expect(operation.before.markdown).toBe(before);
+    expect(operation.after.markdown).toBe(
+      before.slice(0, from) + operation.after.changedText + before.slice(to),
+    );
+    expect(resolveMarkdownSuggestionRange(before, operation)).toMatchObject({
+      from,
+      to,
+    });
+    const afterFrom = from + delta;
+    const afterTo = afterFrom + operation.after.changedText.length;
+    for (const [ranges, boundaries] of [
+      [beforeRanges, [from, to]],
+      [afterRanges, [afterFrom, afterTo]],
+    ] as const) {
+      for (const range of ranges) {
+        for (const boundary of boundaries) {
+          expect(boundary > range.from && boundary < range.to).toBe(false);
+        }
+      }
+    }
+    delta += operation.after.changedText.length - (to - from);
+  }
 }
 
 describe("suggestion decomposition", () => {
@@ -146,6 +183,145 @@ describe("suggestion decomposition", () => {
         item.after.changedText,
       ]),
     ).toEqual([["ready", "approved"]]);
+  });
+
+  it.each([
+    [
+      "- **Release:** Wrenfield goes on sale Thursday, October 3.\n- **Styles:** Light to Black.",
+      "Thursday, October 3",
+      "Friday, October 2",
+      [
+        ["Thursday", "Friday"],
+        ["3", "2"],
+      ],
+    ],
+    [
+      "We shipped quickly, and the results were good.\n\n**Review:** Draft.",
+      "We shipped quickly, and the results were good.",
+      "We shipped quickly and the results were excellent.",
+      [
+        [",", ""],
+        ["good", "excellent"],
+      ],
+    ],
+    [
+      "A second note is ready.\n\n**Review:** Draft.",
+      "A second note is ready.",
+      "A second note is approved.",
+      [["ready", "approved"]],
+    ],
+  ])(
+    "CSD-12: matches plain-page word decisions on %s",
+    (before, find, replace, expected) => {
+      for (const source of [before.replace(/\*\*/g, ""), before]) {
+        const start = source.indexOf(find);
+        const after =
+          source.slice(0, start) + replace + source.slice(start + find.length);
+        const operations = markdownSuggestionOperationsForFindReplace({
+          before: source,
+          find,
+          replace,
+          start,
+        });
+        expect(
+          operations.map((item) => [
+            item.before.changedText,
+            item.after.changedText,
+          ]),
+        ).toEqual(expected);
+        expectIntactOperations(source, after, operations);
+      }
+    },
+  );
+
+  it("CSD-12: keeps whole words in a formatted Suggesting-mode revision", () => {
+    const before = "**Release:** Thursday, October 3.";
+    const after = "**Release:** Friday, October 2.";
+    const from = before.indexOf("Thursday");
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before,
+      after,
+      replacements: [{ from, to: before.length }],
+    });
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([
+      ["Thursday", "Friday"],
+      ["3", "2"],
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it.each([
+    ["bold", "**Release:**", "**Launch:**"],
+    ["italic", "*Release:*", "*Launch:*"],
+    ["code", "`Release:`", "`Launch:`"],
+    [
+      "link",
+      "[Release:](https://example.test)",
+      "[Launch:](https://example.test)",
+    ],
+    [
+      "span",
+      '<span underline="true">Release:</span>',
+      '<span underline="true">Launch:</span>',
+    ],
+  ])(
+    "CSD-13: keeps the %s run whole and adjacent words independent",
+    (_name, marked, revised) => {
+      const cases = [
+        [marked + " Thursday", revised + " Thursday", [[marked, revised]]],
+        [marked + " Thursday", marked + " Friday", [["Thursday", "Friday"]]],
+        ["Thursday" + marked, "Friday" + marked, [["Thursday", "Friday"]]],
+        [marked + "Thursday", marked + "Friday", [["Thursday", "Friday"]]],
+      ] as const;
+      for (const [before, after, expected] of cases) {
+        const operations = markdownSuggestionOperations(before, after);
+        expect(
+          operations.map((item) => [
+            item.before.changedText,
+            item.after.changedText,
+          ]),
+        ).toEqual(expected);
+        expectIntactOperations(before, after, operations);
+      }
+    },
+  );
+
+  it("CSD-13: keeps a formatted run whole when the other side has no mappable formatting", () => {
+    const cases = [
+      [
+        "**Note:** Thursday.",
+        "Note: Friday.\n\n<https://example.test>",
+        [
+          ["**Note:**", "Note:"],
+          ["Thursday", "Friday"],
+          ["", "\n\n<https://example.test>"],
+        ],
+      ],
+      [
+        "Note: Thursday.\n\n<https://example.test>",
+        "**Note:** Friday.",
+        [
+          ["Note:", "**Note:**"],
+          ["Thursday", "Friday"],
+          ["\n\n<https://example.test>", ""],
+        ],
+      ],
+    ] as const;
+    for (const [before, after, expected] of cases) {
+      const operations = markdownSuggestionOperations(before, after);
+      expect(
+        operations.map((item) => [
+          item.before.changedText,
+          item.after.changedText,
+        ]),
+      ).toEqual(expected);
+      expectIntactOperations(before, after, operations);
+    }
   });
 
   it("preserves exact whitespace, Unicode, and formatting bytes", () => {
