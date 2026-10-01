@@ -1090,6 +1090,9 @@ export function AgentActivityGroup({
       latestSequence.set(event.toolCallId, event.sequence);
     }
   }
+  itemOrder.sort(
+    (left, right) => firstSequence.get(left)! - firstSequence.get(right)!,
+  );
   const items = itemOrder.flatMap((id) => {
     const sequence = firstSequence.get(id);
     if (
@@ -1116,12 +1119,18 @@ export function AgentActivityGroup({
   const durableToolResultIds = new Set(
     durableToolResults.map(({ tool }) => tool.id),
   );
+  const isInternalActivity = (activity: AgentActivity) =>
+    activity.label === "Starting agent" ||
+    activity.label === "Contacting model";
   const activityItems = items.filter(
-    (activity) => !durableToolResultIds.has(activity.id),
+    (activity) =>
+      !durableToolResultIds.has(activity.id) && !isInternalActivity(activity),
   );
   const latestRunningActivity = items.reduce<AgentActivity | undefined>(
     (current, activity) => {
-      if (activity.status !== "running") return current;
+      if (activity.status !== "running" || isInternalActivity(activity)) {
+        return current;
+      }
       if (!current) return activity;
       return (latestSequence.get(activity.id) ?? -1) >=
         (latestSequence.get(current.id) ?? -1)
@@ -1181,13 +1190,8 @@ export function AgentActivityGroup({
         status: "running",
       })
     : undefined;
-  const currentActivityLabel =
-    currentActivity?.label === "Contacting model"
-      ? labels.reasoning
-      : currentActivity?.label;
-  const displayGroups = new Map<ActivityBucket, AgentActivity[][]>(
-    ACTIVITY_BUCKET_ORDER.map((bucket) => [bucket, []]),
-  );
+  const currentActivityLabel = currentActivity?.label;
+  const displayGroups: AgentActivity[][] = [];
   const clusterIdentity = (activity: AgentActivity) => {
     const tool = toolMap.get(activity.id);
     return activityClusterIdentity(
@@ -1203,9 +1207,7 @@ export function AgentActivityGroup({
     const hasCustomActivityRenderer = Boolean(
       registry.activities?.[activity.kind] ?? slots.activity,
     );
-    const bucket = activityBucketForKind(activity.kind);
-    const bucketGroups = displayGroups.get(bucket)!;
-    const previous = bucketGroups.at(-1);
+    const previous = displayGroups.at(-1);
     if (
       !hasCustomToolRenderer &&
       !hasCustomActivityRenderer &&
@@ -1217,23 +1219,10 @@ export function AgentActivityGroup({
     ) {
       previous.push(activity);
     } else {
-      bucketGroups.push([activity]);
+      displayGroups.push([activity]);
     }
   }
-  const reasoningGroups = displayGroups.get("thinking")!;
-  const hasExpandableActivity =
-    reasoningGroups.length > 0 ||
-    ACTIVITY_BUCKET_ORDER.some(
-      (bucket) =>
-        bucket !== "thinking" && displayGroups.get(bucket)!.length > 0,
-    );
-  const activityBucketLabels = {
-    thinking: "Thinking",
-    research: "Research",
-    actions: "Actions",
-    other: "Other",
-    ...labels.activityBuckets,
-  };
+  const hasExpandableActivity = displayGroups.length > 0;
   const formatDuration = (ms: number) =>
     formatAgentKitDuration(ms, {
       hour: labels.durationHourShort,
@@ -1283,86 +1272,53 @@ export function AgentActivityGroup({
           }
         >
           <div className="agentkit-activities-list">
-            {ACTIVITY_BUCKET_ORDER.map((bucket) => {
-              const groups =
-                bucket === "thinking"
-                  ? reasoningGroups
-                  : displayGroups.get(bucket)!;
-              if (groups.length === 0) return null;
-              const content = (
-                <div className="agentkit-activity-bucket-items">
-                  {groups.map((activities) => {
-                    const activity = activities[0] as AgentActivity;
-                    const reasoningMessage = reasoningMap.get(activity.id);
-                    if (reasoningMessage) {
-                      return (
-                        <AgentReasoningParts
-                          key={activity.id}
-                          message={reasoningMessage}
-                          threadId={threadId}
-                          active={
-                            activelyWorking &&
-                            currentActivity?.id === activity.id
-                          }
-                        />
-                      );
+            {displayGroups.map((activities) => {
+              const activity = activities[0] as AgentActivity;
+              const reasoningMessage = reasoningMap.get(activity.id);
+              if (reasoningMessage) {
+                return (
+                  <AgentReasoningParts
+                    key={activity.id}
+                    message={reasoningMessage}
+                    threadId={threadId}
+                    active={
+                      activelyWorking && currentActivity?.id === activity.id
                     }
-                    if (activities.length > 1) {
-                      return (
-                        <RepeatedActivityCluster
-                          key={`cluster:${activity.id}`}
-                          activities={activities}
-                          threadId={threadId}
-                        />
-                      );
-                    }
-                    const sourceTool = toolMap.get(activity.id);
-                    const ToolRenderer = sourceTool
-                      ? (registry.tools?.[sourceTool.name] ?? slots.tool)
-                      : undefined;
-                    if (sourceTool && ToolRenderer) {
-                      return (
-                        <ToolRenderer
-                          key={sourceTool.id}
-                          value={sourceTool}
-                          threadId={threadId}
-                        />
-                      );
-                    }
-                    const Renderer =
-                      registry.activities?.[activity.kind] ??
-                      slots.activity ??
-                      AgentActivityItem;
-                    return (
-                      <Renderer
-                        key={activity.id}
-                        value={activity}
-                        threadId={threadId}
-                      />
-                    );
-                  })}
-                </div>
-              );
-              return bucket === "thinking" ? (
-                <div
-                  key={bucket}
-                  className="agentkit-activity-bucket"
-                  data-activity-bucket="reasoning-content"
-                >
-                  {content}
-                </div>
-              ) : (
-                <section
-                  key={bucket}
-                  className="agentkit-activity-bucket"
-                  data-activity-bucket={bucket}
-                  aria-label={activityBucketLabels[bucket]}
-                >
-                  <h3 className="agentkit-activity-bucket-title">
-                    {activityBucketLabels[bucket]}
-                  </h3>
-                  {content}
-                </section>
+                  />
+                );
+              }
+              if (activities.length > 1) {
+                return (
+                  <RepeatedActivityCluster
+                    key={`cluster:${activity.id}`}
+                    activities={activities}
+                    threadId={threadId}
+                  />
+                );
+              }
+              const sourceTool = toolMap.get(activity.id);
+              const ToolRenderer = sourceTool
+                ? (registry.tools?.[sourceTool.name] ?? slots.tool)
+                : undefined;
+              if (sourceTool && ToolRenderer) {
+                return (
+                  <ToolRenderer
+                    key={sourceTool.id}
+                    value={sourceTool}
+                    threadId={threadId}
+                  />
+                );
+              }
+              const Renderer =
+                registry.activities?.[activity.kind] ??
+                slots.activity ??
+                AgentActivityItem;
+              return (
+                <Renderer
+                  key={activity.id}
+                  value={activity}
+                  threadId={threadId}
+                />
               );
             })}
           </div>
@@ -1490,29 +1446,6 @@ function AgentReasoningParts({
       </div>
     );
   });
-}
-
-type ActivityBucket = "thinking" | "research" | "actions" | "other";
-
-const ACTIVITY_BUCKET_ORDER: ActivityBucket[] = [
-  "thinking",
-  "research",
-  "actions",
-  "other",
-];
-
-function activityBucketForKind(kind: string): ActivityBucket {
-  if (kind === "reasoning") return "thinking";
-  if (kind === "search" || kind === "read") return "research";
-  if (
-    kind === "write" ||
-    kind === "edit" ||
-    kind === "command" ||
-    kind === "check"
-  ) {
-    return "actions";
-  }
-  return "other";
 }
 
 export function AgentCollaborationFeed({

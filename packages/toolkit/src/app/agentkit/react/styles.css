@@ -1356,7 +1356,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 .agentkit-activities-list {
   display: grid;
   max-block-size: 15.625rem;
-  gap: 0.5rem;
+  gap: 0.125rem;
   overflow: auto;
   overscroll-behavior: contain;
   padding-block-start: 0.25rem;
@@ -1366,28 +1366,6 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   display: grid;
   gap: 0.125rem;
   padding-block-start: 0.25rem;
-}
-
-.agentkit-activity-bucket {
-  display: grid;
-  min-inline-size: 0;
-  gap: 0.125rem;
-}
-
-.agentkit-activity-bucket-title {
-  margin: 0;
-  color: var(--agentkit-text-muted);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  line-height: 1.25rem;
-  text-transform: uppercase;
-}
-
-.agentkit-activity-bucket-items {
-  display: grid;
-  min-inline-size: 0;
-  gap: 0.125rem;
 }
 
 .agentkit-activities-list .agentkit-reasoning {
