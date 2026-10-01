@@ -539,7 +539,9 @@ describe("SlideEditor render-phase safety", () => {
     const selectedStart = source.indexOf("const selected =", pointerStart);
     const groupDragPath = source.slice(pointerStart, selectedStart);
 
-    expect(groupDragPath).toContain("if (multiSelection.size > 0)");
+    expect(groupDragPath).toContain(
+      "if (multiSelection.size > 0 && !additive)",
+    );
     expect(groupDragPath).toContain("if (id && multiSelection.has(id))");
     expect(groupDragPath).not.toContain("!targetIsEditableText");
   });

@@ -7850,7 +7850,7 @@ export default function SlideEditor({
 
       // Pointer-down on a member of the current multi-selection drags the
       // whole group instead of the single-object flow below.
-      if (multiSelection.size > 0) {
+      if (multiSelection.size > 0 && !additive) {
         const id = findSelectableId(target, slideContent);
         if (id && multiSelection.has(id)) {
           startGroupDrag(e, multiSelection);
@@ -7883,6 +7883,10 @@ export default function SlideEditor({
         return;
       }
       const clicked = findSelectableElement(target, slideContent);
+      if (additive && clicked) {
+        e.preventDefault();
+        return;
+      }
       const dragTarget = resolveSlidesCanvasDragTarget(
         selected && !isSlideCanvasShell(selected) ? selected : null,
         clicked && !isSlideCanvasShell(clicked) ? clicked : null,
