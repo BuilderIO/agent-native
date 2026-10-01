@@ -817,10 +817,10 @@ describe("Index skip to editor", () => {
       await mocks.promptProps?.onSubmit("Copy this template", [], {});
     });
     expect(mocks.createFromTemplate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        templateId: "saved-template",
-        designSystemId: null,
-      }),
+      expect.objectContaining({ templateId: "saved-template" }),
+    );
+    expect(mocks.createFromTemplate.mock.calls[0][0]).not.toHaveProperty(
+      "designSystemId",
     );
   });
 
@@ -838,6 +838,35 @@ describe("Index skip to editor", () => {
     expect(mocks.createFromTemplate.mock.calls[0][0]).not.toHaveProperty(
       "designSystemId",
     );
+  });
+
+  it("keeps the template-copy retry identity stable as systems load", async () => {
+    mocks.nanoid
+      .mockReturnValueOnce("first-copy")
+      .mockReturnValue("second-copy");
+    mocks.createFromTemplate.mockRejectedValueOnce(new Error("response lost"));
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+
+    await act(async () => {
+      await expect(
+        mocks.promptProps?.onSubmit("Copy this template", [], {}),
+      ).rejects.toThrow("response lost");
+    });
+    const firstCopy = mocks.createFromTemplate.mock.calls[0][0];
+
+    mocks.systemsLoading = false;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Copy this template", [], {});
+    });
+    const retry = mocks.createFromTemplate.mock.calls[1][0];
+    expect(retry.newId).toBe(firstCopy.newId);
+    expect(retry.retryKey).toBe(firstCopy.retryKey);
+    expect(retry).not.toHaveProperty("designSystemId");
   });
 
   it("opens a copied template without waiting for the designs list to refresh", async () => {

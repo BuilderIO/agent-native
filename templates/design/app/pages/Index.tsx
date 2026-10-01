@@ -204,7 +204,6 @@ export default function Index() {
   const [chosenDesignSystemId, setNewDesignSystemId] = useState<string | null>(
     null,
   );
-  const newDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
   const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
     "design",
@@ -422,17 +421,18 @@ export default function Index() {
   );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
-
-  useEffect(() => {
-    if (newDesignSystemWasChosenRef.current || designSystemsLoading) return;
-    const linkedSystemId = selectedTemplate?.designSystemId;
-    setNewDesignSystemId(
-      linkedSystemId &&
-        designSystems.some((system) => system.id === linkedSystemId)
-        ? linkedSystemId
-        : null,
-    );
-  }, [designSystems, designSystemsLoading, selectedTemplate]);
+  const templateDesignSystemId =
+    selectedTemplate?.designSystemId &&
+    designSystems.some(
+      (system) => system.id === selectedTemplate.designSystemId,
+    )
+      ? selectedTemplate.designSystemId
+      : null;
+  const newDesignSystemId = !systemsEnabled
+    ? null
+    : newDesignSystemWasChosenRef.current
+      ? chosenDesignSystemId
+      : templateDesignSystemId;
 
   const showAuthors = designFilter === "all";
   const selectedDesignCount = selectedDesignIds.size;
@@ -462,18 +462,8 @@ export default function Index() {
   const handleTemplateChange = useCallback(
     (templateId: string | null) => {
       syncSelectedTemplate(templateId);
-      const template = templateOptions.find(
-        (candidate) => candidate.id === templateId,
-      );
-      if (newDesignSystemWasChosenRef.current) return;
-      const linkedSystemId =
-        template?.designSystemId &&
-        designSystems.some((system) => system.id === template.designSystemId)
-          ? template.designSystemId
-          : null;
-      setNewDesignSystemId(linkedSystemId);
     },
-    [designSystems, syncSelectedTemplate, templateOptions],
+    [syncSelectedTemplate],
   );
 
   const handleNewDesignSystemChange = useCallback(
@@ -693,9 +683,7 @@ export default function Index() {
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const designSystemId =
-        selectedTemplate &&
-        !newDesignSystemWasChosenRef.current &&
-        designSystemsLoading
+        selectedTemplate && !newDesignSystemWasChosenRef.current
           ? undefined
           : newDesignSystemId;
 
@@ -869,7 +857,6 @@ export default function Index() {
       createFromTemplateMutation,
       createFusionAppMutation,
       designSystems,
-      designSystemsLoading,
       fullAppBuildingEnabled,
       handleGenerateDesignTitle,
       navigate,
