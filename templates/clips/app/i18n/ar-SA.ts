@@ -1801,6 +1801,23 @@ const messages = {
     leaveConfirmDescription:
       "لم يكتمل حفظ التسجيل الجاري بعد. مغادرة هذه الصفحة الآن ستؤدي إلى حذفه.",
     leaveAndDiscard: "مغادرة وحذف",
+    recordingWithoutSound:
+      "يتم التسجيل بدون صوت. شغّل الميكروفون للحصول على نص مكتوب.",
+    storageStatusUnavailable:
+      "تعذّر على Clips التحقق من التخزين. تسجيلك محفوظ بأمان في هذا المتصفح.",
+    pendingStorageTitle: "اربط التخزين لحفظ تسجيلك",
+    pendingStorageDescription:
+      "تسجيلك محفوظ بأمان في هذا المتصفح. اربط التخزين وسيرفعه Clips فورًا.",
+    storageConnectedUploading: "تم ربط التخزين. جارٍ رفع تسجيلك…",
+    downloadCopy: "تنزيل نسخة",
+    localRecordingOpenElsewhere:
+      "هذا التسجيل لا يزال مفتوحًا في علامة تبويب أخرى من Clips.",
+    uploadWaitingForConnection:
+      "تم إيقاف الرفع مؤقتًا. سيعيد Clips المحاولة عند عودتك إلى الاتصال، وتسجيلك محفوظ بأمان في هذا المتصفح.",
+    uploadDidNotFinish:
+      "لم يكتمل الرفع. لا يزال تسجيلك محفوظًا بأمان في هذا المتصفح.",
+    unfinishedRecording: "هناك تسجيل لم يكتمل رفعه",
+    finishUpload: "إكمال الرفع",
   },
   importRoute: {
     pageTitle: "استيراد Loom — Clips",

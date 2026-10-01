@@ -1844,6 +1844,25 @@ const messages = {
     leaveConfirmDescription:
       "Votre enregistrement en cours n’a pas fini d’être sauvegardé. Si vous quittez cette page maintenant, il sera abandonné.",
     leaveAndDiscard: "Quitter et abandonner",
+    recordingWithoutSound:
+      "Enregistrement sans son. Activez un micro pour obtenir une transcription.",
+    storageStatusUnavailable:
+      "Clips n’a pas pu vérifier votre stockage. Votre enregistrement est en sécurité dans ce navigateur.",
+    pendingStorageTitle:
+      "Connectez un stockage pour sauvegarder votre enregistrement",
+    pendingStorageDescription:
+      "Votre enregistrement est en sécurité dans ce navigateur. Connectez un stockage et Clips l’envoie aussitôt.",
+    storageConnectedUploading:
+      "Stockage connecté. Envoi de votre enregistrement…",
+    downloadCopy: "Télécharger une copie",
+    localRecordingOpenElsewhere:
+      "Cet enregistrement est encore ouvert dans un autre onglet Clips.",
+    uploadWaitingForConnection:
+      "Envoi en pause. Clips réessaiera dès que vous serez de nouveau en ligne ; votre enregistrement est en sécurité dans ce navigateur.",
+    uploadDidNotFinish:
+      "L’envoi n’a pas abouti. Votre enregistrement est toujours en sécurité dans ce navigateur.",
+    unfinishedRecording: "Un enregistrement n’a pas fini d’être envoyé",
+    finishUpload: "Terminer l’envoi",
   },
   importRoute: {
     pageTitle: "Importer Loom — Clips",

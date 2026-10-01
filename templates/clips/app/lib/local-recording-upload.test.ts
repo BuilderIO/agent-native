@@ -1,0 +1,317 @@
+import { UPLOAD_SLICE_BYTES } from "@shared/recording-core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  callAction: vi.fn(),
+  uploadChunkRequest: vi.fn(),
+  readRecoverableRecordingBackup: vi.fn(),
+  updateRecordingBackupMeta: vi.fn(async () => ({})),
+  deleteRecordingBackup: vi.fn(async () => {}),
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: mocks.callAction,
+}));
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => "",
+}));
+vi.mock("./upload-request", () => ({
+  uploadChunkRequest: mocks.uploadChunkRequest,
+}));
+vi.mock("./thumbnail-capture", () => ({
+  uploadVideoBlobThumbnail: vi.fn(async () => undefined),
+}));
+vi.mock("./recording-backup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./recording-backup")>();
+  return {
+    ...actual,
+    readRecoverableRecordingBackup: mocks.readRecoverableRecordingBackup,
+    updateRecordingBackupMeta: mocks.updateRecordingBackupMeta,
+    deleteRecordingBackup: mocks.deleteRecordingBackup,
+  };
+});
+
+import {
+  classifyLocalUploadFailure,
+  LocalRecordingUploadError,
+  uploadLocalRecording,
+} from "./local-recording-upload";
+import type { RecordingBackupMeta } from "./recording-backup";
+
+const fetchMock = vi.fn();
+
+function copy(overrides: Partial<RecordingBackupMeta> = {}, bytes = 10) {
+  return {
+    meta: {
+      recordingId: "local-1",
+      mimeType: "video/webm",
+      durationMs: 5_000,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+      hasCamera: false,
+      bytes,
+      chunkCount: 1,
+      savedAt: "2026-10-01T10:00:00.000Z",
+      completedAt: "2026-10-01T10:00:05.000Z",
+      state: "recorded-local",
+      localOnly: true,
+      ownerEmail: "me@example.com",
+      title: "Demo",
+      ...overrides,
+    } satisfies RecordingBackupMeta,
+    blob: new Blob([new Uint8Array(bytes)], { type: "video/webm" }),
+  };
+}
+
+function created(id: string) {
+  return {
+    id,
+    uploadChunkUrl: `/api/uploads/${id}/chunk`,
+    abortUrl: `/api/uploads/${id}/abort`,
+    uploadMode: "streaming",
+  };
+}
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", fetchMock);
+  fetchMock.mockResolvedValue(json({}));
+  mocks.callAction.mockImplementation(
+    async (name: string, args: { id?: string }) =>
+      name === "create-recording" ? created(args.id!) : {},
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
+
+describe("classifyLocalUploadFailure", () => {
+  it("names the cause instead of falling back to unknown", () => {
+    expect(classifyLocalUploadFailure({ networkError: true })).toBe("network");
+    expect(
+      classifyLocalUploadFailure({
+        status: 503,
+        message:
+          "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
+      }),
+    ).toBe("storage_setup_required");
+    expect(
+      classifyLocalUploadFailure({
+        status: 503,
+        message:
+          "Video storage could not start an upload: Builder.io signed-URL request failed (401): Unauthorized",
+      }),
+    ).toBe("storage_setup_required");
+    expect(
+      classifyLocalUploadFailure({
+        status: 400,
+        errorCode: "builder_oauth_reauthorization_required",
+      }),
+    ).toBe("storage_setup_required");
+    expect(classifyLocalUploadFailure({ status: 401 })).toBe("session_expired");
+    expect(classifyLocalUploadFailure({ status: 413 })).toBe(
+      "recording_too_large",
+    );
+    expect(classifyLocalUploadFailure({ status: 502, isHtml: true })).toBe(
+      "chunk_html_error",
+    );
+    expect(classifyLocalUploadFailure({ status: 503 })).toBe(
+      "server_unavailable",
+    );
+    expect(classifyLocalUploadFailure({ status: 400 })).toBe("upload_failed");
+  });
+});
+
+describe("uploadLocalRecording", () => {
+  it("creates the clip under the local id, uploads every slice, and deletes the copy only once ready", async () => {
+    const size = UPLOAD_SLICE_BYTES + 10;
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy({}, size));
+    mocks.uploadChunkRequest
+      .mockResolvedValueOnce(json({ ok: true }))
+      .mockResolvedValueOnce(json({ ok: true, status: "ready" }));
+
+    const result = await uploadLocalRecording("local-1");
+
+    expect(result).toEqual({ recordingId: "local-1", status: "ready" });
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "create-recording",
+      expect.objectContaining({ id: "local-1", title: "Demo", hasAudio: true }),
+      expect.anything(),
+    );
+    expect(mocks.updateRecordingBackupMeta).toHaveBeenCalledWith("local-1", {
+      state: "uploading",
+      serverRecordingId: "local-1",
+      staleServerRecordingIds: [],
+      lastError: null,
+    });
+    const urls = mocks.uploadChunkRequest.mock.calls.map(([arg]) => arg.url);
+    expect(urls[0]).toContain("index=0");
+    expect(urls[1]).toContain("isFinal=1");
+    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
+    expect(
+      mocks.deleteRecordingBackup.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(mocks.uploadChunkRequest.mock.invocationCallOrder[1]!);
+  });
+
+  it("retries a transient chunk failure with backoff instead of failing the upload", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
+    mocks.uploadChunkRequest
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(json({ error: "busy" }, 503))
+      .mockResolvedValueOnce(json({ ok: true, status: "ready" }));
+
+    const result = await uploadLocalRecording("local-1", {
+      retryDelaysMs: [0, 0, 0],
+    });
+
+    expect(result.status).toBe("ready");
+    expect(mocks.uploadChunkRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps the local copy and records a real failure code when storage refuses the upload", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
+    mocks.uploadChunkRequest.mockResolvedValue(
+      json(
+        {
+          error:
+            "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
+        },
+        503,
+      ),
+    );
+
+    const error = await uploadLocalRecording("local-1", {
+      retryDelaysMs: [0],
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(LocalRecordingUploadError);
+    expect((error as LocalRecordingUploadError).code).toBe(
+      "storage_setup_required",
+    );
+    expect(mocks.uploadChunkRequest).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+    expect(mocks.updateRecordingBackupMeta).toHaveBeenLastCalledWith(
+      "local-1",
+      expect.objectContaining({ state: "recorded-local" }),
+    );
+    const abort = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/abort"),
+    );
+    expect(JSON.parse(abort![1].body).failureCode).toBe(
+      "storage_setup_required",
+    );
+  });
+
+  it("surfaces an expired session after the chunk token refresh still gets 401", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
+    mocks.uploadChunkRequest.mockResolvedValue(json({ error: "nope" }, 401));
+
+    const error = await uploadLocalRecording("local-1").catch(
+      (e: unknown) => e,
+    );
+
+    expect((error as LocalRecordingUploadError).code).toBe("session_expired");
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("keeps the copy while the server is still processing it", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
+    mocks.uploadChunkRequest.mockResolvedValue(
+      json({ ok: true, status: "processing", verificationPending: true }, 202),
+    );
+
+    const result = await uploadLocalRecording("local-1");
+
+    expect(result.status).toBe("processing");
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+    expect(mocks.updateRecordingBackupMeta).toHaveBeenLastCalledWith(
+      "local-1",
+      { state: "uploaded" },
+    );
+  });
+
+  it("finishes without re-uploading when the previous attempt already reads ready", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({ serverRecordingId: "srv-1", state: "uploading" }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      json({ recording: { status: "ready", verificationPending: false } }),
+    );
+
+    const result = await uploadLocalRecording("local-1");
+
+    expect(result).toEqual({ recordingId: "srv-1", status: "ready" });
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
+  });
+
+  it("re-uploads under a fresh id and trashes every superseded attempt once ready", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({
+        recordingId: "srv-old",
+        localOnly: false,
+        completedAt: null,
+        state: "recording",
+        serverRecordingId: "retry-1",
+        staleServerRecordingIds: ["srv-old"],
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      json({ recording: { status: "failed", verificationPending: false } }),
+    );
+    mocks.uploadChunkRequest.mockResolvedValue(
+      json({ ok: true, status: "ready" }),
+    );
+
+    const result = await uploadLocalRecording("srv-old");
+
+    expect(result.recordingId).not.toMatch(/^(srv-old|retry-1)$/);
+    expect(mocks.updateRecordingBackupMeta).toHaveBeenCalledWith(
+      "srv-old",
+      expect.objectContaining({
+        state: "uploading",
+        staleServerRecordingIds: ["srv-old", "retry-1"],
+      }),
+    );
+    for (const id of ["srv-old", "retry-1"]) {
+      expect(mocks.callAction).toHaveBeenCalledWith("trash-recording", {
+        id,
+        skipIfReady: true,
+      });
+    }
+    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("srv-old");
+  });
+
+  it("uploads from memory when the local copy could not be written", async () => {
+    mocks.readRecoverableRecordingBackup.mockRejectedValue(
+      new DOMException("Quota exceeded", "QuotaExceededError"),
+    );
+    mocks.updateRecordingBackupMeta.mockRejectedValue(new Error("missing"));
+    mocks.uploadChunkRequest.mockResolvedValue(
+      json({ ok: true, status: "ready" }),
+    );
+
+    const result = await uploadLocalRecording("local-9", {
+      memorySource: {
+        blob: new Blob([new Uint8Array(4)], { type: "video/webm" }),
+        mimeType: "video/webm",
+        durationMs: 2_000,
+        width: 640,
+        height: 360,
+        hasAudio: false,
+        hasCamera: false,
+      },
+    });
+
+    expect(result).toEqual({ recordingId: "local-9", status: "ready" });
+  });
+});

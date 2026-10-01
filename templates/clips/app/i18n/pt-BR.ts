@@ -1825,6 +1825,24 @@ const messages = {
     leaveConfirmDescription:
       "Sua gravação em andamento ainda não terminou de ser salva. Se você sair desta página agora, ela será descartada.",
     leaveAndDiscard: "Sair e descartar",
+    recordingWithoutSound:
+      "Gravando sem som. Ative um microfone para obter uma transcrição.",
+    storageStatusUnavailable:
+      "O Clips não conseguiu verificar seu armazenamento. Sua gravação está segura neste navegador.",
+    pendingStorageTitle: "Conecte um armazenamento para salvar sua gravação",
+    pendingStorageDescription:
+      "Sua gravação está segura neste navegador. Conecte um armazenamento e o Clips a envia na hora.",
+    storageConnectedUploading:
+      "Armazenamento conectado. Enviando sua gravação…",
+    downloadCopy: "Baixar uma cópia",
+    localRecordingOpenElsewhere:
+      "Essa gravação ainda está aberta em outra aba do Clips.",
+    uploadWaitingForConnection:
+      "Envio pausado. O Clips tenta de novo quando você voltar a ficar online, e sua gravação está segura neste navegador.",
+    uploadDidNotFinish:
+      "O envio não terminou. Sua gravação continua segura neste navegador.",
+    unfinishedRecording: "Uma gravação ainda não terminou de ser enviada",
+    finishUpload: "Concluir envio",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",

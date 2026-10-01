@@ -1844,6 +1844,24 @@ const messages = {
     leaveConfirmDescription:
       "Deine laufende Aufnahme wurde noch nicht vollständig gespeichert. Wenn du diese Seite jetzt verlässt, wird sie verworfen.",
     leaveAndDiscard: "Verlassen und verwerfen",
+    recordingWithoutSound:
+      "Aufnahme ohne Ton. Schalte ein Mikrofon ein, um ein Transkript zu erhalten.",
+    storageStatusUnavailable:
+      "Clips konnte deinen Speicher nicht prüfen. Deine Aufnahme ist in diesem Browser sicher.",
+    pendingStorageTitle: "Verbinde Speicher, um deine Aufnahme zu sichern",
+    pendingStorageDescription:
+      "Deine Aufnahme ist in diesem Browser sicher. Verbinde Speicher, und Clips lädt sie sofort hoch.",
+    storageConnectedUploading:
+      "Speicher verbunden. Deine Aufnahme wird hochgeladen…",
+    downloadCopy: "Kopie herunterladen",
+    localRecordingOpenElsewhere:
+      "Diese Aufnahme ist noch in einem anderen Clips-Tab geöffnet.",
+    uploadWaitingForConnection:
+      "Upload pausiert. Clips versucht es erneut, sobald du wieder online bist. Deine Aufnahme ist in diesem Browser sicher.",
+    uploadDidNotFinish:
+      "Der Upload wurde nicht abgeschlossen. Deine Aufnahme ist weiterhin in diesem Browser sicher.",
+    unfinishedRecording: "Eine Aufnahme ist noch nicht vollständig hochgeladen",
+    finishUpload: "Upload abschließen",
   },
   importRoute: {
     pageTitle: "Loom importieren — Clips",

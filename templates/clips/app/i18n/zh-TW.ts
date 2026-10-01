@@ -1716,6 +1716,20 @@ const messages = {
     leaveConfirmDescription:
       "進行中的錄製尚未儲存完成。現在離開此頁面將會捨棄它。",
     leaveAndDiscard: "離開並捨棄",
+    recordingWithoutSound: "正在無聲錄製。開啟麥克風才能產生逐字稿。",
+    storageStatusUnavailable:
+      "Clips 無法檢查你的儲存空間。你的錄製已安全保存在此瀏覽器中。",
+    pendingStorageTitle: "連線儲存空間以保存你的錄製",
+    pendingStorageDescription:
+      "你的錄製已安全保存在此瀏覽器中。連線儲存空間後，Clips 會立即上傳。",
+    storageConnectedUploading: "儲存空間已連線。正在上傳你的錄製…",
+    downloadCopy: "下載副本",
+    localRecordingOpenElsewhere: "此錄製仍在另一個 Clips 分頁中開啟。",
+    uploadWaitingForConnection:
+      "上傳已暫停。恢復連線後 Clips 會重試，你的錄製已安全保存在此瀏覽器中。",
+    uploadDidNotFinish: "上傳未完成。你的錄製仍安全保存在此瀏覽器中。",
+    unfinishedRecording: "有一個錄製尚未上傳完成",
+    finishUpload: "完成上傳",
   },
   importRoute: {
     pageTitle: "匯入 Loom — Clips",

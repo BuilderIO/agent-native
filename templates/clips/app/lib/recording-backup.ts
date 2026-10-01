@@ -2,6 +2,51 @@ const DB_NAME = "clips-web-recording-backups";
 const DB_VERSION = 1;
 const META_STORE = "recordings";
 const CHUNK_STORE = "chunks";
+const LOCK_PREFIX = "clips-local-recording:";
+
+/**
+ * A local copy is deleted only after the server reports the clip `ready`
+ * ("processed"); every other state keeps the bytes in this browser.
+ */
+export type LocalRecordingState =
+  | "recording"
+  | "recorded-local"
+  | "uploading"
+  | "uploaded";
+
+export type LocalRecordingEvent =
+  | "stop"
+  | "interrupt"
+  | "upload"
+  | "accepted"
+  | "failed"
+  | "processed";
+
+const LOCAL_RECORDING_TRANSITIONS: Record<
+  LocalRecordingState,
+  Partial<Record<LocalRecordingEvent, LocalRecordingState | "processed">>
+> = {
+  recording: { stop: "recorded-local", interrupt: "recorded-local" },
+  "recorded-local": { upload: "uploading" },
+  uploading: {
+    accepted: "uploaded",
+    processed: "processed",
+    failed: "recorded-local",
+    interrupt: "recorded-local",
+  },
+  uploaded: { processed: "processed", failed: "recorded-local" },
+};
+
+export function nextLocalRecordingState(
+  state: LocalRecordingState,
+  event: LocalRecordingEvent,
+): LocalRecordingState | "processed" {
+  const next = LOCAL_RECORDING_TRANSITIONS[state][event];
+  if (!next) {
+    throw new Error(`A local recording cannot ${event} while ${state}.`);
+  }
+  return next;
+}
 
 export interface RecordingBackupMeta {
   recordingId: string;
@@ -15,6 +60,25 @@ export interface RecordingBackupMeta {
   chunkCount: number;
   savedAt: string;
   completedAt: string | null;
+  state?: LocalRecordingState;
+  /** Recorded before any server row existed (storage was not connected). */
+  localOnly?: boolean;
+  /** Server row currently holding this copy's upload, when one exists. */
+  serverRecordingId?: string | null;
+  /** Earlier attempts' rows that never became ready; trashed on success. */
+  staleServerRecordingIds?: string[];
+  ownerEmail?: string | null;
+  title?: string | null;
+  createdAt?: string;
+  transcript?: string | null;
+  transcriptFailureReason?: string | null;
+  lastError?: string | null;
+}
+
+export function localRecordingState(
+  meta: RecordingBackupMeta,
+): LocalRecordingState {
+  return meta.state ?? (meta.completedAt ? "recorded-local" : "recording");
 }
 
 export interface RecordingBackupChunk {
@@ -100,18 +164,70 @@ function waitForTransaction(tx: IDBTransaction): Promise<void> {
   });
 }
 
+/** Merges into the stored record so per-chunk writes keep upload state. */
 export async function putRecordingBackupMeta(
   meta: RecordingBackupMeta,
 ): Promise<void> {
+  await writeRecordingBackupMeta(meta.recordingId, (existing) => ({
+    ...existing,
+    ...meta,
+  }));
+}
+
+export async function updateRecordingBackupMeta(
+  recordingId: string,
+  patch: Partial<Omit<RecordingBackupMeta, "recordingId">>,
+): Promise<RecordingBackupMeta> {
+  return writeRecordingBackupMeta(recordingId, (existing) => {
+    if (!existing) {
+      throw new Error("This recording's local copy is missing.");
+    }
+    return { ...existing, ...patch, recordingId };
+  });
+}
+
+async function writeRecordingBackupMeta(
+  recordingId: string,
+  build: (existing: RecordingBackupMeta | undefined) => RecordingBackupMeta,
+): Promise<RecordingBackupMeta> {
   const db = await openDb();
+  const written: { meta?: RecordingBackupMeta; error?: unknown } = {};
   try {
     const tx = db.transaction(META_STORE, "readwrite");
-    tx.objectStore(META_STORE).put(meta);
-    await waitForTransaction(tx);
+    const store = tx.objectStore(META_STORE);
+    const read = store.get(recordingId);
+    read.onsuccess = () => {
+      try {
+        written.meta = build(read.result as RecordingBackupMeta | undefined);
+        store.put(written.meta);
+      } catch (error) {
+        written.error = error;
+        tx.abort();
+      }
+    };
+    await waitForTransaction(tx).catch((error) => {
+      throw written.error ?? error;
+    });
   } finally {
     db.close();
   }
-  notifyRecordingBackupChange(meta.recordingId);
+  if (!written.meta) throw new Error("This recording's local copy is missing.");
+  notifyRecordingBackupChange(recordingId);
+  return written.meta;
+}
+
+export async function listRecordingBackupMetas(): Promise<
+  RecordingBackupMeta[]
+> {
+  const db = await openDb();
+  try {
+    const tx = db.transaction(META_STORE, "readonly");
+    return await waitForRequest<RecordingBackupMeta[]>(
+      tx.objectStore(META_STORE).getAll(),
+    );
+  } finally {
+    db.close();
+  }
 }
 
 export async function getRecordingBackupMeta(
@@ -210,6 +326,127 @@ export function isCompleteRecordingBackup(
     bytes += chunk.bytes;
   }
   return bytes === meta.bytes;
+}
+
+/**
+ * The chunks an upload may use. A finished copy must be whole; a copy cut off
+ * by a closed tab or crash is usable as its contiguous prefix from chunk 0,
+ * because MediaRecorder timeslices are cluster-aligned and chunk 0 carries the
+ * container header.
+ */
+export function recoverableBackupChunks(
+  meta: RecordingBackupMeta,
+  chunks: RecordingBackupChunk[],
+): RecordingBackupChunk[] | null {
+  if (meta.completedAt) {
+    return isCompleteRecordingBackup(meta, chunks) ? chunks : null;
+  }
+  const prefix: RecordingBackupChunk[] = [];
+  for (const chunk of chunks) {
+    if (
+      chunk.index !== prefix.length ||
+      chunk.recordingId !== meta.recordingId ||
+      !(chunk.blob instanceof Blob) ||
+      chunk.blob.size !== chunk.bytes ||
+      chunk.bytes <= 0
+    ) {
+      break;
+    }
+    prefix.push(chunk);
+  }
+  return prefix.length > 0 ? prefix : null;
+}
+
+export function recordingBackupFilename(meta: RecordingBackupMeta): string {
+  const extension = /mp4/i.test(meta.mimeType)
+    ? "mp4"
+    : /quicktime|mov/i.test(meta.mimeType)
+      ? "mov"
+      : "webm";
+  const stamp = (meta.createdAt ?? meta.savedAt).replace(/[:.]/g, "-");
+  return `clips-recording-${stamp}.${extension}`;
+}
+
+export async function readRecoverableRecordingBackup(recordingId: string) {
+  const [meta, chunks] = await Promise.all([
+    getRecordingBackupMeta(recordingId),
+    getRecordingBackupChunks(recordingId),
+  ]);
+  if (!meta) return null;
+  const usable = recoverableBackupChunks(meta, chunks);
+  if (!usable) return { meta, blob: null };
+  return {
+    meta,
+    blob: new Blob(
+      usable.map((chunk) => chunk.blob),
+      { type: meta.mimeType },
+    ),
+  };
+}
+
+/**
+ * Holds a Web Lock for as long as this tab owns a local copy, so other tabs
+ * never offer to upload (or discard) a recording that is still live here.
+ * The browser releases it when the page goes away.
+ */
+export function holdRecordingBackupLock(recordingId: string): () => void {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (!locks?.request) return () => {};
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  void locks
+    .request(`${LOCK_PREFIX}${recordingId}`, () => held)
+    .catch(() => {
+      // coercion-ok: a lock request only fails when the page is going away.
+    });
+  return release;
+}
+
+/** Ids another tab (or this one) still owns; null when the browser can't say. */
+export async function liveRecordingBackupIds(): Promise<Set<string> | null> {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (!locks?.query) return null;
+  const snapshot = await locks.query();
+  const ids = new Set<string>();
+  for (const lock of [...(snapshot.held ?? []), ...(snapshot.pending ?? [])]) {
+    if (lock.name?.startsWith(LOCK_PREFIX)) {
+      ids.add(lock.name.slice(LOCK_PREFIX.length));
+    }
+  }
+  return ids;
+}
+
+const UNLOCKED_LIVENESS_MS = 30_000;
+
+/**
+ * The local copies this signed-in user can finish uploading from this tab.
+ * Copies owned by another account, or still owned by a live tab, are left
+ * alone; without Web Locks, a copy written in the last 30s counts as live.
+ */
+export function selectRecoverableRecordingBackups(
+  metas: RecordingBackupMeta[],
+  options: {
+    liveIds: Set<string> | null;
+    ownerEmail: string | null;
+    nowMs?: number;
+  },
+): RecordingBackupMeta[] {
+  const nowMs = options.nowMs ?? Date.now();
+  return metas
+    .filter((meta) => meta.bytes > 0 || meta.chunkCount > 0)
+    .filter((meta) =>
+      meta.ownerEmail
+        ? meta.ownerEmail.toLowerCase() === options.ownerEmail?.toLowerCase()
+        : !meta.localOnly,
+    )
+    .filter((meta) =>
+      options.liveIds
+        ? !options.liveIds.has(meta.recordingId)
+        : nowMs - Date.parse(meta.savedAt) > UNLOCKED_LIVENESS_MS,
+    )
+    .sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt));
 }
 
 export async function hasRecordingBackup(

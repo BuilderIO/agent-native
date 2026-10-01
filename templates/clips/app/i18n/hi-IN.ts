@@ -1775,6 +1775,24 @@ const messages = {
     leaveConfirmDescription:
       "आपकी चल रही रिकॉर्डिंग अभी पूरी तरह सेव नहीं हुई है. अभी इस पेज से बाहर जाने पर यह हट जाएगी.",
     leaveAndDiscard: "बाहर जाएं और हटाएं",
+    recordingWithoutSound:
+      "बिना आवाज़ के रिकॉर्ड हो रहा है। ट्रांसक्रिप्ट पाने के लिए माइक्रोफ़ोन चालू करें।",
+    storageStatusUnavailable:
+      "Clips आपका स्टोरेज जांच नहीं सका। आपकी रिकॉर्डिंग इस ब्राउज़र में सुरक्षित है।",
+    pendingStorageTitle: "अपनी रिकॉर्डिंग सहेजने के लिए स्टोरेज कनेक्ट करें",
+    pendingStorageDescription:
+      "आपकी रिकॉर्डिंग इस ब्राउज़र में सुरक्षित है। स्टोरेज कनेक्ट करें और Clips उसे तुरंत अपलोड कर देगा।",
+    storageConnectedUploading:
+      "स्टोरेज कनेक्ट हो गया। आपकी रिकॉर्डिंग अपलोड हो रही है…",
+    downloadCopy: "एक कॉपी डाउनलोड करें",
+    localRecordingOpenElsewhere:
+      "वह रिकॉर्डिंग अभी भी किसी दूसरे Clips टैब में खुली है।",
+    uploadWaitingForConnection:
+      "अपलोड रुका हुआ है। ऑनलाइन लौटते ही Clips फिर से कोशिश करेगा, और आपकी रिकॉर्डिंग इस ब्राउज़र में सुरक्षित है।",
+    uploadDidNotFinish:
+      "अपलोड पूरा नहीं हुआ। आपकी रिकॉर्डिंग अब भी इस ब्राउज़र में सुरक्षित है।",
+    unfinishedRecording: "एक रिकॉर्डिंग का अपलोड अभी पूरा नहीं हुआ है",
+    finishUpload: "अपलोड पूरा करें",
   },
   importRoute: {
     pageTitle: "Loom आयात करें — Clips",

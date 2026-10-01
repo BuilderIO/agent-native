@@ -298,6 +298,9 @@ export default defineAction({
             status: "uploading",
             videoUrl: null,
             failureReason: storageSetupReason,
+            // Parked until storage is connected; the upload reaper only
+            // times out rows that hold a live lease.
+            uploadLeaseExpiresAt: null,
             loomImportClaimId: null,
             loomImportClaimedAt: null,
           })

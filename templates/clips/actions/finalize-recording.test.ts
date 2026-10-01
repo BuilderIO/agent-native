@@ -1300,6 +1300,27 @@ describe("finalize-recording media serve verification", () => {
     }
   });
 
+  it("parks a recording waiting for storage without an upload lease", async () => {
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue(null);
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ id: "rec_1", status: "waiting_storage" }),
+    );
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "uploading",
+        failureReason: "Storage required",
+        uploadLeaseExpiresAt: null,
+      }),
+    );
+  });
+
   it("claims a due durable verification before promoting the recording", async () => {
     const marker = {
       recordingId: "rec_1",

@@ -1785,6 +1785,23 @@ const messages = {
     leaveConfirmDescription:
       "Your in-progress recording hasn't finished saving. Leaving this page now will discard it.",
     leaveAndDiscard: "Leave and discard",
+    recordingWithoutSound:
+      "Recording without sound. Turn on a microphone to get a transcript.",
+    storageStatusUnavailable:
+      "Clips couldn't check your storage. Your recording is safe in this browser.",
+    pendingStorageTitle: "Connect storage to save your recording",
+    pendingStorageDescription:
+      "Your recording is safe in this browser. Connect storage and Clips uploads it right away.",
+    storageConnectedUploading: "Storage connected. Uploading your recording…",
+    downloadCopy: "Download a copy",
+    localRecordingOpenElsewhere:
+      "That recording is still open in another Clips tab.",
+    uploadWaitingForConnection:
+      "Upload paused. Clips retries when you're back online, and your recording is safe in this browser.",
+    uploadDidNotFinish:
+      "The upload didn't finish. Your recording is still safe in this browser.",
+    unfinishedRecording: "A recording hasn't finished uploading",
+    finishUpload: "Finish upload",
   },
   importRoute: {
     pageTitle: "Import Loom — Clips",

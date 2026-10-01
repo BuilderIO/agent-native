@@ -1796,6 +1796,23 @@ const messages = {
     leaveConfirmDescription:
       "진행 중인 녹화가 아직 저장되지 않았습니다. 지금 이 페이지를 나가면 삭제됩니다.",
     leaveAndDiscard: "나가서 삭제",
+    recordingWithoutSound:
+      "소리 없이 녹화 중입니다. 대본을 받으려면 마이크를 켜세요.",
+    storageStatusUnavailable:
+      "Clips에서 저장소를 확인하지 못했습니다. 녹화는 이 브라우저에 안전하게 보관되어 있습니다.",
+    pendingStorageTitle: "녹화를 저장하려면 저장소를 연결하세요",
+    pendingStorageDescription:
+      "녹화는 이 브라우저에 안전하게 보관되어 있습니다. 저장소를 연결하면 Clips가 바로 업로드합니다.",
+    storageConnectedUploading: "저장소가 연결되었습니다. 녹화를 업로드하는 중…",
+    downloadCopy: "사본 다운로드",
+    localRecordingOpenElsewhere:
+      "이 녹화는 아직 다른 Clips 탭에서 열려 있습니다.",
+    uploadWaitingForConnection:
+      "업로드가 일시 중지되었습니다. 다시 온라인이 되면 Clips가 재시도하며, 녹화는 이 브라우저에 안전하게 보관되어 있습니다.",
+    uploadDidNotFinish:
+      "업로드가 완료되지 않았습니다. 녹화는 여전히 이 브라우저에 안전하게 보관되어 있습니다.",
+    unfinishedRecording: "업로드가 끝나지 않은 녹화가 있습니다",
+    finishUpload: "업로드 완료하기",
   },
   importRoute: {
     pageTitle: "Loom 가져오기 — Clips",

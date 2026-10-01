@@ -1819,6 +1819,24 @@ const messages = {
     leaveConfirmDescription:
       "録画中のデータはまだ保存が完了していません。今このページを離れると破棄されます。",
     leaveAndDiscard: "離れて破棄する",
+    recordingWithoutSound:
+      "音声なしで録画しています。文字起こしを作成するにはマイクをオンにしてください。",
+    storageStatusUnavailable:
+      "ストレージを確認できませんでした。録画はこのブラウザに安全に保存されています。",
+    pendingStorageTitle: "録画を保存するにはストレージを接続してください",
+    pendingStorageDescription:
+      "録画はこのブラウザに安全に保存されています。ストレージを接続すると、すぐにアップロードします。",
+    storageConnectedUploading:
+      "ストレージを接続しました。録画をアップロードしています…",
+    downloadCopy: "コピーをダウンロード",
+    localRecordingOpenElsewhere:
+      "その録画は別の Clips タブでまだ開いています。",
+    uploadWaitingForConnection:
+      "アップロードを一時停止しました。オンラインに戻ると再試行します。録画はこのブラウザに安全に保存されています。",
+    uploadDidNotFinish:
+      "アップロードが完了しませんでした。録画は引き続きこのブラウザに安全に保存されています。",
+    unfinishedRecording: "アップロードが完了していない録画があります",
+    finishUpload: "アップロードを完了",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",

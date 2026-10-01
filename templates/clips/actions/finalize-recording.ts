@@ -2148,6 +2148,9 @@ export default defineAction({
           .set({
             status: "uploading",
             failureReason: STORAGE_SETUP_REQUIRED_REASON,
+            // Waiting for storage is not a live upload: with no lease the
+            // reaper never times it out while it waits for setup.
+            uploadLeaseExpiresAt: null,
             durationMs: finalDurationMs,
             width: finalWidth,
             height: finalHeight,
