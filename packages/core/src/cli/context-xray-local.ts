@@ -1947,11 +1947,21 @@ function writeJson(sessions, args, file) {
 function openUrl(url) {
   const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  let reportedError = false;
+  const reportError = function () {
+    if (reportedError) return;
+    reportedError = true;
+    console.warn("Could not auto-open browser. Open the printed URL manually.");
+  };
   try {
     const child = childProcess.spawn(cmd, args, { detached: true, stdio: "ignore" });
-    child.on("error", function () { console.warn("Could not auto-open browser. Open the printed URL manually."); });
+    child.once("error", reportError);
+    child.once("close", function (code, signal) {
+      if (code === 0 && !signal) return;
+      reportError();
+    });
     child.unref();
-  } catch { console.warn("Could not auto-open browser. Open the printed URL manually."); }
+  } catch { reportError(); }
 }
 
 function printSummary(sessions, args, file, url) {
