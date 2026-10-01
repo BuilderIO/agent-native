@@ -725,7 +725,7 @@ describe("AgentChat lifecycle", () => {
       occurredAt: "2026-08-31T00:00:00.000Z",
       type: "activity.started" as const,
       activity: {
-        id: "activity-1",
+        id: `agentkit:internal:${runId}:contacting-model`,
         kind: "model",
         label: "Contacting model",
         status: "running" as const,
@@ -1376,7 +1376,7 @@ describe("AgentChat lifecycle", () => {
       occurredAt: "2026-09-30T00:00:00.000Z",
       type: "activity.started" as const,
       activity: {
-        id: "activity-renderer-boundary",
+        id: `agentkit:internal:${runId}:contacting-model`,
         kind: "model",
         label: "Contacting model",
         status: "running" as const,
@@ -1523,7 +1523,7 @@ describe("AgentChat lifecycle", () => {
         occurredAt: "2026-09-30T00:00:00.000Z",
         type: "activity.started",
         activity: {
-          id: "activity-before-whitespace-delta",
+          id: `agentkit:internal:${runId}:contacting-model`,
           kind: "model",
           label: "Contacting model",
           status: "running",
@@ -1601,7 +1601,6 @@ describe("AgentChat lifecycle", () => {
     );
     const textOutput = tree.container.querySelector("[data-whitespace-delta]")!;
     expect(textOutput.textContent).toBe("Custom text output");
-    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
     await tree.unmount();
   });
 
@@ -1720,20 +1719,13 @@ describe("AgentChat lifecycle", () => {
       tree.container.querySelectorAll(".agentkit-activities"),
     ).toHaveLength(1);
     expect(tree.container.querySelectorAll("article")).toHaveLength(0);
+    expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
+    expect(work.querySelector("[data-thought]")?.textContent).toContain(
+      "First thought",
+    );
     expect(
-      work.querySelectorAll(
-        '[data-activity-bucket="reasoning-content"] [data-thought]',
-      ),
-    ).toHaveLength(2);
-    expect(
-      work.querySelector(
-        '[data-activity-bucket="reasoning-content"] [data-thought]',
-      )?.textContent,
-    ).toContain("First thought");
-    expect(
-      work.querySelector(
-        '[data-activity-bucket="reasoning-content"] [data-thought][data-thought$="assistant-2:0"]',
-      )?.textContent,
+      work.querySelector('[data-thought][data-thought$="assistant-2:0"]')
+        ?.textContent,
     ).toContain("Second thought");
     expect(work.querySelector("[data-protocol-reasoning]")?.textContent).toBe(
       "Checking assumptions",
@@ -1747,8 +1739,6 @@ describe("AgentChat lifecycle", () => {
         ".agentkit-activities-summary > .agentkit-summary-chevron",
       ),
     ).not.toBeNull();
-    expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
-
     thread = reduceAgentEvent(thread, {
       ...base(8, 18),
       type: "message.completed",
@@ -1781,12 +1771,7 @@ describe("AgentChat lifecycle", () => {
     expect(
       work.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
-    expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
-    expect(
-      work.querySelectorAll(
-        '[data-activity-bucket="reasoning-content"] [data-thought]',
-      ),
-    ).toHaveLength(2);
+    expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
     await act(async () => work.querySelector("summary")!.click());
     expect(work.open).toBe(true);
     expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
@@ -1796,7 +1781,6 @@ describe("AgentChat lifecycle", () => {
     expect(work.textContent).toContain("First thought");
     expect(work.textContent).toContain("Second thought");
     expect(work.textContent).not.toContain("Hidden thought");
-    expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
     await act(async () => work.querySelector("summary")!.click());
     expect(work.open).toBe(false);
   });
@@ -1854,7 +1838,7 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("keeps the latest useful activity when only generic status remains", async () => {
+  it("keeps a completed useful activity visible while its run is active", async () => {
     const threadId = "thread-completed-latest-activity";
     const runId = "run-completed-latest-activity";
     const thread = {
@@ -1870,7 +1854,7 @@ describe("AgentChat lifecycle", () => {
           activity: {
             id: "read-components",
             kind: "read",
-            label: "Preparing update-slide action",
+            label: "Reading components.tsx",
             status: "running" as const,
           },
         },
@@ -1884,23 +1868,9 @@ describe("AgentChat lifecycle", () => {
           activity: {
             id: "read-components",
             kind: "read",
-            label: "Preparing update-slide action",
+            label: "Reading components.tsx",
             status: "completed" as const,
             completedAt: "2026-09-28T00:00:02.000Z",
-          },
-        },
-        {
-          id: "contacting-model",
-          threadId,
-          runId,
-          sequence: 3,
-          occurredAt: "2026-09-28T00:00:03.000Z",
-          type: "activity.started" as const,
-          activity: {
-            id: "model-status",
-            kind: "model",
-            label: "Contacting model",
-            status: "running" as const,
           },
         },
       ],
@@ -1908,7 +1878,7 @@ describe("AgentChat lifecycle", () => {
         [runId]: {
           id: runId,
           status: "running" as const,
-          lastSequence: 3,
+          lastSequence: 2,
           startedAt: "2026-09-28T00:00:00.000Z",
         },
       },
@@ -1932,354 +1902,11 @@ describe("AgentChat lifecycle", () => {
     const current = tree.container.querySelector(
       "[data-agentkit-current-activity]",
     );
-    expect(current?.textContent).toBe("Preparing update-slide action");
+    expect(current?.textContent).toBe("Reading components.tsx");
     expect(current?.querySelector(".agent-running-shimmer")).not.toBeNull();
     expect(
       tree.container.querySelector(".agentkit-activities-summary")?.textContent,
-    ).toContain("Preparing update-slide action");
-    await tree.unmount();
-  });
-
-  it("prefers a running useful activity over a newer completed one", async () => {
-    const threadId = "thread-running-activity-precedence";
-    const runId = "run-running-activity-precedence";
-    const thread = {
-      ...createAgentThreadState(threadId),
-      events: [
-        {
-          id: "activity-a-started",
-          threadId,
-          runId,
-          sequence: 1,
-          occurredAt: "2026-09-28T00:00:01.000Z",
-          type: "activity.started" as const,
-          activity: {
-            id: "activity-a",
-            kind: "tool",
-            label: "Updating slide",
-            status: "running" as const,
-          },
-        },
-        {
-          id: "activity-a-updated",
-          threadId,
-          runId,
-          sequence: 5,
-          occurredAt: "2026-09-28T00:00:05.000Z",
-          type: "activity.updated" as const,
-          activity: {
-            id: "activity-a",
-            kind: "tool",
-            label: "Updating slide",
-            status: "running" as const,
-          },
-        },
-        {
-          id: "activity-b-started",
-          threadId,
-          runId,
-          sequence: 6,
-          occurredAt: "2026-09-28T00:00:06.000Z",
-          type: "activity.started" as const,
-          activity: {
-            id: "activity-b",
-            kind: "tool",
-            label: "Saving document",
-            status: "running" as const,
-          },
-        },
-        {
-          id: "activity-b-completed",
-          threadId,
-          runId,
-          sequence: 7,
-          occurredAt: "2026-09-28T00:00:07.000Z",
-          type: "activity.completed" as const,
-          activity: {
-            id: "activity-b",
-            kind: "tool",
-            label: "Saving document",
-            status: "completed" as const,
-          },
-        },
-        {
-          id: "contacting-model",
-          threadId,
-          runId,
-          sequence: 8,
-          occurredAt: "2026-09-28T00:00:08.000Z",
-          type: "activity.started" as const,
-          activity: {
-            id: "model-status",
-            kind: "model",
-            label: "Contacting model",
-            status: "running" as const,
-          },
-        },
-      ],
-      runs: {
-        [runId]: {
-          id: runId,
-          status: "running" as const,
-          lastSequence: 8,
-          startedAt: "2026-09-28T00:00:00.000Z",
-        },
-      },
-      activeRunIds: [runId],
-    };
-    const observable = observableController({
-      connection: "connected",
-      capabilities: {},
-      capabilitiesStatus: "ready",
-      threads: { [threadId]: thread },
-      revision: 0,
-    });
-    const tree = mount();
-
-    await tree.render(
-      <AgentKitProvider controller={observable.controller} threadId={threadId}>
-        <AgentActivityGroup runId={runId} />
-      </AgentKitProvider>,
-    );
-
-    expect(
-      tree.container.querySelector("[data-agentkit-current-activity]")
-        ?.textContent,
-    ).toBe("Updating slide");
-    await tree.unmount();
-  });
-
-  it("excludes delegated activity and tool events from the current label", async () => {
-    const threadId = "thread-excluded-agent-activity";
-    const runId = "run-excluded-agent-activity";
-    const delegatedTool: AgentToolCall = {
-      id: "agent-tool",
-      name: "read-private-data",
-      status: "running",
-      agentId: "subagent-1",
-    };
-    const untaggedTool: AgentToolCall = {
-      id: delegatedTool.id,
-      name: delegatedTool.name,
-      status: "running",
-    };
-    const thread = {
-      ...createAgentThreadState(threadId),
-      activities: {
-        "agent-activity": {
-          id: "agent-activity",
-          kind: "tool",
-          label: "Reading private agent state",
-          status: "running" as const,
-        },
-      },
-      tools: { [untaggedTool.id]: untaggedTool },
-      events: [
-        {
-          id: "agent-activity-started",
-          threadId,
-          runId,
-          sequence: 1,
-          occurredAt: "2026-09-28T00:00:01.000Z",
-          type: "activity.started" as const,
-          activity: {
-            id: "agent-activity",
-            agentId: "subagent-1",
-            kind: "tool",
-            label: "Reading private agent state",
-            status: "running" as const,
-          },
-        },
-        {
-          id: "agent-activity-updated",
-          threadId,
-          runId,
-          sequence: 2,
-          occurredAt: "2026-09-28T00:00:02.000Z",
-          type: "activity.updated" as const,
-          activity: {
-            id: "agent-activity",
-            kind: "tool",
-            label: "Reading private agent state",
-            status: "running" as const,
-          },
-        },
-        {
-          id: "agent-tool-started",
-          threadId,
-          runId,
-          sequence: 3,
-          occurredAt: "2026-09-28T00:00:03.000Z",
-          type: "tool.started" as const,
-          toolCall: delegatedTool,
-        },
-        {
-          id: "agent-tool-updated",
-          threadId,
-          runId,
-          sequence: 4,
-          occurredAt: "2026-09-28T00:00:04.000Z",
-          type: "tool.updated" as const,
-          toolCall: untaggedTool,
-        },
-        {
-          id: "agent-tool-delta",
-          threadId,
-          runId,
-          sequence: 5,
-          occurredAt: "2026-09-28T00:00:05.000Z",
-          type: "tool.delta" as const,
-          toolCallId: delegatedTool.id,
-          inputTextDelta: '{"private":true}',
-        },
-      ],
-      runs: {
-        [runId]: {
-          id: runId,
-          status: "running" as const,
-          lastSequence: 5,
-          startedAt: "2026-09-28T00:00:00.000Z",
-        },
-      },
-      activeRunIds: [runId],
-    };
-    const observable = observableController({
-      connection: "connected",
-      capabilities: {},
-      capabilitiesStatus: "ready",
-      threads: { [threadId]: thread },
-      revision: 0,
-    });
-    const tree = mount();
-
-    await tree.render(
-      <AgentKitProvider controller={observable.controller} threadId={threadId}>
-        <AgentActivityGroup runId={runId} excludeAgentActivities />
-      </AgentKitProvider>,
-    );
-
-    expect(
-      tree.container.querySelector("[data-agentkit-current-activity]")
-        ?.textContent,
-    ).toBe("Thinking");
-    expect(tree.container.textContent).not.toContain(
-      "Reading private agent state",
-    );
-    expect(tree.container.textContent).not.toContain("read-private-data");
-    await tree.unmount();
-  });
-
-  it("preserves late-delegated activity in its first transcript segment", async () => {
-    const threadId = "thread-late-delegated-activity";
-    const runId = "run-late-delegated-activity";
-    const activity = {
-      id: "late-delegated-activity",
-      kind: "read",
-      label: "Reading delegated files",
-    };
-    const tool: AgentToolCall = {
-      id: "late-delegated-tool",
-      name: "read-delegated-files",
-      status: "running",
-    };
-    const delegatedTool: AgentToolCall = {
-      ...tool,
-      agentId: "subagent-1",
-    };
-    const thread = {
-      ...createAgentThreadState(threadId),
-      tools: { [tool.id]: tool },
-      activities: {
-        [activity.id]: { ...activity, status: "completed" as const },
-      },
-      events: [
-        {
-          id: "activity-started",
-          threadId,
-          runId,
-          sequence: 1,
-          occurredAt: "2026-09-28T00:00:01.000Z",
-          type: "activity.started" as const,
-          activity: { ...activity, status: "running" as const },
-        },
-        {
-          id: "activity-delegated",
-          threadId,
-          runId,
-          sequence: 2,
-          occurredAt: "2026-09-28T00:00:02.000Z",
-          type: "activity.updated" as const,
-          activity: {
-            ...activity,
-            status: "running" as const,
-            agentId: "subagent-1",
-          },
-        },
-        {
-          id: "tool-started",
-          threadId,
-          runId,
-          sequence: 3,
-          occurredAt: "2026-09-28T00:00:03.000Z",
-          type: "tool.started" as const,
-          toolCall: tool,
-        },
-        {
-          id: "tool-delegated",
-          threadId,
-          runId,
-          sequence: 4,
-          occurredAt: "2026-09-28T00:00:04.000Z",
-          type: "tool.updated" as const,
-          toolCall: delegatedTool,
-        },
-        {
-          id: "activity-completed",
-          threadId,
-          runId,
-          sequence: 5,
-          occurredAt: "2026-09-28T00:00:05.000Z",
-          type: "activity.completed" as const,
-          activity: { ...activity, status: "completed" as const },
-        },
-      ],
-      runs: {
-        [runId]: {
-          id: runId,
-          status: "running" as const,
-          lastSequence: 5,
-          startedAt: "2026-09-28T00:00:00.000Z",
-        },
-      },
-      activeRunIds: [runId],
-    };
-    const observable = observableController({
-      connection: "connected",
-      capabilities: {},
-      capabilitiesStatus: "ready",
-      threads: { [threadId]: thread },
-      revision: 0,
-    });
-    const tree = mount();
-
-    await tree.render(
-      <AgentKitProvider controller={observable.controller} threadId={threadId}>
-        <AgentActivityGroup runId={runId} excludeAgentActivities />
-        <AgentCollaborationFeed runId={runId} throughSequence={1} />
-      </AgentKitProvider>,
-    );
-
-    expect(
-      tree.container.querySelector("[data-agentkit-current-activity]")
-        ?.textContent,
-    ).toBe("Thinking");
-    const feed = tree.container.querySelector(
-      "[data-agent-collaboration-feed='true']",
-    );
-    expect(
-      feed?.querySelector("[data-status='completed']")?.textContent,
-    ).toContain("Reading delegated files");
-    expect(tree.container.textContent).not.toContain("read-delegated-files");
+    ).not.toContain("Thinking");
     await tree.unmount();
   });
 
@@ -2609,11 +2236,12 @@ describe("AgentChat lifecycle", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(work?.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
-    const activityList = work?.querySelector(".agentkit-activities-list");
-    expect(activityList?.textContent).toContain("Claude Sonnet 5");
-    expect(activityList?.textContent).toContain("Updated the active slide");
-    expect(activityList?.textContent).not.toContain("Other");
+    const timeline = work?.querySelector(".agentkit-activities-list");
+    expect(timeline?.querySelector("[data-activity-bucket]")).toBeNull();
+    const timelineText = timeline?.textContent ?? "";
+    expect(timelineText.indexOf("Claude Sonnet 5")).toBeLessThan(
+      timelineText.indexOf("Updated the active slide"),
+    );
     expect(work?.textContent).not.toContain("Private reasoning text");
 
     const failedToolRow = Array.from(
@@ -2640,7 +2268,7 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("keeps active work compact and groups expanded history by purpose", async () => {
+  it("keeps active work compact and expanded history chronological", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-31T00:00:15.000Z"));
     const threadId = "thread-clustered-work";
@@ -2652,27 +2280,45 @@ describe("AgentChat lifecycle", () => {
       status: "completed" as const,
       detail: `Result ${index + 1}`,
     }));
+    const docsEvents = activities.map((activity, index): AgentEvent => {
+      const sequence = index < 2 ? index + 1 : index + 2;
+      return {
+        id: `event-docs-${index}`,
+        threadId,
+        runId,
+        sequence,
+        occurredAt: `2026-08-31T00:00:0${sequence}.000Z`,
+        type: "activity.completed",
+        activity,
+      };
+    });
     const events: AgentEvent[] = [
-      ...activities.map(
-        (activity, index): AgentEvent => ({
-          id: `event-docs-${index}`,
-          threadId,
-          runId,
-          sequence: index + 1,
-          occurredAt: `2026-08-31T00:00:0${index}.000Z`,
-          type: "activity.completed",
-          activity,
-        }),
-      ),
+      docsEvents[0]!,
+      docsEvents[1]!,
+      {
+        id: "event-update-slide",
+        threadId,
+        runId,
+        sequence: 3,
+        occurredAt: "2026-08-31T00:00:03.000Z",
+        type: "activity.completed",
+        activity: {
+          id: "activity-update-slide",
+          kind: "write",
+          label: "Updating slide",
+          status: "completed",
+        },
+      },
+      docsEvents[2]!,
       {
         id: "event-model",
         threadId,
         runId,
-        sequence: 4,
-        occurredAt: "2026-08-31T00:00:04.000Z",
+        sequence: 5,
+        occurredAt: "2026-08-31T00:00:05.000Z",
         type: "activity.started",
         activity: {
-          id: "activity-model",
+          id: `agentkit:internal:${runId}:contacting-model`,
           kind: "model",
           label: "Contacting model",
           status: "running",
@@ -2682,8 +2328,8 @@ describe("AgentChat lifecycle", () => {
         id: "event-latest-started",
         threadId,
         runId,
-        sequence: 5,
-        occurredAt: "2026-08-31T00:00:05.000Z",
+        sequence: 6,
+        occurredAt: "2026-08-31T00:00:06.000Z",
         type: "activity.started",
         activity: {
           id: "activity-latest",
@@ -2696,11 +2342,11 @@ describe("AgentChat lifecycle", () => {
         id: "event-model-updated",
         threadId,
         runId,
-        sequence: 6,
-        occurredAt: "2026-08-31T00:00:06.000Z",
+        sequence: 7,
+        occurredAt: "2026-08-31T00:00:07.000Z",
         type: "activity.updated",
         activity: {
-          id: "activity-model",
+          id: "activity-model-progress",
           kind: "model",
           label: "Reviewing results",
           status: "running",
@@ -2714,7 +2360,7 @@ describe("AgentChat lifecycle", () => {
         [runId]: {
           id: runId,
           status: "running" as const,
-          lastSequence: 6,
+          lastSequence: 7,
           startedAt: "2026-08-31T00:00:00.000Z",
         },
       },
@@ -2756,20 +2402,28 @@ describe("AgentChat lifecycle", () => {
         work?.querySelector("[data-agentkit-current-activity]")?.textContent,
       ).toBe("Reviewing results");
       expect(work?.querySelector(".agentkit-activities-count")).toBeNull();
+      const timeline = work?.querySelector(".agentkit-activities-list");
+      expect(timeline?.querySelector("[data-activity-bucket]")).toBeNull();
       expect(
         Array.from(
-          work?.querySelectorAll("[data-activity-bucket]") ?? [],
-          (bucket) => bucket.getAttribute("data-activity-bucket"),
+          timeline?.children ?? [],
+          (row) => row.querySelector(".agentkit-activity-label")?.textContent,
         ),
-      ).toEqual(["research"]);
-      expect(work?.textContent).not.toContain("Other");
+      ).toEqual([
+        "Docs search",
+        "Updating slide",
+        "Docs search",
+        "Reading a file",
+        "Reviewing results",
+      ]);
+      expect(timeline?.textContent).not.toContain("Contacting model");
       expect(cluster?.open).toBe(false);
       expect(cluster?.querySelector("summary")?.textContent).toContain(
-        "Docs search×3",
+        "Docs search×2",
       );
       expect(
         cluster?.querySelectorAll(".agentkit-activity-cluster-items > *"),
-      ).toHaveLength(3);
+      ).toHaveLength(2);
       await act(async () => {
         work
           ?.querySelector<HTMLElement>(".agentkit-activities-summary")
@@ -2783,14 +2437,10 @@ describe("AgentChat lifecycle", () => {
       });
       expect(cluster?.open).toBe(true);
       expect(
-        work?.querySelectorAll(
-          '[data-activity-bucket="research"] [data-status="completed"]',
-        ),
-      ).toHaveLength(3);
+        timeline?.querySelectorAll('[data-status="completed"]'),
+      ).toHaveLength(4);
       expect(
-        work?.querySelectorAll(
-          '.agentkit-activities-list [data-status="running"]',
-        ),
+        timeline?.querySelectorAll('[data-status="running"]'),
       ).toHaveLength(2);
 
       await act(async () => {
@@ -2802,6 +2452,86 @@ describe("AgentChat lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("preserves thread chronology when overlapping runs reuse sequence numbers", async () => {
+    const threadId = "thread-overlapping-run-activity";
+    const firstRunId = "run-overlapping-first";
+    const secondRunId = "run-overlapping-second";
+    const makeEvent = (
+      id: string,
+      runId: string,
+      sequence: number,
+      label: string,
+      second: number,
+    ): AgentEvent => ({
+      id,
+      threadId,
+      runId,
+      sequence,
+      occurredAt: `2026-08-31T00:00:0${second}.000Z`,
+      type: "activity.started",
+      activity: {
+        id: `activity-${id}`,
+        kind: "read",
+        label,
+        status: "running",
+      },
+    });
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events: [
+        makeEvent("run-a-first", firstRunId, 1, "Run A first", 1),
+        makeEvent("run-a-second", firstRunId, 2, "Run A second", 2),
+        makeEvent("run-b-first", secondRunId, 1, "Run B first", 3),
+      ],
+      runs: {
+        [firstRunId]: {
+          id: firstRunId,
+          status: "running" as const,
+          lastSequence: 2,
+          startedAt: "2026-08-31T00:00:00.000Z",
+        },
+        [secondRunId]: {
+          id: secondRunId,
+          status: "running" as const,
+          lastSequence: 1,
+          startedAt: "2026-08-31T00:00:02.500Z",
+        },
+      },
+      activeRunIds: [firstRunId, secondRunId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup />
+      </AgentKitProvider>,
+    );
+
+    const timeline = tree.container.querySelector(".agentkit-activities-list");
+    expect(timeline?.tagName).toBe("OL");
+    expect(timeline?.getAttribute("role")).toBe("list");
+    expect(timeline?.getAttribute("aria-label")).toBe("Agent activity");
+    expect(
+      Array.from(
+        timeline?.children ?? [],
+        (row) => row.querySelector(".agentkit-activity-label")?.textContent,
+      ),
+    ).toEqual(["Run A first", "Run A second", "Run B first"]);
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Run B first");
+
+    await tree.unmount();
   });
 
   it("keeps the live status row mounted as activity details arrive", async () => {
@@ -3057,69 +2787,6 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("does not render a duration summary for a standalone rich tool result", async () => {
-    const threadId = "thread-rich-tool-only";
-    const runId = "run-rich-tool-only";
-    const richTool: AgentToolCall = {
-      id: "tool-rich-result",
-      name: "create-report",
-      status: "completed",
-    };
-    const thread = {
-      ...createAgentThreadState(threadId),
-      tools: { [richTool.id]: richTool },
-      events: [
-        {
-          id: "event-rich-tool",
-          threadId,
-          runId,
-          sequence: 1,
-          occurredAt: "2026-08-31T00:00:01.000Z",
-          type: "tool.started" as const,
-          toolCall: { ...richTool, status: "running" as const },
-        },
-      ],
-      runs: {
-        [runId]: {
-          id: runId,
-          status: "completed" as const,
-          lastSequence: 2,
-          startedAt: "2026-08-31T00:00:00.000Z",
-          completedAt: "2026-08-31T00:00:09.000Z",
-        },
-      },
-    };
-    const observable = observableController({
-      connection: "connected",
-      capabilities: {},
-      capabilitiesStatus: "ready",
-      threads: { [threadId]: thread },
-      revision: 0,
-    });
-    const tree = mount();
-    const RichToolRenderer = ({ value }: { value: AgentToolCall }) => (
-      <div data-testid="rich-tool-only-result">{value.name}</div>
-    );
-
-    await tree.render(
-      <AgentKitProvider
-        controller={observable.controller}
-        threadId={threadId}
-        registry={{ tools: { [richTool.name]: RichToolRenderer } }}
-      >
-        <AgentActivityGroup runId={runId} />
-      </AgentKitProvider>,
-    );
-
-    expect(
-      tree.container.querySelector('[data-testid="rich-tool-only-result"]')
-        ?.textContent,
-    ).toBe("create-report");
-    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
-    expect(tree.container.textContent).not.toContain("Worked for 9s");
-    await tree.unmount();
-  });
-
   it("keeps failed tool errors inside explicitly expanded history", async () => {
     const threadId = "thread-tool-failure";
     const runId = "run-tool-failure";
@@ -3230,47 +2897,138 @@ describe("AgentChat lifecycle", () => {
     ).toBe(false);
   });
 
-  it("hides startup-only activity rows and duration summaries", async () => {
-    const threadId = "thread-startup-only-activity";
-    const runId = "run-startup-only-activity";
+  it("filters internal activity IDs and preserves provider labels", async () => {
+    const threadId = "thread-activity-without-run";
+    const runId = "run-activity-without-run";
     const events: AgentEvent[] = [
-      ...["Starting agent", "Contacting model"].map(
-        (label, index): AgentEvent => ({
-          id: `event-${index}`,
-          threadId,
-          runId,
-          sequence: index + 1,
-          occurredAt: `2026-08-31T00:00:0${index}.000Z`,
-          type: "activity.completed",
-          activity: {
-            id: `activity-${index}`,
-            kind: "tool",
-            label,
-            status: "completed",
-          },
-        }),
-      ),
-      {
-        id: "event-completed",
+      "Starting agent",
+      "Contacting model",
+      "Preparing action",
+    ]
+      .map((label, index) => ({
+        id: `event-${index}`,
         threadId,
         runId,
-        sequence: 3,
-        occurredAt: "2026-08-31T00:00:03.000Z",
-        type: "run.completed",
-      },
-    ];
+        sequence: index + 1,
+        occurredAt: `2026-08-31T00:00:0${index}.000Z`,
+        type: "activity.completed",
+        activity: {
+          id:
+            index < 2
+              ? `agentkit:internal:${runId}:${index === 0 ? "starting-agent" : "contacting-model"}`
+              : `activity-${index}`,
+          kind: "tool",
+          label,
+          status: "completed",
+        },
+      }))
+      .concat([
+        {
+          id: "legacy-starting-agent",
+          threadId,
+          runId,
+          sequence: 4,
+          occurredAt: "2026-08-31T00:00:04.000Z",
+          type: "activity.completed",
+          activity: {
+            id: "activity:Starting agent",
+            kind: "status",
+            label: "Starting agent",
+            status: "completed",
+          },
+        },
+        {
+          id: "legacy-contacting-model",
+          threadId,
+          runId,
+          sequence: 5,
+          occurredAt: "2026-08-31T00:00:05.000Z",
+          type: "activity.completed",
+          activity: {
+            id: "activity:Contacting model",
+            kind: "status",
+            label: "Contacting model",
+            status: "completed",
+          },
+        },
+        {
+          id: "provider-contacting-model",
+          threadId,
+          runId,
+          sequence: 6,
+          occurredAt: "2026-08-31T00:00:06.000Z",
+          type: "activity.completed",
+          activity: {
+            id: "provider:contacting-model",
+            kind: "status",
+            label: "Contacting model",
+            status: "completed",
+          },
+        },
+      ]);
+    const thread = { ...createAgentThreadState(threadId), events };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const summary = tree.container.querySelector(
+      ".agentkit-activities-summary",
+    );
+    expect(summary?.textContent).toBe("Worked");
+    expect(summary?.textContent).not.toContain("Starting agent");
+    expect(summary?.textContent).not.toContain("Contacting model");
+    expect(summary?.textContent).not.toContain("3");
+    expect(
+      Array.from(
+        tree.container.querySelectorAll(".agentkit-activity-label"),
+        (label) => label.textContent,
+      ),
+    ).toEqual(["Preparing action", "Contacting model"]);
+    await tree.unmount();
+  });
+
+  it("hides internal activity labels from live status", async () => {
+    const threadId = "thread-internal-live-activity";
+    const runId = "run-internal-live-activity";
+    const events: AgentEvent[] = ["Starting agent", "Contacting model"].map(
+      (label, index) => ({
+        id: `event-${index}`,
+        threadId,
+        runId,
+        sequence: index + 1,
+        occurredAt: `2026-08-31T00:00:0${index}.000Z`,
+        type: "activity.started",
+        activity: {
+          id: `agentkit:internal:${runId}:${index === 0 ? "starting-agent" : "contacting-model"}`,
+          kind: "status",
+          label,
+          status: "running",
+        },
+      }),
+    );
     const thread = {
       ...createAgentThreadState(threadId),
       events,
       runs: {
         [runId]: {
           id: runId,
-          status: "completed" as const,
-          lastSequence: 3,
+          status: "running" as const,
+          lastSequence: 2,
           startedAt: "2026-08-31T00:00:00.000Z",
-          completedAt: "2026-08-31T00:00:03.000Z",
         },
       },
+      activeRunIds: [runId],
     };
     const observable = observableController({
       connection: "connected",
@@ -3287,11 +3045,16 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
-    expect(tree.container.textContent).not.toContain("Worked");
-    expect(tree.container.textContent).not.toContain("Starting agent");
-    expect(tree.container.textContent).not.toContain("Contacting model");
-    expect(tree.container.textContent).not.toContain("Other");
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+    expect(
+      tree.container.querySelectorAll(".agentkit-activity-item"),
+    ).toHaveLength(0);
+    expect(tree.container.textContent).not.toMatch(
+      /Starting agent|Contacting model/,
+    );
     await tree.unmount();
   });
 
@@ -4911,5 +4674,562 @@ describe("AgentKit subscriptions and recovery", () => {
         </AgentKitProvider>,
       ),
     ).resolves.toBeUndefined();
+  });
+
+  it("keeps the latest useful activity when only generic status remains", async () => {
+    const threadId = "thread-completed-latest-activity";
+    const runId = "run-completed-latest-activity";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events: [
+        {
+          id: "activity-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "read-components",
+            kind: "read",
+            label: "Preparing update-slide action",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "activity-completed",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-28T00:00:02.000Z",
+          type: "activity.completed" as const,
+          activity: {
+            id: "read-components",
+            kind: "read",
+            label: "Preparing update-slide action",
+            status: "completed" as const,
+            completedAt: "2026-09-28T00:00:02.000Z",
+          },
+        },
+        {
+          id: "contacting-model",
+          threadId,
+          runId,
+          sequence: 3,
+          occurredAt: "2026-09-28T00:00:03.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: `agentkit:internal:${runId}:contacting-model`,
+            kind: "model",
+            label: "Contacting model",
+            status: "running" as const,
+          },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 3,
+          startedAt: "2026-09-28T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    const current = tree.container.querySelector(
+      "[data-agentkit-current-activity]",
+    );
+    expect(current?.textContent).toBe("Preparing update-slide action");
+    expect(current?.querySelector(".agent-running-shimmer")).not.toBeNull();
+    expect(
+      tree.container.querySelector(".agentkit-activities-summary")?.textContent,
+    ).toContain("Preparing update-slide action");
+    await tree.unmount();
+  });
+
+  it("prefers a running useful activity over a newer completed one", async () => {
+    const threadId = "thread-running-activity-precedence";
+    const runId = "run-running-activity-precedence";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events: [
+        {
+          id: "activity-a-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "activity-a",
+            kind: "tool",
+            label: "Updating slide",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "activity-a-updated",
+          threadId,
+          runId,
+          sequence: 5,
+          occurredAt: "2026-09-28T00:00:05.000Z",
+          type: "activity.updated" as const,
+          activity: {
+            id: "activity-a",
+            kind: "tool",
+            label: "Updating slide",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "activity-b-started",
+          threadId,
+          runId,
+          sequence: 6,
+          occurredAt: "2026-09-28T00:00:06.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "activity-b",
+            kind: "tool",
+            label: "Saving document",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "activity-b-completed",
+          threadId,
+          runId,
+          sequence: 7,
+          occurredAt: "2026-09-28T00:00:07.000Z",
+          type: "activity.completed" as const,
+          activity: {
+            id: "activity-b",
+            kind: "tool",
+            label: "Saving document",
+            status: "completed" as const,
+          },
+        },
+        {
+          id: "contacting-model",
+          threadId,
+          runId,
+          sequence: 8,
+          occurredAt: "2026-09-28T00:00:08.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: `agentkit:internal:${runId}:contacting-model`,
+            kind: "model",
+            label: "Contacting model",
+            status: "running" as const,
+          },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 8,
+          startedAt: "2026-09-28T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Updating slide");
+    await tree.unmount();
+  });
+
+  it("excludes delegated activity and tool events from the current label", async () => {
+    const threadId = "thread-excluded-agent-activity";
+    const runId = "run-excluded-agent-activity";
+    const delegatedTool: AgentToolCall = {
+      id: "agent-tool",
+      name: "read-private-data",
+      status: "running",
+      agentId: "subagent-1",
+    };
+    const untaggedTool: AgentToolCall = {
+      id: delegatedTool.id,
+      name: delegatedTool.name,
+      status: "running",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      activities: {
+        "agent-activity": {
+          id: "agent-activity",
+          kind: "tool",
+          label: "Reading private agent state",
+          status: "running" as const,
+        },
+      },
+      tools: { [untaggedTool.id]: untaggedTool },
+      events: [
+        {
+          id: "agent-activity-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "agent-activity",
+            agentId: "subagent-1",
+            kind: "tool",
+            label: "Reading private agent state",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "agent-activity-updated",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-28T00:00:02.000Z",
+          type: "activity.updated" as const,
+          activity: {
+            id: "agent-activity",
+            kind: "tool",
+            label: "Reading private agent state",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "agent-tool-started",
+          threadId,
+          runId,
+          sequence: 3,
+          occurredAt: "2026-09-28T00:00:03.000Z",
+          type: "tool.started" as const,
+          toolCall: delegatedTool,
+        },
+        {
+          id: "agent-tool-updated",
+          threadId,
+          runId,
+          sequence: 4,
+          occurredAt: "2026-09-28T00:00:04.000Z",
+          type: "tool.updated" as const,
+          toolCall: untaggedTool,
+        },
+        {
+          id: "agent-tool-delta",
+          threadId,
+          runId,
+          sequence: 5,
+          occurredAt: "2026-09-28T00:00:05.000Z",
+          type: "tool.delta" as const,
+          toolCallId: delegatedTool.id,
+          inputTextDelta: '{"private":true}',
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 5,
+          startedAt: "2026-09-28T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} excludeAgentActivities />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+    expect(tree.container.textContent).not.toContain(
+      "Reading private agent state",
+    );
+    expect(tree.container.textContent).not.toContain("read-private-data");
+    await tree.unmount();
+  });
+
+  it("preserves late-delegated activity in its first transcript segment", async () => {
+    const threadId = "thread-late-delegated-activity";
+    const runId = "run-late-delegated-activity";
+    const activity = {
+      id: "late-delegated-activity",
+      kind: "read",
+      label: "Reading delegated files",
+    };
+    const tool: AgentToolCall = {
+      id: "late-delegated-tool",
+      name: "read-delegated-files",
+      status: "running",
+    };
+    const delegatedTool: AgentToolCall = {
+      ...tool,
+      agentId: "subagent-1",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [tool.id]: tool },
+      activities: {
+        [activity.id]: { ...activity, status: "completed" as const },
+      },
+      events: [
+        {
+          id: "activity-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          type: "activity.started" as const,
+          activity: { ...activity, status: "running" as const },
+        },
+        {
+          id: "activity-delegated",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-28T00:00:02.000Z",
+          type: "activity.updated" as const,
+          activity: {
+            ...activity,
+            status: "running" as const,
+            agentId: "subagent-1",
+          },
+        },
+        {
+          id: "tool-started",
+          threadId,
+          runId,
+          sequence: 3,
+          occurredAt: "2026-09-28T00:00:03.000Z",
+          type: "tool.started" as const,
+          toolCall: tool,
+        },
+        {
+          id: "tool-delegated",
+          threadId,
+          runId,
+          sequence: 4,
+          occurredAt: "2026-09-28T00:00:04.000Z",
+          type: "tool.updated" as const,
+          toolCall: delegatedTool,
+        },
+        {
+          id: "activity-completed",
+          threadId,
+          runId,
+          sequence: 5,
+          occurredAt: "2026-09-28T00:00:05.000Z",
+          type: "activity.completed" as const,
+          activity: { ...activity, status: "completed" as const },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 5,
+          startedAt: "2026-09-28T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} excludeAgentActivities />
+        <AgentCollaborationFeed runId={runId} throughSequence={1} />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+    const feed = tree.container.querySelector(
+      "[data-agent-collaboration-feed='true']",
+    );
+    expect(
+      feed?.querySelector("[data-status='completed']")?.textContent,
+    ).toContain("Reading delegated files");
+    expect(tree.container.textContent).not.toContain("read-delegated-files");
+    await tree.unmount();
+  });
+
+  it("does not render a duration summary for a standalone rich tool result", async () => {
+    const threadId = "thread-rich-tool-only";
+    const runId = "run-rich-tool-only";
+    const richTool: AgentToolCall = {
+      id: "tool-rich-result",
+      name: "create-report",
+      status: "completed",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [richTool.id]: richTool },
+      events: [
+        {
+          id: "event-rich-tool",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-08-31T00:00:01.000Z",
+          type: "tool.started" as const,
+          toolCall: { ...richTool, status: "running" as const },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 2,
+          startedAt: "2026-08-31T00:00:00.000Z",
+          completedAt: "2026-08-31T00:00:09.000Z",
+        },
+      },
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    const RichToolRenderer = ({ value }: { value: AgentToolCall }) => (
+      <div data-testid="rich-tool-only-result">{value.name}</div>
+    );
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{ tools: { [richTool.name]: RichToolRenderer } }}
+      >
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector('[data-testid="rich-tool-only-result"]')
+        ?.textContent,
+    ).toBe("create-report");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+    expect(tree.container.textContent).not.toContain("Worked for 9s");
+    await tree.unmount();
+  });
+
+  it("hides startup-only activity rows and duration summaries", async () => {
+    const threadId = "thread-startup-only-activity";
+    const runId = "run-startup-only-activity";
+    const events: AgentEvent[] = [
+      ...["Starting agent", "Contacting model"].map(
+        (label, index): AgentEvent => ({
+          id: `event-${index}`,
+          threadId,
+          runId,
+          sequence: index + 1,
+          occurredAt: `2026-08-31T00:00:0${index}.000Z`,
+          type: "activity.completed",
+          activity: {
+            id: `agentkit:internal:${runId}:${index === 0 ? "starting-agent" : "contacting-model"}`,
+            kind: "tool",
+            label,
+            status: "completed",
+          },
+        }),
+      ),
+      {
+        id: "event-completed",
+        threadId,
+        runId,
+        sequence: 3,
+        occurredAt: "2026-08-31T00:00:03.000Z",
+        type: "run.completed",
+      },
+    ];
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events,
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 3,
+          startedAt: "2026-08-31T00:00:00.000Z",
+          completedAt: "2026-08-31T00:00:03.000Z",
+        },
+      },
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+    expect(tree.container.textContent).not.toContain("Worked");
+    expect(tree.container.textContent).not.toContain("Starting agent");
+    expect(tree.container.textContent).not.toContain("Contacting model");
+    expect(tree.container.textContent).not.toContain("Other");
+    await tree.unmount();
   });
 });

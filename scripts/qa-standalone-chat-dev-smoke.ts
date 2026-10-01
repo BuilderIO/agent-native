@@ -2293,6 +2293,15 @@ async function readPersistedFeedback(
   });
 }
 
+async function readCurrentActivityTrace(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const target = window as Window & {
+      __agentNativeCurrentActivityTrace?: string[];
+    };
+    return target.__agentNativeCurrentActivityTrace ?? [];
+  });
+}
+
 async function assertActionWidgetOutsideActivity(
   page: Page,
   text: string,
@@ -2553,6 +2562,74 @@ async function assertAgentKitChatAcceptance(
   const threadPath = new URL(threadUrl).pathname;
   const threadId = threadPath.slice("/chat/".length);
   try {
+    await page
+      .locator("[data-agentkit-current-activity]")
+      .waitFor({ state: "visible" });
+    const activityTrace = await readCurrentActivityTrace(page);
+    const isUsefulStatus = (label: string) =>
+      !["thinking", "starting agent", "contacting model"].includes(
+        label.toLowerCase(),
+      );
+    const usefulStatusIndex = activityTrace.findIndex(isUsefulStatus);
+    assert.ok(
+      usefulStatusIndex >= 0,
+      `tool run did not show its useful activity label: ${JSON.stringify(activityTrace)}`,
+    );
+    assert.ok(
+      !activityTrace
+        .slice(usefulStatusIndex + 1)
+        .some((label) => !isUsefulStatus(label)),
+      `tool run flashed back to Thinking: ${JSON.stringify(activityTrace)}`,
+    );
+    const stickyLabel = activityTrace.at(-1);
+    assert.ok(
+      stickyLabel,
+      "current activity trace must contain a visible label",
+    );
+    log(
+      `current activity trace during tool run: ${activityTrace.join(" -> ")}`,
+    );
+
+    network.requestsInFlightAtPersistenceReload.clear();
+    for (const request of network.inFlightRequests) {
+      network.requestsInFlightAtPersistenceReload.add(request);
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await chat.waitFor({ state: "visible" });
+    await composer.waitFor({ state: "visible" });
+    assert.equal(
+      new URL(page.url()).pathname,
+      threadPath,
+      "reload must preserve the active thread route",
+    );
+    await page
+      .locator("[data-agentkit-current-activity]")
+      .waitFor({ state: "visible" });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    const reattachedActivityTrace = await readCurrentActivityTrace(page);
+    assert.equal(
+      reattachedActivityTrace[0]?.toLowerCase(),
+      stickyLabel.toLowerCase(),
+      `reattached run did not render its useful label first: ${JSON.stringify(reattachedActivityTrace)}`,
+    );
+    assert.ok(
+      !reattachedActivityTrace.some((label) => !isUsefulStatus(label)),
+      `reattached run flashed Thinking: ${JSON.stringify(reattachedActivityTrace)}`,
+    );
+    assert.equal(
+      await page
+        .locator("[data-agentkit-current-activity]")
+        .getAttribute("data-running"),
+      "true",
+      "reload must reattach to the still-running tool response",
+    );
+    log(
+      `current activity trace after running-run reload: ${reattachedActivityTrace.join(" -> ")}`,
+    );
+    await waitForStableChatSurface(page);
     await waitForChatText(page, "Loopback complete");
     await waitForChatText(page, helloPrompt);
     await waitForChatText(page, "Hello, AgentKit Browser!");
@@ -3444,6 +3521,7 @@ async function main(): Promise<void> {
     await page.addInitScript(() => {
       const target = window as Window & {
         __agentNativeSmokeHistory?: string[];
+        __agentNativeCurrentActivityTrace?: string[];
       };
       const entries = (target.__agentNativeSmokeHistory ??= []);
       for (const method of ["pushState", "replaceState"] as const) {
@@ -3455,6 +3533,41 @@ async function main(): Promise<void> {
           return original.apply(this, args);
         };
       }
+
+      const activityTrace = (target.__agentNativeCurrentActivityTrace ??= []);
+      let observedActivity: Element | null = null;
+      let activityObserver: MutationObserver | undefined;
+      const recordActivity = () => {
+        const label = document
+          .querySelector("[data-agentkit-current-activity]")
+          ?.textContent?.trim();
+        if (label && activityTrace.at(-1) !== label) activityTrace.push(label);
+      };
+      const observeActivity = () => {
+        const activity = document.querySelector(
+          "[data-agentkit-current-activity]",
+        );
+        if (activity === observedActivity) {
+          recordActivity();
+          return;
+        }
+        activityObserver?.disconnect();
+        observedActivity = activity;
+        recordActivity();
+        if (activity) {
+          activityObserver = new MutationObserver(recordActivity);
+          activityObserver.observe(activity, {
+            childList: true,
+            characterData: true,
+            subtree: true,
+          });
+        }
+      };
+      new MutationObserver(observeActivity).observe(document, {
+        childList: true,
+        subtree: true,
+      });
+      observeActivity();
     });
 
     page.on("framenavigated", (frame) => {
