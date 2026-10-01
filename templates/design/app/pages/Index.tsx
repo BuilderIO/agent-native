@@ -485,6 +485,38 @@ export default function Index() {
     retrySystems: () => void refetchDesignSystems(),
   });
 
+  const resolveAppDesignSystemId = useCallback(async () => {
+    const linkedSystemId = selectedTemplate?.designSystemId;
+    if (
+      !linkedSystemId ||
+      newDesignMode !== "app" ||
+      !systemsEnabled ||
+      newDesignSystemWasChosenRef.current ||
+      (!designSystemsLoading && !designSystemsError)
+    ) {
+      return newDesignSystemId;
+    }
+
+    const result = await refetchDesignSystems();
+    if (!result.isSuccess || !result.data) {
+      throw result.error ?? new Error(t("home.failedToCreateDesign"));
+    }
+    return result.data.designSystems.some(
+      (system) => system.id === linkedSystemId,
+    )
+      ? linkedSystemId
+      : null;
+  }, [
+    designSystemsError,
+    designSystemsLoading,
+    newDesignMode,
+    newDesignSystemId,
+    refetchDesignSystems,
+    selectedTemplate,
+    systemsEnabled,
+    t,
+  ]);
+
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
       const next = new Set(current);
@@ -682,30 +714,16 @@ export default function Index() {
       if (!canChatRef.current) return;
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
-      let designSystemId =
+      const templateCopyDesignSystemId =
         selectedTemplate &&
         newDesignMode === "design" &&
         !newDesignSystemWasChosenRef.current
           ? undefined
           : newDesignSystemId;
-      const linkedSystemId = selectedTemplate?.designSystemId;
-      if (
-        linkedSystemId &&
-        newDesignMode === "app" &&
-        systemsEnabled &&
-        !newDesignSystemWasChosenRef.current &&
-        (designSystemsLoading || designSystemsError)
-      ) {
-        const result = await refetchDesignSystems();
-        if (!result.isSuccess || !result.data) {
-          throw result.error ?? new Error(t("home.failedToCreateDesign"));
-        }
-        designSystemId = result.data.designSystems.some(
-          (system) => system.id === linkedSystemId,
-        )
-          ? linkedSystemId
-          : null;
-      }
+      const designSystemId =
+        newDesignMode === "app"
+          ? await resolveAppDesignSystemId()
+          : templateCopyDesignSystemId;
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
@@ -877,17 +895,14 @@ export default function Index() {
       createFromTemplateMutation,
       createFusionAppMutation,
       designSystems,
-      designSystemsError,
-      designSystemsLoading,
       fullAppBuildingEnabled,
       handleGenerateDesignTitle,
       navigate,
       newDesignMode,
       newDesignSystemId,
       queryClient,
-      refetchDesignSystems,
+      resolveAppDesignSystemId,
       selectedTemplate,
-      systemsEnabled,
       t,
     ],
   );
@@ -897,12 +912,15 @@ export default function Index() {
     skipToEditorPendingRef.current = true;
     setNewDesignHandoffPending(true);
 
-    const { id, ready } = createDesign(
-      t("home.untitledDesign"),
-      newDesignSystemId,
-    );
-
     try {
+      const designSystemId =
+        newDesignMode === "app"
+          ? await resolveAppDesignSystemId()
+          : newDesignSystemId;
+      const { id, ready } = createDesign(
+        t("home.untitledDesign"),
+        designSystemId,
+      );
       await ready;
       void navigate(`/design/${id}`);
     } catch (error) {
@@ -911,7 +929,14 @@ export default function Index() {
       toast.error(t("home.failedToCreateDesign"));
       throw error;
     }
-  }, [createDesign, navigate, newDesignSystemId, t]);
+  }, [
+    createDesign,
+    navigate,
+    newDesignMode,
+    newDesignSystemId,
+    resolveAppDesignSystemId,
+    t,
+  ]);
 
   const handleSkipToEditor = useCallback(async () => {
     if (selectedTemplate && newDesignMode === "design") {

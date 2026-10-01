@@ -379,6 +379,7 @@ beforeEach(async () => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.refetchSystems.mockReset();
   mocks.nanoid.mockReturnValue("design-1");
   mocks.createFromTemplate.mockResolvedValue({
     id: "copied-design",
@@ -849,6 +850,31 @@ describe("Index skip to editor", () => {
 
     await act(async () => {
       await mocks.promptProps?.onSubmit("Build an app", [], {});
+    });
+
+    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "linked-system" }),
+    );
+  });
+
+  it("resolves a template system before skipping to a blank app after query failure", async () => {
+    mocks.fullAppBuilding = true;
+    mocks.systemsError = new Error("systems query failed");
+    mocks.refetchSystems.mockResolvedValue({
+      isSuccess: true,
+      data: {
+        designSystems: [{ id: "linked-system" }],
+      },
+    });
+    await act(async () => root.render(<Index />));
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    await act(async () => {
+      await mocks.promptProps?.onSkip();
     });
 
     expect(mocks.refetchSystems).toHaveBeenCalledOnce();
