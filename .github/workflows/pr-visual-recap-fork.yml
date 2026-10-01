@@ -371,7 +371,13 @@ jobs:
             sleep $((attempt * 10))
           done
           echo "RECAP_CLI_VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
+          RECAP_CLI="$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native-recap"
+          if [ ! -x "$RECAP_CLI" ]; then
+            # Pinned versions before 0.5.49 only ship the legacy agent-native bin.
+            RECAP_CLI="$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native"
+          fi
+          test -x "$RECAP_CLI"
+          echo "RECAP_CLI=$RECAP_CLI" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$RUNNER_TEMP/recap-cli/node_modules/.bin/playwright" >> "$GITHUB_ENV"
 
       - name: Install OpenAI-compatible provider runtime
