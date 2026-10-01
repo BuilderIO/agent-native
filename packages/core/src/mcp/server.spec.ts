@@ -647,7 +647,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
     const profileConfig = {
       ...config,
-      directoryProfile: { connectorCatalog: ["directory-only"] },
+      instructions: "General MCP instructions.",
+      keyToolNames: ["echo-thing"],
+      directoryProfile: {
+        connectorCatalog: ["directory-only"],
+        keyToolNames: ["directory-only"],
+        instructions: "Directory profile instructions only.",
+      },
       actions: {
         ...config.actions,
         "directory-only": directoryOnlyAction,
@@ -681,6 +687,108 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(
       directoryRoute.result.tools.map((tool: { name: string }) => tool.name),
     ).toEqual(["directory-only"]);
+
+    const generalInitialize = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 138,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "directory-profile-test", version: "1.0.0" },
+        },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: profileConfig },
+    );
+    expect(generalInitialize.result.instructions).toContain(
+      "General MCP instructions.",
+    );
+
+    const directoryInitialize = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 139,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "directory-profile-test", version: "1.0.0" },
+        },
+      },
+      {
+        headers: await mcpAppsAuthHeaders({
+          resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        }),
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryInitialize.result.instructions).toBe(
+      "Directory profile instructions only.",
+    );
+    expect(directoryInitialize.result.instructions).not.toMatch(
+      /view-screen|ask_app|tool-search|WebMCP/i,
+    );
+  });
+
+  it("applies ask-app-only write policy to the directory catalog", async () => {
+    const writeRun = vi.fn(async () => ({ ok: true }));
+    const readAction = defineAction({
+      description: "Read a workspace value.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ ok: true }),
+    });
+    const writeAction = defineAction({
+      description: "Write a workspace value.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: writeRun,
+    });
+    const policyConfig = {
+      ...config,
+      externalAgents: { writes: "ask_app_only" as const },
+      directoryProfile: {
+        connectorCatalog: ["directory-read", "directory-write"],
+      },
+      actions: {
+        "directory-read": readAction,
+        "directory-write": writeAction,
+      },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 140, method: "tools/list", params: {} },
+      { headers, config: policyConfig, routePath: MCP_DIRECTORY_ROUTE_PREFIX },
+    );
+    expect(
+      listed.result.tools.map((tool: { name: string }) => tool.name),
+    ).toEqual(["directory-read"]);
+
+    const called = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 141,
+        method: "tools/call",
+        params: { name: "directory-write", arguments: {} },
+      },
+      { headers, config: policyConfig, routePath: MCP_DIRECTORY_ROUTE_PREFIX },
+    );
+    expect(called.result.isError).toBe(true);
+    expect(called.result.content[0].text).toContain("Unknown tool");
+    expect(writeRun).not.toHaveBeenCalled();
   });
 
   it("serves only the directory allowlist with explicit annotations and app UI metadata", async () => {

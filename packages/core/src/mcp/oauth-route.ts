@@ -277,6 +277,26 @@ export function buildMcpOAuthChallenge(
     : `Bearer scope="${scope}"`;
 }
 
+function protectedResourcePathFromRequest(
+  event: H3Event,
+): string | undefined | null {
+  let pathname = event.url?.pathname ?? "";
+  const wellKnownPath = "/.well-known/oauth-protected-resource";
+  const wellKnownIndex = pathname.lastIndexOf(wellKnownPath);
+  if (wellKnownIndex >= 0) {
+    pathname = pathname.slice(wellKnownIndex + wellKnownPath.length);
+  }
+  pathname = pathname.replace(/\/+$/, "");
+  if (!pathname || pathname === "/") return undefined;
+  return (
+    [
+      MCP_PUBLIC_ROUTE_PREFIX,
+      MCP_LEGACY_ROUTE_PREFIX,
+      MCP_DIRECTORY_ROUTE_PREFIX,
+    ].find((path) => path === pathname) ?? null
+  );
+}
+
 function authorizationEndpoint(event: H3Event): string | undefined {
   const issuer = getMcpOAuthIssuer(event);
   return issuer
@@ -302,14 +322,30 @@ export function handleMcpOAuthProtectedResourceMetadata(
   if (getMethod(event) !== "GET") {
     return oauthError("invalid_request", "Method not allowed", 405);
   }
-  const requestedResourcePath = getQuery(event).resource;
+  const pathResource = protectedResourcePathFromRequest(event);
+  const queryResource = getQuery(event).resource;
+  const allowedPaths = [
+    MCP_PUBLIC_ROUTE_PREFIX,
+    MCP_LEGACY_ROUTE_PREFIX,
+    MCP_DIRECTORY_ROUTE_PREFIX,
+  ];
+  const queryPath =
+    queryResource === undefined
+      ? undefined
+      : typeof queryResource === "string" &&
+          allowedPaths.includes(queryResource)
+        ? queryResource
+        : null;
+  if (
+    pathResource === null ||
+    queryPath === null ||
+    (pathResource && queryPath && pathResource !== queryPath)
+  ) {
+    return oauthError("invalid_target", "Unknown MCP resource", 404);
+  }
   const resource = getMcpOAuthResource(
     event,
-    requestedResourcePath === MCP_DIRECTORY_ROUTE_PREFIX
-      ? MCP_DIRECTORY_ROUTE_PREFIX
-      : requestedResourcePath === MCP_LEGACY_ROUTE_PREFIX
-        ? MCP_LEGACY_ROUTE_PREFIX
-        : MCP_PUBLIC_ROUTE_PREFIX,
+    pathResource ?? queryPath ?? MCP_PUBLIC_ROUTE_PREFIX,
   );
   const issuer = getMcpOAuthIssuer(event);
   if (!resource || !issuer) {

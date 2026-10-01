@@ -1692,6 +1692,7 @@ export async function createMCPServerForRequest(
     (directoryCatalog ||
       connectorNames.size > 0 ||
       automaticConnectorPolicyActive);
+  const writesAreAskAppOnly = externalAgentWritesAreAskAppOnly(config);
   const advertisedActionsBeforeToolSearchScope = appCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name]) => !denyNames.has(name)),
@@ -1699,7 +1700,10 @@ export async function createMCPServerForRequest(
     : directoryCatalog
       ? Object.fromEntries(
           Object.entries(visibleActions).filter(
-            ([name]) => connectorNames.has(name) && !denyNames.has(name),
+            ([name, entry]) =>
+              connectorNames.has(name) &&
+              !denyNames.has(name) &&
+              (!writesAreAskAppOnly || entry.readOnly === true),
           ),
         )
       : connectorCatalogActive
@@ -1708,10 +1712,7 @@ export async function createMCPServerForRequest(
               if (denyNames.has(name)) return false;
               if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
               if (!connectorNames.has(name)) return false;
-              if (
-                externalAgentWritesAreAskAppOnly(config) &&
-                entry.readOnly !== true
-              ) {
+              if (writesAreAskAppOnly && entry.readOnly !== true) {
                 return false;
               }
               return true;
@@ -1759,10 +1760,9 @@ export async function createMCPServerForRequest(
     (name) => name in advertisedActions,
   );
   const server = new Server(mcpServerInfo(config, requestMeta), {
-    instructions: agentNativeMcpInstructions(
-      config.instructions,
-      servedKeyToolNames,
-    ),
+    instructions: directoryCatalog
+      ? config.directoryProfile?.instructions
+      : agentNativeMcpInstructions(config.instructions, servedKeyToolNames),
     capabilities: {
       tools: {},
       ...(supportsMcpApps

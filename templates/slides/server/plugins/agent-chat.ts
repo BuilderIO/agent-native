@@ -7,11 +7,11 @@ import { assertAccess } from "@agent-native/core/sharing";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
+import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import {
   createDeckChatBeginningSnapshot,
   deckVersionChatContextFromRun,
 } from "../lib/deck-versions.js";
-import { CHATGPT_DIRECTORY_TOOL_NAMES } from "./chatgpt-directory-tools.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -199,44 +199,7 @@ export default createAgentChatPlugin({
       "Cross-slide selection rule: when view-screen returns selectionSlideId different from currentSlideId, use selectionSlideId and selectionSlideContentHash for the update; never pair a selectionSlideId with currentSlideContentHash. " +
       'Design system: every deck read (get-deck, view-screen, get-workspace-defaults, get-deck-reference-context) returns `designSystem` — a bounded summary with scope "summary" and a `next` line — and get-deck also returns `deckStyle` plus `representativeSlideId`. For a selected or retrieved designSystem with scope summary, call get-design-system { id } once for the full tokens, assets, docs, and custom instructions; reuse it instead of re-reading it. For a short generated deck, pass every slide to one create-deck call using design-system context already available. When create-deck is called with slides: [], apply its returned full agentContext before adding slides. Apply designSystem.agentContext and deckStyle before authoring or restyling. If designSystem.status is "unavailable", follow its message; never invent a generic style. For a new deck, pass the exact title as `designSystem` or a designSystemId; omit both to get the caller\'s personal default, then the workspace default. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash; when it returns a stable objectId without exact selectedText, use one update-slide replace edit with that objectId and the matching slide hash instead of fetching the full deck. For every content-only request, preserve all existing markup, inline styles, style blocks, backgrounds, and slide-level styling; change only the requested text or content value with a bounded edit. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Before a multi-slide content patch, make one get-deck read with compact=false; use slideIds when target IDs are known, otherwise read the full deck once. Send each matching contentHash as baseContentHash in the same patch-deck call. Set styleOnly=true for CSS-only content changes that preserve text, markup, element order, and protected layout CSS. After the write, verify once with get-deck slideIds and compact=false; do not read back each slide after per-slide writes. Use update-slide for one targeted slide. Read it back once; delegated ask_app output remains unverified until persisted state confirms it.',
     directoryProfile: {
-      connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
-      keyToolNames: [
-        "list-decks",
-        "get-deck",
-        "create-deck",
-        "add-slide",
-        "update-slide",
-      ],
-      instructions:
-        "Create editable presentations from briefs, follow returned design-system context, and preserve unrelated slide content when revising. Ask before replacing an existing deck. This plugin does not delete decks or edit PowerPoint or Google Slides files.",
-      toolDescriptions: {
-        "get-deck":
-          "Read a presentation or selected slides. Use slideId for a focused read, or slideIds with compact=false to inspect full HTML and content hashes. Preserve source imports and unrelated slides when editing.",
-        "create-deck":
-          "Create an editable presentation from a brief. Pass all slides in one call when the deck is fully planned, or create an empty deck and add slides in order for a longer workflow. The saved deck opens in Agent-Native Slides.",
-        "add-slide":
-          "Append one fully styled slide to an existing presentation. Use this for new slides and use update-slide for one targeted edit. The result confirms the saved slide ID and position.",
-        "update-slide":
-          "Edit one slide while preserving unrelated content. Use the slide ID and content hash from get-deck when available, and prefer a bounded text or style edit over replacing the full HTML.",
-        "duplicate-deck":
-          "Create a separate editable copy of an existing presentation with a new title. The source deck remains unchanged.",
-      },
-      toolParameterDescriptions: {
-        "get-deck": {
-          deckId:
-            "Deck ID. Alias of id, matching create-deck, add-slide, update-slide, and duplicate-deck.",
-        },
-        "update-slide": {
-          baseContentHash:
-            "Optional hash returned by get-deck for the exact slide source being edited. The edit is rejected if the source changed since it was read.",
-        },
-        "duplicate-deck": {
-          newId: "Optional client-supplied ID for the new deck.",
-        },
-      },
-      hiddenToolParameters: {
-        "create-deck": ["generationAttemptId"],
-      },
+      ...CHATGPT_DIRECTORY_PROFILE,
       projectResult: projectChatGptDirectoryResult,
     },
   },
