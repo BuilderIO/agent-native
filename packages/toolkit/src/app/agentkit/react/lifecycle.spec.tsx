@@ -1869,7 +1869,7 @@ describe("AgentChat lifecycle", () => {
           activity: {
             id: "read-components",
             kind: "read",
-            label: "Reading components.tsx",
+            label: "Preparing update-slide action",
             status: "running" as const,
           },
         },
@@ -1883,7 +1883,7 @@ describe("AgentChat lifecycle", () => {
           activity: {
             id: "read-components",
             kind: "read",
-            label: "Reading components.tsx",
+            label: "Preparing update-slide action",
             status: "completed" as const,
             completedAt: "2026-09-28T00:00:02.000Z",
           },
@@ -1931,11 +1931,177 @@ describe("AgentChat lifecycle", () => {
     const current = tree.container.querySelector(
       "[data-agentkit-current-activity]",
     );
-    expect(current?.textContent).toBe("Reading components.tsx");
+    expect(current?.textContent).toBe("Preparing update-slide action");
     expect(current?.querySelector(".agent-running-shimmer")).not.toBeNull();
     expect(
       tree.container.querySelector(".agentkit-activities-summary")?.textContent,
-    ).toContain("Reading components.tsx");
+    ).toContain("Preparing update-slide action");
+    await tree.unmount();
+  });
+
+  it("prefers a running useful activity over a newer completed one", async () => {
+    const threadId = "thread-running-activity-precedence";
+    const runId = "run-running-activity-precedence";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events: [
+        {
+          id: "activity-a-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "activity-a",
+            kind: "tool",
+            label: "Updating slide",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "activity-a-updated",
+          threadId,
+          runId,
+          sequence: 5,
+          occurredAt: "2026-09-28T00:00:05.000Z",
+          type: "activity.updated" as const,
+          activity: {
+            id: "activity-a",
+            kind: "tool",
+            label: "Updating slide",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "activity-b-started",
+          threadId,
+          runId,
+          sequence: 6,
+          occurredAt: "2026-09-28T00:00:06.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "activity-b",
+            kind: "tool",
+            label: "Saving document",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "activity-b-completed",
+          threadId,
+          runId,
+          sequence: 7,
+          occurredAt: "2026-09-28T00:00:07.000Z",
+          type: "activity.completed" as const,
+          activity: {
+            id: "activity-b",
+            kind: "tool",
+            label: "Saving document",
+            status: "completed" as const,
+          },
+        },
+        {
+          id: "contacting-model",
+          threadId,
+          runId,
+          sequence: 8,
+          occurredAt: "2026-09-28T00:00:08.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "model-status",
+            kind: "model",
+            label: "Contacting model",
+            status: "running" as const,
+          },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 8,
+          startedAt: "2026-09-28T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Updating slide");
+    await tree.unmount();
+  });
+
+  it("does not use excluded agent activity as the current label", async () => {
+    const threadId = "thread-excluded-agent-activity";
+    const runId = "run-excluded-agent-activity";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events: [
+        {
+          id: "agent-activity-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "agent-activity",
+            agentId: "subagent-1",
+            kind: "tool",
+            label: "Reading private agent state",
+            status: "running" as const,
+          },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 1,
+          startedAt: "2026-09-28T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} excludeAgentActivities />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+    expect(tree.container.textContent).not.toContain(
+      "Reading private agent state",
+    );
     await tree.unmount();
   });
 
@@ -2710,6 +2876,69 @@ describe("AgentChat lifecycle", () => {
         .querySelector("[data-agentkit-tool-results]")
         ?.contains(richResult),
     ).toBe(true);
+    await tree.unmount();
+  });
+
+  it("does not render a duration summary for a standalone rich tool result", async () => {
+    const threadId = "thread-rich-tool-only";
+    const runId = "run-rich-tool-only";
+    const richTool: AgentToolCall = {
+      id: "tool-rich-result",
+      name: "create-report",
+      status: "completed",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [richTool.id]: richTool },
+      events: [
+        {
+          id: "event-rich-tool",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-08-31T00:00:01.000Z",
+          type: "tool.started" as const,
+          toolCall: { ...richTool, status: "running" as const },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 2,
+          startedAt: "2026-08-31T00:00:00.000Z",
+          completedAt: "2026-08-31T00:00:09.000Z",
+        },
+      },
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    const RichToolRenderer = ({ value }: { value: AgentToolCall }) => (
+      <div data-testid="rich-tool-only-result">{value.name}</div>
+    );
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{ tools: { [richTool.name]: RichToolRenderer } }}
+      >
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector('[data-testid="rich-tool-only-result"]')
+        ?.textContent,
+    ).toBe("create-report");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+    expect(tree.container.textContent).not.toContain("Worked for 9s");
     await tree.unmount();
   });
 

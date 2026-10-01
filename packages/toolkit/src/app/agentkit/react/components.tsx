@@ -1033,6 +1033,30 @@ export function AgentActivityGroup({
   const latestSequence = new Map<string, number>();
   const itemOrder: string[] = [];
   const seenItems = new Set<string>();
+  const isInternalActivity = (activity: AgentActivity) => {
+    const label = activity.label.trim().toLowerCase();
+    return label === "starting agent" || label === "contacting model";
+  };
+  const isGenericActivity = (activity: AgentActivity) =>
+    isInternalActivity(activity) ||
+    activity.label.trim().toLowerCase() ===
+      labels.reasoning.trim().toLowerCase();
+  let latestUsefulActivity:
+    | { activity: AgentActivity; sequence: number }
+    | undefined;
+  const rememberUsefulActivity = (
+    activity: AgentActivity,
+    sequence: number,
+  ) => {
+    if (
+      !sequenceInRange(sequence, { afterSequence, throughSequence }) ||
+      isGenericActivity(activity) ||
+      (latestUsefulActivity && latestUsefulActivity.sequence > sequence)
+    ) {
+      return;
+    }
+    latestUsefulActivity = { activity, sequence };
+  };
   const remember = (id: string, sequence: number) => {
     if (seenItems.has(id)) return;
     seenItems.add(id);
@@ -1053,14 +1077,16 @@ export function AgentActivityGroup({
     ) {
       const id = `reasoning:${message.id}`;
       reasoningMap.set(id, message);
-      activityMap.set(id, {
+      const activity: AgentActivity = {
         id,
         kind: "reasoning",
         label: labels.reasoning,
         status: message.status === "streaming" ? "running" : "completed",
-      });
+      };
+      activityMap.set(id, activity);
       remember(id, event.sequence);
       latestSequence.set(id, event.sequence);
+      rememberUsefulActivity(activity, event.sequence);
     }
     if (
       event.type === "activity.started" ||
@@ -1068,24 +1094,25 @@ export function AgentActivityGroup({
       event.type === "activity.completed"
     ) {
       if (excludeAgentActivities && event.activity.agentId) continue;
-      activityMap.set(
-        event.activity.id,
-        thread.activities[event.activity.id] ?? event.activity,
-      );
+      const activity = thread.activities[event.activity.id] ?? event.activity;
+      activityMap.set(event.activity.id, activity);
       remember(event.activity.id, event.sequence);
       latestSequence.set(event.activity.id, event.sequence);
+      rememberUsefulActivity(activity, event.sequence);
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
-      toolMap.set(
-        event.toolCall.id,
-        thread.tools[event.toolCall.id] ?? event.toolCall,
-      );
+      const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
+      toolMap.set(event.toolCall.id, tool);
       remember(event.toolCall.id, event.sequence);
       latestSequence.set(event.toolCall.id, event.sequence);
+      rememberUsefulActivity(toolToActivity(tool), event.sequence);
     }
     if (event.type === "tool.delta") {
       const tool = thread.tools[event.toolCallId];
-      if (tool) toolMap.set(tool.id, tool);
+      if (tool) {
+        toolMap.set(tool.id, tool);
+        rememberUsefulActivity(toolToActivity(tool), event.sequence);
+      }
       remember(event.toolCallId, event.sequence);
       latestSequence.set(event.toolCallId, event.sequence);
     }
@@ -1116,14 +1143,6 @@ export function AgentActivityGroup({
   const durableToolResultIds = new Set(
     durableToolResults.map(({ tool }) => tool.id),
   );
-  const isInternalActivity = (activity: AgentActivity) => {
-    const label = activity.label.trim().toLowerCase();
-    return label === "starting agent" || label === "contacting model";
-  };
-  const isGenericActivity = (activity: AgentActivity) =>
-    isInternalActivity(activity) ||
-    activity.label.trim().toLowerCase() ===
-      labels.reasoning.trim().toLowerCase();
   const activityItems = items.filter(
     (activity) =>
       !durableToolResultIds.has(activity.id) && !isInternalActivity(activity),
@@ -1143,29 +1162,6 @@ export function AgentActivityGroup({
     },
     undefined,
   );
-  const latestUsefulActivity = runEvents.reduce<
-    { activity: AgentActivity; sequence: number } | undefined
-  >((current, event) => {
-    if (!sequenceInRange(event.sequence, { afterSequence, throughSequence })) {
-      return current;
-    }
-    const activity =
-      event.type === "activity.started" ||
-      event.type === "activity.updated" ||
-      event.type === "activity.completed"
-        ? event.activity
-        : event.type === "tool.started" || event.type === "tool.updated"
-          ? toolToActivity(event.toolCall)
-          : undefined;
-    if (
-      !activity ||
-      isGenericActivity(activity) ||
-      (current && current.sequence > event.sequence)
-    ) {
-      return current;
-    }
-    return { activity, sequence: event.sequence };
-  }, undefined);
   const running = items.some((item) => item.status === "running");
   const run = runId ? thread.runs[runId] : undefined;
   const segmentStartedEvent = firstWorkEvents(runEvents).find((event) =>
@@ -1216,14 +1212,9 @@ export function AgentActivityGroup({
   ) {
     return null;
   }
-  const latestRunningSequence = latestRunningActivity
-    ? (latestSequence.get(latestRunningActivity.id) ?? -1)
-    : -1;
   const currentActivity = activelyWorking
-    ? ((latestUsefulActivity &&
-      latestUsefulActivity.sequence > latestRunningSequence
-        ? latestUsefulActivity.activity
-        : (latestRunningActivity ?? latestUsefulActivity?.activity)) ?? {
+    ? (latestRunningActivity ??
+      latestUsefulActivity?.activity ?? {
         id: `thinking:${runId ?? thread.id}`,
         kind: "model",
         label: labels.reasoning,
@@ -1416,30 +1407,7 @@ export function AgentActivityGroup({
             })}
           </div>
         </AgentWorkDisclosure>
-      ) : (
-        <div className="agentkit-activities-static">
-          {summaryLabel ? (
-            <span className="agentkit-activities-label">{summaryLabel}</span>
-          ) : null}
-          {currentActivity ? (
-            <span
-              className="agentkit-activities-current"
-              data-running="true"
-              data-agentkit-current-activity="true"
-              aria-live="polite"
-            >
-              <ActivitySourceIcon
-                activity={currentActivity}
-                threadId={threadId}
-                compact
-              />
-              <span className="agentkit-activities-current-label agent-running-shimmer">
-                {currentActivityLabel}
-              </span>
-            </span>
-          ) : null}
-        </div>
-      )}
+      ) : null}
     </>
   );
 }
