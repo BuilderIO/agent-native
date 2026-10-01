@@ -217,6 +217,23 @@ describe("StorageSetupCard", () => {
     });
   });
 
+  it("offers Log in for an existing Builder credential", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ configured: true, credentialSource: "user" }),
+    );
+    await renderCard();
+
+    await clickConnect();
+    expect(document.body.textContent).not.toContain(CONSENT);
+    expect(bodyButton("agentChat.auth.logIn")).toBeDefined();
+    expect(bodyButton(CREATE)).toBeUndefined();
+
+    await act(async () => bodyButton("agentChat.auth.logIn")?.click());
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
+      provisionAccount: false,
+    });
+  });
+
   it("disables the Builder action and keeps Cancel while connecting", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ connecting: true }),

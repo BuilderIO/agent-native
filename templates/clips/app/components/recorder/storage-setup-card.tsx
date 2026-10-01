@@ -2,6 +2,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   BuilderConnectPopover,
+  hasBuilderOAuthCredential,
   useBuilderConnectFlow,
 } from "@agent-native/toolkit/app/settings";
 import { IconLoader2 } from "@tabler/icons-react";
@@ -141,6 +142,8 @@ export function StorageSetupCard({
     trackingFlow: connectFlow,
     onConnected: handleBuilderConnected,
   });
+  const hasBuilderAccount =
+    builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
   useEffect(() => {
     const startedAt = retryingBuilderStatusAtCountRef.current;
     if (
@@ -205,7 +208,11 @@ export function StorageSetupCard({
             Its Cancel is left out because the card's own Cancel must also
             drop the pending connect before storage polling starts. */}
         <BuilderConnectPopover
-          flow={{ ...builderConnect, cancel: undefined }}
+          flow={{
+            ...builderConnect,
+            accountExists: hasBuilderAccount,
+            cancel: undefined,
+          }}
           onConnect={handleBuilderConnect}
         >
           <Button
