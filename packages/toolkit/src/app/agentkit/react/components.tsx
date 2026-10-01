@@ -1064,22 +1064,34 @@ export function AgentActivityGroup({
     }
   }
   let latestUsefulActivity:
-    | { activity: AgentActivity; sequence: number }
+    | { activity: AgentActivity; sequence: number; eventOrder: number }
     | undefined;
+  const usefulActivities = new Map<
+    string,
+    { activity: AgentActivity; sequence: number; eventOrder: number }
+  >();
   const rememberUsefulActivity = (
     activity: AgentActivity,
     sequence: number,
+    eventOrder: number,
   ) => {
     if (
-      !sequenceInRange(sequence, { afterSequence, throughSequence }) ||
       isInternalActivity(activity) ||
       activity.label.trim().toLowerCase() ===
-        labels.reasoning.trim().toLowerCase() ||
-      (latestUsefulActivity && latestUsefulActivity.sequence > sequence)
+        labels.reasoning.trim().toLowerCase()
     ) {
       return;
     }
-    latestUsefulActivity = { activity, sequence };
+    const candidate = { activity, sequence, eventOrder };
+    usefulActivities.set(activity.id, candidate);
+    if (
+      !latestUsefulActivity ||
+      (runId === undefined
+        ? latestUsefulActivity.eventOrder <= eventOrder
+        : latestUsefulActivity.sequence <= sequence)
+    ) {
+      latestUsefulActivity = candidate;
+    }
   };
   const itemOrder: string[] = [];
   const seenItems = new Set<string>();
@@ -1112,7 +1124,7 @@ export function AgentActivityGroup({
       activityMap.set(id, activity);
       remember(id, event.sequence);
       latestEventOrder.set(id, eventOrder);
-      rememberUsefulActivity(activity, event.sequence);
+      rememberUsefulActivity(activity, event.sequence, eventOrder);
     }
     if (
       event.type === "activity.started" ||
@@ -1129,7 +1141,7 @@ export function AgentActivityGroup({
       activityMap.set(event.activity.id, activity);
       remember(event.activity.id, event.sequence);
       latestEventOrder.set(event.activity.id, eventOrder);
-      rememberUsefulActivity(activity, event.sequence);
+      rememberUsefulActivity(activity, event.sequence, eventOrder);
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
       const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
@@ -1139,7 +1151,7 @@ export function AgentActivityGroup({
       toolMap.set(event.toolCall.id, tool);
       remember(event.toolCall.id, event.sequence);
       latestEventOrder.set(event.toolCall.id, eventOrder);
-      rememberUsefulActivity(toolToActivity(tool), event.sequence);
+      rememberUsefulActivity(toolToActivity(tool), event.sequence, eventOrder);
     }
     if (event.type === "tool.delta") {
       if (excludeAgentActivities && delegatedToolIds.has(event.toolCallId)) {
@@ -1148,7 +1160,11 @@ export function AgentActivityGroup({
       const tool = thread.tools[event.toolCallId];
       if (tool) {
         toolMap.set(tool.id, tool);
-        rememberUsefulActivity(toolToActivity(tool), event.sequence);
+        rememberUsefulActivity(
+          toolToActivity(tool),
+          event.sequence,
+          eventOrder,
+        );
       }
       remember(event.toolCallId, event.sequence);
       latestEventOrder.set(event.toolCallId, eventOrder);
@@ -1187,24 +1203,17 @@ export function AgentActivityGroup({
   );
   const hasUsefulActivity =
     activityItems.length > 0 || durableToolResults.length > 0;
-  const latestRunningActivity = items.reduce<AgentActivity | undefined>(
-    (current, activity) => {
-      if (
-        activity.status !== "running" ||
-        isInternalActivity(activity) ||
-        activity.label.trim().toLowerCase() ===
-          labels.reasoning.trim().toLowerCase()
-      ) {
-        return current;
-      }
-      if (!current) return activity;
-      return (latestEventOrder.get(activity.id) ?? -1) >=
-        (latestEventOrder.get(current.id) ?? -1)
-        ? activity
-        : current;
-    },
-    undefined,
-  );
+  const latestRunningUsefulActivity = [...usefulActivities.values()].reduce<
+    typeof latestUsefulActivity | undefined
+  >((current, candidate) => {
+    if (candidate.activity.status !== "running") return current;
+    return !current ||
+      (runId === undefined
+        ? candidate.eventOrder > current.eventOrder
+        : candidate.sequence > current.sequence)
+      ? candidate
+      : current;
+  }, undefined);
   const running = items.some((item) => item.status === "running");
   const run = runId ? thread.runs[runId] : undefined;
   const segmentStartedEvent = firstWorkEvents(runEvents).find(
@@ -1258,7 +1267,7 @@ export function AgentActivityGroup({
     return null;
   }
   const currentActivity = activelyWorking
-    ? (latestRunningActivity ??
+    ? (latestRunningUsefulActivity?.activity ??
       latestUsefulActivity?.activity ?? {
         id: `thinking:${runId ?? thread.id}`,
         kind: "model",

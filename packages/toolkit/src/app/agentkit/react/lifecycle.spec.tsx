@@ -4747,7 +4747,7 @@ describe("AgentKit subscriptions and recovery", () => {
 
     await tree.render(
       <AgentKitProvider controller={observable.controller} threadId={threadId}>
-        <AgentKitChat composer={false} />
+        <AgentActivityGroup runId={runId} afterSequence={3} />
       </AgentKitProvider>,
     );
 
