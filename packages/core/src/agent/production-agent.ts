@@ -9685,6 +9685,8 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 409);
         return {
           error: "Run already in progress for this thread",
+          code: "run_slot_busy",
+          retryable: true,
           activeRunId: slot.activeRunId,
         };
       }

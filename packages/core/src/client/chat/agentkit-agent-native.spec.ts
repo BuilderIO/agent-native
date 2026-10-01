@@ -2,7 +2,11 @@ import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
-import type { AgentChatRuntime } from "./runtime.js";
+import {
+  createAgentNativeChatRuntime,
+  createHttpAgentChatRuntime,
+  type AgentChatRuntime,
+} from "./runtime.js";
 
 const runStateMocks = vi.hoisted(() => ({
   dispatchAgentChatRunning: vi.fn(),
@@ -1732,7 +1736,19 @@ describe("createAgentNativeAgentKitTransport", () => {
         if (url.endsWith("/threads/thread-resume") && !init?.method) {
           return json({
             id: "thread-resume",
-            threadData: JSON.stringify({ messages: [] }),
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: "server-user-run-durable",
+                    role: "user",
+                    content: [{ type: "text", text: "Continue the report" }],
+                    metadata: { custom: { submittedRunId: "run-durable" } },
+                  },
+                },
+              ],
+              agentKit: { messages: [] },
+            }),
           });
         }
         if (url.includes("/runs/active?threadId=thread-resume")) {
@@ -1759,12 +1775,23 @@ describe("createAgentNativeAgentKitTransport", () => {
     const transport = createAgentNativeAgentKitTransport({
       apiUrl: "/_agent-native/agent-chat",
       fetch: fetcher as typeof fetch,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher as typeof fetch,
+      }),
     });
 
     const snapshot = await transport.getThreadSnapshot?.({
       threadId: "thread-resume",
     });
     expect(snapshot?.activeRunIds).toContain("run-durable");
+    expect(snapshot?.messages).toMatchObject([
+      {
+        id: "server-user-run-durable",
+        role: "user",
+        parts: [{ type: "text", text: "Continue the report" }],
+      },
+    ]);
     expect(transport.capabilities?.resumableRuns).toBe(true);
 
     const events: AgentEvent[] = [];
@@ -1788,6 +1815,181 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     });
     expect(events.at(-1)?.type).toBe("run.completed");
+    await transport.dispose();
+  });
+
+  it("discovers active runs when using the transport's default runtime", async () => {
+    const requestUrls: string[] = [];
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      requestUrls.push(url);
+      if (url.endsWith("/threads/thread-default-runtime")) {
+        return json({
+          id: "thread-default-runtime",
+          threadData: JSON.stringify({
+            messages: [],
+            agentKit: { messages: [] },
+          }),
+        });
+      }
+      if (url.includes("/runs/active?threadId=thread-default-runtime")) {
+        return json({ active: true, status: "running", runId: "run-default" });
+      }
+      return json({ error: "Not found" }, 404);
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-default-runtime",
+    });
+
+    expect(snapshot?.activeRunIds).toContain("run-default");
+    expect(requestUrls).toContain(
+      "/_agent-native/agent-chat/runs/active?threadId=thread-default-runtime",
+    );
+    await transport.dispose();
+  });
+
+  it("does not discover server runs for a custom runtime", async () => {
+    const requestUrls: string[] = [];
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      requestUrls.push(url);
+      if (url.endsWith("/threads/thread-custom-runtime")) {
+        return json({
+          id: "thread-custom-runtime",
+          threadData: JSON.stringify({
+            messages: [],
+            agentKit: { messages: [] },
+          }),
+        });
+      }
+      return json({ error: "Not found" }, 404);
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+      runtime: createHttpAgentChatRuntime({
+        kind: "external-agent",
+        endpoint: "/external-agent-chat",
+        fetch: fetcher as typeof fetch,
+      }),
+    });
+
+    await transport.getThreadSnapshot?.({
+      threadId: "thread-custom-runtime",
+    });
+
+    expect(requestUrls.some((url) => url.includes("/runs/active"))).toBe(false);
+    await transport.dispose();
+  });
+
+  it("restores completed turns from durable thread messages after the page was away", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "complete" });
+        }
+        return json({
+          id: "thread-finished-while-away",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "server-user-run-finished",
+                  role: "user",
+                  content: [{ type: "text", text: "Finish the report" }],
+                  metadata: { custom: { submittedRunId: "run-finished" } },
+                },
+              },
+              {
+                message: {
+                  id: "server-assistant-run-finished",
+                  role: "assistant",
+                  content: [{ type: "text", text: "The report is finished." }],
+                  metadata: { runId: "run-finished" },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [],
+              runs: [
+                {
+                  id: "run-finished",
+                  threadId: "thread-finished-while-away",
+                  status: "completed",
+                  lastSequence: 3,
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-finished-while-away",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      {
+        id: "server-user-run-finished",
+        role: "user",
+        parts: [{ type: "text", text: "Finish the report" }],
+      },
+      {
+        id: "server-assistant-run-finished",
+        role: "assistant",
+        parts: [{ type: "text", text: "The report is finished." }],
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it("does not duplicate a submitted prompt already in the thread snapshot", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "complete" });
+        }
+        return json({
+          id: "thread-deduped-prompt",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "server-user-run-durable",
+                  role: "user",
+                  content: [{ type: "text", text: "Repeat this prompt" }],
+                  metadata: { custom: { submittedRunId: "run-durable" } },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "client-user-message",
+                  role: "user",
+                  parts: [{ type: "text", text: "Repeat this prompt" }],
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-deduped-prompt",
+    });
+
+    expect(snapshot?.messages).toHaveLength(1);
+    expect(snapshot?.messages[0]).toMatchObject({
+      id: "client-user-message",
+      role: "user",
+      parts: [{ type: "text", text: "Repeat this prompt" }],
+    });
     await transport.dispose();
   });
 

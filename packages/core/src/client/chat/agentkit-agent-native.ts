@@ -263,11 +263,69 @@ function storedMessages(
   });
 }
 
-function reconcileDurableAssistantText(
+function reconcileDurableMessages(
   messages: AgentMessage[],
   durable: AgentMessage[],
   events: AgentThreadSnapshot["events"],
+  runs: AgentThreadSnapshot["runs"],
 ): AgentMessage[] {
+  const submittedRunId = (message: AgentMessage) => {
+    const value = asRecord(asRecord(message.metadata)?.custom)?.submittedRunId;
+    return typeof value === "string" ? value : undefined;
+  };
+  const userText = (message: AgentMessage) =>
+    message.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+  const submittedUsers = durable.filter(
+    (message) =>
+      message.role === "user" &&
+      asRecord(message.metadata)?.hideUserMessage !== true &&
+      submittedRunId(message) !== undefined,
+  );
+  const submittedIds = new Set(submittedUsers.map((message) => message.id));
+  const submittedRunIds = new Set(
+    submittedUsers.map((message) => submittedRunId(message)!),
+  );
+  const representedIds = new Set<string>();
+  const representedRunIds = new Set<string>();
+  const unmatchedUserTextCounts = new Map<string, number>();
+  for (const message of messages) {
+    if (
+      message.role !== "user" ||
+      asRecord(message.metadata)?.hideUserMessage === true
+    ) {
+      continue;
+    }
+    const runId = submittedRunId(message);
+    if (submittedIds.has(message.id)) {
+      representedIds.add(message.id);
+    } else if (runId && submittedRunIds.has(runId)) {
+      representedRunIds.add(runId);
+    } else {
+      const text = userText(message);
+      if (text) {
+        unmatchedUserTextCounts.set(
+          text,
+          (unmatchedUserTextCounts.get(text) ?? 0) + 1,
+        );
+      }
+    }
+  }
+  const missingUsers: AgentMessage[] = [];
+  for (const stored of submittedUsers) {
+    const runId = submittedRunId(stored)!;
+    if (representedIds.has(stored.id) || representedRunIds.has(runId)) continue;
+    const text = userText(stored);
+    const textCount = unmatchedUserTextCounts.get(text) ?? 0;
+    if (text && textCount > 0) {
+      unmatchedUserTextCounts.set(text, textCount - 1);
+    } else {
+      missingUsers.push(stored);
+    }
+  }
+
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
   for (const event of events ?? []) {
@@ -294,7 +352,40 @@ function reconcileDurableAssistantText(
     durableByRun.set(runId, durableByRun.has(runId) ? null : message);
   }
 
-  return messages.map((message) => {
+  const projectedMessages = [...messages, ...missingUsers];
+  const representedAssistantIds = new Set(
+    projectedMessages.flatMap((message) =>
+      message.role === "assistant" ? [message.id] : [],
+    ),
+  );
+  const completedRunIds = new Set(
+    (runs ?? [])
+      .filter((run) =>
+        ["completed", "failed", "cancelled"].includes(run.status),
+      )
+      .map((run) => run.id),
+  );
+  for (const message of durable) {
+    if (
+      message.role !== "assistant" ||
+      representedAssistantIds.has(message.id)
+    ) {
+      continue;
+    }
+    const runId = asRecord(message.metadata)?.runId;
+    if (typeof runId !== "string" || !completedRunIds.has(runId)) continue;
+    const eventIds = assistantIdsByRun.get(runId);
+    if (
+      eventIds &&
+      [...eventIds].some((id) => representedAssistantIds.has(id))
+    ) {
+      continue;
+    }
+    projectedMessages.push(message);
+    representedAssistantIds.add(message.id);
+  }
+
+  return projectedMessages.map((message) => {
     if (message.role !== "assistant") return message;
     const runId = runByAssistantId.get(message.id);
     const stored =
@@ -896,10 +987,11 @@ export function createAgentNativeAgentKitTransport(
       options.adapter?.textFormat,
     );
     const messages = protocolSnapshot?.messages
-      ? reconcileDurableAssistantText(
+      ? reconcileDurableMessages(
           protocolSnapshot.messages,
           durableMessages,
           protocolSnapshot.events,
+          protocolSnapshot.runs,
         )
       : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
@@ -1058,7 +1150,12 @@ export function createAgentNativeAgentKitTransport(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
     const thread = await snapshot(threadId);
-    if (!thread || options.runtime) return thread;
+    if (
+      !thread ||
+      (options.runtime && options.runtime.kind !== "agent-native")
+    ) {
+      return thread;
+    }
     const activeRun = await activeRunSnapshot(threadId);
     if (!activeRun) return thread;
     const runs = [

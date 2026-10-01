@@ -254,6 +254,35 @@ describe("createHttpAgentChatRuntime", () => {
     });
   });
 
+  it("preserves active-run details from a typed slot-busy response", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: "Run already in progress for this thread",
+              code: "run_slot_busy",
+              retryable: true,
+              activeRunId: "run-active",
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession({ id: "thread-1" })).startTurn({
+        prompt: "A second message",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      status: 409,
+      retryable: true,
+      activeRunId: "run-active",
+    });
+  });
+
   it("lets a transport continue a paused turn with the previous input", async () => {
     const fetchMock = vi
       .fn()
