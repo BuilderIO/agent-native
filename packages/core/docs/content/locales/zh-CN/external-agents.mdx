@@ -309,7 +309,7 @@ claude mcp add --transport http agent-native \
 https://dispatch.agent-native.com/mcp
 ```
 
-OAuth 流程是授权代码 + PKCE 和刷新令牌轮换。访问令牌是受众绑定到确切的 MCP 资源 URL 并携带签名的用户/组织身份，因此工具调用、`resources/read` 和 MCP 应用程序 iframe 启动的 `tools/call` 都通过与现有连接铸造的 JWT 路径相同的 `runWithRequestContext` 租户范围运行。 iframe 从不接收原始 OAuth 令牌；主机通过经过身份验证的 MCP 连接来调解呼叫。
+OAuth 流程是授权代码 + PKCE 和刷新令牌，刷新令牌不会轮换。访问令牌是受众绑定到确切的 MCP 资源 URL 并携带签名的用户/组织身份，因此工具调用、`resources/read` 和 MCP 应用程序 iframe 启动的 `tools/call` 都通过与现有连接铸造的 JWT 路径相同的 `runWithRequestContext` 租户范围运行。 iframe 从不接收原始 OAuth 令牌；主机通过经过身份验证的 MCP 连接来调解呼叫。
 
 当前范围是：
 

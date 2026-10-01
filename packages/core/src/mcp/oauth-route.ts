@@ -6,7 +6,13 @@ import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  checkCredentialOrgMembership,
+  type CredentialOrgMembership,
+} from "./credential-membership.js";
 import {
   applicationTypeForRedirectUris,
   isAllowedOAuthRedirectUri,
@@ -23,6 +29,7 @@ import {
   getOAuthCode,
   getOAuthRefreshToken,
   registerOAuthClient,
+  revokeOAuthRefreshToken,
   touchOAuthRefreshToken,
 } from "./oauth-store.js";
 import {
@@ -974,6 +981,37 @@ async function issueTokenSet(params: {
   };
 }
 
+/**
+ * Codes and refresh tokens carry the organization chosen at consent. The user
+ * may have left it since, so re-check membership before minting, with the same
+ * check verifyAuth applies to every access token.
+ */
+async function grantOrgMembership(
+  event: H3Event,
+  grant: { ownerEmail: string; orgId: string | null },
+): Promise<CredentialOrgMembership> {
+  if (!grant.orgId) return "member";
+  return checkCredentialOrgMembership({
+    orgId: grant.orgId,
+    email: grant.ownerEmail,
+    requestOrigin: getOrigin(event),
+  });
+}
+
+const NOT_A_MEMBER_DESCRIPTION =
+  "The user is no longer a member of the organization this grant was issued for";
+
+/** Retryable: the client must keep its refresh token, not start over. */
+function membershipUnavailableError(): Response {
+  const response = oauthError(
+    "temporarily_unavailable",
+    CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+    503,
+  );
+  response.headers.set("Retry-After", "5");
+  return response;
+}
+
 async function handleAuthorizationCodeGrant(
   event: H3Event,
   body: Record<string, string>,
@@ -993,6 +1031,12 @@ async function handleAuthorizationCodeGrant(
   const expectedChallenge = codeChallengeForVerifier(verifier);
   if (!safeEqual(expectedChallenge, row.codeChallenge)) {
     return oauthError("invalid_grant", "PKCE verification failed");
+  }
+  const membership = await grantOrgMembership(event, row);
+  if (membership === "unavailable") return membershipUnavailableError();
+  if (membership === "not-member") {
+    await consumeOAuthCode(code);
+    return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
   }
   const consumed = await consumeOAuthCode(code);
   if (!consumed) return oauthError("invalid_grant", "Invalid or expired code");
@@ -1031,6 +1075,12 @@ async function handleRefreshTokenGrant(
       "invalid_grant",
       "Refresh token belongs to another client",
     );
+  }
+  const membership = await grantOrgMembership(event, existing);
+  if (membership === "unavailable") return membershipUnavailableError();
+  if (membership === "not-member") {
+    await revokeOAuthRefreshToken(refreshToken);
+    return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
   }
   await touchOAuthRefreshToken(refreshToken).catch(() => undefined);
   const issuer = getMcpOAuthIssuer(event);

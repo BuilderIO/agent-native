@@ -195,6 +195,22 @@ vi.mock("./oauth-store.js", () => ({
   }),
 }));
 
+// The real membership check, with a switch to force its answer.
+const membershipOverride = vi.hoisted(() => ({
+  answer: null as null | "not-member" | "unavailable",
+}));
+vi.mock("./credential-membership.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./credential-membership.js")>();
+  return {
+    ...actual,
+    checkCredentialOrgMembership: async (
+      input: Parameters<typeof actual.checkCredentialOrgMembership>[0],
+    ) =>
+      membershipOverride.answer ?? actual.checkCredentialOrgMembership(input),
+  };
+});
+
 const { handleMcpRequest } = await import("./server.js");
 
 interface MakeEventOpts {
@@ -4367,6 +4383,45 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect((res as any).message).toContain(
       "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+  });
+
+  it("answers 503 without an auth challenge when the token's org membership cannot be checked", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgId: "org_123",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+    const request = () =>
+      makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 11, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+    try {
+      membershipOverride.answer = "unavailable";
+      const unavailable = request();
+      const res = await handleMcpRequest(unavailable, config as any);
+      expect(unavailable._status).toBe(503);
+      expect(
+        unavailable._responseHeaders?.["www-authenticate"],
+      ).toBeUndefined();
+      expect(unavailable._responseHeaders?.["retry-after"]).toBe("5");
+      expect(res).toMatchObject({ error: "Service Unavailable" });
+
+      membershipOverride.answer = "not-member";
+      const removed = request();
+      await handleMcpRequest(removed, config as any);
+      expect(removed._status).toBe(401);
+      expect(removed._responseHeaders?.["www-authenticate"]).toBeTruthy();
+    } finally {
+      membershipOverride.answer = null;
+      delete process.env.BETTER_AUTH_SECRET;
+    }
   });
 
   it("preserves the legacy MCP resource in its OAuth challenge", async () => {

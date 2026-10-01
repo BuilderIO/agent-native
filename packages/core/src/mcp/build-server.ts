@@ -2498,28 +2498,81 @@ type ConnectTokenOrgResolution =
   | { status: "claimed"; orgId: string | null }
   | { status: "found"; orgId: string | null }
   | { status: "missing" }
+  | { status: "unclaimed" }
   | { status: "unavailable" };
 
+/**
+ * `connectJti` is set only for connect tokens. Any other token without an
+ * `org_id` claim is `unclaimed`, and its org is resolved later from
+ * `org_domain` or the caller's email.
+ */
 async function resolveConnectTokenOrgId(
-  jti: string | undefined,
+  connectJti: string | undefined,
   claimedOrgId: string | null | undefined,
 ): Promise<ConnectTokenOrgResolution> {
   if (claimedOrgId !== undefined) {
     return { status: "claimed", orgId: claimedOrgId };
   }
-  if (!jti) return { status: "missing" };
+  if (!connectJti) return { status: "unclaimed" };
   const { lookupConnectTokenOrg } = await import("./connect-store.js");
-  return lookupConnectTokenOrg(jti);
+  return lookupConnectTokenOrg(connectJti);
 }
 
 function orgIdFromConnectTokenResolution(
   resolution: ConnectTokenOrgResolution,
 ): string | null | undefined {
-  if (resolution.status === "claimed") return resolution.orgId;
-  if (resolution.status === "found") {
+  if (resolution.status === "claimed" || resolution.status === "found") {
     return resolution.orgId;
   }
+  // A connect token with no row here was not issued for any org this app
+  // knows. Its `org_domain` claim must not grant that domain's org, so it
+  // runs Personal.
+  if (resolution.status === "missing") return null;
   return undefined;
+}
+
+export type VerifyAuthResult = {
+  authed: boolean;
+  identity?: MCPCallerIdentity;
+  fullSurface?: boolean;
+  fullCatalog?: boolean;
+  /**
+   * The token verified, but its organization membership could not be checked
+   * (database or identity-authority error). Answer with a retryable error, not
+   * an auth challenge: signing in again would not help.
+   */
+  unavailable?: true;
+};
+
+/**
+ * Credentials this app issues (MCP OAuth access tokens and connect tokens)
+ * carry the organization chosen when they were issued: the signed `org_id`
+ * claim, or the stored org of a connect token. Membership can end after
+ * issuance, so that org is admitted only while the subject is still a member
+ * here. The action-route bearer path reuses verifyAuth and gets the same
+ * check.
+ *
+ * Cross-app A2A JWTs, first-party MCP tokens included, are not checked: their
+ * `org_id`, like `org_domain`, is the signing app's assertion, and the caller
+ * may have no membership row in this app's database.
+ */
+async function admitIssuedCredential(
+  result: VerifyAuthResult & { identity: MCPCallerIdentity },
+  requestOrigin: string | undefined,
+): Promise<VerifyAuthResult> {
+  const orgId = result.identity.orgId;
+  if (typeof orgId !== "string" || !orgId) return result;
+  const { checkCredentialOrgMembership } =
+    await import("./credential-membership.js");
+  const membership = await checkCredentialOrgMembership({
+    orgId,
+    email: result.identity.userEmail,
+    requestOrigin,
+  });
+  if (membership === "member") return result;
+  return membership === "unavailable"
+    ? { authed: false, unavailable: true }
+    : { authed: false };
 }
 
 /**
@@ -2543,17 +2596,20 @@ function orgIdFromConnectTokenResolution(
  * is consulted ONLY on the static-token / dev-open path (never to influence
  * verified JWT identity), so the install flow runs tools as the configured
  * owner instead of an unscoped anonymous caller.
+ *
+ * A credential this app issued that names an organization is admitted only
+ * while its subject is still a member (see `admitIssuedCredential`).
  */
 export async function verifyAuth(
   authHeader: string | undefined,
   ownerEmailHeader?: string,
-  options: { allowDevOpen?: boolean; resourceUrl?: string | string[] } = {},
-): Promise<{
-  authed: boolean;
-  identity?: MCPCallerIdentity;
-  fullSurface?: boolean;
-  fullCatalog?: boolean;
-}> {
+  options: {
+    allowDevOpen?: boolean;
+    resourceUrl?: string | string[];
+    /** This app's public origin; federated orgs need it for the membership check. */
+    requestOrigin?: string;
+  } = {},
+): Promise<VerifyAuthResult> {
   const accessTokens = getAccessTokens();
   const hasA2ASecret = !!process.env.A2A_SECRET?.trim();
   const token = getBearerToken(authHeader);
@@ -2579,18 +2635,21 @@ export async function verifyAuth(
         return { authed: false };
       }
       const orgId = orgIdFromConnectTokenResolution(orgResolution);
-      return {
-        authed: true,
-        identity: {
-          userEmail: oauthIdentity.userEmail,
-          ...(orgId !== undefined ? { orgId } : {}),
-          orgDomain: oauthIdentity.orgDomain,
-          oauthScopes: oauthIdentity.scopes,
-          oauthClientId: oauthIdentity.clientId,
+      return admitIssuedCredential(
+        {
+          authed: true,
+          identity: {
+            userEmail: oauthIdentity.userEmail,
+            ...(orgId !== undefined ? { orgId } : {}),
+            orgDomain: oauthIdentity.orgDomain,
+            oauthScopes: oauthIdentity.scopes,
+            oauthClientId: oauthIdentity.clientId,
+          },
+          fullSurface: true,
+          fullCatalog: oauthIdentity.catalogScope === "full",
         },
-        fullSurface: true,
-        fullCatalog: oauthIdentity.catalogScope === "full",
-      };
+        options.requestOrigin,
+      );
     }
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {
@@ -2638,8 +2697,8 @@ export async function verifyAuth(
       return { authed: false };
     }
     const orgId = orgIdFromConnectTokenResolution(orgResolution);
-
-    return {
+    const firstPartyMcp = payload.agent_native_first_party_mcp === true;
+    const verified = {
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
@@ -2648,13 +2707,16 @@ export async function verifyAuth(
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
             : undefined,
-        ...(payload.agent_native_first_party_mcp === true
-          ? { firstPartyMcp: true }
-          : {}),
+        ...(firstPartyMcp ? { firstPartyMcp: true } : {}),
       },
       fullSurface: true,
       fullCatalog: payload.catalog_scope === "full",
     };
+    // First-party MCP tokens share the connect scope but are minted by a
+    // sibling app per call, so they are cross-app A2A tokens.
+    return tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp
+      ? admitIssuedCredential(verified, options.requestOrigin)
+      : verified;
   }
 
   if (accessTokens.length === 0 && !hasA2ASecret) {

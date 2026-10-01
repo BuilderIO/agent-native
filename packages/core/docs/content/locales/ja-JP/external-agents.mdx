@@ -313,7 +313,7 @@ claude mcp add --transport http agent-native \
 https://dispatch.agent-native.com/mcp
 ```
 
-OAuth フローは、リフレッシュ トークン ローテーションを伴う認証コード + PKCE です。アクセス トークンは、正確な MCP リソース URL にオーディエンス バインドされ、署名されたユーザー/組織 ID を保持するため、ツール呼び出し、`resources/read`、および MCP アプリ iframe で開始された `tools/call` はすべて、既存の接続ミント JWT パスと同じ `runWithRequestContext` テナント スコープを通じて実行されます。 iframe は生の OAuth トークンを受信しません。ホストは、認証された MCP 接続を通じて通話を仲介します。
+OAuth フローは、リフレッシュ トークンを伴う認証コード + PKCE です。リフレッシュ トークンはローテーションされません。アクセス トークンは、正確な MCP リソース URL にオーディエンス バインドされ、署名されたユーザー/組織 ID を保持するため、ツール呼び出し、`resources/read`、および MCP アプリ iframe で開始された `tools/call` はすべて、既存の接続ミント JWT パスと同じ `runWithRequestContext` テナント スコープを通じて実行されます。 iframe は生の OAuth トークンを受信しません。ホストは、認証された MCP 接続を通じて通話を仲介します。
 
 現在のスコープは次のとおりです:
 

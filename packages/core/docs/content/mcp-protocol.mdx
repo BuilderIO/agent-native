@@ -28,7 +28,7 @@ Key concepts:
 - **Same actions** — the exact same action registry that powers agent chat and A2A
 - **`ask-agent` tool** — a meta-tool that delegates to the full agent loop for complex tasks
 - **MCP Apps** — actions can advertise interactive UI resources through the official `io.modelcontextprotocol/ui` extension
-- **Standard remote MCP OAuth** — OAuth 2.1 discovery, dynamic client registration, authorization-code + PKCE, refresh-token rotation
+- **Standard remote MCP OAuth** — OAuth 2.1 discovery, dynamic client registration, authorization-code + PKCE, refresh tokens
 - **Bearer auth fallback** — uses `ACCESS_TOKEN`, `ACCESS_TOKENS`, or connect-minted JWTs for clients that cannot run OAuth
 
 ## Fetch-first discovery {#fetch-first-discovery}
@@ -380,7 +380,7 @@ Access tokens are signed JWTs whose audience is the exact MCP resource URL. The 
 | `mcp:write` | mutating actions and `ask-agent`            |
 | `mcp:apps`  | MCP Apps resources (`ui://` HTML resources) |
 
-Refresh tokens are stored only as hashes and are rotated on every refresh. `npx @agent-native/core@latest connect` writes this URL-only OAuth entry for Claude Code clients by default; keep the Connect page, `npx @agent-native/core@latest connect --token <token>`, and static bearer config for local stdio proxying, older clients, and emergency/debug flows.
+Refresh tokens are stored only as hashes and are not rotated: a refresh returns the same token and resets its expiry to 365 days out. Every request and every refresh re-checks that the user still belongs to the token's organization, so a removed member loses MCP access on their next request. `npx @agent-native/core@latest connect` writes this URL-only OAuth entry for Claude Code clients by default; keep the Connect page, `npx @agent-native/core@latest connect --token <token>`, and static bearer config for local stdio proxying, older clients, and emergency/debug flows.
 
 ## Custom MCP setup {#custom-setup}
 

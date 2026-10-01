@@ -312,7 +312,7 @@ claude mcp add --transport http agent-native \
 https://dispatch.agent-native.com/mcp
 ```
 
-OAuth 흐름은 새로 고침 토큰 순환이 포함된 인증 코드 + PKCE입니다. 액세스 토큰은 정확한 MCP 리소스 URL에 대상 그룹으로 묶여 있으며 서명된 사용자/조직 ID를 전달하므로 도구 호출, `resources/read` 및 MCP 앱 iframe 시작 `tools/call`는 모두 기존 연결 생성 JWT 경로와 동일한 `runWithRequestContext` 테넌트 범위를 통해 실행됩니다. iframe은 원시 OAuth 토큰을 수신하지 않습니다. 호스트는 인증된 MCP 연결을 통해 통화를 중재합니다.
+OAuth 흐름은 새로 고침 토큰이 포함된 인증 코드 + PKCE이며, 새로 고침 토큰은 교체되지 않습니다. 액세스 토큰은 정확한 MCP 리소스 URL에 대상 그룹으로 묶여 있으며 서명된 사용자/조직 ID를 전달하므로 도구 호출, `resources/read` 및 MCP 앱 iframe 시작 `tools/call`는 모두 기존 연결 생성 JWT 경로와 동일한 `runWithRequestContext` 테넌트 범위를 통해 실행됩니다. iframe은 원시 OAuth 토큰을 수신하지 않습니다. 호스트는 인증된 MCP 연결을 통해 통화를 중재합니다.
 
 현재 범위는 다음과 같습니다:
 

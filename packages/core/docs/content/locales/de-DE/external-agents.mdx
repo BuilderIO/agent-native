@@ -317,7 +317,7 @@ Dies ist derselbe Nur-URL-Eintrag, den `npx @agent-native/core@latest connect ht
 https://dispatch.agent-native.com/mcp
 ```
 
-Der OAuth-Fluss besteht aus Autorisierungscode + PKCE mit Aktualisierungstokenrotation. Zugriffstoken sind an die genaue MCP-Ressource URL zielgruppengebunden und tragen die signierte Benutzer-/Organisationsidentität, sodass Toolaufrufe, `resources/read` und MCP App-Iframe-initiiertes `tools/call` alle denselben `runWithRequestContext`-Mandantenbereich durchlaufen wie der vorhandene Connect-Minted-JWT-Pfad. Der Iframe empfängt niemals rohe OAuth-Token; Der Host vermittelt Anrufe über die authentifizierte MCP-Verbindung.
+Der OAuth-Fluss besteht aus Autorisierungscode + PKCE mit Aktualisierungstoken, die nicht rotiert werden. Zugriffstoken sind an die genaue MCP-Ressource URL zielgruppengebunden und tragen die signierte Benutzer-/Organisationsidentität, sodass Toolaufrufe, `resources/read` und MCP App-Iframe-initiiertes `tools/call` alle denselben `runWithRequestContext`-Mandantenbereich durchlaufen wie der vorhandene Connect-Minted-JWT-Pfad. Der Iframe empfängt niemals rohe OAuth-Token; Der Host vermittelt Anrufe über die authentifizierte MCP-Verbindung.
 
 Aktuelle Bereiche sind:
 

@@ -7,6 +7,10 @@ vi.mock("../audit/store.js", () => ({
 }));
 
 import { offboardMember } from "./offboard.js";
+import {
+  __resetAppIdentityColumnsForTests,
+  registerIdentityColumns,
+} from "./rekey.js";
 
 function dbExec(db: Awaited<ReturnType<typeof createTestPglite>>) {
   const wrap = (client: {
@@ -42,6 +46,7 @@ describe("offboardMember", () => {
   afterEach(async () => {
     await pglite?.close();
     pglite = undefined;
+    __resetAppIdentityColumnsForTests();
   });
 
   it("transfers owned rows, removes access, revokes sessions, and audits", async () => {
@@ -300,5 +305,156 @@ describe("offboardMember", () => {
       "chat_thread_shares.principal_id": 1,
       "oauth_tokens.owner": 1,
     });
+  }, 30_000);
+
+  it("revokes or deletes the member's MCP credentials instead of handing them to the successor", async () => {
+    pglite = await createTestPglite();
+    await pglite.exec(`
+      CREATE TABLE org_members (
+        id TEXT PRIMARY KEY, org_id TEXT, email TEXT,
+        federation_removal_pending_at BIGINT
+      );
+      CREATE TABLE agent_audit_log (
+        id TEXT PRIMARY KEY, created_at BIGINT, action TEXT, caller TEXT,
+        actor_kind TEXT, actor_email TEXT, org_id TEXT, target_type TEXT,
+        target_id TEXT, status TEXT, summary TEXT, input TEXT,
+        owner_email TEXT, visibility TEXT
+      );
+      CREATE TABLE mcp_oauth_refresh_tokens (
+        id TEXT PRIMARY KEY, owner_email TEXT, org_id TEXT, revoked_at BIGINT
+      );
+      CREATE TABLE mcp_oauth_codes (id TEXT PRIMARY KEY, owner_email TEXT, org_id TEXT);
+      CREATE TABLE mcp_device_codes (id TEXT PRIMARY KEY, owner_email TEXT, org_id TEXT);
+      CREATE TABLE mcp_connect_tokens (
+        id TEXT PRIMARY KEY, owner_email TEXT, org_id TEXT, kind TEXT,
+        created_by TEXT, revoked_at BIGINT
+      );
+      INSERT INTO org_members VALUES
+        ('member-1', 'org-1', 'old@example.test', NULL),
+        ('member-2', 'org-1', 'new@example.test', NULL);
+      INSERT INTO mcp_oauth_refresh_tokens VALUES
+        ('refresh-org-1', 'old@example.test', 'org-1', NULL),
+        ('refresh-org-2', 'old@example.test', 'org-2', NULL),
+        ('refresh-personal', 'old@example.test', NULL, NULL),
+        ('refresh-other-user', 'other@example.test', 'org-1', NULL);
+      INSERT INTO mcp_oauth_codes VALUES
+        ('code-org-1', 'old@example.test', 'org-1'),
+        ('code-org-2', 'old@example.test', 'org-2');
+      INSERT INTO mcp_device_codes VALUES
+        ('device-org-1', 'old@example.test', 'org-1'),
+        ('device-org-2', 'old@example.test', 'org-2');
+      INSERT INTO mcp_connect_tokens VALUES
+        ('connect-org-1', 'old@example.test', 'org-1', 'personal', NULL, NULL),
+        ('connect-already-revoked', 'old@example.test', 'org-1', 'personal', NULL, 42),
+        ('connect-org-2', 'old@example.test', 'org-2', 'personal', NULL, NULL),
+        ('service-token', 'svc-ci@service.org-1', 'org-1', 'service', 'old@example.test', NULL);
+    `);
+
+    const result = await offboardMember(dbExec(pglite), "old@example.test", {
+      transferTo: "new@example.test",
+      orgId: "org-1",
+    });
+
+    expect(result.transferredRows).toBe(0);
+    const rows = async (table: string) =>
+      (await pglite!
+        .prepare(
+          `SELECT id, owner_email, ${
+            table.includes("tokens") ? "revoked_at" : "NULL AS revoked_at"
+          } FROM ${table} ORDER BY id`,
+        )
+        .all()) as Array<{
+        id: string;
+        owner_email: string;
+        revoked_at: number | null;
+      }>;
+    const revoked = (row: { revoked_at: number | null } | undefined) =>
+      Number(row?.revoked_at) > 0;
+
+    const refresh = await rows("mcp_oauth_refresh_tokens");
+    expect(refresh.map((row) => row.owner_email)).not.toContain(
+      "new@example.test",
+    );
+    expect(
+      Object.fromEntries(refresh.map((row) => [row.id, revoked(row)])),
+    ).toEqual({
+      "refresh-org-1": true,
+      "refresh-org-2": false,
+      "refresh-other-user": false,
+      "refresh-personal": false,
+    });
+
+    // Connect tokens are revoked, never deleted: a missing row reads as live.
+    const connect = await rows("mcp_connect_tokens");
+    expect(connect.map((row) => row.owner_email)).not.toContain(
+      "new@example.test",
+    );
+    expect(connect.find((row) => row.id === "connect-org-1")).toSatisfy(
+      revoked,
+    );
+    expect(
+      Number(
+        connect.find((row) => row.id === "connect-already-revoked")?.revoked_at,
+      ),
+    ).toBe(42);
+    expect(connect.find((row) => row.id === "connect-org-2")).toMatchObject({
+      revoked_at: null,
+    });
+    // An org service token outlives the member who created it.
+    expect(
+      await pglite
+        .prepare(
+          "SELECT owner_email, created_by, revoked_at FROM mcp_connect_tokens WHERE id = 'service-token'",
+        )
+        .get(),
+    ).toEqual({
+      owner_email: "svc-ci@service.org-1",
+      created_by: "old@example.test",
+      revoked_at: null,
+    });
+
+    expect((await rows("mcp_oauth_codes")).map((row) => row.id)).toEqual([
+      "code-org-2",
+    ]);
+    expect((await rows("mcp_device_codes")).map((row) => row.id)).toEqual([
+      "device-org-2",
+    ]);
+  }, 30_000);
+
+  it("refuses a revoke policy on a table that cannot record revocation, before changing the roster", async () => {
+    registerIdentityColumns([
+      {
+        table: "app_api_keys",
+        column: "owner_email",
+        emailChange: "rekey",
+        offboard: "revoke",
+        reason: "Bearer keys act as their owner.",
+      },
+    ]);
+    pglite = await createTestPglite();
+    await pglite.exec(`
+      CREATE TABLE org_members (
+        id TEXT PRIMARY KEY, org_id TEXT, email TEXT,
+        federation_removal_pending_at BIGINT
+      );
+      CREATE TABLE app_api_keys (id TEXT PRIMARY KEY, owner_email TEXT, org_id TEXT);
+      INSERT INTO org_members VALUES
+        ('member-1', 'org-1', 'old@example.test', NULL),
+        ('member-2', 'org-1', 'new@example.test', NULL);
+      INSERT INTO app_api_keys VALUES ('key-1', 'old@example.test', 'org-1');
+    `);
+
+    await expect(
+      offboardMember(dbExec(pglite), "old@example.test", {
+        transferTo: "new@example.test",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow("app_api_keys.revoked_at is missing");
+    expect(
+      await pglite.prepare("SELECT email FROM org_members ORDER BY id").all(),
+    ).toEqual([{ email: "old@example.test" }, { email: "new@example.test" }]);
+    expect(
+      await pglite.prepare("SELECT owner_email FROM app_api_keys").get(),
+    ).toEqual({ owner_email: "old@example.test" });
   }, 30_000);
 });

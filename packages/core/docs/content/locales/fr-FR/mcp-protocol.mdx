@@ -27,7 +27,7 @@ Concepts clés :
 - **Même actions** : exactement le même registre d'actions qui alimente le chat des agents et A2A
 - **Outil `ask-agent`** — un méta-outil qui délègue à la boucle d'agent complète les tâches complexes
 - **Applications MCP** — actions peut annoncer des ressources UI interactives via l'extension officielle `io.modelcontextprotocol/ui`
-- **MCP à distance standard OAuth** — Découverte OAuth 2.1, enregistrement client dynamique, code d'autorisation + PKCE, rotation du jeton d'actualisation
+- **MCP à distance standard OAuth** — Découverte OAuth 2.1, enregistrement client dynamique, code d'autorisation + PKCE, jetons d'actualisation
 - **Bearer auth fallback** : utilise `ACCESS_TOKEN`, `ACCESS_TOKENS` ou des JWT créés par connexion pour les clients qui ne peuvent pas exécuter OAuth
 
 <Diagram id="doc-block-ut4q1s" title="Votre application en tant que serveur MCP" summary={"Les hôtes externes se connectent via Streamable HTTP. Chaque action est un outil ; Ask-agent délègue à la boucle complète de l'agent."}>
@@ -345,7 +345,7 @@ Les jetons d'accès sont des JWT signés dont l'audience est exactement la resso
 | `mcp:write` | mutation de actions et `ask-agent`                      |
 | `mcp:apps`  | Ressources d'applications MCP (ressources `ui://` HTML) |
 
-Les jetons d'actualisation sont stockés uniquement sous forme de hachages et font l'objet d'une rotation à chaque actualisation. `npx @agent-native/core@latest connect` écrit par défaut cette entrée OAuth uniquement URL pour les clients de code Claude ; conservez la page Connect, `npx @agent-native/core@latest connect --token <token>` et la configuration du support statique pour le proxy stdio local, les clients plus anciens et les flux d'urgence/débogage.
+Les jetons d'actualisation sont stockés uniquement sous forme de hachages et ne font pas l'objet d'une rotation : une actualisation renvoie le même jeton et repousse son expiration à 365 jours à partir de ce moment. Chaque requête et chaque actualisation vérifient à nouveau que l'utilisateur appartient toujours à l'organisation du jeton ; un membre retiré perd donc l'accès MCP dès sa requête suivante. `npx @agent-native/core@latest connect` écrit par défaut cette entrée OAuth uniquement URL pour les clients de code Claude ; conservez la page Connect, `npx @agent-native/core@latest connect --token <token>` et la configuration du support statique pour le proxy stdio local, les clients plus anciens et les flux d'urgence/débogage.
 
 ## Configuration MCP personnalisée {#custom-setup}
 

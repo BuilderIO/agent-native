@@ -317,7 +317,7 @@ Il s'agit de la même entrée réservée uniquement à URL que `npx @agent-nativ
 https://dispatch.agent-native.com/mcp
 ```
 
-Le flux OAuth est le code d'autorisation + PKCE avec rotation du jeton d'actualisation. Les jetons d'accès sont liés au public à la ressource MCP exacte URL et portent l'identité signée de l'utilisateur/de l'organisation. Ainsi, les appels d'outils, `resources/read` et MCP initiés par iframe de l'application `tools/call` s'exécutent tous via la même portée de locataire `runWithRequestContext` que le chemin JWT existant créé par la connexion. L'iframe ne reçoit jamais de jetons OAuth bruts ; l'hôte négocie les appels via la connexion authentifiée MCP.
+Le flux OAuth est le code d'autorisation + PKCE avec des jetons d'actualisation, qui ne font pas l'objet d'une rotation. Les jetons d'accès sont liés au public à la ressource MCP exacte URL et portent l'identité signée de l'utilisateur/de l'organisation. Ainsi, les appels d'outils, `resources/read` et MCP initiés par iframe de l'application `tools/call` s'exécutent tous via la même portée de locataire `runWithRequestContext` que le chemin JWT existant créé par la connexion. L'iframe ne reçoit jamais de jetons OAuth bruts ; l'hôte négocie les appels via la connexion authentifiée MCP.
 
 Les champs d'application actuels sont les suivants :
 

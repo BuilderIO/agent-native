@@ -314,7 +314,7 @@ Esta é a mesma entrada somente URL que `npx @agent-native/core@latest connect h
 https://dispatch.agent-native.com/mcp
 ```
 
-O fluxo OAuth é código de autorização + PKCE com rotação de token de atualização. Os tokens de acesso são vinculados ao público ao recurso MCP exato URL e carregam a identidade assinada do usuário/organização, portanto, as chamadas de ferramenta, `resources/read` e `tools/call` iniciado por iframe do aplicativo MCP são executados por meio do mesmo escopo de locatário `runWithRequestContext` que o caminho JWT criado por conexão existente. O iframe nunca recebe tokens OAuth brutos; o host medeia as chamadas por meio da conexão MCP autenticada.
+O fluxo OAuth é código de autorização + PKCE com tokens de atualização, que não são alternados. Os tokens de acesso são vinculados ao público ao recurso MCP exato URL e carregam a identidade assinada do usuário/organização, portanto, as chamadas de ferramenta, `resources/read` e `tools/call` iniciado por iframe do aplicativo MCP são executados por meio do mesmo escopo de locatário `runWithRequestContext` que o caminho JWT criado por conexão existente. O iframe nunca recebe tokens OAuth brutos; o host medeia as chamadas por meio da conexão MCP autenticada.
 
 Os escopos atuais são:
 

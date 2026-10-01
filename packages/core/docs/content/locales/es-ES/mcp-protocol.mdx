@@ -27,7 +27,7 @@ Conceptos clave:
 - **Mismo actions**: exactamente el mismo registro de acciones que impulsa el chat del agente y A2A
 - **Herramienta `ask-agent`**: una metaherramienta que delega al ciclo completo del agente para tareas complejas
 - **Aplicaciones MCP**: actions puede anunciar recursos interactivos de UI a través de la extensión oficial `io.modelcontextprotocol/ui`
-- **MCP remoto estándar OAuth**: descubrimiento de OAuth 2.1, registro dinámico de cliente, código de autorización + PKCE, rotación de token de actualización
+- **MCP remoto estándar OAuth**: descubrimiento de OAuth 2.1, registro dinámico de cliente, código de autorización + PKCE, tokens de actualización
 - **Reserva de autenticación de portador**: utiliza `ACCESS_TOKEN`, `ACCESS_TOKENS` o JWT conectados para clientes que no pueden ejecutar OAuth
 
 <Diagram id="doc-block-1t2sjhd" title={"Tu aplicación como servidor MCP"} summary={"Los hosts externos se conectan a través de Streamable HTTP. Cada acción es una herramienta; Ask-Agent delega al ciclo completo del agente."}>
@@ -354,7 +354,7 @@ Los tokens de acceso son JWT firmados cuya audiencia es exactamente el recurso M
 | `mcp:write` | mutando actions y `ask-agent`                        |
 | `mcp:apps`  | Recursos de aplicaciones MCP (recursos `ui://` HTML) |
 
-Los tokens de actualización se almacenan solo como hashes y se rotan en cada actualización. `npx @agent-native/core@latest connect` escribe esta entrada OAuth exclusiva de URL para clientes de código Claude de forma predeterminada; mantenga la página Conectar, `npx @agent-native/core@latest connect --token <token>` y la configuración del portador estático para el proxy stdio local, clientes antiguos y flujos de emergencia/depuración.
+Los tokens de actualización se almacenan solo como hashes y no se rotan: una actualización devuelve el mismo token y fija su vencimiento en 365 días a partir de ese momento. Cada solicitud y cada actualización vuelven a comprobar que el usuario sigue perteneciendo a la organización del token, por lo que un miembro eliminado pierde el acceso MCP en su siguiente solicitud. `npx @agent-native/core@latest connect` escribe esta entrada OAuth exclusiva de URL para clientes de código Claude de forma predeterminada; mantenga la página Conectar, `npx @agent-native/core@latest connect --token <token>` y la configuración del portador estático para el proxy stdio local, clientes antiguos y flujos de emergencia/depuración.
 
 ## Configuración personalizada de MCP {#custom-setup}
 

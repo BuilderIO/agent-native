@@ -27,7 +27,7 @@ MCP は、AI ツールを外部機能に接続するための標準プロトコ�
 - **同じ actions** — エージェント チャットと A2A を強化するまったく同じアクション レジストリ
 - **`ask-agent` ツール** — 複雑なタスクをエージェント ループ全体に委任するメタツール
 - **MCP アプリ** — actions は、公式 `io.modelcontextprotocol/ui` 拡張機能を通じてインタラクティブな UI リソースをアドバタイズできます
-- **標準リモート MCP OAuth** — OAuth 2.1 検出、動的クライアント登録、認可コード + PKCE、リフレッシュ トークン ローテーション
+- **標準リモート MCP OAuth** — OAuth 2.1 検出、動的クライアント登録、認可コード + PKCE、リフレッシュ トークン
 - **ベアラー認証フォールバック** — OAuth を実行できないクライアントには、`ACCESS_TOKEN`、`ACCESS_TOKENS`、または接続ミント JWT を使用します
 
 <Diagram id="doc-block-wiv0uw" title={"MCP サーバーとしてのアプリ"} summary={"外部ホストは Streamable HTTP 経由で接続します。それぞれのアクションは 1 つのツールです。 ask-agent は完全なエージェント ループに委任します。"}>
@@ -345,7 +345,7 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 | `mcp:write` | actions と `ask-agent` を変更します         |
 | `mcp:apps`  | MCP アプリ リソース (`ui://` HTML リソース) |
 
-リフレッシュ トークンはハッシュとしてのみ保存され、リフレッシュのたびにローテーションされます。 `npx @agent-native/core@latest connect` は、デフォルトで、Claude コード クライアントに対してこの URL 専用の OAuth エントリを書き込みます。接続ページ、`npx @agent-native/core@latest connect --token <token>`、ローカル stdio プロキシ、古いクライアント、緊急/デバッグ フロー用の静的ベアラー設定を保持します。
+リフレッシュ トークンはハッシュとしてのみ保存され、ローテーションされません。リフレッシュすると同じトークンが返され、有効期限はその時点から 365 日後に更新されます。リクエストとリフレッシュのたびに、ユーザーがトークンの組織にまだ所属しているかを再確認するため、削除されたメンバーは次のリクエストで MCP へのアクセスを失います。 `npx @agent-native/core@latest connect` は、デフォルトで、Claude コード クライアントに対してこの URL 専用の OAuth エントリを書き込みます。接続ページ、`npx @agent-native/core@latest connect --token <token>`、ローカル stdio プロキシ、古いクライアント、緊急/デバッグ フロー用の静的ベアラー設定を保持します。
 
 ## カスタム MCP セットアップ {#custom-setup}
 

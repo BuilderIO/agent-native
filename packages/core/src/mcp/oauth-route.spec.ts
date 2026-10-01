@@ -58,6 +58,12 @@ vi.mock("../org/context.js", () => ({
     getActiveOrgSettingMock(...args),
 }));
 
+const checkCredentialOrgMembershipMock = vi.fn(async () => "member");
+vi.mock("./credential-membership.js", () => ({
+  checkCredentialOrgMembership: (...args: any[]) =>
+    checkCredentialOrgMembershipMock(...args),
+}));
+
 const clients = new Map<string, any>();
 const codes = new Map<string, any>();
 const refreshRows = new Map<string, any>();
@@ -130,6 +136,10 @@ vi.mock("./oauth-store.js", () => ({
       row.lastUsedAt = now;
       row.expiresAt = now + 365 * 24 * 60 * 60_000;
     }
+  }),
+  revokeOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
+    const row = refreshRows.get(refreshToken);
+    if (row && !row.revokedAt) row.revokedAt = Date.now();
   }),
   rotateOAuthRefreshToken: vi.fn(
     async ({ oldRefreshToken, newRefreshToken }) => {
@@ -1939,5 +1949,171 @@ describe("MCP OAuth route", () => {
     const rowAfter = refreshRows.get(firstToken.refresh_token);
     expect(rowAfter.expiresAt).toBeGreaterThan(expiryBefore);
     expect(rowAfter.lastUsedAt).toBe(laterTime);
+  });
+});
+
+describe("MCP OAuth grants for a user who left the organization", () => {
+  const verifier = "m".repeat(50);
+
+  async function authorizedCode(): Promise<{ clientId: string; code: string }> {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: { redirect_uris: ["http://localhost:5555/callback"] } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const authorizeParams = {
+      response_type: "code",
+      client_id: client.client_id,
+      redirect_uri: "http://localhost:5555/callback",
+      resource: "https://mail.agent-native.com/mcp",
+      code_challenge: challenge(verifier),
+      code_challenge_method: "S256",
+    };
+    const consent = await handleMcpOAuth(
+      event({ query: authorizeParams }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          ...authorizeParams,
+          decision: "approve",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    return { clientId: client.client_id, code };
+  }
+
+  function exchange(clientId: string, code: string) {
+    return handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          client_id: clientId,
+          redirect_uri: "http://localhost:5555/callback",
+          code,
+          code_verifier: verifier,
+        },
+      }),
+      "/token",
+    );
+  }
+
+  function refresh(clientId: string, refreshToken: string) {
+    return handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "refresh_token",
+          client_id: clientId,
+          refresh_token: refreshToken,
+        },
+      }),
+      "/token",
+    );
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    clients.clear();
+    codes.clear();
+    refreshRows.clear();
+    vi.clearAllMocks();
+    checkCredentialOrgMembershipMock.mockResolvedValue("member");
+    process.env.A2A_SECRET = "test-oauth-secret";
+    getSessionMock.mockResolvedValue({
+      email: "steve@example.com",
+      orgId: "org_123",
+    });
+    getActiveOrgSettingMock.mockResolvedValue({ orgId: "org_123" });
+    getOrgContextMock.mockResolvedValue({ orgId: null });
+    listOrgMembershipsForEventMock.mockResolvedValue([
+      {
+        orgId: "org_123",
+        orgName: "Builder",
+        allowedDomain: "builder.io",
+        role: "owner",
+        identityAuthority: null,
+        identityId: null,
+      },
+    ]);
+  });
+
+  it("checks the grant's org and user at code exchange and refresh", async () => {
+    const { clientId, code } = await authorizedCode();
+    const issued = await (await exchange(clientId, code)).json();
+    expect((await refresh(clientId, issued.refresh_token)).status).toBe(200);
+    expect(checkCredentialOrgMembershipMock).toHaveBeenCalledTimes(2);
+    for (const [call] of checkCredentialOrgMembershipMock.mock.calls as any[])
+      expect(call).toEqual({
+        orgId: "org_123",
+        email: "steve@example.com",
+        requestOrigin: "https://mail.agent-native.com",
+      });
+  });
+
+  it("refuses a refresh with invalid_grant and revokes the token once the user has left", async () => {
+    const { clientId, code } = await authorizedCode();
+    const issued = await (await exchange(clientId, code)).json();
+    checkCredentialOrgMembershipMock.mockResolvedValue("not-member");
+
+    const res = await refresh(clientId, issued.refresh_token);
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid_grant");
+    expect(refreshRows.get(issued.refresh_token)?.revokedAt).toBeTruthy();
+  });
+
+  it("answers a retryable 503 and leaves the refresh token untouched when membership cannot be checked", async () => {
+    const { clientId, code } = await authorizedCode();
+    const issued = await (await exchange(clientId, code)).json();
+    const before = { ...refreshRows.get(issued.refresh_token) };
+    checkCredentialOrgMembershipMock.mockResolvedValue("unavailable");
+
+    const res = await refresh(clientId, issued.refresh_token);
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("5");
+    expect((await res.json()).error).toBe("temporarily_unavailable");
+    expect(refreshRows.get(issued.refresh_token)).toEqual(before);
+  });
+
+  it("refuses and consumes an authorization code once the user has left", async () => {
+    const { clientId, code } = await authorizedCode();
+    checkCredentialOrgMembershipMock.mockResolvedValue("not-member");
+
+    const res = await exchange(clientId, code);
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid_grant");
+    expect(codes.get(code)?.consumedAt).toBeTruthy();
+    expect(refreshRows.size).toBe(0);
+  });
+
+  it("keeps an authorization code redeemable when membership cannot be checked", async () => {
+    const { clientId, code } = await authorizedCode();
+    checkCredentialOrgMembershipMock.mockResolvedValueOnce("unavailable");
+
+    const unavailable = await exchange(clientId, code);
+    expect(unavailable.status).toBe(503);
+    expect(codes.get(code)?.consumedAt).toBeFalsy();
+    expect(refreshRows.size).toBe(0);
+
+    expect((await exchange(clientId, code)).status).toBe(200);
   });
 });

@@ -27,7 +27,7 @@ Schlüsselkonzepte:
 - **Dasselbe actions** – genau dieselbe Aktionsregistrierung, die den Agenten-Chat und A2A unterstützt
 - **`ask-agent`-Tool** – ein Meta-Tool, das komplexe Aufgaben an die vollständige Agentenschleife delegiert
 - **MCP Apps** – actions kann interaktive UI-Ressourcen über die offizielle `io.modelcontextprotocol/ui`-Erweiterung bewerben
-- **Standard-Remote-MCP OAuth** – OAuth 2.1-Erkennung, dynamische Client-Registrierung, Autorisierungscode + PKCE, Aktualisierungstoken-Rotation
+- **Standard-Remote-MCP OAuth** – OAuth 2.1-Erkennung, dynamische Client-Registrierung, Autorisierungscode + PKCE, Aktualisierungstoken
 - **Bearer-Authentifizierungs-Fallback** – verwendet `ACCESS_TOKEN`, `ACCESS_TOKENS` oder Connect-Minted-JWTs für Clients, die OAuth nicht ausführen können
 
 <Diagram id="doc-block-1qgiacx" title="Ihre App als MCP-Server" summary={"Externe Hosts verbinden sich über Streamable HTTP. Jede Aktion ist ein Werkzeug; ask-agent delegiert an die vollständige Agentenschleife."}>
@@ -345,7 +345,7 @@ Zugriffstoken sind signierte JWTs, deren Zielgruppe genau die MCP-Ressource URL 
 | `mcp:write`     | Mutierung von actions und `ask-agent`         |
 | `mcp:apps`      | MCP Apps-Ressourcen (`ui://` HTML-Ressourcen) |
 
-Aktualisierungstoken werden nur als Hashes gespeichert und bei jeder Aktualisierung rotiert. `npx @agent-native/core@latest connect` schreibt standardmäßig diesen nur für URL gültigen OAuth-Eintrag für Claude-Code-Clients. Behalten Sie die Connect-Seite, `npx @agent-native/core@latest connect --token <token>` und die statische Bearer-Konfiguration für lokales Standard-Proxying, ältere Clients und Notfall-/Debug-Flows bei.
+Aktualisierungstoken werden nur als Hashes gespeichert und nicht rotiert: Eine Aktualisierung gibt dasselbe Token zurück und setzt seinen Ablauf auf 365 Tage ab diesem Zeitpunkt. Jede Anfrage und jede Aktualisierung prüft erneut, ob der Benutzer noch zur Organisation des Tokens gehört, sodass ein entferntes Mitglied den MCP-Zugriff bei seiner nächsten Anfrage verliert. `npx @agent-native/core@latest connect` schreibt standardmäßig diesen nur für URL gültigen OAuth-Eintrag für Claude-Code-Clients. Behalten Sie die Connect-Seite, `npx @agent-native/core@latest connect --token <token>` und die statische Bearer-Konfiguration für lokales Standard-Proxying, ältere Clients und Notfall-/Debug-Flows bei.
 
 ## Benutzerdefiniertes MCP-Setup {#custom-setup}
 

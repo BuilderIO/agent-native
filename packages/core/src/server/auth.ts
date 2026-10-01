@@ -198,6 +198,11 @@ import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import {
+  isCredentialMembershipUnavailable,
+  markCredentialMembershipUnavailable,
+  respondCredentialMembershipUnavailable,
+} from "./credential-membership-unavailable.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import { getSignInBlockingSettingKeys } from "./deploy-settings.js";
 import {
@@ -1144,7 +1149,12 @@ export async function getMcpOAuthBearerSession(
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
+      requestOrigin: getOrigin(event),
     });
+    if (!result.authed && result.unavailable) {
+      markCredentialMembershipUnavailable(event);
+      return null;
+    }
     const identity = result.authed ? result.identity : undefined;
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
@@ -4112,6 +4122,10 @@ function createAuthGuardFn(
         }
       }
       return;
+    }
+
+    if (isCredentialMembershipUnavailable(event)) {
+      return respondCredentialMembershipUnavailable(event);
     }
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {

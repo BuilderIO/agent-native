@@ -44,7 +44,12 @@ export type IdentityColumn = {
 };
 
 export type IdentityEmailChange = "rekey" | "delete" | "retain";
-export type IdentityOffboard = "transfer" | "delete" | "retain";
+/**
+ * `revoke` sets `revoked_at` (epoch milliseconds) on rows not yet revoked. Use
+ * it for credential registries whose readers treat a missing row as "not
+ * revoked", where deleting the row would re-enable the credential.
+ */
+export type IdentityOffboard = "transfer" | "delete" | "revoke" | "retain";
 
 export type IdentityOrgScope =
   | { column: string }
@@ -73,6 +78,12 @@ export type AppIdentityColumn = {
   reason: string;
 };
 
+/**
+ * Framework identity columns. `owner_email` rows transfer to the successor on
+ * offboarding unless the entry says otherwise. Credentials say `delete` or
+ * `revoke`, because a transferred credential lets the removed member act as
+ * the successor. rekey.spec.ts pins that list.
+ */
 export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "user", column: "email" },
   { table: "invitation", column: "email" },
@@ -171,11 +182,16 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "integration_remote_push_notifications", column: "owner_email" },
   { table: "integration_conversation_scopes", column: "owner_email" },
   { table: "integration_usage_budgets", column: "owner_email" },
-  { table: "mcp_device_codes", column: "owner_email" },
-  { table: "mcp_connect_tokens", column: "owner_email" },
+  { table: "mcp_device_codes", column: "owner_email", offboard: "delete" },
+  // A missing connect-token row reads as "not revoked", so revoke, never delete.
+  { table: "mcp_connect_tokens", column: "owner_email", offboard: "revoke" },
   { table: "mcp_connect_tokens", column: "created_by" },
-  { table: "mcp_oauth_codes", column: "owner_email" },
-  { table: "mcp_oauth_refresh_tokens", column: "owner_email" },
+  { table: "mcp_oauth_codes", column: "owner_email", offboard: "delete" },
+  {
+    table: "mcp_oauth_refresh_tokens",
+    column: "owner_email",
+    offboard: "revoke",
+  },
   { table: "notifications", column: "owner", mode: "owner" },
   { table: "progress_runs", column: "owner", mode: "owner" },
   { table: "provider_corpus_jobs", column: "owner_email" },
@@ -307,7 +323,9 @@ export function registerIdentityColumns(
       throw new Error(`Identity column ${key} needs a reason.`);
     if (
       entry.mode === "secret-scope" &&
-      (entry.emailChange === "delete" || entry.offboard === "transfer")
+      (entry.emailChange === "delete" ||
+        entry.offboard === "transfer" ||
+        entry.offboard === "revoke")
     )
       throw new Error(
         `Identity column ${key} is secret-scoped; it can only be rekeyed or retained on email change and deleted or retained on offboard.`,

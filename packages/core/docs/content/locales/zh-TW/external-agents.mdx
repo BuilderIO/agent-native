@@ -309,7 +309,7 @@ claude mcp add --transport http agent-native \
 https://dispatch.agent-native.com/mcp
 ```
 
-OAuth 流程是授權程式碼 + PKCE 和重新整理權杖輪換。存取權杖是受眾綁定到確切的 MCP 資源 URL 並攜帶簽名的使用者/組織身分，因此工具呼叫、`resources/read` 和 MCP 應用程式 iframe 啟動的 `tools/call` 都透過與現有連線鑄造的 JWT 路徑相同的 `runWithRequestContext` 租戶範圍執行。 iframe 從不接收原始 OAuth 權杖；主機透過經過驗證的 MCP 連線來調解呼叫。
+OAuth 流程是授權程式碼 + PKCE 和重新整理權杖，重新整理權杖不會輪換。存取權杖是受眾綁定到確切的 MCP 資源 URL 並攜帶簽名的使用者/組織身分，因此工具呼叫、`resources/read` 和 MCP 應用程式 iframe 啟動的 `tools/call` 都透過與現有連線鑄造的 JWT 路徑相同的 `runWithRequestContext` 租戶範圍執行。 iframe 從不接收原始 OAuth 權杖；主機透過經過驗證的 MCP 連線來調解呼叫。
 
 目前範圍是：
 

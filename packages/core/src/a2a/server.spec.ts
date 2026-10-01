@@ -498,6 +498,31 @@ describe("mountA2A auth", () => {
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
   });
 
+  it("rejects an MCP connect token signed with the shared secret", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const token = await new jose.SignJWT({
+      sub: "alice@example.test",
+      scope: "mcp-connect",
+      org_domain: "example.test",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setJti("connect-jti")
+      .setIssuedAt()
+      .setExpirationTime("365d")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    const response = await handler(event);
+
+    expect(event._status).toBe(401);
+    expect(response).toMatchObject({
+      error: { code: -32001, message: "Invalid or expired A2A token" },
+    });
+    expect(event.context.__a2aVerifiedEmail).toBeUndefined();
+    expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+  });
+
   it("marks a verified audience-bound identity for direct action calls", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.APP_URL = "https://analytics.agent-native.test";
@@ -664,6 +689,32 @@ describe("verifyA2AToken (exported)", () => {
     const result = await verifyA2AToken(token);
 
     expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+  });
+
+  it("rejects MCP connect and MCP OAuth tokens signed with the same secret", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const connectToken = await signToken("shared-global-secret", {
+      sub: "alice@example.test",
+      scope: "mcp-connect",
+      jti: "connect-jti",
+      org_id: "org-example",
+    });
+    const oauthToken = await signToken("shared-global-secret", {
+      typ: "agent-native-mcp-oauth",
+      sub: "alice@example.test",
+      org_id: "org-example",
+      client_id: "agent-native-connect",
+    });
+
+    await expect(verifyA2AToken(connectToken)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+    await expect(verifyA2AToken(oauthToken)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
   });
 
   it("falls back to the org-level secret via org_domain (shared secret absent)", async () => {

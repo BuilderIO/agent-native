@@ -224,6 +224,21 @@ async function seedEveryRegisteredIdentityColumn(
   }
 }
 
+describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
+  it("never hands framework MCP credentials to the successor", () => {
+    const policy = (table: string) =>
+      IDENTITY_REKEY_COLUMNS.find(
+        (entry) => entry.table === table && entry.column === "owner_email",
+      )?.offboard;
+    // Connect tokens must not be deleted: a missing row reads as "not
+    // revoked". Refresh tokens are revoked too, which keeps their record.
+    for (const table of ["mcp_connect_tokens", "mcp_oauth_refresh_tokens"])
+      expect(policy(table), table).toBe("revoke");
+    for (const table of ["mcp_oauth_codes", "mcp_device_codes"])
+      expect(policy(table), table).toBe("delete");
+  });
+});
+
 describe("rekeyIdentity", () => {
   it("moves every registered identity column, including denormalized secret scopes", async () => {
     const pg = await createTestPglite();

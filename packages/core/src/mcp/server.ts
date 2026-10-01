@@ -10,7 +10,9 @@ import {
 import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { isLoopbackRequest } from "../server/auth.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getH3App } from "../server/framework-request-handler.js";
+import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { trackMcpInitialize } from "./analytics.js";
 import {
@@ -245,7 +247,19 @@ export async function handleMcpRequest(
       isLoopbackOrigin(requestMeta.origin) &&
       (hasLocalOwnerHint || process.env.AGENT_NATIVE_MCP_DEV_OPEN === "1"),
     resourceUrl: getMcpOAuthAudiences(event),
+    requestOrigin: getOrigin(event),
   });
+  if (!authResult.authed && authResult.unavailable) {
+    // The token is valid but its org membership could not be checked. No auth
+    // challenge: re-authenticating would not help, and the client must keep
+    // its tokens and retry.
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "Retry-After", "5");
+    return {
+      error: "Service Unavailable",
+      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+    };
+  }
   if (!authResult.authed) {
     setResponseStatus(event, 401);
     setResponseHeader(

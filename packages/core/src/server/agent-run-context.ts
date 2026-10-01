@@ -10,6 +10,10 @@ import {
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
 import {
+  CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+  isCredentialMembershipUnavailable,
+} from "./credential-membership-unavailable.js";
+import {
   getRequestContext,
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
@@ -186,6 +190,14 @@ export async function resolveAgentRunOwnerContext(
 
   const { getSession } = await import("./auth.js");
   const session = await getSession(event);
+  if (!session?.email && isCredentialMembershipUnavailable(event)) {
+    throw createError({
+      statusCode: 503,
+      statusMessage: "Service Unavailable",
+      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+      headers: { "Retry-After": "5" },
+    });
+  }
   if (session?.email) {
     const orgScope = getRequestContext()?.orgScope;
     const identityAuthenticatedAtMs = getRequestIdentityAuthenticatedAtMs(

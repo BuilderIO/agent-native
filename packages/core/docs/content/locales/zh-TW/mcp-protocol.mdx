@@ -27,7 +27,7 @@ MCP 是用於將 AI 工具連線到外部功能的標準協議。當您部署 Ag
 - **相同的 actions** — 為代理聊天和 A2A 提供支援的完全相同的操作註冊表
 - **`ask-agent` 工具** — 一種元工具，可委托給完整代理迴圈來執行複雜工作
 - **MCP 應用程式** — actions 可以透過官方 `io.modelcontextprotocol/ui` 擴充功能來宣傳互動式 UI 資源
-- **標準遠端 MCP OAuth** — OAuth 2.1 發現、動態用戶端註冊、授權程式碼 + PKCE、重新整理權杖輪換
+- **標準遠端 MCP OAuth** — OAuth 2.1 發現、動態用戶端註冊、授權程式碼 + PKCE、重新整理權杖
 - **承載驗證回退** - 對於無法執行 OAuth 的用戶端使用 `ACCESS_TOKEN`、`ACCESS_TOKENS` 或 connect-minted JWT
 
 <Diagram id="doc-block-1mjrzq" title={"您的應用程式作為 MCP 伺服器"} summary={"外部主機透過 Streamable HTTP 連線。每個動作都是一個工具； Ask-agent 委托給完整的代理迴圈。"}>
@@ -343,7 +343,7 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 | `mcp:write` | 突變 actions 和 `ask-agent`       |
 | `mcp:apps`  | MCP 應用資源（`ui://` HTML 資源） |
 
-重新整理權杖僅儲存為雜湊值，並在每次重新整理時輪換。預設情況下，`npx @agent-native/core@latest connect` 為 Claude 程式碼用戶端寫入僅 URL 的 OAuth 條目；保留連線頁面、`npx @agent-native/core@latest connect --token <token>` 和靜態承載設定以用於本機 stdio 代理、舊用戶端和緊急/偵錯流程。
+重新整理權杖僅儲存為雜湊值，且不會輪換：重新整理時會傳回同一個權杖，並將其有效期限重設為自該次重新整理起 365 天。每次請求和每次重新整理都會重新檢查使用者是否仍屬於權杖所屬的組織，因此被移除的成員會在下一次請求時失去 MCP 存取權。預設情況下，`npx @agent-native/core@latest connect` 為 Claude 程式碼用戶端寫入僅 URL 的 OAuth 條目；保留連線頁面、`npx @agent-native/core@latest connect --token <token>` 和靜態承載設定以用於本機 stdio 代理、舊用戶端和緊急/偵錯流程。
 
 ## 自訂 MCP 設定 {#custom-setup}
 

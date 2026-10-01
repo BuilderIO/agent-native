@@ -568,3 +568,18 @@ export async function touchOAuthRefreshToken(
     args: [now, now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS, tokenHash],
   });
 }
+
+/**
+ * Revoke one refresh token so it can never mint another access token.
+ * Idempotent: an already-revoked token keeps its first timestamp.
+ */
+export async function revokeOAuthRefreshToken(
+  refreshToken: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE mcp_oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,
+    args: [Date.now(), hashOAuthToken(refreshToken)],
+  });
+}
