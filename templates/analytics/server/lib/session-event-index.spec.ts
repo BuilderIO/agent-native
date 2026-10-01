@@ -989,6 +989,38 @@ describe("session event index on Postgres", () => {
     expect(gaps.rows).toEqual([]);
   });
 
+  it("stores a batch whose session id is too long to index", async () => {
+    // Random, so the unique index cannot compress it under its entry limit.
+    const longId = Array.from({ length: 4096 }, () =>
+      Math.floor(Math.random() * 36).toString(36),
+    ).join("");
+    await storeBatch(
+      "r-long-id",
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: longId,
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s1",
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+
+    const indexed = await client.query(
+      "SELECT session_id FROM analytics_session_events",
+    );
+    expect(indexed.rows).toEqual([{ session_id: "s1" }]);
+    const gaps = await client.query(
+      "SELECT session_id FROM analytics_session_event_gaps",
+    );
+    expect(gaps.rows).toEqual([]);
+  });
+
   it("still warns about an index failure right after a catalog failure", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const batch = [

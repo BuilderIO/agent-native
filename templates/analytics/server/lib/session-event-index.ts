@@ -53,6 +53,7 @@ export interface SessionEventScope {
 const MAX_PROPERTY_KEYS = 30;
 const PROPERTY_KEY_PATTERN = /^[A-Za-z0-9_.$:-]{1,64}$/;
 const MAX_EVENT_NAME_LENGTH = 200;
+const MAX_SESSION_ID_LENGTH = 256;
 const STOPPED_FIRING_DAYS = 7;
 const SESSION_EVENT_INDEX_RETENTION_BUFFER_DAYS = 2;
 export const EVENT_CATALOG_RETENTION_DAYS = 180;
@@ -81,6 +82,18 @@ function viewerTenantKeys(scope: SessionEventScope): string[] {
 function eventNameOf(value: string | null | undefined): string {
   const name = value?.trim().slice(0, MAX_EVENT_NAME_LENGTH) ?? "";
   return /[\uD800-\uDBFF]$/.test(name) ? name.slice(0, -1) : name;
+}
+
+/**
+ * An id too long for a unique index entry would fail the gap marker too, and
+ * with it the batch. Such a session never gets an index row, so "didn't"
+ * excludes it.
+ */
+function sessionIdOf(value: string | null | undefined): string | null {
+  const sessionId = value?.trim();
+  return sessionId && sessionId.length <= MAX_SESSION_ID_LENGTH
+    ? sessionId
+    : null;
 }
 
 function stableId(prefix: string, parts: readonly string[]): string {
@@ -135,7 +148,7 @@ export function aggregateSessionEventIndexRows(
     const tenantKey = sessionEventTenantKey(row.ownerEmail, orgId);
     const app = row.app?.trim() ?? "";
 
-    const sessionId = row.sessionId?.trim();
+    const sessionId = sessionIdOf(row.sessionId);
     if (sessionId) {
       const key = JSON.stringify([tenantKey, sessionId, eventName]);
       const existing = sessionEvents.get(key);
@@ -224,7 +237,7 @@ function sessionEventGapRows(
 ): SessionGapRow[] {
   const gaps = new Map<string, SessionGapRow>();
   for (const row of rows) {
-    const sessionId = row.sessionId?.trim();
+    const sessionId = sessionIdOf(row.sessionId);
     if (!sessionId || !row.ownerEmail) continue;
     const orgId = row.orgId || null;
     const tenantKey = sessionEventTenantKey(row.ownerEmail, orgId);
