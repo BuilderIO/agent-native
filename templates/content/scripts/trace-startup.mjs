@@ -302,6 +302,12 @@ function bestSignal(name, element, painted, dom, observed) {
   return { [key]: value ?? null, [`${name}MeasuredBy`]: source };
 }
 
+function firstRequest(requests, path) {
+  return requests
+    .filter((request) => request.path === path)
+    .sort((a, b) => a.start - b.start)[0];
+}
+
 function summarizeRun(result) {
   const requests = result.requests;
   const listDocumentsPaged = requests.filter(
@@ -309,6 +315,8 @@ function summarizeRun(result) {
       request.path === "actions/list-documents" &&
       Number(new URLSearchParams(request.search).get("offset") ?? 0) > 0,
   ).length;
+  const session = firstRequest(requests, "auth/session");
+  const getDocument = firstRequest(requests, "actions/get-document");
   return {
     ...bestSignal(
       "body",
@@ -332,6 +340,10 @@ function summarizeRun(result) {
     getDocumentRequests: requests.filter(
       (request) => request.path === "actions/get-document",
     ).length,
+    // How long the page's read waited after the session arrived; negative
+    // when it started first.
+    documentAfterSession:
+      session && getDocument ? getDocument.start - session.end : null,
     listDocumentsPaged,
     redirectOffset: result.redirectOffset ?? 0,
     visibility: result.visibility,
@@ -587,11 +599,13 @@ const report = {
     sidebarUsable: percentile(metric("sidebarUsable"), 50),
     editable: percentile(metric("editable"), 50),
     frameworkRequests: percentile(metric("frameworkRequests"), 50),
+    documentAfterSession: percentile(metric("documentAfterSession"), 50),
   },
   p90: {
     bodyVisible: percentile(metric("bodyVisible"), 90),
     sidebarUsable: percentile(metric("sidebarUsable"), 90),
     editable: percentile(metric("editable"), 90),
+    documentAfterSession: percentile(metric("documentAfterSession"), 90),
   },
   max: {
     sessionRequests: Math.max(...metric("sessionRequests")),

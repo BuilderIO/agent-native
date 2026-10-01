@@ -3,6 +3,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  LAST_LOCATION_HINT_STORAGE_KEY,
+  rememberLastLocationHint,
+} from "./last-location-hint";
+import {
   CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT,
   STARTUP_PAGE_ICON_ROW_ATTRIBUTE,
   readPageIconRowHint,
@@ -63,6 +67,18 @@ describe("page icon row hint", () => {
     expect(runStartupScript("/page/page-1")).toBe("icon");
     expect(runStartupScript("/content/page/page-2/view/table")).toBe("none");
     expect(runStartupScript("/page/page-3")).toBeNull();
+    expect(runStartupScript("/home")).toBeNull();
+  });
+
+  it("marks the row of the page /home will return to", () => {
+    rememberPageIconRow("page-1", "icon");
+    rememberLastLocationHint(JSON.stringify(["a@example.com", null]), "page-1");
+
+    expect(runStartupScript("/home")).toBe("icon");
+    expect(runStartupScript("/content/home")).toBe("icon");
+    expect(runStartupScript("/home?spaceId=space-1")).toBeNull();
+
+    localStorage.setItem(LAST_LOCATION_HINT_STORAGE_KEY, "null");
     expect(runStartupScript("/home")).toBeNull();
   });
 });
