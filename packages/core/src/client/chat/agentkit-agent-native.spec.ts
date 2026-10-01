@@ -128,7 +128,29 @@ describe("createAgentNativeAgentKitTransport", () => {
                     content: "Keep the typed prompt",
                   },
                 ],
-                agentKit: { messages: [] },
+                agentKit: {
+                  messages: [
+                    {
+                      id: "saved-prompt",
+                      role: "user",
+                      parts: [{ type: "text", text: "Keep the typed prompt" }],
+                    },
+                  ],
+                  widgets: [
+                    {
+                      messageId: "saved-prompt",
+                      widget: {
+                        id: "saved-widget",
+                        kind: "test.action",
+                        data: {
+                          toolCallId: "saved-tool",
+                          toolName: "create-release",
+                        },
+                        title: "Saved action",
+                      },
+                    },
+                  ],
+                },
               }),
             });
           }
@@ -158,6 +180,19 @@ describe("createAgentNativeAgentKitTransport", () => {
         createdAt: "2026-09-30T00:00:00.000Z",
         updatedAt: "2026-09-30T00:00:00.000Z",
         messages: [],
+        widgets: [
+          {
+            messageId: "missing-message",
+            widget: {
+              id: "orphan-widget",
+              kind: "test.action",
+              data: {
+                toolCallId: "orphan-tool",
+                toolName: "create-release",
+              },
+            },
+          },
+        ],
       },
     });
 
@@ -182,6 +217,20 @@ describe("createAgentNativeAgentKitTransport", () => {
           }),
         ],
       }),
+    ]);
+    expect(saved.agentKit.widgets).toEqual([
+      {
+        messageId: "saved-prompt",
+        widget: {
+          id: "saved-widget",
+          kind: "test.action",
+          data: {
+            toolCallId: "saved-tool",
+            toolName: "create-release",
+          },
+          title: "Saved action",
+        },
+      },
     ]);
     expect(savedMessageCount).toBe(1);
   });

@@ -839,7 +839,6 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
     MIN(NULLIF(properties::jsonb ->> 'auth_user_id', '')) AS auth_user_id
   FROM analytics_events
   WHERE ${DASHBOARD_TIME_RANGE_FILTER}
-    AND ${DASHBOARD_EMAIL_FILTER}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
     AND NULLIF(anonymous_id, '') IS NOT NULL
@@ -852,17 +851,20 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
       MIN(NULLIF(e.properties::jsonb ->> 'auth_user_id', '')),
       MIN(auth_identity_bridge.auth_user_id)
     ) AS signup_auth_user_id,
-    MIN(CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END) AS signup_user_email
+    MIN(
+      CASE
+        WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id
+        WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key
+      END
+    ) AS signup_user_email
   FROM analytics_events e
   LEFT JOIN auth_identity_bridge
     ON auth_identity_bridge.anonymous_id = NULLIF(e.anonymous_id, '')
   WHERE e.event_name = 'signup'
     AND ${DASHBOARD_TIME_RANGE_FILTER}
-    AND ${DASHBOARD_EMAIL_FILTER}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
     AND NULLIF(e.anonymous_id, '') IS NOT NULL
-    AND NULLIF(e.user_id, '') LIKE '%@%.%'
   GROUP BY NULLIF(e.anonymous_id, '')
   HAVING COUNT(DISTINCT NULLIF(e.properties::jsonb ->> 'auth_user_id', '')) <= 1
 ), raw_funnel_events AS (

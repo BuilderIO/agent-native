@@ -236,6 +236,59 @@ describe("onboarding funnel metrics", () => {
     ).toBe(1);
   }, 20_000);
 
+  it("applies Builder-only filtering after signup identity stitching", async () => {
+    await createEventsTable();
+    const anonymous = {
+      email: null,
+      anonymousId: "builder-only-visitor",
+      authUserId: null,
+    };
+    const builderUser = {
+      email: null,
+      userKey: "founder@builder.io",
+      anonymousId: "builder-only-visitor",
+      authUserId: "builder-auth-user",
+    };
+
+    await insertEvent("auth.signup_viewed", "anon", {}, anonymous);
+    await insertEvent(
+      "auth.signup_clicked",
+      "anon",
+      { method: "google" },
+      anonymous,
+    );
+    await insertEvent(
+      "signup",
+      "builder-auth-user",
+      { signup_method: "google" },
+      builderUser,
+    );
+    await insertEvent(
+      "onboarding_started",
+      "builder-auth-user",
+      {},
+      builderUser,
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(
+      interpolate(panel.sql, {
+        ...FILTERS,
+        emailFilter: "only_builder",
+      }),
+    )) as { rows: Array<{ stage: string; users: number }> };
+    expect(result.rows.map(({ stage, users }) => [stage, users])).toEqual([
+      ["Signup page viewed", 1],
+      ["Signup CTA clicked", 1],
+      ["Signed up", 1],
+      ["Onboarding started", 1],
+      ["Onboarding step reached", 0],
+      ["Onboarding completed", 0],
+      ["Entered app", 0],
+      ["First significant action", 0],
+    ]);
+  }, 20_000);
+
   it("joins choice, Builder outcomes, and unresolved attempts by canonical identity and attempt id", async () => {
     await createEventsTable();
     const step = { flow: "first_run", step_id: "choice", step_index: 1 };

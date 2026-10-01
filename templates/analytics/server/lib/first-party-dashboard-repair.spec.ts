@@ -600,6 +600,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
 
     expect(base).toContain("'recording_ready', 'run_started')");
     expect(base).toContain("generation_completed");
+    expect(base).toContain("plan_created");
     expect(base).toContain(
       "NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') AS user_key",
     );

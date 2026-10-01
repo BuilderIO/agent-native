@@ -611,6 +611,25 @@ function mergeStoredAndIncomingMessages(
   return [...messages.values()];
 }
 
+function mergeStoredAndIncomingWidgets(
+  stored: AgentWidgetSnapshot[],
+  incoming: AgentWidgetSnapshot[],
+): AgentWidgetSnapshot[] {
+  const widgets = new Map(
+    stored.map((snapshot) => [
+      JSON.stringify([snapshot.messageId, snapshot.widget.id]),
+      snapshot,
+    ]),
+  );
+  for (const snapshot of incoming) {
+    widgets.set(
+      JSON.stringify([snapshot.messageId, snapshot.widget.id]),
+      snapshot,
+    );
+  }
+  return [...widgets.values()];
+}
+
 function persistedActionWidgets(
   widgets: AgentWidgetSnapshot[] = [],
   messageIds: ReadonlySet<string>,
@@ -1134,6 +1153,14 @@ export function createAgentNativeAgentKitTransport(
           input.snapshot.messages,
         )
       : input.snapshot.messages;
+    const snapshotWidgets = createdByAnotherRequest
+      ? mergeStoredAndIncomingWidgets(
+          Array.isArray(previousAgentKit.widgets)
+            ? (previousAgentKit.widgets as AgentWidgetSnapshot[])
+            : [],
+          input.snapshot.widgets ?? [],
+        )
+      : input.snapshot.widgets;
     const compactEvents = persistedHistoryEvents(input.snapshot.events);
     const compactRunIds = new Set(compactEvents.map((event) => event.runId));
     const eventsById = new Map<string, unknown>();
@@ -1172,10 +1199,7 @@ export function createAgentNativeAgentKitTransport(
     const agentKit = {
       ...previousAgentKit,
       messages: persistedMessages(snapshotMessages),
-      widgets: persistedActionWidgets(
-        input.snapshot.widgets,
-        new Set(input.snapshot.messages.map((message) => message.id)),
-      ),
+      widgets: persistedActionWidgets(snapshotWidgets, snapshotMessageIds),
       toolCalls: persistedToolCalls(input.snapshot.toolCalls),
       events: [...eventsById.values()],
       runs: [...runsById.values()].map((run) => {
