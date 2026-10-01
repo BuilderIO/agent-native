@@ -7785,7 +7785,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           return false;
         }
         var paintStyle = window.getComputedStyle(paintTarget);
-        return paintStyle.fill !== "none" && Number(paintStyle.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget);
+        var hasVisibleFill = paintStyle.fill !== "none" && Number(paintStyle.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget);
+        if (hasVisibleFill) return true;
+        if (radiusPrimitiveKind(el) === "polygon") return false;
+        return paintStyle.stroke !== "none" && parseFloat(paintStyle.strokeWidth) > 0 && Number(paintStyle.strokeOpacity) > 0 && cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget);
       }
       var style = window.getComputedStyle(el);
       if (cornerRadiusVisibilityIsVisible(el) && (cornerRadiusBackgroundImageHasVisiblePaint(style.backgroundImage) || cornerRadiusColorIsVisible(style.backgroundColor))) {

@@ -9648,10 +9648,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return false;
       }
       var paintStyle = window.getComputedStyle(paintTarget);
-      return (
+      var hasVisibleFill =
         paintStyle.fill !== "none" &&
         Number(paintStyle.fillOpacity) > 0 &&
-        cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget)
+        cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget);
+      if (hasVisibleFill) return true;
+      if (radiusPrimitiveKind(el) === "polygon") return false;
+      return (
+        paintStyle.stroke !== "none" &&
+        parseFloat(paintStyle.strokeWidth) > 0 &&
+        Number(paintStyle.strokeOpacity) > 0 &&
+        cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget)
       );
     }
     var style = window.getComputedStyle(el);

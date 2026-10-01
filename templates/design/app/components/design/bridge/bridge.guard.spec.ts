@@ -7195,6 +7195,7 @@ it(
   <div id="zero-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:340px;width:120px;height:80px;background:#ddd;opacity:0"></div>
   <div id="filter-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:580px;width:80px;height:80px;background:#ddd;filter:opacity(0)"></div>
   <div style="position:absolute;left:780px;top:580px;filter:blur(0) opacity(0)"><div id="filter-opacity-ancestor-rectangle" data-agent-native-primitive="rectangle" style="width:80px;height:80px;background:#ddd"></div></div>
+  <svg id="stroke-rectangle-vector" data-an-primitive="rectangle" viewBox="0 0 100 100" style="position:absolute;left:200px;top:600px;width:100px;height:100px"><path d="M 10 10 H 90 V 90 H 10 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
   <svg id="stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
   <svg id="zero-opacity-stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:760px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4" stroke-opacity="0"></path></svg>
   <svg id="stroke-only-path" data-an-primitive="path" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:520px;top:300px;width:80px;height:80px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
@@ -7233,6 +7234,7 @@ it(
         ["rectangle", 4],
         ["visible-gradient-rectangle", 4],
         ["stroke-rectangle", 4],
+        ["stroke-rectangle-vector", 4],
         ["stroke-polygon", 0],
         ["visible-paint-server-polygon", 3],
         ["visible-pattern-polygon", 3],
@@ -7261,6 +7263,7 @@ it(
         "zero-opacity-rectangle",
         "filter-opacity-rectangle",
         "filter-opacity-ancestor-rectangle",
+        "stroke-rectangle-vector",
         "stroke-polygon",
         "zero-opacity-stroke-polygon",
         "stroke-only-path",
