@@ -35,12 +35,16 @@ describe("agent chat run lifecycle tracking", () => {
         "thread-1",
         "attempt-1",
         "owner@example.com",
+        {},
+        "slides",
       );
       trackAgentChatRunLifecycle(
         "run_no_reply",
         "thread-1",
         "attempt-1",
         "owner@example.com",
+        {},
+        "slides",
       );
       trackAgentChatRunLifecycle(
         "run_finished",
@@ -52,6 +56,7 @@ describe("agent chat run lifecycle tracking", () => {
           failure_code: "missing_credentials",
           engine: "anthropic",
         },
+        "slides",
       );
       trackAgentChatRunLifecycle("run_started", undefined, "attempt-2");
     } finally {
@@ -62,12 +67,22 @@ describe("agent chat run lifecycle tracking", () => {
       {
         name: "run_started",
         userId: "owner@example.com",
-        properties: { thread_id: "thread-1", attempt_id: "attempt-1" },
+        properties: {
+          thread_id: "thread-1",
+          attempt_id: "attempt-1",
+          app_name: "slides",
+          template_name: "slides",
+        },
       },
       {
         name: "run_no_reply",
         userId: "owner@example.com",
-        properties: { thread_id: "thread-1", attempt_id: "attempt-1" },
+        properties: {
+          thread_id: "thread-1",
+          attempt_id: "attempt-1",
+          app_name: "slides",
+          template_name: "slides",
+        },
       },
       {
         name: "run_finished",
@@ -78,6 +93,8 @@ describe("agent chat run lifecycle tracking", () => {
           status: "errored",
           failure_code: "missing_credentials",
           engine: "anthropic",
+          app_name: "slides",
+          template_name: "slides",
         },
       },
     ]);

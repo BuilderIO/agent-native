@@ -1206,7 +1206,7 @@ export function createAgentNativeAgentKitTransport(
             input.snapshot.title ??
             (typeof stored.title === "string" ? stored.title : ""),
           preview: typeof stored.preview === "string" ? stored.preview : "",
-          messageCount: input.snapshot.messages.length,
+          messageCount: snapshotMessages.length,
         }),
       },
     );

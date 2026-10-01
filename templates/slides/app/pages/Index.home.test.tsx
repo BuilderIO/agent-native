@@ -79,6 +79,7 @@ const {
   useDecks,
   reloadDecks,
   createDeck,
+  updateDeck,
   promptProps,
   referenceProps,
   signedIn,
@@ -97,6 +98,7 @@ const {
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
   createDeck: vi.fn(),
+  updateDeck: vi.fn(),
   promptProps: vi.fn(),
   referenceProps: vi.fn(),
   signedIn: { value: true },
@@ -415,6 +417,7 @@ function renderHome(
     deckListRefreshing: false,
     reloadDecks,
     createDeck,
+    updateDeck,
     catchUpStaleDeckList: vi.fn(),
     ...overrides,
   });
@@ -446,6 +449,7 @@ beforeEach(() => {
   inactiveHomeQueries.templateLibraryEnabled = true;
   homeImport.current = null;
   createDeck.mockReset();
+  updateDeck.mockReset();
   signedIn.value = true;
   agentEngine.state = "configured";
   agentEngine.missing = false;
@@ -646,19 +650,13 @@ describe("Slides prompt-led home", () => {
 
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     expect(referenceProps.mock.lastCall![0].open).toBe(false);
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                designSystemId: null,
-                referenceDeckId: null,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          designSystemId: null,
+          referenceDeckId: null,
+        }),
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
@@ -723,21 +721,14 @@ describe("Slides prompt-led home", () => {
       model: "test-model",
       effort: "high",
     });
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                additionalContext:
-                  "Private meeting notes from the source picker",
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          additionalContext: "Private meeting notes from the source picker",
+          composerContext,
+          contextItems,
+        }),
       }),
     );
     expect(commit).toHaveBeenCalledOnce();
@@ -819,19 +810,13 @@ describe("Slides prompt-led home", () => {
     expect(agentSubmit.mock.calls[0][1]).not.toContain(
       "A restrained visual style",
     );
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                composerContext: updatedComposerContext,
-                contextItems: updatedContextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          composerContext: updatedComposerContext,
+          contextItems: updatedContextItems,
+        }),
       }),
     );
   });
@@ -909,20 +894,14 @@ describe("Slides prompt-led home", () => {
       engine: modelSelection.engine,
       effort: modelSelection.effort,
     });
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                referenceDeckId: "own",
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          referenceDeckId: "own",
+          composerContext,
+          contextItems,
+        }),
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
@@ -1003,21 +982,15 @@ describe("Slides prompt-led home", () => {
       { id: "own" },
       expect.anything(),
     );
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                designSystemId: "ds-explicit",
-                referenceDeckId: "own",
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          designSystemId: "ds-explicit",
+          referenceDeckId: "own",
+          composerContext,
+          contextItems,
+        }),
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
@@ -1065,20 +1038,14 @@ describe("Slides prompt-led home", () => {
       expect.anything(),
       expect.anything(),
     );
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                referenceDeckId: null,
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          referenceDeckId: null,
+          composerContext,
+          contextItems,
+        }),
       }),
     );
   });
@@ -2270,19 +2237,13 @@ describe("Slides prompt-led home", () => {
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     expect(referenceProps.mock.lastCall![0].open).toBe(false);
     expect(createDeck).toHaveBeenCalledOnce();
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          composerContext,
+          contextItems,
+        }),
       }),
     );
   });

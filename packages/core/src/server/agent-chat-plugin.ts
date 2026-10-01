@@ -285,11 +285,17 @@ export function trackAgentChatRunLifecycle(
   attemptId: string | undefined,
   userId?: string,
   properties: Record<string, unknown> = {},
+  appId?: string,
 ): void {
   if (!threadId?.trim() || !attemptId?.trim()) return;
   track(
     event,
-    { ...properties, thread_id: threadId, attempt_id: attemptId },
+    {
+      ...properties,
+      ...(appId ? { app_name: appId, template_name: appId } : {}),
+      thread_id: threadId,
+      attempt_id: attemptId,
+    },
     userId ? { userId } : undefined,
   );
 }
@@ -3445,6 +3451,7 @@ export function createAgentChatPlugin(
               ? { failure_code: failureCode.errorCode ?? "unknown" }
               : {}),
           },
+          options?.appId,
         );
         if (!assistantMsg) {
           trackAgentChatRunLifecycle(
@@ -3452,6 +3459,8 @@ export function createAgentChatPlugin(
             runThreadId || undefined,
             run.runId,
             getRequestRunContext()?.owner,
+            {},
+            options?.appId,
           );
         }
         if (!threadId) {
@@ -4446,6 +4455,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             threadId,
             runId,
             runCtx?.owner,
+            {},
+            options?.appId,
           );
           await runPreAgentTurnAutosave(
             options?.onAgentTurnStart,

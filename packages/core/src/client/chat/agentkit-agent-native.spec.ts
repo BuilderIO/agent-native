@@ -105,6 +105,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     const requests: Array<{ url: string; method: string }> = [];
     let threadReads = 0;
     let savedThreadData: string | undefined;
+    let savedMessageCount: number | undefined;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
@@ -132,7 +133,9 @@ describe("createAgentNativeAgentKitTransport", () => {
             });
           }
           if (method === "PUT") {
-            savedThreadData = JSON.parse(String(init?.body)).threadData;
+            const body = JSON.parse(String(init?.body));
+            savedThreadData = body.threadData;
+            savedMessageCount = body.messageCount;
             return json({ ok: true });
           }
         }
@@ -180,6 +183,7 @@ describe("createAgentNativeAgentKitTransport", () => {
         ],
       }),
     ]);
+    expect(savedMessageCount).toBe(1);
   });
 
   it("preserves a thread-create failure when no accessible row exists", async () => {

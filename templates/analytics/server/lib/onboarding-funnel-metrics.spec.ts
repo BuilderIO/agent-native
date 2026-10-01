@@ -191,6 +191,51 @@ describe("onboarding funnel metrics", () => {
     ]);
   }, 20_000);
 
+  it("bridges legacy signup email cohorts to a later auth ID", async () => {
+    await createEventsTable();
+    const anonymous = {
+      email: null,
+      anonymousId: "legacy-visitor",
+      authUserId: null,
+    };
+    await insertEvent("auth.signup_viewed", "anon", {}, anonymous);
+    await insertEvent(
+      "auth.signup_clicked",
+      "anon",
+      { method: "google" },
+      anonymous,
+    );
+    await insertEvent(
+      "signup",
+      "legacy-user",
+      { signup_method: "google" },
+      {
+        email: "legacy@example.com",
+        anonymousId: "legacy-visitor",
+        authUserId: null,
+      },
+    );
+    await insertEvent(
+      "onboarding_started",
+      "auth-user",
+      {},
+      {
+        email: "legacy@example.com",
+        userKey: "legacy@example.com",
+        anonymousId: "legacy-visitor",
+        authUserId: "auth-legacy-user",
+      },
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(
+      result.rows.find((row) => row.stage === "Onboarding started")?.users,
+    ).toBe(1);
+  }, 20_000);
+
   it("joins choice, Builder outcomes, and unresolved attempts by canonical identity and attempt id", async () => {
     await createEventsTable();
     const step = { flow: "first_run", step_id: "choice", step_index: 1 };

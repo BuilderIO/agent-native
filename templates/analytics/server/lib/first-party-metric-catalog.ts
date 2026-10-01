@@ -834,20 +834,37 @@ const FUNNEL_EMAIL_FILTER =
   "('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(funnel_user_email, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io'))";
 const FUNNEL_SCOPE_FILTER = `${DASHBOARD_TIME_RANGE_FILTER} AND ${FUNNEL_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
 // guard:allow-unbounded-read — cohort_events reads the date- and product-scoped funnel CTEs.
-const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (
+const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
   SELECT NULLIF(anonymous_id, '') AS anonymous_id,
-    MIN(NULLIF(properties::jsonb ->> 'auth_user_id', '')) AS signup_auth_user_id,
-    MIN(CASE WHEN NULLIF(user_id, '') LIKE '%@%.%' THEN user_id END) AS signup_user_email
+    MIN(NULLIF(properties::jsonb ->> 'auth_user_id', '')) AS auth_user_id
   FROM analytics_events
-  WHERE event_name = 'signup'
-    AND ${DASHBOARD_TIME_RANGE_FILTER}
+  WHERE ${DASHBOARD_TIME_RANGE_FILTER}
     AND ${DASHBOARD_EMAIL_FILTER}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
     AND NULLIF(anonymous_id, '') IS NOT NULL
-    AND NULLIF(user_id, '') LIKE '%@%.%'
+    AND NULLIF(properties::jsonb ->> 'auth_user_id', '') IS NOT NULL
   GROUP BY NULLIF(anonymous_id, '')
-  HAVING COUNT(DISTINCT NULLIF(properties::jsonb ->> 'auth_user_id', '')) <= 1
+  HAVING COUNT(DISTINCT NULLIF(properties::jsonb ->> 'auth_user_id', '')) = 1
+), signup_identity AS (
+  SELECT NULLIF(e.anonymous_id, '') AS anonymous_id,
+    COALESCE(
+      MIN(NULLIF(e.properties::jsonb ->> 'auth_user_id', '')),
+      MIN(auth_identity_bridge.auth_user_id)
+    ) AS signup_auth_user_id,
+    MIN(CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END) AS signup_user_email
+  FROM analytics_events e
+  LEFT JOIN auth_identity_bridge
+    ON auth_identity_bridge.anonymous_id = NULLIF(e.anonymous_id, '')
+  WHERE e.event_name = 'signup'
+    AND ${DASHBOARD_TIME_RANGE_FILTER}
+    AND ${DASHBOARD_EMAIL_FILTER}
+    AND ${DASHBOARD_APP_FILTER}
+    AND ${FIRST_PARTY_TEMPLATE_FILTER}
+    AND NULLIF(e.anonymous_id, '') IS NOT NULL
+    AND NULLIF(e.user_id, '') LIKE '%@%.%'
+  GROUP BY NULLIF(e.anonymous_id, '')
+  HAVING COUNT(DISTINCT NULLIF(e.properties::jsonb ->> 'auth_user_id', '')) <= 1
 ), raw_funnel_events AS (
   SELECT e.*,
     COALESCE(

@@ -1411,7 +1411,7 @@ export default function Index({ active = true }: { active?: boolean }) {
 
     try {
       if (!deckPersisted) {
-        updateDeck(deckId, { generationContext });
+        updateDeck(deckId, { generationContext: { ...generationContext } });
         const persisted = await ensureDeckPersisted(deckId);
         if (!persisted.persisted) {
           recoverFromGenerationSetupFailure(
