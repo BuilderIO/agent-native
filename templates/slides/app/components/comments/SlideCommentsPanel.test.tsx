@@ -210,7 +210,30 @@ describe("SlideCommentsPanel", () => {
       "slide-1",
       "deck",
     );
+    fireEvent.click(screen.getByRole("button", { name: "For you" }));
+    fireEvent.change(screen.getByLabelText("Search comments"), {
+      target: { value: "phrase" },
+    });
+    fireEvent.click(filtersButton);
+    expect(filtersButton.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("group", { name: "Comment scope" })).toBeNull();
+    expect(
+      screen.queryByRole("group", { name: "Comment audience" }),
+    ).toBeNull();
+    expect(screen.queryByPlaceholderText("Search all comments...")).toBeNull();
+    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
+      "deck-1",
+      "slide-1",
+      "slide",
+    );
 
+    fireEvent.click(filtersButton);
+    expect(filtersButton.getAttribute("aria-expanded")).toBe("true");
+    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
+      "deck-1",
+      "slide-1",
+      "slide",
+    );
     view.unmount();
     render(<SlideCommentsPanel {...props} />);
     expect(
@@ -223,6 +246,48 @@ describe("SlideCommentsPanel", () => {
       "slide-1",
       "slide",
     );
+  });
+
+  it("keeps Add comment available when the slide already has threads", () => {
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-1",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-1",
+              author_email: "writer@example.com",
+              author_name: "Writer",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Review this slide",
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+
+    const view = render(
+      <SlideCommentsPanel
+        deckId="deck-1"
+        slideId="slide-1"
+        canComment
+        canEdit
+        currentUserEmail="writer@example.com"
+        pendingComment={null}
+        onPendingDone={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+
+    expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
+    expect(
+      view.container.querySelector('[data-slide-comment-thread="thread-1"]'),
+    ).toBeTruthy();
   });
 
   it("scrolls to and highlights a selected thread", () => {
@@ -274,6 +339,55 @@ describe("SlideCommentsPanel", () => {
       behavior: "smooth",
       block: "nearest",
     });
+  });
+
+  it("re-scrolls when the same selected thread is requested again", () => {
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-1",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-1",
+              author_email: "writer@example.com",
+              author_name: "Writer",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Review this slide",
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+    const props = {
+      deckId: "deck-1",
+      slideId: "slide-1",
+      canComment: false,
+      canEdit: false,
+      currentUserEmail: "viewer@example.com",
+      pendingComment: null,
+      onPendingDone: vi.fn(),
+      onClose: vi.fn(),
+      selectedThreadId: "thread-1",
+      selectedThreadRequestId: 1,
+    };
+    const view = render(<SlideCommentsPanel {...props} />);
+    const card = view.container.querySelector<HTMLElement>(
+      '[data-slide-comment-thread="thread-1"]',
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(card, "scrollIntoView", { value: scrollIntoView });
+
+    view.rerender(
+      <SlideCommentsPanel {...props} selectedThreadRequestId={2} />,
+    );
+    view.rerender(
+      <SlideCommentsPanel {...props} selectedThreadRequestId={3} />,
+    );
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
   });
 
   it("keeps an anchored selected thread visible through active filters", () => {

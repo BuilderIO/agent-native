@@ -87,6 +87,7 @@ interface SlideCommentsPanelProps {
   onPendingDone: () => void;
   onClose: () => void;
   selectedThreadId?: string | null;
+  selectedThreadRequestId?: number;
 }
 
 function Avatar({ email, name }: { email: string; name?: string | null }) {
@@ -528,6 +529,7 @@ function ThreadCard({
   onBeforeCommentSubmit,
   onSelectSlide,
   selected,
+  selectionRequestId,
 }: {
   thread: CommentThread;
   deckId: string;
@@ -539,6 +541,7 @@ function ThreadCard({
   onBeforeCommentSubmit?: () => Promise<void>;
   onSelectSlide?: (slideId: string) => void;
   selected: boolean;
+  selectionRequestId: number;
 }) {
   const t = useT();
   const [replyOpen, setReplyOpen] = useState(false);
@@ -555,7 +558,7 @@ function ThreadCard({
         block: "nearest",
       });
     }
-  }, [selected]);
+  }, [selected, selectionRequestId]);
 
   const rootComment = thread.comments[0];
   const replies = thread.comments.slice(1);
@@ -735,6 +738,7 @@ export function SlideCommentsPanel({
   onPendingDone,
   onClose,
   selectedThreadId = null,
+  selectedThreadRequestId = 0,
 }: SlideCommentsPanelProps) {
   const t = useT();
   const [scope, setScope] = useState<"slide" | "deck">("slide");
@@ -819,11 +823,14 @@ export function SlideCommentsPanel({
     canComment && Boolean(currentPendingComment || addingComment);
 
   const toggleFilters = () => {
-    setFiltersExpanded((expanded) => {
-      const next = !expanded;
-      writeCommentFiltersExpanded(next);
-      return next;
-    });
+    const next = !filtersExpanded;
+    writeCommentFiltersExpanded(next);
+    if (!next) {
+      setScope("slide");
+      setAudience("all");
+      setSearchTerm("");
+    }
+    setFiltersExpanded(next);
   };
 
   return (
@@ -834,6 +841,23 @@ export function SlideCommentsPanel({
           {t("comments.title")}
         </span>
         <div className="flex items-center gap-1">
+          {canComment && deckId && slideId && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t("comments.addComment")}
+                  aria-expanded={showInput}
+                  disabled={showInput}
+                  onClick={() => setAddingComment(true)}
+                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground/80 disabled:opacity-50"
+                >
+                  <IconMessageCircle size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("comments.addComment")}</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -973,6 +997,7 @@ export function SlideCommentsPanel({
               onBeforeCommentSubmit={onBeforeCommentSubmit}
               onSelectSlide={onSelectSlide}
               selected={thread.threadId === selectedThreadId}
+              selectionRequestId={selectedThreadRequestId}
             />
           ))}
 

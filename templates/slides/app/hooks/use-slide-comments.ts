@@ -61,7 +61,7 @@ function groupIntoThreads(comments: SlideComment[]): CommentThread[] {
 interface SlideCommentPage {
   comments: SlideComment[];
   has_more: boolean;
-  next_offset: number | null;
+  next_cursor: { createdAt: string; id: string } | null;
 }
 
 const SLIDE_COMMENT_PAGE_SIZE = 200;
@@ -71,12 +71,18 @@ async function listAllSlideComments(
   signal: AbortSignal,
 ): Promise<SlideComment[]> {
   const comments: SlideComment[] = [];
-  let offset = 0;
+  let cursor: { createdAt: string; id: string } | null = null;
 
   for (;;) {
-    const page = await callActionWithRetry<SlideCommentPage | SlideComment[]>(
+    const page: SlideCommentPage | SlideComment[] = await callActionWithRetry<
+      SlideCommentPage | SlideComment[]
+    >(
       "list-slide-comments",
-      { ...params, limit: SLIDE_COMMENT_PAGE_SIZE, offset },
+      {
+        ...params,
+        limit: SLIDE_COMMENT_PAGE_SIZE,
+        ...(cursor ? { cursor } : {}),
+      },
       { signal },
     );
 
@@ -88,12 +94,23 @@ async function listAllSlideComments(
     comments.push(...page.comments);
     if (page.has_more === false) return comments;
 
-    const nextOffset = page.next_offset;
+    const nextCursor: SlideCommentPage["next_cursor"] = page.next_cursor;
+    const lastComment = page.comments[page.comments.length - 1];
+    const cursorDidNotAdvance = Boolean(
+      cursor &&
+      nextCursor &&
+      cursor.createdAt === nextCursor.createdAt &&
+      cursor.id === nextCursor.id,
+    );
     if (
       page.has_more !== true ||
-      typeof nextOffset !== "number" ||
-      !Number.isSafeInteger(nextOffset) ||
-      nextOffset !== offset + SLIDE_COMMENT_PAGE_SIZE ||
+      !nextCursor ||
+      typeof nextCursor.createdAt !== "string" ||
+      typeof nextCursor.id !== "string" ||
+      !lastComment ||
+      nextCursor.createdAt !== lastComment.created_at ||
+      nextCursor.id !== lastComment.id ||
+      cursorDidNotAdvance ||
       page.comments.length !== SLIDE_COMMENT_PAGE_SIZE
     ) {
       throw new Error(
@@ -101,7 +118,7 @@ async function listAllSlideComments(
       );
     }
 
-    offset = nextOffset;
+    cursor = nextCursor;
   }
 }
 

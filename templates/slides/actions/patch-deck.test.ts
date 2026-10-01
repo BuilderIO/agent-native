@@ -3516,6 +3516,59 @@ describe("run() — client write ordering", () => {
     ]);
   });
 
+  it("rejects stale delete, reorder, and deck-field operations", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "remote-editor",
+          sequence: 1,
+          expectedUpdatedAt: baseRevision,
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { notes: "Remote edit" },
+          },
+        ],
+      },
+      {},
+    );
+
+    for (const operation of [
+      { op: "delete-slide", slideId: "slide-1" },
+      { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
+      { op: "patch-deck-fields", fields: { title: "Stale title" } },
+    ]) {
+      await expect(
+        runPatchDeckAction(
+          {
+            deckId: "deck-1",
+            clientWrite: {
+              clientId: `stale-${operation.op}`,
+              sequence: 1,
+              expectedUpdatedAt: baseRevision,
+            },
+            operations: [operation],
+          },
+          {},
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "deck_revision_conflict",
+      });
+    }
+
+    expect(JSON.parse(mockDeckRow!.data as string)).toMatchObject({
+      title: "Deck",
+      slides: [
+        { id: "slide-1", content: "base" },
+        { id: "slide-2", content: "second-base", notes: "Remote edit" },
+      ],
+    });
+  });
+
   it("re-reads and reapplies granular edits after a lost database CAS", async () => {
     nextDeckWriteMiss = () => {
       const latest = JSON.parse(mockDeckRow!.data as string);

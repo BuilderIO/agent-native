@@ -705,6 +705,8 @@ export default function DeckEditor() {
   const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<
     string | null
   >(null);
+  const [selectedCommentThreadRequestId, setSelectedCommentThreadRequestId] =
+    useState(0);
 
   const openAnimationsForTarget = useCallback(
     (target: SelectedAnimationTarget) => {
@@ -817,11 +819,13 @@ export default function DeckEditor() {
         panel: "comments",
       });
     }
+    if (!opening) setSelectedCommentThreadId(null);
     setSidePanel(opening ? "comments" : null);
   }, [sidePanel]);
   const selectCommentThread = useCallback(
     (threadId: string) => {
       setSelectedCommentThreadId(threadId);
+      setSelectedCommentThreadRequestId((requestId) => requestId + 1);
       if (sidePanel !== "comments") {
         trackEvent("slide_panel_opened", {
           app_name: "slides",
@@ -4206,6 +4210,7 @@ export default function DeckEditor() {
             canEdit={canEdit}
             currentUserEmail={session?.email ?? null}
             selectedThreadId={selectedCommentThreadId}
+            selectedThreadRequestId={selectedCommentThreadRequestId}
             onBeforeCommentSubmit={flushCommentWrites}
             onSelectSlide={handleSlideSelection}
             pendingComment={
@@ -4216,6 +4221,7 @@ export default function DeckEditor() {
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
               setSidePanel(null);
+              setSelectedCommentThreadId(null);
               setPendingComment(null);
             }}
           />

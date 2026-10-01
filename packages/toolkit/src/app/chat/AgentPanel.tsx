@@ -414,12 +414,18 @@ export function shouldShowAgentPanelPageHeader(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
   activeTabMessageCount: number,
+  showWhenEmpty = false,
 ) {
   if (!activeTabId) return false;
   if (activeTabMessageCount > 0) return true;
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  return activeTab?.status === "running" || activeTab?.status === "completed";
+  return Boolean(
+    activeTab &&
+    (showWhenEmpty ||
+      activeTab.status === "running" ||
+      activeTab.status === "completed"),
+  );
 }
 
 export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
@@ -637,6 +643,7 @@ export interface AgentPanelProps extends Omit<
   showTabBar?: boolean;
   showPageNewChatButton?: boolean;
   showPageHeader?: boolean;
+  showPageHeaderWhenEmpty?: boolean;
   pageHeaderLeadingSlot?: React.ReactNode;
   pageToolbarSlot?: React.ReactNode;
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
@@ -822,6 +829,7 @@ function AgentPanelInner({
   showTabBar = true,
   showPageNewChatButton = false,
   showPageHeader = false,
+  showPageHeaderWhenEmpty = false,
   pageHeaderLeadingSlot,
   pageToolbarSlot,
   onPageHeaderVisibilityChange,
@@ -1713,6 +1721,7 @@ function AgentPanelInner({
         tabs,
         activeTabId,
         activeTabMessageCount,
+        showPageHeaderWhenEmpty,
       );
       const canShareActiveTab =
         activeTab && (activeTabMessageCount > 0 || activeTab.status !== "idle");

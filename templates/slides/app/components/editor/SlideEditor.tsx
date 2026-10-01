@@ -56,6 +56,9 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -3884,6 +3887,7 @@ export default function SlideEditor({
       e.stopImmediatePropagation();
       if (action === "edit") {
         exitInlineEdit();
+        slideCanvasRef.current?.focus({ preventScroll: true });
       } else if (action === "gesture") {
         activeGestureCancelRef.current?.();
       } else if (action === "mode") {
@@ -7810,7 +7814,20 @@ export default function SlideEditor({
         if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
-      if (!pinMode && !drawMode) {
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      const targetIsEditingBlock =
+        editingEl?.contains(e.target as Node) ?? false;
+      if (editingEl) {
+        if (targetIsEditingBlock && !additive && multiSelection.size === 0) {
+          return;
+        }
+        exitInlineEdit();
+      } else if (
+        isSlideTextEditingTarget(e.target, document.activeElement, editingEl)
+      ) {
+        return;
+      }
+      if (!editingEl && !pinMode && !drawMode) {
         const threadId = slideCommentThreadAtPoint(
           comments,
           slideContent,
@@ -7825,19 +7842,6 @@ export default function SlideEditor({
           };
         }
       }
-      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
-      const targetIsEditingBlock =
-        editingEl?.contains(e.target as Node) ?? false;
-      if (editingEl) {
-        if (targetIsEditingBlock && !additive && multiSelection.size === 0) {
-          return;
-        }
-        exitInlineEdit();
-      } else if (
-        isSlideTextEditingTarget(e.target, document.activeElement, editingEl)
-      ) {
-        return;
-      }
       const editableTextBlock = findSmartBlock(target, slideContent);
       const targetIsEditableText = Boolean(
         editableTextBlock && !isSlideCanvasShell(editableTextBlock),
@@ -7848,7 +7852,7 @@ export default function SlideEditor({
 
       // Pointer-down on a member of the current multi-selection drags the
       // whole group instead of the single-object flow below.
-      if (multiSelection.size > 0 && !targetIsEditableText) {
+      if (multiSelection.size > 0) {
         const id = findSelectableId(target, slideContent);
         if (id && multiSelection.has(id)) {
           startGroupDrag(e, multiSelection);
@@ -8576,6 +8580,9 @@ export default function SlideEditor({
       }
       const commentPress = commentThreadPressRef.current;
       commentThreadPressRef.current = null;
+      // Text editing owns clicks in its contenteditable block, including
+      // clicks that happen to land on a comment highlight.
+      if (editingEl?.contains(e.target as Node)) return;
       if (
         commentPress &&
         onSelectCommentThread &&
@@ -8586,10 +8593,6 @@ export default function SlideEditor({
         onSelectCommentThread(commentPress.threadId);
         return;
       }
-
-      // If currently editing a block, clicks inside it are for the caret —
-      // don't select/style-edit.
-      if (editingEl?.contains(e.target as Node)) return;
 
       const slideContent = getSlideContent();
       const target = slideContent
@@ -8816,6 +8819,7 @@ export default function SlideEditor({
           : null,
       );
 
+      stampBuilderIds(slideContent);
       const selectable = findSelectableElement(target, slideContent);
       if (!selectable) {
         contextMenuTargetRef.current = null;
@@ -9591,6 +9595,44 @@ export default function SlideEditor({
         <ContextMenuShortcut>{shortcutLabel("cmd+alt+v")}</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
+      <ContextMenuSub>
+        <ContextMenuSubTrigger
+          disabled={!selectedElementSelector && !objectOperationSelection}
+        >
+          {t("styleInspector.order")}
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("front")}
+          >
+            {t("styleInspector.bringToFront")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("forward")}
+          >
+            {t("styleInspector.bringForward")}
+            <ContextMenuShortcut>{shortcutLabel("cmd+up")}</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("backward")}
+          >
+            {t("styleInspector.sendBackward")}
+            <ContextMenuShortcut>
+              {shortcutLabel("cmd+down")}
+            </ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("back")}
+          >
+            {t("styleInspector.sendToBack")}
+          </ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuSeparator />
       <ContextMenuItem
         disabled={!canGroupObjects}
         onSelect={handleGroupSelected}
@@ -9606,33 +9648,6 @@ export default function SlideEditor({
         <ContextMenuShortcut>
           {shortcutLabel("cmd+alt+shift+g")}
         </ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("backward")}
-      >
-        {t("styleInspector.sendBackward")}
-        <ContextMenuShortcut>{shortcutLabel("cmd+down")}</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("forward")}
-      >
-        {t("styleInspector.bringForward")}
-        <ContextMenuShortcut>{shortcutLabel("cmd+up")}</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("front")}
-      >
-        {t("styleInspector.bringToFront")}
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("back")}
-      >
-        {t("styleInspector.sendToBack")}
       </ContextMenuItem>
     </>
   );

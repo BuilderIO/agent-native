@@ -818,7 +818,7 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
 export default defineAction({
   title: "Patch Slides deck",
   description:
-    "Granular deck patch used by the browser editor for concurrent-safe writes. Every patch-slide operation that replaces fields.content must include that slide's exact contentHash as baseContentHash; read targets with get-deck compact=false first. Metadata and structural operations rebase against the latest deck, while stale same-slide content is rejected. Call get-design-system once for the full linked context. For a short, completed deck, pass all slides to create-deck in one call; use sequential add-slide calls only for long or live in-app generation. Reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
+    "Granular deck patch used by the browser editor for concurrent-safe writes. Every patch-slide operation that replaces fields.content must include that slide's exact contentHash as baseContentHash; read targets with get-deck compact=false first. Disjoint patch-slide and add-slide operations rebase against the latest deck. Stale delete-slide, reorder-slides, and patch-deck-fields operations return deck_revision_conflict; re-read and reconcile the deck before retrying those operations. Call get-design-system once for the full linked context. For a short, completed deck, pass all slides to create-deck in one call; use sequential add-slide calls only for long or live in-app generation. Reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
     "Each operation touches only the target slide or field — concurrent writers " +
     "on different slides never overwrite each other's work. For a deck-wide " +
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
@@ -909,7 +909,12 @@ export default defineAction({
         row,
         deckId,
         clientWrite,
-        { allowRevisionMismatch: true },
+        {
+          allowRevisionMismatch: operations.every(
+            (operation) =>
+              operation.op === "patch-slide" || operation.op === "add-slide",
+          ),
+        },
       );
       if (writeDisposition === "already-applied") {
         return {
@@ -1405,22 +1410,20 @@ export default defineAction({
       deck.updatedAt = now;
 
       await db.transaction(async (tx: any) => {
-        if (row.ownerEmail) {
-          await createDeckVersionSnapshot(
-            {
-              id: row.id,
-              title: row.title ?? "Untitled",
-              data: row.data ?? "",
-              ownerEmail: row.ownerEmail,
-            },
-            {
-              force: isAgentCaller,
-              chatContext: deckVersionChatContextFromAction(ctx),
-              label: "Before deck patch",
-              db: tx,
-            },
-          );
-        }
+        await createDeckVersionSnapshot(
+          {
+            id: row.id,
+            title: row.title ?? "Untitled",
+            data: row.data ?? "",
+            ownerEmail: row.ownerEmail ?? "",
+          },
+          {
+            force: isAgentCaller,
+            chatContext: deckVersionChatContextFromAction(ctx),
+            label: "Before deck patch",
+            db: tx,
+          },
+        );
         const updateResult = await tx
           .update(schema.decks)
           .set({

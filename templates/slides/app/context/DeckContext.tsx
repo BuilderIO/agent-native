@@ -652,10 +652,8 @@ function isDeckRevisionConflict(error: unknown): boolean {
   return Boolean(
     error &&
     typeof error === "object" &&
-    "status" in error &&
-    error.status === 409 &&
-    !("code" in error && error.code === "client_build_mismatch") &&
-    !("errorCode" in error && error.errorCode === "slide_content_stale"),
+    "errorCode" in error &&
+    error.errorCode === "deck_revision_conflict",
   );
 }
 
@@ -671,10 +669,18 @@ function didRefreshDeckRevision(error: unknown): boolean {
 function revisionConflictError(
   error: unknown,
   refreshed: boolean,
-): Error & { status: 409; deckRevisionRefreshed: boolean } {
+): Error & {
+  status: 409;
+  errorCode: "deck_revision_conflict";
+  deckRevisionRefreshed: boolean;
+} {
   const wrapped = Object.assign(
     new Error(error instanceof Error ? error.message : "Deck revision changed"),
-    { status: 409 as const, deckRevisionRefreshed: refreshed },
+    {
+      status: 409 as const,
+      errorCode: "deck_revision_conflict" as const,
+      deckRevisionRefreshed: refreshed,
+    },
   );
   Object.assign(wrapped, { cause: error });
   return wrapped;
@@ -994,7 +1000,19 @@ async function callDeckWriteAction<TResult>(
           ...(options?.signal ? { signal: options.signal } : {}),
         });
   } catch (error) {
-    if (actionName === "patch-deck" && isDeckRevisionConflict(error)) {
+    const operations = payload.operations;
+    const mergeablePatch =
+      actionName === "patch-deck" &&
+      Array.isArray(operations) &&
+      operations.length > 0 &&
+      operations.every(
+        (operation) =>
+          operation &&
+          typeof operation === "object" &&
+          "op" in operation &&
+          (operation.op === "patch-slide" || operation.op === "add-slide"),
+      );
+    if (mergeablePatch && isDeckRevisionConflict(error)) {
       const latest = await fetchDeckFromAPI(deckId);
       if (latest) rememberDeckServerRevision(deckId, latest);
       throw revisionConflictError(error, latest !== null);
@@ -1717,9 +1735,17 @@ function drainPendingDeckOps(
       const pendingTimer = pendingSaves.get(deckId);
       if (pendingTimer) clearTimeout(pendingTimer);
       pendingSaves.delete(deckId);
-      const shouldRetry = retryableRevisionConflict
-        ? revisionConflictAttempt <= MAX_DECK_REVISION_CONFLICT_RETRIES
-        : attempt <= MAX_DECK_SAVE_RETRIES;
+      const isTerminalConflict =
+        err &&
+        typeof err === "object" &&
+        "status" in err &&
+        err.status === 409 &&
+        !retryableRevisionConflict;
+      const shouldRetry = isTerminalConflict
+        ? false
+        : retryableRevisionConflict
+          ? revisionConflictAttempt <= MAX_DECK_REVISION_CONFLICT_RETRIES
+          : attempt <= MAX_DECK_SAVE_RETRIES;
       if (shouldRetry) {
         const delay = retryableRevisionConflict
           ? deckRevisionConflictRetryDelay(revisionConflictAttempt)

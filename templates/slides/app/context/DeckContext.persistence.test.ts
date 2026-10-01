@@ -164,6 +164,7 @@ function setupFetch(options?: {
   ): {
     deck: Deck | null;
     staleRevision?: boolean;
+    errorCode?: string;
     staleSlideId?: string;
   } => {
     if (!deck || !Array.isArray(body.operations))
@@ -176,24 +177,38 @@ function setupFetch(options?: {
       body.clientWrite && typeof body.clientWrite === "object"
         ? (body.clientWrite as DeckClientWrite)
         : undefined;
+    const operations = body.operations.filter(
+      (operation): operation is Record<string, unknown> =>
+        Boolean(operation) && typeof operation === "object",
+    );
     if (options?.serverFaithfulClientWrites) {
       try {
         if (
-          assertDeckClientWriteCurrent(revision, deckId, clientWrite) ===
-          "already-applied"
+          assertDeckClientWriteCurrent(revision, deckId, clientWrite, {
+            allowRevisionMismatch:
+              operations.length > 0 &&
+              operations.every(
+                (operation) =>
+                  operation.op === "patch-slide" ||
+                  operation.op === "add-slide",
+              ),
+          }) === "already-applied"
         ) {
           return { deck: cloneDeck(deck) };
         }
-      } catch {
-        return { deck: cloneDeck(deck), staleRevision: true };
+      } catch (error) {
+        return {
+          deck: cloneDeck(deck),
+          staleRevision: true,
+          errorCode:
+            error && typeof error === "object" && "errorCode" in error
+              ? String(error.errorCode)
+              : undefined,
+        };
       }
     }
     const batchStartHashes = new Map(
       deck.slides.map((slide) => [slide.id, hashSlideContent(slide.content)]),
-    );
-    const operations = body.operations.filter(
-      (operation): operation is Record<string, unknown> =>
-        Boolean(operation) && typeof operation === "object",
     );
     for (const operation of operations) {
       if (
@@ -487,9 +502,13 @@ function setupFetch(options?: {
           serverWriteRevisions.set(deckId, { updatedAt });
         }
         return Promise.resolve(
-          new Response(JSON.stringify({ error: "Deck changed" }), {
-            status: 409,
-          }),
+          new Response(
+            JSON.stringify({
+              error: "Deck changed",
+              errorCode: "deck_revision_conflict",
+            }),
+            { status: 409 },
+          ),
         );
       }
       if (
@@ -510,7 +529,10 @@ function setupFetch(options?: {
                       errorCode,
                       details: { slideId: "slide-1" },
                     }
-                  : { error: "Deck changed" }
+                  : {
+                      error: "Deck changed",
+                      errorCode: errorCode ?? "deck_revision_conflict",
+                    }
                 : { ok: true };
             if (status === 200) {
               const applied = applyPatchBatch(
@@ -528,7 +550,10 @@ function setupFetch(options?: {
                 };
               } else if (applied.staleRevision) {
                 responseStatus = 409;
-                responseBody = { error: "Deck changed" };
+                responseBody = {
+                  error: "Deck changed",
+                  errorCode: applied.errorCode ?? "deck_revision_conflict",
+                };
               } else if (applied.deck) {
                 accessibleDeck = applied.deck;
               }
@@ -563,9 +588,13 @@ function setupFetch(options?: {
             }
             if (applied.staleRevision) {
               resolve(
-                new Response(JSON.stringify({ error: "Deck changed" }), {
-                  status: 409,
-                }),
+                new Response(
+                  JSON.stringify({
+                    error: "Deck changed",
+                    errorCode: applied.errorCode ?? "deck_revision_conflict",
+                  }),
+                  { status: 409 },
+                ),
               );
               return;
             }
@@ -652,9 +681,13 @@ function setupFetch(options?: {
       }
       if (applied.staleRevision) {
         return Promise.resolve(
-          new Response(JSON.stringify({ error: "Deck changed" }), {
-            status: 409,
-          }),
+          new Response(
+            JSON.stringify({
+              error: "Deck changed",
+              errorCode: applied.errorCode ?? "deck_revision_conflict",
+            }),
+            { status: 409 },
+          ),
         );
       }
       const response =
@@ -1657,6 +1690,50 @@ describe("DeckContext deck creation persistence", () => {
     ]);
     expect(hasFailedDeckSave(deckId)).toBe(false);
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+  });
+
+  it("does not refetch or retry a non-revision 409", async () => {
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      getPatchAttempts,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "non-revision-conflict-deck",
+      title: "Non-revision conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "One", notes: "", layout: "title" }],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { notes: "Changed" },
+        { persistence: "immediate" },
+      );
+    });
+    await waitFor(() => expect(getPatchAttempts(initial.id)).toBe(1));
+    const readsBeforeConflict = deckFetchCalls(fetchMock).length;
+    resolveDeferredPatch(409, "deck_write_conflict");
+
+    await act(async () => {
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "Failed to save deck",
+      );
+    });
+
+    expect(getPatchAttempts(initial.id)).toBe(1);
+    expect(deckFetchCalls(fetchMock)).toHaveLength(readsBeforeConflict);
   });
 
   it("hashes successive inline drafts from the last persisted draft", async () => {

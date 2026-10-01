@@ -626,7 +626,12 @@ export function SlideCommentPins({
             key={index}
             aria-hidden="true"
             className="absolute rounded-[1px] bg-amber-300/40"
-            style={rect}
+            style={{
+              left: rect.x,
+              top: rect.y,
+              width: rect.width,
+              height: rect.height,
+            }}
           />
         ))}
         {visibleThreads.map((thread) => (

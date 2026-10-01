@@ -48,9 +48,12 @@ export function assertDeckClientWriteCurrent(
     write.expectedUpdatedAt !== resource.updatedAt &&
     !(sameCurrentWriter && write.sequence > lastSequence)
   ) {
-    throw deckHttpError(
-      409,
-      `Deck ${deckId} changed while saving; re-read it before retrying.`,
+    throw Object.assign(
+      deckHttpError(
+        409,
+        `Deck ${deckId} changed while saving; re-read it before retrying.`,
+      ),
+      { errorCode: "deck_revision_conflict" },
     );
   }
   return "apply";

@@ -65,12 +65,15 @@ describe("useSlideComments", () => {
       .mockResolvedValueOnce({
         comments: firstPage,
         has_more: true,
-        next_offset: 200,
+        next_cursor: {
+          createdAt: firstPage[199]!.created_at,
+          id: firstPage[199]!.id,
+        },
       })
       .mockResolvedValueOnce({
         comments: [comment("reply-1", "thread-0", "comment-0")],
         has_more: false,
-        next_offset: null,
+        next_cursor: null,
       });
 
     const { result } = renderHook(() => useSlideComments("deck-1", "slide-1"), {
@@ -83,13 +86,21 @@ describe("useSlideComments", () => {
     expect(mocks.callActionWithRetry).toHaveBeenNthCalledWith(
       1,
       "list-slide-comments",
-      { deckId: "deck-1", slideId: "slide-1", limit: 200, offset: 0 },
+      { deckId: "deck-1", slideId: "slide-1", limit: 200 },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(mocks.callActionWithRetry).toHaveBeenNthCalledWith(
       2,
       "list-slide-comments",
-      { deckId: "deck-1", slideId: "slide-1", limit: 200, offset: 200 },
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        limit: 200,
+        cursor: {
+          createdAt: firstPage[199]!.created_at,
+          id: firstPage[199]!.id,
+        },
+      },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(result.current.data).toHaveLength(200);
@@ -106,7 +117,10 @@ describe("useSlideComments", () => {
           comment(`comment-${index}`, `thread-${index}`),
         ),
         has_more: true,
-        next_offset: 200,
+        next_cursor: {
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "comment-199",
+        },
       })
       .mockRejectedValueOnce(new Error("Second page unavailable"));
 
@@ -123,7 +137,14 @@ describe("useSlideComments", () => {
     expect(mocks.callActionWithRetry).toHaveBeenNthCalledWith(
       2,
       "list-slide-comments",
-      { deckId: "deck-1", limit: 200, offset: 200 },
+      {
+        deckId: "deck-1",
+        limit: 200,
+        cursor: {
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "comment-199",
+        },
+      },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
@@ -132,7 +153,10 @@ describe("useSlideComments", () => {
     mocks.callActionWithRetry.mockResolvedValueOnce({
       comments: [comment("comment-1", "thread-1")],
       has_more: true,
-      next_offset: 1,
+      next_cursor: {
+        createdAt: "2026-01-01T00:00:00.000Z",
+        id: "different",
+      },
     });
 
     const { result } = renderHook(
