@@ -16,7 +16,7 @@ Record one short walkthrough per listing in ChatGPT developer mode, using the de
 1. Show the Agent-Native Design plugin connected to the reviewer workspace, with the Northstar Brand design system available.
 2. Ask: “Create a responsive landing page for Briar & Crumb, a fictional neighborhood bakery. Include a sample menu of croissants, sourdough, and coffee; hours Monday through Friday, 7 a.m. to 5 p.m., and Saturday and Sunday, 8 a.m. to 3 p.m.; and an 'Order online' call to action.”
 3. Show the saved prototype in the Design widget and open the design in the workspace editor.
-4. Ask: “In Product Launch Demo, make the hero headline clearer using only product details already saved in the prototype, and make the primary call to action explicit. If the product benefit is missing, preserve it and report what detail is needed. Keep the existing layout and all other sections unchanged.” Show the revised prototype.
+4. Ask: “In Product Launch Demo, add a visible footer note that reads 'Concept prototype'. Preserve all existing content and the current layout.” Show the added note.
 5. State that this connection works with Agent-Native Design projects; it does not edit local repositories, running websites, or production deployments.
 
 ## Content
@@ -24,5 +24,5 @@ Record one short walkthrough per listing in ChatGPT developer mode, using the de
 1. Show the Agent-Native Content plugin connected to the reviewer workspace, with the Launch Brief Demo document and Feature Requests Demo database available.
 2. Ask: “Create an editable project brief for a neighborhood bakery's second location using these notes: target opening in June, focus on morning commuters, and keep the first-month launch budget under $20,000.”
 3. Show the created document in Content and open it in the workspace.
-4. Ask: “In Launch Brief Demo, replace the phrase 'early access' with 'private preview' and keep the rest of the page unchanged.” Show the focused revision.
+4. Ask: “Create a new Content document titled 'Plugin review: launch phrase edit' with the sentence 'We will invite our early access customers next month.' Use the new document ID returned by create-document, then replace only 'early access' with 'private preview'. Do not edit Launch Brief Demo or any other existing document.” Show the new review document and focused revision.
 5. State that this connection works with the connected Agent-Native Content workspace; it does not publish to an external CMS or edit Notion.

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockServerState = vi.hoisted(() => ({
+  McpDirectoryProfileValidationError: class extends Error {
+    readonly code = "MCP_DIRECTORY_PROFILE_INVALID";
+  },
   setResponseHeader: vi.fn(),
   setResponseStatus: vi.fn(),
   validateMcpDirectoryProfile: vi.fn(),
@@ -30,6 +33,8 @@ vi.mock("../server/h3-helpers.js", () => ({
 vi.mock("./build-server.js", () => ({
   buildLinkArtifacts: vi.fn(),
   createMCPServerForRequest: vi.fn(),
+  McpDirectoryProfileValidationError:
+    mockServerState.McpDirectoryProfileValidationError,
   selectMcpActionSurface: vi.fn(),
   validateMcpDirectoryProfile: mockServerState.validateMcpDirectoryProfile,
   validateMcpDirectoryWidgetDomain: vi.fn(),
@@ -53,13 +58,9 @@ describe("mountMCP", () => {
     vi.clearAllMocks();
   });
 
-  it("contains directory profile validation failures at the directory route", async () => {
-    mockServerState.validateMcpDirectoryProfile.mockImplementationOnce(() => {
-      throw new Error("missing MCP annotations");
-    });
-    mockServerState.verifyAuth.mockResolvedValueOnce({ authed: false });
+  it("defers directory validation until after authentication without breaking plugin mount", async () => {
+    mockServerState.verifyAuth.mockResolvedValue({ authed: false });
     const use = vi.fn();
-    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
 
     expect(() =>
       mountMCP({ h3: { use } }, {
@@ -72,21 +73,9 @@ describe("mountMCP", () => {
     const event = {};
     const directoryResult = await directoryHandler(event);
     expect(directoryPath).toBe("/mcp/directory");
-    expect(directoryResult).toEqual({
-      error: "MCP_DIRECTORY_PROFILE_INVALID",
-      message:
-        "The MCP directory is unavailable because its catalog configuration is invalid.",
-    });
-    expect(mockServerState.setResponseStatus).toHaveBeenCalledWith(event, 503);
-    expect(mockServerState.setResponseHeader).toHaveBeenCalledWith(
-      event,
-      "Cache-Control",
-      "no-store",
-    );
-    expect(logError).toHaveBeenCalledWith(
-      "[mcp] MCP directory profile validation failed:",
-      expect.any(Error),
-    );
+    expect(directoryResult).toMatchObject({ error: "Unauthorized" });
+    expect(mockServerState.setResponseStatus).toHaveBeenCalledWith(event, 401);
+    expect(mockServerState.validateMcpDirectoryProfile).not.toHaveBeenCalled();
 
     const generalHandler = use.mock.calls.find(
       ([path]) => path === "/mcp",
@@ -99,8 +88,6 @@ describe("mountMCP", () => {
       generalEvent,
       401,
     );
-
-    logError.mockRestore();
   });
 
   it("mounts the public and legacy protocol paths by default", () => {

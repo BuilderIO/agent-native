@@ -18,7 +18,6 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "get-document",
     "create-document",
     "edit-document",
-    "query-content-database-items",
   ],
   instructions:
     "Draft and organize documents and collection records in the Agent-Native Content workspace. Search before creating duplicates, and use revision-guarded edits for existing content. This plugin does not publish to external CMSs, edit Notion, or delete workspace content.",

@@ -19,6 +19,7 @@ import {
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
+  McpDirectoryProfileValidationError,
   validateMcpDirectoryProfile,
   validateMcpDirectoryWidgetDomain,
   selectMcpActionSurface,
@@ -203,12 +204,15 @@ function buildUnauthorizedBody(
   };
 }
 
+const loggedDirectoryProfileFailures = new Set<string>();
+
 function directoryProfileUnavailable(
   event: H3Event,
-  validationError?: unknown,
-  logFailure = false,
+  validationError: McpDirectoryProfileValidationError,
 ): { error: string; message: string } {
-  if (logFailure) {
+  const failureKey = `${validationError.code}\0${validationError.message}`;
+  if (!loggedDirectoryProfileFailures.has(failureKey)) {
+    loggedDirectoryProfileFailures.add(failureKey);
     console.error(
       "[mcp] MCP directory profile validation failed:",
       validationError,
@@ -219,7 +223,7 @@ function directoryProfileUnavailable(
   return {
     error: "MCP_DIRECTORY_PROFILE_INVALID",
     message:
-      "The MCP directory is unavailable because its catalog configuration is invalid.",
+      "The MCP directory is unavailable because its profile or widget origin is invalid.",
   };
 }
 
@@ -344,11 +348,16 @@ export async function handleMcpRequest(
     try {
       validateMcpDirectoryProfile(
         requestConfig,
-        selectMcpActionSurface(requestConfig, serverRequestMeta),
+        selectMcpActionSurface(
+          requestConfig,
+          serverRequestMeta,
+          Boolean(authResult.identity?.userEmail),
+        ),
       );
       validateMcpDirectoryWidgetDomain(requestConfig.widgetDomain);
     } catch (error) {
-      return directoryProfileUnavailable(event, error, true);
+      if (!(error instanceof McpDirectoryProfileValidationError)) throw error;
+      return directoryProfileUnavailable(event, error);
     }
   }
   if (initializeRequest) {
@@ -400,16 +409,6 @@ export function mountMCP(
   config: MCPConfig,
   routePrefix = "/_agent-native",
 ): void {
-  let directoryProfileValidationError: unknown;
-  let directoryProfileValidationFailed = false;
-  if (config.directoryProfile) {
-    try {
-      validateMcpDirectoryProfile(config);
-    } catch (error) {
-      directoryProfileValidationFailed = true;
-      directoryProfileValidationError = error;
-    }
-  }
   const routePaths =
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]
@@ -420,16 +419,6 @@ export function mountMCP(
     getH3App(nitroApp).use(
       routePath,
       defineEventHandler(async (event) => {
-        if (
-          routePath === MCP_DIRECTORY_ROUTE_PREFIX &&
-          directoryProfileValidationFailed
-        ) {
-          return directoryProfileUnavailable(
-            event as H3Event,
-            directoryProfileValidationError,
-            true,
-          );
-        }
         return handleMcpRequest(event as H3Event, config, routePath);
       }),
     );

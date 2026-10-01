@@ -357,9 +357,6 @@ export function selectMcpActionSurface(
   requestMeta?: MCPRequestMeta,
   ownerConfigured = false,
 ): Record<string, ActionEntry> {
-  if (config.catalogMode === "directory" && config.productionActions) {
-    return config.productionActions;
-  }
   const useFullSurface = requestMeta?.fullSurface === true || ownerConfigured;
   return useFullSurface && config.productionActions
     ? config.productionActions

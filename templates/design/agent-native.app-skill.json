@@ -114,8 +114,8 @@
           {
             "description": "Find reusable design templates",
             "prompt": "Choose any available template in my Design workspace and create a separate product launch page for TrailSpring's ultralight hiking pack, launching in May for $189. Highlight its 2.1-pound weight and 35-liter capacity, include a waitlist call to action, and leave the source template unchanged.",
-            "tools_triggered": "list-design-templates, create-design-from-template",
-            "expected_behavior": "Adapt an available template from the connected workspace into a separate product launch page, use the supplied product facts, and make no unsupported product claims."
+            "tools_triggered": "list-design-templates, create-design-from-template, get-design-snapshot, edit-design",
+            "expected_behavior": "Find a template, create a separate copy, read the copied design snapshot, and adapt that copy with only supplied facts using edit-design; leave the source template unchanged."
           },
           {
             "description": "List saved designs",
@@ -131,9 +131,9 @@
           },
           {
             "description": "Refine an existing prototype",
-            "prompt": "In Product Launch Demo, make the hero headline clearer using only product details already saved in the prototype, and make the primary call to action explicit. If the product benefit is missing, preserve it and report what detail is needed. Keep the existing layout and all other sections unchanged.",
+            "prompt": "In Product Launch Demo, add a visible footer note that reads 'Concept prototype'. Preserve all existing content and the current layout.",
             "tools_triggered": "list-designs, get-design-snapshot, edit-design",
-            "expected_behavior": "Update the identified prototype while preserving the layout and content the user did not ask to change."
+            "expected_behavior": "Read the saved design, add that exact footer note to its main screen, save the edit, and preserve all other content and layout."
           }
         ],
         "negative": [

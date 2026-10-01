@@ -732,7 +732,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
-  it("returns a typed 503 for broken production directory annotations while regular MCP works", async () => {
+  it("returns a typed 503 for broken directory annotations while regular MCP works", async () => {
     process.env.AGENT_NATIVE_MCP_DEV_OPEN = "1";
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
@@ -746,7 +746,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
     const directoryConfig = {
       ...config,
-      actions: { "echo-thing": config.actions["echo-thing"]! },
+      actions: {
+        "echo-thing": config.actions["echo-thing"]!,
+        "directory-only": directoryAction,
+      },
       productionActions: {
         ...config.actions,
         "directory-only": directoryAction,
@@ -775,12 +778,29 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(directoryResult).toEqual({
       error: "MCP_DIRECTORY_PROFILE_INVALID",
       message:
-        "The MCP directory is unavailable because its catalog configuration is invalid.",
+        "The MCP directory is unavailable because its profile or widget origin is invalid.",
     });
     expect(logError).toHaveBeenCalledWith(
       "[mcp] MCP directory profile validation failed:",
       expect.any(Error),
     );
+
+    const retryEvent = makeWebEvent({
+      path: "/",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 144, method: "tools/list", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    await handleMcpRequest(
+      retryEvent,
+      directoryConfig as any,
+      MCP_DIRECTORY_ROUTE_PREFIX,
+    );
+    expect(logError).toHaveBeenCalledTimes(1);
     logError.mockRestore();
 
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
@@ -792,6 +812,60 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     } finally {
       await client.close();
     }
+  });
+
+  it("keeps dev-open directory requests on the sparse action surface", async () => {
+    process.env.AGENT_NATIVE_MCP_DEV_OPEN = "1";
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
+
+    const productionOnlyAction = defineAction({
+      description: "A production-only directory action.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ ok: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      actions: { "echo-thing": config.actions["echo-thing"]! },
+      productionActions: {
+        ...config.actions,
+        "production-only": productionOnlyAction,
+      },
+      directoryProfile: { connectorCatalog: ["production-only"] },
+    };
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const event = makeWebEvent({
+      path: "/",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 145, method: "tools/list", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "https",
+      },
+    });
+
+    const result = await handleMcpRequest(
+      event,
+      directoryConfig as any,
+      MCP_DIRECTORY_ROUTE_PREFIX,
+    );
+
+    expect(event._status).toBe(503);
+    expect(result).toMatchObject({ error: "MCP_DIRECTORY_PROFILE_INVALID" });
+    expect(logError).toHaveBeenCalledWith(
+      "[mcp] MCP directory profile validation failed:",
+      expect.any(Error),
+    );
+    logError.mockRestore();
   });
 
   it("passes catalog mode to MCP App CSP and HTML builders", async () => {

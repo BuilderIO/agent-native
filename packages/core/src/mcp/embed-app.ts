@@ -2243,7 +2243,7 @@ export function embedApp(
     })();
   </script>
 </body>
-}</html>`;
+</html>`;
     },
     csp: (ctx) => {
       const bridgeFallbackDomains =

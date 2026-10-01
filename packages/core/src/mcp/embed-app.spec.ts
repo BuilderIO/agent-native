@@ -425,8 +425,19 @@ describe("embedApp", () => {
 
     expect(html).toContain("const remoteBridgeFallbackEnabled = false");
     expect(html).toContain("if (!remoteBridgeFallbackEnabled) throw nativeErr");
+    expect(html.endsWith("</body>\n</html>")).toBe(true);
     expect(csp?.connectDomains).not.toContain("https://esm.sh");
     expect(csp?.resourceDomains).not.toContain("https://esm.sh");
+  });
+
+  it("renders the shared MCP App document without trailing characters", () => {
+    const resource = embedApp({ title: "MCP widget" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "create-deck", appId: "slides" })
+        : resource.html;
+
+    expect(html.endsWith("</body>\n</html>")).toBe(true);
   });
 
   it("allows full-app embeds to request a 900px canvas", () => {

@@ -107,7 +107,7 @@
           {
             "description": "Create a new editable presentation",
             "prompt": "Create a five-slide pitch deck for a neighborhood bakery opening a second location. Use cream backgrounds and espresso-brown headings. Cover the opportunity, target audience of morning commuters, launch plan, a first-month budget assumption capped at $20,000, and next steps.",
-            "tools_triggered": "get-workspace-defaults, create-deck",
+            "tools_triggered": "create-deck",
             "expected_behavior": "Create one editable five-slide deck in the connected Slides workspace, preserve the supplied facts and visual direction, and confirm its title and slides."
           },
           {
@@ -131,7 +131,7 @@
           {
             "description": "Duplicate an existing deck",
             "prompt": "Duplicate the Quarterly Planning Demo deck as Quarterly Planning Draft.",
-            "tools_triggered": "list-decks, get-deck, duplicate-deck",
+            "tools_triggered": "list-decks, duplicate-deck",
             "expected_behavior": "Create a separate copy with the requested title and leave the source deck intact."
           }
         ],

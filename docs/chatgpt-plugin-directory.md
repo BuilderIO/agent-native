@@ -6,7 +6,7 @@ The public `/apps/*` descriptions are the starting point for listing copy. ChatG
 
 ## Production endpoints
 
-Slides, Design, and Content were promoted at `9e1dbd1c81`.
+Connect these servers or rescan their domains in OpenAI’s dashboard only after PR #6542 is merged and the app deployments are promoted.
 
 | App     | MCP directory                                    | OpenAI challenge                                                     |
 | ------- | ------------------------------------------------ | -------------------------------------------------------------------- |
@@ -14,7 +14,7 @@ Slides, Design, and Content were promoted at `9e1dbd1c81`.
 | Design  | <https://design.agent-native.com/mcp/directory>  | <https://design.agent-native.com/.well-known/openai-apps-challenge>  |
 | Content | <https://content.agent-native.com/mcp/directory> | <https://content.agent-native.com/.well-known/openai-apps-challenge> |
 
-The MCP endpoints require authentication. Each challenge URL returns 404 until that app’s dashboard-issued `OPENAI_APPS_CHALLENGE_TOKEN` is configured and the app is redeployed. After redeployment, verify that the public challenge response exactly matches the token OpenAI issued for that domain.
+The MCP endpoints require authentication. After promotion, each challenge URL returns 404 until that app’s dashboard-issued `OPENAI_APPS_CHALLENGE_TOKEN` is configured and the app is redeployed. After redeployment, verify that the public challenge response exactly matches the token OpenAI issued for that domain.
 
 ## Build the upload packages
 
@@ -46,7 +46,7 @@ The core route `GET /.well-known/openai-apps-challenge` returns the configured `
 
 Use OpenAI’s [submission guide](https://developers.openai.com/plugins/deploy/submission), [plugin guidelines](https://developers.openai.com/plugins/plugin-guidelines), and [tool and UI reference](https://developers.openai.com/plugins/reference).
 
-Before opening the dashboard, confirm the organization’s project residency is eligible for MCP plugin submissions. Complete the following in order for each app:
+Confirm PR #6542 is merged and the Slides, Design, and Content deployments are promoted before continuing. Then confirm the organization’s project residency is eligible for MCP plugin submissions and complete the following in order for each app:
 
 1. Verify the publisher and confirm its identity matches `developerName` in the source manifest. The manifests currently use `Agent-Native`; update the name and rebuild the ZIP if the verified identity differs.
 2. Have an organization owner grant the submitting account `api.apps.write` access.

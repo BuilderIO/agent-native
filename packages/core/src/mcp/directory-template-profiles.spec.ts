@@ -7,8 +7,15 @@ import { describe, expect, it } from "vitest";
 import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
-import { isActionExposedToExternalAgents } from "../action.js";
+import {
+  filterFrameworkToolGroups,
+  type FrameworkToolGroup,
+} from "../framework-tools.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import {
+  filterAgentTools,
+  filterMcpOnlyActions,
+} from "../server/agent-chat/action-filters-a2a.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import { validateMcpDirectoryProfile } from "./build-server.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
@@ -24,6 +31,16 @@ const templateProfiles = [
   { appId: "design", profile: designProfile },
   { appId: "content", profile: contentProfile },
 ] as const;
+
+function externalMcpActions(
+  actions: Parameters<typeof filterAgentTools>[0],
+  disabledGroups: ReadonlySet<FrameworkToolGroup>,
+) {
+  return {
+    ...filterFrameworkToolGroups(filterMcpOnlyActions(actions), disabledGroups),
+    ...filterFrameworkToolGroups(filterAgentTools(actions), disabledGroups),
+  };
+}
 
 async function loadTemplateActions(appId: string) {
   const projectRoot = path.join(repoRoot, "templates", appId);
@@ -55,11 +72,7 @@ async function loadTemplateActions(appId: string) {
     ),
   );
   const actions = loadActionsFromStaticRegistry(modules);
-  const productionActions = Object.fromEntries(
-    Object.entries(actions).filter(([, entry]) =>
-      isActionExposedToExternalAgents(entry),
-    ),
-  );
+  const productionActions = externalMcpActions(actions, new Set());
   return { actions, productionActions, actionNames };
 }
 
@@ -140,48 +153,82 @@ describe("ChatGPT directory template profiles", () => {
         visibleText.some((text) => mentionsTool(text, name)),
       );
       expect(leaks).toEqual([]);
+
+      const unlistedKeyTools = (profile.keyToolNames ?? []).filter(
+        (name) => !profile.connectorCatalog.includes(name),
+      );
+      expect(
+        unlistedKeyTools.filter((name) =>
+          visibleText.some((text) => mentionsTool(text, name)),
+        ),
+      ).toEqual([]);
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );
 
-  it("validates names against production-exposed actions, not the raw registry", () => {
+  it("validates names against the plugin's MCP action surface", () => {
     const annotations = {
       readOnlyHint: true,
       destructiveHint: false,
       openWorldHint: false,
     };
     const rawActions = {
-      visible: {
-        tool: { description: "A visible action." },
+      "agent-visible": {
+        tool: { description: "An agent-visible action." },
         run: async () => ({ ok: true }),
         mcpAnnotations: annotations,
       },
-      hidden: {
-        tool: { description: "An action omitted from the external surface." },
+      "mcp-only": {
+        tool: { description: "An MCP-only action." },
         run: async () => ({ ok: true }),
-        mcpTool: false,
+        agentTool: false,
+        mcpTool: true,
+        mcpAnnotations: annotations,
+      },
+      "ui-only": {
+        tool: { description: "An action reserved for the UI." },
+        run: async () => ({ ok: true }),
+        uiOnly: true,
+        mcpTool: true,
+        mcpAnnotations: annotations,
+      },
+      "disabled-group": {
+        tool: { description: "An action in a disabled framework group." },
+        run: async () => ({ ok: true }),
+        frameworkGroup: "labs",
         mcpAnnotations: annotations,
       },
     };
-    const productionActions = Object.fromEntries(
-      Object.entries(rawActions).filter(([, entry]) =>
-        isActionExposedToExternalAgents(entry),
-      ),
+    const productionActions = externalMcpActions(
+      rawActions,
+      new Set<FrameworkToolGroup>(["labs"]),
     );
     const config = {
       name: "agent-native-directory-test",
-      description: "Production external action surface validation.",
+      description: "External MCP action surface validation.",
       catalogMode: "directory" as const,
       actions: rawActions,
       productionActions,
-      directoryProfile: { connectorCatalog: ["visible"] },
+      directoryProfile: {
+        connectorCatalog: ["agent-visible", "mcp-only"],
+      },
     };
 
     expect(() => validateMcpDirectoryProfile(config)).not.toThrow();
+    expect(Object.keys(productionActions)).toEqual([
+      "mcp-only",
+      "agent-visible",
+    ]);
     expect(() =>
       validateMcpDirectoryProfile({
         ...config,
-        directoryProfile: { connectorCatalog: ["hidden"] },
+        directoryProfile: { connectorCatalog: ["ui-only"] },
+      }),
+    ).toThrow(/not registered or is not exposed to MCP/);
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...config,
+        directoryProfile: { connectorCatalog: ["disabled-group"] },
       }),
     ).toThrow(/not registered or is not exposed to MCP/);
   });
