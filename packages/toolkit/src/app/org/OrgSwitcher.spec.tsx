@@ -505,9 +505,10 @@ describe("OrgSwitcher (account menu)", () => {
 
     expect(
       container
-        .querySelector<HTMLAnchorElement>("a[aria-label]")
+        .querySelector<HTMLButtonElement>("button[aria-label]")
         ?.getAttribute("aria-label"),
     ).toContain("Workspace balance: 210 · Monthly limit · 120 of 500 used");
+    expect(container.querySelector("a[aria-label]")).toBeNull();
     expect(container.textContent).not.toContain("$");
   });
 

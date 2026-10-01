@@ -213,24 +213,32 @@ export function BuilderCreditNotice({
   ]
     .filter((label): label is string => label !== null)
     .join(" · ");
+  const compactTriggerClassName =
+    "mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return compact ? (
     <TooltipProvider delayDuration={0}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <a
-            href={builderUpgradeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={noticeLabel}
-            className="mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {exhausted ? (
+          {exhausted ? (
+            <a
+              href={builderUpgradeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={noticeLabel}
+              className={compactTriggerClassName}
+            >
               <IconAlertCircle className="size-4" aria-hidden="true" />
-            ) : (
+            </a>
+          ) : (
+            <button
+              type="button"
+              aria-label={noticeLabel}
+              className={compactTriggerClassName}
+            >
               <IconCoin className="size-4" aria-hidden="true" />
-            )}
-          </a>
+            </button>
+          )}
         </TooltipTrigger>
         <TooltipContent side="right">{noticeLabel}</TooltipContent>
       </Tooltip>
