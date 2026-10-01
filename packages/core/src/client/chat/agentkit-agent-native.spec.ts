@@ -2020,7 +2020,25 @@ describe("createAgentNativeAgentKitTransport", () => {
           return json({
             id: threadId,
             threadData: JSON.stringify({
-              messages: [],
+              messages: awaitingRedispatch
+                ? [
+                    {
+                      message: {
+                        id: "assistant-continuation-chunk",
+                        role: "assistant",
+                        content: [{ type: "text", text: "Partial response" }],
+                        status: { type: "complete" },
+                        metadata: {
+                          runId,
+                          custom: {
+                            continued: true,
+                            foldedRunIds: [runId],
+                          },
+                        },
+                      },
+                    },
+                  ]
+                : [],
               agentKit: { messages: [] },
             }),
           });

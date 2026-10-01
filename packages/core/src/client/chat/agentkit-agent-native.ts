@@ -359,8 +359,10 @@ function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
   return new Set(
     messages.flatMap((message) => {
       const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
       return message.role === "assistant" &&
         message.status === "complete" &&
+        custom?.continued !== true &&
         typeof runId === "string"
         ? [runId]
         : [];
