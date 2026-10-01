@@ -28,22 +28,17 @@ function parseTracesSampleRate(): number {
   return n;
 }
 
-function containsSqlQueryFailure(
-  value: unknown,
-  seen = new WeakSet<object>(),
-): boolean {
+function isSqlLogEntryFailure(value: unknown): boolean {
   if (typeof value === "string") return isSqlQueryFailureText(value);
-  if (value == null || typeof value !== "object" || seen.has(value)) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
-  seen.add(value);
 
-  if (isStructuredSqlQuery(value)) {
-    return true;
-  }
-
-  return Object.values(value).some((child) =>
-    containsSqlQueryFailure(child, seen),
+  return (
+    isStructuredSqlQuery(value) ||
+    Object.values(value).some(
+      (child) => typeof child === "string" && isSqlQueryFailureText(child),
+    )
   );
 }
 
@@ -118,7 +113,7 @@ export function initServerSentry(): Promise<boolean> {
             return null;
           }
 
-          const hasSqlLogEntryFailure = containsSqlQueryFailure(event.logentry);
+          const hasSqlLogEntryFailure = isSqlLogEntryFailure(event.logentry);
           redactSentryEventPayload(event, false, true);
           if (hasSqlLogEntryFailure && event.logentry) {
             delete event.logentry.params;

@@ -274,6 +274,29 @@ describe("server/sentry", () => {
       expect(result.contexts.search.params).toEqual(searchParams);
     });
 
+    it("preserves log-entry params when nested SQL params are redacted", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const diagnosticParams = ["report lookup details"];
+      const privateValue = "private customer value";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        logentry: {
+          message: "Customer search completed",
+          params: diagnosticParams,
+          cause: { query: "values ($1)", params: [privateValue] },
+        },
+      } as never) as {
+        logentry: { params: string[]; cause: { params: unknown } };
+      };
+
+      expect(result.logentry.params).toEqual(diagnosticParams);
+      expect(result.logentry.cause.params).toBe("<redacted>");
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
     it("redacts parameters for structured standalone VALUES SQL", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
