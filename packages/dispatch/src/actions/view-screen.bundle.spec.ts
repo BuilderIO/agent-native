@@ -2,16 +2,17 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+
 import { build } from "vite";
+import { afterEach, describe, expect, it } from "vitest";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
-    ),
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true })),
   );
 });
 
@@ -74,14 +75,27 @@ describe("Dispatch view-screen production bundle", () => {
         }
 
         const exports = [
-          "listWorkspaceApps", "listOverview", "getAgentThreadDebug",
-          "listAgentRunFailures", "listThreadDebugSources", "searchAgentThreads",
-          "listDispatchUsageMetrics", "listVaultOverview", "listSecretOptions",
-          "listGrants", "listRequests", "getVaultAccessSettings", "canManageVault",
-          "listWorkspaceResourceOptions", "listWorkspaceResourcesForApp",
+          "listWorkspaceApps",
+          "listOverview",
+          "getAgentThreadDebug",
+          "listAgentRunFailures",
+          "listThreadDebugSources",
+          "searchAgentThreads",
+          "listDispatchUsageMetrics",
+          "listVaultOverview",
+          "listSecretOptions",
+          "listGrants",
+          "listRequests",
+          "getVaultAccessSettings",
+          "canManageVault",
+          "listWorkspaceResourceOptions",
+          "listWorkspaceResourcesForApp",
         ];
         return exports
-          .map((name) => `export const ${name} = async () => ${JSON.stringify(name)};`)
+          .map(
+            (name) =>
+              `export const ${name} = async () => ${JSON.stringify(name)};`,
+          )
           .join("\n");
       },
     };
@@ -108,7 +122,9 @@ describe("Dispatch view-screen production bundle", () => {
     globalThis.__viewScreenCalls = calls;
     globalThis.__viewScreenNavigation = { view: "connected-agents" };
     try {
-      const action = await import(`${pathToFileURL(bundlePath).href}?connected`);
+      const action = await import(
+        `${pathToFileURL(bundlePath).href}?connected`
+      );
       const connected = JSON.parse(await action.default.run());
       expect(connected.connectedAgents).toBe("list-connected-agents");
       expect(connected.mcpAppAccess).toBe("list-mcp-app-access");
@@ -119,7 +135,10 @@ describe("Dispatch view-screen production bundle", () => {
 
       calls.length = 0;
       globalThis.__viewScreenNavigation = {
-        view: "dreams", sourceId: "source-1", status: "open", id: "dream-1",
+        view: "dreams",
+        sourceId: "source-1",
+        status: "open",
+        id: "dream-1",
       };
       const dreams = JSON.parse(await action.default.run());
       expect(dreams.dreamCandidates).toBe("list-dream-candidates");

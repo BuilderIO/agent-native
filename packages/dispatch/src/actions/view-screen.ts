@@ -1,14 +1,7 @@
-import type { ActionEntry } from "@agent-native/core/server";
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import type { ActionEntry } from "@agent-native/core/server";
 import { z } from "zod";
-
-import getDream from "./get-dream.js";
-import getDreamSettings from "./get-dream-settings.js";
-import listConnectedAgents from "./list-connected-agents.js";
-import listDreamCandidates from "./list-dream-candidates.js";
-import listDreams from "./list-dreams.js";
-import listMcpAppAccess from "./list-mcp-app-access.js";
 
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
 import { listOverview } from "../server/lib/dispatch-store.js";
@@ -32,6 +25,12 @@ import {
   listWorkspaceResourcesForApp,
 } from "../server/lib/workspace-resources-store.js";
 import { CHAT_FIRST_PANE_STATE_KEY } from "../shared/chat-first-pane.js";
+import getDreamSettings from "./get-dream-settings.js";
+import getDream from "./get-dream.js";
+import listConnectedAgents from "./list-connected-agents.js";
+import listDreamCandidates from "./list-dream-candidates.js";
+import listDreams from "./list-dreams.js";
+import listMcpAppAccess from "./list-mcp-app-access.js";
 
 const localDispatchActions: Record<string, ActionEntry> = {
   "list-connected-agents": listConnectedAgents,
