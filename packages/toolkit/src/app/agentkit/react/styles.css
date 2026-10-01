@@ -236,8 +236,8 @@
   margin: 0 auto;
   padding-block-end: 0.625rem;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--agentkit-border) 70%, transparent);
-  border-radius: var(--agentkit-radius-inner);
+  border: 0;
+  border-radius: var(--agentkit-radius-inner) var(--agentkit-radius-inner) 0 0;
   background: color-mix(
     in srgb,
     var(--agentkit-subtle) 78%,
@@ -249,14 +249,12 @@
     block-size 200ms var(--ease-collapse, ease-out),
     margin 200ms var(--ease-collapse, ease-out),
     opacity 160ms ease-out,
-    transform 200ms var(--ease-collapse, ease-out),
-    border-color 160ms ease-out;
+    transform 200ms var(--ease-collapse, ease-out);
 }
 
 .agentkit-composer-stack [data-agent-message-queue="true"][data-empty="true"] {
   margin-block-end: 0;
   padding-block-end: 0;
-  border-color: transparent;
   opacity: 0;
   pointer-events: none;
   transform: translateY(0.5rem);

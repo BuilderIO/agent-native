@@ -277,6 +277,9 @@ describe("AgentKitChat", () => {
 
     expect(styles).toContain('[data-agent-composer-slot="root"]');
     expect(styles).toContain('[data-agent-message-queue="true"]');
+    expect(styles).toMatch(
+      /\[data-agent-message-queue="true"\]\[data-agent-message-queue-variant="recessed"\] \{[\s\S]*border: 0;[\s\S]*border-radius: var\(--agentkit-radius-inner\) var\(--agentkit-radius-inner\) 0 0;/,
+    );
     expect(styles).toContain("margin: 0 auto;");
     expect(styles).not.toContain("margin: 0 auto -1rem;");
     expect(styles).toContain('[data-agent-native-composer-popover="true"]');
@@ -465,13 +468,15 @@ describe("AgentKitChat", () => {
       'execMode={executionMode === "plan" ? "plan" : "build"}',
     );
     expect(source).toContain("mode: executionMode");
-    expect(source).toContain("control.steerQueued(item.id)");
+    expect(source).toContain(
+      "control.steerQueued(item.id, { interruptActiveRun: true })",
+    );
     expect(source).toContain("control.removeQueued(item.id)");
     expect(source).toContain("await onBeforeSubmit()");
     expect(source).toContain(
       "await onSubmitOverride(text, files, references, submitOptions)",
     );
-    expect(source).toContain("await control.removeQueued(item.id)");
+    expect(source).not.toContain("await submitMessage(item.text, [], [],");
     expect(source).toContain("pending={command.pending || Boolean(disabled)}");
     expect(source).toContain(
       "const submissionBlocked = Boolean(submissionDisabled) || command.pending",

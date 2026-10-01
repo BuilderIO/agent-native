@@ -1214,7 +1214,7 @@ describe("AgentKitChat interactions", () => {
       {
         id: "queued-first",
         threadId: "thread-queue",
-        text: "First",
+        text: "First\n\n<context>private source context</context>",
         createdAt: "2026-09-26T00:00:00.000Z",
       },
       {
@@ -1255,7 +1255,19 @@ describe("AgentKitChat interactions", () => {
           id: threadId,
           createdAt: "2026-09-26T00:00:00.000Z",
           updatedAt: "2026-09-26T00:00:00.000Z",
-          messages: [],
+          messages: [
+            {
+              id: "user-context",
+              role: "user" as const,
+              status: "complete" as const,
+              parts: [
+                {
+                  type: "text" as const,
+                  text: "Visible request\n\n<context>private source context</context>",
+                },
+              ],
+            },
+          ],
           activeRunIds: ["run-active"],
           runs: [
             {
@@ -1289,6 +1301,19 @@ describe("AgentKitChat interactions", () => {
         );
         await Promise.resolve();
       });
+      expect(
+        container.querySelector(".agentkit-user-message-text-content")
+          ?.textContent,
+      ).toContain("Visible request");
+      expect(
+        container.querySelector(".agentkit-user-message-text-content")
+          ?.textContent,
+      ).not.toContain("private source context");
+      const queueText =
+        container.querySelector('section[data-agent-message-queue="true"]')
+          ?.textContent ?? "";
+      expect(queueText).toContain("First");
+      expect(queueText).not.toContain("private source context");
       expect(
         container
           .querySelector<HTMLImageElement>(
@@ -1377,6 +1402,26 @@ describe("AgentKitChat interactions", () => {
         expect.objectContaining({
           threadId: "thread-queue",
           messageId: "queued-second",
+        }),
+        expect.anything(),
+      );
+
+      await act(async () => {
+        container
+          .querySelector<HTMLElement>(".agent-composer-prosemirror")
+          ?.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Enter",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(steerQueuedMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-queue",
+          messageId: "queued-first",
         }),
         expect.anything(),
       );

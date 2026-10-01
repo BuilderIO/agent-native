@@ -2890,7 +2890,20 @@ export function createAgentKitProtocolAdapter(
       pruneRetainedRuns();
       const run = runs.get(input.runId);
       if (!run || run.threadId !== input.threadId) {
-        throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        if (!runtime.cancel) {
+          throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        }
+        const result = await runtime.cancel({
+          sessionId: input.threadId,
+          runId: input.runId,
+          reason: "protocol-cancel",
+        });
+        if (result.status === "unsupported") {
+          throw new Error(
+            "The Core runtime does not support run cancellation.",
+          );
+        }
+        return;
       }
       touchRun(run);
       if (run.terminal) return;

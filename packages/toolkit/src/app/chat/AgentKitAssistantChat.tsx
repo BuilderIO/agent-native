@@ -465,9 +465,11 @@ function preserveQueuedIntent(
   preparedOptions: PromptComposerSubmitOptions,
   originalOptions: PromptComposerSubmitOptions,
 ): PromptComposerSubmitOptions {
-  return originalOptions.intent === "queued"
-    ? { ...preparedOptions, intent: "queued" }
-    : preparedOptions;
+  return {
+    ...preparedOptions,
+    ...(originalOptions.intent === "queued" ? { intent: "queued" } : {}),
+    ...(originalOptions.steer ? { steer: true } : {}),
+  };
 }
 
 function captureQueuedRunState(
@@ -1993,18 +1995,28 @@ const AgentKitAssistantChatBody = forwardRef<
       };
       localSubmissionRef.current = true;
       try {
-        if (composerOptions.intent === "queued") {
-          await control.queueMessage({
+        const steerWhileRunning =
+          composerOptions.steer &&
+          hasActiveAgentRuns(controller.getThread(threadId));
+        if (composerOptions.intent === "queued" || steerWhileRunning) {
+          const queued = await control.queueMessage({
             text: message,
             attachments: fileParts,
             metadata,
-            queuedWhileRunActive: composerOptions.queuedWhileRunActive,
+            queuedWhileRunActive:
+              composerOptions.queuedWhileRunActive || steerWhileRunning,
             onLocalSubmit: composerOptions.onLocalSubmit,
           });
+          if (steerWhileRunning) {
+            void control
+              .steerQueued(queued.id, { interruptActiveRun: true })
+              .catch(() => undefined);
+          }
         } else {
           await control.sendMessage({
             text: message,
             attachments: fileParts,
+            interruptActiveRun: composerOptions.steer,
             options: {
               model,
               mode: requestMode,

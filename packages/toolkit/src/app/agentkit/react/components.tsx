@@ -87,6 +87,7 @@ import {
 } from "./composer-submission.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
+import { splitAgentKitMessageContext } from "@agent-native/agentkit";
 import type { AgentThreadState } from "@agent-native/agentkit/client";
 import {
   AgentKitCapabilityError,
@@ -2153,7 +2154,10 @@ function AgentUserMessageText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const [expandable, setExpandable] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const content = useMemo(() => renderUserMessageText(text), [text]);
+  const content = useMemo(
+    () => renderUserMessageText(splitAgentKitMessageContext(text).message),
+    [text],
+  );
 
   useLayoutEffect(() => {
     const element = contentRef.current;
@@ -3629,10 +3633,15 @@ export function AgentKitComposer({
       onLocalSubmit,
     };
     if (payload.intent === "queued") {
-      await control.queueMessage({
+      const queued = await control.queueMessage({
         ...message,
         queuedWhileRunActive: activeAtSubmit,
       });
+      if (options.steer) {
+        void control
+          .steerQueued(queued.id, { interruptActiveRun: true })
+          .catch(() => undefined);
+      }
     } else {
       await control.sendMessage(message);
     }
@@ -3652,15 +3661,7 @@ export function AgentKitComposer({
           void command
             .execute(async () => {
               if (!(await prepareHostSubmit())) return;
-              if (onSubmitOverride) {
-                await submitMessage(item.text, [], [], {
-                  intent: "immediate",
-                  attachments: item.attachments,
-                });
-                await control.removeQueued(item.id);
-              } else {
-                await control.steerQueued(item.id);
-              }
+              await control.steerQueued(item.id, { interruptActiveRun: true });
             })
             .catch(() => undefined)
             .finally(focusComposer)
@@ -3728,7 +3729,7 @@ export function AgentKitComposer({
             variant="recessed"
             items={thread.queuedMessages.map((message) => ({
               id: message.id,
-              text: message.text,
+              text: splitAgentKitMessageContext(message.text).message,
               images: (message.attachments ?? []).flatMap((attachment) => {
                 if (!attachment.mediaType?.startsWith("image/")) return [];
                 const src = safeAgentImageSrc(attachment.url);
@@ -3824,6 +3825,10 @@ export function AgentKitComposer({
         autoFocus={autoFocus}
         composerRef={composerRef}
         willQueue={active && queueWhileRunning && canQueue}
+        onEmptySubmit={() => {
+          const next = thread.queuedMessages[0];
+          if (next) steerQueued?.(next);
+        }}
         showModelSelector={showModelSelector && canSelectModel}
         availableModels={availableModels}
         modelListLoading={modelListLoading}

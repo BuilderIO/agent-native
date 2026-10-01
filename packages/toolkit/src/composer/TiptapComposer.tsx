@@ -135,6 +135,7 @@ export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
 export interface TiptapComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
+  steer?: boolean;
   contextItems?: ComposerContextSnapshot;
   /** Clear the submitted draft once the host owns the message and its failure recovery. */
   onLocalSubmit?: () => void;
@@ -428,7 +429,7 @@ export function getComposerSubmitIntentForEnterKey(
   if (event.key !== "Enter" || event.shiftKey) return null;
 
   const queuedModifierPressed = isMac ? event.metaKey : event.ctrlKey;
-  if (queuedModifierPressed) return "queued";
+  if (queuedModifierPressed) return "immediate";
 
   if (!event.metaKey && !event.ctrlKey) return "immediate";
 
@@ -916,6 +917,7 @@ export interface TiptapComposerProps {
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
   ) => void | Promise<void>;
+  onEmptySubmit?: () => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
@@ -2570,6 +2572,7 @@ export function TiptapComposer({
   initialText,
   initialTextKey,
   onSubmit,
+  onEmptySubmit,
   onBeforeSubmit,
   onSubmissionPendingChange,
   getSubmitFailureDraftScope,
@@ -3249,7 +3252,7 @@ export function TiptapComposer({
 
         // Submit on Enter. Shift+Enter inserts a newline and keeps the
         // composer scrolled to the caret.
-        // Cmd+Enter on macOS / Ctrl+Enter elsewhere marks the submit queued.
+        // Cmd+Enter on macOS / Ctrl+Enter elsewhere steers the active run.
         if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
           return insertComposerHardBreakAndScrollIntoView(view);
@@ -3258,7 +3261,11 @@ export function TiptapComposer({
         const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
         if (submitIntent) {
           event.preventDefault();
-          void submitComposer(submitIntent);
+          void submitComposer(
+            submitIntent,
+            undefined,
+            isMac ? event.metaKey : event.ctrlKey,
+          );
           return true;
         }
 
@@ -4055,7 +4062,9 @@ export function TiptapComposer({
     async (
       intent: ComposerSubmitIntent = "immediate",
       textOverride?: string,
+      steer = false,
     ): Promise<boolean> => {
+      const submitIntent = steer ? "immediate" : willQueue ? "queued" : intent;
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return false;
       if (submitInFlightRef.current || attachmentCleanupPendingRef.current > 0)
@@ -4111,8 +4120,23 @@ export function TiptapComposer({
       let submittedSlotReferences = slotReferencesRef.current;
       let submittedEditorDocument = ed.state.doc;
       let submittedDraftHtml = ed.getHTML();
-      if (!text.trim() && references.length === 0 && attachments.length === 0)
-        return false;
+      if (!text.trim() && references.length === 0 && attachments.length === 0) {
+        if (!onEmptySubmit) return false;
+        try {
+          await onEmptySubmit();
+          return true;
+        } catch (error) {
+          setContextSubmissionError(
+            formatAttachmentError(
+              error,
+              t("agentChat.composer.submitFailed", {
+                defaultValue: "Could not submit. Try again.",
+              }),
+            ),
+          );
+          return false;
+        }
+      }
       const oversizedDocumentError = getOversizedDocumentAttachmentError(
         attachments,
         {
@@ -4569,7 +4593,8 @@ export function TiptapComposer({
             references,
             submittedAttachments,
             {
-              intent,
+              intent: submitIntent,
+              ...(steer ? { steer: true } : {}),
               onLocalSubmit,
               ...(composerModeContext === undefined
                 ? {}
@@ -4692,6 +4717,7 @@ export function TiptapComposer({
       clearOnSubmitImmediately,
       getSubmitFailureDraftScope,
       onBeforeSubmit,
+      onEmptySubmit,
       onSubmissionPendingChange,
       extractComposerPayload,
       syncComposerState,
@@ -4701,6 +4727,7 @@ export function TiptapComposer({
       voice,
       allSlashCommands,
       announceSlashCommand,
+      willQueue,
       t,
     ],
   );
@@ -5398,7 +5425,13 @@ export function TiptapComposer({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => void submitComposer("immediate")}
+                    onClick={(event) =>
+                      void submitComposer(
+                        "immediate",
+                        undefined,
+                        event.metaKey || event.ctrlKey,
+                      )
+                    }
                     disabled={!canSend || sendButtonDisabled}
                     aria-label={sendButtonTooltip}
                     data-agent-composer-slot="send-button"

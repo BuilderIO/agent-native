@@ -2534,6 +2534,130 @@ describe("AgentKitClient", () => {
     );
   });
 
+  it("treats steering a queue item already promoted into history as success", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Steer now",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const steeringResult = Promise.withResolvers<void>();
+    const steerQueuedMessage = vi.fn(() => steeringResult.promise);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async queueMessage() {
+          return { message: queued };
+        },
+        steerQueuedMessage,
+      },
+    });
+
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+    const firstSteer = client.steerQueuedMessage("thread-1", queued.id);
+    await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+    const duplicateSteer = client.steerQueuedMessage("thread-1", queued.id);
+    expect(duplicateSteer).toBe(firstSteer);
+    steeringResult.resolve();
+    await Promise.all([firstSteer, duplicateSteer]);
+    await client.steerQueuedMessage("thread-1", queued.id);
+
+    expect(steerQueuedMessage).toHaveBeenCalledOnce();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    expect(client.getThread("thread-1").messages).toContainEqual(
+      expect.objectContaining({ id: queued.id, role: "user" }),
+    );
+    await client.shutdown();
+  });
+
+  it("queues server-rejected sends without marking their optimistic message failed", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-after-conflict",
+      threadId: "thread-1",
+      text: "Do this after the current run",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      metadata: { contextItems: [{ key: "selection", text: "full context" }] },
+    };
+    const startRun = vi.fn(async () => {
+      throw Object.assign(new Error("Run already in progress"), {
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-active",
+      });
+    });
+    const queueMessage = vi.fn(async () => ({ message: queued }));
+    const onLocalSubmit = vi.fn();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        startRun,
+        queueMessage,
+        async *subscribeToRun({ signal }) {
+          yield protocolEvent(1, { type: "run.started" });
+          await new Promise<void>((resolve) =>
+            signal?.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        },
+      },
+    });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      metadata: queued.metadata,
+      onLocalSubmit,
+    });
+
+    expect(handle.runId).toBe("run-active");
+    expect(startRun).toHaveBeenCalledOnce();
+    expect(queueMessage).toHaveBeenCalledOnce();
+    expect(queueMessage.mock.calls[0]?.[0]).toMatchObject({
+      threadId: "thread-1",
+      text: queued.text,
+      metadata: queued.metadata,
+    });
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
+    expect(client.getThread("thread-1")).toMatchObject({
+      activeRunIds: ["run-active"],
+      queuedMessages: [queued],
+      messages: [],
+    });
+
+    await client.shutdown();
+  });
+
+  it("treats an item missing at promotion as already claimed by another tab", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-claimed-elsewhere",
+      threadId: "thread-1",
+      text: "Run once",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const onError = vi.fn();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async queueMessage() {
+          return { message: queued };
+        },
+        async steerQueuedMessage() {
+          throw new Error(`Unknown queued message: ${queued.id}`);
+        },
+      },
+      onError,
+    });
+
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+    await client.steerQueuedMessage("thread-1", queued.id);
+
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    expect(onError).not.toHaveBeenCalled();
+    await client.shutdown();
+  });
+
   it("rolls rejected steering back without reporting a connection outage", async () => {
     const queued: AgentQueuedMessage = {
       id: "queued-1",
@@ -4182,12 +4306,83 @@ describe("AgentKitClient", () => {
       });
       await run.completed;
 
-      const retryDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000];
+      const retryDelays = [500, 1_000, 2_000, 2_000, 2_000, 2_000, 2_000];
       for (const [index, delay] of retryDelays.entries()) {
         await vi.advanceTimersByTimeAsync(delay);
         expect(attempts).toBe(index + 2);
       }
       expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    } finally {
+      await client.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("expedites a busy queued promotion when run completion arrives in flight", async () => {
+    vi.useFakeTimers();
+    const runCompletion = Promise.withResolvers<void>();
+    const runStarted = Promise.withResolvers<void>();
+    const firstPromotionStarted = Promise.withResolvers<void>();
+    const finishFirstPromotion = Promise.withResolvers<void>();
+    const secondPromotionStarted = Promise.withResolvers<void>();
+    let attempts = 0;
+    const transport: AgentTransport = {
+      capabilities: { approvals: true, messageQueue: true },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async queueMessage(input) {
+        return {
+          message: {
+            id: "queued-1",
+            threadId: input.threadId,
+            text: input.text,
+            createdAt: "2026-08-29T00:00:00.000Z",
+          },
+        };
+      },
+      async resolveApproval() {},
+      async steerQueuedMessage() {
+        attempts += 1;
+        if (attempts === 1) {
+          firstPromotionStarted.resolve();
+          await finishFirstPromotion.promise;
+          throw new AgentKitRunSlotBusyError();
+        }
+        secondPromotionStarted.resolve();
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        if (runId === "run-1") {
+          runStarted.resolve();
+          await runCompletion.promise;
+        }
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    try {
+      const run = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Finish this response first",
+      });
+      await runStarted.promise;
+      await client.queueMessage({ threadId: "thread-1", text: "Run next" });
+      await client.resolveApproval({
+        threadId: "thread-1",
+        runId: "run-1",
+        approvalId: "approval-1",
+        response: { decision: "approve" },
+      });
+      await firstPromotionStarted.promise;
+
+      runCompletion.resolve();
+      await run.completed;
+      finishFirstPromotion.resolve();
+      await secondPromotionStarted.promise;
+
+      expect(attempts).toBe(2);
     } finally {
       await client.dispose();
       vi.useRealTimers();
