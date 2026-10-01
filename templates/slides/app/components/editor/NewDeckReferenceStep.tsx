@@ -212,7 +212,10 @@ export function NewDeckReferenceStep({
     isValidReferenceSourceValue(selectedSource.kind, selectedSource.value),
   );
   const hasSelection = Boolean(
-    selectedDesignSystemId || selectedReferenceDeckId || selectedSourceValid,
+    selectedDesignSystemId ||
+    selectedReferenceDeckId ||
+    selectedSourceValid ||
+    (!selectedSource && designSystems.length === 0 && decks.length === 0),
   );
 
   useEffect(() => {

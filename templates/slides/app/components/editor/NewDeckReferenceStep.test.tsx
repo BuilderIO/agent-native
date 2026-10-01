@@ -452,16 +452,30 @@ describe("<NewDeckReferenceStep>", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("disables Continue when no reference or design system is selected", async () => {
-    await renderStep({ designSystems: [], defaultDesignSystemId: null });
+  it("continues without references when the workspace has no design systems or decks", async () => {
+    const { onSelect } = await renderStep({
+      designSystems: [],
+      defaultDesignSystemId: null,
+    });
 
     expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
       "disabled",
-      true,
+      false,
     );
     expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
       "disabled",
       false,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designSystemId: null,
+        referenceDeckId: null,
+      }),
     );
   });
 
