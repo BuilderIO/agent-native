@@ -147,6 +147,7 @@ import {
   LoopLimitContinueCard,
   PlanModeCallout,
   getRequestModeMetadata,
+  isMissingLlmProviderRunError,
   type RunErrorInfo,
 } from "./chat/run-recovery.js";
 import type {
@@ -214,6 +215,8 @@ type ThreadRestoreState =
 
 type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryAction?: "continue" | "retry";
+  /** The failed run a retry answers; one retry per run. */
+  recoveryOfRunId?: string;
   recoveryReferences?: Reference[];
   recoveryModel?: string;
   recoveryEngine?: string;
@@ -544,6 +547,7 @@ interface AgentKitSurfaceContextValue {
       | "recoveryEngine"
       | "recoveryEffort"
       | "recoveryRequestMode"
+      | "recoveryOfRunId"
     >,
   ) => Promise<AssistantChatSubmitResult>;
   submitSuggestion: (suggestion: AgentSuggestionInput) => void;
@@ -1964,6 +1968,9 @@ const AgentKitAssistantChatBody = forwardRef<
                 ...(options.recoveryAction
                   ? { agentNativeRecoveryAction: options.recoveryAction }
                   : {}),
+                ...(options.recoveryOfRunId
+                  ? { agentNativeRecoveryOfRunId: options.recoveryOfRunId }
+                  : {}),
                 ...(options.deferredSubmissionId
                   ? {
                       agentNativeDeferredSubmissionId:
@@ -2563,6 +2570,7 @@ const AgentKitAssistantChatBody = forwardRef<
         | "recoveryEngine"
         | "recoveryEffort"
         | "recoveryRequestMode"
+        | "recoveryOfRunId"
       >,
     ) => {
       return submit(
@@ -4308,23 +4316,71 @@ function AgentKitRunFailure({
       }),
     );
   }, [authErrorReason, surface.props.tabId, threadId]);
-  if (dismissed === runId) return null;
-  if (
-    error.code === "AGENT_CHAT_AI_SETUP_REQUIRED" ||
-    error.code === "missing_api_key"
-  ) {
+  const setupFailure = isAiSetupRunFailure(error);
+  const supersededAt = thread.runs[runId]?.startedAt;
+  const superseded = Object.values(thread.runs).some(
+    (run) =>
+      run.id !== runId &&
+      Boolean(run.startedAt && supersededAt && run.startedAt > supersededAt),
+  );
+  const lastUserMessage = [...thread.messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const retryText = lastUserMessage ? agentMessageText(lastUserMessage) : "";
+  const retryMetadata = asRecord(lastUserMessage?.metadata);
+  const retryCustomMetadata = asRecord(retryMetadata?.custom);
+  const metadataString = (key: string) => {
+    const value = retryMetadata?.[key] ?? retryCustomMetadata?.[key];
+    return typeof value === "string" && value.trim() ? value : undefined;
+  };
+  const retryFileParts =
+    lastUserMessage?.parts.filter((part) => part.type === "file") ?? [];
+  const retryHasUnavailableAttachment = retryFileParts.some(
+    (part) => !part.url && !part.fileId,
+  );
+  const retryReferences = Array.isArray(retryMetadata?.references)
+    ? (retryMetadata.references as Reference[])
+    : [];
+  const retryRequestMode = metadataString("requestMode");
+  const alreadyRetried = thread.messages.some(
+    (message) =>
+      asRecord(asRecord(message.metadata)?.custom)
+        ?.agentNativeRecoveryOfRunId === runId,
+  );
+  const retryFailedTurn = () =>
+    surface.sendRecoveryMessage(
+      retryText || "Please retry the last request.",
+      "retry",
+      undefined,
+      retryFileParts,
+      retryReferences,
+      {
+        recoveryModel: metadataString("model"),
+        recoveryEngine: metadataString("engine"),
+        recoveryEffort: metadataString("effort"),
+        recoveryOfRunId: runId,
+        ...(retryRequestMode === "plan" || retryRequestMode === "act"
+          ? { recoveryRequestMode: retryRequestMode }
+          : {}),
+      },
+    );
+  const resumeAfterSetup = useResumeAfterAiSetup(
+    setupFailure && !superseded && !alreadyRetried,
+    retryFailedTurn,
+  );
+  if (dismissed === runId || superseded) return null;
+  if (setupFailure) {
     if (surface.setupMissing) return null;
     return (
       <BuilderSetupCard
         fullWidth
         attached
         layout={surface.props.missingApiKeySetupLayout ?? "default"}
-        onConnected={() =>
-          window.dispatchEvent(new Event("agent-engine:configured-changed"))
-        }
-        onRetry={() =>
-          window.dispatchEvent(new Event("agent-engine:configured-changed"))
-        }
+        onConnected={() => {
+          window.dispatchEvent(new Event("agent-engine:configured-changed"));
+          resumeAfterSetup();
+        }}
+        onRetry={alreadyRetried ? undefined : resumeAfterSetup}
       />
     );
   }
@@ -4350,48 +4406,13 @@ function AgentKitRunFailure({
     runId,
     recoverable: error.retryable,
   };
-  const lastUserMessage = [...thread.messages]
-    .reverse()
-    .find((message) => message.role === "user");
-  const retryText = lastUserMessage ? agentMessageText(lastUserMessage) : "";
-  const retryMetadata = asRecord(lastUserMessage?.metadata);
-  const retryCustomMetadata = asRecord(retryMetadata?.custom);
-  const metadataString = (key: string) => {
-    const value = retryMetadata?.[key] ?? retryCustomMetadata?.[key];
-    return typeof value === "string" && value.trim() ? value : undefined;
-  };
-  const retryFileParts =
-    lastUserMessage?.parts.filter((part) => part.type === "file") ?? [];
-  const retryHasUnavailableAttachment = retryFileParts.some(
-    (part) => !part.url && !part.fileId,
-  );
-  const retryReferences = Array.isArray(retryMetadata?.references)
-    ? (retryMetadata.references as Reference[])
-    : [];
-  const retryRequestMode = metadataString("requestMode");
   return (
     <RunErrorRecoveryCard
       info={info}
       onContinue={() =>
         void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
       }
-      onRetry={() =>
-        void surface.sendRecoveryMessage(
-          retryText || "Please retry the last request.",
-          "retry",
-          undefined,
-          retryFileParts,
-          retryReferences,
-          {
-            recoveryModel: metadataString("model"),
-            recoveryEngine: metadataString("engine"),
-            recoveryEffort: metadataString("effort"),
-            ...(retryRequestMode === "plan" || retryRequestMode === "act"
-              ? { recoveryRequestMode: retryRequestMode }
-              : {}),
-          },
-        )
-      }
+      onRetry={() => void retryFailedTurn()}
       retryHasUnavailableAttachment={retryHasUnavailableAttachment}
       onFork={async () => {
         if (!lastUserMessage) return surface.props.onForkChat?.();
@@ -4404,6 +4425,55 @@ function AgentKitRunFailure({
   );
 }
 
+/**
+ * Sends a prompt that missing AI setup refused again, once: when setup goes
+ * from missing to ready while the refusal is on screen, or through the
+ * returned callback (the setup card's connect or retry). A thread reopened
+ * after connecting elsewhere keeps its Retry button instead of replaying.
+ */
+function useResumeAfterAiSetup(
+  enabled: boolean,
+  resend: () => Promise<AssistantChatSubmitResult>,
+): () => void {
+  const surface = useAgentKitSurface();
+  const sentRef = useRef(false);
+  const sawSetupMissingRef = useRef(false);
+  if (surface.setupMissing) sawSetupMissingRef.current = true;
+  const resendRef = useRef(resend);
+  resendRef.current = resend;
+  const resume = useCallback(() => {
+    if (sentRef.current) return;
+    sentRef.current = true;
+    const release = () => {
+      sentRef.current = false;
+    };
+    void resendRef.current().then((result) => {
+      if (result.status === "rejected") release();
+    }, release);
+  }, []);
+  const setupReady = surface.canChat && !surface.setupMissing;
+  useEffect(() => {
+    if (enabled && setupReady && sawSetupMissingRef.current) resume();
+  }, [enabled, resume, setupReady]);
+  return resume;
+}
+
+/** A refusal the user fixes by connecting Builder or adding a provider key. */
+function isAiSetupRunFailure(error: {
+  code: string;
+  message: string;
+  details?: unknown;
+}): boolean {
+  return (
+    error.code === "AGENT_CHAT_AI_SETUP_REQUIRED" ||
+    isMissingLlmProviderRunError({
+      message: error.message,
+      errorCode: error.code,
+      ...(typeof error.details === "string" ? { details: error.details } : {}),
+    })
+  );
+}
+
 function AgentKitConnectionError({
   error,
   threadId,
@@ -4413,6 +4483,9 @@ function AgentKitConnectionError({
 }: AgentConnectionErrorRenderProps) {
   const t = useT();
   const surface = useAgentKitSurface();
+  if (isAiSetupRunFailure(error)) {
+    return <AgentKitRefusedPromptSetup threadId={threadId} />;
+  }
   const chatGPTPlanUsageError =
     surface.props.selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
     `${error.code} ${error.message}`.match(
@@ -4470,6 +4543,39 @@ function AgentKitConnectionError({
         </span>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The server refused to start the turn because AI setup is missing, so there
+ * is no run to retry: the refused prompt is sent again, once, after setup.
+ */
+function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
+  const thread = useAgentThread(threadId);
+  const surface = useAgentKitSurface();
+  const refused = [...thread.messages]
+    .reverse()
+    .find((message) => message.role === "user" && message.status === "error");
+  const resume = useResumeAfterAiSetup(Boolean(refused), () =>
+    surface.sendRecoveryMessage(
+      refused ? agentMessageText(refused) : "",
+      "retry",
+      undefined,
+      refused?.parts.filter((part) => part.type === "file") ?? [],
+    ),
+  );
+  if (surface.setupMissing) return null;
+  return (
+    <BuilderSetupCard
+      fullWidth
+      attached
+      layout={surface.props.missingApiKeySetupLayout ?? "default"}
+      onConnected={() => {
+        window.dispatchEvent(new Event("agent-engine:configured-changed"));
+        if (refused) resume();
+      }}
+      onRetry={refused ? resume : undefined}
+    />
   );
 }
 

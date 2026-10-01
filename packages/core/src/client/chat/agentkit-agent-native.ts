@@ -20,6 +20,7 @@ import {
 } from "@agent-native/agentkit/protocol";
 
 import { BACKGROUND_FUNCTION_WALL_MS } from "../../app-config/run-lifecycle-invariants.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
 import { agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
@@ -267,6 +268,24 @@ function storedMessages(
       },
     ];
   });
+}
+
+/**
+ * The server answers a turn it refused before any run started with a durable
+ * notice and a failed run. The run renders as the recovery card, so showing the
+ * notice too would print the same failure twice.
+ */
+function isRenderedRunNotStartedNotice(
+  message: AgentMessage,
+  failedRunIds: ReadonlySet<string>,
+): boolean {
+  const metadata = asRecord(message.metadata);
+  return (
+    message.role === "assistant" &&
+    asRecord(metadata?.custom)?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
+    typeof metadata?.runId === "string" &&
+    failedRunIds.has(metadata.runId)
+  );
 }
 
 function reconcileDurableAssistantText(
@@ -916,17 +935,29 @@ export function createAgentNativeAgentKitTransport(
     const createdAt = timestamp(stored.createdAt, projectedAt);
     const updatedAt = timestamp(stored.updatedAt, createdAt);
     const repository = storedRepository(stored);
+    const agentKit = asRecord(repository.agentKit);
+    const failedRunIds = new Set(
+      (Array.isArray(agentKit?.runs) ? agentKit.runs : []).flatMap((value) => {
+        const run = asRecord(value);
+        return run?.status === "failed" &&
+          asRecord(run.error) &&
+          typeof run.id === "string"
+          ? [run.id]
+          : [];
+      }),
+    );
     const storedMessageProjection = storedMessages(
       repository.messages,
       now,
       options.adapter?.textFormat,
+    ).filter(
+      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
     );
     const queuedMessages = storedQueue(
       repository.queuedMessages,
       threadId,
       updatedAt,
     );
-    const agentKit = asRecord(repository.agentKit);
     const protocolSnapshot = agentKit
       ? parseAgentThreadSnapshot({
           id: threadId,
@@ -947,11 +978,7 @@ export function createAgentNativeAgentKitTransport(
           annotations: agentKit.annotations,
         })
       : undefined;
-    const durableMessages = storedMessages(
-      repository.messages,
-      now,
-      options.adapter?.textFormat,
-    );
+    const durableMessages = storedMessageProjection;
     const messages = protocolSnapshot?.messages
       ? reconcileDurableAssistantText(
           protocolSnapshot.messages,

@@ -19,6 +19,7 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
 import type { EngineContentPart, EngineMessage } from "./engine/types.js";
@@ -2466,6 +2467,84 @@ export function foldAssistantTurn(
   nextRepo.messages[lastIndex] = { ...lastEntry, message: mergedMessage };
   nextRepo.headId = mergedMessage.id ?? nextRepo.headId;
   return nextRepo;
+}
+
+/**
+ * A turn the server refused before any run started (no usable model
+ * credential, AI setup missing) still answers in the thread: a typed
+ * assistant error in the durable history and a failed AgentKit run, keyed by
+ * the turn id the client already uses as the run id, so the transcript shows
+ * the failure card with a retry instead of an unanswered prompt.
+ */
+export function foldUnstartedTurnFailure(
+  repo: any,
+  failure: {
+    runId: string;
+    threadId: string;
+    turnId?: string;
+    code: string;
+    message: string;
+    at?: Date;
+  },
+): any {
+  const assistant = buildAssistantMessage(
+    [
+      {
+        seq: 0,
+        event: {
+          type: "error",
+          error: failure.message,
+          errorCode: failure.code,
+        },
+      },
+    ],
+    failure.runId,
+    failure.turnId ? { turnId: failure.turnId } : {},
+  );
+  if (assistant) {
+    assistant.metadata.custom = {
+      ...(assistant.metadata.custom as Record<string, unknown> | undefined),
+      [RUN_NOT_STARTED_METADATA_KEY]: true,
+    };
+  }
+  const folded = assistant
+    ? foldAssistantTurn(repo, assistant, {
+        runId: failure.runId,
+        turnId: failure.turnId,
+      })
+    : normalizeThreadRepository(repo);
+  const at = (failure.at ?? new Date()).toISOString();
+  const previous = folded.agentKit ?? {};
+  const runs: AgentRunSnapshot[] = Array.isArray(previous.runs)
+    ? previous.runs.filter(
+        (run: AgentRunSnapshot | null) => run?.id !== failure.runId,
+      )
+    : [];
+  return {
+    ...folded,
+    agentKit: {
+      ...previous,
+      runs: [
+        ...runs,
+        {
+          id: failure.runId,
+          threadId: failure.threadId,
+          status: "failed",
+          lastSequence: 0,
+          startedAt: at,
+          completedAt: at,
+          error: {
+            code: failure.code,
+            message: failure.message,
+            retryable: false,
+          },
+        } satisfies AgentRunSnapshot,
+      ],
+      activeRunIds: Array.isArray(previous.activeRunIds)
+        ? previous.activeRunIds.filter((id: string) => id !== failure.runId)
+        : [],
+    },
+  };
 }
 
 export function normalizeThreadTitle(value: unknown): string {

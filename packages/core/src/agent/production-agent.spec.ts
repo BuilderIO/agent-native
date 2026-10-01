@@ -2066,6 +2066,81 @@ describe("createProductionAgentHandler", () => {
     expect(seenActionNames[1]).not.toContain(mcpToolName);
   });
 
+  it("records a turn refused for missing credentials before answering it", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const engine: AgentEngine = {
+      name: "needs-key-test",
+      label: "Needs key",
+      defaultModel: "needs-key-model",
+      supportedModels: ["needs-key-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    registerAgentEngine({
+      name: engine.name,
+      label: engine.label,
+      description: "Test engine that needs a key",
+      capabilities: engine.capabilities,
+      defaultModel: engine.defaultModel,
+      supportedModels: engine.supportedModels,
+      requiredEnvVars: ["NEEDS_KEY_TEST_API_KEY"],
+      create: () => engine,
+    });
+    const onRunNotStarted = vi.fn(async () => undefined);
+    const onRunPrepared = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      onRunPrepared,
+      onRunNotStarted,
+    });
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Create a pitch deck",
+                  threadId: "thread-unconnected",
+                  turnId: "turn-unconnected",
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(onRunNotStarted).toHaveBeenCalledWith({
+        runId: "turn-unconnected",
+        turnId: "turn-unconnected",
+        threadId: "thread-unconnected",
+        message: "Create a pitch deck",
+        attachments: [],
+        failure: {
+          code: "missing_credentials",
+          message: expect.stringContaining("No LLM provider"),
+        },
+      });
+      expect(onRunPrepared).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+      const body = await new Response(response as ReadableStream).text();
+      expect(body).toContain('"errorCode":"missing_credentials"');
+    } finally {
+      unregisterAgentEngine(engine.name);
+    }
+  });
+
   it("rejects a non-string request engine before resolving provider credentials", async () => {
     const stream = vi.fn();
     const systemPrompt = vi.fn(async () => "Test");

@@ -455,7 +455,10 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   };
 });
 
-vi.mock("./chat/run-recovery.js", () => ({
+vi.mock("./chat/run-recovery.js", async (importOriginal) => ({
+  isMissingLlmProviderRunError: (
+    await importOriginal<typeof import("./chat/run-recovery.js")>()
+  ).isMissingLlmProviderRunError,
   RunErrorRecoveryCard: (props: unknown) => {
     chatMocks.failureProps = props;
     return null;
@@ -4079,6 +4082,101 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(
       container.querySelectorAll('[data-testid="builder-setup-card"]'),
     ).toHaveLength(1);
+  });
+
+  it("sends a prompt refused for missing AI setup again, once, after setup becomes ready", async () => {
+    chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    chatMocks.failureError = {
+      code: "missing_credentials",
+      message: "No LLM provider is connected.",
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-refused",
+        role: "user",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Create a pitch deck" }],
+      },
+    ];
+    chatMocks.thread.runs = {
+      "run-1": {
+        id: "run-1",
+        status: "failed",
+        startedAt: "2026-10-01T00:00:00.000Z",
+      },
+    };
+    const props = baseProps({ providerStatusChecksEnabled: true });
+    await mount(props);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.text).toBe("Create a pitch deck");
+    expect(request.metadata).toMatchObject({
+      hideUserMessage: true,
+      custom: {
+        agentNativeRecoveryAction: "retry",
+        agentNativeRecoveryOfRunId: "run-1",
+      },
+    });
+  });
+
+  it("does not replay a refused prompt when the thread reopens already connected", async () => {
+    chatMocks.readiness = { canChat: false, missing: false, state: "unknown" };
+    chatMocks.failureError = {
+      code: "missing_credentials",
+      message: "No LLM provider is connected.",
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-refused",
+        role: "user",
+        parts: [{ type: "text", text: "Old prompt" }],
+      },
+    ];
+    const props = baseProps({ providerStatusChecksEnabled: true });
+    await mount(props);
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.setupCardProps.onRetry).toEqual(expect.any(Function));
+  });
+
+  it("hides a failure once a later run supersedes it", async () => {
+    chatMocks.failureError = { code: "test-error", message: "Run failed" };
+    chatMocks.thread.runs = {
+      "run-1": {
+        id: "run-1",
+        status: "failed",
+        startedAt: "2026-10-01T00:00:00.000Z",
+      },
+      "run-2": {
+        id: "run-2",
+        status: "completed",
+        startedAt: "2026-10-01T00:01:00.000Z",
+      },
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps).toBeNull();
   });
 
   it("lets a host suppress its duplicate missing-provider setup card", async () => {

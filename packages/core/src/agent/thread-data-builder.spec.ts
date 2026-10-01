@@ -9,12 +9,66 @@ import {
   buildUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  foldUnstartedTurnFailure,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   upsertAssistantMessage,
   upsertUserMessage,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
+
+describe("foldUnstartedTurnFailure", () => {
+  it("answers a refused turn with a typed notice and a failed run, once", () => {
+    const failure = {
+      runId: "turn-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+      message: "Connect Builder AI or a provider API key before chatting.",
+    };
+    const withPrompt = upsertUserMessage(
+      {},
+      buildUserMessage({
+        text: "Make a deck",
+        runId: "turn-1",
+        turnId: "turn-1",
+      }),
+    );
+
+    const repo = foldUnstartedTurnFailure(
+      foldUnstartedTurnFailure(withPrompt, failure),
+      failure,
+    );
+
+    expect(repo.messages.map((entry: any) => entry.message.role)).toEqual([
+      "user",
+      "assistant",
+    ]);
+    expect(repo.messages[1].message).toMatchObject({
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        runId: "turn-1",
+        custom: {
+          agentNativeRunNotStarted: true,
+          runError: { errorCode: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+        },
+      },
+    });
+    expect(repo.agentKit.runs).toEqual([
+      expect.objectContaining({
+        id: "turn-1",
+        threadId: "thread-1",
+        status: "failed",
+        error: {
+          code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+          message: failure.message,
+          retryable: false,
+        },
+      }),
+    ]);
+    expect(extractThreadMeta(repo).preview).toBeTruthy();
+  });
+});
 
 describe("extractThreadMeta", () => {
   it("prefers a manual title override while keeping the message preview", () => {

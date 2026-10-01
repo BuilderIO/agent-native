@@ -500,7 +500,7 @@ function normalizeUsageLabel(value: unknown): string | undefined {
   return trimmed ? trimmed.slice(0, 120) : undefined;
 }
 
-function normalizeChatScope(
+export function normalizeChatScope(
   value: unknown,
 ): { type: string; id: string; label?: string } | null | undefined {
   if (value == null) return null;
@@ -1615,6 +1615,19 @@ export interface ProductionAgentOptions {
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
   }) => void | Promise<void>;
+  /**
+   * The turn was refused before a run started (no usable model credential).
+   * `runId` is the turn id the client already uses as its run id.
+   */
+  onRunNotStarted?: (details: {
+    runId: string;
+    turnId: string;
+    threadId: string;
+    message: string;
+    attachments?: AgentChatAttachment[];
+    queuedMessageId?: string;
+    failure: { code: string; message: string };
+  }) => Promise<void>;
   prepareRequest?: (details: {
     event: any;
     ownerEmail: string | null;
@@ -9165,6 +9178,36 @@ export function createProductionAgentHandler(
         ownerEmail,
         visitorFacing: isBuilderGatewayDeployConfigured(),
       });
+      const unstartedTurnId =
+        typeof requestTurnId === "string" && requestTurnId.trim()
+          ? requestTurnId.trim()
+          : undefined;
+      if (
+        options.onRunNotStarted &&
+        threadId &&
+        unstartedTurnId &&
+        !internalContinuation &&
+        !isBackgroundWorker
+      ) {
+        await options.onRunNotStarted({
+          runId: unstartedTurnId,
+          turnId: unstartedTurnId,
+          threadId,
+          message:
+            typeof requestDisplayMessage === "string" &&
+            requestDisplayMessage.trim()
+              ? requestDisplayMessage
+              : requestMessage,
+          attachments: requestAttachments,
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          failure: {
+            code: missingCredentialsEvent.errorCode,
+            message: missingCredentialsEvent.error,
+          },
+        });
+      }
       return new ReadableStream({
         start(controller) {
           controller.enqueue(

@@ -79,6 +79,7 @@ import type { EngineMessage } from "../agent/engine/types.js";
 import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
+  normalizeChatScope,
   actionsToEngineTools,
   executeAgentToolCall,
   filterActionsByAllowedNames,
@@ -118,6 +119,7 @@ import {
   extractThreadMeta,
   foldAssistantTurn,
   foldThreadRunSuggestions,
+  foldUnstartedTurnFailure,
   hasClaimedQueuedMessage,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
@@ -219,8 +221,12 @@ import {
 } from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
-import { track } from "../tracking/registry.js";
-import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
+import { track, type TrackingMeta } from "../tracking/registry.js";
+import {
+  AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+  isAgentChatAiSetupRequiredError,
+  requireAgentChatAiSetup,
+} from "./agent-chat-ai-setup.js";
 import {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -297,8 +303,31 @@ export function trackAgentChatRunLifecycle(
       thread_id: threadId,
       attempt_id: attemptId,
     },
-    userId ? { userId } : undefined,
+    runLifecycleTrackingSource(userId),
   );
+}
+
+/**
+ * The run's owner is set on the run context only once its system prompt is
+ * built, after `run_started`, and a durable worker has no browser session at
+ * all. The request context carries the verified initiator in both cases, so
+ * identity comes from there; dashboards key retention on `auth_user_id`.
+ */
+function runLifecycleTrackingSource(
+  owner: string | undefined,
+): TrackingMeta | undefined {
+  const requestContext = getRequestContext();
+  if (requestContext?.agentRunAnonymous) {
+    const anonymousId = owner ?? requestContext.userEmail;
+    return anonymousId ? { anonymousId } : undefined;
+  }
+  const userId = owner ?? requestContext?.userEmail;
+  if (!userId) return undefined;
+  const authUserId =
+    requestContext?.userEmail === userId
+      ? requestContext.authUserId
+      : undefined;
+  return { userId, ...(authUserId ? { authUserId } : {}) };
 }
 
 function withTransientDatabaseFallback(
@@ -3677,6 +3706,8 @@ export function createAgentChatPlugin(
         message: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
+        /** The turn was refused before a run started; record why in the thread. */
+        failure?: { code: string; message: string };
       }) => {
         const threadId = details.threadId;
         if (!threadId) return;
@@ -3763,6 +3794,14 @@ export function createAgentChatPlugin(
               queuedMessageId: details.queuedMessageId,
             }),
           );
+          if (details.failure) {
+            repo = foldUnstartedTurnFailure(repo, {
+              runId: details.runId,
+              threadId,
+              turnId: details.turnId,
+              ...details.failure,
+            });
+          }
 
           const meta = extractThreadMeta(repo);
           await updateThreadData(
@@ -3775,6 +3814,43 @@ export function createAgentChatPlugin(
               : thread.messageCount,
           );
         });
+      };
+
+      const recordUnstartedTurn = async (details: {
+        runId: string;
+        turnId: string;
+        threadId: string;
+        message: string;
+        attachments?: AgentChatAttachment[];
+        queuedMessageId?: string;
+        failure: { code: string; message: string };
+      }) => {
+        trackAgentChatRunLifecycle(
+          "run_no_reply",
+          details.threadId,
+          details.runId,
+          undefined,
+          { failure_code: details.failure.code, stage: "not_started" },
+          options?.appId,
+        );
+        try {
+          await persistSubmittedUserMessage(details);
+        } catch (error) {
+          // The refusal itself still reaches the client; only its durable
+          // copy in the thread is missing, and that is reported.
+          console.error(
+            "[agent-chat] could not record a refused turn in its thread:",
+            error,
+          );
+          captureError(error, {
+            route: "agent-chat",
+            tags: {
+              source: "agent-chat",
+              failureClass: "unstarted-turn-persist",
+            },
+            extra: { threadId: details.threadId, runId: details.runId },
+          });
+        }
       };
 
       // ─── Agent Teams: per-run send reference ─────────────────────────
@@ -4451,6 +4527,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
         },
         onRunPrepared: persistSubmittedUserMessage,
+        onRunNotStarted: recordUnstartedTurn,
         onRunStart: async (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
@@ -4527,6 +4604,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 }
               },
               onRunPrepared: persistSubmittedUserMessage,
+              onRunNotStarted: recordUnstartedTurn,
               onRunStart: async (
                 send: (
                   event: import("../agent/types.js").AgentChatEvent,
@@ -4802,6 +4880,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           },
           onRunPrepared: persistSubmittedUserMessage,
+          onRunNotStarted: recordUnstartedTurn,
           onRunStart: async (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
@@ -7252,6 +7331,64 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // `_process-run` processor route (which re-enters the same handler set as
       // the background worker), so both go through identical context + handler
       // selection.
+      // The setup gate refuses before any handler reads the body, so the
+      // refused prompt is read here to answer it in the thread.
+      const recordSetupRequiredTurn = async (
+        event: any,
+        error: { statusMessage?: string; message?: string },
+      ) => {
+        let body: Record<string, unknown>;
+        try {
+          body = (await readBody(event)) ?? {};
+        } catch (readError) {
+          console.error(
+            "[agent-chat] could not read a turn refused by the AI setup gate:",
+            readError,
+          );
+          return;
+        }
+        const threadId =
+          typeof body.threadId === "string" ? body.threadId.trim() : "";
+        const turnId =
+          typeof body.turnId === "string" ? body.turnId.trim() : "";
+        const message =
+          typeof body.displayMessage === "string" && body.displayMessage.trim()
+            ? body.displayMessage
+            : typeof body.message === "string"
+              ? body.message
+              : "";
+        if (
+          !threadId ||
+          !turnId ||
+          !message.trim() ||
+          body.internalContinuation === true
+        ) {
+          return;
+        }
+        const runCtx = ensureRequestRunContext();
+        if (runCtx) runCtx.chatScope = normalizeChatScope(body.scope) ?? null;
+        await recordUnstartedTurn({
+          runId: turnId,
+          turnId,
+          threadId,
+          message,
+          ...(Array.isArray(body.attachments)
+            ? { attachments: body.attachments as AgentChatAttachment[] }
+            : {}),
+          ...(typeof body.queuedMessageId === "string" &&
+          body.queuedMessageId.trim()
+            ? { queuedMessageId: body.queuedMessageId.trim() }
+            : {}),
+          failure: {
+            code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+            message:
+              error.statusMessage ??
+              error.message ??
+              "Connect Builder AI or a provider API key before chatting.",
+          },
+        });
+      };
+
       const invokeAgentChatHandler = async (event: any) => {
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
@@ -7270,7 +7407,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Public anonymous readers use the host-owned read-only lane, and
             // durable workers resume a request that already passed this gate.
             if (!ownerContext.anonymous && !isBackgroundWorker) {
-              await requireAgentChatAiSetup();
+              try {
+                await requireAgentChatAiSetup();
+              } catch (error) {
+                if (isAgentChatAiSetupRequiredError(error)) {
+                  await recordSetupRequiredTurn(event, error);
+                }
+                throw error;
+              }
             }
             // App-rendered chat can't host direct code edits — HMR/full
             // reloads would kill the same chat surface mid-run. Force the

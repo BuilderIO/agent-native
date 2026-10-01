@@ -1,6 +1,11 @@
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  buildUserMessage,
+  foldUnstartedTurnFailure,
+  upsertUserMessage,
+} from "../../agent/thread-data-builder.js";
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
 import type { AgentChatRuntime } from "./runtime.js";
 
@@ -1113,6 +1118,59 @@ describe("createAgentNativeAgentKitTransport", () => {
       }),
     ).rejects.toThrow(/circular|cyclic/i);
     expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("shows a turn the server refused before its run started as a failed run, not an unanswered prompt", async () => {
+    const threadData = foldUnstartedTurnFailure(
+      upsertUserMessage(
+        {},
+        buildUserMessage({
+          text: "Create a pitch deck",
+          runId: "turn-1",
+          turnId: "turn-1",
+        }),
+      ),
+      {
+        runId: "turn-1",
+        threadId: "thread-refused",
+        turnId: "turn-1",
+        code: "missing_credentials",
+        message: "No LLM provider is connected.",
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-refused",
+              threadData: JSON.stringify(threadData),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-refused",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      {
+        role: "user",
+        parts: [{ type: "text", text: "Create a pitch deck" }],
+      },
+    ]);
+    expect(snapshot?.runs).toMatchObject([
+      {
+        id: "turn-1",
+        threadId: "thread-refused",
+        status: "failed",
+        error: {
+          code: "missing_credentials",
+          message: "No LLM provider is connected.",
+        },
+      },
+    ]);
+    await transport.dispose();
   });
 
   it("restores the complete durable reply when a same-id AgentKit snapshot is shorter", async () => {
