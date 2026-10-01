@@ -826,6 +826,38 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
   });
 
+  it("adopts a newer snapshot itself when the lead peer never converges the doc", async () => {
+    const harness = makePeerReconcileHarness();
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() => {
+        harness.awareness
+          .getStates()
+          .set(1, { user: { name: "Lead peer" }, visible: true });
+        harness.awareness.emit("change", [
+          { added: [1], updated: [], removed: [] },
+          "remote",
+        ]);
+      });
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "accepted body",
+            revision: "revision-2",
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(4999));
+      expect(harness.markdown()).toBe("original body");
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      expect(harness.markdown()).toBe("accepted body");
+    } finally {
+      harness.dispose();
+    }
+  });
+
   it.each([false, true])(
     "adopts an accepted canonical revision during repeated renders (fresh callbacks: %s)",
     async (freshCallbacks) => {

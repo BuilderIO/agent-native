@@ -76,6 +76,13 @@ this pragma on the opt-in or the line immediately above it:
 // guard:allow-realtime-opt-in — short reason
 ```
 
+An opted-in page only hears about an action when its change event reaches the
+current user. By default an `action` event reaches the actor alone, so a
+collaborator's comment, save, or agent edit never arrives. Declare
+`changeResource: (input) => ({ resourceType, resourceId })` on the mutating
+action (Content's `documentChangeResource` is the example) and the event also
+reaches everyone who can read that resource.
+
 Do not start `subscribeSyncEvents()` or an `EventSource` in a feature to bypass
 the decision. `subscribeSyncEvents()` is a lower-level transport subscription
 used by the existing Yjs collaboration client and narrow framework plumbing.

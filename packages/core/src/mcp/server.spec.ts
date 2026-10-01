@@ -3676,6 +3676,53 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
+  it("scopes a direct MCP call's action change to the resource it declares", async () => {
+    actionChangeMocks.writeMarker.mockClear();
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
+    const scopedConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: {
+              type: "object" as const,
+              properties: { id: { type: "string" } },
+            },
+          },
+          readOnly: false,
+          changeResource: (input: { id: string }) => ({
+            resourceType: "thing",
+            resourceId: input.id,
+          }),
+          run: async () => ({ updated: true }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 304,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: { id: "thing-1" } },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: scopedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(actionChangeMocks.writeMarker).toHaveBeenCalledWith({
+      actionName: "update-thing",
+      resourceType: "thing",
+      resourceId: "thing-1",
+      owner: "oauth@example.com",
+      orgId: "org-from-email",
+    });
+  });
+
   it("does not publish action changes for read-only or errored direct MCP calls", async () => {
     actionChangeMocks.writeMarker.mockClear();
 

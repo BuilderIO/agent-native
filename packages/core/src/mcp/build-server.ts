@@ -7,7 +7,10 @@ import type {
   Tool,
 } from "@modelcontextprotocol/server";
 
-import { actionCallEmitsChange } from "../action-call-classification.js";
+import {
+  actionCallEmitsChange,
+  actionChangeResource,
+} from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -2358,6 +2361,7 @@ export async function createMCPServerForRequest(
             try {
               await writeActionChangeMarker({
                 actionName: name,
+                ...actionChangeResource(entry, args),
                 owner: getRequestUserEmail() ?? undefined,
                 orgId: getRequestOrgId() ?? undefined,
               });

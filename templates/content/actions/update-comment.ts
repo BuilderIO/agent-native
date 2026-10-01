@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 
 type Mention = { email: string; name: string };
 
@@ -50,6 +51,7 @@ export default defineAction({
       .describe("JSON-encoded array of {email, name} mentions"),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
+  changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args) => {
     if (
       args.content === undefined &&

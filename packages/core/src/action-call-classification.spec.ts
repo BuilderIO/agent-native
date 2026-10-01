@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { actionCallEmitsChange } from "./action-call-classification.js";
+import {
+  actionCallEmitsChange,
+  actionChangeResource,
+} from "./action-call-classification.js";
 import { defineAction } from "./action.js";
 import { createAgentEngineScriptEntries } from "./server/agent-chat/script-entries.js";
 
@@ -73,5 +76,60 @@ describe("actionCallEmitsChange", () => {
 
   it("keeps publishing when changeEvents is explicitly true", () => {
     expect(emits({ changeEvents: true }, {})).toBe(true);
+  });
+});
+
+describe("actionChangeResource", () => {
+  const resource = { resourceType: "document", resourceId: "doc-1" };
+
+  it("returns nothing for an action that declares no resource", () => {
+    expect(actionChangeResource({}, { id: "doc-1" })).toBeUndefined();
+  });
+
+  it("derives the resource from the call input", () => {
+    const entry = defineAction({
+      description: "edit",
+      schema: z.object({ id: z.string() }),
+      changeResource: (input) => ({
+        resourceType: "document",
+        resourceId: input.id,
+      }),
+      run: async () => ({}),
+    });
+
+    expect(actionChangeResource(entry, { id: "doc-1" })).toEqual(resource);
+  });
+
+  it("treats null, malformed, and throwing declarations as the actor-only default", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(actionChangeResource({ changeResource: () => null }, {})).toBe(
+        undefined,
+      );
+      expect(
+        actionChangeResource(
+          {
+            changeResource: () => ({
+              resourceType: "document",
+              resourceId: "",
+            }),
+          },
+          {},
+        ),
+      ).toBeUndefined();
+      expect(
+        actionChangeResource(
+          {
+            changeResource: () => {
+              throw new Error("bad input");
+            },
+          },
+          {},
+        ),
+      ).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

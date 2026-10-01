@@ -6,7 +6,10 @@ import {
   contentActionInvalidatePredicate,
   contentDocumentIdFromPathname,
 } from "./content-action-refresh";
-import { contentSyncInvalidatePredicate } from "./use-db-sync";
+import {
+  contentSyncInvalidatePredicate,
+  isPrivateDocumentEditorPath,
+} from "./use-db-sync";
 
 describe("contentActionInvalidatePredicate", () => {
   it("refreshes the mounted document's save basis after a peer suggestion decision", async () => {
@@ -1008,5 +1011,15 @@ describe("contentDocumentIdFromPathname", () => {
       "document 2",
     );
     expect(contentDocumentIdFromPathname("/settings")).toBeUndefined();
+  });
+});
+
+describe("isPrivateDocumentEditorPath", () => {
+  it("opts in only on an open private document page", () => {
+    expect(isPrivateDocumentEditorPath("/page/document-1")).toBe(true);
+    expect(isPrivateDocumentEditorPath("/page/document-1/")).toBe(true);
+    for (const path of ["/", "/home", "/page", "/p/document-1", "/trash"]) {
+      expect(isPrivateDocumentEditorPath(path), path).toBe(false);
+    }
   });
 });

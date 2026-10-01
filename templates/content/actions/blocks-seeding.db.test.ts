@@ -6,6 +6,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import {
   countWords,
   formatWordCount,
@@ -946,6 +947,41 @@ describe("database Blocks field identity sidecar", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, documentId));
     expect(document.content).toBe("Current");
+  });
+
+  it("persists a field with more blocks than one statement can bind", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const propertyId = `large_${documentId}`;
+    const paragraphs = Array.from(
+      { length: 5000 },
+      (_, index) => `Paragraph ${index}`,
+    );
+
+    const state = await db.transaction((tx: any) =>
+      identityUtils.persistBlocksFieldIdentity({
+        db: tx,
+        ownerEmail: OWNER,
+        documentId,
+        propertyId,
+        previousMarkdown: "",
+        markdown: paragraphs.join("\n\n"),
+        expectedRevision: 0,
+        now: new Date().toISOString(),
+      }),
+    );
+
+    expect(state.blocks).toHaveLength(paragraphs.length);
+    const stored = await db
+      .select({ id: schema.documentBlocks.id })
+      .from(schema.documentBlocks)
+      .where(
+        eq(
+          schema.documentBlocks.fieldId,
+          blocksFieldId(documentId, propertyId),
+        ),
+      );
+    expect(stored).toHaveLength(paragraphs.length);
   });
 
   it("allows only one concurrent first materialization", async () => {

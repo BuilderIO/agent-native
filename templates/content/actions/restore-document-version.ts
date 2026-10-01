@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -67,6 +68,7 @@ export default defineAction({
       .min(1)
       .describe("Current document updatedAt observed before choosing restore"),
   }),
+  changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args, ctx) => {
     const actor = requireDocumentRequestActor(ctx);
     if (!args.documentId) throw new Error("--documentId is required");

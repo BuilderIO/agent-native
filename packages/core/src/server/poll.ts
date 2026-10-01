@@ -1106,6 +1106,12 @@ export class AppSyncState {
           ...(target.requestSource
             ? { requestSource: target.requestSource }
             : {}),
+          ...(target.resourceType && target.resourceId
+            ? {
+                resourceType: target.resourceType,
+                resourceId: target.resourceId,
+              }
+            : {}),
         },
         dedupeKey !== undefined
           ? {
@@ -1826,6 +1832,9 @@ setActionChangeFastPath((target) => {
       ...(target.owner ? { owner: target.owner } : {}),
       ...(target.orgId ? { orgId: target.orgId } : {}),
       ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+      ...(target.resourceType && target.resourceId
+        ? { resourceType: target.resourceType, resourceId: target.resourceId }
+        : {}),
     },
     target.nonce
       ? { dedupeKey: actionChangeDedupeKey(target, `action|${target.nonce}`) }
