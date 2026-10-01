@@ -53,12 +53,12 @@ describe("tracking captureException", () => {
     const privateValue = "example transcript content";
     captureException(
       new Error(
-        `Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`,
+        `Failed query: insert into dictations (text) values ($1)\n\tparams: ${privateValue}`,
       ),
     );
 
     const [event] = track.mock.calls[0];
-    expect(event.properties.exceptionMessage).toContain("params: <redacted>");
+    expect(event.properties.exceptionMessage).toContain("\tparams: <redacted>");
     expect(event.properties.exceptionMessage).not.toContain(privateValue);
     expect(event.properties.exceptionStack).not.toContain(privateValue);
     expect(event.properties.exceptionStack).toMatch(/\n\s+at /);

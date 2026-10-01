@@ -6,7 +6,7 @@ export const MAX_EXTRA_VALUE_LENGTH = 1000;
 
 const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
 const SQL_PARAMS_RE =
-  /\b(?:failed query|query failed):[\s\S]*?(\r?\nparams:\s*)[\s\S]*$/i;
+  /\b(?:failed query|query failed):[\s\S]*?(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;

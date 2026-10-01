@@ -51,20 +51,31 @@ function containsSqlQueryFailure(
 
 function redactSentryEventPayload(
   value: unknown,
-  redactSqlParams: boolean,
+  sqlFailure = false,
+  eventRoot = false,
   seen = new WeakSet<object>(),
 ): void {
   if (value == null || typeof value !== "object" || seen.has(value)) return;
   seen.add(value);
 
   const record = value as Record<string, unknown>;
+  const redactSqlParams =
+    sqlFailure ||
+    (!eventRoot &&
+      ((!Array.isArray(value) &&
+        "params" in value &&
+        ("query" in value || "sql" in value)) ||
+        Object.values(record).some(
+          (child) =>
+            typeof child === "string" && SQL_QUERY_FAILURE_RE.test(child),
+        )));
   for (const [key, child] of Object.entries(record)) {
     if (redactSqlParams && key.toLowerCase() === "params") {
       record[key] = "<redacted>";
     } else if (typeof child === "string") {
       record[key] = redact(child);
     } else {
-      redactSentryEventPayload(child, redactSqlParams, seen);
+      redactSentryEventPayload(child, redactSqlParams, false, seen);
     }
   }
 }
@@ -102,9 +113,14 @@ export function initServerSentry(): Promise<boolean> {
             return null;
           }
 
-          const hasSqlQueryFailure = containsSqlQueryFailure(event);
-          redactSentryEventPayload(event, hasSqlQueryFailure);
-          if (hasSqlQueryFailure && event.logentry) {
+          const hasSqlLogEntryFailure = containsSqlQueryFailure([
+            event.message,
+            event.logentry,
+            event.exception,
+            event.extra?.__serialized__,
+          ]);
+          redactSentryEventPayload(event, false, true);
+          if (hasSqlLogEntryFailure && event.logentry) {
             delete event.logentry.params;
           }
 

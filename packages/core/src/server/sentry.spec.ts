@@ -219,6 +219,7 @@ describe("server/sentry", () => {
 
       const privateValue = "example transcript content";
       const query = "insert into dictations (text) values ($1)";
+      const message = `Failed query: ${query}\n\tparams: ${privateValue}`;
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
         exception: {
@@ -231,16 +232,26 @@ describe("server/sentry", () => {
         },
         extra: {
           __serialized__: {
-            cause: { query, params: [privateValue] },
+            cause: { message, query, params: [privateValue] },
           },
         },
       } as never) as { extra?: Record<string, unknown> };
 
       expect(JSON.stringify(result)).not.toContain(privateValue);
       expect(
-        (result.extra?.__serialized__ as { cause: { params: unknown } }).cause
-          .params,
+        (
+          result.extra?.__serialized__ as {
+            cause: { message: string; params: unknown };
+          }
+        ).cause.params,
       ).toBe("<redacted>");
+      expect(
+        (
+          result.extra?.__serialized__ as {
+            cause: { message: string; params: unknown };
+          }
+        ).cause.message,
+      ).toContain("\tparams: <redacted>");
     });
 
     it("redacts SQL parameters in breadcrumbs and context data", async () => {
@@ -249,23 +260,40 @@ describe("server/sentry", () => {
       await initServerSentry();
 
       const privateValue = "example transcript content";
-      const value = `Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`;
+      const value = `Failed query: insert into dictations (text) values ($1)\n\tparams: ${privateValue}`;
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
-        exception: { values: [{ type: "Error", value: "request failed" }] },
-        breadcrumbs: [{ message: value, data: { params: [privateValue] } }],
-        contexts: { database: { lastError: value } },
+        exception: { values: [{ type: "Error", value }] },
+        breadcrumbs: [
+          { message: value, data: { params: [privateValue] } },
+          { message: "Search completed", data: { params: ["unrelated"] } },
+        ],
+        contexts: {
+          database: { lastError: value },
+          unrelated: { params: ["unrelated"] },
+        },
+        request: { data: { params: ["unrelated"] } },
+        extra: { unrelated: { params: ["unrelated"] } },
       } as never) as {
         breadcrumbs: Array<{ message: string; data: { params: unknown } }>;
-        contexts: { database: { lastError: string } };
+        contexts: {
+          database: { lastError: string };
+          unrelated: { params: string[] };
+        };
+        request: { data: { params: string[] } };
+        extra: { unrelated: { params: string[] } };
       };
 
       expect(JSON.stringify(result)).not.toContain(privateValue);
       expect(result.breadcrumbs[0]?.message).toContain("params: <redacted>");
       expect(result.breadcrumbs[0]?.data.params).toBe("<redacted>");
+      expect(result.breadcrumbs[1]?.data.params).toEqual(["unrelated"]);
       expect(result.contexts.database.lastError).toContain(
         "params: <redacted>",
       );
+      expect(result.contexts.unrelated.params).toEqual(["unrelated"]);
+      expect(result.request.data.params).toEqual(["unrelated"]);
+      expect(result.extra.unrelated.params).toEqual(["unrelated"]);
     });
 
     it("drops ValidationError exceptions", async () => {
