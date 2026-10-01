@@ -2461,6 +2461,28 @@ describe("createAgentNativeAgentKitTransport", () => {
     );
   });
 
+  it("explains an oversized request and marks it non-retryable", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({ error: "Payload too large" }, 413),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.submitFeedback?.({
+        threadId: "thread-1",
+        messageId: "assistant-1",
+        value: "negative",
+      }),
+    ).rejects.toMatchObject({
+      message:
+        "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+      code: "http_413",
+      status: 413,
+      retryable: false,
+    });
+  });
+
   it("persists response feedback and forks durable history from a message", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];
     const fetcher = vi.fn(
