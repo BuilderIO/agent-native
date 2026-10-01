@@ -18,7 +18,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type PromptPopover from "@/components/editor/PromptDialog";
 import { findPromptReferenceDeckId } from "@/lib/new-deck-reference-selection";
 
-const systemFlag = vi.hoisted(() => ({ enabled: true, query: vi.fn() }));
+const systemFlag = vi.hoisted(() => ({
+  enabled: true,
+  status: "ready" as "loading" | "ready" | "unavailable",
+  query: vi.fn(),
+}));
 const suggestionQuery = vi.hoisted(() => ({
   enabled: undefined as boolean | undefined,
 }));
@@ -63,6 +67,10 @@ const promptUploads = vi.hoisted(() => ({
 }));
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => systemFlag.enabled,
+  useDesignSystemWorkflowsState: () => ({
+    status: systemFlag.status,
+    enabled: systemFlag.enabled,
+  }),
 }));
 vi.mock("@/lib/prompt-file-uploads", () => promptUploads);
 vi.mock("sonner", () => ({ toast: { error: toastError } }));
@@ -279,7 +287,13 @@ vi.mock("@/hooks/use-agent-generating", () => ({
 vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (
     systemFlag.query(enabled),
-    { designSystems: [], refetch: refetchSystems }
+    {
+      designSystems: [],
+      error: null,
+      isFetching: false,
+      isLoading: false,
+      refetch: refetchSystems,
+    }
   ),
   BuilderSetupContent: () => null,
 }));
@@ -398,6 +412,7 @@ function renderHome(
     decks: [],
     loading: false,
     loadError: false,
+    deckListRefreshing: false,
     reloadDecks,
     createDeck,
     catchUpStaleDeckList: vi.fn(),
@@ -425,6 +440,7 @@ beforeEach(() => {
   contextSelection.value = { designSystemId: null, references: [] };
   automaticReferenceDeck.value = null;
   systemFlag.enabled = true;
+  systemFlag.status = "ready";
   suggestionQuery.enabled = undefined;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
@@ -512,6 +528,38 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.queryByRole("dialog", { name: "Existing system setup" }),
     ).toBeNull();
+  });
+  it("waits for a ready design-system flag before treating references as empty", () => {
+    systemFlag.enabled = false;
+    systemFlag.status = "loading";
+    const { rerenderHome } = renderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(false);
+
+    systemFlag.status = "unavailable";
+    rerenderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(false);
+
+    systemFlag.status = "ready";
+    rerenderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(true);
+
+    useDecks.mockReturnValue({ ...useDecks(), deckListRefreshing: true });
+    rerenderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(false);
+
+    useDecks.mockReturnValue({ ...useDecks(), deckListRefreshing: false });
+    rerenderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(true);
+
+    useDecks.mockReturnValue({ ...useDecks(), loadError: true });
+    rerenderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(false);
   });
   it("opens the existing creator only on selection, keeps the composer mounted on cancel, and refetches on completion", async () => {
     renderHome();
@@ -1213,6 +1261,7 @@ describe("Slides prompt-led home", () => {
       decks: [ownDeck],
       loading: false,
       loadError: false,
+      deckListRefreshing: false,
       reloadDecks,
       createDeck,
       catchUpStaleDeckList: vi.fn(),
