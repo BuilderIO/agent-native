@@ -46,12 +46,20 @@ assert.equal(workflow.on?.push, undefined);
 assert.equal(workflow.concurrency?.group, "design-e2e");
 assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
 assert.equal(workflow.concurrency?.queue, undefined);
-assert.equal(workflow.jobs?.e2e?.["timeout-minutes"], 45);
+const jobTimeout = workflow.jobs?.e2e?.["timeout-minutes"];
+assert.equal(jobTimeout, 55);
 const steps = workflow.jobs?.e2e?.steps ?? [];
 const shardIndex = steps.findIndex((step) => step.name === "Run shard");
 const shardStep = steps.find((step) => step.name === "Run shard");
 assert.equal(shardStep?.id, "run-shard");
-assert.equal(shardStep?.["timeout-minutes"], 37);
+const shardTimeout = shardStep?.["timeout-minutes"];
+assert.equal(shardTimeout, 37);
+assert.ok(
+  typeof jobTimeout === "number" &&
+    typeof shardTimeout === "number" &&
+    jobTimeout - shardTimeout >= 10,
+  "leave at least 10 minutes for setup and report upload after the shard timeout",
+);
 const reportIndex = steps.findIndex(
   (step) => step.name === "Upload report on failure",
 );
@@ -65,7 +73,7 @@ assert.equal(
 );
 assert.equal(
   reportStep?.if,
-  "${{ always() && steps.run-shard.outcome != 'success' }}",
+  "${{ !cancelled() && steps.run-shard.outcome != 'success' }}",
 );
 assert.equal(reportStep?.with?.path, "templates/design/test-results");
 assert.equal(reportStep?.with?.["retention-days"], 7);
