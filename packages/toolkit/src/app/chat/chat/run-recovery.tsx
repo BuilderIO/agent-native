@@ -512,6 +512,7 @@ export function RunErrorRecoveryCard({
   info,
   onContinue,
   onRetry,
+  retryHasUnavailableAttachment = false,
   onFork,
   onDismiss,
   onProviderConnected,
@@ -519,6 +520,7 @@ export function RunErrorRecoveryCard({
   info: RunErrorInfo;
   onContinue: () => void;
   onRetry: () => void;
+  retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
   onProviderConnected?: () => void;
@@ -595,18 +597,19 @@ export function RunErrorRecoveryCard({
 
   const handleProviderConnected = useCallback(() => {
     onProviderConnected?.();
+    if (retryHasUnavailableAttachment) return;
     onRetry();
     onDismiss();
-  }, [onDismiss, onProviderConnected, onRetry]);
+  }, [onDismiss, onProviderConnected, onRetry, retryHasUnavailableAttachment]);
 
   const handleMissingProviderConnected = useCallback(() => {
     onProviderConnected?.();
   }, [onProviderConnected]);
   const handleMissingProviderRetry = useCallback(() => {
-    if (retryRequestedRef.current) return;
+    if (retryRequestedRef.current || retryHasUnavailableAttachment) return;
     retryRequestedRef.current = true;
     onRetry();
-  }, [onRetry]);
+  }, [onRetry, retryHasUnavailableAttachment]);
 
   const handleFork = useCallback(async () => {
     if (!onFork || forking) return;
@@ -641,8 +644,17 @@ export function RunErrorRecoveryCard({
               ? handleProviderConnected
               : handleMissingProviderConnected
           }
-          onRetry={handleMissingProviderRetry}
+          onRetry={
+            retryHasUnavailableAttachment
+              ? undefined
+              : handleMissingProviderRetry
+          }
         />
+        {retryHasUnavailableAttachment && (
+          <p className="mx-auto mt-1 w-full max-w-[42rem] px-3 text-xs leading-relaxed text-muted-foreground">
+            {t("agentChat.recovery.retryAttachmentUnavailable")}
+          </p>
+        )}
         {/*
           Deliberately not gated on `providerConnected`. That gate assumed
           connecting here is the only route out, which is false for the reader
@@ -719,6 +731,11 @@ export function RunErrorRecoveryCard({
               {t("agentChat.recovery.newChatHint")}
             </p>
           )}
+          {retryHasUnavailableAttachment && (
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {t("agentChat.recovery.retryAttachmentUnavailable")}
+            </p>
+          )}
           {(info.runId || info.errorCode || info.details) && (
             <button
               type="button"
@@ -784,7 +801,7 @@ export function RunErrorRecoveryCard({
           </button>
         )}
         <div className="flex shrink-0 items-center gap-0.5">
-          {canRetry && (
+          {canRetry && !retryHasUnavailableAttachment && (
             <button
               type="button"
               onClick={onRetry}

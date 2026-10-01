@@ -50,7 +50,8 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   cancelBackgroundAgentSession: (...args: unknown[]) =>
     api.cancelBackgroundAgentSession(...args),
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
 }));
 vi.mock("@/lib/comment-ai-client", () => ({

@@ -2792,7 +2792,7 @@ export async function markAllUnreadReadForAccount(input: {
   invalidateHistoryCacheForAccount(accountEmail);
   invalidateListCacheForOwner(ownerEmail);
   for (const threadId of new Set(selected.map((message) => message.threadId))) {
-    invalidateThreadCache(ownerEmail, threadId);
+    invalidateThreadCache(ownerEmail, threadId, accountEmail);
   }
 
   let remaining: GmailMessageReference[];

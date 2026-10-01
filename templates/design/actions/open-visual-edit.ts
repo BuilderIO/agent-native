@@ -15,10 +15,18 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  nextCanvasFramePosition,
+  nextFreeCanvasRowY,
+  parseCanvasFrameGeometryById,
+} from "../shared/canvas-frames.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import {
   DESIGN_BRIDGE_OPERATIONS,
   makeLocalhostRouteId,
@@ -116,13 +124,32 @@ function expandRoutesAcrossViewports(args: {
   startX: number;
   startY: number;
   gap: number;
+  breakpointWidths: readonly number[];
 }): Array<z.infer<typeof screenRouteSchema>> {
   const labelViewports = args.viewports.length > 1;
   const expanded: Array<z.infer<typeof screenRouteSchema>> = [];
   let rowY = args.startY;
-  for (const route of args.routes) {
+  for (const [routeIndex, route] of args.routes.entries()) {
     let columnX = args.startX;
-    for (const viewport of args.viewports) {
+    const rowFrames: Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    > = {};
+    const rowMetadataByFileId: Record<string, Record<string, unknown>> = {};
+    const rowScreenFileIds: string[] = [];
+    for (const [viewportIndex, viewport] of args.viewports.entries()) {
+      const frameId = `${routeIndex}-${viewportIndex}`;
+      const metadata = {
+        ...route.metadata,
+        width: viewport.width,
+        height: viewport.height,
+      };
+      const frame = {
+        x: columnX,
+        y: rowY,
+        width: viewport.width,
+        height: viewport.height,
+      };
       expanded.push({
         ...route,
         title: labelViewports
@@ -133,10 +160,24 @@ function expandRoutesAcrossViewports(args: {
         x: columnX,
         y: rowY,
       });
-      columnX += viewport.width + args.gap;
+      rowFrames[frameId] = frame;
+      rowMetadataByFileId[frameId] = metadata;
+      rowScreenFileIds.push(frameId);
+      columnX = nextCanvasFramePosition({ [frameId]: frame }, args.gap, {
+        responsiveLayout: {
+          screenFileIds: [frameId],
+          screenMetadataByFileId: { [frameId]: metadata },
+          breakpointWidths: args.breakpointWidths,
+        },
+      }).x;
     }
-    rowY +=
-      Math.max(...args.viewports.map((viewport) => viewport.height)) + args.gap;
+    rowY = nextFreeCanvasRowY(rowFrames, args.gap, {
+      responsiveLayout: {
+        screenFileIds: rowScreenFileIds,
+        screenMetadataByFileId: rowMetadataByFileId,
+        breakpointWidths: args.breakpointWidths,
+      },
+    });
   }
   return expanded;
 }
@@ -195,6 +236,27 @@ export function localVisualEditWorkspacePrincipal(
     .digest("hex")
     .slice(0, 24);
   return `workspace+${workspaceId}@${LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function startBridgeCommand(args: {
+  bridgeToken: string;
+  bridgeUrl?: string | null;
+  rootPath?: string | null;
+  devServerUrl: string;
+}): string {
+  const port = new URL(args.bridgeUrl ?? DEFAULT_BRIDGE_URL).port;
+  return [
+    `AGENT_NATIVE_BRIDGE_TOKEN=${shellQuote(args.bridgeToken)}`,
+    "npx @agent-native/core@latest design connect",
+    `--url ${shellQuote(args.devServerUrl)}`,
+    `--root ${shellQuote(args.rootPath ?? ".")}`,
+    ...(port ? [`--port ${port}`] : []),
+    "--daemon",
+  ].join(" ");
 }
 
 export function localVisualEditBridgePrincipal(bridgeToken: string): string {
@@ -506,8 +568,18 @@ export default defineAction({
       .positive()
       .optional()
       .describe("Default screen height. Defaults to 900 when omitted."),
-    startX: z.number().optional().default(0),
-    startY: z.number().optional().default(0),
+    startX: z
+      .number()
+      .optional()
+      .describe(
+        "Left edge for new screens. Defaults to the right of existing frames.",
+      ),
+    startY: z
+      .number()
+      .optional()
+      .describe(
+        "Top edge for new screens. Defaults to the topmost existing frame.",
+      ),
     gap: z.number().optional().default(160),
     navigate: z
       .boolean()
@@ -643,6 +715,55 @@ export default defineAction({
         );
       }
 
+      let viewportStartX = args.startX;
+      let viewportStartY = args.startY;
+      let viewportBreakpointWidths: number[] = [];
+      if (viewports) {
+        await assertAccess("design", designId, "editor");
+        const [[design], screenFiles] = await Promise.all([
+          getDb()
+            .select({ data: schema.designs.data })
+            .from(schema.designs)
+            .where(eq(schema.designs.id, designId))
+            .limit(1),
+          getDb()
+            .select({
+              id: schema.designFiles.id,
+              filename: schema.designFiles.filename,
+              fileType: schema.designFiles.fileType,
+            })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, designId)),
+        ]);
+        if (!design) throw new Error(`Design "${designId}" not found.`);
+        const designData: unknown = design.data ? JSON.parse(design.data) : {};
+        const designDataRecord =
+          designData &&
+          typeof designData === "object" &&
+          !Array.isArray(designData)
+            ? (designData as Record<string, unknown>)
+            : {};
+        const frameData = designDataRecord.canvasFrames;
+        viewportBreakpointWidths = getResponsiveBreakpointWidths(
+          designDataRecord.breakpointSet,
+        );
+        if (viewportStartX === undefined || viewportStartY === undefined) {
+          const defaultPosition = nextCanvasFramePosition(
+            parseCanvasFrameGeometryById(frameData),
+            args.gap ?? 160,
+            {
+              responsiveLayout: {
+                screenFileIds: getOverviewScreenFileIds(screenFiles),
+                screenMetadataByFileId: designDataRecord.screenMetadata,
+                breakpointWidths: viewportBreakpointWidths,
+              },
+            },
+          );
+          viewportStartX ??= defaultPosition.x;
+          viewportStartY ??= defaultPosition.y;
+        }
+      }
+
       const screens = await addLocalhostScreensAction.run(
         {
           designId,
@@ -652,12 +773,14 @@ export default defineAction({
               ? expandRoutesAcrossViewports({
                   routes: requestedRoutes,
                   viewports,
-                  startX: args.startX ?? 0,
-                  startY: args.startY ?? 0,
+                  startX: viewportStartX ?? 0,
+                  startY: viewportStartY ?? 0,
                   gap: args.gap ?? 160,
+                  breakpointWidths: viewportBreakpointWidths,
                 })
               : args.routes,
           paths: viewports ? undefined : args.paths,
+          preserveExistingFramePositions: Boolean(viewports),
           defaultWidth: args.defaultWidth,
           defaultHeight: args.defaultHeight,
           startX: args.startX,
@@ -696,8 +819,19 @@ export default defineAction({
       const embedStartUrl = isLoopbackUrl(devServerUrl)
         ? await createCallerHandoff(urlPath, ownerEmail, designId)
         : undefined;
+      const bridgeCommand = connection.bridgeToken
+        ? startBridgeCommand({
+            bridgeToken: connection.bridgeToken,
+            bridgeUrl: connection.bridgeUrl,
+            rootPath: connection.rootPath,
+            devServerUrl,
+          })
+        : null;
 
       const result = {
+        message: bridgeCommand
+          ? `Design ${designId} uses connection ${connection.id}. Start its bridge with \`${bridgeCommand}\`, then open the design.`
+          : `Design ${designId} uses connection ${connection.id}.`,
         designId,
         connectionId: connection.id,
         createdDesign,

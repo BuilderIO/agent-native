@@ -45,6 +45,10 @@ vi.mock("react-router", async (importOriginal) => {
   };
 });
 
+vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
+  useFeatureFlagState: () => ({ status: "ready", enabled: true }),
+}));
+
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   trackOnboardingEvent: mocks.trackOnboardingEvent,
   useOnboarding: mocks.useOnboarding,

@@ -170,6 +170,12 @@ export default {
     openAgentSettings: "Gérer l’agent",
     labTweaks: "Ajustements de design",
     labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
+    labFullAppBuilding: "Création d’applications complètes",
+    labFullAppBuildingDescription:
+      "Essayez de créer des applications fonctionnelles à partir de vos designs avec Builder.",
+    labDesignReviewTools: "Outils de révision des designs",
+    labDesignReviewToolsDescription:
+      "Vérifiez l’accessibilité de vos designs et comparez les changements visuels.",
     mcpAbout:
       "Connectez Design à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Design pour vous : créer des designs et les modifier. Elle ne voit que ce que vous pouvez voir.",
   },
@@ -1274,6 +1280,7 @@ export default {
       verifying: "Vérification de la source et du runtime…",
       retryWithAgent: "Réessayer la vérification de la source",
       copyPrompt: "Copier le prompt vers votre agent",
+      copyAgentPrompt: "Copier le prompt de l’agent",
       copyFullPrompt: "Copier le prompt complet",
       abortPreview: "Annuler l’aperçu et interagir",
       agentMessage:

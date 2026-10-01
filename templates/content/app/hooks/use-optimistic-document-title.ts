@@ -11,34 +11,38 @@ import {
   type LandingTitleHint,
 } from "@/lib/document-title-hint";
 
+// Undefined until the saved last location has loaded.
 export function useLastLocationTitleHint(
   options: { enabled?: boolean } = {},
 ): LandingTitleHint | null | undefined {
+  const enabled = options.enabled ?? true;
   const query = useQuery({
     queryKey: CONTENT_LAST_LOCATION_HINT_QUERY_KEY,
     queryFn: fetchLandingTitleHint,
-    enabled: options.enabled ?? true,
+    enabled,
   });
+  if (enabled && query.isPending) return undefined;
   return query.data ?? null;
 }
 
+// Undefined until a hint names this page's title. The placeholder leaves the
+// body out until then, since a title that wraps would move it.
 export function useOptimisticDocumentTitle(
   documentId: string | null,
   options: { seededTitle?: string | null; enabled?: boolean } = {},
-): string | null {
+): string | undefined {
   const lastLocation = useLastLocationTitleHint({
     enabled: (options.enabled ?? true) && !!documentId,
   });
-  return useMemo(
-    () =>
-      resolveOptimisticDocumentTitle({
-        documentId,
-        stashed: documentId ? peekLandingTitleHint(documentId) : null,
-        lastLocation,
-        cachedTitle: options.seededTitle,
-      }),
-    [documentId, lastLocation, options.seededTitle],
-  );
+  return useMemo(() => {
+    const title = resolveOptimisticDocumentTitle({
+      documentId,
+      stashed: documentId ? peekLandingTitleHint(documentId) : null,
+      lastLocation,
+      cachedTitle: options.seededTitle,
+    });
+    return title ?? undefined;
+  }, [documentId, lastLocation, options.seededTitle]);
 }
 
 export function stashLandingTitleHintFor(documentId: string, title: string) {

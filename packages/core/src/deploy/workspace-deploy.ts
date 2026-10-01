@@ -70,6 +70,13 @@ function workspaceFrameworkRoutePrefixEnv(): string {
   );
 }
 
+function workspaceFrameworkRoutePrefixEnvSnippet(): string {
+  const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
+  return frameworkRoutePrefix
+    ? `  processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX = ${JSON.stringify(frameworkRoutePrefix)};\n`
+    : "  delete processRef.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;\n";
+}
+
 function workspaceFrameworkRoutePrefix(): string {
   return normalizeFrameworkRoutePrefix(
     workspaceFrameworkRoutePrefixEnv() || undefined,
@@ -333,6 +340,7 @@ function buildOneApp(
       ? workspaceGatewayUrl
       : null);
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
+  const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NITRO_PRESET: preset,
@@ -351,8 +359,6 @@ function buildOneApp(
       : {}),
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX:
-      workspaceFrameworkRoutePrefixEnv(),
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
       workspaceAppRouteAccess.publicPaths,
@@ -383,6 +389,13 @@ function buildOneApp(
       : {}),
     [WORKSPACE_APPS_ENV_KEY]: JSON.stringify(workspaceApps),
   };
+
+  if (frameworkRoutePrefix) {
+    env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      frameworkRoutePrefix;
+  } else {
+    delete env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+  }
 
   if (preset === "netlify" && appUsesNetlifyUnpooledDatabaseUrl(appDir)) {
     env.DATABASE_URL =
@@ -441,7 +454,9 @@ function moveAppBuildIntoWorkspaceOutput(
     const target = path.join(distDir, NETLIFY_WORKSPACE_STATIC_DIR, app);
     fs.mkdirSync(target, { recursive: true });
     copyDir(staticSrc, target);
-    fs.rmSync(path.join(target, app), { recursive: true, force: true });
+    if (app !== "assets") {
+      fs.rmSync(path.join(target, app), { recursive: true, force: true });
+    }
     copyNetlifyFunctionIntoWorkspace(
       workspaceRoot,
       appsDir,
@@ -994,13 +1009,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 setBasePathEnv();
@@ -1102,13 +1117,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 function enabled() {
@@ -1251,13 +1266,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 setBasePathEnv();
@@ -1328,13 +1343,13 @@ ${workspaceDirectoryEnvSnippet(workspaceApps)}
     VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
-    AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: ${JSON.stringify(workspaceFrameworkRoutePrefixEnv())},
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
+${workspaceFrameworkRoutePrefixEnvSnippet()}
 }
 
 function normalizeBasePathArgs(args) {

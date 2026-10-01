@@ -460,6 +460,81 @@ describe("OrgSwitcher (account menu)", () => {
     },
   );
 
+  it("shows live Builder balance and quota in the expanded sidebar", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery
+      .mockReturnValueOnce({
+        data: { email: ownerOrg.email, name: "Olivia Owner" },
+      })
+      .mockReturnValueOnce({
+        data: {
+          exhausted: false,
+          period: "monthly",
+          balance: 210,
+          quota: { period: "monthly", limit: 500, used: 120, remaining: 380 },
+        },
+        isError: false,
+      });
+
+    render(<OrgSwitcher />);
+
+    expect(container.textContent).toContain("Builder credits");
+    expect(container.textContent).toContain("Workspace balance: 210");
+    expect(container.textContent).toContain("120 of 500 used");
+    expect(container.textContent).toContain("380 remaining");
+    expect(container.textContent).not.toContain("$");
+  });
+
+  it("preserves supported fractional Builder credits", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery
+      .mockReturnValueOnce({
+        data: { email: ownerOrg.email, name: "Olivia Owner" },
+      })
+      .mockReturnValueOnce({
+        data: {
+          exhausted: false,
+          period: "monthly",
+          balance: 0.001,
+          quota: { period: "monthly", limit: 1, used: 0.999, remaining: 0.001 },
+        },
+        isError: false,
+      });
+
+    render(<OrgSwitcher />);
+
+    expect(container.textContent).toContain("Workspace balance: 0.001");
+    expect(container.textContent).toContain("0.999 of 1 used");
+    expect(container.textContent).toContain("0.001 remaining");
+  });
+
+  it("includes the credit summary in the compact sidebar tooltip", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery
+      .mockReturnValueOnce({
+        data: { email: ownerOrg.email, name: "Olivia Owner" },
+      })
+      .mockReturnValueOnce({
+        data: {
+          exhausted: false,
+          period: "monthly",
+          balance: 210,
+          quota: { period: "monthly", limit: 500, used: 120, remaining: 380 },
+        },
+        isError: false,
+      });
+
+    render(<OrgSwitcher compact />);
+
+    expect(
+      container
+        .querySelector<HTMLButtonElement>("button[aria-label]")
+        ?.getAttribute("aria-label"),
+    ).toContain("Workspace balance: 210 · Monthly limit · 120 of 500 used");
+    expect(container.querySelector("a[aria-label]")).toBeNull();
+    expect(container.textContent).not.toContain("$");
+  });
+
   it("hides the Builder credit notice when live status is unreadable", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
     mocks.useActionQuery

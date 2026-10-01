@@ -12,6 +12,7 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { resolvePlayerVideoUrl } from "../../../../lib/player-video-url.js";
+import { getUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -58,6 +59,11 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Not found" };
     }
 
+    const recoveryEnabled =
+      recording.status === "failed" || recording.status === "uploading"
+        ? await getUploadRecoveryPolicy(ownerEmail, orgId, recordingId)
+        : undefined;
+
     const uploadState = await readAppState(
       `recording-upload-${recordingId}`,
     ).catch(() => null);
@@ -72,6 +78,7 @@ export default defineEventHandler(async (event: H3Event) => {
       recording: {
         id: recording.id,
         status: recording.status,
+        ...(recoveryEnabled !== undefined && { recoveryEnabled }),
         verificationPending,
         videoUrl: resolvePlayerVideoUrl(recording, {
           appPath,

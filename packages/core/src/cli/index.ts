@@ -1212,6 +1212,7 @@ Options:
   --eager                       With workspace dev, start every app immediately
   --prewarm                     With workspace dev, warm non-default apps in the background
   --no-prewarm                  With workspace dev, keep non-default apps lazy
+  --no-open                     With workspace dev, do not open a browser
   --url <url>                   URL to audit with audit-agent-web
 
 Feedback:  ${FEEDBACK_URL}

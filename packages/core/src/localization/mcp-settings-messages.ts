@@ -40,6 +40,8 @@ export interface McpConnectMessages {
   revoke: string;
   couldNotRevoke: string;
   authorizeDevice: string;
+  organization: string;
+  invalidOrganization: string;
   fullCatalogRequested: string;
   createToken: string;
   authorizingDevice: string;

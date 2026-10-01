@@ -307,6 +307,12 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
 
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
 
+export interface ActionMcpToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  openWorldHint: boolean;
+}
+
 interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
@@ -358,6 +364,7 @@ interface DefineActionWithSchema<
    *  because the user's answer flows back through the in-app chat that an
    *  external caller is not on. */
   mcpTool?: boolean;
+  mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
@@ -433,6 +440,7 @@ interface DefineActionWithParams<
   uiOnly?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
+  mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
@@ -474,6 +482,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly uiOnly?: boolean;
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
+  readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly deferLoading?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
@@ -605,6 +614,21 @@ export function defineAction(options: any) {
     typeof options.agentTool === "boolean" ? options.agentTool : undefined;
   const mcpTool: boolean | undefined =
     typeof options.mcpTool === "boolean" ? options.mcpTool : undefined;
+  const mcpAnnotations: ActionMcpToolAnnotations | undefined =
+    options.mcpAnnotations === undefined
+      ? undefined
+      : options.mcpAnnotations &&
+          typeof options.mcpAnnotations === "object" &&
+          !Array.isArray(options.mcpAnnotations) &&
+          typeof options.mcpAnnotations.readOnlyHint === "boolean" &&
+          typeof options.mcpAnnotations.destructiveHint === "boolean" &&
+          typeof options.mcpAnnotations.openWorldHint === "boolean"
+        ? options.mcpAnnotations
+        : (() => {
+            throw new TypeError(
+              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values.",
+            );
+          })();
   const deferLoading: boolean | undefined =
     typeof options.deferLoading === "boolean"
       ? options.deferLoading
@@ -673,6 +697,7 @@ export function defineAction(options: any) {
     ...(typeof uiOnly === "boolean" ? { uiOnly } : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
+    ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"

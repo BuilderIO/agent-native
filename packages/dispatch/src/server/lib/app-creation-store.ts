@@ -43,6 +43,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 
 import "../../db/index.js";
 import { isWorkspaceSsoAppUrl } from "../../shared/workspace-sso.js";
+import { getDispatchDefaultOwnerEmail } from "./admin-config.js";
 import { identityKeyForIncoming } from "./dispatch-integrations.js";
 import {
   currentOrgId,
@@ -2510,7 +2511,7 @@ async function isCurrentIntegrationExplicitlyLinked(): Promise<boolean> {
 }
 
 async function defaultOwnerAppCreationAllowed(): Promise<boolean> {
-  const defaultOwner = process.env.DISPATCH_DEFAULT_OWNER_EMAIL?.trim();
+  const defaultOwner = getDispatchDefaultOwnerEmail();
   if (!defaultOwner || defaultOwner !== currentOwnerEmail()) return false;
   if (await isCurrentIntegrationExplicitlyLinked()) return true;
   return (
@@ -2576,7 +2577,7 @@ async function remoteAppCreationAuthorization(): Promise<
 > {
   const ownerEmail = currentOwnerEmail();
   const isIntegrationCaller = isIntegrationCallerRequest();
-  const defaultOwner = process.env.DISPATCH_DEFAULT_OWNER_EMAIL?.trim();
+  const defaultOwner = getDispatchDefaultOwnerEmail();
   if (isIntegrationCaller && defaultOwner && defaultOwner === ownerEmail) {
     if (await defaultOwnerAppCreationAllowed()) return { ok: true };
     return {

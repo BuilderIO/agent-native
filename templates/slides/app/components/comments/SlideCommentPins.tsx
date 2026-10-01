@@ -41,6 +41,7 @@ import {
 import {
   slideCommentAnchorAtPoint,
   slideCommentAnchorPosition,
+  slideCommentTextRange,
 } from "@/lib/slide-comment-anchor";
 import { cn } from "@/lib/utils";
 
@@ -57,12 +58,22 @@ interface SlideCommentPinsProps {
   currentUserEmail?: string | null;
   onBeforeCommentSubmit?: () => Promise<void>;
   onEnsureObjectId?: (element: HTMLElement) => string;
+  onSelectThread?: (threadId: string) => void;
 }
 
 type PendingComment = {
   slideId: string;
   anchor: SlideCommentAnchor;
 };
+
+type CommentHighlightRegistry = {
+  set: (name: string, highlight: object) => unknown;
+  delete: (name: string) => unknown;
+};
+
+type CommentHighlightConstructor = new (...ranges: Range[]) => object;
+
+const COMMENT_TEXT_HIGHLIGHT = "slide-comment-anchor";
 
 function keepPopoverOpenDuringComposition(event: KeyboardEvent) {
   if (event.isComposing || event.keyCode === 229) event.preventDefault();
@@ -323,6 +334,7 @@ export function SlideCommentPins({
   currentUserEmail = null,
   onBeforeCommentSubmit,
   onEnsureObjectId,
+  onSelectThread,
 }: SlideCommentPinsProps) {
   const t = useT();
   const createComment = useCreateSlideComment();
@@ -332,6 +344,9 @@ export function SlideCommentPins({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  const [textHighlightRects, setTextHighlightRects] = useState<
+    Array<{ x: number; y: number; width: number; height: number }>
+  >([]);
   const wasActive = useRef(active);
   const focusCanvas = useCallback(() => {
     document
@@ -365,6 +380,8 @@ export function SlideCommentPins({
       mutationObserver.observe(canvas, {
         attributes: true,
         attributeFilter: ["style", "class"],
+        characterData: true,
+        childList: true,
         subtree: true,
       });
     }
@@ -379,6 +396,63 @@ export function SlideCommentPins({
       window.removeEventListener("scroll", measureCanvas, true);
     };
   }, [canvasSelector, comments.length, measureCanvas]);
+
+  useLayoutEffect(() => {
+    const canvas = document.querySelector<HTMLElement>(canvasSelector);
+    const slideContent = canvas?.querySelector<HTMLElement>(".slide-content");
+    const ranges = comments.flatMap((thread) => {
+      const anchor = thread.anchor;
+      if (thread.resolved || !anchor || !thread.quotedText) return [];
+      const object = anchor.objectId
+        ? Array.from(
+            slideContent?.querySelectorAll<HTMLElement>(
+              "[data-slide-object-id]",
+            ) ?? [],
+          ).find(
+            (element) =>
+              element.getAttribute("data-slide-object-id") === anchor.objectId,
+          )
+        : slideContent;
+      const range = object
+        ? slideCommentTextRange(object, anchor, thread.quotedText)
+        : null;
+      return range ? [range] : [];
+    });
+    const css = window.CSS as typeof CSS & {
+      highlights?: CommentHighlightRegistry;
+    };
+    const highlightConstructor = (
+      window as Window & { Highlight?: CommentHighlightConstructor }
+    ).Highlight;
+    const registry = css.highlights;
+    if (ranges.length && registry && highlightConstructor) {
+      const style = document.createElement("style");
+      style.dataset.slideCommentHighlights = "true";
+      style.textContent = `/* guard:allow-raw-color -- match Google Slides text comment anchors */
+::highlight(${COMMENT_TEXT_HIGHLIGHT}) { background-color: rgba(251, 188, 4, 0.42); }`;
+      document.head.append(style);
+      registry.set(COMMENT_TEXT_HIGHLIGHT, new highlightConstructor(...ranges));
+      setTextHighlightRects([]);
+      return () => {
+        registry.delete(COMMENT_TEXT_HIGHLIGHT);
+        style.remove();
+      };
+    }
+
+    setTextHighlightRects(
+      canvasRect
+        ? ranges.flatMap((range) =>
+            Array.from(range.getClientRects(), (rect) => ({
+              x: rect.left - canvasRect.left,
+              y: rect.top - canvasRect.top,
+              width: rect.width,
+              height: rect.height,
+            })),
+          )
+        : [],
+    );
+    return () => registry?.delete(COMMENT_TEXT_HIGHLIGHT);
+  }, [canvasRect, canvasSelector, comments, slideId]);
 
   useEffect(() => {
     if (!active) {
@@ -547,6 +621,19 @@ export function SlideCommentPins({
       )}
 
       <div className="pointer-events-none absolute inset-0">
+        {textHighlightRects.map((rect, index) => (
+          <div
+            key={index}
+            aria-hidden="true"
+            className="absolute rounded-[1px] bg-amber-300/40"
+            style={{
+              left: rect.x,
+              top: rect.y,
+              width: rect.width,
+              height: rect.height,
+            }}
+          />
+        ))}
         {visibleThreads.map((thread) => (
           <div
             key={thread.threadId}
@@ -571,7 +658,8 @@ export function SlideCommentPins({
               slideId={slideId}
               onOpenChange={(open) => {
                 setOpenThreadId(open ? thread.threadId : null);
-                if (!open) focusCanvas();
+                if (open) onSelectThread?.(thread.threadId);
+                else focusCanvas();
               }}
             />
           </div>

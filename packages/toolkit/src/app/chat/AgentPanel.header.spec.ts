@@ -2,16 +2,16 @@
 
 import { readFileSync } from "node:fs";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "../../ui/dropdown-menu.js";
 import {
   AgentChatSurface,
   AgentPanelFullViewMenuItem,
@@ -51,6 +51,13 @@ import {
   preloadAgentChatSurface,
 } from "./AgentSidebar.js";
 
+function readSource(
+  path: string,
+  _options?: "utf8" | { encoding: "utf8" },
+): string {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
+
 describe("AgentPanel compatibility exports", () => {
   it("preserves the legacy sidebar entry point", () => {
     expect(LegacyAgentSidebar).toBe(AgentSidebar);
@@ -60,7 +67,7 @@ describe("AgentPanel compatibility exports", () => {
   });
 
   it("uses a stable-ref link in the full-view menu item", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", "utf8").replace(
+    const source = readSource("src/app/chat/AgentPanel.tsx", "utf8").replace(
       /\s+/g,
       " ",
     );
@@ -150,7 +157,7 @@ describe("AgentPanel fullscreen menu", () => {
 
 describe("AgentPanel suggestion placement", () => {
   it("forwards explicit placement and defaults to context chips", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
 
@@ -301,6 +308,15 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(true);
   });
 
+  it("can keep the page history menu visible for an empty chat", () => {
+    expect(
+      shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0, true),
+    ).toBe(true);
+    expect(
+      shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 0),
+    ).toBe(false);
+  });
+
   it("keeps new chat out of the page canvas header by default", () => {
     expect(
       shouldDefaultAgentChatSurfacePageNewChatButton("page", undefined),
@@ -323,7 +339,7 @@ describe("AgentPanel header tab visibility", () => {
   });
 
   it("exposes page header composition without moving it into app chrome", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", "utf8");
+    const source = readSource("src/app/chat/AgentPanel.tsx", "utf8");
 
     expect(source).toContain('data-agent-page-chat-header=""');
     expect(source).toContain("pageHeaderLeadingSlot");
@@ -699,7 +715,7 @@ describe("AgentPanel Integrations link", () => {
   });
 
   it("sits right after Open full view and shares its separator", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
     const overflowMenu = source.slice(
@@ -820,6 +836,36 @@ describe("AgentSidebar composer focus", () => {
     }
   });
 
+  it("stops retrying when the document is torn down", () => {
+    vi.useFakeTimers();
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.dataset.agentSidebarState = "open";
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+
+    try {
+      focusAgentChat();
+      frames[0]!(0);
+      vi.stubGlobal("document", undefined);
+
+      expect(() => vi.advanceTimersByTime(50)).not.toThrow();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it("focuses a frame-owned composer", () => {
     const previousRequestAnimationFrame = window.requestAnimationFrame;
     const frames: Array<FrameRequestCallback> = [];
@@ -870,54 +916,52 @@ describe("AgentSidebar toggle routing", () => {
 });
 
 describe("AgentPanel header overflow actions", () => {
-  it("closes the menu before opening a sibling overlay", () => {
-    const requestAnimationFrame = window.requestAnimationFrame;
-    const frames: Array<() => void> = [];
-    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-      frames.push(() => callback(0));
-      return frames.length;
-    }) as typeof window.requestAnimationFrame;
+  it("opens a sibling overlay only after the menu closes", () => {
+    const pendingOverlayRef = { current: null as (() => void) | null };
+    const event = { preventDefault: vi.fn() };
+    const focusRestoreEvent = { preventDefault: vi.fn() };
+    const events: string[] = [];
 
-    try {
-      const event = { preventDefault: vi.fn() };
-      const events: string[] = [];
+    deferAgentPanelOverlayOpen(
+      event,
+      () => events.push("menu closed"),
+      () => events.push("overlay opened"),
+      pendingOverlayRef,
+    );
 
-      deferAgentPanelOverlayOpen(
-        event,
-        () => events.push("menu closed"),
-        () => events.push("overlay opened"),
-      );
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(events).toEqual(["menu closed"]);
+    expect(pendingOverlayRef.current).toBeTypeOf("function");
 
-      expect(event.preventDefault).toHaveBeenCalledOnce();
-      expect(events).toEqual(["menu closed"]);
-      expect(frames).toHaveLength(1);
+    consumeAgentPanelOverlayFocusRestore(pendingOverlayRef, focusRestoreEvent);
 
-      frames[0]!();
-      expect(events).toEqual(["menu closed", "overlay opened"]);
-    } finally {
-      window.requestAnimationFrame = requestAnimationFrame;
-    }
+    expect(focusRestoreEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(events).toEqual(["menu closed", "overlay opened"]);
+    expect(pendingOverlayRef.current).toBeNull();
   });
 
   it("consumes the pending menu focus restore for the sibling overlay", () => {
-    const pendingOverlayRef = { current: true };
+    const openOverlay = vi.fn();
+    const pendingOverlayRef = { current: openOverlay };
     const event = { preventDefault: vi.fn() };
 
     consumeAgentPanelOverlayFocusRestore(pendingOverlayRef, event);
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(pendingOverlayRef.current).toBe(false);
+    expect(openOverlay).toHaveBeenCalledOnce();
+    expect(pendingOverlayRef.current).toBeNull();
 
     const secondEvent = { preventDefault: vi.fn() };
     consumeAgentPanelOverlayFocusRestore(pendingOverlayRef, secondEvent);
     expect(secondEvent.preventDefault).not.toHaveBeenCalled();
+    expect(openOverlay).toHaveBeenCalledOnce();
   });
 
   it("keeps width and full-view actions out of the icon row", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
-    const sidebarSource = readFileSync("src/app/chat/AgentSidebar.tsx", {
+    const sidebarSource = readSource("src/app/chat/AgentSidebar.tsx", {
       encoding: "utf8",
     });
     const headerActions = source.slice(
@@ -941,7 +985,7 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
     expect(source).toContain("event.preventDefault();");
     expect(overflowMenu).toContain(
-      'toggleHistory,\n                    "timeout"',
+      "toggleHistory,\n                    pendingHeaderOverlayRef",
     );
     expect(overflowMenu).toContain("onCloseAutoFocus");
     expect(
@@ -957,7 +1001,7 @@ describe("AgentPanel header overflow actions", () => {
   });
 
   it("keeps the overflow menu scrollable within the viewport", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
     const overflowMenu = source.slice(
@@ -972,7 +1016,7 @@ describe("AgentPanel header overflow actions", () => {
   });
 
   it("offers sharing from the sidebar overflow for an active chat", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
     const overflowMenu = source.slice(
@@ -987,12 +1031,12 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
     expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
     expect(overflowMenu).toContain(
-      'setShareFromMenuOpen(true),\n                        "timeout"',
+      "setShareFromMenuOpen(true),\n                        pendingHeaderOverlayRef",
     );
   });
 
   it("keeps chat headers persistent while switching app surfaces", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
 
@@ -1002,10 +1046,10 @@ describe("AgentPanel header overflow actions", () => {
   });
 
   it("supports a persistent two-state sidebar toggle", () => {
-    const source = readFileSync("src/app/chat/AgentSidebar.tsx", {
+    const source = readSource("src/app/chat/AgentSidebar.tsx", {
       encoding: "utf8",
     });
-    const panelSource = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const panelSource = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
 
@@ -1021,7 +1065,7 @@ describe("AgentPanel header overflow actions", () => {
   });
 
   it("keeps host CLI tabs mounted while chat is active", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
 
@@ -1035,7 +1079,7 @@ describe("AgentPanel header overflow actions", () => {
   });
 
   it("only shows tabs for the active desktop surface", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
 
@@ -1046,7 +1090,7 @@ describe("AgentPanel header overflow actions", () => {
 
 describe("AgentSidebar wide drawer layout", () => {
   it("can disable the panel without unmounting the app surface", () => {
-    const source = readFileSync("src/app/chat/AgentSidebar.tsx", {
+    const source = readSource("src/app/chat/AgentSidebar.tsx", {
       encoding: "utf8",
     });
 
@@ -1058,7 +1102,7 @@ describe("AgentSidebar wide drawer layout", () => {
   });
 
   it("does not reserve the drawer placeholder after the panel closes", () => {
-    const source = readFileSync("src/app/chat/AgentSidebar.tsx", {
+    const source = readSource("src/app/chat/AgentSidebar.tsx", {
       encoding: "utf8",
     });
     const placeholderStart = source.indexOf("const drawerPlaceholder");
@@ -1083,7 +1127,7 @@ describe("AgentChatSurface chrome defaults", () => {
   });
 
   it("keeps settings out of every chat surface", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
 
@@ -1117,7 +1161,7 @@ describe("AgentChatSurface chrome defaults", () => {
 
 describe("AgentPanel stale lazy chunk recovery", () => {
   it("uses the guarded reload path before the panel reset fallback", () => {
-    const source = readFileSync("src/app/chat/AgentPanel.tsx", {
+    const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
     });
     const componentDidCatch = source.slice(

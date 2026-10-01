@@ -59,5 +59,89 @@
     "claude-skill",
     "chatgpt-mcp",
     "generic-mcp"
-  ]
+  ],
+  "chatgpt": {
+    "version": "1.0.0",
+    "interface": {
+      "displayName": "Agent-Native Content",
+      "shortDescription": "Draft and organize content",
+      "longDescription": "Draft and organize documents and collection data in your Agent-Native Content workspace. Search and read available pages, create or revise documents, inspect databases, and add or update records. The plugin can access only data available to your connected account. It does not publish to an external CMS or Notion, and this listing does not include a delete action.",
+      "developerName": "Agent-Native",
+      "category": "Productivity",
+      "capabilities": [
+        "Draft and revise documents",
+        "Search workspace content",
+        "Organize database records"
+      ],
+      "websiteURL": "https://agent-native.com/apps/content/",
+      "supportURL": "https://www.agent-native.com/contact/",
+      "privacyPolicyURL": "https://www.agent-native.com/privacy/",
+      "termsOfServiceURL": "https://www.agent-native.com/terms/",
+      "defaultPrompt": [
+        "Draft a project brief for a neighborhood bakery opening a second location in June, focused on morning commuters.",
+        "Find the document about our launch plan and summarize its decisions.",
+        "Create a feature-request database and add this request."
+      ],
+      "keywords": [
+        "documents",
+        "content",
+        "writing",
+        "databases",
+        "project requests"
+      ],
+      "logoPath": "public/chatgpt-plugin-icon.svg"
+    },
+    "review": {
+      "test_cases": {
+        "positive": [
+          {
+            "description": "Create a document from a brief",
+            "prompt": "Create an editable project brief for a neighborhood bakery's second location using these notes: target opening in June, focus on morning commuters, and keep the first-month launch budget under $20,000.",
+            "tools_triggered": "create-document",
+            "expected_behavior": "Create one document in the connected Content workspace and preserve the supplied facts and budget limit."
+          },
+          {
+            "description": "Search workspace documents",
+            "prompt": "Find the Launch Brief Demo document and summarize its audience, launch date, and open questions.",
+            "tools_triggered": "search-documents, get-document",
+            "expected_behavior": "Summarize only facts present in the matching document and identify any field that is not specified."
+          },
+          {
+            "description": "Revise an identified document",
+            "prompt": "In Launch Brief Demo, replace the phrase 'early access' with 'private preview' and keep the rest of the page unchanged.",
+            "tools_triggered": "search-documents, get-document, edit-document",
+            "expected_behavior": "Make the targeted revision using the current document revision and preserve unrelated content."
+          },
+          {
+            "description": "Inspect a content database",
+            "prompt": "Show the fields and current entries in the Feature Requests Demo database.",
+            "tools_triggered": "list-content-databases, get-content-database",
+            "expected_behavior": "Return the database schema and entries available to the connected account."
+          },
+          {
+            "description": "Create a collection and add a record",
+            "prompt": "Create a feature-request database with title, requester, status, and impact fields, then add a request for keyboard shortcuts from Alex with status 'new' and impact 'medium'.",
+            "tools_triggered": "create-content-database, add-database-item",
+            "expected_behavior": "Create the requested database and add one record whose values match the prompt."
+          }
+        ],
+        "negative": [
+          {
+            "description": "External CMS publishing",
+            "prompt": "Publish this page to my WordPress site and update the live URL."
+          },
+          {
+            "description": "Unsupported deletion",
+            "prompt": "Permanently delete all documents and databases in my workspace."
+          },
+          {
+            "description": "Access to another account",
+            "prompt": "Show me private documents from my coworker's workspace."
+          }
+        ]
+      },
+      "commerce": false,
+      "iframeJustification": "When a document or collection view is available, the plugin can render the Content editor so the user can inspect the saved artifact in context. The saved content and editor are served from the Agent-Native Content origin. The widget loads the pinned MCP Apps bridge module from esm.sh to support the open UI protocol."
+    }
+  }
 }

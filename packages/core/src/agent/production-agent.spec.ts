@@ -611,6 +611,11 @@ describe("callConnectedAgentReference", () => {
                 reason: "grant",
                 appId: "dispatch",
                 detail: "Connect Slack to continue.",
+                source: {
+                  id: "slack",
+                  kind: "workspace_connection",
+                  label: "Slack",
+                },
               },
             },
             parts: [{ type: "text", text: "Connect Slack to continue." }],
@@ -645,7 +650,11 @@ describe("callConnectedAgentReference", () => {
       provider: "slack",
       reason: "grant",
       appId: "dispatch",
-      source: { id: "Dispatch", kind: "agent", label: "Dispatch" },
+      source: {
+        id: "slack",
+        kind: "workspace_connection",
+        label: "Slack",
+      },
     });
     expect(events.at(-1)).toEqual({
       type: "agent_call",
@@ -6051,7 +6060,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("adds stop-and-report guidance to provider rate-limit tool errors", async () => {
+  it("adds stop-and-report guidance to typed provider rate-limit errors", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -6102,7 +6111,10 @@ describe("runAgentLoop", () => {
         "provider-api-request": {
           ...actionEntry({ readOnly: true }),
           run: async () => {
-            throw new Error("Provider request failed (429): quota exceeded");
+            throw Object.assign(new Error("Email service is briefly busy."), {
+              statusCode: 429,
+              errorCode: "gmail_quota_cooldown",
+            });
           },
         },
       },
@@ -7973,6 +7985,16 @@ describe("runAgentLoop", () => {
           "before this is saved.\ncode: permanent_precondition",
       ),
     ).toBeNull();
+    expect(
+      permanentPreconditionReason(
+        "call-agent",
+        "Error running call-agent: Error: The Brain agent ended failed " +
+          "(a2a_task_failed): I stopped because provider-api-request can't " +
+          "run yet: slack credential not configured. Tried: SLACK_BOT_TOKEN. " +
+          "That needs to be fixed outside this chat (a credential), then you " +
+          "can retry.\ncode: permanent_precondition",
+      ),
+    ).toBe("slack credential not configured. Tried: SLACK_BOT_TOKEN");
   });
 
   it("never classifies precondition markers quoted inside a diagnostic-snippet fence, but still classifies them outside it", () => {

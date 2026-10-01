@@ -12,6 +12,7 @@ import {
   trackRecordingFailure,
   type RecordingFailureCode,
 } from "../server/lib/recording-failures.js";
+import { snapshotUploadRecoveryPolicy } from "../server/lib/recording-policy.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -116,6 +117,8 @@ export default defineAction({
       spaceIds: args.spaceIds ?? [],
       folderId: args.folderId,
     });
+
+    await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
     await db.insert(schema.recordings).values({
       id,

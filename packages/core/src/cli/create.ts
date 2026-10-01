@@ -18,6 +18,7 @@ import {
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
+import { addConfiguredMigrationDependencies } from "./upgrade.js";
 import {
   ensureNodePtyBuildDependency,
   parseWorkspaceScope,
@@ -31,6 +32,7 @@ const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const DRIZZLE_DEPENDENCY_VERSION = "^0.45.3";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
   "@react-router/fs-routes": "8.1.0",
@@ -714,6 +716,7 @@ async function createWorkspaceInteractive(
         ...resolution,
         shape: "workspace",
       });
+      addConfiguredFeatureDependencies(appDir, targetDir);
       ensureGuardedScaffold(appDir);
       fixWebManifestName(
         appDir,
@@ -1068,6 +1071,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
+    addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
     ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
@@ -1084,6 +1088,7 @@ async function scaffoldOneAppIntoWorkspace(
     );
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
     applyLocalWorkspaceOverrides(workspace.workspaceRoot, workspaceOverrides);
+    ensureWorkspaceDrizzleDependency(workspace.workspaceRoot);
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
     if (err instanceof CreateWizardCancelledError) {
@@ -1921,6 +1926,20 @@ function resolvePublishedWorkspaceSpecifier(
   }
 }
 
+function ensureWorkspaceDrizzleDependency(workspaceRoot: string): void {
+  const packageJsonPath = path.join(workspaceRoot, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+  if (!pkg || typeof pkg !== "object" || Array.isArray(pkg)) {
+    throw new Error(`${packageJsonPath} must contain a JSON object`);
+  }
+  pkg.dependencies ??= {};
+  if (typeof pkg.dependencies !== "object" || Array.isArray(pkg.dependencies)) {
+    throw new Error(`${packageJsonPath} has an invalid dependencies object`);
+  }
+  pkg.dependencies["drizzle-orm"] ??= DRIZZLE_DEPENDENCY_VERSION;
+  fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + "\n");
+}
+
 async function scaffoldRequiredPackages(
   templateNames: string[],
   workspaceRoot: string,
@@ -2172,6 +2191,7 @@ function postProcessStandalone(
       }
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies["@electric-sql/pglite"] ??= PGLITE_DEPENDENCY_VERSION;
+      pkg.dependencies["drizzle-orm"] ??= DRIZZLE_DEPENDENCY_VERSION;
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
       hasNodePty = [
@@ -2181,6 +2201,7 @@ function postProcessStandalone(
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+      addConfiguredFeatureDependencies(targetDir);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
@@ -2241,6 +2262,19 @@ function postProcessStandalone(
   fixStandaloneTsconfig(targetDir, templateName);
 
   setupAgentSymlinks(targetDir);
+}
+
+function addConfiguredFeatureDependencies(
+  appDir: string,
+  workspaceRoot = appDir,
+): void {
+  const packageFile = path.join(appDir, "package.json");
+  if (!fs.existsSync(packageFile)) return;
+  addConfiguredMigrationDependencies({
+    root: workspaceRoot,
+    kind: workspaceRoot === appDir ? "standalone" : "workspace",
+    packageFiles: [packageFile],
+  });
 }
 
 function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {

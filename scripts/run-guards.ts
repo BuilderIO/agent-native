@@ -29,6 +29,7 @@ const guards = [
   "guard:beta-e2e-suite",
   "guard:trusted-acceptance",
   "guard:design-e2e-workflow",
+  "guard:mobile-build-paths",
   "guard:content-product-conformance",
   "guard:content-product-docs",
   "guard:workspace-skills",

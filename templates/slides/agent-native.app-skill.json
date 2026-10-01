@@ -52,6 +52,11 @@
       "exportAs": "design-systems"
     },
     {
+      "path": ".agents/skills/slide-design",
+      "visibility": "both",
+      "exportAs": "slide-design"
+    },
+    {
       "path": ".agents/skills/creative-context",
       "visibility": "internal"
     }
@@ -64,5 +69,89 @@
     "claude-skill",
     "chatgpt-mcp",
     "generic-mcp"
-  ]
+  ],
+  "chatgpt": {
+    "version": "1.0.0",
+    "interface": {
+      "displayName": "Agent-Native Slides",
+      "shortDescription": "On-brand presentations",
+      "longDescription": "Create and revise on-brand presentations in your Agent-Native Slides workspace. Start from a brief, inspect decks and design systems, add slides, update existing slide content, and duplicate a deck for a new draft. This connection edits presentations in Agent-Native Slides; it does not directly change PowerPoint or Google Slides files. It can access only decks and design systems available to your connected account.",
+      "developerName": "Agent-Native",
+      "category": "Productivity",
+      "capabilities": [
+        "Create presentations from a brief",
+        "Edit slides and decks",
+        "Apply workspace design systems"
+      ],
+      "websiteURL": "https://agent-native.com/apps/slides/",
+      "supportURL": "https://www.agent-native.com/contact/",
+      "privacyPolicyURL": "https://www.agent-native.com/privacy/",
+      "termsOfServiceURL": "https://www.agent-native.com/terms/",
+      "defaultPrompt": [
+        "Create an on-brand pitch deck for this product brief.",
+        "Turn these launch notes into an executive presentation with clear next steps.",
+        "Create a concise sales presentation for this audience."
+      ],
+      "keywords": [
+        "presentations",
+        "pitch decks",
+        "slide decks",
+        "sales decks",
+        "business updates"
+      ],
+      "logoPath": "public/chatgpt-plugin-icon.svg"
+    },
+    "review": {
+      "test_cases": {
+        "positive": [
+          {
+            "description": "Create a new editable presentation",
+            "prompt": "Create a five-slide pitch deck for a neighborhood bakery opening a second location. Cover the opportunity, audience, plan, budget assumptions, and next steps.",
+            "tools_triggered": "get-workspace-defaults, create-deck",
+            "expected_behavior": "Create a new deck in the connected Slides workspace and confirm its title and editable slides."
+          },
+          {
+            "description": "List saved presentations",
+            "prompt": "List the presentations available in my Slides workspace.",
+            "tools_triggered": "list-decks",
+            "expected_behavior": "Return only decks the connected account can access and report clearly if none are available."
+          },
+          {
+            "description": "Inspect a workspace design system",
+            "prompt": "What colors, typography, and logo should I use for presentations in my workspace?",
+            "tools_triggered": "list-design-systems, get-design-system",
+            "expected_behavior": "Find the Northstar Brand design system in the demo workspace and summarize its saved presentation guidance."
+          },
+          {
+            "description": "Add a slide to an identified deck",
+            "prompt": "Add a closing slide with owners and next steps to the Quarterly Planning Demo deck.",
+            "tools_triggered": "list-decks, get-deck, add-slide",
+            "expected_behavior": "Add one closing slide to the named demo deck without changing unrelated slides."
+          },
+          {
+            "description": "Duplicate an existing deck",
+            "prompt": "Duplicate the Quarterly Planning Demo deck as Quarterly Planning Draft.",
+            "tools_triggered": "list-decks, get-deck, duplicate-deck",
+            "expected_behavior": "Create a separate copy with the requested title and leave the source deck intact."
+          }
+        ],
+        "negative": [
+          {
+            "description": "Unsupported deck deletion",
+            "prompt": "Delete every presentation in my workspace."
+          },
+          {
+            "description": "Direct editing of Google Slides",
+            "prompt": "Update the source Google Slides presentation and share the changes with my team."
+          },
+          {
+            "description": "Restore an earlier deck version",
+            "prompt": "Replace my current presentation with yesterday's saved version."
+          }
+        ]
+      },
+      "commerce": false,
+      "iframeJustification": "The plugin can render the Slides editor for a presentation the user has just created or opened. The saved deck and editor are served from the Agent-Native Slides origin. The widget loads the pinned MCP Apps bridge module from esm.sh to support the open UI protocol."
+    }
+  }
 }

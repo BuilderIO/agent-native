@@ -3,16 +3,40 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-30
+
+### Improved
+
+- Typing stays responsive while slides fit longer text.
+- Add references through compact dropdown menus and find decks with the centered home search.
+- Rich text editing preserves imported slide layouts.
+- Slide text editing supports slash commands, Markdown shortcuts, formatting, links, and predictable lists while preserving slide styling
+- Slides remembers your home library tab, so returning users can open straight to Recent.
+
+### Fixed
+
+- Empty Slides libraries show one clear next step without search and filter controls.
+- Slides retries honor deck links in edited prompts
+- Start presentation generation immediately after submitting a prompt.
+- Slides keeps your selected references when you retry generation or sign in
+
 ## 2026-09-29
 
 ### Improved
 
+- Crop images freely and see the selected slide at a glance
 - Pasting a link to an accessible deck preselects it as the visual reference for a new presentation.
 - Undo and redo are available in the editor menu
 - Settings pages now share the account layout, with dated updates that load in batches.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Slides reports when saved history cannot load and lets you retry
+- Choosing the latest slide version preserves other pending slide edits.
+- Generation retries keep the original files and references.
+- List commands now change only the selected text rows, leaving other rows untouched.
 - Large PDF and PowerPoint imports have more time to finish
 - The Position control stays available while a selected object's style details initialize.
 - Conflicting edits to one slide no longer block unrelated slide changes.

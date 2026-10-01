@@ -348,6 +348,34 @@ function fitRows<T>(items: T[], activeIndex: number, rows: number): T[] {
   return items.slice(start, start + rows);
 }
 
+// Ink hands every key in one stdin chunk to the same input handler before
+// React re-renders, so an input handler must read `latest` and update through
+// the setter: the rendered value is stale from the chunk's second key on.
+function useKeypressState<T>(initial: () => T) {
+  const [rendered, setRendered] = React.useState(initial);
+  const latest = React.useRef(rendered);
+  const update = (next: (current: T) => T) => {
+    latest.current = next(latest.current);
+    setRendered(latest.current);
+  };
+  return [rendered, update, latest] as const;
+}
+
+function wizardChoices(state: WizardState, installedApps: string[]) {
+  const apps = availableTemplates(state.kind, installedApps);
+  const choices: Array<TemplateMeta | (typeof START_CHOICES)[number]> =
+    state.step === "start" ? START_CHOICES : apps;
+  return {
+    multiSelect:
+      state.kind === "chat-workspace" ||
+      state.kind === "first-party" ||
+      state.kind === "workspace-add",
+    apps,
+    required: new Set(requiredTemplateNames(state.kind)),
+    choices,
+  };
+}
+
 export function CreateWizard({
   options,
   onFinish,
@@ -357,17 +385,15 @@ export function CreateWizard({
 }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const [state, setState] = React.useState(() => initialWizardState(options));
+  const [state, setState, latest] = useKeypressState(() =>
+    initialWizardState(options),
+  );
   const terminalColumns = Math.max(16, stdout.columns ?? 80);
   const terminalRows = Math.max(14, stdout.rows ?? 24);
-  const multiSelect =
-    state.kind === "chat-workspace" ||
-    state.kind === "first-party" ||
-    state.kind === "workspace-add";
-  const apps = availableTemplates(state.kind, options.installedApps ?? []);
-  const required = new Set(requiredTemplateNames(state.kind));
-  const choices: Array<TemplateMeta | (typeof START_CHOICES)[number]> =
-    state.step === "start" ? START_CHOICES : apps;
+  const { multiSelect, required, choices } = wizardChoices(
+    state,
+    options.installedApps ?? [],
+  );
   const listRows = Math.max(
     3,
     Math.min(choices.length, Math.floor((terminalRows - 13) / 2)),
@@ -394,6 +420,7 @@ export function CreateWizard({
   };
 
   const complete = () => {
+    const state = latest.current;
     const answer: CreateWizardAnswers = {
       kind: state.kind ?? "chat-workspace",
       name: state.name,
@@ -406,6 +433,11 @@ export function CreateWizard({
   };
 
   useInput((input, key) => {
+    const state = latest.current;
+    const { multiSelect, apps, required, choices } = wizardChoices(
+      state,
+      options.installedApps ?? [],
+    );
     if (state.step === "cancelled") return;
     if ((key.ctrl && input.toLowerCase() === "c") || key.escape) {
       cancel();
@@ -869,7 +901,7 @@ function InkChoicePrompt({
   onFinish: (value: string | null) => void;
 }) {
   const { exit } = useApp();
-  const [activeIndex, setActiveIndex] = React.useState(0);
+  const [activeIndex, setActiveIndex, latestIndex] = useKeypressState(() => 0);
   useInput((input, key) => {
     if (key.escape || (key.ctrl && input.toLowerCase() === "c")) {
       onFinish(null);
@@ -880,7 +912,7 @@ function InkChoicePrompt({
     else if (key.downArrow)
       setActiveIndex((index) => Math.min(choices.length - 1, index + 1));
     else if (key.return) {
-      onFinish(choices[activeIndex]?.value ?? null);
+      onFinish(choices[latestIndex.current]?.value ?? null);
       exit();
     }
   });

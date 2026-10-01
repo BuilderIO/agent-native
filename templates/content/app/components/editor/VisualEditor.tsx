@@ -2530,6 +2530,7 @@ export function createVisualEditorExtensions({
       NormalizeTableHeaders,
       NormalizeTableAlignment,
       ...createNotionEditorExtensions({
+        documentId,
         onOpenPageLink: onOpenNotionPageLink,
       }),
       ...notionFidelityExtensions,

@@ -5,8 +5,8 @@ description: >-
   list/read action, a page or sidebar that loads data, or when something loads
   slowly, or when adding a dependency to the deployed server bundle. Covers
   column projection, indexing hot-path queries, avoiding N+1 and round-trip
-  waterfalls, cheap polling, not recomputing on every read, and cold-start
-  artifact size.
+  waterfalls, cheap polling, not recomputing on every read, cold-start
+  artifact size, and loading placeholders that hold still.
 scope: dev
 metadata:
   internal: true
@@ -317,6 +317,61 @@ node -e 'const t=Date.now();import(process.argv[1]).then(()=>{console.log(`${Dat
   ./.netlify/functions-internal/server/main.mjs
 ```
 
+## 10. Placeholders hold the final layout
+
+A load that moves things feels slower than it is. When a placeholder gives way
+to the real element and the element starts somewhere else, the reader loses
+their place, even if the data arrived quickly. On Content this jank, more than
+latency, was what made fast loads feel slow: the sidebar's Files rows jumped
+316px, the page title 60px, and the old score never noticed, because the
+layout-shift score ignores placeholders that are removed and replaced.
+
+- **A placeholder occupies the final element's box.** Same container classes,
+  padding, line height, and row heights. Share the class names from one module
+  instead of copying values. Content's `document-editor-layout.ts` is used by
+  both the editor and `DocumentEditorSkeleton`.
+- **Draw nothing below an element whose height is still unknown.** A title
+  that may wrap, or a list whose length is not known yet, moves everything
+  under it when it resolves. Leave the content below out until the height is
+  known: something that appears is fine, something that moves is not.
+- **Restore the last layout before the data arrives.** Keep the shape the user
+  last saw in local storage, as counts and ids only: rows per section, section
+  order, sidebar width, collapsed state. Then draw that shape at once. Content's
+  `sidebar-layout-hint.ts` holds the sidebar's. When the shape depends on the
+  item itself, such as a page's icon or whether this person can edit it,
+  remember it per id. Content's `page-icon-row-hint.ts` holds the row above
+  each page title.
+- **A box whose content loads late keeps its final size.** A library icon
+  draws only once its glyph loads, so a wrapper sized by its content is 8px
+  tall and then 56px. Give the box the size it ends at.
+- **The server-rendered first paint counts.** An app's `clientOnlyFallback`
+  must draw the app's own shell, with the same sidebar width, header heights,
+  and title position. It must not use a generic skeleton. Anything only the
+  browser knows (saved width, collapsed state, the page's icon row) is applied
+  by an inline `<head>` script before the first paint (`ContentStartupShell`).
+- **Read layout preferences before the first paint.** Use a synchronous read
+  or a layout effect. A passive `useEffect` paints the default for a frame
+  first, and that frame is a visible jump.
+- **`cn()` drops `leading-*` when a later `text-*` size class sets a line
+  height.** tailwind-merge treats them as conflicting, so measure computed
+  styles rather than trusting the class list.
+
+Check it with the Content startup trace. It follows every `data-startup-anchor`
+element (placeholders and real elements share a name) on every frame, and
+fails a run when any anchor moves more than 2px. It exits 1 when a run fails
+and 2 when a run found no anchors:
+
+```sh
+node templates/content/scripts/trace-startup.mjs --base-url <url>   --email <fixture> --password <fixture password>   --state cached --path /page/<id> --runs 5 --stability   --latency-ms 150 --jitter-ms 150 --frames .tmp/frames --out .tmp/trace.json
+```
+
+Run it on a production build, since a dev server can reload mid-run. Cover a
+hard refresh (`--state hard`), a phone (`--viewport 390x844`), saved sidebar
+layouts (`--local-storage '{"content.sidebar.collapsed":"true"}'`), a page
+with an icon, and a page the fixture account can only view.
+Then look at the saved frames: the check proves nothing moved, and the frames
+show whether what appeared looked right.
+
 ## Checklist — run before shipping a list/read or a new table
 
 - [ ] List selects only displayed columns; heavy blobs excluded or `substr`-truncated.
@@ -332,6 +387,8 @@ node -e 'const t=Date.now();import(process.argv[1]).then(()=>{console.log(`${Dat
       aggregations and re-syncs run on every cold start there (see §8).
 - [ ] Mutation-fresh reads go through actions + `useActionQuery`, not SSR loader
       data.
+- [ ] Every loading placeholder occupies the final element's box, and nothing
+      below an element of unknown height is drawn early (see §10).
 - [ ] No heavy runtime (browser, ffmpeg, rasterizer) added to what the `/*` page
       function ships, and no new copied dependency resolved by walking ancestor
       `node_modules` (see §9).

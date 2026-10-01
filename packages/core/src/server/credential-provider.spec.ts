@@ -11,7 +11,7 @@ const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
 const mockGetRequestContext = vi.fn<
   [],
-  { isSyntheticTraffic?: boolean } | undefined
+  { isSyntheticTraffic?: boolean; isIntegrationCaller?: boolean } | undefined
 >();
 const mockIsLocalDatabase = vi.fn<[], boolean>();
 const mockResolveOrgIdForEmail = vi.fn<[string], Promise<string | null>>();
@@ -184,6 +184,8 @@ beforeEach(() => {
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.NOTION_CLIENT_ID;
   delete process.env.NOTION_CLIENT_SECRET;
+  delete process.env.SLACK_SIGNING_SECRET;
+  delete process.env.SLACK_BOT_TOKEN;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
@@ -1625,6 +1627,97 @@ describe("resolveSecret (generic)", () => {
     expect(
       canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_SECRET"),
     ).toBe(true);
+  });
+
+  describe("Slack signing secret for a hosted integration owner", () => {
+    beforeEach(() => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      mockIsLocalDatabase.mockReturnValue(false);
+      mockGetRequestUserEmail.mockReturnValue("owner@example.test");
+      mockGetRequestOrgId.mockReturnValue("test-org");
+      mockGetRequestContext.mockReturnValue({ isIntegrationCaller: true });
+    });
+
+    it("resolves the app signing secret from deploy configuration after scoped misses", async () => {
+      process.env.SLACK_SIGNING_SECRET = "fake-deploy-signing-secret";
+
+      await expect(
+        resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+      ).resolves.toMatchObject({
+        value: "fake-deploy-signing-secret",
+        source: "env",
+        lookupFailed: false,
+      });
+    });
+
+    it.each(["user", "org"])(
+      "preserves the %s signing secret ahead of deploy configuration",
+      async (scope) => {
+        process.env.SLACK_SIGNING_SECRET = "fake-deploy-signing-secret";
+        mockReadAppSecret.mockImplementation(async (query) =>
+          query.scope === scope
+            ? { value: "fake-scoped-signing-secret" }
+            : null,
+        );
+
+        await expect(
+          resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+        ).resolves.toMatchObject({
+          value: "fake-scoped-signing-secret",
+          source: scope,
+        });
+      },
+    );
+
+    it("does not let synthetic traffic inherit the deployed signing secret", async () => {
+      process.env.SLACK_SIGNING_SECRET = "fake-deploy-signing-secret";
+      mockGetRequestContext.mockReturnValue({
+        isIntegrationCaller: true,
+        isSyntheticTraffic: true,
+      });
+
+      await expect(resolveSecret("SLACK_SIGNING_SECRET")).resolves.toBeNull();
+    });
+
+    it("keeps absence and unrelated identity-bearing deployment credentials blocked", async () => {
+      process.env.GITHUB_TOKEN = "fake-deploy-github-token";
+
+      await expect(resolveSecret("SLACK_SIGNING_SECRET")).resolves.toBeNull();
+      await expect(resolveSecret("GITHUB_TOKEN")).resolves.toBeNull();
+    });
+
+    it.each([undefined, "fake-deploy-signing-secret"])(
+      "reports an unreadable store with deploy secret %s",
+      async (deploySecret) => {
+        if (deploySecret) process.env.SLACK_SIGNING_SECRET = deploySecret;
+        const cause = new Error("db query timed out after 12000ms");
+        mockReadAppSecret.mockRejectedValue(cause);
+
+        await expect(
+          resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+        ).resolves.toEqual({ value: null, lookupFailed: true, cause });
+        await expect(
+          resolveSecret("SLACK_SIGNING_SECRET"),
+        ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+      },
+    );
+
+    it("does not bypass an unreadable org signing secret after a user-scope miss", async () => {
+      process.env.SLACK_SIGNING_SECRET = "fake-deploy-signing-secret";
+      const cause = new Error("db query timed out after 12000ms");
+      mockReadAppSecret.mockImplementation(async ({ scope }) => {
+        if (scope === "org") throw cause;
+        return null;
+      });
+
+      await expect(
+        resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+      ).resolves.toEqual({ value: null, lookupFailed: true, cause });
+      await expect(
+        resolveSecret("SLACK_SIGNING_SECRET"),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    });
   });
 
   it("uses app-provided Notion OAuth client env in a signed-in production shared-database request", async () => {

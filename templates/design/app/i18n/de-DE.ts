@@ -169,6 +169,12 @@ export default {
     openAgentSettings: "Agent verwalten",
     labTweaks: "Design-Anpassungen",
     labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
+    labFullAppBuilding: "Vollständige Apps erstellen",
+    labFullAppBuildingDescription:
+      "Probiere aus, mit Builder aus deinen Designs funktionsfähige Apps zu erstellen.",
+    labDesignReviewTools: "Tools zur Designprüfung",
+    labDesignReviewToolsDescription:
+      "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -1273,6 +1279,7 @@ export default {
       verifying: "Quelle und Laufzeit werden überprüft…",
       retryWithAgent: "Quellprüfung wiederholen",
       copyPrompt: "Prompt an deinen Agent kopieren",
+      copyAgentPrompt: "Agentenprompt kopieren",
       copyFullPrompt: "Vollständigen Prompt kopieren",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:

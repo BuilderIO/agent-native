@@ -3449,6 +3449,18 @@ describe("Vite SSR stubs", () => {
     expect(await plugin.resolveId("yjs", undefined, { ssr: false })).toBeNull();
 
     const code = await plugin.load("\0agent-native-ssr-stub");
+    const stubs = await import(
+      `data:text/javascript,${encodeURIComponent(code)}`
+    );
+    expect(typeof stubs.PluginKey).toBe("function");
+    expect(() => new stubs.PluginKey("ssr")).not.toThrow();
+    const called = stubs.default("ssr");
+    expect(typeof called).toBe("function");
+    expect(() => called.chain("ssr")).not.toThrow();
+    expect(typeof called.then).toBe("function");
+    expect(typeof called.then(() => undefined)).toBe("function");
+    expect(await called).toBe("");
+    expect(() => new called.PluginKey("ssr")).not.toThrow();
     expect(code).toContain("export const Doc = stub;");
     expect(code).toContain("export const Map = stub;");
     expect(code).toContain("export const encodeStateVector = stub;");
@@ -3615,8 +3627,10 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).not.toContain("@agent-native/core > @uiw/react-codemirror");
     expect(deps).toContain("@agent-native/toolkit > @xterm/xterm");
     expect(deps).not.toContain("@agent-native/core > @xterm/xterm");
-    expect(deps).toContain("@agent-native/core > i18next");
-    expect(deps).toContain("@agent-native/core > react-i18next");
+    expect(deps).toContain("@agent-native/toolkit > i18next");
+    expect(deps).not.toContain("@agent-native/core > i18next");
+    expect(deps).toContain("@agent-native/toolkit > react-i18next");
+    expect(deps).not.toContain("@agent-native/core > react-i18next");
     expect(deps).toContain("@agent-native/toolkit > shiki/core");
     expect(deps).toContain("@paper-design/shaders-react");
     expect(deps).not.toContain(
@@ -3841,7 +3855,7 @@ describe("local-core dev aliases and router dedupe", () => {
       const aliases =
         (
           config.resolve as {
-            alias?: Array<{ find: RegExp; replacement: string }>;
+            alias?: Array<{ find: string | RegExp; replacement: string }>;
           }
         )?.alias ?? [];
 
@@ -3849,8 +3863,12 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(
         aliases.some(
           (alias) =>
-            alias.find.test("@agent-native/core/client/i18n") &&
-            alias.replacement.endsWith("src/client/i18n.tsx"),
+            (alias.find instanceof RegExp
+              ? alias.find.test("@agent-native/core/client/i18n")
+              : alias.find === "@agent-native/core/client/i18n") &&
+            alias.replacement
+              .replace(/\\/g, "/")
+              .endsWith("src/client/i18n.tsx"),
         ),
       ).toBe(true);
     } finally {

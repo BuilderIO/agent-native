@@ -12,7 +12,11 @@ const mockHostedHarness = vi.hoisted(() => ({
 }));
 
 vi.mock("./AgentSidebarPanel.js", () => ({
-  AgentSidebarPanel: () => <div data-agent-sidebar-panel-loaded="true" />,
+  AgentSidebarPanel: () => (
+    <div data-agent-sidebar-panel-loaded="true">
+      <textarea aria-label="Chat composer" />
+    </div>
+  ),
 }));
 vi.mock("./agent-sidebar-url-sync.js", () => ({
   ScreenRefreshBoundary: ({
@@ -146,7 +150,7 @@ beforeEach(() => {
   });
 });
 
-describe("AgentSidebar lazy panel boundary", () => {
+describe("AgentSidebar panel", () => {
   it("pauses screen refresh until the panel is active", () => {
     renderSidebar(false);
 
@@ -221,15 +225,15 @@ describe("AgentSidebar lazy panel boundary", () => {
     ).toBeTruthy();
   });
 
-  it("defers URL synchronization until the panel is mounted", () => {
+  it("keeps URL synchronization mounted while the panel is closed", () => {
     renderSidebar(false);
 
     expect(
       container?.querySelector("[data-testid='agent-sidebar-url-sync']"),
-    ).toBeNull();
+    ).toBeTruthy();
   });
 
-  it("shows the panel skeleton before the lazy body resolves for open-by-default users", async () => {
+  it("renders an interactive composer without a loading skeleton", () => {
     localStorage.setItem("agent-native-sidebar-open", "true");
     renderSidebar(true);
 
@@ -238,10 +242,11 @@ describe("AgentSidebar lazy panel boundary", () => {
     ).toBeTruthy();
     expect(
       container?.querySelector("[data-agent-sidebar-panel-skeleton='true']"),
-    ).toBeTruthy();
-    expect(
-      container?.querySelector("[data-agent-sidebar-panel-loaded='true']"),
     ).toBeNull();
+    const composer = container?.querySelector<HTMLTextAreaElement>(
+      "textarea[aria-label='Chat composer']",
+    );
+    expect(composer).toBeTruthy();
     const panel = container?.querySelector<HTMLElement>(
       ".agent-sidebar-panel[data-agent-sidebar-layout='desktop']",
     );
@@ -249,16 +254,13 @@ describe("AgentSidebar lazy panel boundary", () => {
       "var(--agent-kit-nav-surface)",
     );
 
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(
-      container?.querySelector("[data-agent-sidebar-panel-loaded='true']"),
-    ).toBeTruthy();
+    expect(composer?.isConnected).toBe(true);
+    expect(composer?.disabled).toBe(false);
+    composer!.value = "hello";
+    expect(composer?.value).toBe("hello");
   });
 
-  it("opens from the global shortcut while the panel body is still loading", async () => {
+  it("opens from the global shortcut with the composer available", async () => {
     renderSidebar(false);
     await act(async () => {});
 
@@ -278,13 +280,11 @@ describe("AgentSidebar lazy panel boundary", () => {
         ".agent-sidebar-panel[data-agent-sidebar-state='open']",
       ),
     ).toBeTruthy();
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
     expect(
       container?.querySelector("[data-agent-sidebar-panel-loaded='true']"),
+    ).toBeTruthy();
+    expect(
+      container?.querySelector("textarea[aria-label='Chat composer']"),
     ).toBeTruthy();
   });
 

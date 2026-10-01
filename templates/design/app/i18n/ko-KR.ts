@@ -167,6 +167,12 @@ export default {
     openAgentSettings: "에이전트 관리",
     labTweaks: "디자인 트윅",
     labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
+    labFullAppBuilding: "전체 앱 만들기",
+    labFullAppBuildingDescription:
+      "Builder로 디자인을 바탕으로 작동하는 앱을 만들어 보세요.",
+    labDesignReviewTools: "디자인 검토 도구",
+    labDesignReviewToolsDescription:
+      "디자인의 접근성 문제를 확인하고 시각적 변경 사항을 비교하세요.",
     mcpAbout:
       "Design을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Design에서 디자인을 만들고 편집할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
@@ -1250,6 +1256,7 @@ export default {
       verifying: "소스와 런타임 확인 중…",
       retryWithAgent: "소스 확인 다시 시도",
       copyPrompt: "에이전트에 프롬프트 복사",
+      copyAgentPrompt: "에이전트 프롬프트 복사",
       copyFullPrompt: "전체 프롬프트 복사",
       abortPreview: "미리보기를 중단하고 상호작용",
       agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
