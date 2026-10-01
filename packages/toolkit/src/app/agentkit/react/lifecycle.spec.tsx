@@ -13,7 +13,14 @@ import type {
   AgentToolCall,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
-import { StrictMode, act, useEffect, useRef, type ReactNode } from "react";
+import {
+  StrictMode,
+  act,
+  useEffect,
+  useRef,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -946,7 +953,672 @@ describe("AgentChat lifecycle", () => {
     expect(tree.container.querySelector(".agentkit-reasoning")).toBeNull();
   });
 
-  it("keeps thoughts in active history and omits them after completion", async () => {
+  it("shows one stable Thinking row before work events arrive", async () => {
+    const threadId = "thread-run-before-work";
+    const runId = "run-before-work";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 0,
+          startedAt: "2026-09-30T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    expect(
+      work?.querySelector("[data-agentkit-current-activity]")?.textContent,
+    ).toBe("Thinking");
+    expect(
+      tree.container.querySelectorAll(".agentkit-activities"),
+    ).toHaveLength(1);
+    expect(tree.container.textContent).not.toContain("Working for");
+
+    const assistantMessage = {
+      id: "assistant-empty-stream",
+      role: "assistant" as const,
+      status: "streaming" as const,
+      parts: [],
+    };
+    const messageCreatedEvent = {
+      id: "event-message-created",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-09-30T00:00:01.000Z",
+      type: "message.created" as const,
+      message: assistantMessage,
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [assistantMessage],
+          events: [messageCreatedEvent],
+          runs: {
+            [runId]: { ...thread.runs[runId], lastSequence: 1 },
+          },
+        },
+      },
+      revision: 1,
+    });
+    await flush();
+
+    expect(tree.container.querySelector(".agentkit-activities")).toBe(work);
+    expect(
+      work?.querySelector("[data-agentkit-current-activity]")?.textContent,
+    ).toBe("Thinking");
+
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [assistantMessage],
+          events: [
+            messageCreatedEvent,
+            {
+              id: "event-read",
+              threadId,
+              runId,
+              sequence: 2,
+              occurredAt: "2026-09-30T00:00:02.000Z",
+              type: "activity.started",
+              activity: {
+                id: "read-components",
+                kind: "read",
+                label: "Reading components.tsx",
+                status: "running",
+              },
+            },
+          ],
+          runs: {
+            [runId]: { ...thread.runs[runId], lastSequence: 2 },
+          },
+        },
+      },
+      revision: 2,
+    });
+    await flush();
+
+    expect(tree.container.querySelector(".agentkit-activities")).toBe(work);
+    expect(
+      work?.querySelector("[data-agentkit-current-activity]")?.textContent,
+    ).toBe("Reading components.tsx");
+    expect(
+      tree.container.querySelectorAll(".agentkit-activities"),
+    ).toHaveLength(1);
+
+    await tree.unmount();
+  });
+
+  it("does not show Thinking after visible output before its run finishes", async () => {
+    const threadId = "thread-completed-output-before-run";
+    const runId = "run-completed-output-before-run";
+    const response = {
+      id: "assistant-response",
+      role: "assistant" as const,
+      status: "complete" as const,
+      parts: [{ type: "text" as const, text: "Here is the result." }],
+    };
+    const responseEvent = {
+      id: "event-response-completed",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-09-30T00:00:01.000Z",
+      type: "message.completed" as const,
+      message: response,
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [response],
+      events: [responseEvent],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 1,
+          startedAt: "2026-09-30T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    expect(tree.container.textContent).toContain("Here is the result.");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    const statuslessResponse = {
+      id: response.id,
+      role: "assistant" as const,
+      parts: response.parts,
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [statuslessResponse],
+          events: [{ ...responseEvent, message: statuslessResponse }],
+        },
+      },
+      revision: 1,
+    });
+    await flush();
+
+    expect(tree.container.textContent).toContain("Here is the result.");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    const fileResponse = {
+      id: response.id,
+      role: "assistant" as const,
+      parts: [{ type: "file" as const, name: "result.csv" }],
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [fileResponse],
+          events: [{ ...responseEvent, message: fileResponse }],
+        },
+      },
+      revision: 2,
+    });
+    await flush();
+
+    expect(tree.container.textContent).toContain("result.csv");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    const dataResponse = {
+      id: response.id,
+      role: "assistant" as const,
+      parts: [{ type: "data" as const, data: { value: "hidden" } }],
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [dataResponse],
+          events: [{ ...responseEvent, message: dataResponse }],
+        },
+      },
+      revision: 3,
+    });
+    await flush();
+
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        slots={{ data: () => <span>Visible data</span> }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    expect(tree.container.textContent).toContain("Visible data");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{
+          messageParts: {
+            data: () => <span>Registered data</span>,
+          },
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    expect(tree.container.textContent).toContain("Registered data");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    const emptyWidgetResponse = {
+      ...response,
+      parts: [
+        {
+          type: "widget" as const,
+          widget: { id: "empty-widget", kind: "empty", data: "" },
+        },
+      ],
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [emptyWidgetResponse],
+          events: [{ ...responseEvent, message: emptyWidgetResponse }],
+        },
+      },
+      revision: 4,
+    });
+    await flush();
+
+    expect(tree.container.querySelector(".agentkit-widget-shell")).toBeNull();
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{
+          widgets: {
+            empty: () => <span data-visible-empty-widget>Rendered widget</span>,
+          },
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector("[data-visible-empty-widget]")?.textContent,
+    ).toBe("Rendered widget");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    const attachedWidgetMessage = {
+      ...response,
+      status: "streaming" as const,
+      parts: [],
+    };
+    const attachedWidget = {
+      id: "attached-empty-widget",
+      kind: "empty",
+      data: "",
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [attachedWidgetMessage],
+          events: [
+            {
+              ...responseEvent,
+              type: "message.created" as const,
+              message: attachedWidgetMessage,
+            },
+            {
+              id: "event-attached-widget-work",
+              threadId,
+              runId,
+              sequence: 2,
+              occurredAt: "2026-09-30T00:00:02.000Z",
+              type: "activity.completed" as const,
+              activity: {
+                id: "attached-widget-work",
+                kind: "read",
+                label: "Reading components.tsx",
+                status: "completed" as const,
+              },
+            },
+            {
+              id: "event-attached-widget",
+              threadId,
+              runId,
+              sequence: 3,
+              occurredAt: "2026-09-30T00:00:03.000Z",
+              type: "widget.updated" as const,
+              messageId: attachedWidgetMessage.id,
+              widget: attachedWidget,
+            },
+          ],
+          activities: {
+            "attached-widget-work": {
+              id: "attached-widget-work",
+              kind: "read",
+              label: "Reading components.tsx",
+              status: "completed",
+            },
+          },
+          widgets: { [attachedWidget.id]: attachedWidget },
+          widgetMessageIds: {
+            [attachedWidget.id]: attachedWidgetMessage.id,
+          },
+          runs: {
+            [runId]: { ...thread.runs[runId], lastSequence: 3 },
+          },
+        },
+      },
+      revision: 5,
+    });
+    await flush();
+
+    expect(
+      tree.container.querySelector("[data-visible-empty-widget]")?.textContent,
+    ).toBe("Rendered widget");
+    expect(tree.container.textContent).toContain("Reading components.tsx");
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]"),
+    ).toBeNull();
+
+    await tree.unmount();
+  });
+
+  it("recomputes output boundaries when message renderers change", async () => {
+    const threadId = "thread-renderer-output-boundary";
+    const runId = "run-renderer-output-boundary";
+    const response = {
+      id: "assistant-data-response",
+      role: "assistant" as const,
+      status: "complete" as const,
+      parts: [
+        { type: "data" as const, data: { value: "visible" } },
+        { type: "text" as const, text: " " },
+      ],
+    };
+    const activityEvent = {
+      id: "event-renderer-boundary-activity",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-09-30T00:00:00.000Z",
+      type: "activity.started" as const,
+      activity: {
+        id: "activity-renderer-boundary",
+        kind: "model",
+        label: "Contacting model",
+        status: "running" as const,
+      },
+    };
+    const responseEvent = {
+      id: "event-renderer-boundary-response",
+      threadId,
+      runId,
+      sequence: 2,
+      occurredAt: "2026-09-30T00:00:01.000Z",
+      type: "message.completed" as const,
+      message: response,
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [response],
+      events: [activityEvent, responseEvent],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 2,
+          startedAt: "2026-09-30T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    const render = (
+      props: Pick<
+        ComponentProps<typeof AgentKitProvider>,
+        "slots" | "registry"
+      > = {},
+    ) =>
+      tree.render(
+        <AgentKitProvider
+          controller={observable.controller}
+          threadId={threadId}
+          {...props}
+        >
+          <AgentKitChat composer={false} />
+        </AgentKitProvider>,
+      );
+    const expectActivityBeforeOutput = (selector = "[data-rendered-data]") => {
+      const work = tree.container.querySelector(".agentkit-activities");
+      const output = tree.container.querySelector(selector);
+      expect(work).not.toBeNull();
+      expect(output).not.toBeNull();
+      expect(
+        work!.compareDocumentPosition(output!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        tree.container.querySelector("[data-agentkit-current-activity]"),
+      ).toBeNull();
+    };
+
+    await render();
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+
+    await render({
+      slots: { data: () => <span data-rendered-data>Visible data</span> },
+    });
+    expectActivityBeforeOutput();
+
+    await render();
+    await render({
+      registry: {
+        messageParts: {
+          data: () => <span data-rendered-data>Registered data</span>,
+        },
+      },
+    });
+    expect(
+      tree.container.querySelector("[data-rendered-data]")?.textContent,
+    ).toBe("Registered data");
+    expectActivityBeforeOutput();
+
+    await render({
+      slots: {
+        message: () => <span data-rendered-data>Message renderer output</span>,
+      },
+    });
+    expect(
+      tree.container.querySelector("[data-rendered-data]")?.textContent,
+    ).toBe("Message renderer output");
+    expectActivityBeforeOutput();
+
+    await render({
+      slots: {
+        text: () => <span data-rendered-text>Rendered blank text</span>,
+      },
+    });
+    expect(
+      tree.container.querySelector("[data-rendered-text]")?.textContent,
+    ).toBe("Rendered blank text");
+    const work = tree.container.querySelector(".agentkit-activities")!;
+    const textOutput = tree.container.querySelector("[data-rendered-text]")!;
+    expect(
+      work.compareDocumentPosition(textOutput) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]"),
+    ).toBeNull();
+
+    await render({
+      registry: {
+        messageParts: {
+          text: () => <span data-rendered-text>Registered blank text</span>,
+        },
+      },
+    });
+    expect(
+      tree.container.querySelector("[data-rendered-text]")?.textContent,
+    ).toBe("Registered blank text");
+    expectActivityBeforeOutput("[data-rendered-text]");
+
+    await render();
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+    await tree.unmount();
+  });
+
+  it("preserves whitespace text for custom message and text renderers", async () => {
+    const threadId = "thread-whitespace-text-delta";
+    const runId = "run-whitespace-text-delta";
+    const response = {
+      id: "assistant-whitespace-delta",
+      role: "assistant" as const,
+      status: "streaming" as const,
+      parts: [{ type: "text" as const, text: " " }],
+    };
+    const events: AgentEvent[] = [
+      {
+        id: "event-before-whitespace-delta",
+        threadId,
+        runId,
+        sequence: 1,
+        occurredAt: "2026-09-30T00:00:00.000Z",
+        type: "activity.started",
+        activity: {
+          id: "activity-before-whitespace-delta",
+          kind: "model",
+          label: "Contacting model",
+          status: "running",
+        },
+      },
+      {
+        id: "event-whitespace-delta",
+        threadId,
+        runId,
+        sequence: 2,
+        occurredAt: "2026-09-30T00:00:01.000Z",
+        type: "message.delta",
+        messageId: response.id,
+        text: " ",
+      },
+    ];
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [response],
+      events,
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 2,
+          startedAt: "2026-09-30T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        slots={{
+          message: ({ value }) => (
+            <span data-whitespace-message>
+              {value.parts
+                .filter((part) => part.type === "text")
+                .map((part) => (part.type === "text" ? part.text : ""))
+                .join("")}
+            </span>
+          ),
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector(".agentkit-activities")!;
+    const messageOutput = tree.container.querySelector(
+      "[data-whitespace-message]",
+    )!;
+    expect(messageOutput.textContent).toBe(" ");
+    expect(
+      work.compareDocumentPosition(messageOutput) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        slots={{
+          text: () => <span data-whitespace-delta>Custom text output</span>,
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    const textOutput = tree.container.querySelector("[data-whitespace-delta]")!;
+    expect(textOutput.textContent).toBe("Custom text output");
+    await tree.unmount();
+  });
+
+  it("preserves visible reasoning without a Thinking history row", async () => {
     const threadId = "thread-reasoning-work";
     const runId = "run-reasoning-work";
     const base = (sequence: number, seconds: number = sequence) => ({
@@ -981,6 +1653,36 @@ describe("AgentChat lifecycle", () => {
         ...base(4),
         type: "activity.started",
         activity: {
+          id: "protocol-reasoning",
+          kind: "reasoning",
+          label: "Planning response",
+          status: "running",
+        },
+      },
+      {
+        ...base(5),
+        type: "activity.updated",
+        activity: {
+          id: "protocol-reasoning",
+          kind: "reasoning",
+          label: "Checking assumptions",
+          status: "running",
+        },
+      },
+      {
+        ...base(6),
+        type: "activity.completed",
+        activity: {
+          id: "protocol-reasoning",
+          kind: "reasoning",
+          label: "Checking assumptions",
+          status: "completed",
+        },
+      },
+      {
+        ...base(7),
+        type: "activity.started",
+        activity: {
           id: "search",
           kind: "search",
           label: "Searching documentation",
@@ -1005,6 +1707,13 @@ describe("AgentChat lifecycle", () => {
       <AgentKitProvider
         controller={observable.controller}
         threadId={threadId}
+        registry={{
+          activities: {
+            reasoning: ({ value }) => (
+              <span data-protocol-reasoning>{value.label}</span>
+            ),
+          },
+        }}
         slots={{
           reasoning: ({ value, active, resetKey }) => (
             <span data-thought={resetKey} data-active={active}>
@@ -1025,8 +1734,23 @@ describe("AgentChat lifecycle", () => {
     ).toHaveLength(1);
     expect(tree.container.querySelectorAll("article")).toHaveLength(0);
     expect(
-      work.querySelectorAll('[data-activity-bucket="thinking"] [data-thought]'),
+      work.querySelectorAll(
+        '[data-activity-bucket="reasoning-content"] [data-thought]',
+      ),
     ).toHaveLength(2);
+    expect(
+      work.querySelector(
+        '[data-activity-bucket="reasoning-content"] [data-thought]',
+      )?.textContent,
+    ).toContain("First thought");
+    expect(
+      work.querySelector(
+        '[data-activity-bucket="reasoning-content"] [data-thought][data-thought$="assistant-2:0"]',
+      )?.textContent,
+    ).toContain("Second thought");
+    expect(work.querySelector("[data-protocol-reasoning]")?.textContent).toBe(
+      "Checking assumptions",
+    );
     expect(tree.container.textContent).not.toContain("Hidden thought");
     expect(
       work.querySelector("[data-agentkit-current-activity]")?.textContent,
@@ -1036,14 +1760,10 @@ describe("AgentChat lifecycle", () => {
         ".agentkit-activities-summary > .agentkit-summary-chevron",
       ),
     ).not.toBeNull();
-    expect(
-      work
-        .querySelector('[data-thought="thread-reasoning-work:assistant-2:0"]')
-        ?.getAttribute("data-active"),
-    ).toBe("false");
+    expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
 
     thread = reduceAgentEvent(thread, {
-      ...base(5, 18),
+      ...base(8, 18),
       type: "message.completed",
       message: {
         id: "assistant-2",
@@ -1056,7 +1776,7 @@ describe("AgentChat lifecycle", () => {
       },
     });
     thread = reduceAgentEvent(thread, {
-      ...base(6, 19),
+      ...base(9, 19),
       type: "run.completed",
     });
     await act(async () => observable.update(snapshot(1)));
@@ -1074,9 +1794,21 @@ describe("AgentChat lifecycle", () => {
     expect(
       work.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
+    expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
+    expect(
+      work.querySelectorAll(
+        '[data-activity-bucket="reasoning-content"] [data-thought]',
+      ),
+    ).toHaveLength(2);
     await act(async () => work.querySelector("summary")!.click());
     expect(work.open).toBe(true);
-    expect(work.querySelectorAll("[data-thought]")).toHaveLength(0);
+    expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
+    expect(work.querySelector("[data-protocol-reasoning]")?.textContent).toBe(
+      "Checking assumptions",
+    );
+    expect(work.textContent).toContain("First thought");
+    expect(work.textContent).toContain("Second thought");
+    expect(work.textContent).not.toContain("Hidden thought");
     expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
     await act(async () => work.querySelector("summary")!.click());
     expect(work.open).toBe(false);
@@ -1345,8 +2077,13 @@ describe("AgentChat lifecycle", () => {
       const work = tree.container.querySelector<HTMLDetailsElement>(
         ".agentkit-activities",
       );
-      expect(work).toBeNull();
-      expect(tree.container.textContent).toContain("Worked for 18s");
+      expect(work).not.toBeNull();
+      expect(work?.open).toBe(false);
+      expect(work?.querySelector("summary")?.textContent).toBe(
+        "Worked for 18s",
+      );
+      expect(work?.textContent).toContain("Reviewing the request");
+      expect(work?.textContent).not.toContain("Thinking");
       expect(tree.container.querySelector(".agentkit-reasoning")).toBeNull();
       expect(tree.container.querySelector("article")).toBeNull();
     },
@@ -1396,9 +2133,9 @@ describe("AgentChat lifecycle", () => {
     )!;
     expect(work.open).toBe(false);
     expect(work.querySelector("summary")?.textContent).toBe("Worked");
-    expect(work.querySelector(".agentkit-reasoning")?.textContent).toContain(
-      "Earlier thought",
-    );
+    expect(work.textContent).toContain("Earlier thought");
+    expect(work.textContent).not.toContain("Thinking");
+    expect(work.querySelector(".agentkit-reasoning")).toBeNull();
     expect(tree.container.textContent).not.toContain("Not public");
     expect(tree.container.querySelector("[data-supplement]")).not.toBeNull();
     expect(tree.container.querySelector("article")).toBeNull();
@@ -1425,7 +2162,11 @@ describe("AgentChat lifecycle", () => {
           role: "assistant" as const,
           status: "complete" as const,
           parts: [
-            { type: "reasoning" as const, text: "Private reasoning text" },
+            {
+              type: "reasoning" as const,
+              text: "Private reasoning text",
+              visibility: "hidden" as const,
+            },
           ],
         },
       ],

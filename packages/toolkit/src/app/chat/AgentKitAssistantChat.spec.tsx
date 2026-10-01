@@ -796,9 +796,10 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     const thinking = container.querySelector('[role="status"]');
     expect(thinking?.textContent).toBe("agentChat.status.thinking");
-    expect(thinking?.classList.contains("agent-thinking-indicator")).toBe(true);
     expect(
-      thinking?.querySelector(".agent-thinking-indicator__text"),
+      thinking?.querySelector(
+        "[data-agentkit-current-activity] .agent-running-shimmer",
+      ),
     ).not.toBeNull();
     expect(chatMocks.composerProps.disabled).toBe(false);
     expect(chatMocks.composerProps.submissionDisabled).toBe(true);
@@ -1337,14 +1338,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () => ref.current!.setComposerContextItem(ambient));
     expect(chatMocks.composerProps.contextItems).toEqual([ambient, item]);
     expect(chatMocks.composerProps.contextMenuItems).toBe(context.menuItems);
+    expect(chatMocks.composerProps.onInspectContextItem).toBeUndefined();
     expect(chatMocks.composerProps.plusMenuMode).toBe("full");
     expect(container.querySelector("[data-app-dialog]")).not.toBeNull();
-    await act(async () => {
-      chatMocks.composerProps.onRetryContextItem(item.key);
-      chatMocks.composerProps.onInspectContextItem(item.key);
-    });
+    await act(async () => chatMocks.composerProps.onRetryContextItem(item.key));
     expect(context.onRetryContextItem).toHaveBeenCalledWith(item.key);
-    expect(context.onInspectContextItem).toHaveBeenCalledWith(item.key);
+    expect(context.onInspectContextItem).not.toHaveBeenCalled();
     const accepted = Promise.withResolvers<void>();
     chatMocks.control.sendMessage.mockImplementationOnce(
       () => accepted.promise,
