@@ -171,7 +171,6 @@ export function StorageSetupCard({
     [builderConnect.start],
   );
   const handleBuilderCancel = useCallback(() => {
-    connectRequestedRef.current = false;
     builderConnect.cancel();
   }, [builderConnect.cancel]);
   const builderConnectErrorMessage = builderConnect.error
