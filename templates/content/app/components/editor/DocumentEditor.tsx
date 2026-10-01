@@ -1736,6 +1736,21 @@ export function utilityPanelAfterCommentFocusDismissal(
   return utilityPanel === "comments" ? null : utilityPanel;
 }
 
+export function documentEditorShowsUtilityPanelSheet(args: {
+  utilityPanel: DocumentUtilityPanel;
+  commentsHistoryDrawerOpen: boolean;
+  hasUtilityRailSpace: boolean;
+  hasInlineCommentSpace: boolean;
+  selectedSuggestionId: string | null;
+}) {
+  if (args.utilityPanel === "comments") {
+    return args.commentsHistoryDrawerOpen
+      ? !args.hasUtilityRailSpace
+      : !args.hasInlineCommentSpace && !!args.selectedSuggestionId;
+  }
+  return args.utilityPanel === "info" && !args.hasUtilityRailSpace;
+}
+
 export function documentEditorTitleRegionClassName(
   hasDatabase: boolean,
   host: "page" | "preview" = "page",
@@ -6086,12 +6101,13 @@ function PageEditorSessionBody({
     utilityPanel === "comments" &&
     !hasInlineCommentSpace &&
     (!!pendingComment || !!selectedThreadId);
-  const showUtilityPanelSheet =
-    (showCommentsHistoryDrawer && !showDesktopCommentsHistory) ||
-    (utilityPanel === "comments" &&
-      !hasInlineCommentSpace &&
-      !!selectedSuggestionId) ||
-    (utilityPanel === "info" && !showDesktopInfoPanel);
+  const showUtilityPanelSheet = documentEditorShowsUtilityPanelSheet({
+    utilityPanel,
+    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
+    hasUtilityRailSpace,
+    hasInlineCommentSpace,
+    selectedSuggestionId,
+  });
   const hasFocusedCommentReply =
     replyDrafts.focus.current?.documentId === documentId;
 

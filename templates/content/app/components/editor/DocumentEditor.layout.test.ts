@@ -18,6 +18,7 @@ import {
   observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
   documentEditorShowsInlineComments,
+  documentEditorShowsUtilityPanelSheet,
   documentEditorLoadState,
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
@@ -965,6 +966,66 @@ describe("document editor layout", () => {
       }),
     ).toBe(false);
   });
+
+  it("keeps desktop comments history as the sole surface when deciding a draft selects its saved suggestion", () => {
+    const state = {
+      utilityPanel: "comments" as const,
+      commentsHistoryDrawerOpen: true,
+      hasUtilityRailSpace: true,
+      hasInlineCommentSpace: false,
+      selectedSuggestionId: null,
+    };
+
+    expect(documentEditorShowsUtilityPanelSheet(state)).toBe(false);
+    expect(
+      documentEditorShowsUtilityPanelSheet({
+        ...state,
+        selectedSuggestionId: "materialized-suggestion",
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    [940, true, null, true],
+    [940, true, "saved-suggestion", true],
+    [1040, true, "saved-suggestion", false],
+    [1120, true, "saved-suggestion", false],
+    [940, false, "saved-suggestion", true],
+    [1040, false, "saved-suggestion", true],
+    [1120, false, "saved-suggestion", false],
+    [1040, false, null, false],
+  ] as const)(
+    "chooses the comments Sheet at layout width %i with history=%s and selection=%s: %s",
+    (width, commentsHistoryDrawerOpen, selectedSuggestionId, expected) => {
+      expect(
+        documentEditorShowsUtilityPanelSheet({
+          utilityPanel: "comments",
+          commentsHistoryDrawerOpen,
+          hasUtilityRailSpace: width >= 960,
+          hasInlineCommentSpace: width >= 1088,
+          selectedSuggestionId,
+        }),
+      ).toBe(expected);
+    },
+  );
+
+  it.each([
+    [940, true],
+    [1040, false],
+  ] as const)(
+    "preserves the Info Sheet at layout width %i: %s",
+    (width, expected) => {
+      expect(
+        documentEditorShowsUtilityPanelSheet({
+          utilityPanel: "info",
+          commentsHistoryDrawerOpen: false,
+          hasUtilityRailSpace: width >= 960,
+          hasInlineCommentSpace: width >= 1088,
+          selectedSuggestionId: "saved-suggestion",
+        }),
+      ).toBe(expected);
+    },
+  );
 
   it("rejects a pending comment target when its exact rendered text disappears or changes", () => {
     expect(
@@ -2362,7 +2423,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain('renderUtilityPanelContent("comments")');
     expect(source).toContain(
-      "showCommentsHistoryDrawer && !showDesktopCommentsHistory",
+      "commentsHistoryDrawerOpen: showCommentsHistoryDrawer",
     );
   });
 
@@ -2661,17 +2722,15 @@ describe("document editor layout", () => {
   });
 
   it("does not open the narrow suggestion Sheet merely because a draft changed", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const narrowPanelState = source.slice(
-      source.indexOf("const showUtilityPanelSheet"),
-      source.indexOf("if (utilityPanel) setLastUtilityPanel"),
-    );
-
-    expect(narrowPanelState).toContain("!!selectedSuggestionId");
-    expect(narrowPanelState).not.toContain("draftSuggestions.length");
+    expect(
+      documentEditorShowsUtilityPanelSheet({
+        utilityPanel: "comments",
+        commentsHistoryDrawerOpen: false,
+        hasUtilityRailSpace: false,
+        hasInlineCommentSpace: false,
+        selectedSuggestionId: null,
+      }),
+    ).toBe(false);
   });
 
   it("opens comments for deep links and conflicts without coupling mode exit to navigation", () => {
