@@ -4,6 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
+      connectBuilder: "Conectar Builder.io",
       providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
     common: { retry: "Reintentar" },
@@ -1492,15 +1493,7 @@ const messages = {
       "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
-    connectBuilder: "Usar Builder.io",
-    createBuilderAccount: "Crear cuenta de Builder.io",
-    signInWithBuilderAccount: "Iniciar sesión con una cuenta de Builder.io",
-    builderConsentPrefix: "Al crear una cuenta de Builder.io, aceptas nuestros",
-    builderTerms: "Términos de servicio",
-    builderConsentAnd: "y",
-    builderPrivacy: "Política de privacidad",
     free: "Gratis",
-    configureS3: "configurar almacenamiento compatible con S3",
     whyPrompt: "¿Por qué veo esto?",
     whyDescription:
       "Clips es 100% gratis y de código abierto, así que necesitas conectar una forma de almacenar clips. Conecta almacenamiento con Builder.io para almacenamiento e IA en el plan gratuito, o usa almacenamiento compatible con S3 y tus propias claves LLM.",

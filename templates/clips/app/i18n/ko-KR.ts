@@ -2,6 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   agentChat: {
     setup: {
+      connectBuilder: "Builder.io 연결",
       providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
@@ -1451,15 +1452,7 @@ const messages = {
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    connectBuilder: "Builder.io 사용",
-    createBuilderAccount: "Builder.io 계정 만들기",
-    signInWithBuilderAccount: "Builder.io 계정으로 로그인",
-    builderConsentPrefix: "Builder.io 계정을 만들면 당사의",
-    builderTerms: "서비스 약관",
-    builderConsentAnd: "및",
-    builderPrivacy: "개인정보 처리방침",
     free: "무료",
-    configureS3: "S3 호환 스토리지 구성",
     whyPrompt: "왜 이 화면이 보이나요?",
     whyDescription:
       "Clips는 100% 무료 오픈 소스 앱이므로 클립을 저장할 방법을 연결해야 합니다. Builder.io로 무료 티어 스토리지와 AI를 사용하거나, S3 호환 객체 스토리지와 직접 보유한 LLM 키를 사용하세요.",

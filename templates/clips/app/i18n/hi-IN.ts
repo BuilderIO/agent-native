@@ -2,6 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
   agentChat: {
     setup: {
+      connectBuilder: "Builder.io कनेक्ट करें",
       providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },
     common: { retry: "फिर से प्रयास करें" },
@@ -1432,15 +1433,7 @@ const messages = {
       "5 मिनट में Builder से जवाब नहीं मिला। पॉपअप जांचें और फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
-    connectBuilder: "Builder.io इस्तेमाल करें",
-    createBuilderAccount: "Builder.io खाता बनाएँ",
-    signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
-    builderConsentPrefix: "Builder.io खाता बनाकर, आप हमारी",
-    builderTerms: "सेवा की शर्तों",
-    builderConsentAnd: "और",
-    builderPrivacy: "गोपनीयता नीति",
     free: "मुफ्त",
-    configureS3: "S3-संगत स्टोरेज कॉन्फ़िगर करें",
     whyPrompt: "मैं यह क्यों देख रहा हूं?",
     whyDescription:
       "Clips 100% मुफ्त और ओपन सोर्स ऐप है, इसलिए आपको क्लिप स्टोर करने का तरीका जोड़ना होगा। Builder.io से free-tier storage और AI वाला स्टोरेज कनेक्ट करें, या S3-संगत ऑब्जेक्ट स्टोरेज और अपनी LLM keys इस्तेमाल करें.",

@@ -2,6 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
   agentChat: {
     setup: {
+      connectBuilder: "連線至 Builder.io",
       providerStatusUnavailable: "無法確認 AI 是否已就緒。",
     },
     common: { retry: "重試" },
@@ -1388,15 +1389,7 @@ const messages = {
     builderTimeout: "5 分鐘內未收到 Builder 回應。請檢查快顯視窗並重試。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
-    connectBuilder: "使用 Builder.io",
-    createBuilderAccount: "建立 Builder.io 帳戶",
-    signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
-    builderConsentPrefix: "建立 Builder.io 帳戶即表示您同意我們的",
-    builderTerms: "服務條款",
-    builderConsentAnd: "和",
-    builderPrivacy: "隱私權政策",
     free: "免費",
-    configureS3: "設定 S3 相容儲存",
     whyPrompt: "為什麼我會看到這個？",
     whyDescription:
       "Clips 是 100% 免費且開放原始碼，因此您需要連線一種儲存 clips 的方式。使用 Builder.io 可取得免費方案儲存和 AI，或使用 S3 相容物件儲存和您自己的 LLM 金鑰。",
