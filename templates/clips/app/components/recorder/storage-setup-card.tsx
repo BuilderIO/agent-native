@@ -170,8 +170,6 @@ export function StorageSetupCard({
     },
     [builderConnect.start],
   );
-  const hasBuilderAccount =
-    builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
   const provisionAccount =
     !hasBuilderAccount &&
     builderConnect.statusResolved &&
