@@ -113,6 +113,7 @@ vi.mock("./first-party-analytics-backend.js", () => ({
 import {
   isMarketingWebsiteSessionEvent,
   normalizeAnalyticsTimestamp,
+  parseAnalyticsTrackPayload,
   queryFirstPartyAnalytics,
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
@@ -466,6 +467,21 @@ describe("recordAnalyticsEvents", () => {
         backfillCursor: sink === "postgres" ? null : "evt_last",
         backfillCompleted: sink === "bigquery",
       });
+      let openTransactions = 0;
+      let catalogSawOpenTransaction = false;
+      analyticsDbMocks.db.transaction.mockImplementationOnce(
+        async (callback: (transaction: unknown) => unknown) => {
+          openTransactions += 1;
+          try {
+            return await callback(analyticsDbMocks.db);
+          } finally {
+            openTransactions -= 1;
+          }
+        },
+      );
+      sessionEventIndexMocks.catalog.mockImplementationOnce(async () => {
+        catalogSawOpenTransaction = openTransactions > 0;
+      });
 
       await recordAnalyticsEvents("anpk_test", [
         {
@@ -486,8 +502,26 @@ describe("recordAnalyticsEvents", () => {
         expect.any(String),
       );
       expect(sessionEventIndexMocks.catalog).toHaveBeenCalledOnce();
+      expect(catalogSawOpenTransaction).toBe(false);
     },
   );
+
+  it("replaces a lone surrogate in an event name instead of failing the batch", async () => {
+    // JSON can carry half of a surrogate pair as an escape like \ud83d.
+    const parsed = parseAnalyticsTrackPayload(
+      JSON.stringify({
+        publicKey: "anpk_test",
+        events: [{ event: "clip_\uD83D", properties: { sessionId: "rs_1" } }],
+      }),
+    );
+    await recordAnalyticsEvents(parsed.publicKey, parsed.events);
+
+    expect(sessionEventIndexMocks.record).toHaveBeenCalledWith(
+      analyticsDbMocks.db,
+      [expect.objectContaining({ eventName: "clip_\uFFFD" })],
+      expect.any(String),
+    );
+  });
 
   it("does not index session events when persistence fails", async () => {
     rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));

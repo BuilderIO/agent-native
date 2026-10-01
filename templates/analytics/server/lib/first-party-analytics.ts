@@ -477,8 +477,15 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+// Rollup and index ids encode these values with encodeURIComponent, which
+// throws on a lone surrogate and would reject the batch on every retry.
 function asString(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "string" && value.trim()) {
+    return value.trim().replace(LONE_SURROGATE, "\uFFFD");
+  }
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }

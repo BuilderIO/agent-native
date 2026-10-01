@@ -1474,6 +1474,8 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       ON CONFLICT (lease_id) DO NOTHING`,
       },
     },
+    // Ingest stores events unindexed until analytics_session_event_coverage
+    // exists, so it must stay the last table this migration creates.
     {
       version: 153,
       name: "analytics-session-event-index",

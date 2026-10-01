@@ -93,13 +93,14 @@ agent answers about browser recordings in the Analytics template.
   to a savepoint and records the batch's sessions in
   `analytics_session_event_gaps` in the same transaction, so a later
   successful batch cannot make them look complete. If the marker cannot be
-  written either, the batch fails and its events are not stored, so no stored
-  event is ever missing from the index unmarked. Keep session index writes
-  inside that transaction. Deploys ship code before the scheduled migration
-  creates these tables; until then ingest stores events unindexed and warns,
-  which is safe only because coverage cannot have started. The retention
-  sweep removes a session's index rows together, once all of them are two
-  days past replay retention, and its gap marker after that. The
+  written either, the batch fails and its events are not stored. Keep session
+  index writes inside that transaction. Deploys ship code before the scheduled
+  migration creates these tables, so until `analytics_session_event_coverage`
+  exists ingest stores events unindexed and warns: with no coverage, no
+  session can read as complete. That is the only unmarked gap, and it holds
+  only while the coverage table is the last index table a migration creates.
+  The retention sweep removes a session's index rows together, once all of
+  them are two days past replay retention, and its gap marker after that. The
   BigQuery-cutover purge leaves these tables alone.
 
 ## Agent Diagnostics Surface

@@ -939,6 +939,77 @@ describe("session event index on Postgres", () => {
     expect(stored.rows).toEqual([{ id: "r-early" }]);
   });
 
+  it("stores the batch unindexed when the migration stopped before coverage", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await client.query("DROP TABLE analytics_session_event_gaps");
+    await client.query("DROP TABLE analytics_session_event_coverage");
+    await storeBatch(
+      "r-partial",
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s1",
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    expect(String(warn.mock.calls[0]?.[0])).toContain("not migrated yet");
+    warn.mockRestore();
+
+    const stored = await client.query("SELECT id FROM session_recordings");
+    expect(stored.rows).toEqual([{ id: "r-partial" }]);
+    const indexed = await client.query(
+      "SELECT session_id FROM analytics_session_events",
+    );
+    expect(indexed.rows).toEqual([]);
+  });
+
+  it("indexes an event name cut inside an emoji", async () => {
+    const name = `${"a".repeat(199)}\u{1F600}`;
+    await storeBatch(
+      "r-emoji",
+      [
+        event({
+          eventName: name,
+          sessionId: "s1",
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+
+    const indexed = await client.query(
+      "SELECT event_name FROM analytics_session_events",
+    );
+    expect(indexed.rows).toEqual([{ event_name: "a".repeat(199) }]);
+    const gaps = await client.query(
+      "SELECT session_id FROM analytics_session_event_gaps",
+    );
+    expect(gaps.rows).toEqual([]);
+  });
+
+  it("still warns about an index failure right after a catalog failure", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const batch = [
+      event({
+        eventName: "pageview",
+        sessionId: "s1",
+        timestamp: "2026-09-20T10:00:00.000Z",
+      }),
+    ];
+    await failInsertsInto("analytics_event_catalog_latest");
+    await index(batch, "2026-09-20T10:00:00.000Z");
+    await failInsertsInto("analytics_session_event_coverage");
+    await storeBatch("r1", batch, "2026-09-20T10:01:00.000Z");
+
+    expect(warn.mock.calls.map(([message]) => String(message))).toEqual([
+      expect.stringContaining("Event catalog write failed"),
+      expect.stringContaining("marked incomplete"),
+    ]);
+    warn.mockRestore();
+  });
+
   it("keeps a session indexed when only its catalog write fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await failInsertsInto("analytics_event_catalog_latest");

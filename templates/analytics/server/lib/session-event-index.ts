@@ -59,7 +59,7 @@ export const EVENT_CATALOG_RETENTION_DAYS = 180;
 export const EVENT_CATALOG_MAX_ENTRIES = 1000;
 const WARN_INTERVAL_MS = 60_000;
 
-let lastWarnAt = 0;
+const lastWarnAt = new Map<string, number>();
 
 export function sessionEventTenantKey(
   ownerEmail: string,
@@ -75,6 +75,12 @@ function viewerTenantKeys(scope: SessionEventScope): string[] {
         sessionEventTenantKey(scope.userEmail, null),
       ]
     : [sessionEventTenantKey(scope.userEmail, null)];
+}
+
+/** Never ends on half of a surrogate pair, which `stableId` cannot encode. */
+function eventNameOf(value: string | null | undefined): string {
+  const name = value?.trim().slice(0, MAX_EVENT_NAME_LENGTH) ?? "";
+  return /[\uD800-\uDBFF]$/.test(name) ? name.slice(0, -1) : name;
 }
 
 function stableId(prefix: string, parts: readonly string[]): string {
@@ -123,7 +129,7 @@ export function aggregateSessionEventIndexRows(
   >();
 
   for (const row of rows) {
-    const eventName = row.eventName?.trim().slice(0, MAX_EVENT_NAME_LENGTH);
+    const eventName = eventNameOf(row.eventName);
     if (!eventName || !row.ownerEmail || !row.timestamp) continue;
     const orgId = row.orgId || null;
     const tenantKey = sessionEventTenantKey(row.ownerEmail, orgId);
@@ -236,24 +242,24 @@ function sessionEventGapRows(
   return sortedByKey(gaps.entries());
 }
 
-function isIndexTableMissing(error: unknown): boolean {
-  for (let e = error as any; e; e = e.cause) {
-    if (
-      e.code === "42P01" ||
-      /relation "analytics_(session_event|event_catalog)\w*" does not exist/i.test(
-        String(e.message),
-      )
-    ) {
-      return true;
-    }
+async function coverageTableExists(tx: any): Promise<boolean> {
+  const result = await tx.execute(
+    sql`SELECT to_regclass('analytics_session_event_coverage') AS table_name`,
+  );
+  const rows = Array.isArray(result) ? result : result?.rows;
+  if (!Array.isArray(rows)) {
+    throw new Error("Postgres table existence check returned no row array");
   }
-  return false;
+  const value = rows[0]?.table_name;
+  if (value === null) return false;
+  if (typeof value === "string" && value) return true;
+  throw new Error("Postgres table existence check returned an invalid value");
 }
 
 function warnIndexFailure(message: string, error: unknown): void {
   const now = Date.now();
-  if (now - lastWarnAt < WARN_INTERVAL_MS) return;
-  lastWarnAt = now;
+  if (now - (lastWarnAt.get(message) ?? 0) < WARN_INTERVAL_MS) return;
+  lastWarnAt.set(message, now);
   console.warn(`[first-party-analytics] ${message}`, error);
 }
 
@@ -268,9 +274,9 @@ export async function recordSessionEventIndex(
   rows: readonly SessionEventIndexInputRow[],
   receivedAt: string,
 ): Promise<void> {
-  const { sessionEvents } = aggregateSessionEventIndexRows(rows);
-  if (!sessionEvents.length) return;
   try {
+    const { sessionEvents } = aggregateSessionEventIndexRows(rows);
+    if (!sessionEvents.length) return;
     await tx.transaction(async (savepoint: any) => {
       const t = schema.analyticsSessionEvents;
       await savepoint
@@ -310,8 +316,9 @@ export async function recordSessionEventIndex(
     });
   } catch (error) {
     // Deploys ship code before the scheduled migration creates these tables.
-    // Coverage cannot have started yet, so no session can be read as complete.
-    if (isIndexTableMissing(error)) {
+    // Without the coverage table no tenant has coverage, so no session can
+    // be read as complete, whatever the error was.
+    if (!(await coverageTableExists(tx))) {
       warnIndexFailure(
         "Session event index tables are not migrated yet; events were stored unindexed:",
         error,
@@ -751,5 +758,5 @@ export async function pruneSessionEventIndex(
 }
 
 export function __resetSessionEventIndexForTests(): void {
-  lastWarnAt = 0;
+  lastWarnAt.clear();
 }
