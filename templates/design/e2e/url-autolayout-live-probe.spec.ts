@@ -1510,7 +1510,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     console.log("URL probe pending unload guard", unloadGuarded);
 
     const copyPrompt = page.getByRole("button", {
-      name: "Copy prompt to your agent",
+      name: "Copy agent prompt",
       exact: true,
     });
     await expect(copyPrompt).toBeVisible({ timeout: 10_000 });
