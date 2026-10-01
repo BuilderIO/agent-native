@@ -12,6 +12,7 @@ const SEEK_PROBE_SIZE = 256 * 1024;
 const SEEK_PROBE_SCAN_BYTES = 3 * 1024 * 1024;
 const SEEK_PROBE_MAX_STEPS = Math.ceil(SEEK_PROBE_SCAN_BYTES / SEEK_PROBE_SIZE);
 const BUFFER_AHEAD_SECONDS = 30;
+const LOW_BUFFER_SECONDS = 10;
 const BUFFER_BEHIND_SECONDS = 10;
 const MAX_SEEK_PROBES = 6;
 const SEEK_ACCEPT_UNDERSHOOT_SECONDS = 4;
@@ -314,11 +315,12 @@ export class MseVideoLoader {
         if (this.bufferedAhead() >= BUFFER_AHEAD_SECONDS) break;
 
         const chunkStart = this.nextOffset;
-        // Nothing appends until a whole chunk arrives, so a starved playhead
-        // fetches small pieces to resume sooner on slow links.
-        const chunkSize = this.isBuffered(this.video.currentTime)
-          ? CHUNK_SIZE
-          : SEEK_PROBE_SIZE;
+        // Nothing appends until a whole chunk arrives, so a playhead close to
+        // running dry fetches small pieces to keep playing on slow links.
+        const chunkSize =
+          this.bufferedAhead() < LOW_BUFFER_SECONDS
+            ? SEEK_PROBE_SIZE
+            : CHUNK_SIZE;
         const chunkEnd = this.totalKnown
           ? Math.min(chunkStart + chunkSize, this.totalBytes) - 1
           : chunkStart + chunkSize - 1;
