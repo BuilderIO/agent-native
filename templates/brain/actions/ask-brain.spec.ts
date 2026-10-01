@@ -411,6 +411,41 @@ describe("ask-brain source answer policy", () => {
     ]);
   });
 
+  it("finds cited knowledge ranked below six uncited entries", async () => {
+    mocks.knowledgeRows = [
+      ...Array.from({ length: 6 }, (_, index) => ({
+        ...knowledge({
+          id: "uncited-" + index,
+          sourceId: "source-blessed",
+          title: "Uncited Agent-Native note " + index,
+        }),
+        evidence: [],
+      })),
+      knowledge({
+        id: "cited-synthesis",
+        sourceId: "source-standard",
+        title: "Cited Agent-Native synthesis",
+      }),
+    ];
+    mocks.policies.set(
+      "source-blessed",
+      policy("source-blessed", { trustTier: "blessed", authority: 100 }),
+    );
+    mocks.policies.set("source-standard", policy("source-standard"));
+
+    const result = await action.run({
+      question: "What is our Agent-Native product direction?",
+      mode: "cited",
+    });
+
+    expect(result.answerSource).toBe("knowledge");
+    expect(result.answer).toContain("Cited Agent-Native synthesis");
+    expect(result.answer).not.toContain("Uncited Agent-Native note");
+    expect(result.citations).toEqual([
+      expect.objectContaining({ knowledgeId: "cited-synthesis" }),
+    ]);
+  });
+
   it("reports an incomplete search when a capture search lane fails", async () => {
     mocks.lanes = {
       fts: { status: "ok" },

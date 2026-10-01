@@ -216,14 +216,14 @@ export default defineAction({
         reviewed: item.status === "published",
       }),
     }));
-    const knowledge = evaluatedKnowledge
+    const eligibleKnowledge = evaluatedKnowledge
       .filter((item) => item.answerPolicy.eligible)
       .sort((left, right) =>
         compareEvaluatedSourcePolicies(left.answerPolicy, right.answerPolicy),
-      )
-      .slice(0, 6);
+      );
+    const knowledge = eligibleKnowledge.slice(0, 6);
     const answerKnowledge = guidance.retrieval.requireCitations
-      ? knowledge.filter((item) => item.evidence.length > 0)
+      ? eligibleKnowledge.filter((item) => item.evidence.length > 0).slice(0, 6)
       : knowledge;
     const captureFallback: UniversalSearchResult[] = [];
     const knowledgeTextLength = answerKnowledge.reduce(
@@ -315,7 +315,7 @@ export default defineAction({
       };
     }
 
-    const knowledgeCitations = knowledge.flatMap((item) =>
+    const knowledgeCitations = answerKnowledge.flatMap((item) =>
       item.evidence.slice(0, 2).map((evidence, index) => ({
         id: `${item.id}-${index}`,
         knowledgeId: item.id,
