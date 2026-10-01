@@ -437,6 +437,7 @@ export default defineAction({
       totalItems = Number(docs[0]!.totalItems);
     } else {
       const [counted] = await countQuery;
+      // guard:allow-bare-error — invariant: count(*) without GROUP BY always returns one row.
       if (!counted) throw new Error("Counting search results returned no row.");
       totalItems = Number(counted.count);
     }
