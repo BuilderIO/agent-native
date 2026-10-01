@@ -46,19 +46,20 @@ The core route `GET /.well-known/openai-apps-challenge` returns the configured `
 
 Use OpenAI’s [submission guide](https://developers.openai.com/plugins/deploy/submission), [plugin guidelines](https://developers.openai.com/plugins/plugin-guidelines), and [tool and UI reference](https://developers.openai.com/plugins/reference).
 
-Confirm PR #6542 is merged and the Slides, Design, and Content deployments are promoted before continuing. Then confirm the organization’s project residency is eligible for MCP plugin submissions and complete the following in order for each app:
+PR #6542 is merged and the Slides, Design, and Content deployments are promoted. Builder.io is preverified for app submission (Business), and the dashboard’s **Upload new or existing plugin** button is available. The source manifests use `developerName: Builder.io` to match the verified publisher.
 
-1. Verify the publisher and confirm its identity matches `developerName` in the source manifest. The manifests currently use `Agent-Native`; update the name and rebuild the ZIP if the verified identity differs.
-2. Have an organization owner grant the submitting account `api.apps.write` access.
-3. Upload the draft ZIP.
-4. Connect its MCP server at the app’s `/mcp/directory` URL and complete the dashboard’s OAuth setup.
-5. Set the challenge token issued for that app and domain as `OPENAI_APPS_CHALLENGE_TOKEN` on that app’s deployment, then redeploy it.
-6. Rescan the domain and confirm its public challenge URL returns the exact token.
-7. Add a reviewer account with password-based sign-in and no inaccessible MFA. Enter its credentials only in the dashboard’s secure form.
-8. Run all eight review cases on ChatGPT web and mobile. Confirm account boundaries, saved artifacts, no unsupported external edits, and widget rendering. Seed exactly the records below; prompts and expected behavior must not assume additional data.
-9. Record a reviewer-accessible walkthrough for the app. Add its URL to `chatgpt.review.demo_recording_url`, rebuild the ZIPs, and upload the refreshed package. The walkthrough should show connection and auth, a direct creation request, a revision or read flow, the saved artifact, and the supported-scope boundary.
-10. Submit the completed listing for review. Complete any policy attestations and wait for the review decision.
-11. After approval, select country availability and publish in the dashboard.
+The dashboard also has an existing unsubmitted **Agent-Native Dispatch** v1.0.0 draft. Leave it untouched; this submission covers only Slides, Design, and Content. Confirm the organization’s project residency is eligible, then complete these steps in order for each app:
+
+1. Have an organization owner grant the submitting account `api.apps.write` access.
+2. Use the available **Upload new or existing plugin** button to upload the draft ZIP.
+3. Connect its MCP server at the app’s `/mcp/directory` URL and complete the dashboard’s OAuth setup.
+4. Set the challenge token issued for that app and domain as `OPENAI_APPS_CHALLENGE_TOKEN` on that app’s deployment, then redeploy it.
+5. Rescan the domain and confirm its public challenge URL returns the exact token.
+6. Add a reviewer account with password-based sign-in and no inaccessible MFA. Enter its credentials only in the dashboard’s secure form.
+7. Run all eight review cases on ChatGPT web and mobile. Confirm account boundaries, saved artifacts, no unsupported external edits, and widget rendering. Seed exactly the records below; prompts and expected behavior must not assume additional data.
+8. Record a reviewer-accessible walkthrough for the app. Add its URL to `chatgpt.review.demo_recording_url`, rebuild the ZIPs, and upload the refreshed package. The walkthrough should show connection and auth, a direct creation request, a revision or read flow, the saved artifact, and the supported-scope boundary.
+9. Submit the completed listing for review. Complete any policy attestations and wait for the review decision.
+10. After approval, select country availability and publish in the dashboard.
 
 Seeded records guaranteed for review:
 
