@@ -142,6 +142,8 @@ export function StorageSetupCard({
     trackingFlow: connectFlow,
     onConnected: handleBuilderConnected,
   });
+  const hasBuilderAccount =
+    builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
   useEffect(() => {
     const startedAt = retryingBuilderStatusAtCountRef.current;
     if (
@@ -175,7 +177,6 @@ export function StorageSetupCard({
     builderConnect.statusResolved &&
     builderConnect.agentNativeProvisioningEnabled;
   const handleBuilderCancel = useCallback(() => {
-    connectRequestedRef.current = false;
     builderConnect.cancel();
   }, [builderConnect.cancel]);
   const builderConnectErrorMessage = builderConnect.error
@@ -212,7 +213,11 @@ export function StorageSetupCard({
             Its Cancel is left out because the card's own Cancel must also
             drop the pending connect before storage polling starts. */}
         <BuilderConnectPopover
-          flow={{ ...builderConnect, cancel: undefined }}
+          flow={{
+            ...builderConnect,
+            accountExists: hasBuilderAccount,
+            cancel: undefined,
+          }}
           onConnect={handleBuilderConnect}
         >
           <Button

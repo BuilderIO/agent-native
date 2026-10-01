@@ -824,7 +824,6 @@ export function useBuilderConnectFlow(
   const connectAttemptIdRef = useRef<string | null>(null);
   const cancelledConnectAttemptIdRef = useRef<string | null>(null);
   const activePopupRef = useRef<Window | null>(null);
-  const activationControllerRef = useRef<AbortController | null>(null);
   const confirmConnectSuccessRef = useRef<(attemptId: string) => Promise<void>>(
     async () => {},
   );
@@ -1094,7 +1093,6 @@ export function useBuilderConnectFlow(
       callbackSuccessCancelRef.current.cancel();
     if (callbackSuccessRequestControllerRef.current?.started === started)
       callbackSuccessRequestControllerRef.current.controller.abort();
-    activationControllerRef.current?.abort();
     try {
       activePopupRef.current?.close();
     } catch {
@@ -1167,8 +1165,6 @@ export function useBuilderConnectFlow(
         : null;
 
       if (provisionAccountForStart && agentNativeProvisioningEnabled) {
-        const controller = new AbortController();
-        activationControllerRef.current = controller;
         const trackedFlow =
           cleanTrackingParam(clickTrackingFlow) ??
           inferBuilderConnectTrackingFlow(clickTrackingSource);
@@ -1188,27 +1184,41 @@ export function useBuilderConnectFlow(
           mountedRef.current &&
           connectAttemptIdRef.current === connectAttemptId &&
           cancelledConnectAttemptIdRef.current !== connectAttemptId;
-        const activate = async (
-          provisioningToken: string | null,
-        ): Promise<BuilderAccountActivationResult> =>
-          provisioningToken
+        const activate = async (credentials: {
+          provisioningToken: string | null;
+          connectToken: string | null;
+        }): Promise<BuilderAccountActivationResult> =>
+          credentials.provisioningToken
             ? requestBuilderAccountActivation({
-                provisioningToken,
+                provisioningToken: credentials.provisioningToken,
                 scope: scopeForStart,
-                connectToken,
+                connectToken: credentials.connectToken,
                 source: clickTrackingSource,
                 flow: clickTrackingFlow,
-                signal: controller.signal,
               })
             : { ok: false, code: "provision_token_invalid", message: null };
-        // Provisioning tokens expire after ten minutes; a status read mints
-        // a fresh one.
-        const freshProvisioningToken = async () =>
+        // Provisioning and connect tokens expire; refresh both from one status read.
+        const freshProvisioningCredentials = async () => {
           // coercion-ok: no fresh token is sent as none and refused as provision_token_invalid
-          (await fetchStatus())?.agentNativeProvisioningToken ?? null;
+          const status = await fetchStatus();
+          const freshUrl = status?.connectUrl ?? null;
+          return {
+            provisioningToken: status?.agentNativeProvisioningToken ?? null,
+            connectToken: freshUrl
+              ? new URL(freshUrl, origin).searchParams.get(
+                  BUILDER_CONNECT_PARAM,
+                )
+              : null,
+          };
+        };
         void (async () => {
           let result = await activate(
-            agentNativeProvisioningToken ?? (await freshProvisioningToken()),
+            agentNativeProvisioningToken
+              ? {
+                  provisioningToken: agentNativeProvisioningToken,
+                  connectToken,
+                }
+              : await freshProvisioningCredentials(),
           );
           if (
             !result.ok &&
@@ -1216,11 +1226,18 @@ export function useBuilderConnectFlow(
             agentNativeProvisioningToken &&
             isCurrentAttempt()
           ) {
-            result = await activate(await freshProvisioningToken());
+            result = await activate(await freshProvisioningCredentials());
           }
-          if (!isCurrentAttempt()) return;
+          if (!isCurrentAttempt()) {
+            notifyAgentEngineConfiguredChanged("builder-connect");
+            return;
+          }
           if (result.ok) {
             await confirmConnectSuccessRef.current(connectAttemptId);
+            return;
+          }
+          if (result.code === "network_error") {
+            retryStatusRef.current();
             return;
           }
           connectStartedAtRef.current = null;

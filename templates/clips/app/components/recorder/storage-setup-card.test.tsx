@@ -241,6 +241,23 @@ describe("StorageSetupCard", () => {
     });
   });
 
+  it("offers Log in for an existing Builder credential", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ configured: true, credentialSource: "user" }),
+    );
+    await renderCard();
+
+    await clickConnect();
+    expect(document.body.textContent).not.toContain(CONSENT);
+    expect(bodyButton("agentChat.auth.logIn")).toBeDefined();
+    expect(bodyButton(CREATE)).toBeUndefined();
+
+    await act(async () => bodyButton("agentChat.auth.logIn")?.click());
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
+      provisionAccount: false,
+    });
+  });
+
   it("disables the Builder action and keeps Cancel while connecting", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ connecting: true }),
@@ -261,7 +278,7 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("does not start storage polling if Builder connects after cancellation", async () => {
+  it("finishes storage setup if Builder connects after cancellation", async () => {
     const onConfigured = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ configured: true }), {
@@ -296,8 +313,8 @@ describe("StorageSetupCard", () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(onConfigured).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onConfigured).toHaveBeenCalledOnce();
   });
 
   it("shows localized recovery and pending feedback while retrying Builder status", async () => {
