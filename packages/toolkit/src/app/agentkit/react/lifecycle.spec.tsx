@@ -2169,7 +2169,7 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("removes late-delegated activity from the main group and settles it in the agent feed", async () => {
+  it("preserves late-delegated activity in its first transcript segment", async () => {
     const threadId = "thread-late-delegated-activity";
     const runId = "run-late-delegated-activity";
     const activity = {
@@ -2265,7 +2265,7 @@ describe("AgentChat lifecycle", () => {
     await tree.render(
       <AgentKitProvider controller={observable.controller} threadId={threadId}>
         <AgentActivityGroup runId={runId} excludeAgentActivities />
-        <AgentCollaborationFeed runId={runId} />
+        <AgentCollaborationFeed runId={runId} throughSequence={1} />
       </AgentKitProvider>,
     );
 

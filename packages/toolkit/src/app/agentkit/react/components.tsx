@@ -1583,6 +1583,19 @@ export function AgentCollaborationFeed({
     | { type: "interaction"; value: AgentInteraction }
     | { type: "activity"; value: AgentActivity }
   >();
+  const delegatedAgentIds = new Map<string, string>();
+  for (const event of thread.events) {
+    if (runId && event.runId !== runId) continue;
+    if (
+      event.type === "activity.started" ||
+      event.type === "activity.updated" ||
+      event.type === "activity.completed"
+    ) {
+      const activity = thread.activities[event.activity.id] ?? event.activity;
+      const agentId = event.activity.agentId ?? activity.agentId;
+      if (agentId) delegatedAgentIds.set(event.activity.id, agentId);
+    }
+  }
   const firstSequence = new Map<string, number>();
   const order: string[] = [];
   const remember = (
@@ -1615,6 +1628,7 @@ export function AgentCollaborationFeed({
       const previous = entries.get(key);
       const agentId =
         event.activity.agentId ??
+        delegatedAgentIds.get(event.activity.id) ??
         (previous?.type === "activity" ? previous.value.agentId : undefined);
       if (agentId) {
         remember(key, event.sequence, {
