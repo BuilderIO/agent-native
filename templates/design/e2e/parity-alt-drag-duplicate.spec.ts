@@ -117,6 +117,8 @@ const PLAIN_OUTER_WITH_ABSOLUTE_CHILD_HTML = `<!doctype html>
            style="position:absolute;left:20px;top:30px;width:220px;height:180px;overflow:visible;background:#334155">
     <div data-agent-native-node-id="absolute-child" data-agent-native-layer-name="Absolute child"
          style="position:absolute;left:20px;top:20px;width:120px;height:52px;background:#2563eb">Child</div>
+    <div data-agent-native-node-id="absolute-peer" data-agent-native-layer-name="Absolute peer"
+         style="position:absolute;left:150px;top:20px;width:50px;height:52px;background:#7c3aed">Peer</div>
   </section>
   <div data-agent-native-node-id="later-sibling" data-agent-native-layer-name="Later sibling"
        style="position:absolute;left:400px;top:40px;width:160px;height:130px;background:#475569"></div>
@@ -1683,6 +1685,125 @@ test.describe("absolute child exit from a plain frame", () => {
       expect(await fileContent(request, designId, "index.html")).toBe(
         savedHtml,
       );
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+
+  test("preserves selected sibling order when dragging absolute layers out together", async ({
+    page,
+    request,
+  }) => {
+    const { designId } = await createDesign(
+      request,
+      PLAIN_OUTER_WITH_ABSOLUTE_CHILD_HTML,
+    );
+    try {
+      await gotoEditor(page, designId);
+      const frame = designFrame(page);
+      const outer = frame.locator('[data-agent-native-node-id="outer-frame"]');
+      const child = frame.locator(
+        '[data-agent-native-node-id="absolute-child"]',
+      );
+      const peer = frame.locator('[data-agent-native-node-id="absolute-peer"]');
+      const exitFrame = frame.locator(
+        '[data-agent-native-node-id="exit-frame"]',
+      );
+      const [childBox, peerBox, outerBox] = await Promise.all([
+        child.boundingBox(),
+        peer.boundingBox(),
+        outer.boundingBox(),
+      ]);
+      if (!childBox || !peerBox || !outerBox) {
+        throw new Error("absolute sibling group fixture needs rendered bounds");
+      }
+      const grab = {
+        x: peerBox.x + peerBox.width / 2,
+        y: peerBox.y + peerBox.height / 2,
+      };
+      const zoom = await canvasZoom(page);
+      const release = {
+        x: outerBox.x + 380 * zoom,
+        y: outerBox.y + 100 * zoom,
+      };
+      const beforeDrop = await fileContent(request, designId, "index.html");
+
+      await page.mouse.click(
+        childBox.x + childBox.width / 2,
+        childBox.y + childBox.height / 2,
+      );
+      await page.keyboard.down("Shift");
+      await page.mouse.click(grab.x, grab.y);
+      await page.keyboard.up("Shift");
+      await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
+      await page.mouse.move(grab.x, grab.y);
+      await page.mouse.down();
+      await page.mouse.move(grab.x + 8, grab.y + 6, { steps: 2 });
+      await page.mouse.move(release.x, release.y, { steps: 16 });
+      expect(await fileContent(request, designId, "index.html")).toBe(
+        beforeDrop,
+      );
+      await page.mouse.up();
+
+      const directChildren = () =>
+        outer.evaluate((element) =>
+          Array.from(element.children).map((node) =>
+            node.getAttribute("data-agent-native-node-id"),
+          ),
+        );
+      await expect
+        .poll(directChildren)
+        .toEqual([
+          "exit-frame",
+          "absolute-child",
+          "absolute-peer",
+          "later-sibling",
+        ]);
+      for (const layer of [child, peer]) {
+        await expect
+          .poll(() =>
+            layer.evaluate((element) =>
+              element.parentElement?.getAttribute("data-agent-native-node-id"),
+            ),
+          )
+          .toBe("outer-frame");
+      }
+
+      const persistedChildren = async () => {
+        const html = await fileContent(request, designId, "index.html");
+        return page.evaluate((source) => {
+          const doc = new DOMParser().parseFromString(source, "text/html");
+          return Array.from(
+            doc.querySelector('[data-agent-native-node-id="outer-frame"]')
+              ?.children ?? [],
+          ).map((node) => node.getAttribute("data-agent-native-node-id"));
+        }, html);
+      };
+      await expect
+        .poll(persistedChildren)
+        .toEqual([
+          "exit-frame",
+          "absolute-child",
+          "absolute-peer",
+          "later-sibling",
+        ]);
+      await gotoEditor(page, designId);
+      await expect
+        .poll(() =>
+          designFrame(page)
+            .locator('[data-agent-native-node-id="outer-frame"]')
+            .evaluate((element) =>
+              Array.from(element.children).map((node) =>
+                node.getAttribute("data-agent-native-node-id"),
+              ),
+            ),
+        )
+        .toEqual([
+          "exit-frame",
+          "absolute-child",
+          "absolute-peer",
+          "later-sibling",
+        ]);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }

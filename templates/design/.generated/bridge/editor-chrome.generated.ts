@@ -15106,7 +15106,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           gridDisplacementPrevStyles: [],
           persistenceAnchor: previous,
           persistencePlacement: previous ? "after" : "inside"
-        } : target.dropMode === "absolute-container" ? target : {
+        } : target.dropMode === "absolute-container" ? previous ? {
+          ...target,
+          persistenceAnchor: previous,
+          persistencePlacement: "after"
+        } : target : {
           anchor: previous,
           placement: "after",
           axis: target.axis,

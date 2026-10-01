@@ -19448,7 +19448,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 persistencePlacement: previous ? "after" : "inside",
               }
             : target.dropMode === "absolute-container"
-              ? target
+              ? previous
+                ? {
+                    ...target,
+                    persistenceAnchor: previous,
+                    persistencePlacement: "after",
+                  }
+                : target
               : {
                   anchor: previous,
                   placement: "after",
