@@ -26,7 +26,6 @@ export {
   isProductionServerlessFunctionRuntime,
   closeDbExec,
   isUniqueViolation,
-  toPostgresParams,
   type DbExec,
   type DbExecConfig,
   type DbExecQuery,
