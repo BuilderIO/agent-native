@@ -61,6 +61,7 @@ export const EVENT_CATALOG_MAX_ENTRIES = 1000;
 const WARN_INTERVAL_MS = 60_000;
 
 const lastWarnAt = new Map<string, number>();
+let indexTablesReady = false;
 
 export function sessionEventTenantKey(
   ownerEmail: string,
@@ -269,6 +270,16 @@ async function coverageTableExists(tx: any): Promise<boolean> {
   throw new Error("Postgres table existence check returned an invalid value");
 }
 
+/**
+ * Reads run between a deploy and the scheduled migration too. Until the
+ * coverage table exists no tenant has coverage, and reads report exactly that.
+ * Tables are only ever added, so only a positive answer is cached.
+ */
+async function sessionEventIndexReady(db: any): Promise<boolean> {
+  indexTablesReady ||= await coverageTableExists(db);
+  return indexTablesReady;
+}
+
 function warnIndexFailure(message: string, error: unknown): void {
   const now = Date.now();
   if (now - (lastWarnAt.get(message) ?? 0) < WARN_INTERVAL_MS) return;
@@ -353,19 +364,21 @@ export async function recordSessionEventIndex(
 
 /**
  * Best-effort, after the events commit. The catalog never decides a filter,
- * and committing each upsert on its own keeps hot rows like `pageview` from
- * staying locked for the whole ingest transaction.
+ * and its own short transaction keeps hot rows like `pageview` from staying
+ * locked for the whole ingest transaction. The catalog lists events from the
+ * latest table only, so a daily row committed without its latest sighting
+ * would hide that event until it fires again.
  */
 export async function recordEventCatalog(
   rows: readonly SessionEventIndexInputRow[],
 ): Promise<void> {
   try {
     const { catalog, catalogLatest } = aggregateSessionEventIndexRows(rows);
-    const db = getDb() as any;
     const c = schema.analyticsEventCatalogDaily;
     const l = schema.analyticsEventCatalogLatest;
-    if (catalog.length) {
-      await db
+    if (!catalog.length) return;
+    await (getDb() as any).transaction(async (tx: any) => {
+      await tx
         .insert(c)
         .values(catalog)
         .onConflictDoUpdate({
@@ -376,9 +389,7 @@ export async function recordEventCatalog(
             propertyKeys: sql`case when excluded.last_seen_at >= ${c.lastSeenAt} then excluded.property_keys else ${c.propertyKeys} end`,
           },
         });
-    }
-    if (catalogLatest.length) {
-      await db
+      await tx
         .insert(l)
         .values(catalogLatest)
         .onConflictDoUpdate({
@@ -388,7 +399,7 @@ export async function recordEventCatalog(
             propertyKeys: sql`case when excluded.last_seen_at >= ${l.lastSeenAt} then excluded.property_keys else ${l.propertyKeys} end`,
           },
         });
-    }
+    });
   } catch (error) {
     warnIndexFailure("Event catalog write failed; events were stored:", error);
   }
@@ -423,10 +434,13 @@ export function hasSessionEventFilters(filters: SessionEventFilters): boolean {
  * is correlated to the recording's own tenant and session, so it can never
  * widen the recording access filter it is combined with.
  */
-export function sessionEventFilterConditions(filters: SessionEventFilters) {
+export async function sessionEventFilterConditions(
+  filters: SessionEventFilters,
+) {
   const didEvents = normalizeSessionEventNames(filters.didEvents);
   const didNotEvents = normalizeSessionEventNames(filters.didNotEvents);
   if (!didEvents.length && !didNotEvents.length) return [];
+  if (!(await sessionEventIndexReady(getDb()))) return [sql`false`];
 
   const r = schema.sessionRecordings;
   const sibling = alias(schema.sessionRecordings, "session_event_sibling");
@@ -467,6 +481,7 @@ export async function getSessionEventCoverageStart(
   scope: SessionEventScope,
 ): Promise<string | null> {
   const db = getDb() as any;
+  if (!(await sessionEventIndexReady(db))) return null;
   const coverage = schema.analyticsSessionEventCoverage;
   const rows = await db
     .select({ startedAt: coverage.startedAt })
@@ -496,6 +511,9 @@ export async function listSessionEventNames(
     conditions.push(lte(se.firstAt, isoTimestamp(filters.to, true)));
   }
   if (filters.app) conditions.push(eq(se.app, filters.app));
+  if (!(await sessionEventIndexReady(db))) {
+    return { events: [], coverageStartedAt: null };
+  }
   const limit = Math.min(500, Math.max(1, filters.limit ?? 200));
   const [rows, coverageStartedAt] = await Promise.all([
     db
@@ -559,6 +577,15 @@ export async function listEventCatalog(
     now.getTime() - STOPPED_FIRING_DAYS * 24 * 60 * 60_000,
   ).toISOString();
   const db = getDb() as any;
+  if (!(await sessionEventIndexReady(db))) {
+    return {
+      from: fromDate,
+      to: toDate,
+      entries: [],
+      apps: [],
+      truncated: false,
+    };
+  }
   const c = schema.analyticsEventCatalogDaily;
   const l = schema.analyticsEventCatalogLatest;
   const tenantKeys = viewerTenantKeys(scope);
@@ -772,4 +799,5 @@ export async function pruneSessionEventIndex(
 
 export function __resetSessionEventIndexForTests(): void {
   lastWarnAt.clear();
+  indexTablesReady = false;
 }

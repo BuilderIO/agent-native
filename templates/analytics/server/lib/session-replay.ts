@@ -1929,10 +1929,10 @@ export async function listSessionRecordingsPage(
   const search = replayListSearchCondition(filters.query);
   if (search) conditions.push(search);
   conditions.push(
-    ...sessionEventFilterConditions({
+    ...(await sessionEventFilterConditions({
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
-    }),
+    })),
   );
   const appConditions = [...conditions];
   if (filters.app)

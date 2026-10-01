@@ -207,7 +207,7 @@ describe("session event index on Postgres", () => {
     const rows = await db
       .select({ id: r.id })
       .from(r)
-      .where(and(...sessionEventFilterConditions(filters)))
+      .where(and(...(await sessionEventFilterConditions(filters))))
       .orderBy(asc(r.id));
     return rows.map((row: { id: string }) => row.id);
   }
@@ -965,6 +965,63 @@ describe("session event index on Postgres", () => {
     expect(indexed.rows).toEqual([]);
   });
 
+  it("reports no coverage from every read until the index tables exist", async () => {
+    for (const table of [
+      "analytics_session_events",
+      "analytics_event_catalog_daily",
+      "analytics_event_catalog_latest",
+      "analytics_session_event_gaps",
+      "analytics_session_event_coverage",
+    ]) {
+      await client.query(`DROP TABLE ${table}`);
+    }
+    await addRecording("r1", "s1", "2026-09-20T10:00:30.000Z");
+    const scope = { userEmail: OWNER, orgId: ORG };
+    const now = new Date("2026-09-21T00:00:00.000Z");
+
+    expect(await listSessionEventNames(scope)).toEqual({
+      events: [],
+      coverageStartedAt: null,
+    });
+    expect(await listEventCatalog(scope, { now })).toEqual({
+      from: "2026-08-22",
+      to: "2026-09-21",
+      entries: [],
+      apps: [],
+      truncated: false,
+    });
+    expect(await matchingRecordings({ didEvents: ["clip_viewed"] })).toEqual(
+      [],
+    );
+    expect(await matchingRecordings({ didNotEvents: ["clip_viewed"] })).toEqual(
+      [],
+    );
+    await expect(
+      listSessionEventNames(scope, { from: "Sept 1" }),
+    ).rejects.toThrow("Invalid event range bound");
+
+    for (const statement of sessionEventIndexMigrationSql()) {
+      await client.query(statement);
+    }
+    await index(
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s1",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    expect(await listSessionEventNames(scope)).toEqual({
+      events: [{ eventName: "clip_viewed", sessionCount: 1 }],
+      coverageStartedAt: "2026-09-20T10:00:00.000Z",
+    });
+    expect(await matchingRecordings({ didEvents: ["clip_viewed"] })).toEqual([
+      "r1",
+    ]);
+  });
+
   it("indexes an event name cut inside an emoji", async () => {
     const name = `${"a".repeat(199)}\u{1F600}`;
     await storeBatch(
@@ -1068,6 +1125,34 @@ describe("session event index on Postgres", () => {
       "SELECT session_id FROM analytics_session_event_gaps",
     );
     expect(gaps.rows).toEqual([]);
+  });
+
+  it("keeps a batch's catalog volume and latest sighting together", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const batch = [
+      event({
+        eventName: "clip_viewed",
+        sessionId: "s1",
+        timestamp: "2026-09-20T10:01:00.000Z",
+      }),
+    ];
+    await failInsertsInto("analytics_event_catalog_latest");
+    await index(batch, "2026-09-20T10:00:00.000Z");
+    warn.mockRestore();
+    const daily = await client.query(
+      "SELECT event_name FROM analytics_event_catalog_daily",
+    );
+    expect(daily.rows).toEqual([]);
+
+    await restoreInsertsInto("analytics_event_catalog_latest");
+    await recordEventCatalog(batch);
+    const catalog = await listEventCatalog(
+      { userEmail: OWNER, orgId: ORG },
+      { now: new Date("2026-09-21T00:00:00.000Z") },
+    );
+    expect(catalog.entries).toMatchObject([
+      { eventName: "clip_viewed", volume: 1 },
+    ]);
   });
 
   it("treats a date-only upper bound as that whole day", async () => {

@@ -80,11 +80,13 @@ agent answers about browser recordings in the Analytics template.
   transaction that stores the events, in every sink mode. After that
   transaction commits it writes the daily catalog
   (`analytics_event_catalog_daily`) and each event's latest sighting
-  (`analytics_event_catalog_latest`) best-effort: a catalog failure only
-  warns, and the catalog never decides a filter. Lists, did/didn't filters,
-  and the catalog read only these tables, never BigQuery. The catalog keeps
-  the 1,000 most recently seen events, sorted by volume, and sets `truncated`
-  when it cut the list; its app flags still count every event in the range.
+  (`analytics_event_catalog_latest`) best-effort, together in one short
+  transaction, because the catalog lists events from the latest table. A
+  catalog failure only warns, and the catalog never decides a filter. Lists,
+  did/didn't filters, and the catalog read only these tables, never BigQuery.
+  The catalog keeps the 1,000 most recently seen events, sorted by volume, and
+  sets `truncated` when it cut the list; its app flags still count every event
+  in the range.
 - Event filters exclude a session if any of its recordings started before the
   tenant's coverage start, because one analytics session can span tabs.
   Coverage starts only after a session write succeeds, and the reported start
@@ -97,8 +99,11 @@ agent answers about browser recordings in the Analytics template.
   index writes inside that transaction. Deploys ship code before the scheduled
   migration creates these tables, so until `analytics_session_event_coverage`
   exists ingest stores events unindexed and warns: with no coverage, no
-  session can read as complete. That is the only unmarked gap, and it holds
-  only while the coverage table is the last index table a migration creates.
+  session can read as complete. Reads in that window report no coverage
+  instead of failing: no event names, a null coverage start, an empty
+  catalog, and no session matching an event filter. That is the only unmarked
+  gap, and it holds only while the coverage table is the last index table a
+  migration creates.
   The retention sweep removes a session's index rows together, once all of
   them are two days past replay retention, and its gap marker after that. The
   BigQuery-cutover purge leaves these tables alone.
