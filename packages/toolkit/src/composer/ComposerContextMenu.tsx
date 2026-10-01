@@ -184,7 +184,8 @@ function ContextSubmenu({
         <span className="min-w-0 truncate">{label}</span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent
-        className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 max-w-[calc(100vw-24px)] overflow-y-auto"
+        style={{ boxShadow: "none" }}
+        className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 max-w-[calc(100vw-24px)] overflow-y-auto data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100"
         data-agent-native-composer-popover="true"
         onFocusOutside={(event) => {
           const target = event.target;
@@ -621,8 +622,9 @@ export function ComposerContextMenu({
           collisionPadding={12}
           style={{
             maxHeight: placement.maxHeight,
+            boxShadow: "none",
           }}
-          className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col rounded-xl p-1 [&_[role^=menuitem]]:min-h-10 [&_[role^=menuitem]]:px-3 [&_[role^=menuitem]]:rounded-lg"
+          className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col rounded-xl p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100 [&_[role^=menuitem]]:min-h-10 [&_[role^=menuitem]]:px-3 [&_[role^=menuitem]]:rounded-lg"
           data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
             if (pendingDialog.current) {

@@ -150,11 +150,17 @@ describe("connected composer menus", () => {
     expect(row("Add context").getAttribute("aria-haspopup")).toBe("menu");
     expect(menus()).toHaveLength(1);
     expect(menus()[0].classList.contains("w-64")).toBe(true);
+    expect(menus()[0].style.boxShadow).toBe("none");
+    expect(menus()[0].className).toContain("data-[state=open]:fade-in-100");
+    expect(menus()[0].className).toContain("data-[state=closed]:fade-out-100");
     await key(row("Add context"), "ArrowRight");
     expect(row("Documents")).toBeDefined();
     expect(row("Library")).toBeDefined();
     expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
     expect(menus()).toHaveLength(2);
+    expect(menus()[1].style.boxShadow).toBe("none");
+    expect(menus()[1].className).toContain("data-[state=open]:fade-in-100");
+    expect(menus()[1].className).toContain("data-[state=closed]:fade-out-100");
   });
   it("hides the Add context tooltip while the host storage popover is open", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
