@@ -1742,6 +1742,17 @@ describe("createAgentNativeAgentKitTransport", () => {
             runId: "run-durable",
           });
         }
+        if (
+          url.includes("/runs/latest?threadId=thread-resume&runId=run-durable")
+        ) {
+          return json({
+            runId: "run-durable",
+            threadId: "thread-resume",
+            turnId: "turn-durable",
+            status: "running",
+            terminalReason: null,
+          });
+        }
         if (url.endsWith("/runs/run-durable/events?after=0")) {
           const stream = [
             { type: "text", text: "Recovered response", seq: 1 },

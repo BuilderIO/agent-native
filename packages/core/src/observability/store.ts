@@ -9,9 +9,11 @@ import {
 import {
   sanitizeToolErrorMessage,
   TOOL_ERROR_CAPTURE_METADATA_KEY,
+  TOOL_ERROR_DETAIL_METADATA_KEY,
 } from "./trace-error.js";
 import { redactSensitiveFields } from "./trace-redaction.js";
 import type {
+  SpanErrorDetail,
   TraceSpan,
   TraceSummary,
   FeedbackEntry,
@@ -2157,19 +2159,40 @@ export async function getObservabilityOverview(
   };
 }
 
+function toolErrorDetail(
+  metadata: Record<string, unknown> | null,
+  hasText: boolean,
+): SpanErrorDetail {
+  const stamped = metadata?.[TOOL_ERROR_DETAIL_METADATA_KEY];
+  if (stamped === "full" || stamped === "signature") return stamped;
+  if (metadata?.[TOOL_ERROR_CAPTURE_METADATA_KEY] === 1) return "full";
+  return hasText ? "withheld" : "unrecorded";
+}
+
 function rowToTraceSpan(row: Record<string, any>): TraceSpan {
   const storedMetadata = safeJsonParse<Record<string, unknown> | null>(
     row.metadata,
     null,
   );
   const metadata = storedMetadata ? { ...storedMetadata } : null;
-  const hasCapturedToolError =
-    metadata?.[TOOL_ERROR_CAPTURE_METADATA_KEY] === 1;
+  const errorMessage = row.error_message ? String(row.error_message) : null;
+  const errorDetail =
+    row.span_type === "tool_call" && row.status === "error"
+      ? toolErrorDetail(metadata, errorMessage !== null)
+      : undefined;
   if (metadata && metadata.input !== undefined) {
     metadata.input = redactSensitiveFields(metadata.input);
   }
-  if (metadata) delete metadata[TOOL_ERROR_CAPTURE_METADATA_KEY];
-  const errorMessage = row.error_message ? String(row.error_message) : null;
+  if (metadata) {
+    delete metadata[TOOL_ERROR_CAPTURE_METADATA_KEY];
+    delete metadata[TOOL_ERROR_DETAIL_METADATA_KEY];
+  }
+  // Tool text written before the redaction contract is not returned; its
+  // `errorDetail` says so.
+  const exposesErrorText =
+    row.span_type !== "tool_call" ||
+    errorDetail === "full" ||
+    errorDetail === "signature";
 
   return {
     id: String(row.id),
@@ -2188,11 +2211,10 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     durationMs: Number(row.duration_ms ?? 0),
     status: row.status as TraceSpan["status"],
     errorMessage:
-      row.span_type === "tool_call" && !hasCapturedToolError
-        ? null
-        : errorMessage
-          ? sanitizeToolErrorMessage(errorMessage)
-          : null,
+      errorMessage && exposesErrorText
+        ? sanitizeToolErrorMessage(errorMessage)
+        : null,
+    ...(errorDetail ? { errorDetail } : {}),
     metadata,
     createdAt: Number(row.created_at),
   };

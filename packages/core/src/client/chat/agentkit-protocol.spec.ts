@@ -612,6 +612,7 @@ describe("createAgentKitProtocolAdapter", () => {
         connectionId: "workspace-slack",
         message: undefined,
       },
+      abortSignal: expect.any(AbortSignal),
     });
     expect(resumed.at(-1)?.type).toBe("run.completed");
   });
@@ -1843,13 +1844,15 @@ describe("createAgentKitProtocolAdapter", () => {
 
     await transport.cancelRun({ threadId: "thread-1", runId });
 
-    expect(cancel).toHaveBeenCalledWith({ reason: "protocol-cancel" });
+    // A user Stop is the server's turn-wide stop reason, so a pending
+    // successor run cannot keep the turn going after the user asked to stop.
+    expect(cancel).toHaveBeenCalledWith({ reason: "user" });
     await expect(
       transport.getRun?.({ threadId: "thread-1", runId }),
     ).resolves.toMatchObject({ status: "cancelled" });
   });
 
-  it("cancels a paused Core turn when the adapter is disposed", async () => {
+  it("leaves a paused Core turn to the server when the adapter is disposed", async () => {
     const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
     const disposeSession = vi.fn(async () => undefined);
     async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
@@ -1892,7 +1895,7 @@ describe("createAgentKitProtocolAdapter", () => {
 
     await transport.dispose();
 
-    expect(cancel).toHaveBeenCalledWith({ reason: "adapter-dispose" });
+    expect(cancel).not.toHaveBeenCalled();
     expect(disposeSession).toHaveBeenCalledOnce();
   });
 
@@ -2033,6 +2036,7 @@ describe("createAgentKitProtocolAdapter", () => {
         approved: false,
         message: '{"message":"Not yet","other":"Use the staging channel"}',
       },
+      abortSignal: expect.any(AbortSignal),
     });
     await expect(
       transport.resumeRun?.({
@@ -2095,7 +2099,10 @@ describe("createAgentKitProtocolAdapter", () => {
           );
         }
         if (url.pathname.endsWith("/runs/latest")) {
-          return Response.json({ runId: continuationRunIds.shift() });
+          return Response.json({
+            runId: continuationRunIds.shift(),
+            status: "running",
+          });
         }
         const runId = url.pathname.split("/").at(-2);
         if (runId === "run-1") return sseResponse([], runId);
@@ -2188,9 +2195,15 @@ describe("createAgentKitProtocolAdapter", () => {
           }
           if (url.pathname.endsWith("/runs/latest")) {
             latestReads += 1;
-            return Response.json({
-              runId: latestReads < 5 ? "run-1" : "run-2",
-            });
+            return Response.json(
+              latestReads < 5
+                ? {
+                    runId: "run-1",
+                    status: "truncated",
+                    terminalReason: "run_timeout",
+                  }
+                : { runId: "run-2", status: "running" },
+            );
           }
           const runId = url.pathname.split("/").at(-2);
           if (runId === "run-1") return sseResponse([], runId);
@@ -2318,21 +2331,31 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(result.at(-1)?.type).toBe("run.completed");
   });
 
-  it("cancels active Core turns when the adapter is disposed", async () => {
+  it("stops reading but never cancels an in-flight server run when the adapter is disposed", async () => {
+    // Regression: unmounting a chat view disposed the adapter, which aborted
+    // in-flight background runs (`aborted:adapter-dispose`, e.g. Clips
+    // `clips-ai-request:*` runs). Disposal is not a user Stop.
     const cancelled = vi.fn(async () => ({ status: "cancelled" as const }));
+    const runtimeCancel = vi.fn(async () => ({ status: "cancelled" as const }));
+    let turnSignal: AbortSignal | undefined;
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       await new Promise(() => undefined);
     }
     const runtime = createRuntime(events);
+    runtime.cancel = runtimeCancel;
     runtime.createSession = async () => ({
       id: "thread-1",
       runtimeId: runtime.id,
-      startTurn: async () => ({
-        id: "turn-1",
-        sessionId: "thread-1",
-        events: events(),
-        cancel: cancelled,
-      }),
+      startTurn: async (input: AgentChatRuntimeTurnInput) => {
+        turnSignal = input.abortSignal;
+        return {
+          id: "turn-1",
+          runId: "runtime-run-1",
+          sessionId: "thread-1",
+          events: events(),
+          cancel: cancelled,
+        };
+      },
     });
     const transport = createAgentKitProtocolAdapter(runtime);
 
@@ -2340,9 +2363,12 @@ describe("createAgentKitProtocolAdapter", () => {
       threadId: "thread-1",
       messages: [userMessage("Inspect it")],
     });
+    expect(turnSignal?.aborted).toBe(false);
     await transport.dispose();
 
-    expect(cancelled).toHaveBeenCalledOnce();
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(runtimeCancel).not.toHaveBeenCalled();
+    expect(turnSignal?.aborted).toBe(true);
   });
 
   it("carries Agent-Native context, identity, access, audit, trace, and delegation metadata", async () => {
@@ -2763,19 +2789,12 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(attempts).toBe(2);
   });
 
-  it("cancels through the runtime, emits cancellation, and disposes sessions", async () => {
-    let releaseCancellation!: () => void;
+  it("ends readers without inventing a terminal event and disposes sessions on disposal", async () => {
     let releaseSessionDisposal!: () => void;
-    const cancellationReleased = new Promise<void>((resolve) => {
-      releaseCancellation = resolve;
-    });
     const sessionDisposalReleased = new Promise<void>((resolve) => {
       releaseSessionDisposal = resolve;
     });
-    const cancelled = vi.fn(async () => {
-      await cancellationReleased;
-      return { status: "cancelled" as const };
-    });
+    const cancelled = vi.fn(async () => ({ status: "cancelled" as const }));
     const sessionDisposed = vi.fn(async () => {
       await sessionDisposalReleased;
     });
@@ -2816,21 +2835,20 @@ describe("createAgentKitProtocolAdapter", () => {
       remaining.push(next.value);
     }
 
-    await vi.waitFor(() => expect(cancelled).toHaveBeenCalledOnce());
-    expect(disposalSettled).toBe(false);
-    releaseCancellation();
     await vi.waitFor(() => expect(sessionDisposed).toHaveBeenCalledOnce());
     expect(disposalSettled).toBe(false);
     releaseSessionDisposal();
     await disposing;
 
-    expect(cancelled).toHaveBeenCalledWith({
-      sessionId: "thread-1",
-      turnId: "turn-1",
-      runId: "runtime-run-1",
-      reason: "adapter-dispose",
-    });
-    expect(remaining.map((event) => event.type)).toContain("run.cancelled");
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(
+      remaining.filter(
+        (event) =>
+          event.type === "run.cancelled" ||
+          event.type === "run.failed" ||
+          event.type === "run.completed",
+      ),
+    ).toEqual([]);
     expect(disposalSettled).toBe(true);
     await expect(
       transport.startRun({

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -41,7 +41,10 @@ export default defineAction({
   run: async ({ designId, title, description, category }, ctx) => {
     const access = await resolveAccess("design", designId);
     if (!access || !["owner", "admin", "editor"].includes(access.role)) {
-      throw new Error("Design not found or not editable");
+      fail("Design not found or not editable", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
     }
 
     const source = access.resource;

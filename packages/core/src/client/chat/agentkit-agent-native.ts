@@ -19,6 +19,7 @@ import {
   parseAgentThreadSnapshot,
 } from "@agent-native/agentkit/protocol";
 
+import { BACKGROUND_FUNCTION_WALL_MS } from "../../app-config/run-lifecycle-invariants.js";
 import { agentNativePath } from "../api-path.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
@@ -32,6 +33,7 @@ import {
   type AgentKitProtocolAdapter,
   type CreateAgentKitProtocolAdapterOptions,
 } from "./agentkit-protocol.js";
+import { trackRunOutcome } from "./run-outcome-telemetry.js";
 import {
   createAgentNativeChatRuntime,
   type AgentChatRuntime,
@@ -69,6 +71,9 @@ interface ActiveRunStatus {
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
 const RUN_SLOT_MAX_POLLS = RUN_SLOT_STABLE_POLLS * 2;
+// A message sent while an earlier run still owns the thread waits for that run
+// instead of failing; no single run outlives one background function wall.
+const BUSY_THREAD_POLL_INTERVAL_MS = 1_000;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -825,6 +830,8 @@ export function createAgentNativeAgentKitTransport(
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
   let transport: AgentKitProtocolAdapter;
+  /** Queued messages a send on this page is still waiting to deliver itself. */
+  const parkedMessageIds = new Set<string>();
 
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
     const configured =
@@ -1010,7 +1017,18 @@ export function createAgentNativeAgentKitTransport(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
     const stored = await fetchThread(threadId);
-    return stored ? projectThread(threadId, stored) : null;
+    if (!stored) return null;
+    const thread = projectThread(threadId, stored);
+    // A message parked by a send still waiting on this page is delivered by
+    // that wait; listing it as queued here would let a promotion race it.
+    return parkedMessageIds.size === 0
+      ? thread
+      : {
+          ...thread,
+          queuedMessages: thread.queuedMessages?.filter(
+            (message) => !parkedMessageIds.has(message.id),
+          ),
+        };
   }
 
   async function activeRunSnapshot(
@@ -1211,12 +1229,22 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  async function waitForRunSlot(threadId: string): Promise<void> {
+  async function waitForRunSlot(
+    threadId: string,
+    wait: { maxPolls: number; intervalMs: number; signal?: AbortSignal } = {
+      maxPolls: RUN_SLOT_MAX_POLLS,
+      intervalMs: RUN_SLOT_POLL_INTERVAL_MS,
+    },
+  ): Promise<void> {
     let consecutiveClearPolls = 0;
-    for (let poll = 0; poll < RUN_SLOT_MAX_POLLS; poll += 1) {
+    for (let poll = 0; poll < wait.maxPolls; poll += 1) {
+      wait.signal?.throwIfAborted();
       const response = await fetcher(
         `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-        { headers: await headers({ sessionId: threadId }) },
+        {
+          headers: await headers({ sessionId: threadId }),
+          ...(wait.signal ? { signal: wait.signal } : {}),
+        },
       );
       if (!response.ok) throw await responseError(response);
       const status = asRecord(await response.json()) as ActiveRunStatus | null;
@@ -1236,13 +1264,165 @@ export function createAgentNativeAgentKitTransport(
           status.status === "aborted");
       consecutiveClearPolls = clear ? consecutiveClearPolls + 1 : 0;
       if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
-      if (poll + 1 < RUN_SLOT_MAX_POLLS) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, RUN_SLOT_POLL_INTERVAL_MS),
-        );
+      if (poll + 1 < wait.maxPolls) {
+        await new Promise((resolve) => setTimeout(resolve, wait.intervalMs));
       }
     }
     throw new AgentKitRunSlotBusyError();
+  }
+
+  /** Waits for the thread to free up; a failed poll is not a failed send. */
+  async function waitForFreeThread(
+    threadId: string,
+    deadline: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    for (let failures = 0; ; failures += 1) {
+      try {
+        return await waitForRunSlot(threadId, {
+          maxPolls: Math.max(
+            RUN_SLOT_STABLE_POLLS,
+            Math.ceil((deadline - Date.now()) / BUSY_THREAD_POLL_INTERVAL_MS),
+          ),
+          intervalMs: BUSY_THREAD_POLL_INTERVAL_MS,
+          signal,
+        });
+      } catch (error) {
+        if (
+          signal?.aborted ||
+          asRecord(error)?.retryable === false ||
+          Date.now() >= deadline
+        ) {
+          throw error;
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(1_000 * 2 ** failures, 15_000)),
+        );
+      }
+    }
+  }
+
+  /**
+   * The server refuses (409 `run_slot_busy`) a message sent while an earlier
+   * run still owns the thread, before saving it. Park it in the thread's
+   * server-side queue, so leaving the page cannot lose it (the next page
+   * promotes it like any queued message), and deliver it from here once the
+   * thread is free. Giving up while still on the page takes it back out, and
+   * the send fails where the user can see it.
+   */
+  async function startRunWhenThreadIsFree(
+    input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
+    context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+  ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
+    try {
+      return await startRun(input, context);
+    } catch (error) {
+      if (asRecord(error)?.code !== "run_slot_busy") throw error;
+    }
+    const message = [...input.messages]
+      .reverse()
+      .find((candidate) => candidate.role === "user");
+    if (!message) throw new AgentKitRunSlotBusyError();
+    const parked: AgentQueuedMessage = {
+      id: message.id,
+      threadId: input.threadId,
+      text: message.parts
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join(""),
+      createdAt: message.createdAt ?? now(),
+      attachments: message.parts.filter((part) => part.type === "file"),
+      ...(message.metadata ? { metadata: message.metadata } : {}),
+    };
+    await persistQueueMutation(input.threadId, {
+      type: "append",
+      message: parked,
+    });
+    parkedMessageIds.add(parked.id);
+    const deadline = Date.now() + BACKGROUND_FUNCTION_WALL_MS;
+    try {
+      for (;;) {
+        await waitForFreeThread(input.threadId, deadline, context?.signal);
+        const claim = await persistQueueMutation(input.threadId, {
+          type: "claim",
+          messageId: parked.id,
+        });
+        if (!claim.removedMessage || typeof claim.index !== "number") {
+          throw new TypeError("Agent chat queue claim response is invalid.");
+        }
+        try {
+          return await startRun(input, context);
+        } catch (error) {
+          if (
+            asRecord(error)?.code !== "run_slot_busy" ||
+            Date.now() >= deadline
+          ) {
+            throw error;
+          }
+          await persistQueueMutation(input.threadId, {
+            type: "restore",
+            message: claim.removedMessage,
+            index: claim.index,
+          });
+        }
+      }
+    } catch (error) {
+      // Leaving the page keeps the parked copy queued for the next one.
+      if (!context?.signal?.aborted) {
+        await persistQueueMutation(input.threadId, {
+          type: "remove",
+          messageId: parked.id,
+        }).catch((removeError: unknown) => {
+          // coercion-ok: the send still fails with its own error below; a copy left queued is delivered later, never lost.
+          console.warn(
+            "[agent-chat] could not take a failed send out of the queue:",
+            removeError,
+          );
+        });
+      }
+      throw error;
+    } finally {
+      parkedMessageIds.delete(parked.id);
+    }
+  }
+
+  /**
+   * Queue promotion has its own busy-slot retry, so it fails fast ("fail")
+   * instead of holding the thread's queue mutations while it waits.
+   */
+  async function startRunTrackingRunningState(
+    input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
+    context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+    onBusyThread: "wait" | "fail",
+  ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
+    dispatchAgentChatRunning({
+      isRunning: true,
+      phase: "working",
+      threadId: input.threadId,
+      tabId: input.threadId,
+    });
+    try {
+      const run =
+        onBusyThread === "wait"
+          ? await startRunWhenThreadIsFree(input, context)
+          : await startRun(input, context);
+      dispatchAgentChatRunning({
+        isRunning: true,
+        phase: "working",
+        threadId: input.threadId,
+        tabId: input.threadId,
+        runId: run.runId,
+      });
+      return run;
+    } catch (error) {
+      dispatchAgentChatRunning({
+        isRunning: false,
+        phase: "idle",
+        threadId: input.threadId,
+        tabId: input.threadId,
+        reason: "start_failed",
+      });
+      throw error;
+    }
   }
 
   async function readQueue(threadId: string): Promise<AgentQueuedMessage[]> {
@@ -1260,6 +1440,7 @@ export function createAgentNativeAgentKitTransport(
     options.feedbackUrl ??
     agentNativePath("/_agent-native/observability/feedback");
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
+    onRunOutcome: trackRunOutcome,
     ...options.adapter,
     metadata: adapterMetadata(options),
     capabilities: {
@@ -1335,23 +1516,31 @@ export function createAgentNativeAgentKitTransport(
           throw new TypeError("Agent chat queue claim response is invalid.");
         }
         try {
-          return await transport.startRun({
-            threadId,
-            messages: [
-              ...thread.messages,
-              {
-                id: queued.id,
-                role: "user",
-                parts: [
-                  { type: "text", text: queued.text },
-                  ...(queued.attachments ?? []),
-                ],
-                createdAt: queued.createdAt,
-                metadata: queued.metadata,
-              },
-            ],
-            metadata: queued.metadata,
-          });
+          return await startRunTrackingRunningState(
+            {
+              threadId,
+              messages: [
+                // A send parked while it waited may already sit in the saved
+                // history (a snapshot saved during the wait); send it once.
+                ...thread.messages.filter(
+                  (message) => message.id !== queued.id,
+                ),
+                {
+                  id: queued.id,
+                  role: "user",
+                  parts: [
+                    { type: "text", text: queued.text },
+                    ...(queued.attachments ?? []),
+                  ],
+                  createdAt: queued.createdAt,
+                  metadata: queued.metadata,
+                },
+              ],
+              metadata: queued.metadata,
+            },
+            undefined,
+            "fail",
+          );
         } catch (error) {
           try {
             await persistQueueMutation(threadId, {
@@ -1510,34 +1699,8 @@ export function createAgentNativeAgentKitTransport(
     protocolTransport.subscribeToRun.bind(protocolTransport);
   transport = {
     ...protocolTransport,
-    async startRun(input, context) {
-      dispatchAgentChatRunning({
-        isRunning: true,
-        phase: "working",
-        threadId: input.threadId,
-        tabId: input.threadId,
-      });
-      try {
-        const run = await startRun(input, context);
-        dispatchAgentChatRunning({
-          isRunning: true,
-          phase: "working",
-          threadId: input.threadId,
-          tabId: input.threadId,
-          runId: run.runId,
-        });
-        return run;
-      } catch (error) {
-        dispatchAgentChatRunning({
-          isRunning: false,
-          phase: "idle",
-          threadId: input.threadId,
-          tabId: input.threadId,
-          reason: "start_failed",
-        });
-        throw error;
-      }
-    },
+    startRun: (input, context) =>
+      startRunTrackingRunningState(input, context, "wait"),
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({
         isRunning: true,

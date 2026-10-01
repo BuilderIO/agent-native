@@ -9,6 +9,10 @@ import {
   type AiPriorityEmail,
   type MailSortMode,
 } from "@shared/ai-priority";
+import {
+  gmailCooldownFromError,
+  type GmailReadState,
+} from "@shared/gmail-freshness";
 import { mailLabelsInclude } from "@shared/gmail-labels";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage, Label } from "@shared/types";
@@ -110,6 +114,7 @@ import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 
 import { EmailListItem } from "./EmailListItem";
+import { GmailCooldownNotice } from "./GmailCooldownNotice";
 import {
   observeNextPage,
   retryNextPage as runPaginationRetry,
@@ -198,6 +203,8 @@ interface EmailListProps {
   isFetching?: boolean;
   emailsError?: Error | null;
   accountErrors?: AccountError[];
+  /** Set when the rows are not live from Gmail (cooldown); shown as a notice. */
+  read?: GmailReadState;
   labels?: Label[];
   refetchEmails?: () => unknown;
   hasNextPage?: boolean;
@@ -507,6 +514,7 @@ export function EmailList({
   isFetching: isFetchingProp,
   emailsError: emailsErrorProp,
   accountErrors: accountErrorsProp,
+  read: readProp,
   labels: labelsProp,
   refetchEmails,
   hasNextPage: hasNextPageProp,
@@ -567,6 +575,7 @@ export function EmailList({
     isFetchingNextPage: fetchedEmailsFetchingNextPage,
     isFetchNextPageError: fetchedEmailsFetchNextPageError,
     accountErrors: fetchedAccountErrors,
+    read: fetchedRead,
   } = useEmails(view, searchQuery, labelParam ?? undefined, {
     enabled: emailsProp === undefined,
   });
@@ -576,6 +585,7 @@ export function EmailList({
   const isFetching = isFetchingProp ?? fetchedEmailsFetching;
   const emailsError = emailsErrorProp ?? fetchedEmailsError;
   const accountErrors = accountErrorsProp ?? fetchedAccountErrors;
+  const read = readProp ?? fetchedRead;
   const refetch = refetchEmails ?? refetchFetchedEmails;
   const hasNextPage = hasNextPageProp ?? fetchedEmailsHasNextPage;
   const fetchNextPage = fetchNextPageProp ?? fetchFetchedNextPage;
@@ -2557,6 +2567,11 @@ export function EmailList({
   );
   useSetHeaderActions(headerActions);
 
+  const cooldownNotice =
+    read && read.freshness !== "live" ? (
+      <GmailCooldownNotice read={read} onRetry={refetch} />
+    ) : null;
+
   if (emailsError) {
     const needsCredentials =
       emailsError.message?.includes("GOOGLE_CLIENT_ID") ||
@@ -2604,6 +2619,7 @@ export function EmailList({
   if (threads.length === 0 && hasNextPage) {
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
+        {cooldownNotice}
         {!!accountErrors?.length && (
           <AccountErrorsNotice errors={accountErrors} />
         )}
@@ -2641,6 +2657,7 @@ export function EmailList({
     if (searchQuery) {
       return (
         <div className="flex h-full flex-col" ref={containerRef}>
+          {cooldownNotice}
           {!!accountErrors?.length && (
             <AccountErrorsNotice errors={accountErrors} />
           )}
@@ -2674,12 +2691,14 @@ export function EmailList({
     }
     if (
       (view === "inbox" || view === "important" || labelParam) &&
-      !accountErrors?.length
+      !accountErrors?.length &&
+      !cooldownNotice
     ) {
       return <InboxZero />;
     }
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
+        {cooldownNotice}
         {!!accountErrors?.length && (
           <AccountErrorsNotice errors={accountErrors} />
         )}
@@ -2715,6 +2734,7 @@ export function EmailList({
 
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
+      {cooldownNotice}
       <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
         <AiFilterDialog
           open={!!aiFilterDialog}

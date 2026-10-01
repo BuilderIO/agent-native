@@ -537,7 +537,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     canManage: canManageWorkspaceDefaults,
     refetch: refetchWorkspaceDefaults,
   } = useWorkspaceDefaults(isHome);
-  const { session } = useSession();
+  const { session, status: sessionStatus } = useSession();
+  // `session` is null while the check is loading or the server is unreachable,
+  // neither of which means signed out. Only a definitive answer sends the user
+  // to sign in; otherwise the server stays the authority on the request.
+  const isSignedOut = sessionStatus === "unauthenticated";
   const agentEngine = useAgentEngineConfigured();
   const [preflightAgentEngineState, setPreflightAgentEngineState] =
     useState<AgentEngineConfiguredState | null>(null);
@@ -1061,7 +1065,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     attachments: ReadonlyArray<PromptChatAttachment> = [],
     modelSelection?: DeckModelSelection,
   ) => {
-    if (!session) {
+    if (isSignedOut) {
       settlePendingDeckAttachments("discard");
       preservePromptForSignIn(prompt, {
         context: additionalContext,
@@ -1692,7 +1696,7 @@ export default function Index({ active = true }: { active?: boolean }) {
 
   const handleDirectImport = useCallback(
     async (selection: PromptImportSelection): Promise<boolean> => {
-      if (!session) {
+      if (isSignedOut) {
         setSignInPromptHadFiles(selection.kind !== "google-slides");
         setShowSignInDialog(true);
         return false;
@@ -1820,9 +1824,9 @@ export default function Index({ active = true }: { active?: boolean }) {
       deleteDeck,
       ensureDeckPersisted,
       initialDesignSystemId,
+      isSignedOut,
       navigate,
       reloadDecks,
-      session,
       t,
     ],
   );
@@ -2073,7 +2077,20 @@ export default function Index({ active = true }: { active?: boolean }) {
           error instanceof Error &&
           "code" in error &&
           error.code === "reference_storage_unavailable";
+        // A timeout, gateway page or dropped connection says nothing about the
+        // files, so the same import is offered again.
+        const retryable =
+          !isStorageUnavailable &&
+          uploadModule.isPromptUploadNetworkError(error);
         toast.error(t("editorToolbar.uploadFailed"), {
+          ...(retryable
+            ? {
+                action: {
+                  label: t("home.retry"),
+                  onClick: () => void handleReferenceImport(files),
+                },
+              }
+            : {}),
           description: uploadModule.formatPromptUploadFailure(
             error,
             uploadModule.isPromptUploadAuthRequiredError(error)
@@ -2137,9 +2154,11 @@ export default function Index({ active = true }: { active?: boolean }) {
         setSelectedReferenceDeckId(importedReference.id);
         return importedReference;
       } catch (error) {
+        const uploadModule = await import("@/lib/prompt-file-uploads");
         toast.error(t("editorToolbar.uploadFailed"), {
-          description:
-            error instanceof Error
+          description: uploadModule.isPromptUploadNetworkError(error)
+            ? t("home.importMenu.networkFailed")
+            : error instanceof Error
               ? error.message
               : t("editorToolbar.importFailedDescription"),
         });
@@ -2443,7 +2462,7 @@ export default function Index({ active = true }: { active?: boolean }) {
                 attachments,
                 options,
               ) => {
-                if (session) return true;
+                if (!isSignedOut) return true;
                 const slidesContext =
                   options?.slidesContext ?? composerContext.selection;
                 const automaticReferenceDeckId =

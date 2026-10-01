@@ -437,7 +437,7 @@ describe("OrgSwitcher (account menu)", () => {
           data: { email: ownerOrg.email, name: "Olivia Owner" },
         })
         .mockReturnValueOnce({
-          data: { exhausted: true, period },
+          data: { state: { kind: "exhausted", period }, period },
           isError: false,
         });
 
@@ -468,7 +468,7 @@ describe("OrgSwitcher (account menu)", () => {
       })
       .mockReturnValueOnce({
         data: {
-          exhausted: false,
+          state: { kind: "usable" },
           period: "monthly",
           balance: 210,
           quota: { period: "monthly", limit: 500, used: 120, remaining: 380 },
@@ -493,7 +493,7 @@ describe("OrgSwitcher (account menu)", () => {
       })
       .mockReturnValueOnce({
         data: {
-          exhausted: false,
+          state: { kind: "usable" },
           period: "monthly",
           balance: 0.001,
           quota: { period: "monthly", limit: 1, used: 0.999, remaining: 0.001 },
@@ -516,7 +516,7 @@ describe("OrgSwitcher (account menu)", () => {
       })
       .mockReturnValueOnce({
         data: {
-          exhausted: false,
+          state: { kind: "usable" },
           period: "monthly",
           balance: 210,
           quota: { period: "monthly", limit: 500, used: 120, remaining: 380 },
@@ -533,6 +533,75 @@ describe("OrgSwitcher (account menu)", () => {
     ).toContain("Workspace balance: 210 · Monthly limit · 120 of 500 used");
     expect(container.querySelector("a[aria-label]")).toBeNull();
     expect(container.textContent).not.toContain("$");
+  });
+
+  it("leaves a spent quota informational when chats run on another credential", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery
+      .mockReturnValueOnce({
+        data: { email: ownerOrg.email, name: "Olivia Owner" },
+      })
+      .mockReturnValueOnce({
+        data: {
+          state: { kind: "usable" },
+          period: "monthly",
+          balance: 0,
+          quota: { period: "monthly", limit: 60, used: 60, remaining: 0 },
+        },
+        isError: false,
+      });
+
+    render(<OrgSwitcher />);
+
+    expect(container.textContent).toContain("Builder credits");
+    expect(container.textContent).not.toContain(
+      "Your Builder credits are used up",
+    );
+    expect(
+      container.querySelector(
+        'a[href^="https://builder.io/account/subscription"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("still shows a spent quota when the chat's engine could not be resolved", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery
+      .mockReturnValueOnce({
+        data: { email: ownerOrg.email, name: "Olivia Owner" },
+      })
+      .mockReturnValueOnce({
+        data: {
+          state: { kind: "unknown", quotaSpent: true },
+          period: "daily",
+        },
+        isError: false,
+      });
+
+    render(<OrgSwitcher />);
+
+    expect(container.textContent).toContain("Your Builder credits are used up");
+  });
+
+  it("asks about the engine picked in the chat composer", () => {
+    window.localStorage.setItem(
+      "agent-native:chat-models:selection",
+      JSON.stringify({ model: "claude-sonnet", engine: "builder" }),
+    );
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery.mockReturnValue({ data: undefined, isError: false });
+
+    try {
+      render(<OrgSwitcher />);
+
+      expect(mocks.useActionQuery).toHaveBeenCalledWith(
+        "get-builder-credit-status",
+        { orgId: "org-1", engine: "builder" },
+        expect.anything(),
+      );
+    } finally {
+      window.localStorage.removeItem("agent-native:chat-models:selection");
+    }
   });
 
   it("hides the Builder credit notice when live status is unreadable", () => {

@@ -18,6 +18,7 @@ import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
 } from "./builder-oauth.js";
+import { decideCredentialWriteScope } from "./credential-write-scope.js";
 import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
 import {
   isPersonalProviderKeyUseRestricted,
@@ -83,23 +84,26 @@ async function canReadDesignatedVaultFallback(
 }
 
 /**
- * Decide which `app_secrets` scope a Builder/credential write should use.
- *
- * Org scope ("everyone in this org sees these credentials") wins when the
- * connecting user is an owner or admin of an active org — the write
- * privileges shared infra. A plain member or a user without an active
- * org falls through to per-user scope so a teammate can't silently
- * overwrite the org-shared connection.
+ * The `app_secrets` row a Builder key-pair write or delete targets, by the
+ * role table every Builder save path shares (`decideCredentialWriteScope`).
+ * Callers have already authorized the write and checked the personal-key
+ * policy.
  */
 export function resolveCredentialWriteScope(
   email: string,
   orgId: string | null | undefined,
   role: string | null | undefined,
 ): { scope: "user" | "org"; scopeId: string } {
-  if (orgId && (role === "owner" || role === "admin")) {
-    return { scope: "org", scopeId: orgId };
-  }
-  return { scope: "user", scopeId: email };
+  const decision = decideCredentialWriteScope({
+    action: "connect",
+    role,
+    orgId,
+    requestedScope: null,
+    personalAllowed: true,
+  });
+  return "scope" in decision && decision.scope === "org" && orgId
+    ? { scope: "org", scopeId: orgId }
+    : { scope: "user", scopeId: email };
 }
 
 export class FeatureNotConfiguredError extends Error {
