@@ -65,6 +65,11 @@ export default defineAction({
         : "Updated Content database row";
     },
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
     return updateDatabaseRow(canonicalizeDatabasePropertyInput(args));

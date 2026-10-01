@@ -19,6 +19,8 @@ export default createAuthPlugin({
     // Agent-readable context link: fetched with no session cookie, so the
     // gate must not 401 before the handler verifies its scoped token.
     DOCUMENT_AGENT_CONTEXT_ENDPOINT,
+    // Binary image reads authorize each live document reference in the route.
+    "/api/private-icons/",
     // Sessionless self-dispatch; this exact worker owns scoped-token auth.
     // Never expose the `_agent-native-background` namespace.
     "/api/_agent-native-background/content-trash-purge-worker",

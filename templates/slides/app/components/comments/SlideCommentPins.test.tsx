@@ -335,8 +335,10 @@ describe("SlideCommentPins", () => {
     expect(ensureObjectId).toHaveBeenCalledWith(object);
   });
 
-  it("opens the full thread when an avatar marker is clicked", async () => {
+  it("opens and selects the full thread when an avatar marker is clicked", async () => {
+    const onSelectThread = vi.fn();
     renderWithCanvas({
+      onSelectThread,
       comments: [
         {
           threadId: "thread-1",
@@ -372,6 +374,64 @@ describe("SlideCommentPins", () => {
 
     fireEvent.click(marker);
     expect(screen.getAllByText("Check this image").length).toBeGreaterThan(0);
+    expect(onSelectThread).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("positions fallback text highlights relative to the canvas", async () => {
+    const getClientRects = vi
+      .spyOn(Range.prototype, "getClientRects")
+      .mockReturnValue([
+        { left: 140, top: 70, width: 80, height: 18 },
+      ] as unknown as DOMRectList);
+    vi.stubGlobal("CSS", {});
+
+    try {
+      const { firstPane } = renderWithCanvas({
+        comments: [
+          {
+            threadId: "thread-1",
+            quotedText: "Anchor text",
+            anchor: { x: 25, y: 30 },
+            resolved: false,
+            comments: [
+              {
+                id: "comment-1",
+                deck_id: "deck-1",
+                slide_id: "slide-1",
+                thread_id: "thread-1",
+                parent_id: null,
+                content: "Check this text",
+                quoted_text: "Anchor text",
+                anchor: { x: 25, y: 30 },
+                author_email: "writer@example.com",
+                author_name: "Writer",
+                resolved: false,
+                created_at: "2026-08-27T00:00:00.000Z",
+                updated_at: "2026-08-27T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      });
+      firstPane.textContent = "Anchor text";
+      fireEvent.resize(window);
+
+      const highlight = await waitFor(() => {
+        const element = document.querySelector<HTMLElement>(
+          "[data-slide-comment-overlay] [aria-hidden='true'].bg-amber-300\\/40",
+        );
+        expect(element).toBeTruthy();
+        return element!;
+      });
+
+      expect(highlight.style.left).toBe("40px");
+      expect(highlight.style.top).toBe("20px");
+      expect(highlight.style.width).toBe("80px");
+      expect(highlight.style.height).toBe("18px");
+    } finally {
+      getClientRects.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("measures the whole canvas when it contains multiple content panes", async () => {

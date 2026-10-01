@@ -376,6 +376,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "अपने-आप",
   "composer.builderModelCredits": "Claude, OpenAI और Gemini के लिए मुफ़्त क्रेडिट",
   "composer.chatGptSubscription": "ChatGPT सदस्यता",
+  "composer.chatgptManageUsage": "उपयोग प्रबंधित करें",
+  "composer.chatgptPlanUsing": "ChatGPT योजना का उपयोग हो रहा है",
   "composer.closePreview": "प्रीव्यू बंद करें",
   "composer.configureProviderKeys":
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
@@ -574,6 +576,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "चैट लोड हो रही है...",
   "empty.prompt": "मैं आपकी कैसे मदद कर सकता हूँ?",
   "error.afterDuration": "{{duration}} के बाद {{headline}}",
+  "error.chatgptPlanUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI इस ChatGPT योजना की उपयोग सीमा जाँच नहीं सका। अपना ChatGPT उपयोग देखें या कोई दूसरा मॉडल आज़माएँ।",
   "error.failed": "एजेंट को एक त्रुटि मिली",
   "error.render": "यह सामग्री दिखाई नहीं जा सकी।",
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
@@ -775,7 +781,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "सेल्स कॉल, ट्रांसक्रिप्ट, डील इनसाइट, खाते का सारांश",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong में एक टेक एडमिन को MCP इंटीग्रेशन बनाना होगा और व्यक्तिगत या साझा ऑथराइज़ेशन चुनना होगा। कनेक्ट करने से पहले जनरेट किए गए क्लाइंट ID और सीक्रेट को कॉन्फ़िगर करना ज़रूरी है।",
+    "Gong के टेक एडमिन को व्यक्तिगत या साझा ऑथराइज़ेशन वाला MCP इंटीग्रेशन बनाना होगा। मैन्युअल रजिस्ट्रेशन के लिए जनरेट किया गया क्लाइंट ID और सीक्रेट वर्कस्पेस सीक्रेट `GONG_MCP_CLIENT_ID` और `GONG_MCP_CLIENT_SECRET` के रूप में सेव करें; ऑटोमैटिक रजिस्ट्रेशन के लिए क्लाइंट क्रेडेंशियल की ज़रूरत नहीं है।",
   "mcpIntegrations.catalog.semgrep.description":
     "सुरक्षा से जुड़ी समस्याओं के लिए कोड स्कैन करें।",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -980,6 +986,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
   "message.revertQuestion": "इस बिंदु पर वापस जाएँ? इसके बाद किए गए बदलाव खो जाएँगे।",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
+  "message.historyUnavailable": "बदलावों का इतिहास लोड नहीं हो सका।",
   "message.threadNotFound":
     "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",
@@ -1064,6 +1071,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
+  "recovery.retryAttachmentUnavailable":
+    "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
   "recovery.deferredSubmissionFailed":
     "यह संदेश भेजा नहीं जा सका। अपना कनेक्शन या चैट सेटअप जाँचें, फिर दोबारा कोशिश करें।",
   "recovery.credentialRejected":
@@ -1228,6 +1237,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
   "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
+  "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
   "tool.interrupted":
@@ -1530,6 +1540,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "आपका अनुमानित खर्च",
   "settings.usage.yourCreditSpend": "आपका Builder.io क्रेडिट खर्च",
   "settings.usage.calls": "कॉल",
+  "settings.usage.chatgptPlanUsage": "ChatGPT प्लान का उपयोग",
   "settings.usage.tokens": "टोकन",
   "settings.usage.activePeople": "सक्रिय लोग",
   "settings.usage.history": "उपयोग इतिहास",
@@ -2664,10 +2675,33 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "रद्द करें",
   "settingsModel.change": "बदलें",
   "settingsModel.chatgptConnected": "कनेक्टेड",
-  "settingsModel.chatgptDescription": "अपने ChatGPT प्लान से Codex इंजन इस्तेमाल करें।",
+  "settingsModel.chatgptDescription":
+    "अपने ChatGPT प्लान के ज़रिए योग्य OpenAI मॉडल इस्तेमाल करें।",
   "settingsModel.chatgptPopupBlocked":
     "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा कोशिश करें।",
-  "settingsModel.chatgptTitle": "ChatGPT सदस्यता",
+  "settingsModel.chatgptTitle": "ChatGPT प्लान ऐक्सेस",
+  "settingsModel.chatgptAddAccount": "एक और खाता जोड़ें",
+  "settingsModel.chatgptConnecting": "कनेक्ट हो रहा है…",
+  "settingsModel.chatgptContinue": "ChatGPT के साथ जारी रखें",
+  "settingsModel.chatgptDisconnect": "डिस्कनेक्ट करें",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT को डिस्कनेक्ट करें?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} इस ऐप से साइन आउट हो जाएगा और एजेंट आपके ChatGPT प्लान का उपयोग करना बंद कर देगा। आप कभी भी फिर से साइन इन कर सकते हैं।",
+  "settingsModel.chatgptDisconnecting": "डिस्कनेक्ट हो रहा है…",
+  "settingsModel.chatgptRemoveLegacySignIn": "पुराना साइन-इन हटाएँ",
+  "settingsModel.chatgptLegacySignInDetails":
+    "यहाँ ChatGPT का पुराना साइन-इन सहेजा है। आधिकारिक फ़्लो इसका उपयोग नहीं कर सकता।",
+  "settingsModel.chatgptManageAccess": "ChatGPT में प्रबंधित करें",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
+  "settingsModel.chatgptLocalOnly":
+    "ओपन-सोर्स ऐप्स को लोकल रूप से loopback callback के साथ चलाने पर बिना आवेदन के इस्तेमाल किया जा सकता है; पार्टनरशिप के लिए आवेदन की ज़रूरत नहीं है। *.agent-native.com पर होस्ट किए गए ऐप्स के लिए ऑपरेटर की मंज़ूरी और hosted callback ज़रूरी है।",
+  "settingsModel.chatgptNoDirectUse":
+    "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
+  "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",
+  "settingsModel.chatgptSelectAccount": "ChatGPT खाता",
+  "settingsModel.chatgptUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
   "settingsModel.checkAgain": "फिर से जाँचें",
   "settingsModel.checkedJustNow": "अभी जाँचा गया।",
   "settingsModel.checkedOn": "{{date}} को जाँचा गया।",

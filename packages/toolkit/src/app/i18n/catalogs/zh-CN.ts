@@ -365,6 +365,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "自动",
   "composer.builderModelCredits": "Claude、OpenAI 和 Gemini 的免费额度",
   "composer.chatGptSubscription": "ChatGPT 订阅",
+  "composer.chatgptManageUsage": "管理使用量",
+  "composer.chatgptPlanUsing": "正在使用 ChatGPT 方案",
   "composer.closePreview": "关闭预览",
   "composer.configureProviderKeys": "配置 Anthropic、OpenAI 或其他提供商",
   "composer.connectAbove": "请在上方连接 AI 以继续...",
@@ -552,6 +554,9 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "正在加载聊天...",
   "empty.prompt": "我能为您做些什么？",
   "error.afterDuration": "{{duration}} 后{{headline}}",
+  "error.chatgptPlanUsageLimit": "已达到您的 ChatGPT 方案使用上限。",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI 无法检查此 ChatGPT 方案的使用上限。请查看 ChatGPT 使用量，或尝试其他模型。",
   "error.failed": "智能体遇到错误",
   "error.render": "无法显示此内容。",
   "error.stopped": "智能体在完成前已停止",
@@ -744,7 +749,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "销售通话、转录文本、交易洞察、客户摘要",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong 需要技术管理员创建 MCP 集成，并选择个人授权或共享授权。连接前必须配置生成的客户端 ID 和密钥。",
+    "Gong 技术管理员需要创建 MCP 集成并选择个人或共享授权。使用手动注册时，请将生成的客户端 ID 和密钥保存为工作区密钥 `GONG_MCP_CLIENT_ID` 和 `GONG_MCP_CLIENT_SECRET`；自动注册无需客户端凭据。",
   "mcpIntegrations.catalog.semgrep.description": "扫描代码中的安全问题。",
   "mcpIntegrations.catalog.semgrep.useCase": "安全扫描、漏洞检测、代码分析",
   "mcpIntegrations.catalog.linear.description": "读取和写入 Linear 议题。",
@@ -934,6 +939,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "恢复到此处？",
   "message.revertQuestion": "还原到此处？此后所做的更改将会丢失。",
   "message.restoreRequestFailed": "恢复请求失败。",
+  "message.historyUnavailable": "无法加载更改历史。",
   "message.threadNotFound":
     "此聊天线程已不可用。请开始新聊天；如果这是意外情况，也可以重试。",
   "message.restoring": "正在恢复...",
@@ -1017,6 +1023,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "正在连接 Builder.io",
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",
+  "recovery.retryAttachmentUnavailable":
+    "此请求包含一个无法重试的文件。请在消息输入框中重新附加该文件，然后重试。",
   "recovery.deferredSubmissionFailed":
     "此消息未能发送。请检查网络连接或聊天设置，然后重试。",
   "recovery.credentialRejected":
@@ -1177,6 +1185,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "正在询问 {{agent}}...",
   "tool.elapsed": "已用 {{duration}}",
   "tool.askingAgentFailed": "询问 {{agent}} 时出错",
+  "tool.failedWithoutDetails": "没有可用的错误详情。",
   "tool.input": "输入",
   "tool.inputWithLabel": "输入 - {{label}}",
   "tool.interrupted":
@@ -1447,6 +1456,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "你的预计费用",
   "settings.usage.yourCreditSpend": "你的 Builder.io 积分消耗",
   "settings.usage.calls": "调用",
+  "settings.usage.chatgptPlanUsage": "ChatGPT 方案用量",
   "settings.usage.tokens": "Token",
   "settings.usage.activePeople": "活跃人员",
   "settings.usage.history": "用量历史",
@@ -2481,9 +2491,31 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "取消",
   "settingsModel.change": "更改",
   "settingsModel.chatgptConnected": "已连接",
-  "settingsModel.chatgptDescription": "通过您的 ChatGPT 套餐使用 Codex 引擎。",
+  "settingsModel.chatgptDescription":
+    "通过您的 ChatGPT 方案使用符合条件的 OpenAI 模型。",
   "settingsModel.chatgptPopupBlocked": "请允许此网站的弹出窗口，然后重试。",
-  "settingsModel.chatgptTitle": "ChatGPT 订阅",
+  "settingsModel.chatgptTitle": "ChatGPT 方案访问",
+  "settingsModel.chatgptAddAccount": "添加另一个账户",
+  "settingsModel.chatgptConnecting": "正在连接…",
+  "settingsModel.chatgptContinue": "继续使用 ChatGPT",
+  "settingsModel.chatgptDisconnect": "断开连接",
+  "settingsModel.chatgptDisconnectTitle": "断开 ChatGPT 连接？",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} 将退出此应用，智能体将不再使用你的 ChatGPT 方案。你可以随时重新登录。",
+  "settingsModel.chatgptDisconnecting": "正在断开连接…",
+  "settingsModel.chatgptRemoveLegacySignIn": "移除旧版登录",
+  "settingsModel.chatgptLegacySignInDetails":
+    "此处保存了旧版 ChatGPT 登录信息，官方流程无法使用。",
+  "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "已在此处断开连接。在 ChatGPT 中，访问权限可能仍然有效。",
+  "settingsModel.chatgptLocalOnly":
+    "开源应用在本地使用 loopback callback 运行时，无需申请合作伙伴资格即可使用 ChatGPT 计划。托管在 *.agent-native.com 上的应用需要运营方批准，并配置托管 callback。",
+  "settingsModel.chatgptNoDirectUse":
+    "重新连接并允许直接访问模型，才能使用此 ChatGPT 账户。",
+  "settingsModel.chatgptReconnect": "重新连接",
+  "settingsModel.chatgptSelectAccount": "ChatGPT 账户",
+  "settingsModel.chatgptUsageLimit": "已达到您的 ChatGPT 方案使用上限。",
   "settingsModel.checkAgain": "重新检查",
   "settingsModel.checkedJustNow": "刚刚已检查。",
   "settingsModel.checkedOn": "已于 {{date}} 检查。",

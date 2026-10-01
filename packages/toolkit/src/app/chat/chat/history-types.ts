@@ -38,7 +38,7 @@ export interface AssistantChatHistoryConfig<
     args?:
       | Record<string, unknown>
       | ((threadId?: string) => Record<string, unknown>);
-    getVersions: (result: TListResult) => readonly TVersion[];
+    getVersions: (result: TListResult) => readonly TVersion[] | null;
   };
   restore: {
     action: string;

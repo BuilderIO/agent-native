@@ -1,5 +1,78 @@
 # @agent-native/skills
 
+## 0.3.20
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5b37ae2]
+- Updated dependencies
+- Updated dependencies [eca03a6]
+  - @agent-native/core@0.198.8
+
+## 0.3.19
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [1f2c8d5]
+- Updated dependencies [3ba09b7]
+- Updated dependencies [3ba09b7]
+- Updated dependencies
+- Updated dependencies [52d8c49]
+- Updated dependencies [3ba09b7]
+- Updated dependencies [c3427be]
+  - @agent-native/core@0.198.7
+
+## 0.3.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/core@0.198.6
+
+## 0.3.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/core@0.198.5
+
+## 0.3.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [85a87e6]
+- Updated dependencies [7a25922]
+- Updated dependencies [df67544]
+- Updated dependencies [c82ae28]
+- Updated dependencies
+- Updated dependencies [df67544]
+- Updated dependencies [a24f1d7]
+- Updated dependencies [20d3bb8]
+  - @agent-native/core@0.198.4
+
+## 0.3.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [8f82288]
+- Updated dependencies [e6de282]
+- Updated dependencies [2384c2d]
+- Updated dependencies [bc1a43e]
+- Updated dependencies [036c2c7]
+- Updated dependencies [fd833a4]
+- Updated dependencies
+- Updated dependencies [64eb041]
+- Updated dependencies [ce1245c]
+- Updated dependencies [a202db4]
+- Updated dependencies [e90dedc]
+  - @agent-native/core@0.198.3
+
 ## 0.3.14
 
 ### Patch Changes
@@ -1805,48 +1878,5 @@
 - Updated dependencies [14a3f87]
 - Updated dependencies [14a3f87]
   - @agent-native/core@0.164.24
-
-## 0.2.653
-
-### Patch Changes
-
-- Updated dependencies [b811566]
-  - @agent-native/core@0.164.23
-
-## 0.2.652
-
-### Patch Changes
-
-- Updated dependencies [7bb5be0]
-- Updated dependencies [7bb5be0]
-  - @agent-native/core@0.164.22
-
-## 0.2.651
-
-### Patch Changes
-
-- Updated dependencies [68f299c]
-  - @agent-native/core@0.164.21
-
-## 0.2.650
-
-### Patch Changes
-
-- Updated dependencies [bfe4163]
-  - @agent-native/core@0.164.20
-
-## 0.2.649
-
-### Patch Changes
-
-- Updated dependencies [5f4031b]
-  - @agent-native/core@0.164.19
-
-## 0.2.648
-
-### Patch Changes
-
-- Updated dependencies [b34de4c]
-  - @agent-native/core@0.164.18
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

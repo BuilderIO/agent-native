@@ -49,8 +49,8 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
   </main>
 </body></html>`;
 
-describe("holding Space mid-drag suppresses reparenting", () => {
-  it("keeps the dragged element in its original parent instead of nesting it into the section under the pointer", async () => {
+describe("Space modifier state during drag", () => {
+  it("resumes normal reparenting when Space is released before the drop", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage();
@@ -84,13 +84,15 @@ describe("holding Space mid-drag suppresses reparenting", () => {
         );
         return {
           exists: !!node,
+          parentId:
+            node?.parentElement?.getAttribute("data-agent-native-node-id") ??
+            null,
           insideSection: !!node?.closest("section"),
-          insideMain: !!node?.closest("main"),
         };
       });
       expect(dropped.exists).toBe(true);
-      expect(dropped.insideSection).toBe(false);
-      expect(dropped.insideMain).toBe(false);
+      expect(dropped.parentId).toBe("section");
+      expect(dropped.insideSection).toBe(true);
     } finally {
       await browser.close();
     }

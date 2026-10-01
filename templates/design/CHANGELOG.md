@@ -3,10 +3,50 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-09-29
+## 2026-09-30
 
 ### Improved
 
+- Add references through compact dropdown menus and find designs with the centered home search.
+- Visual edit handoffs copy complete source instructions by default, and editors can update screen URLs.
+- Design remembers your home library tab, so returning users can open straight to Recent.
+- Reloaded app changes stay available to your coding agent until they are acknowledged.
+
+### Fixed
+
+- Applied visual edits clear from the canvas after your agent acknowledges them
+- Design shows pending local file write requests in the editor
+- Holding Space while dragging a layer keeps it in its current auto-layout parent.
+- Local file write approvals stay available when an editor handoff needs a retry
+- Outline-only vector polygons no longer show corner-radius handles
+- Releasing Space before a drop resumes normal layer reparenting
+- Signed-in Design editors see pending local file write approvals.
+- The editor reliably surfaces local file-write consent requests.
+- Design preserves positions explicitly requested for localhost screens.
+- Fix selected-screen PNG and PDF exports for external previews.
+- New localhost screens avoid overlapping existing screens
+- PDF and SVG exports use the selected screen sizes and skip unavailable live frames.
+- PDF exports use the current localhost page after its route changes
+- PDF exports work with multiple selected screens and SVG exports stay on the chosen screen.
+- Selected screens duplicate with copy and paste.
+- Live preview export failures no longer show misleading screen or desktop-only guidance.
+- Copied visual edit prompts include the edits and explain how to apply them without Design MCP.
+- Design previews wait for the editor connection before becoming ready.
+- New local screens open beside existing canvas content.
+- Returning from Interact keeps the active screen selected
+- Live editing recovers clearly when a local bridge stops responding, and visual changes stay pending until handoff is confirmed
+- Live previews accept localhost and 127.0.0.1 for the same connected app.
+
+## 2026-09-29
+
+### Added
+
+- Screens can use shader fills and shader effects, and their settings are saved
+
+### Improved
+
+- Corner-radius handles only appear on shapes with a visible fill or stroke.
+- Design marquee selections stay responsive as you add more elements.
 - Local editing setup now points to Chrome's Allow prompt and includes a settings fallback.
 - The local editing guide now shows the local network Allow prompt and its Site settings fallback.
 - The browser permission guide points to Allow and the Connection is secure step.
@@ -14,6 +54,17 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Avoid signed-out source-write errors during visual editing
+- Blur and shadow values typed in Effects now save when you press Enter or close the popover with Escape
+- Drop shadows on screens that contain scripts or shaders now show on the screen
+- Dropdowns and tooltips inside the fill picker, like shader presets, now show on top instead of behind it
+- Gradient fill opacity values like 100% are no longer cut off
+- Clear the local live-preview edit state after its connected frames reload while keeping the MCP handoff available until the coding agent acknowledges it.
+- Corner-radius handles follow the pointer and match visible paint on supported shapes, including stroked polygons but excluding unsupported single-stroke vector paths.
+- Switching a gradient layer to Image no longer erases it before an image is chosen
+- Text editing keeps native pointer selection reliable on the canvas.
 - Corner-radius handles follow the pointer and match visible paint on supported shapes.
 - Corner-radius handles stay in sync with visible shape paint.
 - The home composer stays put as the app opens.
@@ -30,10 +81,15 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Local visual edits use the copy prompt handoff for signed-in editors too.
 - Duplicated screens keep the same spacing as other screens on the board.
 
+### Removed
+
+- Noise, Pattern, and Video fills are hidden until they can render, since choosing them did nothing or erased the fill
+
 ## 2026-09-28
 
 ### Improved
 
+- Full app building and design review tools can now be chosen in Labs.
 - Connected tools appear in the AgentKit Add menu only when they’re ready to use.
 - Design context sources are available from the same Add menu using either + or @.
 - The + and @ context launcher is searchable, grouped, and aligned above the prompt, with shared file and agent discovery.

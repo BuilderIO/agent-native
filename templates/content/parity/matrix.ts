@@ -282,6 +282,33 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.private-image-icons",
+    surface: "editor",
+    label:
+      "Reuse private uploaded image icons on pages, properties, and callouts",
+    uiEntrypoints: [
+      "app/components/editor/EmojiPicker.tsx",
+      "app/components/editor/extensions/NotionExtensions.tsx",
+      "app/components/icons/private-icon-assets.ts",
+    ],
+    durableEffect:
+      "Private image assets stay outside SQL; authorized element references store asset IDs and are checked against the current page or property before serving the image.",
+    uiImplementation:
+      "The icon picker reads owned assets through list-private-icon-assets; page and property actions validate assignments, and callouts authorize private asset references through register-private-callout-icon before editing the live body.",
+    status: "action-backed",
+    actions: ["list-private-icon-assets", "register-private-callout-icon"],
+    exception:
+      "Uploading an image and serving its binary bytes use file-upload and non-JSON routes; durable assignment uses the shared actions.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "server/lib/private-icon-references.db.test.ts",
+      "app/components/icons/private-icon-assets.test.ts",
+    ],
+  },
+  {
     id: "editor.breadcrumbs-and-link-targets",
     surface: "editor",
     label:

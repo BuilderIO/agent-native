@@ -12,6 +12,7 @@ import type { AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/
 import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import type { Document } from "@shared/api";
 import { IconMenu2 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   type CSSProperties,
   ReactNode,
@@ -30,25 +31,32 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
+import { startPageOpenDocumentReads } from "@/hooks/use-documents";
 import { useOptimisticDocumentTitle } from "@/hooks/use-optimistic-document-title";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
 } from "@/lib/document-history-restore-controller";
+import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
+import { retirePageOpenReads } from "@/lib/page-open-reads";
 
 import { Header } from "./Header";
 import { isContentSettingsRoute } from "./settings-route-policy";
+import {
+  DEFAULT_SIDEBAR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  SIDEBAR_COLLAPSED_KEY,
+  SIDEBAR_WIDTH_KEY,
+} from "./sidebar-preferences";
 import { SidebarTriggerContext } from "./sidebar-trigger";
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const SIDEBAR_COLLAPSED_KEY = "content.sidebar.collapsed";
-const DEFAULT_SIDEBAR_WIDTH = 240;
-const MIN_SIDEBAR_WIDTH = 240;
-const MAX_SIDEBAR_WIDTH = 480;
 export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)";
 
-const NO_HEADER_PREFIXES = ["/page/", "/extensions"];
+// `/home` draws the page placeholder, with its own toolbar, until it opens the
+// landing page.
+const NO_HEADER_PREFIXES = ["/page/", "/extensions", "/home"];
 
 function loadSidebarWidth(): number {
   try {
@@ -103,6 +111,24 @@ export function Layout({ children }: LayoutProps) {
   const pendingDocumentTitle = useOptimisticDocumentTitle(pendingDocumentId, {
     enabled: !!pendingDocumentId,
   });
+  const queryClient = useQueryClient();
+  const pendingSearch = navigation.location?.search ?? "";
+  useEffect(() => {
+    if (!showPendingDocumentSkeleton || !pendingDocumentId) return;
+    const search = new URLSearchParams(pendingSearch);
+    startPageOpenDocumentReads(queryClient, pendingDocumentId, {
+      databaseId: search.get("databaseId"),
+      databaseDocumentId: search.get("databaseDocumentId"),
+    });
+  }, [
+    pendingDocumentId,
+    pendingSearch,
+    queryClient,
+    showPendingDocumentSkeleton,
+  ]);
+  useEffect(() => {
+    if (currentDocumentId) retirePageOpenReads(queryClient, currentDocumentId);
+  }, [currentDocumentId, location.key, queryClient]);
   const documentScope = useMemo(
     () =>
       activeDocumentId
@@ -132,7 +158,7 @@ export function Layout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -280,7 +306,8 @@ export function Layout({ children }: LayoutProps) {
             </Sheet>
             {showHeader ||
             fullWidthSettings ||
-            documentPageIdFromPathname(chromePathname) ? null : (
+            documentPageIdFromPathname(chromePathname) ||
+            chromePathname.startsWith("/home") ? null : (
               <button
                 type="button"
                 aria-label={t("navigation.openSidebar")}
@@ -336,8 +363,11 @@ export function Layout({ children }: LayoutProps) {
               className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
             />
             <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
-              {showPendingDocumentSkeleton ? (
-                <DocumentEditorSkeleton title={pendingDocumentTitle} />
+              {showPendingDocumentSkeleton && pendingDocumentId ? (
+                <DocumentEditorSkeleton
+                  title={pendingDocumentTitle}
+                  iconRow={readPageIconRowHint(pendingDocumentId)}
+                />
               ) : (
                 children
               )}

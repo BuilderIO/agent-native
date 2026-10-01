@@ -59,7 +59,7 @@ vi.mock("../workspace-connections/store.js", async (importOriginal) => {
 
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
 import { OAuthAccountOwnedByOtherUserError } from "../oauth-tokens/store.js";
-import { encryptSecretValue } from "../secrets/crypto.js";
+import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { decodeOAuthState, encodeOAuthState } from "./google-oauth.js";
 import {
   buildWorkspaceProviderAuthorizationUrl,
@@ -72,6 +72,7 @@ import {
   workspaceProviderOAuthFlowInvalidReason,
   mergeWorkspaceOAuthValues,
   oauthFlowFailure,
+  handleWorkspaceProviderOAuthStart,
   handleWorkspaceProviderOAuthCallback,
   resolveWorkspaceProviderIdentity,
   resolveWorkspaceProviderIdentities,
@@ -90,6 +91,52 @@ afterEach(() => {
 });
 
 describe("workspace provider OAuth", () => {
+  it("keeps the return URL in the encrypted OAuth flow cookie", async () => {
+    const email = "requester@example.com";
+    const returnUrl = "/dispatch/chat/thread-1?private=value#selected";
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/notion/start",
+    );
+    requestUrl.searchParams.set("appId", "dispatch");
+    requestUrl.searchParams.set("scope", "user");
+    requestUrl.searchParams.set("return", returnUrl);
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "notion");
+
+    expect(result).toBeInstanceOf(Response);
+    const response = result as Response;
+    const authorizationUrl = new URL(response.headers.get("Location")!);
+    const encodedState = authorizationUrl.searchParams.get("state")!;
+    const statePayload = JSON.parse(
+      Buffer.from(encodedState.split(".")[0]!, "base64url").toString("utf8"),
+    );
+    expect(statePayload).not.toHaveProperty("r2");
+    expect(encodedState).not.toContain("private=value");
+
+    const flowCookie = response.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith("an_workspace_oauth_notion="));
+    expect(flowCookie).toBeDefined();
+    const encryptedFlow = decodeURIComponent(
+      flowCookie!.split(";", 1)[0]!.split("=", 2)[1]!,
+    );
+    expect(JSON.parse(decryptSecretValue(encryptedFlow))).toMatchObject({
+      returnUrl,
+    });
+  });
+
   it("allows organization owners and admins to connect shared OAuth accounts", () => {
     expect(canConnectWorkspaceProviderOAuth("org-1", "owner")).toBe(true);
     expect(canConnectWorkspaceProviderOAuth("org-1", "admin")).toBe(true);

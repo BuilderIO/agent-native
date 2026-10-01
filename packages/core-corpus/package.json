@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core-corpus",
-  "version": "0.198.2",
+  "version": "0.198.8",
   "description": "Opt-in source corpus for Agent-Native Core source-search.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {

@@ -44,6 +44,11 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
 import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
@@ -699,6 +704,14 @@ export default defineAction({
     if (args.isFavorite !== undefined && !requestUserEmail) {
       throw new Error("no authenticated user");
     }
+    if (args.icon !== undefined) {
+      if (!requestUserEmail) throw new Error("no authenticated user");
+      await verifyPrivateIconAssignment({
+        icon: args.icon,
+        userEmail: requestUserEmail,
+        orgId: (existing.orgId as string | null) ?? null,
+      });
+    }
     if (args.isFavorite !== undefined) {
       await provisionContentSpaces(db, requestUserEmail as string);
     }
@@ -1269,6 +1282,32 @@ export default defineAction({
         if (!applied) {
           contentCasConflict = true;
           return;
+        }
+        if (lockedIconChanged) {
+          await syncPrivateIconReference(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              elementType: "document",
+              elementId: id,
+              documentId: id,
+              icon: updates.icon ?? null,
+              ownerEmail,
+              orgId: (existing.orgId as string | null) ?? null,
+            },
+          );
+        }
+        if (lockedContentChanged && content !== undefined) {
+          await syncPrivateCalloutReferences(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId: id,
+              before: historyBefore.content,
+              after: content,
+              userEmail: actor,
+              ownerEmail,
+              orgId: (existing.orgId as string | null) ?? null,
+            },
+          );
         }
         committedContentChanged = lockedContentChanged;
         committedContentBefore = historyBefore.content;

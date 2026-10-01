@@ -1,34 +1,29 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconCloudOff,
-  IconDownload,
-  IconLoader2,
-  IconUpload,
-} from "@tabler/icons-react";
+import { IconCloudOff, IconDownload, IconUpload } from "@tabler/icons-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+
+export type ConflictChoice = "keep-mine" | "use-latest";
 
 interface SaveStatusIndicatorProps {
   saving: boolean;
   hasUnsavedChanges?: boolean;
   saveFailed?: boolean;
   offline?: boolean;
+  conflict?: { slideNumber: number; canResolve: boolean };
+  onResolveConflict?: (choice: ConflictChoice) => Promise<void>;
   onDownloadBackup?: () => void;
   onImportBackup?: () => void;
-  contentConflict?: boolean;
-  onResolveContentConflict?: (resolution: "latest" | "draft") => Promise<void>;
   className?: string;
 }
 
@@ -37,44 +32,53 @@ export function SaveStatusIndicator({
   hasUnsavedChanges = false,
   saveFailed = false,
   offline,
+  conflict,
+  onResolveConflict,
   onDownloadBackup,
   onImportBackup,
-  contentConflict = false,
-  onResolveContentConflict,
   className,
 }: SaveStatusIndicatorProps) {
   const t = useT();
-  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
-  const [resolving, setResolving] = useState<"latest" | "draft" | null>(null);
-  const showWarning = saveFailed || (offline && hasUnsavedChanges);
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const [resolvingTextConflict, setResolvingTextConflict] = useState(false);
+  const [conflictError, setConflictError] = useState(false);
+  const showWarning =
+    Boolean(conflict) || saveFailed || (offline && hasUnsavedChanges);
 
-  const resolveConflict = async (resolution: "latest" | "draft") => {
-    if (!onResolveContentConflict) return;
-    setResolving(resolution);
+  const resolveTextConflict = async (choice: ConflictChoice) => {
+    if (!onResolveConflict || !conflict?.canResolve || resolvingTextConflict)
+      return;
+    setResolvingTextConflict(true);
+    setConflictError(false);
     try {
-      await onResolveContentConflict(resolution);
-      setConflictDialogOpen(false);
+      await onResolveConflict(choice);
+      setConflictOpen(false);
     } catch {
-      toast.error(t("raw.slideConflictResolutionFailed"));
+      setConflictError(true);
     } finally {
-      setResolving(null);
+      setResolvingTextConflict(false);
     }
   };
 
   if (showWarning) {
-    const label = saveFailed ? t("settings.saveFailed") : t("raw.offline");
-    const description = contentConflict
-      ? t("raw.slideConflictDescription")
+    const label = conflict
+      ? t("editorToolbar.conflictStatus")
+      : saveFailed
+        ? t("settings.saveFailed")
+        : t("raw.offline");
+    const description = conflict
+      ? t("editorToolbar.conflictStatusDescription")
       : saveFailed
         ? t("raw.saveFailedDescription")
         : t("raw.saveReconnect");
+
     return (
       <>
         <div
           role="alert"
           aria-live="polite"
           data-save-status={
-            contentConflict ? "conflict" : saveFailed ? "failed" : "offline"
+            conflict ? "conflict" : saveFailed ? "failed" : "offline"
           }
           title={description}
           className={cn(
@@ -84,36 +88,39 @@ export function SaveStatusIndicator({
         >
           <IconCloudOff className="size-3.5 shrink-0" aria-hidden="true" />
           <span className="hidden max-w-28 truncate lg:inline">{label}</span>
-          {contentConflict && onResolveContentConflict && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 px-1.5 text-[11px] text-inherit hover:bg-destructive/10"
-              onClick={() => setConflictDialogOpen(true)}
-              title={t("raw.slideConflictReview")}
-              aria-label={t("raw.slideConflictReview")}
-            >
-              {t("raw.slideConflictReview")}
-            </Button>
-          )}
-          {onDownloadBackup && (
+          {conflict?.canResolve && onResolveConflict && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="h-6 gap-1 px-1.5 text-[11px] text-inherit hover:bg-destructive/10"
-              onClick={onDownloadBackup}
-              title={t("editorToolbar.downloadBackup")}
-              aria-label={t("editorToolbar.downloadBackup")}
+              onClick={() => {
+                setConflictError(false);
+                setConflictOpen(true);
+              }}
+              aria-label={t("editorToolbar.reviewConflict")}
             >
-              <IconDownload className="size-3.5" aria-hidden="true" />
-              <span className="hidden 2xl:inline">
-                {t("editorToolbar.downloadBackup")}
-              </span>
+              {t("editorToolbar.reviewConflict")}
             </Button>
           )}
-          {!contentConflict && onImportBackup && (
+          {onDownloadBackup &&
+            (!conflict?.canResolve || !onResolveConflict) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-1.5 text-[11px] text-inherit hover:bg-destructive/10"
+                onClick={onDownloadBackup}
+                title={t("editorToolbar.downloadBackup")}
+                aria-label={t("editorToolbar.downloadBackup")}
+              >
+                <IconDownload className="size-3.5" aria-hidden="true" />
+                <span className="hidden 2xl:inline">
+                  {t("editorToolbar.downloadBackup")}
+                </span>
+              </Button>
+            )}
+          {!conflict && onImportBackup && (
             <Button
               type="button"
               variant="ghost"
@@ -130,55 +137,48 @@ export function SaveStatusIndicator({
             </Button>
           )}
         </div>
-        {contentConflict && onResolveContentConflict && (
-          <AlertDialog
-            open={conflictDialogOpen}
-            onOpenChange={(open) => !resolving && setConflictDialogOpen(open)}
+        {conflict?.canResolve && onResolveConflict && (
+          <Dialog
+            open={conflictOpen}
+            onOpenChange={(open) =>
+              !resolvingTextConflict && setConflictOpen(open)
+            }
           >
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {t("raw.slideConflictTitle")}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t("raw.slideConflictDescription")}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={resolving !== null}>
-                  {t("raw.slideConflictKeepEditing")}
-                </AlertDialogCancel>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  {t("editorToolbar.conflictTitle", {
+                    number: conflict.slideNumber,
+                  })}
+                </DialogTitle>
+                <DialogDescription>
+                  {t("editorToolbar.conflictDescription")}
+                </DialogDescription>
+              </DialogHeader>
+              {conflictError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {t("editorToolbar.conflictResolveFailed")}
+                </p>
+              )}
+              <DialogFooter>
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={resolving !== null}
-                  onClick={() => void resolveConflict("latest")}
+                  disabled={resolvingTextConflict}
+                  onClick={() => void resolveTextConflict("use-latest")}
                 >
-                  {resolving === "latest" && (
-                    <IconLoader2
-                      className="size-4 animate-spin"
-                      aria-hidden="true"
-                    />
-                  )}
-                  {t("raw.slideConflictUseLatest")}
+                  {t("editorToolbar.conflictUseLatest")}
                 </Button>
                 <Button
                   type="button"
-                  variant="destructive"
-                  disabled={resolving !== null}
-                  onClick={() => void resolveConflict("draft")}
+                  disabled={resolvingTextConflict}
+                  onClick={() => void resolveTextConflict("keep-mine")}
                 >
-                  {resolving === "draft" && (
-                    <IconLoader2
-                      className="size-4 animate-spin"
-                      aria-hidden="true"
-                    />
-                  )}
-                  {t("raw.slideConflictKeepDraft")}
+                  {t("editorToolbar.conflictKeepMine")}
                 </Button>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         )}
       </>
     );

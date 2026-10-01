@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { LabStates } from "@agent-native/core/client/labs/use-lab";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act, Suspense } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -32,17 +33,17 @@ vi.mock("@agent-native/core/client/app-model-default", () => ({
 }));
 
 const labsActions = vi.hoisted(() => ({
-  query: { data: undefined as Record<string, boolean> | undefined },
+  query: { data: undefined as LabStates | undefined },
   isError: false,
   mutate: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useChangeVersions: () => 0,
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
     isLoading: false,
   }),
+  useChangeVersions: () => 0,
 }));
 vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: () => ({
@@ -389,11 +390,11 @@ describe("app group pages", () => {
       );
     }
 
-    it("groups the core and app labs under the app's name with the footnote", async () => {
+    it("groups app labs under the app's name with the footnote", async () => {
       await renderPage(LabsSettingsPage, { input: { labs } });
       const title = container.querySelector("#labs h2");
       expect(title?.textContent).toBe("Clips");
-      expect(container.textContent).toContain("ChatGPT subscription");
+      expect(container.textContent).not.toContain("ChatGPT subscription");
       expect(container.textContent).toContain(
         "These new, unstable features may have bugs.",
       );
@@ -422,9 +423,13 @@ describe("app group pages", () => {
 
     it("hides labs the server didn't register once it answers", async () => {
       labsActions.query.data = {
-        "chatgpt-subscription": false,
-        "clips.wisprflow": false,
-        "clips.meetings": true,
+        "chatgpt-subscription": {
+          enabled: false,
+          source: "default",
+          mixed: false,
+        },
+        "clips.wisprflow": { enabled: false, source: "choice", mixed: false },
+        "clips.meetings": { enabled: true, source: "choice", mixed: false },
       };
       await renderPage(LabsSettingsPage, { input: { labs } });
       expect(switchFor("Retired lab")).toBeNull();
@@ -435,6 +440,79 @@ describe("app group pages", () => {
         switchFor("Meetings and transcription")?.getAttribute("aria-checked"),
       ).toBe("true");
       expect(switchFor("Voice dictation")?.disabled).toBe(false);
+    });
+
+    it("refreshes the model catalog after a ChatGPT lab change succeeds", async () => {
+      labsActions.query.data = {
+        "chatgpt-subscription": {
+          enabled: false,
+          source: "default",
+          mixed: false,
+        },
+      };
+      const modelConfigChanged = vi.fn();
+      window.addEventListener(
+        "agent-engine:configured-changed",
+        modelConfigChanged,
+      );
+      try {
+        await renderPage(LabsSettingsPage, {
+          input: {
+            labs: [
+              {
+                key: "chatgpt-subscription",
+                displayName: "ChatGPT plan access",
+              },
+            ],
+          },
+        });
+
+        const toggle = switchFor("ChatGPT plan access");
+        expect(toggle?.getAttribute("aria-checked")).toBe("false");
+
+        for (const [index, enabled] of [true, false].entries()) {
+          act(() => toggle?.click());
+          const [variables, options] =
+            labsActions.mutate.mock.calls[index] ?? [];
+          expect(variables).toEqual({ key: "chatgpt-subscription", enabled });
+          expect(modelConfigChanged).toHaveBeenCalledTimes(index);
+          act(() => {
+            (options as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+          });
+          expect(modelConfigChanged).toHaveBeenCalledTimes(index + 1);
+          expect(toggle?.getAttribute("aria-checked")).toBe(String(enabled));
+        }
+      } finally {
+        window.removeEventListener(
+          "agent-engine:configured-changed",
+          modelConfigChanged,
+        );
+      }
+    });
+
+    it("offers explicit choices for inherited mixed settings", async () => {
+      labsActions.query.data = {
+        "clips.meetings": {
+          enabled: false,
+          source: "legacy",
+          mixed: true,
+          legacyValues: { capture: false, recovery: true },
+        },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      expect(switchFor("Meetings and transcription")).toBeNull();
+      const on = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Meetings and transcription: On"]',
+      );
+      expect(on?.disabled).toBe(false);
+      act(() => on?.click());
+      expect(labsActions.mutate).toHaveBeenCalledWith(
+        { key: "clips.meetings", enabled: true },
+        expect.any(Object),
+      );
+      expect(
+        switchFor("Meetings and transcription")?.getAttribute("aria-checked"),
+      ).toBe("true");
     });
   });
 

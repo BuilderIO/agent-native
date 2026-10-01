@@ -11,6 +11,7 @@ import {
   useJoinByDomain,
 } from "@agent-native/core/client/org";
 import { signOut } from "@agent-native/core/client/sign-out";
+import { workspacePrivateIconUrl } from "@agent-native/core/client/uploads";
 import { setBrowserDemoModeEnabled } from "@agent-native/core/demo/browser-state";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { shouldOfferWorkspace } from "@agent-native/core/org/workspace-url";
@@ -54,6 +55,7 @@ import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
+  IconCoin,
   IconDownload,
   IconExternalLink,
   IconAlertCircle,
@@ -133,6 +135,13 @@ export function BuilderCreditNotice({
   const builderCreditStatus = useActionQuery<{
     exhausted: boolean;
     period?: "daily" | "monthly";
+    balance?: number;
+    quota?: {
+      period: "daily" | "monthly";
+      limit: number;
+      used: number;
+      remaining: number;
+    };
   } | null>(
     "get-builder-credit-status",
     { orgId: org?.orgId ?? null },
@@ -143,43 +152,93 @@ export function BuilderCreditNotice({
     },
   );
   const t = useT();
+  const status = builderCreditStatus.data;
+  const usage =
+    status && typeof status.balance === "number" && status.quota
+      ? { balance: status.balance, quota: status.quota }
+      : null;
 
-  if (
-    builderCreditStatus.isError ||
-    builderCreditStatus.data?.exhausted !== true
-  ) {
+  if (builderCreditStatus.isError || (status?.exhausted !== true && !usage)) {
     return null;
   }
 
+  const exhausted = status?.exhausted === true;
   const quotaLabel =
-    builderCreditStatus.data.period === "daily"
+    (usage?.quota.period ?? status?.period) === "daily"
       ? t("agentChat.usage.dailyDefaultLimit")
-      : builderCreditStatus.data.period === "monthly"
+      : (usage?.quota.period ?? status?.period) === "monthly"
         ? t("agentChat.usage.monthlyLimit")
         : null;
-  const title = [t("agentChat.billing.builderCreditLimitTitle"), quotaLabel]
-    .filter((label): label is string => label !== null)
-    .join(" · ");
+  const title = exhausted
+    ? [t("agentChat.billing.builderCreditLimitTitle"), quotaLabel]
+        .filter((label): label is string => label !== null)
+        .join(" · ")
+    : t("agentChat.usage.builderCredits");
+  const balance = usage?.balance.toLocaleString(undefined, {
+    maximumFractionDigits: 3,
+  });
+  const used = usage?.quota.used.toLocaleString(undefined, {
+    maximumFractionDigits: 3,
+  });
+  const limit = usage?.quota.limit.toLocaleString(undefined, {
+    maximumFractionDigits: 3,
+  });
+  const remaining = usage?.quota.remaining.toLocaleString(undefined, {
+    maximumFractionDigits: 3,
+  });
+  const balanceLabel = t("agentChat.usage.creditBalance");
+  const usedLabel = usage
+    ? t("agentChat.usage.creditUsedOfLimit", { used, limit })
+    : null;
+  const remainingLabel = usage
+    ? t("agentChat.usage.creditRemaining", { amount: remaining })
+    : null;
+  const usageDetails = usage
+    ? [
+        `${balanceLabel}: ${balance}`,
+        ...(!exhausted && quotaLabel ? [quotaLabel] : []),
+        usedLabel,
+        remainingLabel,
+      ]
+        .filter((label): label is string => label !== null)
+        .join(" · ")
+    : null;
   const builderUpgradeUrl = builderSubscriptionUpgradeUrl(
     "builder_credit_limit_sidebar",
   );
-  const noticeLabel = [title, t("agentChat.billing.builderCreditUpgrade")].join(
-    " · ",
-  );
+  const noticeLabel = [
+    title,
+    ...(usageDetails ? [usageDetails] : []),
+    ...(exhausted ? [t("agentChat.billing.builderCreditUpgrade")] : []),
+  ]
+    .filter((label): label is string => label !== null)
+    .join(" · ");
+  const compactTriggerClassName =
+    "mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return compact ? (
     <TooltipProvider delayDuration={0}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <a
-            href={builderUpgradeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={noticeLabel}
-            className="mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <IconAlertCircle className="size-4" aria-hidden="true" />
-          </a>
+          {exhausted ? (
+            <a
+              href={builderUpgradeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={noticeLabel}
+              className={compactTriggerClassName}
+            >
+              <IconAlertCircle className="size-4" aria-hidden="true" />
+            </a>
+          ) : (
+            <button
+              type="button"
+              aria-label={noticeLabel}
+              className={compactTriggerClassName}
+            >
+              <IconCoin className="size-4" aria-hidden="true" />
+            </button>
+          )}
         </TooltipTrigger>
         <TooltipContent side="right">{noticeLabel}</TooltipContent>
       </Tooltip>
@@ -193,21 +252,33 @@ export function BuilderCreditNotice({
       )}
     >
       <div className="flex items-start gap-2">
-        <IconAlertCircle
-          className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
+        {exhausted ? (
+          <IconAlertCircle
+            className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+        ) : (
+          <IconCoin
+            className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+        )}
         <div className="min-w-0 flex-1">
           <p className="leading-snug text-foreground">{title}</p>
-          <a
-            href={builderUpgradeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
-          >
-            {t("agentChat.billing.builderCreditUpgrade")}
-            <IconArrowUpRight className="size-3" aria-hidden="true" />
-          </a>
+          {usageDetails ? (
+            <p className="mt-1 text-muted-foreground">{usageDetails}</p>
+          ) : null}
+          {exhausted ? (
+            <a
+              href={builderUpgradeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+            >
+              {t("agentChat.billing.builderCreditUpgrade")}
+              <IconArrowUpRight className="size-3" aria-hidden="true" />
+            </a>
+          ) : null}
         </div>
       </div>
     </div>
@@ -503,7 +574,7 @@ export function OrgSwitcher({
               value={org.icon}
               size={12}
               resolveImageUrl={(image) =>
-                image.authority === "url" ? image.assetId : undefined
+                workspacePrivateIconUrl(org.orgId ?? "", image)
               }
               fallback={<IconBriefcase className="size-3 shrink-0" />}
             />
@@ -585,7 +656,7 @@ export function OrgSwitcher({
                 value={o.icon}
                 size={14}
                 resolveImageUrl={(image) =>
-                  image.authority === "url" ? image.assetId : undefined
+                  workspacePrivateIconUrl(o.orgId, image)
                 }
                 fallback={<IconBriefcase className={ITEM_ICON_CLASS} />}
               />

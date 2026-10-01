@@ -157,6 +157,37 @@ export function shouldPrewarmWorkspaceApps(
   );
 }
 
+export function shouldOpenWorkspaceBrowser(
+  args: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (args.includes("--no-open")) return false;
+  if (env.WORKSPACE_NO_OPEN === "1" || env.AGENT_NATIVE_NO_OPEN === "1") {
+    return false;
+  }
+  if (env.CI === "1" || env.CI === "true") return false;
+  if (
+    env.BUILDER_IO_DEV_SERVER ||
+    env.BUILDER_PROJECT_ID ||
+    env.CODESPACES ||
+    env.GITPOD_WORKSPACE_ID ||
+    env.REMOTE_CONTAINERS ||
+    env.DEVCONTAINER
+  ) {
+    return false;
+  }
+  if (
+    platform !== "darwin" &&
+    platform !== "win32" &&
+    !env.DISPLAY &&
+    !env.WAYLAND_DISPLAY
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function workspacePrewarmConcurrency(
   args: string[] = [],
   env: NodeJS.ProcessEnv = process.env,
@@ -1351,7 +1382,8 @@ export async function runWorkspaceDev(
   }
 
   function openBrowser(url: string): void {
-    if (options.openBrowser === false || env.WORKSPACE_NO_OPEN === "1") return;
+    if (options.openBrowser === false) return;
+    if (!shouldOpenWorkspaceBrowser(args, env)) return;
     const command =
       process.platform === "darwin"
         ? "open"
@@ -1360,11 +1392,23 @@ export async function runWorkspaceDev(
           : "xdg-open";
     const openArgs =
       process.platform === "win32" ? ["/c", "start", "", url] : [url];
-    const child = spawnProcess(command, openArgs, {
-      stdio: "ignore",
-      detached: true,
-    });
-    child.unref();
+    const warn = (reason: string) =>
+      stderr.write(
+        `[workspace] Could not auto-open browser (${reason}). Open ${url} manually.\n`,
+      );
+    try {
+      const child = spawnProcess(command, openArgs, {
+        stdio: "ignore",
+        detached: true,
+      });
+      // Without a listener, a missing opener (ENOENT) crashes the gateway.
+      child.on("error", (err: NodeJS.ErrnoException) =>
+        warn(err.code === "ENOENT" ? `${command} not installed` : err.message),
+      );
+      child.unref();
+    } catch (err) {
+      warn(err instanceof Error ? err.message : String(err));
+    }
   }
 
   const server = http.createServer(async (req, res) => {

@@ -3,6 +3,24 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-30
+
+### Improved
+
+- Builder credit connections now use the Builder.io name.
+- The Mail navigation stays readable over the inbox and uses locale-formatted label counts
+
+### Fixed
+
+- Mail refreshes chat readiness after a successful Builder connection.
+- Mail scopes cached message bodies to the signed-in account and mailbox.
+- Opening an agent-focused draft restores its composer when minimized.
+- Restored emails return to Inbox and cached messages are cleared at sign-out.
+
+### Security
+
+- Switching accounts or mailboxes no longer shows cached messages from the previous mailbox.
+
 ## 2026-09-29
 
 ### Improved
@@ -14,6 +32,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
 - Failed Mail rule runs now show their status once and keep Undo available after an interrupted update.
 - The open chat panel is separated from your inbox by a visible divider.
 - Sent chat prompts clear immediately, while reply progress appears in the conversation.

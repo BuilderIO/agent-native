@@ -35,6 +35,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/labs/actions/get-labs",
   },
   {
+    name: "get-lab-states",
+    specifier: "@agent-native/core/labs/actions/get-lab-states",
+  },
+  {
     name: "set-lab",
     specifier: "@agent-native/core/labs/actions/set-lab",
   },
@@ -47,6 +51,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "disconnect-chatgpt-subscription",
     specifier:
       "@agent-native/core/agent/actions/disconnect-chatgpt-subscription",
+  },
+  {
+    name: "list-chatgpt-subscription-accounts",
+    specifier:
+      "@agent-native/core/agent/actions/list-chatgpt-subscription-accounts",
+  },
+  {
+    name: "select-chatgpt-subscription-account",
+    specifier:
+      "@agent-native/core/agent/actions/select-chatgpt-subscription-account",
   },
   {
     name: "preview-secret-removal",

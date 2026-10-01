@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getLabForLegacyFlag } from "../../labs/registry.js";
 import { getOrgDomain } from "../../org/context.js";
 import { requireFeatureFlagManager } from "../permissions.js";
 import { getFeatureFlagDefinition } from "../registry.js";
@@ -53,6 +54,12 @@ export default defineAction({
     const manager = await requireFeatureFlagManager(ctx ?? {});
     if (!getFeatureFlagDefinition(args.key)) {
       throw new Error(`Unknown feature flag: ${args.key}`);
+    }
+    const movedToLab = getLabForLegacyFlag(args.key);
+    if (movedToLab) {
+      throw new Error(
+        `Feature flag ${args.key} is managed in Labs (${movedToLab.key}).`,
+      );
     }
     const orgDomain = manager.orgId
       ? (await getOrgDomain(manager.orgId))?.trim().toLowerCase() || null

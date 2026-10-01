@@ -197,6 +197,7 @@ describe("RealtimeVoiceMode", () => {
       document.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent?.includes("Start voice chat"));
     expect(startVoiceMode?.disabled).toBe(true);
+    expect(document.querySelector(".animate-spin")).toBeNull();
     act(() => startVoiceMode?.click());
     expect(onStartVoiceMode).not.toHaveBeenCalled();
 

@@ -39,6 +39,7 @@ const state = vi.hoisted(() => ({
   sweep: vi.fn(),
   draft: null as null | Record<string, unknown>,
   read: vi.fn(),
+  verify: vi.fn(),
   session: null as null | { email: string; orgId: string },
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -56,6 +57,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { toast } from "sonner";
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
+  ensurePreviewDocumentDraftRead: (...args: unknown[]) => state.verify(...args),
   isDocumentUpdateConflict: (result: { conflict?: boolean }) =>
     result.conflict === true,
   isDocumentUpdatePreservationRequired: (result: {
@@ -151,6 +153,7 @@ describe("Page browser journal recovery", () => {
     );
     state.receipt.mockResolvedValue({ found: false });
     state.refetch.mockResolvedValue(undefined);
+    state.verify.mockResolvedValue(undefined);
     state.rebase.mockResolvedValue({ status: "saved", document: page });
     state.upsert.mockResolvedValue({
       status: "saved",
@@ -345,7 +348,7 @@ describe("Page browser journal recovery", () => {
 
   it("does not inspect local drafts before the current session passes access", async () => {
     state.entries = [entry("first", "Local")];
-    state.receipt.mockRejectedValue(new Error("access denied"));
+    state.verify.mockRejectedValue(new Error("access denied"));
     await act(async () => render());
     expect(state.read).not.toHaveBeenCalled();
     expect(state.rebase).not.toHaveBeenCalled();

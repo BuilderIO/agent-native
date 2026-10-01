@@ -105,10 +105,11 @@ import {
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
+  startPreviewDocumentDraftRead,
   useContentNavigationContext,
-  useDocument,
   useDeleteDocument,
   useDocuments,
+  usePageOpenDocument,
   useResolvePreviewDocumentDraft,
   useUpdatePreviewDocumentDraft,
   useUpdateDocument,
@@ -131,6 +132,7 @@ import {
 } from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
+import { rememberLandingTitleHint } from "@/lib/document-title-hint";
 import {
   canWriteLinkedLocalSource,
   readDocumentFromLinkedLocalSource,
@@ -141,6 +143,11 @@ import {
   isDatabaseChoicePending,
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
+import {
+  readPageIconRowHint,
+  rememberPageIconRow,
+} from "@/lib/page-icon-row-hint";
+import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
@@ -168,6 +175,13 @@ import {
   usePendingCommentDraft,
 } from "./CommentsSidebar";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
+import {
+  DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
+  DOCUMENT_EDITOR_TITLE_CLASS_NAME,
+  documentEditorBodyClassName,
+  documentEditorTitleRegionClassName,
+  type DocumentEditorIconRow,
+} from "./document-editor-layout";
 import { createHistorySession } from "./document-history-session";
 import {
   saveDocumentWithRebase,
@@ -765,6 +779,9 @@ export function DocumentEditor({
 }: DocumentEditorProps) {
   return (
     <PageEditorSurface
+      // Each page open mounts its own surface, so a read started for the open
+      // is adopted instead of refetched by a document switch.
+      key={pageEditorSessionKey({ documentId, databaseId, databaseDocumentId })}
       documentId={documentId}
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
@@ -809,10 +826,11 @@ export function PageEditorSurface({
   focusTitle = false,
   onTitleFocused,
 }: PageEditorSurfaceProps) {
-  const documentQuery = useDocument(documentId, {
-    databaseId,
-    databaseDocumentId,
-  });
+  const {
+    query: documentQuery,
+    fetchedForThisOpen,
+    readsStartedEarly,
+  } = usePageOpenDocument(documentId, { databaseId, databaseDocumentId });
   const {
     data: queriedDocument,
     dataUpdatedAt,
@@ -820,7 +838,6 @@ export function PageEditorSurface({
     errorUpdateCount,
     errorUpdatedAt,
     isError,
-    isFetchedAfterMount,
     isFetching,
   } = documentQuery;
   const navigate = useNavigate();
@@ -829,6 +846,22 @@ export function PageEditorSurface({
     databaseId,
     databaseDocumentId,
   });
+  useEffect(() => {
+    if (readsStartedEarly) return;
+    startPreviewDocumentDraftRead(
+      queryClient,
+      documentId,
+      queryClient.getQueryData<Document>(
+        documentQueryKey(documentId, { databaseId, databaseDocumentId }),
+      ),
+    );
+  }, [
+    databaseDocumentId,
+    databaseId,
+    documentId,
+    queryClient,
+    readsStartedEarly,
+  ]);
   const authoritativeSuccess = useAuthoritativeQuerySuccess(
     queryClient,
     documentQueryKeyValue,
@@ -862,7 +895,7 @@ export function PageEditorSurface({
     isDocumentCreationPending: document
       ? isDocumentCreationPending(document)
       : false,
-    isFetchedAfterMount,
+    isFetchedAfterMount: fetchedForThisOpen,
     isFetching,
     isError,
     hasLoadFailure: loadFailure.failed,
@@ -879,7 +912,7 @@ export function PageEditorSurface({
       !!document &&
       !document.database &&
       !isError &&
-      isFetchedAfterMount &&
+      fetchedForThisOpen &&
       loadState.view === "editor",
   );
 
@@ -952,7 +985,12 @@ export function PageEditorSurface({
   }
 
   if (!document || loadState.view === "skeleton") {
-    return <DocumentEditorSkeleton title={optimisticTitle} />;
+    return (
+      <DocumentEditorSkeleton
+        title={optimisticTitle}
+        iconRow={readPageIconRowHint(documentId)}
+      />
+    );
   }
 
   const editor = (
@@ -966,7 +1004,7 @@ export function PageEditorSurface({
         documentId={documentId}
         document={document}
         foreground={
-          foreground && host === "page" && !isError && isFetchedAfterMount
+          foreground && host === "page" && !isError && fetchedForThisOpen
         }
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
@@ -1534,26 +1572,7 @@ export function utilityPanelAfterCommentFocusDismissal(
   return utilityPanel === "comments" ? null : utilityPanel;
 }
 
-export function documentEditorTitleRegionClassName(
-  hasDatabase: boolean,
-  host: "page" | "preview" = "page",
-) {
-  if (host === "preview") {
-    return hasDatabase
-      ? "shrink-0 w-full max-w-none px-4 pb-2 pt-2 sm:px-6 sm:pt-6 group/title"
-      : "shrink-0 mx-auto w-full max-w-3xl px-4 pb-3 pt-2 sm:px-6 sm:pt-6 group/title";
-  }
-  if (hasDatabase) {
-    return cn(
-      "shrink-0 w-full max-w-none px-4 pt-14 pb-2 sm:px-8 sm:pt-7 lg:px-10 group/title",
-    );
-  }
-
-  return cn(
-    "shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 sm:px-8 md:px-16 md:pt-16 group/title",
-    "pb-8",
-  );
-}
+export { documentEditorTitleRegionClassName };
 
 export function documentEditorDatabaseRegionClassName() {
   return "shrink-0 min-w-0 w-full max-w-none px-4 pb-8 sm:px-8 lg:px-10";
@@ -1795,17 +1814,20 @@ function PageEditorSessionBody({
     databaseId,
     databaseDocumentId,
   });
+  const queryClient = useQueryClient();
   useEffect(() => {
     if (host !== "page" || document.database?.systemRole) return;
+    const target = {
+      documentId,
+      ...(currentDocumentRef.current?.title?.trim()
+        ? { title: currentDocumentRef.current.title }
+        : {}),
+      ...(databaseId ? { databaseId } : {}),
+      ...(viewId ? { viewId } : {}),
+    };
+    rememberLandingTitleHint(queryClient, target);
     void rememberContentLandingDocument(
-      {
-        documentId,
-        ...(currentDocumentRef.current?.title?.trim()
-          ? { title: currentDocumentRef.current.title }
-          : {}),
-        ...(databaseId ? { databaseId } : {}),
-        ...(viewId ? { viewId } : {}),
-      },
+      target,
       document.spaceId ?? undefined,
     ).catch((error) => {
       toast.error(t("landing.saveFailed"), {
@@ -1819,6 +1841,7 @@ function PageEditorSessionBody({
     document.spaceId,
     documentId,
     host,
+    queryClient,
     viewId,
     t,
   ]);
@@ -1851,7 +1874,6 @@ function PageEditorSessionBody({
   const createDatabase = useCreateContentDatabase(documentId);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
-  const queryClient = useQueryClient();
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.bodyHydration?.databaseDocumentId ?? documentId,
   );
@@ -4242,14 +4264,19 @@ function PageEditorSessionBody({
         return;
       }
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
-      refreshLandingTitleHintCache(queryClient, documentId, newTitle);
-      void rememberContentLandingDocument(documentId, newTitle).catch(() => {});
+      if (host === "page") {
+        refreshLandingTitleHintCache(queryClient, documentId, newTitle);
+        void rememberContentLandingDocument(documentId, newTitle).catch(
+          () => {},
+        );
+      }
       debouncedSave(newTitle, localContentRef.current);
     },
     [
       debouncedSave,
       documentId,
       editorCanEdit,
+      host,
       isSuggesting,
       journalCurrentDraft,
       queryClient,
@@ -6295,6 +6322,16 @@ function PageEditorSessionBody({
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const iconRow: DocumentEditorIconRow = document.icon
+    ? "icon"
+    : canEdit && !isSuggesting
+      ? "add"
+      : "none";
+  useEffect(() => {
+    if (host === "page" && !isDatabasePage) {
+      rememberPageIconRow(documentId, iconRow);
+    }
+  }, [documentId, host, iconRow, isDatabasePage]);
   const databaseChoicePending = isDatabaseChoicePending(
     document,
     createDatabase.isPending,
@@ -6735,6 +6772,7 @@ function PageEditorSessionBody({
                     ) ? (
                       <EmojiPicker
                         icon={document.icon}
+                        assetScopeDocumentId={document.id}
                         defaultIcon={defaultIcon}
                         defaultIconLabel={
                           defaultIconKind === "database" ? "database" : "page"
@@ -6778,16 +6816,23 @@ function PageEditorSessionBody({
                         }}
                       />
                     ) : document.icon ? (
-                      <div className="p-1 -ml-1">
+                      // Sized like the picker's button: a library icon draws
+                      // only once its glyph loads.
+                      <div className="flex size-14 items-center justify-center p-1 -ml-1">
                         <ContentIcon value={document.icon} size={48} />
                       </div>
                     ) : defaultIconKind === "database" ? (
                       <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
                         <IconDatabase className="size-12" aria-hidden="true" />
                       </div>
+                    ) : canEdit && !isSuggesting ? (
+                      // An editor gets the "Add icon" button once the page
+                      // syncs; its row is held so the title does not move.
+                      <div className="h-7" aria-hidden="true" />
                     ) : null}
                   </div>
                   <textarea
+                    {...(host === "page" ? startupAnchor("title") : {})}
                     ref={titleInputRef}
                     rows={1}
                     wrap="soft"
@@ -6819,10 +6864,11 @@ function PageEditorSessionBody({
                     readOnly={!editorCanEdit || isSuggesting}
                     style={{ fieldSizing: "content" } as any}
                     className={cn(
-                      "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-normal text-foreground outline-none placeholder:text-muted-foreground/40",
+                      DOCUMENT_EDITOR_TITLE_CLASS_NAME,
+                      "resize-none overflow-hidden border-none bg-transparent outline-none placeholder:text-muted-foreground/40",
                       host === "preview" || isDatabasePage
                         ? "text-3xl"
-                        : "text-3xl md:text-4xl",
+                        : DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
                     )}
                   />
                 </div>
@@ -6861,12 +6907,8 @@ function PageEditorSessionBody({
 
                 {!isDatabasePage ? (
                   <div
-                    className={cn(
-                      "mx-auto w-full max-w-3xl flex-1 cursor-text px-4",
-                      host === "preview"
-                        ? "pb-10 sm:px-6"
-                        : "pb-16 sm:px-8 md:px-16",
-                    )}
+                    {...(host === "page" ? startupAnchor("body") : {})}
+                    className={documentEditorBodyClassName(host)}
                     onClick={(e) => {
                       if (e.target === e.currentTarget) {
                         cancelPaddingScrollRestore();
@@ -7124,6 +7166,7 @@ function PageEditorSessionBody({
                               handlePrimaryFieldAvailabilityChange
                             }
                             primaryEditor={primaryEditorWithStarter}
+                            pageProperties={document.properties}
                             onAdditionalContentChange={
                               handleAdditionalBlockContentChange
                             }

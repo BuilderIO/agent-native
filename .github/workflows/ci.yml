@@ -36,7 +36,7 @@ jobs:
       guards: ${{ steps.scope.outputs.guards }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
-      query_budget_apps: ${{ steps.scope.outputs.query_budget_apps }}
+      query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       changeset: ${{ steps.scope.outputs.changeset }}
@@ -534,13 +534,20 @@ jobs:
   slides-chat-e2e:
     name: Slides chat caret in Chromium
     needs: change-scope
+    # Off on purpose. #6485 disabled this job and #6496 switched it back on as a
+    # side effect of a Slides change; it then failed on every PR that reached it.
+    # Turning it back on is an explicit decision, not something to restore while
+    # editing this block.
     if: >-
+      false && (
       needs.change-scope.outputs.full == 'true' ||
-      contains(needs.change-scope.outputs.workspace_filters, 'templates/slides') ||
-      contains(needs.change-scope.outputs.workspace_filters, 'packages/core') ||
-      contains(needs.change-scope.outputs.workspace_filters, 'packages/toolkit')
+      contains(needs.change-scope.outputs.workspace_filters, '{templates/slides}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/core}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/toolkit}') ||
+      contains(needs.change-scope.outputs.workspace_filters, '{packages/creative-context}')
+      )
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -558,6 +565,9 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
+      - name: Install Playwright WebKit
+        run: pnpm exec playwright install --with-deps webkit
+
       - name: Check selection direction and chat typing while slide text editing remains active
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
@@ -569,6 +579,26 @@ jobs:
       - name: Check typing fidelity across Slides text surfaces
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+
+      - name: Check typing fidelity across Slides text surfaces in WebKit
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
+
+      - name: Check rich-text authoring parity in Slides
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
+
+      - name: Check rich-text authoring parity in Slides WebKit
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
+
+      - name: Check rich-text authoring against the committed corpus
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
+
+      - name: Check mixed rich-text authoring operations in Chromium
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --steps 80
 
   brain-evals:
     name: Brain evals
@@ -596,12 +626,30 @@ jobs:
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres@127.0.0.1:5432/agent_native_build
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: agent_native_build
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d agent_native_build"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
+
+      - name: Generate isolated build auth secret
+        run: echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
 
       - name: Build all packages
         if: needs.change-scope.outputs.full == 'true'
@@ -618,11 +666,14 @@ jobs:
         run: pnpm --filter @agent-native/docs build
 
   neon-query-budget:
-    name: Cold-request query budget
+    name: Cold-request query budget ${{ matrix.shard }}
     needs: change-scope
     if: needs.change-scope.outputs.neon_query_budget == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.change-scope.outputs.query_budget_matrix) }}
     env:
       AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
       AUTH_DISABLED: "true"
@@ -639,10 +690,11 @@ jobs:
           restore-dist-cache: "true"
 
       # change-scope owns the app list: every template when shared code
-      # changed, otherwise only the templates this change touched.
+      # changed, otherwise only the templates this change touched, split
+      # across the matrix shards.
       - name: Build and measure the affected first-party templates
         env:
-          QUERY_BUDGET_APPS: ${{ needs.change-scope.outputs.query_budget_apps }}
+          QUERY_BUDGET_APPS: ${{ toJSON(matrix.apps) }}
         run: |
           set -euo pipefail
           mapfile -t apps < <(jq -r '.[]' <<< "$QUERY_BUDGET_APPS")
@@ -816,10 +868,10 @@ jobs:
             }
           '
           pnpm install
-          # Build the calendar app — catches missing peer/runtime deps that
-          # `pnpm install` alone won't surface (e.g. core importing a peer
-          # dep that templates don't declare).
+          # Build generated apps to catch missing peer/runtime deps that
+          # `pnpm install` alone won't surface.
           pnpm --filter ./apps/calendar build
+          pnpm --filter ./apps/dispatch build
 
   ssr-boot-smoke:
     name: SSR cold-start smoke

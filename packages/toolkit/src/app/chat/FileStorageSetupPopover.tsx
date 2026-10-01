@@ -8,8 +8,8 @@ import {
 import { IconCloudUpload } from "@tabler/icons-react";
 import { useRef, type RefObject } from "react";
 
-import { BuilderConnectPopover } from "../settings/index.js";
-import { BuilderConnectCard } from "../setup-connections/index.js";
+import { DeferredBuilderConnectPopover as BuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
+import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 
 type FileStorageSetupPopoverCommonProps = {
   open: boolean;

@@ -143,6 +143,12 @@ function isTerminalRunEvent(event: AgentEvent): boolean {
   );
 }
 
+function metadataRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function sameQueuedMessageIds(
   first: AgentQueuedMessage[],
   second: AgentQueuedMessage[],
@@ -452,6 +458,28 @@ export class AgentKitCapabilityError extends Error {
   }
 }
 
+export class AgentKitRunSlotBusyError extends Error {
+  public readonly code = "run_slot_busy" as const;
+  public readonly retryable = true;
+
+  public constructor() {
+    super("The current agent run still owns this thread.");
+    this.name = "AgentKitRunSlotBusyError";
+  }
+}
+
+function isAgentKitRunSlotBusyError(
+  error: unknown,
+): error is AgentKitRunSlotBusyError {
+  return (
+    error instanceof AgentKitRunSlotBusyError ||
+    (!!error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "run_slot_busy")
+  );
+}
+
 export class AgentKitOperationError extends Error {
   public readonly code = "operation_unsupported" as const;
   public readonly retryable = false;
@@ -537,6 +565,7 @@ export class AgentKitClient implements AgentKitController {
   private readonly retainActiveRunsOnThreadRelease: boolean;
   private readonly listeners = new Set<AgentKitListener>();
   private readonly consumers = new Map<string, Promise<void>>();
+  private readonly submittedUserMessages = new Map<string, string>();
   private readonly consumerAbortControllers = new Map<
     string,
     AbortController
@@ -550,6 +579,11 @@ export class AgentKitClient implements AgentKitController {
   >();
   private readonly queueMutationChains = new Map<ThreadId, Promise<void>>();
   private readonly queuePromotions = new Set<ThreadId>();
+  private readonly queuePromotionTimers = new Map<
+    ThreadId,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly queuePromotionRetryAttempts = new Map<ThreadId, number>();
   private readonly requestAbortController = new AbortController();
   private capabilitiesLoad?: Promise<AgentCapabilities>;
   private shutdownPromise?: Promise<void>;
@@ -916,6 +950,7 @@ export class AgentKitClient implements AgentKitController {
       if (threadMissing) this.missingThreadStates.add(thread);
       this.setThread(threadId, thread);
       this.setConnection("connected");
+      this.scheduleQueuePromotionIfIdle(threadId);
       for (const runId of thread.activeRunIds) {
         void this.resubscribeRun(threadId, runId).catch(() => {
           // The consumer records the typed stream error in the client snapshot.
@@ -1032,6 +1067,10 @@ export class AgentKitClient implements AgentKitController {
         });
       }
       this.markRunStarted(input.threadId, result.runId);
+      this.submittedUserMessages.set(
+        this.runKey(input.threadId, result.runId),
+        message.id,
+      );
       const completed = this.consume(input.threadId, result.runId);
       this.trackConsumer(input.threadId, result.runId, completed);
       return {
@@ -1103,6 +1142,7 @@ export class AgentKitClient implements AgentKitController {
         resolveApproval!(input, context),
       );
       this.assertActive();
+      this.scheduleQueuePromotion(input.threadId);
       return;
     }
     const result = await this.invokeRequest(requestContext, (context) =>
@@ -1125,6 +1165,7 @@ export class AgentKitClient implements AgentKitController {
     const key = this.runKey(input.threadId, result.runId);
     const existingConsumer = this.consumers.get(key);
     if (existingConsumer) {
+      this.scheduleQueuePromotion(input.threadId);
       void (async () => {
         await Promise.allSettled([existingConsumer]);
         if (!this.disposed) {
@@ -1141,6 +1182,7 @@ export class AgentKitClient implements AgentKitController {
       result.runId,
       this.consume(input.threadId, result.runId),
     );
+    this.scheduleQueuePromotion(input.threadId);
   }
 
   public async resolveConnectionRequest(
@@ -1622,6 +1664,10 @@ export class AgentKitClient implements AgentKitController {
           });
         }
         this.markRunStarted(threadId, result.runId);
+        this.submittedUserMessages.set(
+          this.runKey(threadId, result.runId),
+          message.id,
+        );
         const completed = this.consume(threadId, result.runId);
         this.trackConsumer(threadId, result.runId, completed);
         return {
@@ -1632,7 +1678,12 @@ export class AgentKitClient implements AgentKitController {
       } catch (error) {
         if (this.disposed) throw error;
         this.patch({ connection: previousConnection, error: previousError });
-        this.report(error, "queue_steer_failed");
+        if (
+          !isAgentKitRunSlotBusyError(error) ||
+          !this.queuePromotions.has(threadId)
+        ) {
+          this.report(error, "queue_steer_failed");
+        }
         throw error;
       }
     });
@@ -1757,6 +1808,7 @@ export class AgentKitClient implements AgentKitController {
     );
     this.assertActive();
     this.stopThreadConsumers(threadId, "deleted");
+    this.clearSubmittedUserMessages(threadId);
     this.queuedMessageOverrides.delete(threadId);
     const threads = { ...this.snapshot.threads };
     delete threads[threadId];
@@ -1767,6 +1819,11 @@ export class AgentKitClient implements AgentKitController {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.disposed = true;
     this.requestAbortController.abort(new AgentKitDisposedError());
+    for (const timer of this.queuePromotionTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.queuePromotionTimers.clear();
+    this.queuePromotionRetryAttempts.clear();
     for (const controller of this.consumerAbortControllers.values()) {
       controller.abort(new AgentKitConsumerStoppedError("disposed"));
     }
@@ -1774,6 +1831,7 @@ export class AgentKitClient implements AgentKitController {
     this.threadLeaseCounts.clear();
     this.queueMutationChains.clear();
     this.queuedMessageOverrides.clear();
+    this.submittedUserMessages.clear();
     this.patch({ connection: "offline" });
     this.listeners.clear();
     this.consumers.clear();
@@ -1975,6 +2033,9 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     terminalEvent: AgentEvent,
   ): Promise<void> {
+    this.submittedUserMessages.delete(
+      this.runKey(threadId, terminalEvent.runId),
+    );
     const snapshotPersistence = this.persistThreadSnapshot(threadId);
     const completed =
       terminalEvent.type === "run.completed" ||
@@ -1982,10 +2043,9 @@ export class AgentKitClient implements AgentKitController {
         terminalEvent.status === "completed");
     const terminalThread = this.getThread(threadId);
     const queuedWorkKnown =
-      completed &&
       terminalThread.queuedMessages.length > 0 &&
       !hasActiveAgentRuns(terminalThread);
-    if (queuedWorkKnown) this.scheduleQueuePromotion(threadId);
+    if (queuedWorkKnown) this.scheduleQueuePromotion(threadId, true);
     const persistenceError = await snapshotPersistence;
     if (completed) {
       const shouldRefreshProjection =
@@ -2004,7 +2064,7 @@ export class AgentKitClient implements AgentKitController {
         }
       }
       if (!queuedWorkKnown && !hasActiveAgentRuns(this.getThread(threadId))) {
-        this.scheduleQueuePromotion(threadId);
+        this.scheduleQueuePromotion(threadId, true);
       }
     }
     if (persistenceError) {
@@ -2939,7 +2999,19 @@ export class AgentKitClient implements AgentKitController {
       ?.abort(new AgentKitConsumerStoppedError(reason));
   }
 
+  private clearSubmittedUserMessages(threadId: ThreadId, runId?: RunId): void {
+    const prefix = `${threadId}\u0000`;
+    for (const key of this.submittedUserMessages.keys()) {
+      if (
+        runId ? key === this.runKey(threadId, runId) : key.startsWith(prefix)
+      ) {
+        this.submittedUserMessages.delete(key);
+      }
+    }
+  }
+
   private markRunCancelled(threadId: ThreadId, runId: RunId): void {
+    this.clearSubmittedUserMessages(threadId, runId);
     const thread = this.getThread(threadId);
     const run = thread.runs[runId] ?? this.runState(runId);
     const activeRunIds = thread.activeRunIds.filter((id) => id !== runId);
@@ -2965,6 +3037,7 @@ export class AgentKitClient implements AgentKitController {
         run.activeMessageId,
       ),
     );
+    this.scheduleQueuePromotionIfIdle(threadId);
   }
 
   private markRunFailed(
@@ -2972,6 +3045,7 @@ export class AgentKitClient implements AgentKitController {
     runId: RunId,
     error: AgentError,
   ): void {
+    this.clearSubmittedUserMessages(threadId, runId);
     const thread = this.getThread(threadId);
     const run = thread.runs[runId] ?? this.runState(runId);
     const completedAt = this.now();
@@ -2997,6 +3071,7 @@ export class AgentKitClient implements AgentKitController {
         run.activeMessageId,
       ),
     );
+    this.scheduleQueuePromotionIfIdle(threadId);
   }
 
   private markRunStarted(threadId: ThreadId, runId: RunId): void {
@@ -3016,6 +3091,7 @@ export class AgentKitClient implements AgentKitController {
   }
 
   private retireInterruptedRun(threadId: ThreadId, runId: RunId): void {
+    this.submittedUserMessages.delete(this.runKey(threadId, runId));
     const thread = this.getThread(threadId);
     const run = thread.runs[runId];
     this.setThread(threadId, {
@@ -3067,11 +3143,24 @@ export class AgentKitClient implements AgentKitController {
     return ["completed", "failed", "cancelled"].includes(status);
   }
 
-  private scheduleQueuePromotion(threadId: ThreadId): void {
+  private scheduleQueuePromotion(threadId: ThreadId, expedite = false): void {
+    if (this.disposed) return;
     const thread = this.getThread(threadId);
-    if (this.queuePromotions.has(threadId)) return;
     const queued = thread.queuedMessages[0];
-    if (!queued) return;
+    if (!queued) {
+      const timer = this.queuePromotionTimers.get(threadId);
+      if (timer) clearTimeout(timer);
+      this.queuePromotionTimers.delete(threadId);
+      this.queuePromotionRetryAttempts.delete(threadId);
+      return;
+    }
+    const retryTimer = this.queuePromotionTimers.get(threadId);
+    if (retryTimer) {
+      if (!expedite) return;
+      clearTimeout(retryTimer);
+      this.queuePromotionTimers.delete(threadId);
+    }
+    if (this.queuePromotions.has(threadId)) return;
     if (!this.transport.steerQueuedMessage) {
       this.reportIntegrity({
         code: "queue_promotion_dropped",
@@ -3082,10 +3171,37 @@ export class AgentKitClient implements AgentKitController {
     }
     this.queuePromotions.add(threadId);
     void this.steerQueuedMessage(threadId, queued.id)
-      .catch(() => {
+      .then(() => this.queuePromotionRetryAttempts.delete(threadId))
+      .catch((error) => {
+        if (isAgentKitRunSlotBusyError(error) && !this.disposed) {
+          if (!this.getThread(threadId).queuedMessages.length) {
+            this.queuePromotionRetryAttempts.delete(threadId);
+            return;
+          }
+          const attempts = this.queuePromotionRetryAttempts.get(threadId) ?? 0;
+          const delay = Math.min(1_000 * 2 ** attempts, 30_000);
+          this.queuePromotionRetryAttempts.set(
+            threadId,
+            Math.min(attempts + 1, 5),
+          );
+          const timer = setTimeout(() => {
+            this.queuePromotionTimers.delete(threadId);
+            this.scheduleQueuePromotion(threadId);
+          }, delay);
+          this.queuePromotionTimers.set(threadId, timer);
+          return;
+        }
+        this.queuePromotionRetryAttempts.delete(threadId);
         // `steerQueuedMessage` already restores state and reports the failure.
       })
       .finally(() => this.queuePromotions.delete(threadId));
+  }
+
+  private scheduleQueuePromotionIfIdle(threadId: ThreadId): void {
+    const thread = this.getThread(threadId);
+    if (thread.queuedMessages.length > 0 && !hasActiveAgentRuns(thread)) {
+      this.scheduleQueuePromotion(threadId);
+    }
   }
 
   private assertActive(): void {
@@ -3095,7 +3211,10 @@ export class AgentKitClient implements AgentKitController {
   }
 
   private applyEvent(event: AgentEvent): void {
-    const thread = this.getThread(event.threadId);
+    const thread = this.reconcileSubmittedUserMessage(
+      this.getThread(event.threadId),
+      event,
+    );
     const admission = classifyAgentEvent(thread, event);
     if (admission.status === "duplicate") {
       this.reportIntegrity({
@@ -3122,6 +3241,64 @@ export class AgentKitClient implements AgentKitController {
       this.queuedMessageOverrides.delete(event.threadId);
     }
     this.setThread(event.threadId, next);
+  }
+
+  private reconcileSubmittedUserMessage(
+    thread: AgentThreadState,
+    event: AgentEvent,
+  ): AgentThreadState {
+    if (
+      (event.type !== "message.created" &&
+        event.type !== "message.completed") ||
+      event.message.role !== "user"
+    ) {
+      return thread;
+    }
+    const runKey = this.runKey(event.threadId, event.runId);
+    const submittedMessageId = this.submittedUserMessages.get(runKey);
+    if (!submittedMessageId) return thread;
+    const submittedMessage = thread.messages.find(
+      (message) => message.id === submittedMessageId,
+    );
+    if (
+      submittedMessage?.role !== "user" ||
+      this.messageContentKey(submittedMessage) !==
+        this.messageContentKey(event.message)
+    ) {
+      return thread;
+    }
+
+    const idRemap = new Map([[submittedMessage.id, event.message.id]]);
+    const remapped = this.remapThreadMessageReferences(thread, idRemap);
+    const localCustom = metadataRecord(submittedMessage.metadata?.custom);
+    const confirmedCustom = metadataRecord(event.message.metadata?.custom);
+    const hasCustomMetadata =
+      localCustom !== undefined || confirmedCustom !== undefined;
+    const mergedMetadata = {
+      ...submittedMessage.metadata,
+      ...event.message.metadata,
+      ...(hasCustomMetadata
+        ? { custom: { ...localCustom, ...confirmedCustom } }
+        : {}),
+    };
+    const metadata =
+      Object.keys(mergedMetadata).length > 0 ? mergedMetadata : undefined;
+    const confirmedMessage: AgentMessage = {
+      ...submittedMessage,
+      ...event.message,
+      id: event.message.id,
+      parts: submittedMessage.parts,
+      metadata,
+    };
+    this.submittedUserMessages.set(runKey, event.message.id);
+    return {
+      ...remapped,
+      messages: remapped.messages.map((message) =>
+        message.id === event.message.id || message.id === submittedMessage.id
+          ? confirmedMessage
+          : message,
+      ),
+    };
   }
 
   private setThread(threadId: ThreadId, thread: AgentThreadState): void {

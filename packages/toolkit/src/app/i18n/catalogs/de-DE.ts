@@ -384,6 +384,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "Chat wird geladen...",
   "empty.prompt": "Wie kann ich dir helfen?",
   "error.afterDuration": "{{headline}} nach {{duration}}",
+  "error.chatgptPlanUsageLimit":
+    "Das Nutzungslimit deines ChatGPT-Plans ist erreicht.",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI konnte das Nutzungslimit dieses ChatGPT-Plans nicht prüfen. Prüfe deine ChatGPT-Nutzung oder versuche es mit einem anderen Modell.",
   "error.failed": "Beim Agenten ist ein Fehler aufgetreten",
   "error.render": "Dieser Inhalt konnte nicht angezeigt werden.",
   "error.stopped": "Der Agent wurde vor Abschluss gestoppt",
@@ -544,7 +548,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "Verkaufsgespräche, Transkripte, Deal-Erkenntnisse, Account-Zusammenfassungen",
   "mcpIntegrations.catalog.gong.setupNote":
-    "In Gong muss ein technischer Admin eine MCP-Integration erstellen und persönliche oder geteilte Autorisierung wählen. Die generierte Client-ID und das Secret müssen vor dem Verbinden konfiguriert werden.",
+    "Ein technischer Gong-Admin muss eine MCP-Integration mit persönlicher oder geteilter Autorisierung erstellen. Bei manueller Registrierung speicherst du die generierte Client-ID und das Secret als Workspace-Secrets `GONG_MCP_CLIENT_ID` und `GONG_MCP_CLIENT_SECRET`; die automatische Registrierung benötigt keine Client-Zugangsdaten.",
   "mcpIntegrations.catalog.semgrep.description":
     "Code auf Sicherheitsbefunde scannen.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -756,6 +760,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "Zu diesem Punkt zurückkehren? Änderungen danach gehen verloren.",
   "message.restoreRequestFailed": "Wiederherstellungsanfrage fehlgeschlagen.",
+  "message.historyUnavailable":
+    "Der Änderungsverlauf konnte nicht geladen werden.",
   "message.threadNotFound":
     "Dieser Chat-Thread ist nicht mehr verfügbar. Starte einen neuen Chat oder versuche es erneut, falls das unerwartet war.",
   "message.restoring": "Wird wiederhergestellt...",
@@ -782,6 +788,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Verbindung zu Builder.io wird hergestellt",
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
+  "recovery.retryAttachmentUnavailable":
+    "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
   "recovery.deferredSubmissionFailed":
     "Diese Nachricht konnte nicht gesendet werden. Prüfe deine Verbindung oder Chat-Einstellungen und versuche es erneut.",
   "recovery.credentialRejected":
@@ -894,6 +902,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} wird gefragt...",
   "tool.elapsed": "{{duration}} vergangen",
   "tool.askingAgentFailed": "Fehler beim Fragen von {{agent}}",
+  "tool.failedWithoutDetails": "Keine Fehlerdetails verfügbar.",
   "tool.input": "Eingabe",
   "tool.inputWithLabel": "Eingabe – {{label}}",
   "tool.interrupted":
@@ -982,6 +991,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.builderModelCredits":
     "Kostenlose Credits für Claude, OpenAI und Gemini",
   "composer.chatGptSubscription": "ChatGPT-Abonnement",
+  "composer.chatgptManageUsage": "Nutzung verwalten",
+  "composer.chatgptPlanUsing": "ChatGPT-Plan wird verwendet",
   "composer.closePreview": "Vorschau schließen",
   "composer.configureProviderKeys":
     "Anthropic, OpenAI oder einen anderen Anbieter konfigurieren",
@@ -1631,6 +1642,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "Deine geschätzten Kosten",
   "settings.usage.yourCreditSpend": "Dein Builder.io-Credit-Verbrauch",
   "settings.usage.calls": "Aufrufe",
+  "settings.usage.chatgptPlanUsage": "Nutzung des ChatGPT-Plans",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Aktive Personen",
   "settings.usage.history": "Nutzungsverlauf",
@@ -2848,10 +2860,32 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "Ändern",
   "settingsModel.chatgptConnected": "Verbunden",
   "settingsModel.chatgptDescription":
-    "Nutze die Codex-Engine mit deinem ChatGPT-Abo.",
+    "Nutze berechtigte OpenAI-Modelle mit deinem ChatGPT-Plan.",
   "settingsModel.chatgptPopupBlocked":
     "Erlaube Pop-ups für diese Website und versuche es dann erneut.",
-  "settingsModel.chatgptTitle": "ChatGPT-Abonnement",
+  "settingsModel.chatgptTitle": "Zugriff auf den ChatGPT-Plan",
+  "settingsModel.chatgptAddAccount": "Weiteres Konto hinzufügen",
+  "settingsModel.chatgptConnecting": "Wird verbunden…",
+  "settingsModel.chatgptContinue": "Mit ChatGPT fortfahren",
+  "settingsModel.chatgptDisconnect": "Trennen",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT trennen?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} wird von dieser App abgemeldet und der Agent verwendet deinen ChatGPT-Plan nicht mehr. Du kannst dich jederzeit wieder anmelden.",
+  "settingsModel.chatgptDisconnecting": "Wird getrennt…",
+  "settingsModel.chatgptRemoveLegacySignIn": "Alte ChatGPT-Anmeldung entfernen",
+  "settingsModel.chatgptLegacySignInDetails":
+    "Eine ältere ChatGPT-Anmeldung ist hier gespeichert. Der offizielle Ablauf kann sie nicht verwenden.",
+  "settingsModel.chatgptManageAccess": "In ChatGPT verwalten",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "Hier getrennt. Der Zugriff kann in ChatGPT weiterhin aktiv sein.",
+  "settingsModel.chatgptLocalOnly":
+    "Open-Source-Apps kannst du selbstständig nutzen, wenn du sie lokal mit einem Loopback-Callback startest; ein Partnerantrag ist nicht nötig. Gehostete Apps auf *.agent-native.com benötigen die Freigabe des Betreibers und einen gehosteten Callback.",
+  "settingsModel.chatgptNoDirectUse":
+    "Verbinde dich erneut und erlaube den direkten Modellzugriff, um dieses ChatGPT-Konto zu verwenden.",
+  "settingsModel.chatgptReconnect": "Erneut verbinden",
+  "settingsModel.chatgptSelectAccount": "ChatGPT-Konto",
+  "settingsModel.chatgptUsageLimit":
+    "Das Nutzungslimit deines ChatGPT-Plans ist erreicht.",
   "settingsModel.checkAgain": "Erneut prüfen",
   "settingsModel.checkedJustNow": "Gerade eben geprüft.",
   "settingsModel.checkedOn": "Geprüft am {{date}}.",

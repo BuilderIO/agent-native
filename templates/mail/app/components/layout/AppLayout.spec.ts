@@ -19,7 +19,37 @@ function commandPaletteFocusSource(): string {
   );
 }
 
+function mailGlobalCss(): string {
+  return readFileSync(new URL("../../global.css", import.meta.url), "utf8");
+}
+
+describe("Mail Inbox Zero chat contrast", () => {
+  it("sets a dark control surface for its white foreground", () => {
+    const panelTheme = mailGlobalCss().match(
+      /\.inbox-zero \.agent-sidebar-panel\s*\{([^}]+)\}/,
+    )?.[1];
+
+    expect(panelTheme).toContain(
+      "--agent-kit-nav-surface: rgba(0, 0, 0, 0.72);",
+    );
+    expect(panelTheme).toContain("--background: 240 5.9% 10%;");
+    expect(panelTheme).toContain("--foreground: 0 0% 95%;");
+    expect(panelTheme).toContain("--muted-foreground: 0 0% 85%;");
+  });
+});
+
 describe("AppLayout inbox tab bar", () => {
+  it("clears in-memory thread bodies when the session or mailbox scope changes", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("setThreadCacheSessionScope(");
+    expect(source).toContain("session?.authUserId");
+    expect(source).toContain("setThreadCacheAccountScope(");
+    expect(source).toContain("connected:");
+    expect(source).toContain("selected:");
+    expect(source).toContain("useEffect(() => () => clearThreadCache(), []);");
+  });
+
   it("uses SQL inbox rows instead of the Gmail list API for connected accounts", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 
@@ -207,8 +237,8 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "if (isPinnedSidebarVisible) event.preventDefault();",
     );
-    expect(source).toContain(
-      'overlayClassName={isPinnedSidebarVisible ? "hidden" : undefined}',
+    expect(source).toMatch(
+      /overlayClassName=\{\s*isPinnedSidebarVisible\s*\?\s*"hidden"\s*:\s*"bg-background\/20 backdrop-blur-none"\s*\}/,
     );
     expect(source).toContain("<DialogContent");
     expect(source).toContain("aria-modal={!isPinnedSidebarVisible}");

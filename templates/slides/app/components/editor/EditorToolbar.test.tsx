@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   isPromptUploadLimitError: vi.fn(() => false),
   isPromptUploadNetworkError: vi.fn(() => false),
   isPromptUploadStorageStatusError: vi.fn(() => false),
+  deckContentConflicts: [] as Array<{ slideId: string; canResolve: boolean }>,
+  resolveDeckContentConflict: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -63,7 +65,11 @@ vi.mock("@/context/DeckContext", () => ({
   getStaleContentConflictSlideId: () => undefined,
   hasFailedDeckSave: () => false,
   hasUnsavedDeckChanges: () => false,
-  useDecks: () => ({ resolveContentConflict: vi.fn() }),
+  useDeckContentConflicts: () => mocks.deckContentConflicts,
+  useDecks: () => ({
+    resolveContentConflict: vi.fn(),
+    resolveDeckContentConflict: mocks.resolveDeckContentConflict,
+  }),
   useSaveState: () => ({ saving: false }),
 }));
 
@@ -183,6 +189,7 @@ const deckWithSlides: Deck = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.creativeContextLabEnabled.value = true;
+  mocks.deckContentConflicts = [];
 });
 
 afterEach(() => {
@@ -190,6 +197,33 @@ afterEach(() => {
 });
 
 describe("<EditorToolbar>", () => {
+  it("keeps the deck title read-only for viewers", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          canEdit={false}
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByDisplayValue("Test deck")).toHaveProperty(
+      "readOnly",
+      true,
+    );
+    expect(screen.getByText("editorToolbar.viewOnly")).toBeTruthy();
+  });
+
   it.each([
     [200, { slideCount: 2 }],
     [500, { error: "Import failed" }],

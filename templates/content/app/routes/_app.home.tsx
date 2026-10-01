@@ -6,22 +6,34 @@ import type {
 } from "@shared/content-landing";
 import { contentRecentHref } from "@shared/content-personal-navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import {
+  Link,
+  PrefetchPageLinks,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
+import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
+import { Header } from "@/components/layout/Header";
+import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { invalidateContentDatabaseNavigationQueries } from "@/hooks/use-content-database";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
-import { LIST_DOCUMENTS_QUERY_KEY } from "@/hooks/use-documents";
+import {
+  LIST_DOCUMENTS_QUERY_KEY,
+  startPageOpenDocumentReads,
+} from "@/hooks/use-documents";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
 import { readContentLandingRecovery } from "@/lib/content-landing";
 import {
   landingOptimisticTitle,
   stashLandingTitleHint,
 } from "@/lib/document-title-hint";
+import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
 
 const SEO_TITLE = "Content - Open Source, agent-friendly Obsidian alternative";
 const SEO_DESCRIPTION =
@@ -42,28 +54,15 @@ export function meta() {
   ];
 }
 
-function DocumentSkeleton({ title }: { title?: string | null }) {
+// The landing draws the page placeholder, so a page that opens here keeps its
+// title and body where they were. Anything else gets the app header back.
+function HomeMessage({ children }: { children: ReactNode }) {
+  const sidebarTrigger = useSidebarTrigger();
   return (
-    <div className="flex-1 flex items-start justify-center bg-background overflow-hidden">
-      <div className="w-full max-w-3xl px-12 pt-24 space-y-6">
-        {title ? (
-          <div className="block w-full break-words bg-transparent p-0 font-bold leading-tight text-foreground text-3xl md:text-4xl">
-            {title}
-          </div>
-        ) : (
-          <Skeleton className="h-10 w-2/3" />
-        )}
-        <div className="space-y-3 pt-4">
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-11/12" />
-          <Skeleton className="h-4 w-4/5" />
-        </div>
-        <div className="space-y-3 pt-6">
-          <Skeleton className="h-4 w-3/4" />
-          <Skeleton className="h-4 w-5/6" />
-        </div>
-      </div>
-    </div>
+    <>
+      <Header sidebarTrigger={sidebarTrigger} />
+      {children}
+    </>
   );
 }
 
@@ -118,6 +117,20 @@ export default function HomeRoute() {
   const recoveredDocumentId =
     readContentLandingRecovery(location.state)?.unavailableDocumentId ?? null;
   const queryClient = useQueryClient();
+  // The personal landing restores the last page visited, which the hint
+  // already names, so that page's reads start while the landing validates it.
+  const likelyDocumentId =
+    !spaceId && !recoveredDocumentId
+      ? (lastLocationHint?.documentId ?? null)
+      : null;
+  useEffect(() => {
+    if (!likelyDocumentId) return;
+    const search = new URLSearchParams(location.search);
+    startPageOpenDocumentReads(queryClient, likelyDocumentId, {
+      databaseId: search.get("databaseId"),
+      databaseDocumentId: search.get("databaseDocumentId"),
+    });
+  }, [likelyDocumentId, location.search, queryClient]);
   const resolveLanding = useActionMutation<
     ContentLandingResult | ContentSpaceLandingResult,
     { spaceId?: string }
@@ -193,14 +206,16 @@ export default function HomeRoute() {
 
   if (resolveLanding.isError) {
     return (
-      <QueryErrorState
-        onRetry={() => {
-          resolveLanding.reset();
-          startedFor.current = null;
-          void openLanding();
-        }}
-        retrying={resolveLanding.isPending}
-      />
+      <HomeMessage>
+        <QueryErrorState
+          onRetry={() => {
+            resolveLanding.reset();
+            startedFor.current = null;
+            void openLanding();
+          }}
+          retrying={resolveLanding.isPending}
+        />
+      </HomeMessage>
     );
   }
   if (
@@ -209,9 +224,21 @@ export default function HomeRoute() {
     "target" in resolveLanding.data &&
     resolveLanding.data.resolution === "welcome-unavailable"
   ) {
-    return <WorkspaceWelcomeUnavailable spaceId={spaceId} />;
+    return (
+      <HomeMessage>
+        <WorkspaceWelcomeUnavailable spaceId={spaceId} />
+      </HomeMessage>
+    );
   }
   return (
-    <DocumentSkeleton title={landingOptimisticTitle(null, lastLocationHint)} />
+    <>
+      <PrefetchPageLinks page={`/page/${likelyDocumentId ?? "home"}`} />
+      <DocumentEditorSkeleton
+        title={landingOptimisticTitle(null, lastLocationHint) ?? undefined}
+        iconRow={
+          likelyDocumentId ? readPageIconRowHint(likelyDocumentId) : undefined
+        }
+      />
+    </>
   );
 }

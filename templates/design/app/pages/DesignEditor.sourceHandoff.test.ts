@@ -64,6 +64,9 @@ describe("DesignEditor pending source handoff", () => {
       "canApplyPendingVisualEditsFromToolbar ? null : (",
     );
     expect(toolbar).toContain("<DropdownMenu>");
+    expect(toolbar).toContain(
+      '"designEditor.pendingVisualStyles.copyAgentPrompt"',
+    );
     expect(toolbar).toContain('"designEditor.pendingVisualStyles.copyPrompt"');
     expect(toolbar).toContain(
       '"designEditor.pendingVisualStyles.copyFullPrompt"',
@@ -84,6 +87,22 @@ describe("DesignEditor pending source handoff", () => {
       ),
     );
     expect(copyHandler).toContain("          id,");
+  });
+
+  it("waits for queued handoff publication before copying the full prompt by default", () => {
+    const copyHandler = source.slice(
+      source.indexOf("const handleCopyPendingVisualStylePrompt = useCallback"),
+      source.indexOf(
+        "// ── Export:",
+        source.indexOf(
+          "const handleCopyPendingVisualStylePrompt = useCallback",
+        ),
+      ),
+    );
+    expect(copyHandler).toContain("fullPrompt = true");
+    expect(copyHandler).toContain(
+      "await pendingVisualEditPublicationQueueRef.current",
+    );
   });
 
   it("drops the staged flag whenever pending edits are cleared", () => {

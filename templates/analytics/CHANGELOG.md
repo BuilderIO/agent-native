@@ -3,6 +3,16 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-30
+
+### Improved
+
+- Removed excess spacing above the sidebar footer
+
+### Fixed
+
+- Chat message actions no longer show unavailable request IDs.
+
 ## 2026-09-29
 
 ### Improved
@@ -13,6 +23,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The chat history menu stays open when opened from the header.
+- Chat prompts clear immediately while the assistant thinks.
+- App filters now keep retention charts scoped to the selected app.
+- Chat stays ready for your next draft while a message is being sent.
 - Adding panels now saves without a layout width error.
 - Analytics accepts valid field names that contain SQL keywords and digits
 - Analytics date filters support custom date ranges across dashboards.
@@ -23,6 +37,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Flags moved to an app's Labs settings no longer appear as editable rollout controls.
 - Analytics starts faster on hosted serverless deployments.
 - The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
 - Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
@@ -85,6 +100,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Find session replays by app, date, duration, visitor, and error signals
 - Analytics sidebar navigation and footer controls align consistently, with full-width dividers.
 - The Sessions list hides 0m recordings by default, with a filter to include them.
 

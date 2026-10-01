@@ -6,6 +6,7 @@ import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
+import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import {
   listGmailMessages,
   gmailToEmailMessage,
@@ -13,6 +14,7 @@ import {
   getClients,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { retryAfterSecondsFromErrors } from "../server/lib/list-inbox-emails.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -233,7 +235,24 @@ export default defineAction({
       { mode: "threads", threadCandidateLimit: 500 },
     );
     if (errors.length > 0 && messages.length === 0) {
-      throw new Error(errors.map((e) => `${e.email}: ${e.error}`).join("; "));
+      const errorMessage = errors
+        .map((error) => `${error.email}: ${error.error}`)
+        .join("; ");
+      const failedAccounts = new Set(
+        errors.map((error) => error.email.toLowerCase()),
+      );
+      if (
+        errors.every((error) => error.isQuotaError) &&
+        clients.every((client) =>
+          failedAccounts.has(client.email.toLowerCase()),
+        )
+      ) {
+        throw new GmailQuotaCooldownError(
+          errorMessage,
+          retryAfterSecondsFromErrors(errors) * 1000,
+        );
+      }
+      throw new Error(errorMessage);
     }
 
     let emails = messages

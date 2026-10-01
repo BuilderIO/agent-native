@@ -45,8 +45,8 @@ import SlideRenderer, {
 } from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
+  bulletRowCount,
   findEnclosingList,
-  isBulletRow,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,9 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -88,7 +91,11 @@ import {
   getPersistedElementPath,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
-import { slideCommentAnchorAtPoint } from "@/lib/slide-comment-anchor";
+import {
+  slideCommentAnchorAtPoint,
+  slideCommentAnchorFromRange,
+  slideCommentThreadAtPoint,
+} from "@/lib/slide-comment-anchor";
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
@@ -265,6 +272,7 @@ import {
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
+import { SlideSlashCommandMenu } from "./SlideSlashCommandMenu";
 import {
   SlidesLayersPanel,
   type SlidesLayerKind,
@@ -1054,6 +1062,8 @@ interface SlideEditorProps {
   onComment?: (quotedText: string, anchor?: SlideCommentAnchor) => void;
   /** Existing persisted threads used to render slide-positioned markers. */
   comments?: CommentThread[];
+  /** Opens the thread anchored to text the user clicked on the canvas. */
+  onSelectCommentThread?: (threadId: string) => void;
   /** Zero-based index of the current slide */
   slideIndex?: number;
   /** Design system to inject as CSS custom properties on the slide */
@@ -1650,6 +1660,7 @@ export default function SlideEditor({
   onSelectedAnimationTargetChange,
   slideId,
   comments = [],
+  onSelectCommentThread,
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
@@ -2137,6 +2148,11 @@ export default function SlideEditor({
     owner: HTMLElement;
     wasSelected: boolean;
   } | null>(null);
+  const commentThreadPressRef = useRef<{
+    threadId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const activeGestureCancelRef = useRef<(() => void) | null>(null);
   /**
    * If the user pressed shift/cmd before starting a marquee, additive mode
@@ -2147,6 +2163,10 @@ export default function SlideEditor({
   const marqueePrevSelectionRef = useRef<Set<string>>(new Set());
   /** Currently-edited smart block (leaf or group). State, not ref, so menu re-renders. */
   const [editingEl, setEditingEl] = useState<HTMLElement | null>(null);
+  const [keyboardLinkRequest, setKeyboardLinkRequest] = useState<{
+    editingEl: HTMLElement;
+    range: Range;
+  } | null>(null);
   /**
    * Mirror of `editingEl` readable outside render. Exit paths must not read it
    * through a `setEditingEl` updater: updaters run during the render phase, so
@@ -2448,6 +2468,7 @@ export default function SlideEditor({
       const session = textSessionRef.current;
       if (!session) return null;
       textSessionRef.current = null;
+      setKeyboardLinkRequest(null);
       session.text.end();
       const element = session.text.element;
       const { slideContent } = session;
@@ -2887,6 +2908,7 @@ export default function SlideEditor({
         : selected;
       const selector = getBuilderSelector(selectionTarget);
       editingElRef.current = null;
+      (ended?.element ?? el).blur();
       richTextSelectionRef.current = null;
       window.getSelection()?.removeAllRanges();
       const initial = inlineEditInitialContentRef.current;
@@ -2959,12 +2981,10 @@ export default function SlideEditor({
       if (!slideContent || !slideContent.contains(block)) return;
       // A bullet is edited as part of its list: the list is the edit root, so
       // Enter adds a bullet beside the row and an empty last one is removed.
-      const list = isBulletRow(block)
-        ? findEnclosingList(block, slideContent)
-        : null;
+      const list = findEnclosingList(block, slideContent);
       const el =
         list &&
-        isRichTextBlock(list) &&
+        (isRichTextBlock(list) || bulletRowCount(list) >= 2) &&
         !holdsPaintedTextBox(list, slideContent)
           ? list
           : block;
@@ -3006,6 +3026,11 @@ export default function SlideEditor({
       const text = startInPlaceTextSession(el, {
         caretPoint: point,
         selectWord,
+        onRequestLink: (range) => {
+          const currentEl = textSessionRef.current?.text.element;
+          if (currentEl)
+            setKeyboardLinkRequest({ editingEl: currentEl, range });
+        },
         onInput: () => {
           if (textSessionRef.current?.text !== text) return;
           // A list toggle or its undo can retag the edited element.
@@ -3859,7 +3884,8 @@ export default function SlideEditor({
       e.preventDefault();
       e.stopImmediatePropagation();
       if (action === "edit") {
-        exitInlineEdit(undefined, true);
+        exitInlineEdit();
+        slideCanvasRef.current?.focus({ preventScroll: true });
       } else if (action === "gesture") {
         activeGestureCancelRef.current?.();
       } else if (action === "mode") {
@@ -7679,17 +7705,21 @@ export default function SlideEditor({
         e.clientX,
         e.clientY,
       );
-      const selected = resolveSelectedElement();
-      const grabbedShape = findGrabbedSlideShape(
-        target,
-        slideContent,
-        selected,
+      const editableTextBlock = findSmartBlock(target, slideContent);
+      const targetIsEditableText = Boolean(
+        editableTextBlock && !isSlideCanvasShell(editableTextBlock),
       );
+      const selected = resolveSelectedElement();
+      const grabbedShape =
+        targetIsEditableText && !e.altKey
+          ? null
+          : findGrabbedSlideShape(target, slideContent, selected);
       const hovered = grabbedShape ?? resolveClickObject(target, slideContent);
       setCanvasHoverElement(hovered === selected ? null : hovered);
       const shouldShowMoveCursor =
         grabbedShape !== null ||
-        (selected !== null &&
+        (!targetIsEditableText &&
+          selected !== null &&
           !isSlideCanvasShell(selected) &&
           isWithinSlidesCanvasEdgeMoveBand(
             selected.getBoundingClientRect(),
@@ -7729,6 +7759,7 @@ export default function SlideEditor({
         e.clientX,
         e.clientY,
       );
+      commentThreadPressRef.current = null;
 
       if (shapeType) {
         e.preventDefault();
@@ -7794,6 +7825,25 @@ export default function SlideEditor({
       ) {
         return;
       }
+      if (!editingEl && !pinMode && !drawMode) {
+        const threadId = slideCommentThreadAtPoint(
+          comments,
+          slideContent,
+          e.clientX,
+          e.clientY,
+        );
+        if (threadId) {
+          commentThreadPressRef.current = {
+            threadId,
+            x: e.clientX,
+            y: e.clientY,
+          };
+        }
+      }
+      const editableTextBlock = findSmartBlock(target, slideContent);
+      const targetIsEditableText = Boolean(
+        editableTextBlock && !isSlideCanvasShell(editableTextBlock),
+      );
       if (e.currentTarget instanceof HTMLElement) {
         e.currentTarget.focus({ preventScroll: true });
       }
@@ -7811,11 +7861,10 @@ export default function SlideEditor({
       const selected = resolveSelectedElement();
       // Once the selection has moved inside a shape (one of its text blocks
       // was edited or selected), that child's text-box rules apply instead.
-      const grabbedShape = findGrabbedSlideShape(
-        target,
-        slideContent,
-        selected,
-      );
+      const grabbedShape =
+        targetIsEditableText && !e.altKey
+          ? null
+          : findGrabbedSlideShape(target, slideContent, selected);
       shapePressRef.current = grabbedShape
         ? { owner: grabbedShape, wasSelected: selected === grabbedShape }
         : null;
@@ -7838,7 +7887,6 @@ export default function SlideEditor({
         selected && !isSlideCanvasShell(selected) ? selected : null,
         clicked && !isSlideCanvasShell(clicked) ? clicked : null,
       );
-      const editableTextBlock = findSmartBlock(target, slideContent);
       const pointerIntent = resolveSlidesCanvasPointerIntent({
         hasSelectedObject: dragTarget !== null,
         targetWithinSelectedObject: dragTarget?.contains(target) ?? false,
@@ -7852,9 +7900,7 @@ export default function SlideEditor({
             e.clientX,
             e.clientY,
           ),
-        targetIsEditableText: Boolean(
-          editableTextBlock && !isSlideCanvasShell(editableTextBlock),
-        ),
+        targetIsEditableText,
         duplicateModifierActive: e.altKey,
       });
       if (
@@ -7900,6 +7946,8 @@ export default function SlideEditor({
     },
     [
       clearCanvasHover,
+      comments,
+      drawMode,
       editingEl,
       findSelectableId,
       getSlideContent,
@@ -7908,6 +7956,7 @@ export default function SlideEditor({
       applyMultiSelection,
       clearSelectedElement,
       textBoxMode,
+      pinMode,
       shapeType,
       exitInlineEdit,
       resolveSelectedElement,
@@ -8527,10 +8576,21 @@ export default function SlideEditor({
         suppressNextClickRef.current = false;
         return;
       }
-
-      // If currently editing a block, clicks inside it are for the caret —
-      // don't select/style-edit.
+      const commentPress = commentThreadPressRef.current;
+      commentThreadPressRef.current = null;
+      // Text editing owns clicks in its contenteditable block, including
+      // clicks that happen to land on a comment highlight.
       if (editingEl?.contains(e.target as Node)) return;
+      if (
+        commentPress &&
+        onSelectCommentThread &&
+        Math.hypot(e.clientX - commentPress.x, e.clientY - commentPress.y) <= 4
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelectCommentThread(commentPress.threadId);
+        return;
+      }
 
       const slideContent = getSlideContent();
       const target = slideContent
@@ -8683,6 +8743,7 @@ export default function SlideEditor({
       readOnly,
       isHtmlSlide,
       enterInlineEdit,
+      onSelectCommentThread,
     ],
   );
 
@@ -8756,6 +8817,7 @@ export default function SlideEditor({
           : null,
       );
 
+      stampBuilderIds(slideContent);
       const selectable = findSelectableElement(target, slideContent);
       if (!selectable) {
         contextMenuTargetRef.current = null;
@@ -9531,6 +9593,44 @@ export default function SlideEditor({
         <ContextMenuShortcut>{shortcutLabel("cmd+alt+v")}</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
+      <ContextMenuSub>
+        <ContextMenuSubTrigger
+          disabled={!selectedElementSelector && !objectOperationSelection}
+        >
+          {t("styleInspector.order")}
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("front")}
+          >
+            {t("styleInspector.bringToFront")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("forward")}
+          >
+            {t("styleInspector.bringForward")}
+            <ContextMenuShortcut>{shortcutLabel("cmd+up")}</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("backward")}
+          >
+            {t("styleInspector.sendBackward")}
+            <ContextMenuShortcut>
+              {shortcutLabel("cmd+down")}
+            </ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("back")}
+          >
+            {t("styleInspector.sendToBack")}
+          </ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuSeparator />
       <ContextMenuItem
         disabled={!canGroupObjects}
         onSelect={handleGroupSelected}
@@ -9546,33 +9646,6 @@ export default function SlideEditor({
         <ContextMenuShortcut>
           {shortcutLabel("cmd+alt+shift+g")}
         </ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("backward")}
-      >
-        {t("styleInspector.sendBackward")}
-        <ContextMenuShortcut>{shortcutLabel("cmd+down")}</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("forward")}
-      >
-        {t("styleInspector.bringForward")}
-        <ContextMenuShortcut>{shortcutLabel("cmd+up")}</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("front")}
-      >
-        {t("styleInspector.bringToFront")}
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("back")}
-      >
-        {t("styleInspector.sendToBack")}
       </ContextMenuItem>
     </>
   );
@@ -10047,6 +10120,7 @@ export default function SlideEditor({
       <BlockBubbleMenu
         editingEl={editingEl}
         textSession={textSessionRef.current?.text ?? null}
+        linkRequest={keyboardLinkRequest}
         slideId={slide.id}
         deckId={deckId}
         slideContentHash={hashSlideContent(slide.content)}
@@ -10055,23 +10129,26 @@ export default function SlideEditor({
           const canvas = document.querySelector<HTMLElement>(
             "[data-main-slide-canvas='true']",
           );
-          const selectionRect = range.getBoundingClientRect();
           const target =
             editingEl.closest<HTMLElement>("[data-slide-object-id]") ??
             editingEl;
           const objectId = ensureCommentObjectId(target);
           const anchor = canvas
-            ? slideCommentAnchorAtPoint({
-                clientX: selectionRect.left + selectionRect.width / 2,
-                clientY: selectionRect.top + selectionRect.height / 2,
+            ? slideCommentAnchorFromRange({
+                range,
                 slideRect: canvas.getBoundingClientRect(),
                 objectId,
                 objectRect: target.getBoundingClientRect(),
+                objectElement: target,
                 targetText: quotedText,
               })
             : undefined;
           onComment?.(quotedText, anchor);
         }}
+      />
+      <SlideSlashCommandMenu
+        editingEl={editingEl}
+        textSession={textSessionRef.current?.text ?? null}
       />
 
       {pendingUpdateCount > 0 && (
@@ -10181,6 +10258,7 @@ export default function SlideEditor({
         currentUserEmail={currentUserEmail ?? null}
         onBeforeCommentSubmit={onFlushInlineEdit}
         onEnsureObjectId={ensureCommentObjectId}
+        onSelectThread={onSelectCommentThread}
       />
     </div>
   );

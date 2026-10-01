@@ -23,6 +23,16 @@ export default function SettingsIndexRoute() {
   const labs = useMemo(
     () =>
       CLIPS_LABS.map((lab) => {
+        if (lab.key === "clips.resilient-recording") {
+          return {
+            ...lab,
+            displayName: t("settings.labResilientRecording"),
+            description: t("settings.labResilientRecordingDescription"),
+            inheritedMixedDescription: t(
+              "settings.labResilientRecordingMixedDescription",
+            ),
+          };
+        }
         if (lab.key === "clips.video-editing") {
           return {
             ...lab,

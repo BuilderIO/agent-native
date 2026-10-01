@@ -1247,6 +1247,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "コンテンツ",
+    loadingContent: "コンテンツを読み込み中",
     commandSearchDocuments: "ドキュメントを検索",
     searchSince: "{{date}}以降",
     searchModifiedSince: "{{date}}以降に更新",
