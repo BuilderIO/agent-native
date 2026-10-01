@@ -4395,6 +4395,7 @@ export function AgentKitChat({
                 part.type !== "reasoning" &&
                 (part.type !== "text" ||
                   part.text.trim() ||
+                  messageRenderer ||
                   textRenderer ||
                   messagePartRenderers?.text),
             ),

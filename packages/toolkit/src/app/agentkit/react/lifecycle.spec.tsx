@@ -1389,7 +1389,7 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("anchors whitespace text deltas with a custom text renderer", async () => {
+  it("preserves whitespace text for custom message and text renderers", async () => {
     const threadId = "thread-whitespace-text-delta";
     const runId = "run-whitespace-text-delta";
     const response = {
@@ -1451,7 +1451,14 @@ describe("AgentChat lifecycle", () => {
         controller={observable.controller}
         threadId={threadId}
         slots={{
-          text: () => <span data-whitespace-delta>Custom text output</span>,
+          message: ({ value }) => (
+            <span data-whitespace-message>
+              {value.parts
+                .filter((part) => part.type === "text")
+                .map((part) => (part.type === "text" ? part.text : ""))
+                .join("")}
+            </span>
+          ),
         }}
       >
         <AgentKitChat composer={false} />
@@ -1459,11 +1466,28 @@ describe("AgentChat lifecycle", () => {
     );
 
     const work = tree.container.querySelector(".agentkit-activities")!;
-    const output = tree.container.querySelector("[data-whitespace-delta]")!;
-    expect(output.textContent).toBe("Custom text output");
+    const messageOutput = tree.container.querySelector(
+      "[data-whitespace-message]",
+    )!;
+    expect(messageOutput.textContent).toBe(" ");
     expect(
-      work.compareDocumentPosition(output) & Node.DOCUMENT_POSITION_FOLLOWING,
+      work.compareDocumentPosition(messageOutput) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        slots={{
+          text: () => <span data-whitespace-delta>Custom text output</span>,
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    const textOutput = tree.container.querySelector("[data-whitespace-delta]")!;
+    expect(textOutput.textContent).toBe("Custom text output");
     await tree.unmount();
   });
 
