@@ -22,9 +22,15 @@ const workflow = parse(
       steps?: Array<{
         id?: unknown;
         name?: unknown;
+        uses?: unknown;
         "timeout-minutes"?: unknown;
         if?: unknown;
-        with?: { "if-no-files-found"?: unknown };
+        with?: {
+          name?: unknown;
+          path?: unknown;
+          "if-no-files-found"?: unknown;
+          "retention-days"?: unknown;
+        };
       }>;
     };
   };
@@ -41,16 +47,26 @@ assert.equal(workflow.concurrency?.group, "design-e2e");
 assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
 assert.equal(workflow.concurrency?.queue, undefined);
 assert.equal(workflow.jobs?.e2e?.["timeout-minutes"], 45);
-const shardStep = workflow.jobs?.e2e?.steps?.find(
-  (step) => step.name === "Run shard",
-);
+const steps = workflow.jobs?.e2e?.steps ?? [];
+const shardIndex = steps.findIndex((step) => step.name === "Run shard");
+const shardStep = steps.find((step) => step.name === "Run shard");
 assert.equal(shardStep?.id, "run-shard");
 assert.equal(shardStep?.["timeout-minutes"], 37);
-const reportStep = workflow.jobs?.e2e?.steps?.find(
+const reportIndex = steps.findIndex(
   (step) => step.name === "Upload report on failure",
+);
+const reportStep = steps.find(
+  (step) => step.name === "Upload report on failure",
+);
+assert.ok(shardIndex >= 0 && reportIndex > shardIndex);
+assert.equal(
+  reportStep?.uses,
+  "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
 );
 assert.equal(
   reportStep?.if,
   "${{ always() && steps.run-shard.outcome != 'success' }}",
 );
+assert.equal(reportStep?.with?.path, "templates/design/test-results");
+assert.equal(reportStep?.with?.["retention-days"], 7);
 assert.equal(reportStep?.with?.["if-no-files-found"], "warn");
