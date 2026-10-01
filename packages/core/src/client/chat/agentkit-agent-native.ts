@@ -1603,7 +1603,25 @@ export function createAgentNativeAgentKitTransport(
       ...options.operations,
     },
   });
-  const startRun = protocolTransport.startRun.bind(protocolTransport);
+  const protocolStartRun = protocolTransport.startRun.bind(protocolTransport);
+  const startRun: typeof protocolTransport.startRun = async (
+    input,
+    context,
+  ) => {
+    try {
+      return await protocolStartRun(input, context);
+    } catch (error) {
+      if (asRecord(error)?.status === 409) {
+        const activeRunId = asRecord(error)?.activeRunId;
+        const busy = new AgentKitRunSlotBusyError(
+          typeof activeRunId === "string" ? activeRunId : undefined,
+        );
+        Object.assign(busy, { status: 409 });
+        throw busy;
+      }
+      throw error;
+    }
+  };
   const subscribeToRun =
     protocolTransport.subscribeToRun.bind(protocolTransport);
   transport = {

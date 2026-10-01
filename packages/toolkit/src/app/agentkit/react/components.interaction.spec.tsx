@@ -1126,7 +1126,12 @@ describe("AgentKitChat interactions", () => {
     const message = {
       id: "assistant-copy-fallback",
       role: "assistant" as const,
-      parts: [{ type: "text" as const, text: "Plain text answer" }],
+      parts: [
+        {
+          type: "text" as const,
+          text: "Plain text answer\n<context>private context</context>",
+        },
+      ],
     };
     const transport: AgentTransport = {
       async startRun() {

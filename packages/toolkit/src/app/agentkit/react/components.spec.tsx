@@ -1292,7 +1292,7 @@ describe("AgentKitChat", () => {
             {
               id: "queued-1",
               threadId: "thread-slots",
-              text: "Check the deployment",
+              text: "Check the deployment\n<context>private context</context>",
               createdAt: "2026-08-29T00:00:00.000Z",
             },
           ],
@@ -1381,6 +1381,7 @@ describe("AgentKitChat", () => {
     }
     expect(html).toContain('aria-label="Release room"');
     expect(html).toContain("Check the deployment");
+    expect(html).not.toContain("private context");
     expect(html).toContain("Review the release");
     expect(html).toContain('data-registry="widget"');
     expect(html).toContain("Workspace health");

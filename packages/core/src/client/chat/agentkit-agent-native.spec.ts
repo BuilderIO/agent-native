@@ -2182,6 +2182,40 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("maps a start-run 409 without a run ID to a typed busy error", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () =>
+        json({ message: "Run already in progress" }, 409),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Queue me" }],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      status: 409,
+      retryable: true,
+    });
+    await expect(
+      transport.submitFeedback?.({
+        threadId: "thread-1",
+        messageId: "assistant-1",
+        value: "negative",
+      }),
+    ).rejects.toMatchObject({ code: "http_409", status: 409 });
+    await transport.dispose();
+  });
+
   it("persists response feedback and forks durable history from a message", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];
     const fetcher = vi.fn(

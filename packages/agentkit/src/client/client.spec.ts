@@ -2635,6 +2635,77 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("queues an idless server conflict without leaving a failed optimistic message", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-idless-conflict",
+      threadId: "thread-1",
+      text: "Keep this queued",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const queueMessage = vi.fn(async () => ({ message: queued }));
+    const onError = vi.fn();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async startRun() {
+          throw new AgentKitRunSlotBusyError();
+        },
+        queueMessage,
+        async steerQueuedMessage() {
+          throw new AgentKitRunSlotBusyError();
+        },
+      },
+      onError,
+    });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+    });
+
+    expect(handle.runId).toBe(queued.id);
+    expect(queueMessage).toHaveBeenCalledOnce();
+    expect(client.getThread("thread-1")).toMatchObject({
+      messages: [],
+      queuedMessages: [queued],
+      activeRunIds: [],
+    });
+    expect(client.getSnapshot()).toMatchObject({
+      connection: "connected",
+      error: undefined,
+    });
+    expect(onError).not.toHaveBeenCalled();
+
+    await client.shutdown();
+  });
+
+  it("does not synthesize active-run state when persisting a conflicted send fails", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async startRun() {
+          throw new AgentKitRunSlotBusyError("run-active");
+        },
+        async queueMessage() {
+          throw new Error("Queue persistence failed");
+        },
+      },
+    });
+
+    await expect(
+      client.sendMessage({ threadId: "thread-1", text: "Do not lose me" }),
+    ).rejects.toThrow("Queue persistence failed");
+    expect(client.getThread("thread-1")).toMatchObject({
+      activeRunIds: [],
+      queuedMessages: [],
+      messages: [expect.objectContaining({ status: "error" })],
+    });
+
+    await client.shutdown();
+  });
+
   it("preserves interrupt intent when a server-rejected send is steered", async () => {
     const queued: AgentQueuedMessage = {
       id: "queued-steered-conflict",
@@ -2691,6 +2762,56 @@ describe("AgentKitClient", () => {
       messages: [expect.objectContaining({ id: queued.id })],
       queuedMessages: [],
     });
+
+    await client.shutdown();
+  });
+
+  it("allows explicit steer to escalate an automatic promotion", async () => {
+    const finishAutomaticSteer = Promise.withResolvers<void>();
+    const queued: AgentQueuedMessage = {
+      id: "queued-steer-escalation",
+      threadId: "thread-1",
+      text: "Interrupt with this",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    let steerCalls = 0;
+    const steerQueuedMessage = vi.fn(async (input) => {
+      steerCalls += 1;
+      if (steerCalls === 1) {
+        await finishAutomaticSteer.promise;
+        throw new AgentKitRunSlotBusyError("run-active");
+      }
+      expect(input.interruptActiveRun).toBe(true);
+      return { runId: "run-steered" };
+    });
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async queueMessage() {
+          return { message: queued };
+        },
+        steerQueuedMessage,
+      },
+      onError: vi.fn(),
+    });
+
+    await client.queueMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      queuedWhileRunActive: true,
+    });
+    await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+    const explicit = client.steerQueuedMessage(
+      "thread-1",
+      queued.id,
+      undefined,
+      { interruptActiveRun: true },
+    );
+
+    finishAutomaticSteer.resolve();
+    await expect(explicit).resolves.toMatchObject({ runId: "run-steered" });
+    expect(steerQueuedMessage).toHaveBeenCalledTimes(2);
 
     await client.shutdown();
   });
@@ -4394,7 +4515,7 @@ describe("AgentKitClient", () => {
       });
       await run.completed;
 
-      const retryDelays = [500, 500, 500, 500, 500, 500, 500];
+      const retryDelays = [500, 1_000, 2_000, 4_000, 5_000, 5_000, 5_000];
       for (const [index, delay] of retryDelays.entries()) {
         await vi.advanceTimersByTimeAsync(delay);
         expect(attempts).toBe(index + 2);

@@ -2513,7 +2513,7 @@ export function AgentMessageActions({
   const forkingCapability = useAgentCapability("threadForking");
   const control = useAgentKitControl(threadId);
   const editContext = useContext(AgentMessageEditContext);
-  const text = messageText(message);
+  const text = splitAgentKitMessageContext(messageText(message)).message;
   const previousUserMessage =
     message.role === "assistant"
       ? findPreviousUserMessage(thread.messages, message.id)
@@ -3648,7 +3648,10 @@ export function AgentKitComposer({
       {queueCapability.visible ? (
         Queue ? (
           <Queue
-            items={thread.queuedMessages}
+            items={thread.queuedMessages.map((message) => ({
+              ...message,
+              text: splitAgentKitMessageContext(message.text).message,
+            }))}
             threadId={threadId}
             active={active}
             pending={command.pending || Boolean(disabled)}
