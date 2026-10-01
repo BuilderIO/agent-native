@@ -22,7 +22,46 @@ import {
   registerSecretUsage,
   type SecretUsage,
   type SecretValidator,
+  type ValidatorResult,
 } from "./register.js";
+
+/**
+ * Reads a provider's answer to a key check. Only an authentication refusal
+ * means the key is wrong; a rate limit or provider outage says nothing about
+ * the key, so it is a retryable "could not verify" instead of a rejection.
+ */
+export async function providerKeyCheckResult(
+  provider: string,
+  response: Response,
+  options: { acceptForbidden?: (body: string) => boolean } = {},
+): Promise<ValidatorResult> {
+  if (response.ok) return { ok: true };
+  if (response.status === 429 || response.status >= 500) {
+    return {
+      ok: false,
+      retryable: true,
+      error: `${provider} could not verify the key right now (HTTP ${response.status}). Try again in a moment.`,
+    };
+  }
+  if (response.status === 403 && options.acceptForbidden) {
+    // coercion-ok: an unreadable 403 body falls through to the rejection below.
+    const body = await response.text().catch(() => "");
+    if (options.acceptForbidden(body)) return { ok: true };
+  }
+  return {
+    ok: false,
+    error: `${provider} rejected the key (HTTP ${response.status}).`,
+  };
+}
+
+/**
+ * OpenAI project keys can be restricted so they may call models but not list
+ * them; `/v1/models` then answers 403 with the missing `api.model.read`
+ * scope even though the key authenticates and works for chat.
+ */
+function isOpenAiMissingModelReadScope(body: string): boolean {
+  return /api\.model\.read/i.test(body);
+}
 
 /**
  * What the framework itself uses each key for, in every app. Recorded apart
@@ -243,12 +282,7 @@ export function registerFrameworkSecrets(): void {
             "anthropic-version": "2023-06-01",
           },
         });
-        return response.ok
-          ? { ok: true }
-          : {
-              ok: false,
-              error: `Anthropic rejected the key (HTTP ${response.status}).`,
-            };
+        return providerKeyCheckResult("Anthropic", response);
       },
     });
   }
@@ -267,12 +301,9 @@ export function registerFrameworkSecrets(): void {
         const response = await fetch("https://api.openai.com/v1/models", {
           headers: { Authorization: `Bearer ${value}` },
         });
-        return response.ok
-          ? { ok: true }
-          : {
-              ok: false,
-              error: `OpenAI rejected the key (HTTP ${response.status}).`,
-            };
+        return providerKeyCheckResult("OpenAI", response, {
+          acceptForbidden: isOpenAiMissingModelReadScope,
+        });
       },
     });
   }
@@ -291,12 +322,7 @@ export function registerFrameworkSecrets(): void {
         const response = await fetch("https://api.typesafe.ai/v1/models", {
           headers: { Authorization: `Bearer ${value}` },
         });
-        return response.ok
-          ? { ok: true }
-          : {
-              ok: false,
-              error: `Jev rejected the key (HTTP ${response.status}).`,
-            };
+        return providerKeyCheckResult("Jev", response);
       },
     });
   }
@@ -332,12 +358,7 @@ export function registerFrameworkSecrets(): void {
           "https://generativelanguage.googleapis.com/v1beta/models",
           { headers: { "x-goog-api-key": value } },
         );
-        return response.ok
-          ? { ok: true }
-          : {
-              ok: false,
-              error: `Google rejected the key (HTTP ${response.status}).`,
-            };
+        return providerKeyCheckResult("Google", response);
       },
     },
     {

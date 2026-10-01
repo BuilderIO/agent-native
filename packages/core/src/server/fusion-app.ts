@@ -26,6 +26,7 @@
 
 import { z } from "zod";
 
+import { fail } from "../action.js";
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   builderReferralInfoSchema,
@@ -117,22 +118,43 @@ const builderCreditUsageSchema = z
 
 export type BuilderCreditUsage = z.infer<typeof builderCreditUsageSchema>;
 
+/**
+ * Builder's credit service failing is an upstream outage, not a bug in the
+ * caller: it is typed so the action route answers 502/503 without filing an
+ * error issue per sidebar poll, and still counts it in `action_error_counts`.
+ */
+function builderCreditUsageUnavailable(upstreamStatus?: number): never {
+  return fail("Builder credit usage is unavailable right now.", {
+    errorCode: "builder_credit_usage_unavailable",
+    statusCode:
+      upstreamStatus === undefined ||
+      upstreamStatus === 429 ||
+      upstreamStatus >= 500
+        ? 503
+        : 502,
+    ...(upstreamStatus === undefined ? {} : { details: { upstreamStatus } }),
+  });
+}
+
 export async function getBuilderCreditUsage(): Promise<BuilderCreditUsage | null> {
   const authorization = await resolveBuilderRequestAuthorization({
     requiredScope: "builder:ai:invoke",
   });
   if (!authorization) return null;
 
-  const response = await fetch(
-    fusionUrl("/agent-native/credits/v1/usage", authorization),
-    {
-      headers: { Authorization: authorization.authorization },
-      signal: AbortSignal.timeout(5000),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`Builder credit usage failed (${response.status}).`);
+  let response: Response;
+  try {
+    response = await fetch(
+      fusionUrl("/agent-native/credits/v1/usage", authorization),
+      {
+        headers: { Authorization: authorization.authorization },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+  } catch {
+    return builderCreditUsageUnavailable();
   }
+  if (!response.ok) return builderCreditUsageUnavailable(response.status);
   return builderCreditUsageSchema.parse(await response.json());
 }
 

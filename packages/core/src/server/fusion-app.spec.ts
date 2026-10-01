@@ -155,6 +155,45 @@ describe("Fusion Builder authorization", () => {
     await expect(getBuilderCreditUsage()).rejects.toThrow();
   });
 
+  it.each([
+    [500, 503],
+    [429, 503],
+    [404, 502],
+  ])(
+    "reports a Builder credit service %i as a typed upstream outage (%i)",
+    async (upstreamStatus, statusCode) => {
+      resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+        token: "<OAUTH_TOKEN_EXAMPLE>",
+        authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+        source: "oauth",
+      });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("upstream failed", { status: upstreamStatus }),
+      );
+
+      await expect(getBuilderCreditUsage()).rejects.toMatchObject({
+        actionContractError: true,
+        errorCode: "builder_credit_usage_unavailable",
+        statusCode,
+        details: { upstreamStatus },
+      });
+    },
+  );
+
+  it("reports an unreachable Builder credit service as unavailable", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    vi.mocked(fetch).mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(getBuilderCreditUsage()).rejects.toMatchObject({
+      errorCode: "builder_credit_usage_unavailable",
+      statusCode: 503,
+    });
+  });
+
   it("reads the Builder referral link and totals with the AI invoke scope", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "<OAUTH_TOKEN_EXAMPLE>",

@@ -179,6 +179,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       }
       return {
         data: {
+          status: "ready",
           suggestions: [
             {
               id: "design-suggestion",

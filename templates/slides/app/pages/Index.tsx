@@ -246,9 +246,13 @@ interface HomeSuggestion {
   prompt: string;
 }
 
-interface HomeSuggestionsResult {
-  suggestions: HomeSuggestion[];
-}
+type HomeSuggestionsResult =
+  | { status: "ready"; suggestions: HomeSuggestion[] }
+  | {
+      status: "unavailable";
+      reason: "missing_credentials";
+      suggestions: [];
+    };
 
 interface ImportedReferenceSource {
   deckId: string;
@@ -599,17 +603,19 @@ export default function Index({ active = true }: { active?: boolean }) {
       staleTime: 5 * 60 * 1000,
     },
   );
-  const homeSuggestions = homeSuggestionsQuery.data?.suggestions.length
-    ? homeSuggestionsQuery.data.suggestions
-    : [
-        t("home.fallbackSuggestions.pitch"),
-        t("home.fallbackSuggestions.roadmap"),
-        t("home.fallbackSuggestions.explainer"),
-      ].map((prompt, index) => ({
-        id: `slides-home-generic-${index}`,
-        label: prompt,
-        prompt,
-      }));
+  const homeSuggestions =
+    homeSuggestionsQuery.data?.status === "ready" &&
+    homeSuggestionsQuery.data.suggestions.length
+      ? homeSuggestionsQuery.data.suggestions
+      : [
+          t("home.fallbackSuggestions.pitch"),
+          t("home.fallbackSuggestions.roadmap"),
+          t("home.fallbackSuggestions.explainer"),
+        ].map((prompt, index) => ({
+          id: `slides-home-generic-${index}`,
+          label: prompt,
+          prompt,
+        }));
   const navigate = useNavigate();
   useHomeSearchShortcut(isHome);
   const [searchParams, setSearchParams] = useSearchParams();

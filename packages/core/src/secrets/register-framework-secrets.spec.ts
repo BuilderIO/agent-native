@@ -75,6 +75,59 @@ describe("framework secret registrations", () => {
     );
   });
 
+  it("accepts an OpenAI project key restricted from listing models", async () => {
+    registerFrameworkSecrets();
+    const openai = getRequiredSecret("OPENAI_API_KEY");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "You have insufficient permissions for this operation. Missing scopes: api.model.read.",
+            },
+          }),
+          { status: 403 },
+        ),
+      ),
+    );
+
+    await expect(openai?.validator?.("<OPENAI_API_KEY>")).resolves.toEqual({
+      ok: true,
+    });
+  });
+
+  it("still rejects an OpenAI key the API refuses to authenticate", async () => {
+    registerFrameworkSecrets();
+    const openai = getRequiredSecret("OPENAI_API_KEY");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 401 })),
+    );
+
+    await expect(openai?.validator?.("<OPENAI_API_KEY>")).resolves.toEqual({
+      ok: false,
+      error: "OpenAI rejected the key (HTTP 401).",
+    });
+  });
+
+  it("reports a provider outage during the key check as retryable", async () => {
+    registerFrameworkSecrets();
+    const openai = getRequiredSecret("OPENAI_API_KEY");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
+    );
+
+    await expect(openai?.validator?.("<OPENAI_API_KEY>")).resolves.toEqual({
+      ok: false,
+      retryable: true,
+      error:
+        "OpenAI could not verify the key right now (HTTP 503). Try again in a moment.",
+    });
+  });
+
   it("registers Jev as an optional API key with paste-time validation", async () => {
     registerFrameworkSecrets();
 

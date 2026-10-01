@@ -225,7 +225,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         data:
           options?.enabled === false
             ? undefined
-            : { suggestions: homeSuggestions.value },
+            : { status: "ready", suggestions: homeSuggestions.value },
         isLoading: false,
         isError: false,
       };

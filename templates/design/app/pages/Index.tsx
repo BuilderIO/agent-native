@@ -166,9 +166,13 @@ interface HomeSuggestion {
   prompt: string;
 }
 
-interface HomeSuggestionsResult {
-  suggestions: HomeSuggestion[];
-}
+type HomeSuggestionsResult =
+  | { status: "ready"; suggestions: HomeSuggestion[] }
+  | {
+      status: "unavailable";
+      reason: "missing_credentials";
+      suggestions: [];
+    };
 
 export default function Index() {
   const t = useT();
@@ -352,17 +356,19 @@ export default function Index() {
       staleTime: 5 * 60 * 1000,
     },
   );
-  const homeSuggestions = homeSuggestionsQuery.data?.suggestions.length
-    ? homeSuggestionsQuery.data.suggestions
-    : [
-        t("chat.suggestionLandingPage"),
-        t("chat.suggestionBrandMatch"),
-        t("chat.suggestionMobile"),
-      ].map((prompt, index) => ({
-        id: `design-home-generic-${index}`,
-        label: prompt,
-        prompt,
-      }));
+  const homeSuggestions =
+    homeSuggestionsQuery.data?.status === "ready" &&
+    homeSuggestionsQuery.data.suggestions.length
+      ? homeSuggestionsQuery.data.suggestions
+      : [
+          t("chat.suggestionLandingPage"),
+          t("chat.suggestionBrandMatch"),
+          t("chat.suggestionMobile"),
+        ].map((prompt, index) => ({
+          id: `design-home-generic-${index}`,
+          label: prompt,
+          prompt,
+        }));
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
