@@ -1,5 +1,14 @@
 # @agent-native/toolkit
 
+## 0.198.8
+
+### Patch Changes
+
+- 4e85ccd: Keep the full-page chat history popover below its header.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.8
+
 ## 0.198.7
 
 ### Patch Changes
@@ -996,11 +1005,5 @@
 ### Minor Changes
 
 - 0341a7d: Add an ejectable dashboard presentation kit with cards, tables, date ranges, chart state rendering, and layout helpers.
-
-## 0.8.3
-
-### Patch Changes
-
-- 5c78d2d: Fix cramped calendar day grid under Tailwind v4 and make the date picker responsive: smaller cell size on mobile, 20% smaller on desktop, and a viewport-bounded popover width.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
