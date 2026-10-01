@@ -133,6 +133,18 @@ describe("toPostHogExceptionProperties", () => {
     expect(props.$exception_list[0].value).toContain("<redacted>");
   });
 
+  it("redacts SQL parameters from tracked exception messages", () => {
+    const privateValue = "example transcript content";
+    const props = errorToPostHogExceptionProperties(
+      new Error(
+        `Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`,
+      ),
+    );
+
+    expect(JSON.stringify(props)).not.toContain(privateValue);
+    expect(props.$exception_list[0]?.value).toContain("params: <redacted>");
+  });
+
   it("marks non-Error throws as synthetic", () => {
     const props = errorToPostHogExceptionProperties("just a string");
 

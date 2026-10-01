@@ -189,6 +189,29 @@ describe("server/sentry", () => {
   });
 
   describe("beforeSend", () => {
+    it("redacts SQL parameters from Sentry message fields", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "example transcript content";
+      const value = `DrizzleQueryError: Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message: value,
+        logentry: { message: value, params: [privateValue] },
+        exception: { values: [{ type: "DrizzleQueryError", value }] },
+      } as never) as {
+        message: string;
+        logentry: { message: string; params?: unknown[] };
+        exception: { values: Array<{ value: string }> };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.logentry.params).toBeUndefined();
+    });
+
     it("drops ValidationError exceptions", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");

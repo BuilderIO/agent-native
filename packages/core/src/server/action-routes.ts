@@ -39,6 +39,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { redact } from "../tracking/redaction.js";
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
@@ -1019,7 +1020,7 @@ function mountActionRoutesInternal(
                 action: name,
                 ...(requestId ? { requestId } : {}),
                 ...(captureId ? { captureId } : {}),
-                error: err?.stack ?? String(err),
+                error: redact(String(err?.stack ?? err)),
               });
               return { error: "Internal server error" };
             }

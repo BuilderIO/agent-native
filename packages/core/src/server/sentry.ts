@@ -1,4 +1,5 @@
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { redact } from "../tracking/redaction.js";
 import type { AuthSession } from "./auth.js";
 import {
   resolveDeployEnvironment,
@@ -54,6 +55,35 @@ export function initServerSentry(): Promise<boolean> {
 
           if (!shouldReportErrorSignal(errorSignalFromSentryEvent(event))) {
             return null;
+          }
+
+          const hasSqlQueryFailure = [
+            event.message,
+            event.logentry?.message,
+            ...(event.exception?.values ?? []).map(
+              (exception) => exception.value,
+            ),
+          ].some(
+            (value) =>
+              typeof value === "string" &&
+              /\b(?:failed query|query failed):/i.test(value),
+          );
+          if (hasSqlQueryFailure && event.logentry) {
+            delete event.logentry.params;
+          }
+
+          if (typeof event.message === "string") {
+            event.message = redact(event.message);
+          }
+          if (event.logentry) {
+            if (typeof event.logentry.message === "string") {
+              event.logentry.message = redact(event.logentry.message);
+            }
+          }
+          for (const exception of event.exception?.values ?? []) {
+            if (typeof exception.value === "string") {
+              exception.value = redact(exception.value);
+            }
           }
 
           if (event.request) {

@@ -46,6 +46,23 @@ describe("tracking captureException", () => {
     expect(properties.exceptionStack.length).toBeLessThanOrEqual(8000);
   });
 
+  it("redacts SQL parameters from exception messages and stacks", () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    const privateValue = "example transcript content";
+    captureException(
+      new Error(
+        `Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`,
+      ),
+    );
+
+    const [event] = track.mock.calls[0];
+    expect(event.properties.exceptionMessage).toContain("params: <redacted>");
+    expect(event.properties.exceptionMessage).not.toContain(privateValue);
+    expect(event.properties.exceptionStack).not.toContain(privateValue);
+  });
+
   it("keeps tags after an undefined one instead of dropping the rest", () => {
     const track = vi.fn();
     registerTrackingProvider({ name: "qa-exception", track });

@@ -5,6 +5,9 @@ export const MAX_EXTRA_KEYS = 30;
 export const MAX_EXTRA_VALUE_LENGTH = 1000;
 
 const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
+// ponytail: Drizzle values can contain newlines; preserve later stack frames only with driver-provided value boundaries.
+const SQL_PARAMS_RE =
+  /\b(?:failed query|query failed):[\s\S]*?(\r?\nparams:\s*)[\s\S]*$/i;
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
@@ -15,7 +18,8 @@ export function redact(value: string): string {
     .replace(
       /([A-Za-z0-9_$.-]*(?:authorization|cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)[A-Za-z0-9_$.-]*\s*[:=]\s*)([^\s,;}]+)/gi,
       "$1<redacted>",
-    );
+    )
+    .replace(SQL_PARAMS_RE, "$1<redacted>");
 }
 
 export function boundedText(value: unknown, max: number): string {
