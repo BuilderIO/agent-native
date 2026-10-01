@@ -19021,6 +19021,7 @@ function DesignEditor() {
   const pendingVisualEditHandoffQuery = useActionQuery<{
     status: "empty" | "ready";
     revision: number | null;
+    publisherId: string | null;
   }>(
     "get-visual-edit-pending",
     { designId: id! },
@@ -19311,6 +19312,8 @@ function DesignEditor() {
         serverRevision,
         pendingEditCount: localPendingCount,
         revision: handoff.revision,
+        publisherId: handoff.publisherId,
+        expectedPublisherId: pendingVisualEditPublisherIdRef.current,
         status: handoff.status,
       })
     ) {

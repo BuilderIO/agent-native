@@ -528,6 +528,8 @@ describe("formatVisualEditClipboardPrompt", () => {
 describe("isVisualEditHandoffAcknowledged", () => {
   it("clears an acknowledged empty handoff at or after the published revision", () => {
     const base = {
+      expectedPublisherId: "publisher-a",
+      publisherId: "publisher-a",
       serverRevision: 81,
       pendingEditCount: 3,
       status: "empty",
@@ -538,6 +540,13 @@ describe("isVisualEditHandoffAcknowledged", () => {
     expect(isVisualEditHandoffAcknowledged({ ...base, revision: 82 })).toBe(
       true,
     );
+    expect(
+      isVisualEditHandoffAcknowledged({
+        ...base,
+        publisherId: "publisher-b",
+        revision: 82,
+      }),
+    ).toBe(false);
     expect(isVisualEditHandoffAcknowledged({ ...base, revision: 80 })).toBe(
       false,
     );
@@ -557,10 +566,17 @@ describe("isVisualEditHandoffAcknowledged", () => {
     expect(
       isVisualEditHandoffAcknowledged({ ...base, serverRevision: null }),
     ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, publisherId: null }),
+    ).toBe(false);
   });
 
   it("rechecks an empty response when the matching server revision arrives later", () => {
-    const handoff = { status: "empty", revision: 81 } as const;
+    const handoff = {
+      status: "empty",
+      revision: 81,
+      publisherId: "publisher-a",
+    } as const;
     const queued = updateVisualEditHandoffPublication(null, {
       status: "queued",
       designId: "design-1",
@@ -575,6 +591,7 @@ describe("isVisualEditHandoffAcknowledged", () => {
 
     expect(
       isVisualEditHandoffAcknowledged({
+        expectedPublisherId: "publisher-a",
         serverRevision: null,
         pendingEditCount: 3,
         ...handoff,
@@ -583,6 +600,7 @@ describe("isVisualEditHandoffAcknowledged", () => {
     expect(publication?.serverRevision).toBe(81);
     expect(
       isVisualEditHandoffAcknowledged({
+        expectedPublisherId: "publisher-a",
         serverRevision: publication?.serverRevision ?? null,
         pendingEditCount: 3,
         ...handoff,
