@@ -393,7 +393,7 @@ export default defineAction({
       answerSource,
       citations,
       deepLink: primary?.deepLink ?? null,
-      knowledge,
+      knowledge: answerKnowledge,
       captures: eligibleCaptures,
       results: eligibleCaptures,
       policy: guidance.retrieval,

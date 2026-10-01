@@ -441,6 +441,9 @@ describe("ask-brain source answer policy", () => {
     expect(result.answerSource).toBe("knowledge");
     expect(result.answer).toContain("Cited Agent-Native synthesis");
     expect(result.answer).not.toContain("Uncited Agent-Native note");
+    expect(
+      (result.knowledge as Array<{ id: string }>).map((item) => item.id),
+    ).toEqual(["cited-synthesis"]);
     expect(result.citations).toEqual([
       expect.objectContaining({ knowledgeId: "cited-synthesis" }),
     ]);
