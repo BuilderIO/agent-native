@@ -1368,16 +1368,31 @@ test.describe("URL-backed live auto-layout probe", () => {
       sourceBox.y + sourceBox.height / 2,
     );
     await page.mouse.down();
-    await page.mouse.move(
-      sourceBox.x + sourceBox.width / 2 + 10,
-      sourceBox.y + sourceBox.height / 2 + 6,
-      { steps: 6 },
-    );
-    await page.mouse.move(
-      targetBox.x + targetBox.width / 2,
-      targetBox.y + targetBox.height * 0.85,
-      { steps: 20 },
-    );
+    const dragStart = {
+      x: sourceBox.x + sourceBox.width / 2,
+      y: sourceBox.y + sourceBox.height / 2,
+    };
+    const dragThreshold = { x: dragStart.x + 10, y: dragStart.y + 6 };
+    const dropPoint = {
+      x: targetBox.x + targetBox.width / 2,
+      y: targetBox.y + targetBox.height * 0.85,
+    };
+    for (let step = 1; step <= 6; step += 1) {
+      const progress = step / 6;
+      await page.mouse.move(
+        dragStart.x + (dragThreshold.x - dragStart.x) * progress,
+        dragStart.y + (dragThreshold.y - dragStart.y) * progress,
+      );
+      await page.waitForTimeout(16);
+    }
+    for (let step = 1; step <= 20; step += 1) {
+      const progress = step / 20;
+      await page.mouse.move(
+        dragThreshold.x + (dropPoint.x - dragThreshold.x) * progress,
+        dragThreshold.y + (dropPoint.y - dragThreshold.y) * progress,
+      );
+      await page.waitForTimeout(16);
+    }
     await expect
       .poll(() =>
         frame

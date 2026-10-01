@@ -3,6 +3,7 @@ import { expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   appStateCompareAndSet: vi.fn(),
   appStateGet: vi.fn(),
+  appStatePut: vi.fn(),
   assertAccess: vi.fn(),
 }));
 
@@ -12,6 +13,7 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   appStateCompareAndSet: mocks.appStateCompareAndSet,
   appStateGet: mocks.appStateGet,
+  appStatePut: mocks.appStatePut,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
@@ -19,6 +21,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 import clearAction from "./clear-localhost-write-consent-request.js";
 import getAction from "./get-localhost-write-consent-request.js";
+import { putLocalhostConsentRequest } from "./localhost-consent-request-state.js";
 
 it("reads and clears consent requests from the design capability session", async () => {
   const request = {
@@ -65,4 +68,9 @@ it("reads and clears consent requests from the design capability session", async
     null,
     { requestSource: "agent" },
   );
+
+  await putLocalhostConsentRequest(request.designId, request);
+  expect(mocks.appStatePut).toHaveBeenCalledWith(sessionId, key, request, {
+    requestSource: "agent",
+  });
 });
