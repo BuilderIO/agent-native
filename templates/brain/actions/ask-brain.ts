@@ -353,7 +353,7 @@ export default defineAction({
           "I found possible Brain context, but workspace settings require citations and these results did not include usable evidence.",
         answerSource,
         citations: [],
-        knowledge,
+        knowledge: answerKnowledge,
         captures: eligibleCaptures,
         results: eligibleCaptures,
         policy: guidance.retrieval,

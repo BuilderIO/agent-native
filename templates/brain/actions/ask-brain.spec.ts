@@ -449,6 +449,30 @@ describe("ask-brain source answer policy", () => {
     ]);
   });
 
+  it("returns no uncited knowledge when citations are required and none are usable", async () => {
+    mocks.knowledgeRows = [
+      {
+        ...knowledge({
+          id: "uncited-only",
+          sourceId: "source-approved",
+          title: "Uncited Agent-Native note",
+        }),
+        body: "Long uncited Agent-Native background. ".repeat(20),
+        evidence: [],
+      },
+    ];
+    mocks.policies.set("source-approved", policy("source-approved"));
+
+    const result = await action.run({
+      question: "What is our Agent-Native product direction?",
+      mode: "cited",
+    });
+
+    expect(result.answer).toContain("require citations");
+    expect(result.citations).toEqual([]);
+    expect(result.knowledge).toEqual([]);
+  });
+
   it("reports an incomplete search when a capture search lane fails", async () => {
     mocks.lanes = {
       fts: { status: "ok" },
