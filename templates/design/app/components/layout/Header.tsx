@@ -10,6 +10,7 @@ import {
 } from "@agent-native/toolkit/app-shell";
 import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { RunsTray } from "@agent-native/toolkit/app/progress";
+import { IconMenu2 } from "@tabler/icons-react";
 import { useCallback } from "react";
 import { useLocation } from "react-router";
 
@@ -23,6 +24,10 @@ const pageTitleKeys: Record<string, string> = {
   "/design-systems/setup": "navigation.setupDesignSystem",
   "/settings": "navigation.settings",
 };
+
+export function isDesignHomeRoute(pathname: string): boolean {
+  return pathname === "/" || pathname === "/home";
+}
 
 type HeaderAgentRun = {
   title?: string;
@@ -56,8 +61,10 @@ function ResolvedTitle() {
   return <StaticTitle pathname={location.pathname} />;
 }
 
-export function Header() {
-  const isHome = useLocation().pathname === "/home";
+export function Header({ onOpenNavigation }: { onOpenNavigation: () => void }) {
+  const location = useLocation();
+  const isHome = isDesignHomeRoute(location.pathname);
+  const t = useT();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
   const openRunThread = useCallback(
@@ -87,11 +94,7 @@ export function Header() {
   );
 
   return (
-    <div
-      className={cn(
-        isHome ? "design-home-toolbar hidden shrink-0 md:block" : "contents",
-      )}
-    >
+    <div className={cn(isHome ? "design-home-toolbar shrink-0" : "contents")}>
       <header
         className={cn(
           "hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6",
@@ -99,6 +102,16 @@ export function Header() {
         )}
       >
         <div className="flex items-center gap-3 flex-1 min-w-0">
+          {isHome ? (
+            <button
+              type="button"
+              onClick={onOpenNavigation}
+              className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+              aria-label={t("navigation.openNavigation")}
+            >
+              <IconMenu2 className="size-4" aria-hidden="true" />
+            </button>
+          ) : null}
           {title ?? <ResolvedTitle />}
         </div>
         {isHome ? (
@@ -116,23 +129,13 @@ export function Header() {
 }
 
 export function MobileHeaderActions() {
-  const isHome = useLocation().pathname === "/home";
+  const location = useLocation();
+  const isHome = isDesignHomeRoute(location.pathname);
   const actions = useHeaderActions();
-  if (!actions) return null;
+  if (isHome || !actions) return null;
   return (
-    <div
-      className={cn(
-        "flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 md:hidden",
-        isHome &&
-          "design-home-mobile-header-actions justify-start overflow-visible border-b-0",
-      )}
-    >
-      {isHome ? <div className="min-w-0 flex-1">{actions}</div> : actions}
-      {isHome ? (
-        <div className="shrink-0">
-          <HomeImportButton />
-        </div>
-      ) : null}
+    <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 md:hidden">
+      {actions}
     </div>
   );
 }
