@@ -636,6 +636,34 @@ export interface ContentDatabaseRowMutationResult {
   createdItem?: ContentDatabaseItem;
 }
 
+export interface ContentDatabaseRowPatchReceipt {
+  itemId: string;
+  documentId: string;
+  outcome: "updated" | "unchanged";
+  affected: { title: boolean; propertyIds: string[] };
+  revisions: { before: string; after: string };
+  readback: {
+    verified: true;
+    title?: string;
+    propertyValues: Record<string, DocumentPropertyValue>;
+  };
+}
+
+export interface ContentDatabaseRowPatchBatchResult {
+  receipt: {
+    receiptId: string;
+    target: ContentDatabaseMutationTarget;
+    schemaRevision: string;
+    idempotency: {
+      key: string;
+      result: "applied" | "replayed";
+      payloadDigest: string;
+    };
+    counts: { requested: number; updated: number; unchanged: number };
+    rows: ContentDatabaseRowPatchReceipt[];
+  };
+}
+
 export interface ContentDatabaseSourceOverlay {
   sourceId: string;
   sourceName: string;
