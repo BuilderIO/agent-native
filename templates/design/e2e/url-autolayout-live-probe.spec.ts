@@ -1581,14 +1581,13 @@ test.describe("URL-backed live auto-layout probe", () => {
       [...diskAfterApply.matchAll(/\sid="(v[123])"/g)].map((match) => match[1]),
     );
     await expect.poll(order, { timeout: 30_000 }).toEqual(["v2", "v3", "v1"]);
-    const acknowledgementResponse = await page.request.post(
-      `${baseURL}/_agent-native/actions/acknowledge-visual-edit-pending`,
-      { data: { designId, revision: handoff.revision } },
-    );
-    expect(acknowledgementResponse.ok()).toBe(true);
-    expect(await acknowledgementResponse.json()).toMatchObject({
-      status: "empty",
-      pendingEditCount: 0,
+    const acknowledgement = await call("acknowledge-visual-edit-pending", {
+      designId,
+      revision: handoff.revision,
+    });
+    expect(acknowledgement).toMatchObject({
+      ok: true,
+      result: { status: "empty", pendingEditCount: 0 },
     });
     await expect
       .poll(
@@ -1601,6 +1600,9 @@ test.describe("URL-backed live auto-layout probe", () => {
         { timeout: 30_000 },
       )
       .toBe(0);
+    await expect(
+      page.locator("[data-design-pending-visual-style-toolbar]"),
+    ).toHaveCount(0, { timeout: 30_000 });
     console.log("URL probe pending source verification cleared");
 
     await page.reload({ waitUntil: "domcontentloaded" });
