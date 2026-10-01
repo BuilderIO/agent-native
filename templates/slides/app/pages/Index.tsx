@@ -697,7 +697,6 @@ export default function Index({ active = true }: { active?: boolean }) {
     }
   }, [decks.length, isHome, loadError, loading]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
-  const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
@@ -733,7 +732,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     initialSelection:
       generationRetryState?.retryReferenceSelection?.composerContext ??
       newDeckRetryReferenceSelection?.composerContext,
-    defaultDesignSystemId: initialDesignSystemId,
+    defaultDesignSystemId: null,
     defaultReferenceDeck: decks.find(
       (deck) => deck.id === initialReferenceDeckId,
     ),
@@ -959,15 +958,6 @@ export default function Index({ active = true }: { active?: boolean }) {
   }, [active, setSignInDialogOpen]);
 
   useEffect(() => {
-    if (!showNewDeckPrompt || !designSystemAutoRef.current) return;
-    if (initialDesignSystemId) {
-      setSelectedDesignSystemId(initialDesignSystemId);
-    } else {
-      setSelectedDesignSystemId(null);
-    }
-  }, [initialDesignSystemId, designSystems.length, showNewDeckPrompt]);
-
-  useEffect(() => {
     if (!showNewDeckPrompt || !referenceDeckAutoRef.current) return;
     setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
   }, [initialReferenceDeckId, showNewDeckPrompt]);
@@ -1004,12 +994,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved);
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt({ text: saved, key: Date.now() });
-    designSystemAutoRef.current = true;
     referenceDeckAutoRef.current = true;
-    setSelectedDesignSystemId(initialDesignSystemId ?? null);
+    setSelectedDesignSystemId(savedReferenceSelection?.designSystemId ?? null);
     setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
     setShowNewDeckPrompt(true);
-  }, [initialDesignSystemId, initialReferenceDeckId, session]);
+  }, [initialReferenceDeckId, session]);
 
   useEffect(() => {
     const state = location.state as DeckGenerationRetryState | null;
@@ -2714,9 +2703,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               !designSystemsError))
         }
         defaultDesignSystemId={
-          pendingDeck?.composerContext
-            ? pendingDeck.composerContext.designSystemId
-            : initialDesignSystemId
+          pendingDeck?.composerContext?.designSystemId ?? null
         }
         defaultReferenceDeckId={
           pendingDeck?.referenceDeckId ?? initialReferenceDeckId

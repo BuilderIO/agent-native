@@ -21,6 +21,7 @@ import {
 
 import { BACKGROUND_FUNCTION_WALL_MS } from "../../app-config/run-lifecycle-invariants.js";
 import { agentNativePath } from "../api-path.js";
+import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
   appendChatThreadScopeParams,
@@ -728,6 +729,14 @@ function storedActionWidgets(value: unknown): {
 }
 
 async function responseError(response: Response): Promise<Error> {
+  if (response.status === 413) {
+    return Object.assign(new Error(CHAT_REQUEST_TOO_LARGE_MESSAGE), {
+      code: "http_413",
+      status: response.status,
+      retryable: false,
+    });
+  }
+
   let body: string;
   try {
     body = await response.text();

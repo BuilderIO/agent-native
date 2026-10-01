@@ -779,6 +779,8 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "Der Agent-Lauf ist fehlgeschlagen, bevor Folien erstellt wurden. Prüfe die Details im Chat und versuche es erneut.",
     deckHasNoSlides: "Dieses Deck enthält keine Folien.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

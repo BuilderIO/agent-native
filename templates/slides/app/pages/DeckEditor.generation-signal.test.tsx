@@ -1080,6 +1080,21 @@ describe("DeckEditor generation signal wiring", () => {
     expect(screen.queryByTestId("generating-preview")).toBeNull();
   });
 
+  it("explains when an agent run failed before creating slides", () => {
+    Object.assign(mocks.deck.generationContext, {
+      generationFailureCode: "agent_error",
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText("deckEditor.agentRunFailed")).toBeTruthy();
+    expect(screen.queryByText("deckEditor.deckHasNoSlides")).toBeNull();
+  });
+
   it("recovers an empty-deck failure after its terminal save fails and reloads", async () => {
     mocks.flushDeckSave.mockRejectedValueOnce(new Error("failure save failed"));
     router = createMemoryRouter(

@@ -30,6 +30,11 @@ const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
   templateLibraryEnabled: true,
 }));
+const defaultDesignSystems = vi.hoisted(() => ({
+  systems: [] as Array<{ id: string; title: string }>,
+  personal: null as { id: string } | null,
+  workspace: null as { id: string; status: string } | null,
+}));
 const toastError = vi.hoisted(() => vi.fn());
 const homeImport = vi.hoisted(() => ({ current: null as unknown }));
 const promptUploads = vi.hoisted(() => ({
@@ -293,7 +298,8 @@ vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (
     systemFlag.query(enabled),
     {
-      designSystems: [],
+      designSystems: defaultDesignSystems.systems,
+      defaultSystem: defaultDesignSystems.personal,
       error: null,
       isFetching: false,
       isLoading: false,
@@ -305,7 +311,7 @@ vi.mock("@/hooks/use-design-systems", () => ({
 vi.mock("@/hooks/use-workspace-defaults", () => ({
   useWorkspaceDefaults: (enabled = true) => {
     inactiveHomeQueries.workspaceDefaultsEnabled = enabled;
-    return { refetch: vi.fn() };
+    return { designSystem: defaultDesignSystems.workspace, refetch: vi.fn() };
   },
 }));
 vi.mock("@/components/editor/SlidesComposerContext", () => ({
@@ -449,6 +455,9 @@ beforeEach(() => {
   suggestionQuery.enabled = undefined;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
+  defaultDesignSystems.systems = [];
+  defaultDesignSystems.personal = null;
+  defaultDesignSystems.workspace = null;
   homeImport.current = null;
   createDeck.mockReset();
   signedIn.value = true;
@@ -534,6 +543,22 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.queryByRole("dialog", { name: "Existing system setup" }),
     ).toBeNull();
+  });
+
+  it("does not silently add personal or workspace defaults to a new prompt", () => {
+    defaultDesignSystems.systems = [
+      { id: "builder-official", title: "Builder Official" },
+    ];
+    defaultDesignSystems.personal = { id: "builder-official" };
+    defaultDesignSystems.workspace = {
+      id: "builder-official",
+      status: "available",
+    };
+
+    renderHome();
+
+    expect(contextOptions.mock.lastCall![0].defaultDesignSystemId).toBeNull();
+    expect(referenceProps.mock.lastCall![0].defaultDesignSystemId).toBeNull();
   });
   it("waits for a ready design-system flag before treating references as empty", () => {
     systemFlag.enabled = false;
