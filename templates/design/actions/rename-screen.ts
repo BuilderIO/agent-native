@@ -9,6 +9,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { publishesDesignChange } from "../server/lib/design-change-events.js";
 import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
@@ -105,7 +106,7 @@ type RenamedFileResult = {
   referenceRewritten: boolean;
 };
 
-export default defineAction({
+const designAction = defineAction({
   description:
     "Atomically rename one Design screen and rewrite exact data-screen links in every HTML screen.",
   schema: z
@@ -405,4 +406,8 @@ export default defineAction({
 
     return { ...result, collabReconcilePending };
   },
+});
+
+export default publishesDesignChange(designAction, {
+  designId: (_params, result) => result.designId,
 });

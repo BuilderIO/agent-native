@@ -13,6 +13,7 @@ import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { publishesDesignChange } from "../server/lib/design-change-events.js";
 import {
   snapshotDesignBeforeAgentEditInVersionLock,
   withDesignVersionLock,
@@ -294,7 +295,7 @@ export async function deleteDesignFilesByOperationSourcePrefix(
   });
 }
 
-export default defineAction({
+const designAction = defineAction({
   description:
     "Delete one or more files from a design project. Idempotent: if a file is already gone, returns deleted=false so cleanup retries can continue. Validates ownership via the parent design's access when the file exists.",
   schema: z.object({
@@ -615,11 +616,17 @@ export default defineAction({
 
     if (requestedIds.length === 1) {
       return deletion.deletedIds.includes(id)
-        ? { id, deleted: true, deletedFiles: deletion.deletedFiles }
+        ? {
+            id,
+            designId: file.designId,
+            deleted: true,
+            deletedFiles: deletion.deletedFiles,
+          }
         : { id, deleted: false, alreadyMissing: true };
     }
     return {
       id,
+      designId: file.designId,
       deleted: deletion.deletedIds.includes(id),
       deletedIds: deletion.deletedIds,
       ...(deletion.deletedIds.includes(id)
@@ -627,4 +634,8 @@ export default defineAction({
         : { alreadyMissing: true }),
     };
   },
+});
+
+export default publishesDesignChange(designAction, {
+  designId: (_params, result) => result.designId,
 });

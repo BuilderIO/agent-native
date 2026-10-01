@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { publishesDesignChange } from "../server/lib/design-change-events.js";
 import { assertVisualEditAccountEditor } from "../server/lib/visual-edit-collaboration.js";
 import {
   deleteVisualEditSnapshotBlobs,
@@ -11,7 +12,7 @@ import {
 } from "../server/lib/visual-edit-snapshot-blobs.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 
-export default defineAction({
+const designAction = defineAction({
   description:
     "Enable or disable shared live HTML previews for a Design. Requires a signed-in account with editor access; disabled by default.",
   requiresAuth: true,
@@ -99,4 +100,8 @@ export default defineAction({
 
     return { designId, enabled };
   },
+});
+
+export default publishesDesignChange(designAction, {
+  designId: (p) => p.designId,
 });
