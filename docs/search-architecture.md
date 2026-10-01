@@ -166,7 +166,11 @@ code tokenizes documents and queries, so they always agree.
   parts at consecutive positions, and a query for the same text matches them
   as a phrase.
 - A camelCase word is indexed whole and as its parts, so `searchIndexState`,
-  `index`, and `index state` all find it.
+  `index`, and `index state` all find it. In a phrase, a camelCase query word
+  matches the whole word or its parts, so `"use searchIndexState now"` finds
+  that text.
+- Postgres rejects a word over 2,046 bytes, so a longer word keeps its longest
+  prefix that fits, in documents and queries alike.
 - Chinese, Japanese, and Korean runs become overlapping character pairs,
   because they have no spaces to split on. A query becomes the same pairs as a
   phrase, which matches exactly that substring. A run's last character is
@@ -220,14 +224,16 @@ Instead:
    - after every insert and delete, and after an update only when the row
      actually changed. Rows are compared by their stored bytes, so a table
      with a `json` column, which has no equality operator, still works;
-   - a changed primary key is recorded as a delete of the old ID.
+   - a changed primary key is recorded as a delete of the old ID;
+   - a `TRUNCATE` records a delete for every row it removes, before it
+     removes them.
 
    Every writer is caught, including sync jobs, raw SQL, cascades, and
    deletes, and a rolled-back write records nothing. Each entry carries a
    `seq` from one sequence, taken after the row lock, so a later change to the
    same resource always has a higher `seq`. Generated trigger and function
-   names end in a hash of the app, table, and resource type, so two sources
-   never share them.
+   names end in a 64-bit hash of the app, table, and resource type, so two
+   sources never share them.
 
    Search is the first consumer. A later one (webhooks, realtime, audit)
    subscribes in `app_resource_change_consumers` and gets its own queue from
@@ -235,18 +241,31 @@ Instead:
    that layer calls the same function and the triggers retire.
 
 2. **Capture is installed by a migration.** `searchIndexMigration()` installs
-   the triggers and subscribes search. If they're missing, search reports
-   `capture-missing`, logs an error, and the app's previous search answers.
+   the triggers and subscribes search. It replaces existing triggers in place,
+   and waits at most 3 seconds for each table lock. On a table too busy for
+   that, the migration stays pending and runs again at the next boot rather
+   than block writes.
+
+   Search checks at most once a minute that the triggers exist and are
+   enabled. If they're missing or disabled, search reports
+   `capture-missing`, logs an error once, and the app's previous search
+   answers. Changes made meanwhile were never recorded, so search also marks
+   the index stale. Once capture is back, the index rebuilds at the same
+   version.
+
 3. **Search never wakes a sleeping database.** Neon suspends an idle database
    after five minutes, and a self-hoster pays for every minute it's awake. So
    search never polls. It processes changes only when something else already
    has the database awake:
    - before a search, within a 100 ms budget
-     (`AGENT_NATIVE_SEARCH_DRAIN_BUDGET_MS`). The search stops waiting when
-     the budget runs out, even if it joined a longer drain, such as the
-     sweep's. A drain the search started finishes its current batch through
-     `waitUntil`, so the changes it holds don't wait out their lease. A budget
-     of zero processes nothing before a search;
+     (`AGENT_NATIVE_SEARCH_DRAIN_BUDGET_MS`). That covers a backlog, a
+     rebuild, and failed changes due for a retry. The search stops waiting
+     when the budget runs out, even if it joined a longer drain, such as the
+     sweep's. A search that joined a drain checks the index again when that
+     drain ends, and drains what's left within its budget. A drain the search
+     started finishes its current batch through `waitUntil`, so the changes it
+     holds don't wait out their lease. A budget of zero processes nothing
+     before a search;
    - after an action writes, within 250 ms, through `waitUntil` where the
      platform provides it, so the response doesn't wait;
    - in the `search-index` recurring sweep handler, for up to 20 seconds of
@@ -292,7 +311,13 @@ Instead:
      retried, so a temporary failure clears itself. So do a new write to the
      resource and a rebuild.
    - If nothing the index stores has changed, the content hash skips the
-     rewrite and only the newer `seq` is recorded.
+     rewrite and only the newer `seq` is recorded. If the index row is gone by
+     then, for example removed for a delete just before a recreation, it's
+     written in full.
+   - Index writes are split into statements of at most about 1.5 MB, so a
+     batch of long documents never builds one huge statement. A document
+     larger than that is written alone. Between rows, a drain yields to other
+     work every 20 ms.
 6. **Rebuilds.** A higher registration `version` rebuilds the index:
    - The first process to see it raises the target version.
    - It enqueues every row with one `INSERT … SELECT`. That replaces changes
@@ -300,6 +325,8 @@ Instead:
      highest `seq` it assigned.
    - The rebuild is complete when nothing at or below that `seq` is pending.
      Rows whose source is gone are then removed.
+   - A rebuild at the same version, after capture was missing, is claimed by
+     one process in one statement, so only that process enqueues.
 
    Every claim, index write, and completion carries a fence: it takes effect
    only while the target version is still the drain's own. A process on the
@@ -337,7 +364,14 @@ Matching, for each term:
   past any of these limits has `positions_complete` false, and a phrase
   matches it when every word is in one field. Chunks will make that exact.
   The words left out of a vector that ran past 900 KB (tens of thousands of
-  distinct words) don't find that document until chunks cover them.
+  distinct words) don't find that document until chunks cover them. Within
+  those limits, a word keeps its first position in every field, and two
+  fields never share a position, even past the last one, because Postgres
+  would merge them and keep only the higher weight.
+- **Long terms.** Postgres silently matches nothing for a phrase of about
+  10,000 words. A term over 2,048 words makes `indexedSearchSql` throw
+  `SearchTermTooLongError`, and the app answers that search with its
+  fallback.
 
 Ranking uses the tiers the browser lane uses: exact title 5, title prefix 4,
 title word prefixes 3, title substrings 2, title or summary 1. Ties go to how
@@ -457,6 +491,10 @@ back a `CommandSearchProvider` when the shared command menu lands.
 - **Serverless:** writes don't wait on indexing. A search processes what it
   can of a small backlog within its budget, and the sweep handler handles the
   rest.
+- **Very long documents:** tokenizing runs in the process that drains. A
+  5.8 MB body of a million words takes about 0.7 seconds and fits in a 64 MB
+  heap. A drain yields only between documents, so one document that large
+  still holds the event loop for that long.
 - **Shared-database workspaces:** `app` and `resource_type` keep apps apart.
   The latency harness includes other tenants' rows.
 
@@ -465,26 +503,36 @@ back a `CommandSearchProvider` when the shared command menu lands.
 Built:
 
 - **Core** (`packages/core/src/search/`), on real PGlite:
-  - capture of inserts, updates, no-op updates, deletes, and rolled-back
-    writes, including on a table with `json` and `point` columns;
-  - distinct trigger names for every source;
+  - capture of inserts, updates, no-op updates, deletes, truncates, and
+    rolled-back writes, including on a table with `json` and `point` columns;
+  - distinct trigger names for every source, including two whose readable
+    names collide;
+  - disabled triggers keep search on the fallback, and re-enabling them
+    rebuilds the index;
   - a change recorded while its batch is processing is kept;
   - a claim never takes more than its limit;
   - backlog and rebuild readiness;
   - an older process can't consume a newer version's rebuild, whether it was
     already warm or mid-batch when the version rose;
   - one failing document holds back only itself and keeps search on the
-    fallback until it succeeds;
+    fallback until it succeeds, and a search retries it once it's due; the
+    backoff stays bounded after many attempts;
+  - a document deleted and recreated while two drains run stays indexed;
   - a document with more distinct words than Postgres allows still indexes;
-  - a search's budget bounds it, including when it joins a longer drain;
+  - a search's budget bounds it, including when it joins a longer drain or
+    meets a batch of very long documents, and a search that joined a drain
+    drains what that drain left;
+  - index write statements stay under their size limit;
   - ranking tiers, mid-word titles against word-start bodies, camelCase,
-    snake_case, URLs, Japanese, phrases in repetitive documents, phrases
-    across fields, and the query operators.
+    camelCase in phrases, snake_case, URLs, Japanese, words over Postgres's
+    length limit, phrases in repetitive documents, phrases across fields, and
+    the query operators.
 - **Content:**
   - the relevance eval (`evals/search-relevance/`) with a recorded baseline;
   - a parity test that runs the same queries through the index and the
     fallback, which must agree except where the index matches differently:
-    mid-word body text, NFKC, and punctuation inside a term;
+    mid-word body text, NFKC, and punctuation inside a term. It also checks
+    that a phrase too long for the index is answered by the fallback;
   - the existing search suites, which run on the index path;
   - 10,000 documents on PGlite: the index builds in about 5 seconds, and warm
     search p95 is under 200 ms against a 400 ms budget.
