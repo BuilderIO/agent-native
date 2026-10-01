@@ -302,6 +302,44 @@ describe("resolveMarkdownSuggestionRange", () => {
   });
 
   it.each([
+    ["First.\n\nSecond.\n\nThird.", 14, 13],
+    ["Same.\n\nSame.\n\nSame.", 11, 10],
+  ])(
+    "maps an unchanged interior insertion through paragraph canonicalization: %s",
+    (saved, from, expected) => {
+      expect(
+        resolveMarkdownSuggestionRange(
+          canonicalizeNfm(saved),
+          change(saved, from, from, " accepted"),
+        ),
+      ).toEqual({ from: expected, to: expected });
+    },
+  );
+
+  it("refuses each ambiguous collapsed separator between several paragraphs", () => {
+    const saved = "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.";
+    for (const match of saved.matchAll(/\n\n/g)) {
+      const from = match.index! + 1;
+      expect(
+        resolveMarkdownSuggestionRange(
+          canonicalizeNfm(saved),
+          change(saved, from, from, "Inserted."),
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("does not use canonicalization to relocate an insertion into extra repeated context", () => {
+    const saved = "Same.\n\nSame.\n\nSame.";
+    expect(
+      resolveMarkdownSuggestionRange(
+        "Same.\nSame.\nSame.\nSame.",
+        change(saved, 11, 11, " accepted"),
+      ),
+    ).toBeNull();
+  });
+
+  it.each([
     ["First paragraph.\n\nSecond paragraph.", 16, 16],
     ["First paragraph.\n\nSecond paragraph.", 18, 17],
   ])(

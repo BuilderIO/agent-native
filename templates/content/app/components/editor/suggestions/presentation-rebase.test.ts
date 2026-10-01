@@ -663,9 +663,6 @@ describe("committed suggestion presentation proof", () => {
       markedBefore.indexOf("results") + 7,
       "findings",
     );
-    expect(
-      createCommittedSuggestionPresentationTransition([markedCommitted]),
-    ).toBeNull();
     const comma = markedBefore.indexOf(",");
     const good = markedBefore.indexOf("good");
     const transition: SuggestionPresentationTransition = {
@@ -681,6 +678,22 @@ describe("committed suggestion presentation proof", () => {
         },
       ],
     };
+    expect(
+      createCommittedSuggestionPresentationTransition([markedCommitted]),
+    ).toEqual(transition);
+    expect(
+      createCommittedSuggestionPresentationTransition([
+        {
+          ...markedCommitted,
+          operations: [
+            {
+              ...markedCommitted.operations[0]!,
+              after: { markdown: markedAfter, changedText: "wrong" },
+            },
+          ],
+        },
+      ]),
+    ).toBeNull();
     const canonical = canonicalizeNfm(markedAfter);
     expect(canonical).not.toBe(markedAfter);
     expect(

@@ -164,44 +164,39 @@ function resolveCanonicalizedInsertion(
   current: string,
   offset: number,
 ) {
-  if (offset === 0) {
-    return current.length > 0 && before.startsWith(current[0])
-      ? { from: 0, to: 0 }
-      : null;
-  }
-  if (offset === before.length) {
-    return current.length > 0 && before.endsWith(current[current.length - 1])
-      ? { from: current.length, to: current.length }
-      : null;
+  const from = Math.max(0, offset - 1);
+  const to = Math.min(before.length, offset + 1);
+  const unchanged = resolveUnchangedCanonicalRange(before, current, from, to);
+  if (unchanged) {
+    const boundary = unchanged.from + offset - from;
+    return { from: boundary, to: boundary };
   }
 
   const left = before.slice(0, offset).trimEnd();
   const right = before.slice(offset).trimStart();
-  const leftToken = left.slice(-64);
-  const rightToken = right.slice(0, 64);
-  const leftFrom = current.indexOf(leftToken);
-  const rightFrom = current.indexOf(rightToken);
+  const rightFrom = before.length - right.length;
+  if (!left || !right || (offset !== left.length && offset !== rightFrom))
+    return null;
+  const leftRange = resolveUnchangedCanonicalRange(
+    before,
+    current,
+    left.length - 1,
+    left.length,
+  );
+  const rightRange = resolveUnchangedCanonicalRange(
+    before,
+    current,
+    rightFrom,
+    rightFrom + 1,
+  );
   if (
-    !leftToken ||
-    !rightToken ||
-    leftFrom < 0 ||
-    rightFrom < 0 ||
-    current.indexOf(leftToken, leftFrom + 1) >= 0 ||
-    current.indexOf(rightToken, rightFrom + 1) >= 0
-  ) {
+    !leftRange ||
+    !rightRange ||
+    !/^\s+$/.test(current.slice(leftRange.to, rightRange.from))
+  )
     return null;
-  }
-
-  const leftBoundary = leftFrom + leftToken.length;
-  const rightBoundary = rightFrom;
-  const afterLeftText = before.slice(left.length, offset);
-  const beforeRightText = before.slice(offset, before.length - right.length);
-  if (!afterLeftText && !beforeRightText && leftBoundary !== rightBoundary) {
-    return null;
-  }
-  if (!afterLeftText) return { from: leftBoundary, to: leftBoundary };
-  if (!beforeRightText) return { from: rightBoundary, to: rightBoundary };
-  return null;
+  const boundary = offset === left.length ? leftRange.to : rightRange.from;
+  return { from: boundary, to: boundary };
 }
 
 export function resolveMarkdownSuggestionRange(
