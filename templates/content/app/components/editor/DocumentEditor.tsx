@@ -1246,6 +1246,16 @@ export function isDocumentLoadUnavailableError(error: unknown) {
   return status === 403 || status === 404;
 }
 
+// The server merges a concurrent edit (an agent's, another tab's) into what the
+// browser sent. Only an unmodified echo is the editor's own snapshot; a merged
+// result must reach the editor as an external one or it never shows the merge.
+export function isSavedContentLocalEcho(
+  sentContent: string | undefined,
+  savedContent: string,
+): boolean {
+  return sentContent !== undefined && sentContent === savedContent;
+}
+
 export function resolveAcknowledgedDocumentSnapshot<
   T extends { id: string; updatedAt: string },
 >(args: {
@@ -2970,7 +2980,7 @@ function PageEditorSessionBody({
             }
           } else {
             if (
-              updates.content !== undefined &&
+              isSavedContentLocalEcho(updates.content, result.content) &&
               result.revision &&
               result.updatedAt
             ) {

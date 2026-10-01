@@ -53,6 +53,10 @@ export function getEditorMarkdown(editor: Editor): string {
 
 const EMITTED_RING_MAX = 16;
 const PEER_SETTLE_MS = 2500;
+// A non-lead client leaves a newer snapshot to the lead; if the lead has not
+// converged the doc by then (it never refetched), adopt it rather than keep a
+// Yjs doc that disagrees with SQL until the next reload drops unsaved text.
+const LEAD_FAILOVER_MS = PEER_SETTLE_MS * 2;
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
   if (ring[ring.length - 1] === value) return;
@@ -512,6 +516,7 @@ export function useCollabReconcile({
     isLeadClient: boolean;
     editable: boolean;
     deadline: number | null;
+    leadDeadline: number | null;
   } | null>(null);
 
   useEffect(() => {
@@ -542,6 +547,7 @@ export function useCollabReconcile({
         isLeadClient,
         editable,
         deadline: null,
+        leadDeadline: null,
       };
     }
     const peerWait = peerReconcileWaitRef.current!;
@@ -769,10 +775,19 @@ export function useCollabReconcile({
 
       if (collab && !isLeadClient) {
         peerWait.deadline = null;
-        if (contentUpdatedAt && !externalNewer) {
-          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        if (!externalNewer) {
+          peerWait.leadDeadline = null;
+          if (contentUpdatedAt) {
+            lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+          }
+          return;
         }
-        return;
+        peerWait.leadDeadline ??= Date.now() + LEAD_FAILOVER_MS;
+        const leadRemaining = peerWait.leadDeadline - Date.now();
+        if (leadRemaining > 0) {
+          retry = setTimeout(() => apply(deferred), leadRemaining);
+          return;
+        }
       }
 
       if (typingRecently) {
