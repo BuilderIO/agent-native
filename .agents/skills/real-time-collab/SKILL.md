@@ -28,8 +28,17 @@ conflicts. Always choose an explicit `access` mode on `createCollabPlugin`.
 - **SSE fast-path** — `/_agent-native/poll-events` `EventSource` delivers collab
   events push-style; while SSE is healthy the collab poll interval relaxes to
   ~12 s
-- **Polling fallback** — `/_agent-native/poll` is polled every 2 s when SSE is
-  unavailable; this is the universal serverless fallback
+- **Polling fallback** — `/_agent-native/poll` is polled every 2 s when SSE
+  drops mid-session. On serverless, `/events` answers 204 up front (poll-live)
+  and this client relaxes to ~12 s, because `/poll` is the only channel.
+- **Collab poll boost** — while the awareness set shows another visible human
+  on the doc (agent and hidden tabs do not count), the connection holds
+  `acquireCollabPollBoost()` and the shared transport polls every 2.5 s
+  whenever no stream is connected: a no-op while SSE or the hosted gateway is
+  live. A joiner is noticed on the existing user's next ~12 s collab poll
+  (the joiner sees them at once), a leaver within one poll plus the 30 s
+  awareness TTL. The boost lapses after 3 minutes with no input and no remote
+  events. Lone tabs pay nothing extra.
 - **Update batching** — local Yjs updates are debounced ~80 ms and coalesced
   with `Y.mergeUpdates` before sending; flushed immediately on
   `visibilitychange` / `pagehide`
