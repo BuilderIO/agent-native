@@ -4320,10 +4320,13 @@ export function DeckProvider({
 
     const onRead = (deckId: string | null, status: DeckRead["status"]) => {
       if (stopped) return;
+      // A late 403/404 for a deck the route has already left must not park
+      // the loop that now serves the newly opened deck.
       const stop: PollTerminalStop | null =
         status === "unauthorized"
           ? { scope: "session" }
           : deckId !== null &&
+              deckId === readOpenDeckId() &&
               (status === "not-found" || status === "forbidden")
             ? { scope: "deck", deckId }
             : null;
@@ -4371,11 +4374,12 @@ export function DeckProvider({
           now - lastListFetchAt >= DECK_LIST_FALLBACK_POLL_MS
         ) {
           lastListFetchAt = now;
-          failed ||= isFailedRead(await refetchDeckListIfChanged());
+          if (isFailedRead(await refetchDeckListIfChanged())) failed = true;
         }
 
         if (currentOpenId && !terminalStop && !stopped) {
-          failed ||= isFailedRead((await syncOpenDeck(currentOpenId)).read);
+          const { read } = await syncOpenDeck(currentOpenId);
+          if (isFailedRead(read)) failed = true;
         }
       } catch (error) {
         failed = true;
@@ -4385,7 +4389,10 @@ export function DeckProvider({
       if (stopped) return;
       consecutiveFailures = failed ? consecutiveFailures + 1 : 0;
       if (rerunForced) {
+        // The announcement is a resume trigger; a terminal result from the read
+        // it raced must not swallow it.
         rerunForced = false;
+        terminalStop = null;
         void poll(true);
         return;
       }

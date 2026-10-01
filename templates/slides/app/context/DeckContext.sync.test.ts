@@ -900,6 +900,66 @@ describe("DeckContext fallback polling", () => {
     expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 1);
   });
 
+  it("still reconciles the open deck on a tick where the list read fails", async () => {
+    const { api } = await renderOpenDeck();
+    api.failListReads(500);
+    const callsBefore = api.fetchMock.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+
+    const actions = api.fetchMock.mock.calls
+      .slice(callsBefore)
+      .map(([url]) => requestString(url))
+      .filter((href) => /actions\/(list-decks|get-deck)\b/.test(href));
+    const listIndexes = actions.flatMap((href, i) =>
+      href.includes("list-decks") ? [i] : [],
+    );
+    expect(listIndexes.length).toBeGreaterThan(0);
+    for (const i of listIndexes) {
+      expect(actions[i + 1]).toContain("get-deck");
+    }
+  });
+
+  it("keeps polling the new deck when the previous deck's read lands as a 404 after navigation", async () => {
+    const otherDeck = { ...openDeck(), id: "other-deck" };
+    const { api } = await renderOpenDeck({ decks: [openDeck(), otherDeck] });
+
+    api.failDeckReads(404);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      window.history.pushState({}, "", "/deck/other-deck");
+      api.failDeckReads(null);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const callsAfterNavigation = deckCallIds(api.fetchMock).length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(deckCallIds(api.fetchMock).slice(callsAfterNavigation)).toContain(
+      "other-deck",
+    );
+  });
+
+  it("does not let a terminal read swallow a write announced during it", async () => {
+    const { api } = await renderOpenDeck();
+    api.failDeckReads(404);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      api.failDeckReads(null);
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const deckAfterAnnouncement = deckCallCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(deckCallCount(api.fetchMock)).toBeGreaterThan(deckAfterAnnouncement);
+  });
+
   it("parks a hidden open-deck poll after repeated server errors until the tab is visible", async () => {
     const { api } = await renderOpenDeck();
 
