@@ -241,7 +241,7 @@ function dependentPresentationOperations(
     : null;
 }
 
-function combineCommittedTransitions(
+function combinePresentationTransitions(
   left: SuggestionPresentationTransition,
   right: SuggestionPresentationTransition,
 ) {
@@ -308,7 +308,7 @@ export function retainCommittedSuggestionPresentationTransitions(
     const key = suggestionPresentationTransitionKey(suggestion);
     const known = next.get(key);
     const candidate = known
-      ? combineCommittedTransitions(known, transition)
+      ? combinePresentationTransitions(known, transition)
       : transition;
     if (
       suggestion.status === "pending" &&
@@ -428,14 +428,18 @@ export function resolveSuggestionPresentationRange(
   if (!checkedOperation(operation)) return null;
   const ordinary = resolveMarkdownSuggestionRange(currentMarkdown, operation);
   if (ordinary) return ordinary;
+  const observed = observedTransition
+    ? transition
+      ? combinePresentationTransitions(transition, observedTransition)
+      : observedTransition
+    : null;
   if (
-    !transition &&
-    observedTransition &&
-    verifiedTransition(observedTransition) &&
-    (currentMarkdown === observedTransition.after ||
-      currentMarkdown === canonicalizeNfm(observedTransition.after))
+    observed &&
+    verifiedTransition(observed) &&
+    (currentMarkdown === observed.after ||
+      currentMarkdown === canonicalizeNfm(observed.after))
   ) {
-    transition = observedTransition;
+    transition = observed;
   }
   if (!transition) return ordinary;
   const checked = dependentOperation(operation, transition);

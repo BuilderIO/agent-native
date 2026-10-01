@@ -3,10 +3,19 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { canonicalizeNfm } from "@shared/nfm";
+import { markdownSuggestionOperation } from "@shared/suggestion-diff";
 import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
 import { describe, expect, it, vi } from "vitest";
+
+import {
+  createObservedSuggestionPresentationTransition,
+  retainCommittedSuggestionPresentationTransitions,
+  resolveSuggestionPresentationRange,
+  suggestionPresentationTransitionKey,
+} from "../suggestions/presentation-rebase";
 
 const canonicalizeNfmCalls = vi.hoisted(() => ({
   record: vi.fn<(content: string) => void>(),
@@ -80,6 +89,101 @@ function setSpecs(
 }
 
 describe("SuggestionHighlight", () => {
+  it("keeps unrelated paragraph widgets while a later acceptance arrives before its response", () => {
+    const source = "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.";
+    const record = (
+      word: string,
+      inserted: string,
+      status: "pending" | "accepted" = "pending",
+    ) => ({
+      id: word,
+      status,
+      operations: [
+        markdownSuggestionOperation(
+          source,
+          source.replace(`${word}.`, `${word}${inserted}.`),
+        )!,
+      ],
+    });
+    const first = record("First", " accepted", "accepted");
+    const second = record("Second", " accepted");
+    const remaining = [
+      record("Third", " rejected"),
+      record("Fourth", " rejected"),
+      record("Fifth", " pending"),
+    ];
+    const retained = retainCommittedSuggestionPresentationTransitions(
+      new Map(),
+      [second, ...remaining],
+      [first],
+    );
+    const observed = createObservedSuggestionPresentationTransition([second])!;
+    const combined = createObservedSuggestionPresentationTransition([
+      first,
+      second,
+    ])!;
+    const mount = document.createElement("div");
+    const view = new EditorView(mount, { state: state() });
+    try {
+      for (const current of [
+        canonicalizeNfm(first.operations[0]!.after.markdown),
+        canonicalizeNfm(combined.after),
+      ]) {
+        const canonical = schema.node(
+          "doc",
+          null,
+          current
+            .split("\n")
+            .map((paragraph) =>
+              schema.node("paragraph", null, schema.text(paragraph)),
+            ),
+        );
+        const specs = remaining.flatMap(
+          (suggestion): SuggestionHighlightSpec[] => {
+            const range = resolveSuggestionPresentationRange(
+              current,
+              suggestion.operations[0]!,
+              retained.get(suggestionPresentationTransitionKey(suggestion)),
+              observed,
+            );
+            if (!range) return [];
+            const paragraph =
+              current.slice(0, range.from).split("\n").length - 1;
+            return [
+              {
+                suggestionId: suggestion.id,
+                kind: "insert",
+                from: range.from + paragraph + 1,
+                to: range.to + paragraph + 1,
+                insertedText: suggestion.operations[0]!.after.changedText,
+              },
+            ];
+          },
+        );
+        view.updateState(
+          setSpecs(
+            EditorState.create({
+              doc: canonical,
+              plugins: [createSuggestionHighlightPlugin()],
+            }),
+            specs,
+          ),
+        );
+        expect(
+          [...mount.querySelectorAll("[data-suggestion-id]")].map((node) =>
+            node.getAttribute("data-suggestion-id"),
+          ),
+        ).toEqual(["Third", "Fourth", "Fifth"]);
+        expect(mount.textContent).toContain(
+          "Third rejected.Fourth rejected.Fifth pending.",
+        );
+        expect(view.state.doc.toJSON()).toEqual(canonical.toJSON());
+      }
+    } finally {
+      view.destroy();
+    }
+  });
+
   it.each([
     {
       kind: "insert" as const,

@@ -62,6 +62,97 @@ const pending = {
 };
 
 describe("committed suggestion presentation proof", () => {
+  it("combines retained and observed disjoint proof only at the verified rendered result", () => {
+    const source = "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.";
+    const first = {
+      id: "first",
+      status: "accepted" as const,
+      operations: [edit(source, 5, 5, " accepted")],
+    };
+    const second = {
+      id: "second",
+      status: "pending" as const,
+      operations: [edit(source, 14, 14, " accepted")],
+    };
+    const remaining = ["Third", "Fourth", "Fifth"].map((word) => ({
+      id: word,
+      status: "pending" as const,
+      operations: [
+        edit(
+          source,
+          source.indexOf(word) + word.length,
+          source.indexOf(word) + word.length,
+          " pending",
+        ),
+      ],
+    }));
+    const retained = retainCommittedSuggestionPresentationTransitions(
+      new Map(),
+      [second, ...remaining],
+      [first],
+    );
+    const observed = createObservedSuggestionPresentationTransition([second])!;
+    const combined = createObservedSuggestionPresentationTransition([
+      first,
+      second,
+    ])!;
+    const current = canonicalizeNfm(combined.after);
+    for (const suggestion of remaining) {
+      const known = retained.get(
+        suggestionPresentationTransitionKey(suggestion),
+      )!;
+      const operation = suggestion.operations[0]!;
+      const from = current.indexOf(suggestion.id) + suggestion.id.length;
+      expect(
+        resolveSuggestionPresentationRange(current, operation, known, observed),
+      ).toEqual({ from, to: from });
+      expect(
+        resolveSuggestionPresentationRange(
+          canonicalizeNfm(known.after),
+          operation,
+          known,
+          observed,
+        ),
+      ).not.toBeNull();
+      if (suggestion.id === "Fifth") continue;
+      expect(
+        resolveSuggestionPresentationRange(
+          `${current} Peer.`,
+          operation,
+          known,
+          observed,
+        ),
+      ).toBeNull();
+      expect(
+        resolveSuggestionPresentationRange(current, operation, known, {
+          ...observed,
+          after: `${observed.after} Unverified.`,
+        }),
+      ).toBeNull();
+      expect(
+        resolveSuggestionPresentationRange(current, operation, known, {
+          ...observed,
+          before: `Other. ${source}`,
+        }),
+      ).toBeNull();
+      const overlapping = createObservedSuggestionPresentationTransition([
+        { operations: [edit(source, 5, 5, " conflicting")] },
+      ])!;
+      expect(
+        resolveSuggestionPresentationRange(
+          current,
+          operation,
+          known,
+          overlapping,
+        ),
+      ).toBeNull();
+    }
+    expect(second.status).toBe("pending");
+    expect(
+      retained.get(suggestionPresentationTransitionKey(remaining[0]!))?.after,
+    ).toBe(first.operations[0]!.after.markdown);
+  });
+
   it("combines separately confirmed disjoint changes only on the same original basis", () => {
     const tail = {
       ...committed,
