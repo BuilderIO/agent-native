@@ -1,5 +1,6 @@
 import {
   createAgentChatPlugin,
+  getRequestUserEmail,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -12,6 +13,7 @@ import {
   createDeckChatBeginningSnapshot,
   deckVersionChatContextFromRun,
 } from "../lib/deck-versions.js";
+import { trackGenerationCompletedForRun } from "../lib/generation-completion.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -168,6 +170,30 @@ async function autosaveDeckAfterAgentTurn(
   });
 }
 
+async function readGeneratedDeckSlideCount(
+  deckId: string,
+): Promise<number | null> {
+  // coercion-ok: a deck deleted or unshared before its run ended has no output to report.
+  const access = await assertAccess("deck", deckId, "viewer").catch(() => null);
+  if (!access) return null;
+  const data = JSON.parse((access.resource as { data: string }).data) as {
+    slides?: unknown;
+  };
+  return Array.isArray(data.slides) ? data.slides.length : 0;
+}
+
+async function reportGenerationCompletion(
+  _scope: unknown,
+  run: { runId: string; threadId?: string; status: string },
+): Promise<void> {
+  const userEmail = getRequestUserEmail();
+  await trackGenerationCompletedForRun(
+    run,
+    readGeneratedDeckSlideCount,
+    userEmail ? { userId: userEmail } : undefined,
+  );
+}
+
 async function autosaveDeckBeforeAgentTurn(
   scope: { type: string; id: string },
   run: { threadId?: string; runId?: string },
@@ -190,6 +216,7 @@ export default createAgentChatPlugin({
   appId: "slides",
   onAgentTurnStart: autosaveDeckBeforeAgentTurn,
   onAgentTurnComplete: autosaveDeckAfterAgentTurn,
+  onAgentRunComplete: reportGenerationCompletion,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {

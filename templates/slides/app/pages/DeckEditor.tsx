@@ -1373,9 +1373,9 @@ export default function DeckEditor() {
             failure_code: failureCode,
             failure_stage: "agent",
           });
-        } else {
-          trackEvent("generation_completed", properties);
         }
+        // Success is `generation_completed`, reported by the server when the
+        // run that wrote the first slide ends; this tab may already be closed.
       } finally {
         clearStartedGenerationAttempt(generationAttemptId, id);
         if (generationSettlingAttemptRef.current === generationAttemptId) {

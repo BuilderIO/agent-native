@@ -163,6 +163,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestRunContext: () => undefined,
 }));
 
+import { trackGenerationCompletedForRun } from "../server/lib/generation-completion";
 import action from "./add-slide";
 
 beforeEach(() => {
@@ -204,6 +205,63 @@ describe("add-slide", () => {
       output_id: "deck-1",
       slide_count: 3,
     });
+  });
+
+  it("reports a home-prompt generation once, when the run that wrote its first slide ends", async () => {
+    deckData = {
+      title: "Untitled",
+      slides: [],
+      generationContext: { targetSlideCount: 2, generationAttemptId: "a-1" },
+    };
+    const ctx = { caller: "tool", runId: "run-1" } as never;
+
+    await action.run(
+      { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
+      ctx,
+    );
+    deckData.slides = [{ id: "s-1", content: "<div>One</div>" }];
+    await action.run(
+      { deckId: "deck-1", slideId: "s-2", content: "<div>Two</div>" },
+      ctx,
+    );
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+
+    const run = { runId: "run-1", threadId: "thread-1", status: "completed" };
+    await trackGenerationCompletedForRun(run, async () => 2);
+    await trackGenerationCompletedForRun(run, async () => 2);
+
+    const completed = mockTrack.mock.calls.filter(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed).toHaveLength(1);
+    expect(completed[0]?.[1]).toMatchObject({
+      generation_attempt_id: "a-1",
+      output_id: "deck-1",
+      slide_count: 2,
+      target_slide_count: 2,
+      outcome: "completed",
+      run_status: "completed",
+      source: "agent_run",
+    });
+  });
+
+  it("does not report a follow-up edit to an already generated deck", async () => {
+    deckData.generationContext = { generationAttemptId: "a-1" };
+
+    await action.run(
+      { deckId: "deck-1", slideId: "s-3", content: "<div>Three</div>" },
+      { caller: "tool", runId: "run-2" } as never,
+    );
+    await trackGenerationCompletedForRun(
+      { runId: "run-2", status: "completed" },
+      async () => 3,
+    );
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
   });
 
   it("closes an incremental generation on its final slide", async () => {

@@ -153,6 +153,9 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
+
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
@@ -457,6 +460,17 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     );
     expect(mocks.seededCollabText.get("file-1")).toContain(
       "data-agent-native-node-id",
+    );
+    expect(track).toHaveBeenCalledWith(
+      "generation_completed",
+      expect.objectContaining({
+        app_name: "design",
+        output_id: "design-1",
+        output_type: "design",
+        file_count: 1,
+        source: "generate_design_action",
+      }),
+      undefined,
     );
   });
 

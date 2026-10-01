@@ -27,6 +27,7 @@ import {
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
+import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import {
   createLayoutFitRevision,
@@ -551,6 +552,17 @@ export default defineAction({
         typeof generationContext?.generationAttemptId === "string"
           ? generationContext.generationAttemptId
           : undefined;
+      if (
+        shouldRepairTitle &&
+        generationAttemptId &&
+        generationContext?.generationMode !== "action"
+      ) {
+        noteGenerationFirstOutput(ctx?.runId, {
+          deckId,
+          generationAttemptId,
+          targetSlideCount,
+        });
+      }
 
       track(
         "deck_edited",
