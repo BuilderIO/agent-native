@@ -463,6 +463,12 @@ the status or ask a question. Follow `address-feedback-with-replies` for the
 remaining Slack reply voice and wording. Every reply ends with
 `this was sent from a bot.` after the plain-language status.
 
+Keep Slack replies brief, high-level, and easy for someone outside engineering
+to understand. Say what we did or did not do and what happens next; include a
+simple reason only when useful. Leave code, tool names, test results, and
+debugging details in the recap or PR. Mention release timing only when it helps
+set expectations, using everyday words.
+
 Reply with a new status or useful information; do not repeat a status already
 in the thread.
 
