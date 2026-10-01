@@ -8,6 +8,7 @@ import { Agent } from "undici";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
+import { getUrlOpenerCommand } from "../cli/open-url.js";
 import {
   closeDbExec,
   getRuntimeDatabaseUrl,
@@ -165,16 +166,17 @@ export function openCliHandoff(
     };
   }
 
-  const platform = deps.platform ?? process.platform;
-  const command =
-    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
+  const { command, args } = getUrlOpenerCommand(
+    url,
+    deps.platform ?? process.platform,
+  );
   try {
     const launch =
       deps.spawn?.(command, args) ??
       spawnSync(command, args, {
         stdio: "ignore",
         timeout: 10_000,
+        shell: false,
       });
     if (launch.error || launch.status !== 0) {
       return {

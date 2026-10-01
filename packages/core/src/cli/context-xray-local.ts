@@ -1945,8 +1945,8 @@ function writeJson(sessions, args, file) {
 }
 
 function openUrl(url) {
-  const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer.exe" : "xdg-open";
+  const args = [url];
   let reportedError = false;
   const reportError = function () {
     if (reportedError) return;
@@ -1954,7 +1954,7 @@ function openUrl(url) {
     console.warn("Could not auto-open browser. Open the printed URL manually.");
   };
   try {
-    const child = childProcess.spawn(cmd, args, { detached: true, stdio: "ignore" });
+    const child = childProcess.spawn(cmd, args, { detached: true, stdio: "ignore", shell: false, windowsHide: true });
     child.once("error", reportError);
     child.once("close", function (code, signal) {
       if (code === 0 && !signal) return;

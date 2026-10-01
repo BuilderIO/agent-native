@@ -12,6 +12,7 @@ import { installLocalContextXray } from "./context-xray-local.js";
 function createOpenUrlHarness(
   childProcess: { spawn: (...args: unknown[]) => unknown },
   warn: (...args: unknown[]) => void,
+  platform = "linux",
 ) {
   const home = mkdtempSync(path.join(tmpdir(), "context-xray-open-url-"));
   const homeSpy = vi.spyOn(os, "homedir").mockReturnValue(home);
@@ -29,7 +30,7 @@ function createOpenUrlHarness(
     }
     return runInNewContext(`(${executable.slice(start, end + 2)})`, {
       childProcess,
-      process: { platform: "linux" },
+      process: { platform },
       console: { warn },
     }) as (url: string) => void;
   } finally {
@@ -71,5 +72,20 @@ describe("Context X-Ray browser opener", () => {
     child.emit("close", null, null);
 
     expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("passes Windows file URLs with shell metacharacters to Explorer as data", () => {
+    const child = Object.assign(new EventEmitter(), { unref: vi.fn() });
+    const spawn = vi.fn(() => child);
+    const openUrl = createOpenUrlHarness({ spawn }, vi.fn(), "win32");
+    const url = "file:///C:/reports/report&summary.html";
+
+    openUrl(url);
+
+    expect(spawn).toHaveBeenCalledWith(
+      "explorer.exe",
+      [url],
+      expect.objectContaining({ shell: false }),
+    );
   });
 });

@@ -35,19 +35,20 @@ describe("openUrlInBrowser", () => {
     expect(child.unref).toHaveBeenCalledOnce();
   });
 
-  it("passes Windows URLs to cmd without an outer shell", () => {
+  it("passes Windows URLs with shell metacharacters to Explorer as data", () => {
     const child = Object.assign(new EventEmitter(), { unref: vi.fn() });
     const spawnProcess = vi.fn(() => child) as never;
+    const url = "https://example.com/callback?code=x&state=y&whoami";
 
-    openUrlInBrowser("https://example.com/callback?code=x&state=y", {
+    openUrlInBrowser(url, {
       platform: "win32",
       spawnProcess,
       warn: vi.fn(),
     });
 
     expect(spawnProcess).toHaveBeenCalledWith(
-      "cmd",
-      ["/c", "start", "", "https://example.com/callback?code=x&state=y"],
+      "explorer.exe",
+      [url],
       expect.objectContaining({ shell: false }),
     );
   });

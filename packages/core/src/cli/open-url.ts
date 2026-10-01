@@ -6,14 +6,25 @@ type OpenUrlOptions = {
   warn?: (message: string) => void;
 };
 
+export function getUrlOpenerCommand(
+  url: string,
+  platform: NodeJS.Platform = process.platform,
+) {
+  const command =
+    platform === "darwin"
+      ? "open"
+      : platform === "win32"
+        ? "explorer.exe"
+        : "xdg-open";
+  return { command, args: [url] };
+}
+
 export function openUrlInBrowser(
   url: string,
   options: OpenUrlOptions = {},
 ): void {
   const platform = options.platform ?? process.platform;
-  const command =
-    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
+  const { command, args } = getUrlOpenerCommand(url, platform);
   const warn = options.warn ?? console.warn;
   let reportedError = false;
   const reportError = (error: unknown) => {
