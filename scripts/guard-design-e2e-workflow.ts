@@ -16,7 +16,18 @@ const workflow = parse(
     "cancel-in-progress"?: unknown;
     queue?: unknown;
   };
-  jobs?: { e2e?: { "timeout-minutes"?: unknown } };
+  jobs?: {
+    e2e?: {
+      "timeout-minutes"?: unknown;
+      steps?: Array<{
+        id?: unknown;
+        name?: unknown;
+        "timeout-minutes"?: unknown;
+        if?: unknown;
+        with?: { "if-no-files-found"?: unknown };
+      }>;
+    };
+  };
 };
 
 assert.deepEqual(Object.keys(workflow.on ?? {}).sort(), [
@@ -30,3 +41,16 @@ assert.equal(workflow.concurrency?.group, "design-e2e");
 assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
 assert.equal(workflow.concurrency?.queue, undefined);
 assert.equal(workflow.jobs?.e2e?.["timeout-minutes"], 45);
+const shardStep = workflow.jobs?.e2e?.steps?.find(
+  (step) => step.name === "Run shard",
+);
+assert.equal(shardStep?.id, "run-shard");
+assert.equal(shardStep?.["timeout-minutes"], 37);
+const reportStep = workflow.jobs?.e2e?.steps?.find(
+  (step) => step.name === "Upload report on failure",
+);
+assert.equal(
+  reportStep?.if,
+  "${{ always() && steps.run-shard.outcome != 'success' }}",
+);
+assert.equal(reportStep?.with?.["if-no-files-found"], "warn");
