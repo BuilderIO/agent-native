@@ -694,7 +694,7 @@ export default function Index() {
         newDesignMode === "app" &&
         systemsEnabled &&
         !newDesignSystemWasChosenRef.current &&
-        designSystemsLoading
+        (designSystemsLoading || designSystemsError)
       ) {
         const result = await refetchDesignSystems();
         if (!result.isSuccess || !result.data) {
@@ -877,6 +877,7 @@ export default function Index() {
       createFromTemplateMutation,
       createFusionAppMutation,
       designSystems,
+      designSystemsError,
       designSystemsLoading,
       fullAppBuildingEnabled,
       handleGenerateDesignTitle,

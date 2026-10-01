@@ -11,6 +11,7 @@ import Index from "./Index";
 const mocks = vi.hoisted(() => ({
   systemsEnabled: true,
   systemsLoading: false,
+  systemsError: null as unknown,
   systemIds: ["default-system", "linked-system", "override-system"],
   systemsQuery: vi.fn(),
   refetchSystems: vi.fn(),
@@ -320,28 +321,29 @@ vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (
     mocks.systemsQuery(enabled),
     {
-      designSystems: mocks.systemsLoading
-        ? []
-        : [
-            {
-              id: "default-system",
-              title: "Default system",
-              isDefault: true,
-              data: "{}",
-            },
-            {
-              id: "linked-system",
-              title: "Linked system",
-              isDefault: false,
-              data: "{}",
-            },
-            {
-              id: "override-system",
-              title: "Override system",
-              isDefault: false,
-              data: "{}",
-            },
-          ].filter((system) => mocks.systemIds.includes(system.id)),
+      designSystems:
+        mocks.systemsLoading || mocks.systemsError
+          ? []
+          : [
+              {
+                id: "default-system",
+                title: "Default system",
+                isDefault: true,
+                data: "{}",
+              },
+              {
+                id: "linked-system",
+                title: "Linked system",
+                isDefault: false,
+                data: "{}",
+              },
+              {
+                id: "override-system",
+                title: "Override system",
+                isDefault: false,
+                data: "{}",
+              },
+            ].filter((system) => mocks.systemIds.includes(system.id)),
       defaultSystem: {
         id: "default-system",
         title: "Default system",
@@ -349,6 +351,7 @@ vi.mock("@/hooks/use-design-systems", () => ({
         data: "{}",
       },
       isLoading: mocks.systemsLoading,
+      error: mocks.systemsError,
       refetch: mocks.refetchSystems,
     }
   ),
@@ -391,6 +394,7 @@ beforeEach(async () => {
   mocks.fullAppBuilding = false;
   mocks.systemsEnabled = true;
   mocks.systemsLoading = false;
+  mocks.systemsError = null;
   mocks.systemIds = ["default-system", "linked-system", "override-system"];
   mocks.ownCount = 0;
   mocks.ownedCount = 0;
@@ -826,6 +830,31 @@ describe("Index skip to editor", () => {
       expect.objectContaining({ designSystemId: "linked-system" }),
     );
     expect(mocks.createFromTemplate).not.toHaveBeenCalled();
+  });
+
+  it("retries systems lookup before app creation when the initial query failed", async () => {
+    mocks.fullAppBuilding = true;
+    mocks.systemsError = new Error("systems query failed");
+    mocks.refetchSystems.mockResolvedValue({
+      isSuccess: true,
+      data: {
+        designSystems: [{ id: "linked-system" }],
+      },
+    });
+    await act(async () => root.render(<Index />));
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Build an app", [], {});
+    });
+
+    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "linked-system" }),
+    );
   });
 
   it("clears an inaccessible linked system after loading before template copy", async () => {
