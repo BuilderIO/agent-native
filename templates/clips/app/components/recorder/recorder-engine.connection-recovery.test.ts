@@ -12,6 +12,7 @@ vi.mock("@/lib/recording-backup", () => ({
   deleteRecordingBackup: vi.fn(async () => {}),
   putRecordingBackupChunk: vi.fn(async () => {}),
   putRecordingBackupMeta: vi.fn(async () => {}),
+  updateRecordingBackupMeta: vi.fn(async () => ({})),
 }));
 
 vi.mock("@/lib/upload-request", () => ({

@@ -47,6 +47,28 @@ describe("record route lifecycle shell", () => {
     expect(uploadFlow).toContain("...uploadAbortMetadata(err)");
   });
 
+  it("records before storage exists and never discards on page close", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const startFlow = source.slice(
+      source.indexOf("const startFlow = useCallback"),
+      source.indexOf("const UPLOAD_PARALLELISM"),
+    );
+    // No storage gate before capture: a missing provider records locally.
+    expect(startFlow).not.toContain("No video storage configured");
+    expect(startFlow).toContain("engine.setLocalOnlyTarget(localId)");
+
+    const pageHide = source.slice(
+      source.indexOf("const releaseCapture = () =>"),
+      source.indexOf('window.addEventListener("pagehide", releaseCapture)'),
+    );
+    expect(pageHide).toContain("engine.release()");
+    expect(pageHide).not.toContain("engine?.cancel(");
+    expect(pageHide).toContain('failureCode: "recording_interrupted"');
+  });
+
   it("announces real progress without including action controls", () => {
     act(() => {
       root.render(

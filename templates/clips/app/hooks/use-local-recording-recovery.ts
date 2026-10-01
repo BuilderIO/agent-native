@@ -1,6 +1,6 @@
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -18,7 +18,6 @@ import {
 } from "@/lib/recording-backup";
 
 const RECOVERY_TOAST_ID = "clips-local-recording-recovery";
-let scannedThisPageLoad = false;
 
 /**
  * The local copies that still need an upload. Copies the server already has
@@ -55,21 +54,29 @@ export async function findLocalRecordingsToFinish(
   return pending;
 }
 
-/** Once per page load, offer to finish any recording left in this browser. */
-export function useLocalRecordingRecovery(enabled = true) {
+/**
+ * When the app shell or an idle recorder mounts, offer to finish any
+ * recording left in this browser. The toast id keeps it to one prompt.
+ */
+export function useLocalRecordingRecovery(
+  enabled = true,
+  /** Finish in place; the recorder uses this so no route load is needed. */
+  onFinish?: (recordingId: string) => void,
+) {
   const t = useT();
   const navigate = useNavigate();
   const { session } = useSession();
   const ownerEmail = session?.email ?? null;
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
 
   useEffect(() => {
-    if (!enabled || !ownerEmail || scannedThisPageLoad) return;
-    if (!recordingBackupAvailable()) return;
-    scannedThisPageLoad = true;
+    if (!enabled || !ownerEmail || !recordingBackupAvailable()) return;
+    let cancelled = false;
     void findLocalRecordingsToFinish(ownerEmail)
       .then((pending) => {
         const newest = pending[0];
-        if (!newest) return;
+        if (cancelled || !newest) return;
         // One prompt for the newest; finishing it rescans on the next load.
         toast.warning(t("recordRoute.unfinishedRecording"), {
           id: RECOVERY_TOAST_ID,
@@ -78,6 +85,10 @@ export function useLocalRecordingRecovery(enabled = true) {
           action: {
             label: t("recordRoute.finishUpload"),
             onClick: () => {
+              if (onFinishRef.current) {
+                onFinishRef.current(newest.recordingId);
+                return;
+              }
               void navigate(
                 `/record?localRecording=${encodeURIComponent(newest.recordingId)}`,
               );
@@ -86,8 +97,10 @@ export function useLocalRecordingRecovery(enabled = true) {
         });
       })
       .catch((err) => {
-        scannedThisPageLoad = false;
         console.warn("[clips] local recording recovery scan failed:", err);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [enabled, navigate, ownerEmail, t]);
 }

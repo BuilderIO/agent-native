@@ -1717,8 +1717,6 @@ const messages = {
       "進行中的錄製尚未儲存完成。現在離開此頁面將會捨棄它。",
     leaveAndDiscard: "離開並捨棄",
     recordingWithoutSound: "正在無聲錄製。開啟麥克風才能產生逐字稿。",
-    storageStatusUnavailable:
-      "Clips 無法檢查你的儲存空間。你的錄製已安全保存在此瀏覽器中。",
     pendingStorageTitle: "連線儲存空間以保存你的錄製",
     pendingStorageDescription:
       "你的錄製已安全保存在此瀏覽器中。連線儲存空間後，Clips 會立即上傳。",

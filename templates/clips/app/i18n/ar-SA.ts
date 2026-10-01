@@ -1803,8 +1803,6 @@ const messages = {
     leaveAndDiscard: "مغادرة وحذف",
     recordingWithoutSound:
       "يتم التسجيل بدون صوت. شغّل الميكروفون للحصول على نص مكتوب.",
-    storageStatusUnavailable:
-      "تعذّر على Clips التحقق من التخزين. تسجيلك محفوظ بأمان في هذا المتصفح.",
     pendingStorageTitle: "اربط التخزين لحفظ تسجيلك",
     pendingStorageDescription:
       "تسجيلك محفوظ بأمان في هذا المتصفح. اربط التخزين وسيرفعه Clips فورًا.",

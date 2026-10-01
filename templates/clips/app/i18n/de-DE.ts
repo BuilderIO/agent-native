@@ -1846,8 +1846,6 @@ const messages = {
     leaveAndDiscard: "Verlassen und verwerfen",
     recordingWithoutSound:
       "Aufnahme ohne Ton. Schalte ein Mikrofon ein, um ein Transkript zu erhalten.",
-    storageStatusUnavailable:
-      "Clips konnte deinen Speicher nicht prüfen. Deine Aufnahme ist in diesem Browser sicher.",
     pendingStorageTitle: "Verbinde Speicher, um deine Aufnahme zu sichern",
     pendingStorageDescription:
       "Deine Aufnahme ist in diesem Browser sicher. Verbinde Speicher, und Clips lädt sie sofort hoch.",

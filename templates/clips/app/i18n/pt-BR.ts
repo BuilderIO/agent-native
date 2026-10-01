@@ -1827,8 +1827,6 @@ const messages = {
     leaveAndDiscard: "Sair e descartar",
     recordingWithoutSound:
       "Gravando sem som. Ative um microfone para obter uma transcrição.",
-    storageStatusUnavailable:
-      "O Clips não conseguiu verificar seu armazenamento. Sua gravação está segura neste navegador.",
     pendingStorageTitle: "Conecte um armazenamento para salvar sua gravação",
     pendingStorageDescription:
       "Sua gravação está segura neste navegador. Conecte um armazenamento e o Clips a envia na hora.",

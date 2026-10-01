@@ -1730,8 +1730,6 @@ const messages = {
       "正在进行的录制尚未保存完成。现在离开此页面将丢弃它。",
     leaveAndDiscard: "离开并丢弃",
     recordingWithoutSound: "正在无声录制。打开麦克风才能生成转录。",
-    storageStatusUnavailable:
-      "Clips 无法检查你的存储。你的录制已安全保存在此浏览器中。",
     pendingStorageTitle: "连接存储以保存你的录制",
     pendingStorageDescription:
       "你的录制已安全保存在此浏览器中。连接存储后，Clips 会立即上传。",

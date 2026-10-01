@@ -1787,8 +1787,6 @@ const messages = {
     leaveAndDiscard: "Leave and discard",
     recordingWithoutSound:
       "Recording without sound. Turn on a microphone to get a transcript.",
-    storageStatusUnavailable:
-      "Clips couldn't check your storage. Your recording is safe in this browser.",
     pendingStorageTitle: "Connect storage to save your recording",
     pendingStorageDescription:
       "Your recording is safe in this browser. Connect storage and Clips uploads it right away.",

@@ -1846,8 +1846,6 @@ const messages = {
     leaveAndDiscard: "Quitter et abandonner",
     recordingWithoutSound:
       "Enregistrement sans son. Activez un micro pour obtenir une transcription.",
-    storageStatusUnavailable:
-      "Clips n’a pas pu vérifier votre stockage. Votre enregistrement est en sécurité dans ce navigateur.",
     pendingStorageTitle:
       "Connectez un stockage pour sauvegarder votre enregistrement",
     pendingStorageDescription:

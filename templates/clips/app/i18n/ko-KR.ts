@@ -1798,8 +1798,6 @@ const messages = {
     leaveAndDiscard: "나가서 삭제",
     recordingWithoutSound:
       "소리 없이 녹화 중입니다. 대본을 받으려면 마이크를 켜세요.",
-    storageStatusUnavailable:
-      "Clips에서 저장소를 확인하지 못했습니다. 녹화는 이 브라우저에 안전하게 보관되어 있습니다.",
     pendingStorageTitle: "녹화를 저장하려면 저장소를 연결하세요",
     pendingStorageDescription:
       "녹화는 이 브라우저에 안전하게 보관되어 있습니다. 저장소를 연결하면 Clips가 바로 업로드합니다.",

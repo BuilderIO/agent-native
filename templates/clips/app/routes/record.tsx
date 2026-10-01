@@ -1541,10 +1541,7 @@ export default function RecordRoute() {
         }
         setError(message);
         setUiState("error");
-        if (
-          !message.includes("No video storage configured") &&
-          message !== "SESSION_EXPIRED"
-        ) {
+        if (message !== "SESSION_EXPIRED") {
           showRecordingErrorToast(message);
         }
       }
@@ -2269,12 +2266,16 @@ export default function RecordRoute() {
       } else if (reportContext) {
         completeUploadToast(t("recordRoute.recordingSaved"));
       } else {
-        showSavedToast(
-          t("recordRoute.recordingSaved"),
-          await (pendingCopy ??
-            copyFreshRecordingShareLink(recordingId, authSession)),
-          recordingId,
-        );
+        // A clipboard write with no recent user gesture (an upload resumed
+        // by the `online` event) can wait on a permission prompt forever;
+        // it must never hold the saved clip off screen.
+        const copied = await Promise.race([
+          pendingCopy ?? copyFreshRecordingShareLink(recordingId, authSession),
+          new Promise<boolean>((resolve) =>
+            window.setTimeout(() => resolve(false), 1_500),
+          ),
+        ]);
+        showSavedToast(t("recordRoute.recordingSaved"), copied, recordingId);
       }
 
       if (reportContext) {
@@ -2331,7 +2332,7 @@ export default function RecordRoute() {
             uploading: false,
             error: {
               code: "network",
-              message: t("recordRoute.storageStatusUnavailable"),
+              message: "Video storage status is unreachable.",
             },
           });
           return;
@@ -2509,6 +2510,9 @@ export default function RecordRoute() {
 
   useLocalRecordingRecovery(
     uiState === "idle" && !resumeLocalRecordingId && !clipIntake,
+    useCallback((recordingId: string) => {
+      enterPendingUploadRef.current(recordingId);
+    }, []),
   );
 
   const pendingRetryOnline =

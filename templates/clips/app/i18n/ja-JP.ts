@@ -1821,8 +1821,6 @@ const messages = {
     leaveAndDiscard: "離れて破棄する",
     recordingWithoutSound:
       "音声なしで録画しています。文字起こしを作成するにはマイクをオンにしてください。",
-    storageStatusUnavailable:
-      "ストレージを確認できませんでした。録画はこのブラウザに安全に保存されています。",
     pendingStorageTitle: "録画を保存するにはストレージを接続してください",
     pendingStorageDescription:
       "録画はこのブラウザに安全に保存されています。ストレージを接続すると、すぐにアップロードします。",
