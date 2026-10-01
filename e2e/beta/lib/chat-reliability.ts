@@ -743,7 +743,7 @@ export class ChatReliabilitySession {
         `${where}: the server refused ${conflicts.length} message(s) with 409 because a run already held the thread (at ${conflicts.map((entry) => `+${(entry.atMs / 1000).toFixed(1)}s`).join(", ")})`,
       );
     }
-    this.luna.assertOnlyLuna();
+    await this.luna.assertOnlyLuna();
   }
 
   // ---- server reads --------------------------------------------------

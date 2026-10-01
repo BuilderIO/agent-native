@@ -95,7 +95,7 @@ for (const site of sites) {
 
           await sendPromptAndAwaitTurn(page, PROMPT);
 
-          chat.assertOnlyLuna();
+          await chat.assertOnlyLuna();
           await assertNoChatFailure(page, `${site.host} (chat turn)`);
 
           await expect(
@@ -177,7 +177,7 @@ for (const site of sites) {
 
           await sendPromptAndAwaitTurn(page, PROMPT);
 
-          chat.assertOnlyLuna();
+          await chat.assertOnlyLuna();
 
           await expect(
             page.locator(VISIBLE_COMPOSER.stop),

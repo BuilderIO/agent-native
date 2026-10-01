@@ -149,7 +149,11 @@ that does not survive a reload, and an agent that claims a tool call it did not
 make. `a second message during a run gets no error and both are answered` is
 the regression guard for the 409 "Run already in progress" report; red with that
 message is the finding, not a flake. The slides realtime test does not retry: its
-idle window is 10 minutes.
+idle window is 10 minutes. The Stop test asks for 100 lines so there is time to
+see the control; it fails with a distinct message when the answer finished
+before Stop could be pressed, and when a run was working for three seconds with
+no Stop control in the composer (the Chat app's full-page composer renders
+none, so a user there has no way to stop a run).
 
 `advisory` reports real findings that do not stop a user — beta being
 indexable, third-party pixels that reject beta hosts, beta sharing a database
@@ -271,7 +275,10 @@ the state so it does not come back as NEW, and never counted fixed. NOT RUN
 entries do not make a run red, page anyone, or trigger a comment on their own;
 a slot that stopped early is red because of its own timeout or failure entries.
 A green run closes any open issue, including one that predates the state marker,
-and says how many tests it could not verify.
+and says how many tests it could not verify. A test that skips itself because
+the e2e account is not set up for it (its skip reason starts `[env]`) is
+reported as **NOT TESTED** with that reason, in the issue and in Slack; it never
+fails a run.
 
 ### Slack setup (one time)
 
@@ -306,6 +313,18 @@ signed-out page is not a weaker test, it is a false one — and this repo has
 that exact bug in two template global-setups today, which warn and continue as
 a guest.
 
+**An account-setup gap skips, says so, and shows up in the report.** A
+feature the e2e account was never given is not a product regression and must
+not read as one, but it must not pass silently either. Today that is private
+file storage: when Slides' `/api/uploads/status` says `referenceStorageReady`
+is false, the three `[slides-import]` tests skip with
+`[env] e2e account has no private storage; connect Builder storage to the e2e
+account`. The report lists every skip whose reason starts `[env]` as **NOT
+TESTED** (a line in the issue and in Slack, and a table in the issue), so the
+gap stays visible until someone connects storage to the account. A status that
+cannot be read, or one that says ready while the upload is then refused, still
+fails.
+
 If `BETA_E2E_EMAIL` is not the dedicated `+autoz` identity, keep the run
 failed. The existing recovery command for the fleet run is:
 
@@ -324,6 +343,23 @@ localStorage is a wish until something checks it. Every agent-chat POST is
 inspected and the run fails if anything other than luna was billed, including
 a request that carried no model field at all and therefore fell back to the
 app's default.
+
+**An engine the request does not name is proven, not assumed.** Most hosts
+send `engine: ai-sdk:openai` with the turn, which is what proves the dedicated
+user-scoped key is billed. The Chat app's composer puts the engine only in the
+request's `metadata`, which the server ignores, so its turns carry the luna
+model and no engine, and the server picks one. Such a turn passes only if, after
+the turn, two reads through the e2e session agree that the pick is the expected
+engine: `GET /_agent-native/agent-engine/status` says the account resolves to
+`ai-sdk:openai`, and `GET /_agent-native/agent-model-defaults` says the app has
+no default engine of its own (or the same one). A Builder gateway or a
+shared-credit account, an app default pointing at another engine, an HTTP
+error, or an answer that cannot be read all fail with the reason; "no engine
+field" is never accepted on its own. A turn that names a different engine
+still fails, and so does a turn that names no model: a message queued behind a
+running turn is sent that way by the Chat app, so the second-message test
+there stays red until the transport forwards the picker's model. The run logs
+a `[beta-e2e]` line whenever it relies on the proof.
 
 **Certificate errors stay visible.** `ignoreHTTPSErrors` is never set, because
 "the connection isn't private" was a real report and only a browser that still
@@ -381,7 +417,10 @@ lane exists.
 registry, which stores one production URL per app with no beta-aware branch.
 `beta.slides` delegating to "analytics" reaches **production** Analytics. The
 A2A spec is named for that, and a green result there does not clear beta
-Analytics.
+Analytics. The reachability test reads the peer's card through
+`/_agent-native/agents/probe?url=…`, which for a first-party peer verifies that
+it answers and advertises signed (`jwtBearer`) calls but does not verify
+authorization; the delegation test is what proves a signed call is accepted.
 
 ## Adding a host or an app
 

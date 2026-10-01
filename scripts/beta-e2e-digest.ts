@@ -19,6 +19,9 @@
  *     never counted as a new failure when it fails again.
  *   - Flaky tests (passed on retry) and advisory-lane findings are listed but
  *     neither fail the run nor page anyone.
+ *   - A test that skips itself because the e2e account is not set up for it
+ *     (skip reason starting `[env]`) is reported as NOT TESTED with that
+ *     reason, so an account-setup gap is visible without reading as a failure.
  *
  * Runs under `tsx` and under `node --experimental-strip-types` (the workflow's
  * report job has no install step), so: node built-ins only, no enums, no
@@ -100,6 +103,24 @@ export interface SetupError {
   class: FailureClass;
 }
 
+/**
+ * A test that skipped itself because the e2e account is not set up for it, not
+ * because the app was left out of the run. The suite marks those with a skip
+ * description starting `[env]`; they are never failures, but a skip nobody can
+ * see is how a lane quietly stops testing.
+ */
+export interface EnvSkip {
+  slot: string;
+  app: string;
+  project: string;
+  file: string;
+  line: number;
+  title: string;
+  reason: string;
+}
+
+const ENV_SKIP_PREFIX = /^\[env\]\s*/i;
+
 export interface SlotResults {
   slot: string;
   artifactName: string;
@@ -118,6 +139,8 @@ export interface SlotResults {
   passed: string[];
   /** Keys of tests the suite skipped on purpose (test.skip, test.fixme). */
   skipped: string[];
+  /** The skipped tests whose reason is the e2e account's setup. */
+  envSkipped: EnvSkip[];
 }
 
 export interface UnreadableResults {
@@ -223,6 +246,8 @@ export interface Digest {
   notRun: DigestEntry[];
   fixed: StateEntry[];
   flaky: FlakyTest[];
+  /** Skipped for the e2e account's setup: reported, never failing. */
+  envSkipped: EnvSkip[];
   advisory: Array<TestFailure | SetupError | JobFact>;
   failedJobs: Array<{ job: RunJob; fact: JobFact | null; failing: number }>;
   totals: {
@@ -297,6 +322,8 @@ const ENV_PATTERNS = [
   /OpenAI credential validation was inconclusive/i,
   /Could not validate the selected OpenAI credential/i,
   /dedicated OpenAI key was not confirmed/i,
+  /the account resolves to engine \S+, not \S+/i,
+  /the app's default engine is \S+, which overrides the account's/i,
   /BETA_E2E_[A-Z_]+ is set but is not valid JSON/i,
 ];
 
@@ -402,6 +429,7 @@ interface RawTest {
    * never ran (maxFailures or globalTimeout stopped the slot).
    */
   expectedStatus?: string;
+  annotations?: Array<{ type?: string; description?: string }>;
   results?: RawResult[];
 }
 
@@ -538,6 +566,7 @@ export function parseResults(
   const flaky: FlakyTest[] = [];
   const passed: string[] = [];
   const skipped: string[] = [];
+  const envSkipped: EnvSkip[] = [];
   let notRun = 0;
 
   const walk = (suite: RawSuite, titles: string[]): void => {
@@ -559,8 +588,25 @@ export function parseResults(
         } else if (test.status === "skipped") {
           // A test the suite skips on purpose reports an expected status of
           // "skipped"; one that never ran because the slot stopped does not.
-          if (test.expectedStatus === "skipped") skipped.push(key);
-          else notRun += 1;
+          if (test.expectedStatus === "skipped") {
+            skipped.push(key);
+            const reason = (test.annotations ?? []).find(
+              (note) =>
+                note.type === "skip" &&
+                ENV_SKIP_PREFIX.test(note.description ?? ""),
+            )?.description;
+            if (reason) {
+              envSkipped.push({
+                slot,
+                app,
+                project,
+                file,
+                line,
+                title,
+                reason: truncate(reason.replace(ENV_SKIP_PREFIX, ""), 240),
+              });
+            }
+          } else notRun += 1;
         }
         if (test.status !== "unexpected") continue;
         const results = test.results ?? [];
@@ -617,6 +663,7 @@ export function parseResults(
     setupErrors: setup,
     passed,
     skipped,
+    envSkipped,
   };
 }
 
@@ -1058,6 +1105,7 @@ export function buildDigest(input: DigestInput): Digest {
     notRun,
     fixed,
     flaky,
+    envSkipped: input.slots.flatMap((result) => result.envSkipped),
     advisory,
     failedJobs,
     totals,
@@ -1151,6 +1199,14 @@ function notRunSummary(count: number): string {
   return `${count} previously failing test${count === 1 ? "" : "s"} did not run this time, so ${count === 1 ? "it is" : "they are"} not verified fixed`;
 }
 
+function envSkippedSummary(digest: Digest): string | null {
+  const skips = digest.envSkipped;
+  if (skips.length === 0) return null;
+  const reasons = [...new Set(skips.map((skip) => skip.reason))];
+  const apps = [...new Set(skips.map((skip) => skip.app))].join(", ");
+  return `${skips.length} test${skips.length === 1 ? "" : "s"} skipped because the e2e account is not set up for ${skips.length === 1 ? "it" : "them"} (${apps}): ${reasons.slice(0, 2).join("; ")}${reasons.length > 2 ? `; +${reasons.length - 2} more` : ""}`;
+}
+
 function artifactLinks(digest: Digest, slot: string) {
   const name = artifactNameForSlot(slot, digest.input.runId);
   const artifact = digest.input.artifacts.find((entry) => entry.name === name);
@@ -1218,6 +1274,8 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
   push(
     `- Tests: ${totals.expected} passed, ${totals.unexpected} failed, ${totals.flaky} flaky, ${Math.max(0, totals.skipped - totals.notRun)} skipped${totals.notRun > 0 ? `, ${totals.notRun} did not run (a slot stopped early or timed out)` : ""} across ${totals.slotsWithResults} slots`,
   );
+  const envSkipped = envSkippedSummary(digest);
+  if (envSkipped) push(`- Not tested: ${envSkipped}`);
   if (input.slackNote) push(`- Slack: ${input.slackNote}`);
   for (const note of input.notes ?? []) push(`- Report note: ${note}`);
   if (digest.stoppedEarly.length > 0) {
@@ -1383,6 +1441,21 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
     push("");
   }
 
+  if (digest.envSkipped.length > 0) {
+    push(
+      `### Skipped: the e2e account is not set up for these (${digest.envSkipped.length}, not failing)`,
+      "",
+      "| App | Lane / project | Test | Reason |",
+      "| --- | --- | --- | --- |",
+    );
+    for (const skip of digest.envSkipped.slice(0, options.rowLimit)) {
+      push(
+        `| ${plainCell(skip.app)} | ${codeCell(`${skip.slot} / ${skip.project}`)} | ${codeCell(skip.title)} | ${plainCell(skip.reason)} |`,
+      );
+    }
+    push("");
+  }
+
   if (digest.advisory.length > 0) {
     push(`### Advisory findings (${digest.advisory.length}, non-gating)`, "");
     for (const item of digest.advisory.slice(0, 10)) {
@@ -1516,6 +1589,7 @@ export function renderSlack(digest: Digest): string {
   const issueLink = input.issueUrl
     ? ` · <${input.issueUrl}|issue${input.issueNumber ? ` #${input.issueNumber}` : ""}>`
     : "";
+  const envSkipped = envSkippedSummary(digest);
 
   if (digest.status === "green") {
     const prev = input.previous;
@@ -1527,6 +1601,7 @@ export function renderSlack(digest: Digest): string {
       ...(digest.counts.notRun > 0
         ? [`NOT RUN: ${notRunSummary(digest.counts.notRun)}.`]
         : []),
+      ...(envSkipped ? [`NOT TESTED: ${slackEscape(envSkipped)}.`] : []),
     ].join("\n");
   }
 
@@ -1542,6 +1617,7 @@ export function renderSlack(digest: Digest): string {
   lines.push(
     `New ${digest.counts.newFailures} · still failing ${digest.counts.stillFailing} · fixed ${digest.counts.fixed} · NOT RUN ${digest.counts.notRun} · flaky (not paged) ${digest.counts.flaky}`,
   );
+  if (envSkipped) lines.push(`NOT TESTED: ${slackEscape(envSkipped)}.`);
   const ranked = [...digest.entries].sort(
     (a, b) => Number(b.state === "new") - Number(a.state === "new"),
   );
@@ -1797,6 +1873,7 @@ export function writeOutputs(digest: Digest, outDir: string): void {
         fixed: digest.counts.fixed,
         notRun: digest.counts.notRun,
         flaky: digest.counts.flaky,
+        envSkipped: digest.envSkipped.length,
       },
       null,
       2,

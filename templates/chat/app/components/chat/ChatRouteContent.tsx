@@ -19,7 +19,10 @@ import {
   type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
 } from "@agent-native/toolkit/app/agentkit/react/context";
-import { CoreComposerRuntimeProvider } from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
+import {
+  CoreComposerRuntimeProvider,
+  useAgentKitStopButton,
+} from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
 import {
   McpAgentKitConnectionRequestCard,
   McpAgentKitConnectionResume,
@@ -498,6 +501,7 @@ function ChatCanvas({
 }) {
   const t = useT();
   const thread = useAgentThread();
+  const stopButton = useAgentKitStopButton();
   const hasConversation = thread.messages.length > 0;
 
   useEffect(() => {
@@ -530,6 +534,7 @@ function ChatCanvas({
       toolbar={toolbar}
       emptyComposerPlacement="center"
       composerProps={{
+        stopButton,
         queueWhileRunning: true,
         autoFocus: true,
         plusMenuMode: "full",

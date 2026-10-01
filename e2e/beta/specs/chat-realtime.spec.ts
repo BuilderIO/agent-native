@@ -147,7 +147,7 @@ test.describe("Slides realtime editor", () => {
         "the Slides canvas did not show the agent edit while the chat run was active",
       ).toBe(true);
       expect(await readDocument(pageA)).toBe(pageADocument);
-      chat.assertOnlyLuna();
+      await chat.assertOnlyLuna();
       await assertNoChatFailure(pageA, "beta.slides live editor edit");
 
       const pageBCanvas = pageB.locator(MAIN_SLIDE_CANVAS);
