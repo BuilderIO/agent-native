@@ -17,7 +17,10 @@ import {
   OVERLAY_CALENDAR_STATUS_KEY,
   useOverlayCalendarStatus,
 } from "./use-events";
-import { useRemoveOverlayPerson } from "./use-overlay-people";
+import {
+  useAddOverlayPerson,
+  useRemoveOverlayPerson,
+} from "./use-overlay-people";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -28,14 +31,17 @@ const OVERLAY_STATUS = {
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
+let addPerson: ReturnType<typeof useAddOverlayPerson> | null = null;
 let removePerson: ReturnType<typeof useRemoveOverlayPerson> | null = null;
 
 function Harness() {
   useOverlayCalendarStatus([LOGAN]);
+  const add = useAddOverlayPerson();
   const remove = useRemoveOverlayPerson();
   useEffect(() => {
+    addPerson = add;
     removePerson = remove;
-  }, [remove]);
+  }, [add, remove]);
   return null;
 }
 
@@ -53,6 +59,12 @@ function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
     updatedAt: "2026-09-30T15:00:00.000Z",
     ...overrides,
   };
+}
+
+function statusProbeCalls() {
+  return callAction.mock.calls.filter(
+    ([name, params]) => name === "list-events" && params?.format === "inventory",
+  ).length;
 }
 
 async function renderHarness(queryClient: QueryClient) {
@@ -76,11 +88,15 @@ async function renderHarness(queryClient: QueryClient) {
   });
 }
 
-describe("useRemoveOverlayPerson", () => {
+describe("overlay person mutations", () => {
   beforeEach(() => {
+    addPerson = null;
     removePerson = null;
     callAction.mockImplementation(async (name: string) => {
       if (name === "list-events") return OVERLAY_STATUS;
+      if (name === "add-overlay-person") {
+        return [{ email: LOGAN, color: "#E07C4F" }];
+      }
       if (name === "remove-overlay-person") return [];
       throw new Error(`Unexpected action ${name}`);
     });
@@ -137,5 +153,21 @@ describe("useRemoveOverlayPerson", () => {
     expect(
       queryClient.getQueryData(["action", "get-overlay-people", undefined]),
     ).toEqual([]);
+  });
+
+  it("refreshes the cached overlay status after adding or removing a person", async () => {
+    const queryClient = new QueryClient();
+    await renderHarness(queryClient);
+    expect(statusProbeCalls()).toBe(1);
+
+    await act(async () => {
+      await removePerson!.mutateAsync(LOGAN);
+    });
+    await vi.waitFor(() => expect(statusProbeCalls()).toBe(2));
+
+    await act(async () => {
+      await addPerson!.mutateAsync({ email: LOGAN });
+    });
+    await vi.waitFor(() => expect(statusProbeCalls()).toBe(3));
   });
 });
