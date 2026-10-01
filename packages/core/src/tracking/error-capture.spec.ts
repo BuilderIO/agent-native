@@ -98,6 +98,23 @@ describe("tracking captureException", () => {
     expect(event.properties.exceptionStack).not.toContain("ada.lovelace");
   });
 
+  it("redacts PostgreSQL MERGE bind parameters", () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    const privateValue = "private customer value";
+    captureException(
+      new Error(
+        `Failed query: merge into customers using staging on customers.id = staging.id\nparams: ${privateValue}`,
+      ),
+    );
+
+    const [event] = track.mock.calls[0];
+    expect(event.properties.exceptionMessage).toContain("merge into customers");
+    expect(event.properties.exceptionMessage).not.toContain(privateValue);
+    expect(event.properties.exceptionStack).not.toContain(privateValue);
+  });
+
   it("keeps tags after an undefined one instead of dropping the rest", () => {
     const track = vi.fn();
     registerTrackingProvider({ name: "qa-exception", track });

@@ -1,5 +1,9 @@
 import { loadOptionalPeer } from "../shared/optional-peer.js";
-import { isSqlQueryFailureText, redact } from "../tracking/redaction.js";
+import {
+  isSqlQueryFailureText,
+  isSqlStatementText,
+  redact,
+} from "../tracking/redaction.js";
 import type { AuthSession } from "./auth.js";
 import {
   resolveDeployEnvironment,
@@ -34,16 +38,22 @@ function containsSqlQueryFailure(
   }
   seen.add(value);
 
-  if (
-    !Array.isArray(value) &&
-    "params" in value &&
-    ("query" in value || "sql" in value)
-  ) {
+  if (isStructuredSqlQuery(value)) {
     return true;
   }
 
   return Object.values(value).some((child) =>
     containsSqlQueryFailure(child, seen),
+  );
+}
+
+function isStructuredSqlQuery(value: object): value is Record<string, unknown> {
+  if (Array.isArray(value) || !("params" in value)) return false;
+  const query = "query" in value ? value.query : undefined;
+  const sql = "sql" in value ? value.sql : undefined;
+  return (
+    (typeof query === "string" && isSqlStatementText(query)) ||
+    (typeof sql === "string" && isSqlStatementText(sql))
   );
 }
 
@@ -60,9 +70,7 @@ function redactSentryEventPayload(
   const redactSqlParams =
     sqlFailure ||
     (!eventRoot &&
-      ((!Array.isArray(value) &&
-        "params" in value &&
-        ("query" in value || "sql" in value)) ||
+      (isStructuredSqlQuery(value) ||
         Object.values(record).some(
           (child) => typeof child === "string" && isSqlQueryFailureText(child),
         )));

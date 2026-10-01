@@ -245,6 +245,35 @@ describe("server/sentry", () => {
       expect(result.contexts.report.params).toEqual([diagnosticValue]);
     });
 
+    it("keeps parameters for structured search queries", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const searchParams = ["customer@example.com"];
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message: "Customer search failed",
+        logentry: {
+          message: "Customer search failed",
+          query: "search customers by email",
+          params: searchParams,
+        },
+        contexts: {
+          search: { query: "email contains", params: searchParams },
+        },
+        exception: {
+          values: [{ type: "Error", value: "Customer search failed" }],
+        },
+      } as never) as {
+        logentry: { params: unknown[] };
+        contexts: { search: { params: unknown[] } };
+      };
+
+      expect(result.logentry.params).toEqual(searchParams);
+      expect(result.contexts.search.params).toEqual(searchParams);
+    });
+
     it("redacts nested serialized SQL errors with bound parameters", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
