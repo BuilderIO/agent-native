@@ -1275,6 +1275,7 @@ export default {
     toDate: "끝",
     clearFromDate: "시작 날짜 지우기",
     clearToDate: "종료 날짜 지우기",
+    clearFilters: "모두 지우기",
     signals: "신호",
     hideEmptySessions: "빈 세션 숨기기",
     networkErrors: "네트워크 오류",

@@ -1274,6 +1274,7 @@ export default {
     toDate: "إلى",
     clearFromDate: "مسح تاريخ البدء",
     clearToDate: "مسح تاريخ الانتهاء",
+    clearFilters: "مسح الكل",
     signals: "الإشارات",
     hideEmptySessions: "إخفاء الجلسات الفارغة",
     networkErrors: "أخطاء الشبكة",

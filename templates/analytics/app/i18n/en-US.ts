@@ -1370,6 +1370,7 @@ export default {
     toDate: "To",
     clearFromDate: "Clear start date",
     clearToDate: "Clear end date",
+    clearFilters: "Clear all",
     signals: "Signals",
     hideEmptySessions: "Hide empty sessions",
     networkErrors: "Network errors",

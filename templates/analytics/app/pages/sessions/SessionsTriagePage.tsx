@@ -79,6 +79,9 @@ type Page = {
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
 const SORTS: Sort[] = ["newest", "longest", "errors", "events", "rage"];
 const DURATIONS = [0, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
+// Every other search param counts as a filter for Clear all, so a param that
+// is not a filter must be listed here or Clear all will show and drop it.
+const NON_FILTER_PARAMS = new Set(["sort", "page"]);
 
 function validRange(value: string | null): Range {
   return value === "custom" || RANGES.includes(value as Range)
@@ -202,6 +205,20 @@ export function SessionsTriagePage() {
     },
     [setParams],
   );
+  const hasActiveFilters = [...params.keys()].some(
+    (key) => !NON_FILTER_PARAMS.has(key),
+  );
+  const clearFilters = useCallback(() => {
+    setParams(
+      (current) => {
+        const next = new URLSearchParams();
+        const currentSort = current.get("sort");
+        if (currentSort) next.set("sort", currentSort);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setParams]);
   const commitQuery = useCallback(
     (value: string) => setFilter("q", value),
     [setFilter],
@@ -557,6 +574,17 @@ export function SessionsTriagePage() {
             </div>
           </PopoverContent>
         </Popover>
+        {hasActiveFilters ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 font-normal text-muted-foreground"
+            onClick={clearFilters}
+          >
+            <IconX />
+            {t("sessions.clearFilters")}
+          </Button>
+        ) : null}
       </div>
       <Card>
         <div className="flex items-center justify-between gap-2 border-b px-4 py-2 text-sm">

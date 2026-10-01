@@ -1263,6 +1263,7 @@ export default {
     toDate: "तक",
     clearFromDate: "आरंभ तिथि साफ़ करें",
     clearToDate: "समाप्ति तिथि साफ़ करें",
+    clearFilters: "सब साफ़ करें",
     signals: "संकेत",
     hideEmptySessions: "खाली सत्र छिपाएँ",
     networkErrors: "नेटवर्क त्रुटियाँ",

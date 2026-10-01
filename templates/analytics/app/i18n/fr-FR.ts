@@ -1319,6 +1319,7 @@ export default {
     toDate: "Au",
     clearFromDate: "Effacer la date de début",
     clearToDate: "Effacer la date de fin",
+    clearFilters: "Tout effacer",
     signals: "Signaux",
     hideEmptySessions: "Masquer les sessions vides",
     networkErrors: "Erreurs réseau",

@@ -57,6 +57,12 @@ vi.mock("@/hooks/use-replay-storage-status", () => ({
 
 import { SessionsTriagePage } from "./SessionsTriagePage";
 
+function clearAllButton(container: HTMLElement) {
+  return Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "sessions.clearFilters",
+  );
+}
+
 describe("Sessions empty states", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -188,6 +194,57 @@ describe("Sessions empty states", () => {
       expect.objectContaining({ offset: 200, limit: 100 }),
       expect.anything(),
     );
+  });
+
+  it("hides Clear all when the URL has only a sort and page", async () => {
+    mocks.total = 285;
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?sort=longest&page=2"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(clearAllButton(container)).toBeUndefined();
+  });
+
+  it("clears every filter but keeps the sort", async () => {
+    mocks.total = 285;
+    function LocationProbe() {
+      const location = useLocation();
+      return <span data-testid="location">{location.search}</span>;
+    }
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={[
+            "/sessions?minDurationMs=60000&hasErrors=true&q=checkout&hideEmpty=false&sort=longest&page=2",
+          ]}
+        >
+          <SessionsTriagePage />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+    });
+    expect(clearAllButton(container)).toBeDefined();
+
+    await act(async () => {
+      clearAllButton(container)?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="location"]')?.textContent,
+    ).toBe("?sort=longest");
+    expect(
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="sessions.searchPlaceholder"]',
+      )?.value,
+    ).toBe("");
+    expect(clearAllButton(container)).toBeUndefined();
   });
 
   it("normalizes an unsafe page before querying any large offset", async () => {
