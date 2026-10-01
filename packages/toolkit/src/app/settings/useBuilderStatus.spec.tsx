@@ -626,79 +626,261 @@ describe("useBuilderConnectFlow", () => {
     expect(popup.close).toHaveBeenCalled();
   });
 
-  it("marks the first-run popup for account provisioning", async () => {
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    openSpy.mockReturnValue(popup);
-    vi.mocked(fetch).mockImplementation(async () =>
-      jsonResponse({
-        configured: false,
-        agentNativeProvisioningEnabled: true,
-        agentNativeProvisioningToken: provisioningToken,
-        envManaged: false,
-        builderEnabled: true,
-        orgName: null,
-        connectUrl: signedConnectUrl,
-      }),
-    );
+  describe("account activation", () => {
+    const activationStatus = {
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      agentNativeProvisioningToken: provisioningToken,
+      envManaged: false,
+      builderEnabled: true,
+      orgName: null,
+      connectUrl: signedConnectUrl,
+    };
+    const freshProvisioningToken = "nonce.email.session.1700000600000.mac";
 
-    await act(async () => {
-      root.render(<BuilderConnectProbe provisionAccount />);
-      await Promise.resolve();
-      await Promise.resolve();
+    function activationResponse(
+      status: number,
+      body: Record<string, unknown>,
+    ): Response {
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    /** Serves status reads, and answers activation POSTs with `respond`. */
+    function mockActivation(respond: (attempt: number) => Response) {
+      const posts: Array<{ url: URL; init: RequestInit; body: any }> = [];
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          posts.push({
+            url,
+            init: init!,
+            body: JSON.parse(String(init?.body)),
+          });
+          return respond(posts.length);
+        }
+        const activated = posts.length > 0 && respond(posts.length).ok;
+        return jsonResponse(
+          activated
+            ? connectedBuilderStatus
+            : {
+                ...activationStatus,
+                agentNativeProvisioningToken: posts.length
+                  ? freshProvisioningToken
+                  : provisioningToken,
+              },
+        );
+      });
+      return posts;
+    }
+
+    async function clickConnect() {
+      await act(async () => {
+        container.querySelector("button")?.click();
+        await Promise.resolve();
+      });
+      await flushAfterPaint();
+    }
+
+    for (const host of ["desktop", "embedded", "browser"] as const) {
+      it(`creates the account with one request and no popup (${host})`, async () => {
+        setUserAgent(
+          host === "desktop"
+            ? "Mozilla/5.0 AgentNativeDesktop/1.0"
+            : "Mozilla/5.0 Chrome/140.0",
+        );
+        setEmbeddedWindow(host === "embedded");
+        const posts = mockActivation(() =>
+          activationResponse(200, { ok: true, scope: "user" }),
+        );
+        const onConnected = vi.fn();
+
+        await act(async () => {
+          root.render(
+            <BuilderConnectProbe provisionAccount onConnected={onConnected} />,
+          );
+        });
+        await flushAfterPaint();
+        await clickConnect();
+
+        expect(openSpy).not.toHaveBeenCalled();
+        expect(openMcpAppHostLink).not.toHaveBeenCalled();
+        expect(posts).toHaveLength(1);
+        expect(posts[0]!.init.method).toBe("POST");
+        expect(new Headers(posts[0]!.init.headers).get("content-type")).toBe(
+          "application/json",
+        );
+        expect(posts[0]!.body).toEqual({
+          provisioningToken,
+          connectToken: "signed",
+        });
+        expect(posts[0]!.url.searchParams.get("agentNativeFlow")).toBe(
+          "connect_llm",
+        );
+        expect(container.textContent).toContain("configured idle resolved");
+        expect(onConnected).toHaveBeenCalledOnce();
+      });
+    }
+
+    it("activates an account for the organization's connection", async () => {
+      const posts = mockActivation(() =>
+        activationResponse(200, { ok: true, scope: "org" }),
+      );
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount startScope="org" />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(openSpy).not.toHaveBeenCalled();
+      expect(posts).toHaveLength(1);
+      expect(posts[0]!.body).toMatchObject({ provisioningToken, scope: "org" });
     });
 
-    await flushAfterPaint();
+    it("offers Log in when the email already has a Builder account", async () => {
+      mockActivation(() =>
+        activationResponse(409, {
+          ok: false,
+          code: "account_exists",
+          message:
+            "A Builder account already exists for this email. Log in to connect it.",
+        }),
+      );
 
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(container.textContent).toContain(
+        "not-configured idle resolved account-exists",
+      );
+      expect(container.textContent).not.toContain("already exists");
+      expect(openSpy).not.toHaveBeenCalled();
     });
 
-    expect(withoutConnectAttempt(popup.location.href)).toBe(
-      expectedProvisionedConnectUrl(signedConnectUrl),
-    );
-    expect(
-      new URL(popup.location.href).searchParams.get("_an_connect_attempt"),
-    ).toMatch(/^[0-9a-f-]{36}$/);
-  });
+    it("shows the server's reason when activation fails", async () => {
+      mockActivation(() =>
+        activationResponse(503, {
+          ok: false,
+          code: "provision_failed",
+          message:
+            "Couldn't create your Builder account. Try again or connect an existing account.",
+        }),
+      );
 
-  it("activates an account for the organization's connection", async () => {
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    openSpy.mockReturnValue(popup);
-    vi.mocked(fetch).mockImplementation(async () =>
-      jsonResponse({
-        configured: false,
-        agentNativeProvisioningEnabled: true,
-        agentNativeProvisioningToken: provisioningToken,
-        envManaged: false,
-        builderEnabled: true,
-        orgName: null,
-        connectUrl: signedConnectUrl,
-        canConnect: { org: true, personal: false },
-      }),
-    );
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
 
-    await act(async () => {
-      root.render(<BuilderConnectProbe provisionAccount startScope="org" />);
-      await Promise.resolve();
-      await Promise.resolve();
+      expect(container.textContent).toContain(
+        "not-configured idle resolved no-account-exists",
+      );
+      expect(container.textContent).toContain(
+        "Couldn't create your Builder account. Try again or connect an existing account.",
+      );
+      expect(openSpy).not.toHaveBeenCalled();
     });
 
-    await flushAfterPaint();
+    it("reports an unreachable activation route instead of waiting", async () => {
+      mockActivation(() => new Response("Not found", { status: 404 }));
 
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(container.textContent).toContain("not-configured idle");
+      expect(container.textContent).toContain(
+        "Couldn't start Builder connect. Refresh this page and try again.",
+      );
     });
 
-    const params = new URL(popup.location.href).searchParams;
-    expect(params.get("scope")).toBe("org");
-    expect(params.get("_an_mode")).toBe("agent-native");
-    expect(params.get("_an_provision")).toBe(provisioningToken);
+    it("retries once with a fresh token when the provisioning token expired", async () => {
+      const posts = mockActivation((attempt) =>
+        attempt === 1
+          ? activationResponse(403, {
+              ok: false,
+              code: "provision_token_invalid",
+              message: "This activation link is expired.",
+            })
+          : activationResponse(200, { ok: true, scope: "user" }),
+      );
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(posts.map((post) => post.body.provisioningToken)).toEqual([
+        provisioningToken,
+        freshProvisioningToken,
+      ]);
+      expect(container.textContent).toContain("configured idle resolved");
+    });
+
+    it("stops after one retry when the fresh token is refused too", async () => {
+      const posts = mockActivation(() =>
+        activationResponse(403, {
+          ok: false,
+          code: "provision_token_invalid",
+          message: "This activation link is expired.",
+        }),
+      );
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(posts).toHaveLength(2);
+      expect(container.textContent).toContain("not-configured idle");
+      expect(container.textContent).toContain(
+        "Couldn't start Builder connect. Refresh this page and try again.",
+      );
+    });
+
+    it("aborts an in-flight activation when cancelled", async () => {
+      let activationSignal: AbortSignal | undefined;
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        if (String(input).includes("/_agent-native/builder/provision")) {
+          activationSignal = init?.signal ?? undefined;
+          return new Promise<Response>((_resolve, reject) => {
+            activationSignal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          });
+        }
+        return jsonResponse(activationStatus);
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+      expect(container.textContent).toContain("connecting");
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+          ?.click();
+      });
+      await flushAfterPaint();
+
+      expect(activationSignal?.aborted).toBe(true);
+      expect(container.textContent).not.toContain("Couldn't start Builder");
+      expect(openSpy).not.toHaveBeenCalled();
+    });
   });
 
   it("uses the click-time provisioning capability instead of a stale closure", async () => {

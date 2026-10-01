@@ -106,6 +106,11 @@ describe("StorageSetupCard", () => {
     act(() => {
       root.render(<StorageSetupCard onConfigured={vi.fn()} />);
     });
+    // The create-vs-sign-in choice carries the terms inline, so the click
+    // that creates the account comes after they were shown.
+    expect(container.textContent).toContain(
+      "storageSetup.builderConsentPrefix",
+    );
 
     act(() => {
       container

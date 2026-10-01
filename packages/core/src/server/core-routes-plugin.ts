@@ -16,6 +16,7 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
+import { z } from "zod";
 
 import { CHATGPT_SUBSCRIPTION_CALLBACK_PATH } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
@@ -282,6 +283,7 @@ import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
   readBody,
+  readBodyWithSizeLimit,
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
@@ -2397,6 +2399,370 @@ function getBuilderConnectErrorCleanupKeys(
   return attemptKey === legacyKey ? [legacyKey] : [attemptKey, legacyKey];
 }
 
+// Decide whether a Builder connect or activation request originated from this
+// app's own UI (allowed) or from a foreign origin (cross-site CSRF attempt —
+// rejected). Sec-Fetch-Site is the modern signal:
+//   - "same-origin": user clicked Connect from our own pages — allow
+//   - "none": typed in URL bar / bookmark / browser extension — allow
+//   - "same-site" / "cross-site" / missing-but-with-foreign-Origin
+//     all map to reject.
+// For older browsers without Sec-Fetch-* we fall back to Origin and
+// then Referer, comparing against the request's resolved origin.
+function isSameOriginConnect(event: H3Event): boolean {
+  const fetchSite = getHeader(event, "sec-fetch-site");
+  if (fetchSite === "same-origin" || fetchSite === "none") return true;
+  if (fetchSite) return false; // browser told us it's cross-site/same-site
+  const expected = getBuilderBrowserOriginForEvent(event).replace(/\/+$/, "");
+  const origin = getHeader(event, "origin");
+  if (origin) return origin.replace(/\/+$/, "") === expected;
+  const referer = getHeader(event, "referer");
+  if (referer) {
+    try {
+      return new URL(referer).origin === expected;
+    } catch {
+      // coercion-ok: an unparsable Referer is treated as cross-origin, which rejects
+      return false;
+    }
+  }
+  // No Sec-Fetch-Site, no Origin, no Referer — pre-2020 browser
+  // making a top-level navigation. Allow; cookies are still
+  // session-bound so the worst case degrades to the prior behavior.
+  return true;
+}
+
+type BuilderConnectMember = {
+  orgId: string | null;
+  role: string | null;
+  deny: string | null;
+};
+
+/**
+ * Authorizes the Builder.io connection a connect or account activation names,
+ * before anything is written. Returns the refusal, or the membership a named
+ * connection resolved (null when the request named none).
+ */
+async function authorizeBuilderConnectScope(
+  event: H3Event,
+  ownerEmail: string,
+  scope: BuilderConnectionScope | null,
+): Promise<
+  | { deny: { message: string; reason: string } }
+  | { member: BuilderConnectMember | null }
+> {
+  if (scope) {
+    const member = await resolveBuilderConnectAuthorization(
+      event,
+      ownerEmail,
+      scope,
+    );
+    return member.deny
+      ? { deny: { message: member.deny, reason: "org_authorization_required" } }
+      : { member };
+  }
+  const restriction = await resolveScopelessBuilderConnectRestriction(
+    event,
+    ownerEmail,
+  );
+  return restriction
+    ? {
+        deny: {
+          message: restriction,
+          reason: PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+        },
+      }
+    : { member: null };
+}
+
+export type BuilderAccountActivationResult =
+  | { ok: true; scope: "user" | "org" }
+  | {
+      ok: false;
+      status: number;
+      message: string;
+      /** Why it failed, for tracking. */
+      reason: string;
+      /** What the client acts on, when it differs from a plain failure. */
+      code?: string;
+    };
+
+interface BuilderAccountActivationInput {
+  ownerEmail: string;
+  session: AuthSession | null;
+  provisioningToken: string | null | undefined;
+  requestedScope: BuilderConnectionScope | null;
+  /** The membership `authorizeBuilderConnectScope` resolved. */
+  member: BuilderConnectMember | null;
+  connectAttemptId: string | null;
+  tracking: BuilderConnectTrackingParams;
+}
+
+/**
+ * One-click Builder.io account activation: create the account with one
+ * signed server-to-server call and store its keys for the signed-in owner.
+ * `POST /builder/provision` and the popup-era `GET /builder/connect` provision
+ * mode both run exactly this, after `authorizeBuilderConnectScope`.
+ */
+export async function activateBuilderAccount(
+  event: H3Event,
+  input: BuilderAccountActivationInput,
+): Promise<BuilderAccountActivationResult> {
+  const { ownerEmail, session, connectAttemptId } = input;
+  const fail = async (
+    status: number,
+    message: string,
+    reason: string,
+    code?: string,
+  ): Promise<BuilderAccountActivationResult> => {
+    await trackBuilderLifecycle(event, "builder connect failed", ownerEmail, {
+      ...builderConnectTrackingProperties(input.tracking),
+      reason,
+      stage: "provision",
+    });
+    return { ok: false, status, message, reason, ...(code ? { code } : {}) };
+  };
+
+  if (!isBuilderAccountProvisioningEnabled()) {
+    return fail(
+      503,
+      "Builder account activation is not available.",
+      "provision_not_configured",
+    );
+  }
+  if (
+    !session?.token ||
+    !verifyBuilderProvisioningToken(
+      input.provisioningToken,
+      ownerEmail,
+      session.token,
+    )
+  ) {
+    return fail(
+      403,
+      "This activation link is expired. Close this popup and click Activate again.",
+      "provision_token_invalid",
+    );
+  }
+  if (session.emailVerified !== true) {
+    return fail(
+      403,
+      "Verify your email before connecting Builder.",
+      "email_not_verified",
+    );
+  }
+
+  try {
+    const activation = await decideBuilderActivation(event, {
+      ownerEmail,
+      requestedScope: input.requestedScope,
+      ...(input.member ? { member: input.member } : {}),
+    });
+    if ("refuse" in activation) {
+      const { status, message, reason, code } = activation.refuse;
+      return fail(status, message, reason, code);
+    }
+    const activationOrg = activation.write;
+    const credentials = await provisionBuilderAccount({
+      email: ownerEmail,
+      name: session.name,
+    });
+    const { writeBuilderCredentials } =
+      await import("./credential-provider.js");
+    const written = await writeBuilderCredentials(
+      ownerEmail,
+      credentials,
+      activationOrg ?? undefined,
+    );
+    await Promise.all([
+      deleteSetting("builder-disconnected").catch(
+        () => false, // coercion-ok: best-effort cleanup after successful provisioning
+      ),
+      ...getBuilderConnectErrorCleanupKeys(ownerEmail, connectAttemptId).map(
+        (key) =>
+          deleteSetting(key).catch(
+            () => false, // coercion-ok: best-effort cleanup after successful provisioning
+          ),
+      ),
+    ]);
+    await trackBuilderLifecycle(
+      event,
+      "builder connect succeeded",
+      ownerEmail,
+      {
+        ...builderConnectTrackingProperties(input.tracking),
+        stage: "provision",
+        credential_scope: written.scope,
+        account_provisioned: true,
+      },
+    );
+    await recordBuilderConnectionAudit({
+      connected: true,
+      ownerEmail,
+      orgId: activationOrg?.orgId ?? null,
+      scope: written.scope,
+    });
+    return { ok: true, scope: written.scope };
+  } catch (error) {
+    console.error(
+      "[builder] Agent-Native account provisioning failed:",
+      error instanceof Error ? error.message : error,
+    );
+    if (isBuilderAccountAlreadyExistsError(error)) {
+      return fail(
+        409,
+        "A Builder account already exists for this email. Log in to connect it.",
+        "account_exists",
+        "account_exists",
+      );
+    }
+    return fail(
+      BUILDER_UPSTREAM_FAILURE_STATUS,
+      "Couldn't create your Builder account. Try again or connect an existing account.",
+      "provision_failed",
+    );
+  }
+}
+
+/**
+ * The popup-era account activation: answers with a page that hands the result
+ * to its opener and closes. The error row is the opener's fallback channel,
+ * read by its status poll when the page's message never arrives.
+ */
+export async function sendBuilderActivationPopup(
+  event: H3Event,
+  input: BuilderAccountActivationInput,
+): Promise<string> {
+  const result = await activateBuilderAccount(event, input);
+  const parentOrigin = getBuilderBrowserOriginForEvent(event);
+  const attempt = input.connectAttemptId
+    ? { attemptId: input.connectAttemptId }
+    : {};
+  if (!result.ok) {
+    const code = result.code ? { code: result.code } : {};
+    await putSetting(
+      getBuilderConnectErrorKey(input.ownerEmail, input.connectAttemptId),
+      { message: result.message, at: Date.now(), ...code, ...attempt },
+    ).catch(() => {});
+    return sendBuilderPopupErrorPage(event, result.status, result.message, {
+      parentOrigin,
+      ...attempt,
+      ...code,
+    });
+  }
+  setResponseHeader(event, "Cache-Control", "no-store");
+  setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+  return createBuilderBrowserCallbackPage(
+    `${parentOrigin}${getAppBasePath() || "/"}`,
+    { parentOrigin, ...attempt },
+  );
+}
+
+const builderProvisionBodySchema = z.object({
+  // Checked by activateBuilderAccount, so a missing token is refused like an
+  // expired one and the client's refresh-and-retry covers both.
+  provisioningToken: z.string().max(4096).optional(),
+  scope: z.enum(["org", "personal"]).optional(),
+  /** Signed connect token from status, for hosts that mislabel the fetch's origin. */
+  connectToken: z.string().min(1).max(4096).optional(),
+});
+
+/**
+ * `POST /_agent-native/builder/provision` — one-click Builder.io account
+ * activation as a single JSON request, no popup. Session cookies are
+ * SameSite=None, so this requires a JSON body (a cross-site form cannot send
+ * one without a preflight), the same-origin gate `/builder/connect` uses, and
+ * the provisioning token from `/builder/status`, which is bound to the
+ * caller's session and readable only by the app itself.
+ */
+export function createBuilderProvisionHandler(
+  resolveOwnerContext: (event: H3Event) => Promise<BuilderOwnerContext>,
+) {
+  return defineEventHandler(async (event) => {
+    setResponseHeader(event, "Cache-Control", "no-store");
+    const refuse = (status: number, code: string, message: string) => {
+      setResponseStatus(event, status);
+      return { ok: false as const, code, message };
+    };
+    if (getMethod(event) !== "POST") {
+      setResponseHeader(event, "Allow", "POST");
+      return refuse(405, "method_not_allowed", "Method not allowed");
+    }
+    const contentType = getHeader(event, "content-type") ?? "";
+    if (!/^application\/json\s*(;|$)/i.test(contentType)) {
+      return refuse(415, "unsupported_media_type", "Send a JSON body.");
+    }
+    const ownerContext = await resolveOwnerContext(event);
+    const ownerEmail = ownerContext.email;
+    if (
+      !ownerEmail ||
+      !ownerContext.session ||
+      ownerContext.anonymous ||
+      isAnonymousWaitlistSessionEmail(ownerEmail)
+    ) {
+      return refuse(401, "unauthorized", "Sign in to activate Builder.io.");
+    }
+    let body: unknown;
+    try {
+      body = await readBodyWithSizeLimit(event, 16 * 1024);
+    } catch {
+      return refuse(400, "invalid_request", "Invalid request body.");
+    }
+    const parsed = builderProvisionBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return refuse(400, "invalid_request", "Invalid request body.");
+    }
+    const tracking = getBuilderConnectTrackingParams(
+      getFrameworkRouteRequestUrl(event).searchParams,
+    );
+    const connectTokenOwner = parsed.data.connectToken
+      ? verifyBuilderConnectTokenAndGetOwner(parsed.data.connectToken)
+      : null;
+    if (!isSameOriginConnect(event) && connectTokenOwner !== ownerEmail) {
+      await trackBuilderLifecycle(event, "builder connect failed", ownerEmail, {
+        ...builderConnectTrackingProperties(tracking),
+        reason: "cross_origin",
+        stage: "provision",
+        sec_fetch_site: getHeader(event, "sec-fetch-site") ?? null,
+      });
+      return refuse(403, "cross_origin", "Cross-origin request rejected");
+    }
+    const requestedScope = parsed.data.scope ?? null;
+    const scopeAuthorization = await authorizeBuilderConnectScope(
+      event,
+      ownerEmail,
+      requestedScope,
+    );
+    if ("deny" in scopeAuthorization) {
+      await trackBuilderLifecycle(event, "builder connect failed", ownerEmail, {
+        ...builderConnectTrackingProperties(tracking),
+        reason: scopeAuthorization.deny.reason,
+        stage: "provision",
+      });
+      return refuse(
+        403,
+        scopeAuthorization.deny.reason,
+        scopeAuthorization.deny.message,
+      );
+    }
+    const result = await activateBuilderAccount(event, {
+      ownerEmail,
+      session: ownerContext.session,
+      provisioningToken: parsed.data.provisioningToken,
+      requestedScope,
+      member: scopeAuthorization.member,
+      connectAttemptId: null,
+      tracking,
+    });
+    if (!result.ok) {
+      return refuse(
+        result.status,
+        result.code ?? result.reason,
+        result.message,
+      );
+    }
+    return { ok: true as const, scope: result.scope };
+  });
+}
+
 /**
  * Creates a Nitro plugin that mounts all standard agent-native framework routes.
  *
@@ -4029,39 +4395,6 @@ export function createCoreRoutesPlugin(
       // callback minutes later.
       const BUILDER_CONNECT_PENDING_TTL_MS = 10 * 60 * 1000; // 10 min
 
-      // Decide whether a /builder/connect navigation originated from this
-      // app's own UI (allowed) or from a foreign origin (cross-site CSRF
-      // attempt — rejected). Sec-Fetch-Site is the modern signal:
-      //   - "same-origin": user clicked Connect from our own pages — allow
-      //   - "none": typed in URL bar / bookmark / browser extension — allow
-      //   - "same-site" / "cross-site" / missing-but-with-foreign-Origin
-      //     all map to reject.
-      // For older browsers without Sec-Fetch-* we fall back to Origin and
-      // then Referer, comparing against the request's resolved origin.
-      function isSameOriginConnect(event: H3Event): boolean {
-        const fetchSite = getHeader(event, "sec-fetch-site");
-        if (fetchSite === "same-origin" || fetchSite === "none") return true;
-        if (fetchSite) return false; // browser told us it's cross-site/same-site
-        const expected = getBuilderBrowserOriginForEvent(event).replace(
-          /\/+$/,
-          "",
-        );
-        const origin = getHeader(event, "origin");
-        if (origin) return origin.replace(/\/+$/, "") === expected;
-        const referer = getHeader(event, "referer");
-        if (referer) {
-          try {
-            return new URL(referer).origin === expected;
-          } catch {
-            return false;
-          }
-        }
-        // No Sec-Fetch-Site, no Origin, no Referer — pre-2020 browser
-        // making a top-level navigation. Allow; cookies are still
-        // session-bound so the worst case degrades to the prior behavior.
-        return true;
-      }
-
       // Lightweight 302 to Builder's authorization endpoint. Lets clients do
       // `window.open('/_agent-native/builder/connect', '_blank')` synchronously
       // inside a click handler, avoiding the popup-blocker downgrade that
@@ -4239,184 +4572,33 @@ export function createCoreRoutesPlugin(
               "invalid_connection_scope",
             );
           }
-          const scopedConnectAuthorization = requestedConnectionScope
-            ? await resolveBuilderConnectAuthorization(
-                event,
-                ownerEmail,
-                requestedConnectionScope,
-              )
-            : null;
-          if (scopedConnectAuthorization?.deny) {
+          const scopeAuthorization = await authorizeBuilderConnectScope(
+            event,
+            ownerEmail,
+            requestedConnectionScope,
+          );
+          if ("deny" in scopeAuthorization) {
             return denyConnect(
               403,
-              scopedConnectAuthorization.deny,
-              "org_authorization_required",
+              scopeAuthorization.deny.message,
+              scopeAuthorization.deny.reason,
             );
           }
-          const scopelessRestriction = requestedConnectionScope
-            ? null
-            : await resolveScopelessBuilderConnectRestriction(
-                event,
-                ownerEmail,
-              );
-          if (scopelessRestriction) {
-            return denyConnect(
-              403,
-              scopelessRestriction,
-              PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
-            );
-          }
+          const scopedConnectAuthorization = scopeAuthorization.member;
+          // Clients that still open a popup to create an account land here;
+          // current clients call POST /builder/provision instead.
           if (shouldProvisionAgentNativeAccount) {
-            const failProvisioning = async (
-              status: number,
-              message: string,
-              reason: string,
-              code?: string,
-            ) => {
-              await putSetting(
-                getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
-                {
-                  message,
-                  at: Date.now(),
-                  ...(code ? { code } : {}),
-                  ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-                },
-              ).catch(() => {});
-              await trackBuilderLifecycle(
-                event,
-                "builder connect failed",
-                ownerEmail,
-                {
-                  ...builderConnectTrackingProperties(connectTracking),
-                  reason,
-                  stage: "provision",
-                },
-              );
-              return sendBuilderPopupErrorPage(event, status, message, {
-                parentOrigin: getBuilderBrowserOriginForEvent(event),
-                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-                ...(code ? { code } : {}),
-              });
-            };
-
-            if (!isBuilderAccountProvisioningEnabled()) {
-              return failProvisioning(
-                503,
-                "Builder account activation is not available.",
-                "provision_not_configured",
-              );
-            }
-
-            if (
-              !ownerContext.session?.token ||
-              !verifyBuilderProvisioningToken(
-                requestUrl.searchParams.get(BUILDER_PROVISIONING_TOKEN_PARAM),
-                ownerEmail,
-                ownerContext.session.token,
-              )
-            ) {
-              return failProvisioning(
-                403,
-                "This activation link is expired. Close this popup and click Activate again.",
-                "provision_token_invalid",
-              );
-            }
-
-            if (ownerContext.session?.emailVerified !== true) {
-              return failProvisioning(
-                403,
-                "Verify your email before connecting Builder.",
-                "email_not_verified",
-              );
-            }
-
-            try {
-              const activation = await decideBuilderActivation(event, {
-                ownerEmail,
-                requestedScope: requestedConnectionScope,
-                ...(scopedConnectAuthorization
-                  ? { member: scopedConnectAuthorization }
-                  : {}),
-              });
-              if ("refuse" in activation) {
-                const { status, message, reason, code } = activation.refuse;
-                return failProvisioning(status, message, reason, code);
-              }
-              const activationOrg = activation.write;
-              const credentials = await provisionBuilderAccount({
-                email: ownerEmail,
-                name: ownerContext.session.name,
-              });
-              const { writeBuilderCredentials } =
-                await import("./credential-provider.js");
-              const written = await writeBuilderCredentials(
-                ownerEmail,
-                credentials,
-                activationOrg ?? undefined,
-              );
-              await Promise.all([
-                deleteSetting("builder-disconnected").catch(
-                  () => false, // coercion-ok: best-effort cleanup after successful provisioning
-                ),
-                ...getBuilderConnectErrorCleanupKeys(
-                  ownerEmail,
-                  connectAttemptId,
-                ).map((key) =>
-                  deleteSetting(key).catch(
-                    () => false, // coercion-ok: best-effort cleanup after successful provisioning
-                  ),
-                ),
-              ]);
-              await trackBuilderLifecycle(
-                event,
-                "builder connect succeeded",
-                ownerEmail,
-                {
-                  ...builderConnectTrackingProperties(connectTracking),
-                  stage: "provision",
-                  credential_scope: written.scope,
-                  account_provisioned: true,
-                },
-              );
-              await recordBuilderConnectionAudit({
-                connected: true,
-                ownerEmail,
-                orgId: activationOrg?.orgId ?? null,
-                scope: written.scope,
-              });
-              const parentOrigin = getBuilderBrowserOriginForEvent(event);
-              setResponseHeader(event, "Cache-Control", "no-store");
-              setResponseHeader(
-                event,
-                "Content-Type",
-                "text/html; charset=utf-8",
-              );
-              return createBuilderBrowserCallbackPage(
-                `${parentOrigin}${getAppBasePath() || "/"}`,
-                {
-                  parentOrigin,
-                  ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-                },
-              );
-            } catch (error) {
-              console.error(
-                "[builder] Agent-Native account provisioning failed:",
-                error instanceof Error ? error.message : error,
-              );
-              if (isBuilderAccountAlreadyExistsError(error)) {
-                return failProvisioning(
-                  409,
-                  "A Builder account already exists for this email. Log in to connect it.",
-                  "account_exists",
-                  "account_exists",
-                );
-              }
-              return failProvisioning(
-                BUILDER_UPSTREAM_FAILURE_STATUS,
-                "Couldn't create your Builder account. Try again or connect an existing account.",
-                "provision_failed",
-              );
-            }
+            return sendBuilderActivationPopup(event, {
+              ownerEmail,
+              session: ownerContext.session,
+              provisioningToken: requestUrl.searchParams.get(
+                BUILDER_PROVISIONING_TOKEN_PARAM,
+              ),
+              requestedScope: requestedConnectionScope,
+              member: scopedConnectAuthorization,
+              connectAttemptId,
+              tracking: connectTracking,
+            });
           }
 
           // Clear any prior failure row from a previous attempt — otherwise
@@ -4568,6 +4750,13 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Location", authorizationUrl);
           return "";
         }),
+      );
+
+      getH3App(nitroApp).use(
+        `${P}/builder/provision`,
+        createBuilderProvisionHandler((event) =>
+          resolveBuilderOwnerContext(event),
+        ),
       );
 
       getH3App(nitroApp).use(
