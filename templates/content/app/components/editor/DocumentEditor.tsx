@@ -740,6 +740,54 @@ export function proposalDecisionPresentations(
   );
 }
 
+export function observedSuggestionDecisionTransition(
+  single: {
+    decision: SuggestionDecision;
+    optimistic: boolean;
+    continueSuggesting: boolean;
+    suggestion: Pick<ResourceSuggestion, "operations">;
+  } | null,
+  proposal: {
+    accepted: boolean;
+    continueSuggesting: boolean;
+    members: Array<Pick<ResourceSuggestion, "operations">>;
+  } | null,
+) {
+  return single?.decision === "accepted" && single.optimistic
+    ? (createObservedSuggestionPresentationTransition([single.suggestion]) ??
+        undefined)
+    : proposal?.accepted
+      ? (createObservedSuggestionPresentationTransition(proposal.members) ??
+        undefined)
+      : undefined;
+}
+
+export function createDocumentSuggestionDraftSession(
+  input: Pick<
+    Parameters<typeof createSuggestionDraftSession>[0],
+    "id" | "baseContent" | "baseRevision" | "startedAt"
+  >,
+) {
+  suggestionMarkedSourceRanges(input.baseContent);
+  const content = canonicalizeNfm(input.baseContent);
+  return {
+    session: createSuggestionDraftSession({
+      ...input,
+      initialContent: content,
+    }),
+    content,
+  };
+}
+
+export function suggestionDraftHasChanges(
+  session: Pick<SuggestionDraftSession, "baseContent" | "initialContent">,
+  content: string,
+) {
+  return (
+    content !== (session.initialContent ?? canonicalizeNfm(session.baseContent))
+  );
+}
+
 export function singleSuggestionDecisionLockAfterMismatch(
   current: { inFlight: boolean; activeSuggestionId: string | null },
   requestedDecision: SuggestionDecision,
@@ -4721,7 +4769,7 @@ function PageEditorSessionBody({
   );
   const amendmentDraftIsDirty = Boolean(
     suggestionBaseRef.current?.existingSuggestion &&
-    suggestionDraft !== suggestionBaseRef.current.initialContent,
+    suggestionDraftHasChanges(suggestionBaseRef.current, suggestionDraft),
   );
   const amendmentResolutionConflicts = suggestionAmendmentResolutionConflicts(
     editingSuggestionId,
@@ -5059,15 +5107,16 @@ function PageEditorSessionBody({
       createdSuggestionOperationsRef.current.clear();
       suggestionAmendmentKeysRef.current.clear();
       setSuggestionAmendmentConflict(false);
-      suggestionBaseRef.current =
-        existing?.session ??
-        createSuggestionDraftSession({
+      const initial =
+        existing ??
+        createDocumentSuggestionDraftSession({
           id: globalThis.crypto.randomUUID(),
           baseContent: nextDocument.content,
           baseRevision: canonicalSuggestionRevision(nextDocument),
           startedAt: new Date().toISOString(),
         });
-      setSuggestionDraft(existing?.content ?? nextDocument.content);
+      suggestionBaseRef.current = initial.session;
+      setSuggestionDraft(initial.content);
       setSuggestionInitialSelection(
         existing?.caret ?? initialSelection ?? null,
       );
@@ -5147,13 +5196,14 @@ function PageEditorSessionBody({
   const continueSuggestionModeFrom = useCallback((nextDocument: Document) => {
     createdSuggestionOperationsRef.current.clear();
     suggestionAmendmentKeysRef.current.clear();
-    suggestionBaseRef.current = createSuggestionDraftSession({
+    const initial = createDocumentSuggestionDraftSession({
       id: globalThis.crypto.randomUUID(),
       baseContent: nextDocument.content,
       baseRevision: canonicalSuggestionRevision(nextDocument),
       startedAt: new Date().toISOString(),
     });
-    setSuggestionDraft(nextDocument.content);
+    suggestionBaseRef.current = initial.session;
+    setSuggestionDraft(initial.content);
     setEditingSuggestionId(null);
     setSuggestionInitialSelection(null);
     setSuggestionAmendmentConflict(false);
@@ -5671,20 +5721,10 @@ function PageEditorSessionBody({
     const currentMarkdown =
       pendingSuggestionDecisionContent ??
       (isSuggesting ? suggestionDraft : document.content);
-    const observedTransition = !isSuggesting
-      ? pendingSuggestionDecision?.decision === "accepted" &&
-        pendingSuggestionDecision.optimistic &&
-        !pendingSuggestionDecision.continueSuggesting
-        ? (createObservedSuggestionPresentationTransition([
-            pendingSuggestionDecision.suggestion,
-          ]) ?? undefined)
-        : pendingProposalDecision?.accepted &&
-            !pendingProposalDecision.continueSuggesting
-          ? (createObservedSuggestionPresentationTransition(
-              pendingProposalDecision.members,
-            ) ?? undefined)
-          : undefined
-      : undefined;
+    const observedTransition = observedSuggestionDecisionTransition(
+      pendingSuggestionDecision,
+      pendingProposalDecision,
+    );
     const ordinaryPresentations = documentEditorSuggestionPresentations({
       savedSuggestions: displaySavedSuggestions,
       drafts: suggestionSessionVisuals(
@@ -5756,7 +5796,10 @@ function PageEditorSessionBody({
       {
         documentId,
         suggesting: isSuggesting,
-        draftChanged: isSuggesting && suggestionDraft !== document.content,
+        draftChanged:
+          isSuggesting &&
+          suggestionBaseRef.current !== null &&
+          suggestionDraftHasChanges(suggestionBaseRef.current, suggestionDraft),
         pendingCount: presentedSuggestions.filter(
           (suggestion) => suggestion.status === "pending",
         ).length,

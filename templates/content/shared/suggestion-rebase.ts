@@ -359,7 +359,7 @@ function resolveAcrossSiblingRanges(
     : null;
 }
 
-function resolveOutsideChange(
+export function resolveOutsideChange(
   before: string,
   currentMarkdown: string,
   anchor: { from: number; to: number },

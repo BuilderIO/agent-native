@@ -96,6 +96,11 @@ describe("committed suggestion presentation proof", () => {
       first,
       second,
     ])!;
+    const confirmed = retainCommittedSuggestionPresentationTransitions(
+      retained,
+      remaining,
+      [{ ...second, status: "accepted" }],
+    );
     const current = canonicalizeNfm(combined.after);
     for (const suggestion of remaining) {
       const known = retained.get(
@@ -114,6 +119,15 @@ describe("committed suggestion presentation proof", () => {
           observed,
         ),
       ).not.toBeNull();
+      const partial = canonicalizeNfm(first.operations[0]!.after.markdown);
+      const partialFrom = partial.indexOf(suggestion.id) + suggestion.id.length;
+      expect(
+        resolveSuggestionPresentationRange(
+          partial,
+          operation,
+          confirmed.get(suggestionPresentationTransitionKey(suggestion)),
+        ),
+      ).toEqual({ from: partialFrom, to: partialFrom });
       if (suggestion.id === "Fifth") continue;
       expect(
         resolveSuggestionPresentationRange(

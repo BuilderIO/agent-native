@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { canonicalizeNfm } from "./nfm";
-import { resolveMarkdownSuggestionRange } from "./suggestion-rebase";
+import {
+  resolveMarkdownSuggestionRange,
+  resolveOutsideChange,
+} from "./suggestion-rebase";
 
 function change(before: string, from: number, to: number, inserted: string) {
   return {
@@ -20,6 +23,21 @@ function change(before: string, from: number, to: number, inserted: string) {
 }
 
 describe("resolveMarkdownSuggestionRange", () => {
+  it.each([
+    { current: "Notice. Alpha\nBeta\nTail", expected: { from: 14, to: 18 } },
+    { current: "Alpha\nBeta\nTail Peer.", expected: { from: 6, to: 10 } },
+    { current: "Notice. Alpha\nBeta\nTail Peer.", expected: null },
+    { current: "Alpha\nOther\nTail Beta", expected: null },
+    { current: "Alpha\nBeta\nBeta\nTail", expected: null },
+  ])(
+    "maps only strictly outside changes: $current",
+    ({ current, expected }) => {
+      expect(
+        resolveOutsideChange("Alpha\nBeta\nTail", current, { from: 6, to: 10 }),
+      ).toEqual(expected);
+    },
+  );
+
   const before =
     "Alpha Beta Gamma. Added words.\nThe team will publish on Monday.";
   const end = before.indexOf("\n");

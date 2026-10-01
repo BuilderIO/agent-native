@@ -89,7 +89,7 @@ function setSpecs(
 }
 
 describe("SuggestionHighlight", () => {
-  it("keeps unrelated paragraph widgets while a later acceptance arrives before its response", () => {
+  it("keeps unrelated paragraph widgets across observed and confirmed acceptance handoffs", () => {
     const source = "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.";
     const record = (
       word: string,
@@ -122,12 +122,24 @@ describe("SuggestionHighlight", () => {
       first,
       second,
     ])!;
+    const confirmed = retainCommittedSuggestionPresentationTransitions(
+      retained,
+      remaining,
+      [{ ...second, status: "accepted" }],
+    );
     const mount = document.createElement("div");
     const view = new EditorView(mount, { state: state() });
     try {
-      for (const current of [
-        canonicalizeNfm(first.operations[0]!.after.markdown),
-        canonicalizeNfm(combined.after),
+      for (const { current, transitions } of [
+        {
+          current: canonicalizeNfm(first.operations[0]!.after.markdown),
+          transitions: retained,
+        },
+        {
+          current: canonicalizeNfm(first.operations[0]!.after.markdown),
+          transitions: confirmed,
+        },
+        { current: canonicalizeNfm(combined.after), transitions: confirmed },
       ]) {
         const canonical = schema.node(
           "doc",
@@ -143,7 +155,7 @@ describe("SuggestionHighlight", () => {
             const range = resolveSuggestionPresentationRange(
               current,
               suggestion.operations[0]!,
-              retained.get(suggestionPresentationTransitionKey(suggestion)),
+              transitions.get(suggestionPresentationTransitionKey(suggestion)),
               observed,
             );
             if (!range) return [];

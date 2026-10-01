@@ -2,7 +2,10 @@ import type { ResourceSuggestion } from "@agent-native/core/review";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
-import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
+import {
+  resolveMarkdownSuggestionRange,
+  resolveOutsideChange,
+} from "@shared/suggestion-rebase";
 
 type MarkdownOperation = Parameters<typeof resolveMarkdownSuggestionRange>[1];
 type Range = { from: number; to: number };
@@ -433,9 +436,10 @@ export function resolveSuggestionPresentationRange(
       ? combinePresentationTransitions(transition, observedTransition)
       : observedTransition
     : null;
+  if (observedTransition && (!observed || !verifiedTransition(observed)))
+    return null;
   if (
     observed &&
-    verifiedTransition(observed) &&
     (currentMarkdown === observed.after ||
       currentMarkdown === canonicalizeNfm(observed.after))
   ) {
@@ -485,20 +489,49 @@ export function resolveSuggestionPresentationRange(
   )
     return null;
   if (currentMarkdown === transition.after) return range;
-  const text = transition.after.slice(range.from, range.to);
+  const source =
+    currentMarkdown === canonicalizeNfm(currentMarkdown)
+      ? canonicalizeNfm(transition.after)
+      : transition.after;
+  const unchanged = {
+    markdown: transition.after,
+    changedText: transition.after.slice(range.from, range.to),
+  };
+  const projectedRange =
+    source === transition.after
+      ? range
+      : resolveMarkdownSuggestionRange(source, {
+          before: unchanged,
+          after: unchanged,
+          anchor: {
+            ...range,
+            prefix: transition.after.slice(
+              Math.max(0, range.from - 32),
+              range.from,
+            ),
+            suffix: transition.after.slice(range.to, range.to + 32),
+          },
+        });
+  if (!projectedRange) return null;
+  if (source !== transition.after)
+    return resolveOutsideChange(source, currentMarkdown, projectedRange);
+  const text = source.slice(projectedRange.from, projectedRange.to);
   return resolveMarkdownSuggestionRange(currentMarkdown, {
-    before: { markdown: transition.after, changedText: text },
+    before: { markdown: source, changedText: text },
     after: {
       markdown:
-        transition.after.slice(0, range.from) +
+        source.slice(0, projectedRange.from) +
         checked.after.changedText +
-        transition.after.slice(range.to),
+        source.slice(projectedRange.to),
       changedText: checked.after.changedText,
     },
     anchor: {
-      ...range,
-      prefix: transition.after.slice(Math.max(0, range.from - 32), range.from),
-      suffix: transition.after.slice(range.to, range.to + 32),
+      ...projectedRange,
+      prefix: source.slice(
+        Math.max(0, projectedRange.from - 32),
+        projectedRange.from,
+      ),
+      suffix: source.slice(projectedRange.to, projectedRange.to + 32),
     },
   });
 }
