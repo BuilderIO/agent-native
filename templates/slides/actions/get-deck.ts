@@ -426,6 +426,7 @@ export default defineAction({
         });
       }
     }),
+  readOnly: false, // GET repairs duplicate slide IDs.
   http: { method: "GET" },
   mcpApp: {
     compactCatalog: true,

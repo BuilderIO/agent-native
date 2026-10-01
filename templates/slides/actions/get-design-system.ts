@@ -271,7 +271,7 @@ export default defineAction({
         "'true' returns a bounded, network-free summary: no Builder docs fetch, agentContext capped at 1,500 chars, no data/assets blobs. Omit for the full context you need before authoring.",
       ),
   }),
-  readOnly: true,
+  readOnly: false, // GET refreshes the cached Builder doc count.
   http: { method: "GET" },
   mcpAnnotations: {
     readOnlyHint: false,
