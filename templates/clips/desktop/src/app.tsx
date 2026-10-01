@@ -2674,6 +2674,7 @@ export function App({
   const restartCancelledRef = useRef(false);
   const recordingCancelInFlightRef = useRef(false);
   const sessionRecordingIdRef = useRef<string | null>(null);
+  const recordedWithoutStorageRef = useRef(false);
   const finishRecordingStopRef = useRef<
     (handle: RecorderHandle, recordingId?: string | null) => Promise<void>
   >(async () => {});
@@ -3154,6 +3155,10 @@ export function App({
           folderPath: stopResult.localFolder,
           files: stopResult.localFiles ?? [],
         });
+        if (recordedWithoutStorageRef.current) {
+          // Saved on disk; ask for storage now so the next clip uploads.
+          setRecError(STORAGE_SETUP_HELP_TEXT);
+        }
         emit("clips:native-upload-finished", {
           recordingId: stopResult.recordingId,
           ok: true,
@@ -3405,7 +3410,7 @@ export function App({
     (targetServerUrl?: string) => {
       const base = (targetServerUrl?.trim() || serverUrl).replace(/\/+$/, "");
       setRecError(STORAGE_SETUP_HELP_TEXT);
-      void openExternal(`${base}/record`).catch((err) => {
+      void openExternal(`${base}/record?connectStorage=1`).catch((err) => {
         setRecError(
           err instanceof Error
             ? err.message
@@ -3452,16 +3457,16 @@ export function App({
       bubbleStreamRef.current = null;
       setBubbleSessionEpoch((epoch) => epoch + 1);
     }
-    if (localRecordingMode === "off") {
-      if (videoStorageStatus === "checking") {
-        setRecError("Checking video storage. Try again in a moment.");
-        return null;
-      }
-      if (videoStorageStatus === "missing") {
-        openVideoStorageSetup();
-        return null;
-      }
+    if (localRecordingMode === "off" && videoStorageStatus === "checking") {
+      setRecError("Checking video storage. Try again in a moment.");
+      return null;
     }
+    // Recording never waits on storage: with none connected, the clip is
+    // written to a local file first (Movies/Clips, on disk as it records) and
+    // storage is asked for after Stop.
+    const recordLocallyUntilStorage =
+      localRecordingMode === "off" && videoStorageStatus === "missing";
+    recordedWithoutStorageRef.current = recordLocallyUntilStorage;
     setRecError(null);
     setLocalRecordingNotice(null);
     setShareLinkNotice(null);
@@ -3539,7 +3544,9 @@ export function App({
           micOn,
           systemAudioOn,
           voiceCleanupEnabled,
-          localRecordingMode,
+          localRecordingMode: recordLocallyUntilStorage
+            ? "composed"
+            : localRecordingMode,
           preAcquiredCameraStream,
           preAcquiredDisplayStream:
             options?.resumeCapture?.displayStream ?? null,
@@ -4754,7 +4761,7 @@ function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
       </div>
       <div className="storage-flow-copy">
         <div className="storage-flow-title">
-          Connect storage to keep recording
+          Connect storage to upload your clips
         </div>
         <div className="storage-flow-sub">{STORAGE_SETUP_HELP_TEXT}</div>
       </div>

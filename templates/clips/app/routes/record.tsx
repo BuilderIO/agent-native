@@ -3229,12 +3229,18 @@ export default function RecordRoute() {
     recordingMode === "screen+camera" &&
     uiState === "recording";
 
-  const showBackButton =
-    uiState === "idle" || uiState === "error" || uiState === "pendingUpload";
   // A pending upload is kept, not discarded, when leaving; the library offers
   // to finish it.
-  const showFileUploadStorageSetup =
-    !clipIntake && storageConfigured === false && hasPendingUploadFile();
+  const showBackButton =
+    uiState === "idle" || uiState === "error" || uiState === "pendingUpload";
+  // Recording never asks for storage first. An uploaded file (no local copy
+  // to hold) does, and so do the desktop app's and extension's "Connect
+  // storage" links (`?connectStorage=1`).
+  const showStorageSetupFirst =
+    !clipIntake &&
+    storageConfigured === false &&
+    (hasPendingUploadFile() ||
+      new URLSearchParams(location.search).get("connectStorage") === "1");
 
   return (
     <div className="relative min-h-[100dvh] overflow-x-clip bg-background text-foreground">
@@ -3269,9 +3275,7 @@ export default function RecordRoute() {
         <RecorderRouteViewport>
           <div className="mx-auto grid w-full max-w-[420px] gap-2">
             <div className="min-w-0">
-              {/* Recording never waits on storage; only an uploaded file,
-                  which has no local copy to hold, asks for it up front. */}
-              {showFileUploadStorageSetup ? (
+              {showStorageSetupFirst ? (
                 <StorageSetupCard
                   onConfigured={() => markStorageConfigured()}
                   connectSource="clips_record_storage_setup_card"
