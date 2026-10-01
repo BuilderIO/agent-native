@@ -95,6 +95,16 @@ export async function selectDefaultAgentEngine(
     });
     return { status: "refused", message: authority.message };
   }
+  if (
+    engineName === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+    authority.scope === "org"
+  ) {
+    return {
+      status: "invalid",
+      message:
+        "ChatGPT plan access is personal and cannot be selected as an organization default.",
+    };
+  }
 
   const entry = getAgentEngineEntry(engineName);
   if (!entry) {

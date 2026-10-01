@@ -100,7 +100,7 @@ type ModelsReadState =
   | { status: "error"; retry: () => void }
   | { status: "ready"; data: ProviderModelsRead };
 
-/** The signed-in ChatGPT account's model list, read only while it is connected. */
+/** The signed-in ChatGPT account's model list for the personal default. */
 type ChatGPTModelsState =
   | { status: "off" }
   | { status: "loading" }
@@ -108,6 +108,7 @@ type ChatGPTModelsState =
   | { status: "ready"; catalog: ChatGPTModelCatalog };
 
 function useChatGPTModels(
+  personalDefault: boolean,
   connected: boolean,
   accountId: string | null,
   statusError: boolean,
@@ -115,7 +116,7 @@ function useChatGPTModels(
 ): ChatGPTModelsState {
   const query = useQuery({
     queryKey: [...ENGINES_QUERY_KEY, accountId],
-    enabled: connected && accountId !== null && !statusError,
+    enabled: personalDefault && connected && accountId !== null && !statusError,
     queryFn: () =>
       callAction<{ engines?: ChatModelEngineEntry[] }>(
         "manage-agent-engine" as never,
@@ -136,6 +137,7 @@ function useChatGPTModels(
       };
     },
   });
+  if (!personalDefault) return { status: "off" };
   if (statusError) return { status: "error", retry: retryStatus };
   if (!connected) return { status: "off" };
   if (!accountId) return { status: "loading" };
@@ -185,6 +187,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
       ? null
       : (chatgptStatus.data?.activeAccountId ?? null);
   const chatgptModels = useChatGPTModels(
+    listing.data?.hasOrganization === false,
     chatgptLab.enabled && chatgptConnected === true,
     chatgptAccountId,
     chatgptLab.enabled && chatgptStatus.isError,

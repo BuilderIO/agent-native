@@ -853,14 +853,32 @@ describe("ModelSettingsPage", () => {
     expect(
       listed('[role="option"]').some((option) => option.includes("ChatGPT")),
     ).toBe(false);
-    expect(callActionMock).toHaveBeenCalledWith("manage-agent-engine", {
+    expect(defaultRow.querySelector("[data-default-model-loading]")).toBeNull();
+    expect(callActionMock).not.toHaveBeenCalledWith("manage-agent-engine", {
+      action: "list",
+    });
+  });
+
+  it("keeps ChatGPT status errors scoped to its personal row for org defaults", async () => {
+    state.listing = listing({ canManageOrg: true, canUpdateDefault: true });
+    state.chatgpt = undefined;
+    state.chatgptStatusError = true;
+    await render();
+
+    const defaultRow = row("default-model");
+    expect(defaultRow.querySelector('[role="combobox"]')).not.toBeNull();
+    expect(defaultRow.querySelector('[role="alert"]')).toBeNull();
+    expect(
+      row("chatgpt-subscription").querySelector('[role="alert"]')?.textContent,
+    ).toContain("Couldn't load this setting.");
+    expect(callActionMock).not.toHaveBeenCalledWith("manage-agent-engine", {
       action: "list",
     });
   });
 
   it("says the ChatGPT models couldn't load instead of leaving the default empty", async () => {
     state.listing = listing({
-      canManageOrg: true,
+      hasOrganization: false,
       canUpdateDefault: true,
       defaultModel: null,
     });

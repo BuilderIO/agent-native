@@ -4989,13 +4989,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         registerBuiltinEngines();
         const availableEngines = listAgentEngines();
         const chatGPTEnabled =
+          !ctx.orgId &&
           !!ctx.userEmail &&
           availableEngines.some(
             (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
           ) &&
           (await getUserLabEnabled(ctx.userEmail, CHATGPT_SUBSCRIPTION_LAB));
-        // Provider model selections follow the setting scope; ChatGPT choices
-        // use the viewer's active account catalog.
+        // Provider model selections follow the setting scope. ChatGPT catalogs
+        // are user-scoped, so they are only available for personal defaults.
         const selectionScope = ctx.orgId ? "org" : "user";
         const selections = new Map<
           string,
@@ -5035,10 +5036,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           async () => {
             const chatGPTCatalog =
               chatGPTEnabled && ctx.userEmail
-                ? // coercion-ok: hide this optional engine without a readable catalog.
-                  await listChatGPTSubscriptionModels(ctx.userEmail).catch(
-                    () => null,
-                  )
+                ? await listChatGPTSubscriptionModels(ctx.userEmail)
                 : null;
             const visibleEngines = availableEngines.flatMap((entry) => {
               if (entry.name !== CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
@@ -5172,6 +5170,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             };
           }
           if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+            if (ctx.orgId) {
+              setResponseStatus(event, 400);
+              return {
+                error:
+                  "ChatGPT plan access cannot be used for organization app model defaults.",
+              };
+            }
             if (
               !(await getUserLabEnabled(
                 ctx.userEmail,
