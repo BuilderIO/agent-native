@@ -65,6 +65,10 @@ export function Sidebar() {
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
+  const orgSwitcher = (
+    <OrgSwitcher compact={collapsed} hideBuilderCreditNotice />
+  );
+
   return (
     <AppSidebar
       collapsed={collapsed}
@@ -73,18 +77,15 @@ export function Sidebar() {
       appId="design"
       brandHref="/home"
       items={items}
-      feedback={feedbackButton}
       footerContent={
         <>
           <div className={collapsed ? "flex flex-col items-center" : undefined}>
-            <BuilderCreditNotice compact className="mb-2" />
+            <BuilderCreditNotice compact showAtLimitOnly className="mb-2" />
           </div>
           <AppSidebarFooter
             collapsed={collapsed}
             feedback={feedbackButton}
-            orgSwitcher={
-              <OrgSwitcher compact={collapsed} hideBuilderCreditNotice />
-            }
+            orgSwitcher={orgSwitcher}
             footerExtras={<DevDatabaseLink />}
           />
         </>

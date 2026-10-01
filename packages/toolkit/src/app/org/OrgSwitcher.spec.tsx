@@ -79,7 +79,7 @@ vi.mock("@agent-native/core/client/i18n", async () => {
   };
 });
 
-import { OrgSwitcher } from "./OrgSwitcher.js";
+import { BuilderCreditNotice, OrgSwitcher } from "./OrgSwitcher.js";
 
 const ownerOrg = {
   email: "owner@example.com",
@@ -152,6 +152,14 @@ describe("OrgSwitcher (account menu)", () => {
 
   function trigger() {
     const button = container.querySelector<HTMLButtonElement>("button");
+    expect(button).not.toBeNull();
+    return button!;
+  }
+
+  function creditNotice() {
+    const button = container.querySelector<HTMLButtonElement>(
+      'button[aria-label*="Builder credits"]',
+    );
     expect(button).not.toBeNull();
     return button!;
   }
@@ -443,11 +451,14 @@ describe("OrgSwitcher (account menu)", () => {
 
       render(<OrgSwitcher />);
 
-      expect(container.textContent).toContain(
+      const notice = creditNotice();
+      act(() => notice.click());
+
+      expect(document.body.textContent).toContain(
         "Your Builder credits are used up",
       );
-      expect(container.textContent).toContain(label);
-      const upgrade = container.querySelector<HTMLAnchorElement>(
+      expect(document.body.textContent).toContain(label);
+      const upgrade = document.body.querySelector<HTMLAnchorElement>(
         'a[href^="https://builder.io/account/subscription"]',
       );
       expect(upgrade?.textContent).toContain("Upgrade plan");
@@ -460,7 +471,95 @@ describe("OrgSwitcher (account menu)", () => {
     },
   );
 
-  it("hides the Builder credit notice while any quota remains", () => {
+  it("hides the Builder credit meter until usage is near its limit", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery
+      .mockReturnValueOnce({
+        data: { email: ownerOrg.email, name: "Olivia Owner" },
+      })
+      .mockReturnValueOnce({
+        data: {
+          exhausted: false,
+          period: "monthly",
+          balance: 210,
+          quota: { period: "monthly", limit: 500, used: 120, remaining: 380 },
+        },
+        isError: false,
+      });
+
+    render(<OrgSwitcher />);
+
+    expect(
+      container.querySelector('button[aria-label*="Builder credits"]'),
+    ).toBeNull();
+  });
+
+  it("shows a usage bar at 80% and opens the credit details", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery
+      .mockReturnValueOnce({
+        data: { email: ownerOrg.email, name: "Olivia Owner" },
+      })
+      .mockReturnValueOnce({
+        data: {
+          exhausted: false,
+          period: "monthly",
+          balance: 210,
+          quota: { period: "monthly", limit: 500, used: 400, remaining: 100 },
+        },
+        isError: false,
+      });
+
+    render(<OrgSwitcher />);
+
+    const notice = creditNotice();
+    expect(notice.textContent).toContain("Builder credits");
+    expect(notice.textContent).toContain("400 of 500 used");
+    expect(notice.textContent).not.toContain("Workspace balance");
+    act(() => notice.click());
+    expect(document.body.textContent).toContain("Workspace balance: 210");
+    expect(document.body.textContent).toContain("Monthly limit");
+    expect(document.body.textContent).toContain("100 remaining");
+  });
+
+  it("can show the compact Builder credit notice only at the limit", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery.mockReturnValue({
+      data: {
+        exhausted: false,
+        period: "monthly",
+        balance: 210,
+        quota: { period: "monthly", limit: 500, used: 400, remaining: 100 },
+      },
+      isError: false,
+    });
+
+    render(<BuilderCreditNotice compact showAtLimitOnly />);
+
+    expect(
+      container.querySelector('button[aria-label*="Builder credits"]'),
+    ).toBeNull();
+
+    mocks.useActionQuery.mockReturnValue({
+      data: {
+        exhausted: true,
+        period: "monthly",
+        balance: 0,
+        quota: { period: "monthly", limit: 500, used: 500, remaining: 0 },
+      },
+      isError: false,
+    });
+
+    render(<BuilderCreditNotice compact showAtLimitOnly />);
+
+    expect(
+      container.querySelector(
+        'button[aria-label*="Your Builder credits are used up"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("preserves supported fractional Builder credits", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
     mocks.useActionQuery
       .mockReturnValueOnce({
@@ -478,11 +577,13 @@ describe("OrgSwitcher (account menu)", () => {
 
     render(<OrgSwitcher />);
 
-    expect(container.textContent).not.toContain("Builder credits");
-    expect(container.textContent).not.toContain("Workspace balance");
+    act(() => creditNotice().click());
+    expect(document.body.textContent).toContain("Workspace balance: 0.001");
+    expect(document.body.textContent).toContain("0.999 of 1 used");
+    expect(document.body.textContent).toContain("0.001 remaining");
   });
 
-  it("shows a compact credit notice only when the quota is exhausted", () => {
+  it("keeps the compact sidebar meter accessible", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
     mocks.useActionQuery
       .mockReturnValueOnce({
@@ -490,22 +591,44 @@ describe("OrgSwitcher (account menu)", () => {
       })
       .mockReturnValueOnce({
         data: {
-          exhausted: true,
+          exhausted: false,
           period: "monthly",
-          balance: 0,
-          quota: { period: "monthly", limit: 500, used: 500, remaining: 0 },
+          balance: 210,
+          quota: { period: "monthly", limit: 500, used: 420, remaining: 80 },
         },
         isError: false,
       });
 
     render(<OrgSwitcher compact />);
 
-    expect(
-      container
-        .querySelector<HTMLAnchorElement>("a[aria-label]")
-        ?.getAttribute("aria-label"),
-    ).toContain("Your Builder credits are used up");
+    expect(creditNotice().getAttribute("aria-label")).toContain(
+      "Builder credits: 420 of 500 used",
+    );
+    expect(container.querySelector("a[aria-label]")).toBeNull();
     expect(container.textContent).not.toContain("$");
+  });
+
+  it("can move the notice outside the organization switcher", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery
+      .mockReturnValueOnce({
+        data: { email: ownerOrg.email, name: "Olivia Owner" },
+      })
+      .mockReturnValueOnce({
+        data: {
+          exhausted: false,
+          period: "monthly",
+          balance: 210,
+          quota: { period: "monthly", limit: 500, used: 420, remaining: 80 },
+        },
+        isError: false,
+      });
+
+    render(<OrgSwitcher hideBuilderCreditNotice />);
+
+    expect(
+      container.querySelector('button[aria-label*="Builder credits"]'),
+    ).toBeNull();
   });
 
   it("hides the Builder credit notice when live status is unreadable", () => {

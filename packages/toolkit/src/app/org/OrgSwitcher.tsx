@@ -42,6 +42,12 @@ import {
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import { Progress } from "@agent-native/toolkit/ui/progress";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -55,6 +61,7 @@ import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
+  IconCoin,
   IconDownload,
   IconExternalLink,
   IconAlertCircle,
@@ -125,9 +132,11 @@ export type AccountMenuUtilityLink = OrgSwitcherUtilityLink;
 
 export function BuilderCreditNotice({
   compact = false,
+  showAtLimitOnly = false,
   className,
 }: {
   compact?: boolean;
+  showAtLimitOnly?: boolean;
   className?: string;
 }) {
   const { data: org } = useOrg();
@@ -152,13 +161,27 @@ export function BuilderCreditNotice({
   );
   const t = useT();
   const status = builderCreditStatus.data;
+  const quota = status?.quota;
   const usage =
-    status && typeof status.balance === "number" && status.quota
-      ? { balance: status.balance, quota: status.quota }
+    status &&
+    typeof status.balance === "number" &&
+    Number.isFinite(status.balance) &&
+    quota &&
+    Number.isFinite(quota.limit) &&
+    quota.limit > 0 &&
+    Number.isFinite(quota.used) &&
+    Number.isFinite(quota.remaining)
+      ? { balance: status.balance, quota }
       : null;
-
   const exhausted = status?.exhausted === true;
-  if (builderCreditStatus.isError || !exhausted) {
+  const nearLimit =
+    exhausted ||
+    Boolean(usage && usage.quota.remaining <= usage.quota.limit * 0.2);
+
+  if (
+    builderCreditStatus.isError ||
+    !(showAtLimitOnly ? exhausted : nearLimit)
+  ) {
     return null;
   }
 
@@ -168,9 +191,9 @@ export function BuilderCreditNotice({
       : (usage?.quota.period ?? status?.period) === "monthly"
         ? t("agentChat.usage.monthlyLimit")
         : null;
-  const title = [t("agentChat.billing.builderCreditLimitTitle"), quotaLabel]
-    .filter((label): label is string => label !== null)
-    .join(" · ");
+  const title = exhausted
+    ? t("agentChat.billing.builderCreditLimitTitle")
+    : t("agentChat.usage.builderCredits");
   const balance = usage?.balance.toLocaleString(undefined, {
     maximumFractionDigits: 3,
   });
@@ -190,71 +213,103 @@ export function BuilderCreditNotice({
   const remainingLabel = usage
     ? t("agentChat.usage.creditRemaining", { amount: remaining })
     : null;
-  const usageDetails = usage
-    ? [`${balanceLabel}: ${balance}`, usedLabel, remainingLabel]
-        .filter((label): label is string => label !== null)
-        .join(" · ")
-    : null;
+  const percentUsed = usage
+    ? Math.min(100, Math.max(0, (usage.quota.used / usage.quota.limit) * 100))
+    : 100;
   const builderUpgradeUrl = builderSubscriptionUpgradeUrl(
     "builder_credit_limit_sidebar",
   );
-  const noticeLabel = [
-    title,
-    ...(usageDetails ? [usageDetails] : []),
-    t("agentChat.billing.builderCreditUpgrade"),
-  ]
-    .filter((label): label is string => label !== null)
-    .join(" · ");
-  const compactTriggerClassName =
-    "mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const noticeLabel = usedLabel ? `${title}: ${usedLabel}` : title;
 
-  return compact ? (
-    <TooltipProvider delayDuration={0}>
-      <Tooltip>
-        <TooltipTrigger asChild>
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={noticeLabel}
+          className={cn(
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            compact
+              ? "mx-auto flex size-8 flex-col items-center justify-center gap-1 rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+              : "w-full rounded-md px-3 py-2 text-left text-xs hover:bg-accent/50",
+            className,
+          )}
+        >
+          {usage ? (
+            compact ? (
+              <>
+                <IconCoin className="size-3.5" aria-hidden="true" />
+                <Progress
+                  value={percentUsed}
+                  aria-hidden="true"
+                  className="h-1 w-5"
+                />
+              </>
+            ) : (
+              <>
+                <span className="flex items-center justify-between gap-2">
+                  <span className="truncate text-foreground">
+                    {t("agentChat.usage.builderCredits")}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {usedLabel}
+                  </span>
+                </span>
+                <Progress
+                  value={percentUsed}
+                  aria-label={usedLabel ?? title}
+                  className="mt-1.5 h-1.5"
+                />
+              </>
+            )
+          ) : (
+            <span className="flex items-center gap-2 text-foreground">
+              <IconAlertCircle
+                className="size-3.5 shrink-0"
+                aria-hidden="true"
+              />
+              {title}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side={compact ? "right" : "top"}
+        align="start"
+        aria-label={title}
+        className="space-y-2.5 p-3"
+      >
+        <p className="text-sm font-medium">{title}</p>
+        {usage ? (
+          <div className="space-y-2 text-xs text-muted-foreground">
+            <Progress
+              value={percentUsed}
+              aria-label={usedLabel ?? title}
+              className="h-2"
+            />
+            <p>{usedLabel}</p>
+            {quotaLabel ? <p>{quotaLabel}</p> : null}
+            <p>
+              {balanceLabel}: {balance}
+            </p>
+            <p>{remainingLabel}</p>
+          </div>
+        ) : quotaLabel ? (
+          <p className="text-xs text-muted-foreground">{quotaLabel}</p>
+        ) : null}
+        {exhausted ? (
           <a
             href={builderUpgradeUrl}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={noticeLabel}
-            className={cn(compactTriggerClassName, className)}
-          >
-            <IconAlertCircle className="size-4" aria-hidden="true" />
-          </a>
-        </TooltipTrigger>
-        <TooltipContent side="right">{noticeLabel}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  ) : (
-    <div
-      role="status"
-      className={cn(
-        "rounded-md border border-border bg-muted px-2.5 py-2 text-xs",
-        className,
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <IconAlertCircle
-          className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="leading-snug text-foreground">{title}</p>
-          {usageDetails ? (
-            <p className="mt-1 text-muted-foreground">{usageDetails}</p>
-          ) : null}
-          <a
-            href={builderUpgradeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
           >
             {t("agentChat.billing.builderCreditUpgrade")}
             <IconArrowUpRight className="size-3" aria-hidden="true" />
           </a>
-        </div>
-      </div>
-    </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 

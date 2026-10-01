@@ -135,6 +135,26 @@ describe("Fusion Builder authorization", () => {
     });
   });
 
+  it("rejects inconsistent Builder credit quota totals", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          plan: "paid",
+          balance: 45,
+          quota: { period: "monthly", limit: 500, used: 0, remaining: 1 },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(getBuilderCreditUsage()).rejects.toThrow();
+  });
+
   it("reads the Builder referral link and totals with the AI invoke scope", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "<OAUTH_TOKEN_EXAMPLE>",
