@@ -34,6 +34,7 @@ export {
   isPhraseTerm,
   normalizeSearchText,
   queryLexemes,
+  SearchTermTooLongError,
   termTsquery,
   type SearchVector,
 } from "./tokenize.js";

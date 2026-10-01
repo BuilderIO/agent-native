@@ -7,6 +7,7 @@ import {
   isPhraseTerm,
   normalizeSearchText,
   queryLexemes,
+  SearchTermTooLongError,
   termTsquery,
 } from "./tokenize.js";
 
@@ -81,6 +82,25 @@ describe("search tokens", () => {
     expect(normalizeSearchText("  Ｑ３   Roadmap ")).toBe("q3 roadmap");
   });
 
+  it("keeps the longest prefix Postgres accepts of an over-long word", () => {
+    const long = "x".repeat(3_000);
+    expect(lexemes(`foo ${long} bar`)).toEqual([
+      "foo@1",
+      `${"x".repeat(2_046)}@2`,
+      "bar@3",
+    ]);
+    expect(queryLexemes(`foo ${long} bar`)).toEqual([
+      "foo",
+      "x".repeat(2_046),
+      "bar",
+    ]);
+    // Measured in UTF-8 bytes, never splitting a character.
+    expect(queryLexemes(`a${"é".repeat(1_100)}`)[0]).toBe(
+      `a${"é".repeat(1_022)}`,
+    );
+    expect(queryLexemes("𐐨".repeat(600))[0]).toBe("𐐨".repeat(511));
+  });
+
   it("keeps accents, with no stemming or stopwords", () => {
     expect(queryLexemes("Política de reembolsos")).toEqual([
       "política",
@@ -112,10 +132,36 @@ describe("tsvector literals", () => {
     expect(vector.positionsComplete).toBe(false);
   });
 
+  it("keeps a repetitive word's first position in every field", () => {
+    const vector = buildSearchVector([
+      { text: "Example", weight: "A" },
+      { text: "alpha ".repeat(300), weight: "B" },
+      { text: "alpha beta", weight: "C" },
+    ]);
+    const alpha = vector.literal.match(/'alpha':(\S+)/)![1]!.split(",");
+    expect(alpha).toHaveLength(255);
+    expect(alpha[0]).toBe("3B");
+    expect(alpha.at(-1)).toBe("304C");
+    expect(vector.positionsComplete).toBe(false);
+  });
+
   it("says so when a document runs past the last position", () => {
     const words = Array.from({ length: 16_400 }, (_, index) => `w${index}`);
     const vector = buildSearchVector([{ text: words.join(" "), weight: "C" }]);
     expect(vector.literal).toContain("'w16399':16383C");
+    expect(vector.positionsComplete).toBe(false);
+  });
+
+  it("keeps fields apart past the last position", () => {
+    // Postgres merges equal positions and keeps the higher weight, so two
+    // fields sharing the last position would lose the body's weight.
+    const vector = buildSearchVector([
+      { text: "Title", weight: "A" },
+      { text: `${"filler ".repeat(17_000)}omega`, weight: "B" },
+      { text: "omega gamma", weight: "C" },
+    ]);
+    expect(vector.literal).toContain("'omega':16382B,16383C");
+    expect(vector.literal).toContain("'gamma':16383C");
     expect(vector.positionsComplete).toBe(false);
   });
 
@@ -167,6 +213,26 @@ describe("tsquery literals", () => {
     ).toBe("'quoted' & 'phrase' & 'phrase':*");
     expect(isPhraseTerm("just-in-time")).toBe(true);
     expect(isPhraseTerm("roadmap")).toBe(false);
+  });
+
+  it("matches a camelCase word inside a phrase whole or by its parts", () => {
+    expect(termTsquery("use searchIndexState now", { prefix: true })).toBe(
+      "'use' <-> ('searchindexstate' | 'search' <-> 'index' <-> 'state') <-> 'now':*",
+    );
+    expect(termTsquery("use searchIndexState", { prefix: true })).toBe(
+      "'use' <-> ('searchindexstate':* | 'search' <-> 'index' <-> 'state':*)",
+    );
+    // Alone, the whole word is enough: documents index it.
+    expect(termTsquery("searchIndexState", { prefix: true })).toBe(
+      "'searchindexstate':*",
+    );
+  });
+
+  it("refuses a term longer than Postgres can evaluate", () => {
+    expect(termTsquery("w ".repeat(2_048))).not.toBeNull();
+    expect(() => termTsquery("w ".repeat(2_049))).toThrow(
+      SearchTermTooLongError,
+    );
   });
 
   it("restricts weights", () => {

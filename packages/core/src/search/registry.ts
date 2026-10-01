@@ -1,6 +1,6 @@
 import { getTableName, type AnyColumn, type Table } from "drizzle-orm";
 
-import type { MigrationEntry } from "../db/migrations.js";
+import { deferMigration, type MigrationEntry } from "../db/migrations.js";
 import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
   assertResourceKey,
@@ -152,11 +152,13 @@ export function searchIndexMigration(
     sql: {},
     run: async (exec) => {
       await ensureSearchIndexTables(exec);
-      await installResourceChangeCapture(
+      const installed = await installResourceChangeCapture(
         exec,
         searchableResourceSource(registration),
         SEARCH_CHANGE_CONSUMER,
       );
+      // A busy table: try again on the next boot rather than block writes.
+      if (!installed) return deferMigration();
     },
   };
 }

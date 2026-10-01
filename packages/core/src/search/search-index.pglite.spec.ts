@@ -27,6 +27,8 @@ let drizzle: typeof import("drizzle-orm");
 let pgCore: typeof import("drizzle-orm/pg-core");
 
 const exec = () => client.getDbExec();
+/** Past Postgres's 2,046-byte lexeme limit. */
+const LONG_WORD = "x".repeat(3_000);
 
 /** Drains the whole backlog: tests never race the default 100 ms budget. */
 function prepareFully(
@@ -276,6 +278,14 @@ describe("the search index", () => {
         "Loop log",
         `${"tick tock ".repeat(300)}bell`,
       );
+      await insertNote(
+        "field-cap",
+        "Cap example",
+        "kappa lambda",
+        "kappa ".repeat(300),
+      );
+      await insertNote("long-word", "Long word", `alef ${LONG_WORD} omega`);
+      await insertNote("no-long-word", "No long word", "alef omega");
       await prepareFully();
     });
 
@@ -297,6 +307,19 @@ describe("the search index", () => {
       expect(await searchIds("index state")).toEqual(["code"]);
       expect(await searchIds("snake_case")).toEqual(["code"]);
       expect(await searchIds("docs.example.com/api")).toEqual(["code"]);
+      // A camelCase word between two others in a phrase.
+      expect(await searchIds('"call searchIndexState from"')).toEqual(["code"]);
+      expect(await searchIds('"call search index state from"')).toEqual([
+        "code",
+      ]);
+      expect(await searchIds('"call searchindex state from"')).toEqual([]);
+    });
+
+    it("matches a word longer than Postgres allows, in phrases and negations", async () => {
+      expect(await searchIds(`"alef ${LONG_WORD} omega"`)).toEqual([
+        "long-word",
+      ]);
+      expect(await searchIds(`alef -"${LONG_WORD}"`)).toEqual(["no-long-word"]);
     });
 
     it("finds Japanese text by substring in titles and bodies", async () => {
@@ -325,6 +348,8 @@ describe("the search index", () => {
       expect(await searchIds(`"retries bell"`)).toEqual([]);
       // Every word must still be in one field: "log" is the title's.
       expect(await searchIds(`"log tick"`)).toEqual([]);
+      // The summary uses up "kappa"'s positions; the body's still counts.
+      expect(await searchIds(`"kappa lambda"`)).toEqual(["field-cap"]);
     });
 
     it("supports OR, negation, phrases, and intitle", async () => {
@@ -400,7 +425,11 @@ function isolatedTable(name: string) {
 
 async function isolatedRegistration(
   type: string,
-  options: { beforeLoad?: (ids: string[]) => Promise<void> | void } = {},
+  options: {
+    beforeLoad?: (ids: string[]) => Promise<void> | void;
+    afterLoad?: () => Promise<void> | void;
+    summary?: string;
+  } = {},
 ) {
   const tableName = `search_${type.replace(/-/g, "_")}`;
   await run(
@@ -419,9 +448,11 @@ async function isolatedRegistration(
         .select()
         .from(table)
         .where(drizzle.inArray(table.id, ids));
+      await options.afterLoad?.();
       return rows.map((row: any) => ({
         id: row.id,
         title: row.title,
+        summary: options.summary,
         body: row.body,
       }));
     },
@@ -463,6 +494,23 @@ function gate() {
   let open!: () => void;
   const opened = new Promise<void>((resolve) => (open = resolve));
   return { open, opened };
+}
+
+/**
+ * Runs every statement through `around`, which can hold one back or look at
+ * it. Returns the restore function.
+ */
+function interceptStatements(
+  around: (sql: string, query: any, run: () => Promise<any>) => Promise<any>,
+) {
+  const target = exec();
+  const execute = target.execute.bind(target);
+  const spy = vi
+    .spyOn(target, "execute")
+    .mockImplementation((query: any) =>
+      around(String(query?.sql ?? query), query, () => execute(query)),
+    );
+  return () => spy.mockRestore();
 }
 
 describe("older deploys during a rebuild", () => {
@@ -538,9 +586,156 @@ describe("older deploys during a rebuild", () => {
   });
 });
 
+describe("drains running at once", () => {
+  beforeEach(() => {
+    search.resetSearchIndexRuntime();
+  });
+
+  it("keep a resource recreated while an older drain removes it", async () => {
+    let hold: {
+      loaded: ReturnType<typeof gate>;
+      release: ReturnType<typeof gate>;
+    } | null = null;
+    const { registered, tableName } = await isolatedRegistration("recreated", {
+      afterLoad: async () => {
+        const current = hold;
+        if (!current) return;
+        hold = null;
+        current.loaded.open();
+        await current.release.opened;
+      },
+    });
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('x', 'Same')`);
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+
+    await run(`DELETE FROM ${tableName} WHERE id = 'x'`);
+    const older = { loaded: gate(), release: gate() };
+    hold = older;
+    const olderDrain = indexer.drainSearchIndex(
+      registered,
+      Date.now() + 10_000,
+    );
+    await older.loaded.opened;
+    // The older drain has seen x gone. x comes back unchanged, and a second
+    // process finds its row current and stops just before moving it on.
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('x', 'Same')`);
+    search.resetSearchIndexRuntime();
+    const atBump = gate();
+    const bump = gate();
+    const restore = interceptStatements(async (sql, _query, execute) => {
+      if (sql.includes("SET indexed_seq = seen.seq")) {
+        atBump.open();
+        await bump.opened;
+      }
+      return execute();
+    });
+    try {
+      const newerDrain = indexer.drainSearchIndex(
+        registered,
+        Date.now() + 10_000,
+      );
+      await atBump.opened;
+      older.release.open();
+      await olderDrain;
+      bump.open();
+      await newerDrain;
+    } finally {
+      restore();
+    }
+    expect(await indexedIds("recreated")).toEqual(["x"]);
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+  });
+
+  it("don't let a search trust a drain that last looked before the search began", async () => {
+    const { registered, tableName } = await isolatedRegistration("stale-join");
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('first', 'First')`);
+    const looked = gate();
+    const answer = gate();
+    let snapshots = 0;
+    const restore = interceptStatements(async (sql, _query, execute) => {
+      const result = await execute();
+      // The drain's second look follows indexing "first"; its answer is
+      // held back until after "second" commits and a search begins.
+      if (sql.includes("AS rebuild_high_seq") && ++snapshots === 2) {
+        looked.open();
+        await answer.opened;
+      }
+      return result;
+    });
+    try {
+      const drain = indexer.drainSearchIndex(registered, Date.now() + 10_000);
+      await looked.opened;
+      await run(
+        `INSERT INTO ${tableName} (id, title) VALUES ('second', 'Second')`,
+      );
+      const searched = search.prepareSearchIndex(registered, {
+        budgetMs: 10_000,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      answer.open();
+      await drain;
+      expect(await searched).toEqual({ ready: true });
+    } finally {
+      restore();
+    }
+    expect(await indexedIds("stale-join")).toEqual(["first", "second"]);
+  });
+});
+
 describe("a change that keeps failing", () => {
   beforeEach(() => {
     search.resetSearchIndexRuntime();
+  });
+
+  it("recovers on the next search once the failure clears, without a write", async () => {
+    let failing = false;
+    const { registered, tableName } = await isolatedRegistration("flaky", {
+      beforeLoad: () => {
+        if (failing) throw new Error("the source is unreachable");
+      },
+    });
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('f', 'Flaky')`);
+    failing = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await prepareFully(registered);
+        await skipBackoff("flaky");
+      }
+      expect(await prepareFully(registered)).toEqual({
+        ready: false,
+        reason: "failed-changes",
+      });
+      failing = false;
+      await skipBackoff("flaky");
+      expect(await prepareFully(registered)).toEqual({ ready: true });
+    } finally {
+      errors.mockRestore();
+    }
+    expect(await indexedIds("flaky")).toEqual(["f"]);
+  });
+
+  it("keeps backing off after a thousand attempts", async () => {
+    const { tableName } = await isolatedRegistration("stubborn");
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('s', 'Stubborn')`);
+    const stubborn = {
+      consumer: "search",
+      app: "isolated",
+      resourceType: "stubborn",
+    };
+    const [claimed] = await feed.claimResourceChanges(exec(), stubborn, 1);
+    await run(
+      `UPDATE app_resource_changes SET attempts = 1100 WHERE app = 'isolated' AND resource_type = 'stubborn'`,
+    );
+    await feed.failResourceChanges(exec(), stubborn, [
+      { ...claimed!, attempts: 1100 },
+    ]);
+    const { rows } = await run(
+      `SELECT extract(epoch FROM available_at - now())::int AS wait FROM app_resource_changes WHERE app = 'isolated' AND resource_type = 'stubborn'`,
+    );
+    expect(Number(rows[0]!.wait)).toBeGreaterThan(240);
   });
 
   it("holds back only itself, and keeps search on the fallback until it succeeds", async () => {
@@ -702,6 +897,32 @@ describe("a search's budget", () => {
     expect(await prepareFully(registered)).toEqual({ ready: true });
   });
 
+  it("bounds a search whose drain tokenizes large documents", async () => {
+    const { registered, tableName } = await isolatedRegistration("large");
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    let body = "";
+    for (let index = 0; index < 60_000; index += 1) {
+      body += `w${index % 2_000} `;
+    }
+    for (let index = 0; index < 8; index += 1) {
+      await run(`INSERT INTO ${tableName} (id, title, body) VALUES (?, ?, ?)`, [
+        `l${index}`,
+        `Large ${index}`,
+        body,
+      ]);
+    }
+    const started = Date.now();
+    const status = await search.prepareSearchIndex(registered, {
+      budgetMs: 50,
+    });
+    const elapsed = Date.now() - started;
+    await indexer.drainSearchIndex(registered, Date.now() + 60_000);
+    // Tokenizing is synchronous: unless the drain yields between documents,
+    // the budget's timer only fires once the whole batch is indexed.
+    expect(status).toEqual({ ready: false, reason: "backlog" });
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
   it("can be unlimited", async () => {
     let delayMs = 0;
     const { registered, tableName } = await isolatedRegistration("unlimited", {
@@ -752,6 +973,11 @@ describe("change capture", () => {
         names("a", "documents", `${long}-two`),
       ],
       [names("a", "a__b", "c"), names("a", "a", "b__c")],
+      // Equal under the earlier 32-bit hash.
+      [
+        names("app-2b6052fbc4110848", "collision_rows", "row"),
+        names("app-9eac79a7648844ec", "collision_rows", "row"),
+      ],
     ];
     for (const [left, right] of pairs) {
       expect(left).not.toBe(right);
@@ -774,6 +1000,46 @@ describe("change capture", () => {
       "page-draft",
       "page_draft",
     ]);
+  });
+
+  it("records a truncate as deleting every row", async () => {
+    search.resetSearchIndexRuntime();
+    const { registered, tableName } = await isolatedRegistration("truncated");
+    await run(
+      `INSERT INTO ${tableName} (id, title) VALUES ('t1', 'One'), ('t2', 'Two')`,
+    );
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    expect(await indexedIds("truncated")).toEqual(["t1", "t2"]);
+    await run(`TRUNCATE ${tableName}`);
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    expect(await indexedIds("truncated")).toEqual([]);
+  });
+
+  it("treats disabled triggers as missing, and rebuilds once they're back", async () => {
+    search.resetSearchIndexRuntime();
+    const { registered, tableName } = await isolatedRegistration("disabled");
+    await run(
+      `INSERT INTO ${tableName} (id, title) VALUES ('kept', 'Kept'), ('gone', 'Gone')`,
+    );
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // An import that switches capture off and writes.
+      await run(`ALTER TABLE ${tableName} DISABLE TRIGGER USER`);
+      await run(`DELETE FROM ${tableName} WHERE id = 'gone'`);
+      await run(`INSERT INTO ${tableName} (id, title) VALUES ('new', 'New')`);
+      search.resetSearchIndexRuntime();
+      expect(await prepareFully(registered)).toEqual({
+        ready: false,
+        reason: "capture-missing",
+      });
+      await run(`ALTER TABLE ${tableName} ENABLE TRIGGER USER`);
+      search.resetSearchIndexRuntime();
+      expect(await prepareFully(registered)).toEqual({ ready: true });
+    } finally {
+      errors.mockRestore();
+    }
+    expect(await indexedIds("disabled")).toEqual(["kept", "new"]);
   });
 
   it("works on tables with columns that have no equality operator", async () => {
@@ -801,5 +1067,44 @@ describe("change capture", () => {
     // An update that changes nothing still records nothing.
     await run(`UPDATE shapes SET title = title WHERE id = 's1'`);
     expect(await seq()).toBe(updated);
+  });
+});
+
+describe("index writes", () => {
+  it("keep each statement under the write limit, counting every stored string", async () => {
+    search.resetSearchIndexRuntime();
+    const { registered, tableName } = await isolatedRegistration("wide", {
+      summary: "s".repeat(100_000),
+    });
+    for (let index = 0; index < 20; index += 1) {
+      await run(`INSERT INTO ${tableName} (id, title) VALUES (?, ?)`, [
+        `w${index}`,
+        `Wide ${index}`,
+      ]);
+    }
+    const sizes: number[] = [];
+    const restore = interceptStatements(async (sql, query, execute) => {
+      if (sql.includes("INSERT INTO search_resources")) {
+        sizes.push(
+          (query.args as unknown[]).reduce<number>(
+            (total, arg) =>
+              total +
+              (typeof arg === "string"
+                ? new TextEncoder().encode(arg).length
+                : 8),
+            0,
+          ),
+        );
+      }
+      return execute();
+    });
+    try {
+      expect(await prepareFully(registered)).toEqual({ ready: true });
+    } finally {
+      restore();
+    }
+    expect(sizes.length).toBeGreaterThan(1);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(1_500_000);
+    expect(await indexedIds("wide")).toHaveLength(20);
   });
 });

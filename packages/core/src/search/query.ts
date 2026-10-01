@@ -17,6 +17,9 @@
  * prefixes 3, title substrings 2, title or summary 1, then how many query
  * groups the title and summary cover, then whether the body contains the
  * query as a phrase. Callers add their own tie-breaks.
+ *
+ * A query with a term longer than the index can match as a phrase throws
+ * `SearchTermTooLongError`; answer it with the app's fallback search.
  */
 import { and, not, or, sql, type SQL } from "drizzle-orm";
 

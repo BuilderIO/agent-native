@@ -2,6 +2,8 @@ import { defineAction } from "@agent-native/core/action";
 import {
   indexedSearchSql,
   prepareSearchIndex,
+  SearchTermTooLongError,
+  type IndexedSearchSql,
 } from "@agent-native/core/search";
 import {
   getRequestOrgId,
@@ -204,20 +206,27 @@ export default defineAction({
           ).map((document) => document.id)
         : [args.excludeSubtreeOf];
     }
-    // The core index answers when it is complete and current; otherwise this
-    // request scans documents directly, as search did before the index.
-    const indexStatus =
-      parsedQuery && !parsedQuery.empty
-        ? await prepareSearchIndex(documentSearchIndex)
-        : null;
-    const indexedSearch =
-      parsedQuery && indexStatus?.ready
-        ? indexedSearchSql({
-            registration: documentSearchIndex,
-            query: parsedQuery,
-            fields: args.searchFields === "title" ? "title" : "all",
-          })
-        : null;
+    // The core index answers when it is complete and current and the query
+    // fits it; otherwise this request scans documents directly, as search
+    // did before the index.
+    let indexedSearch: IndexedSearchSql | null = null;
+    if (parsedQuery && !parsedQuery.empty) {
+      try {
+        indexedSearch = indexedSearchSql({
+          registration: documentSearchIndex,
+          query: parsedQuery,
+          fields: args.searchFields === "title" ? "title" : "all",
+        });
+      } catch (error) {
+        if (!(error instanceof SearchTermTooLongError)) throw error;
+      }
+      if (
+        indexedSearch &&
+        !(await prepareSearchIndex(documentSearchIndex)).ready
+      ) {
+        indexedSearch = null;
+      }
+    }
     const baseWhere = documentDiscoveryWhere({
       userEmail,
       authorizedOrgIds,
@@ -423,9 +432,14 @@ export default defineAction({
     if (indexedSearch) {
       countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
     }
-    const totalItems = docs.length
-      ? Number(docs[0]!.totalItems)
-      : Number((await countQuery)[0]?.count ?? 0);
+    let totalItems: number;
+    if (docs.length) {
+      totalItems = Number(docs[0]!.totalItems);
+    } else {
+      const [counted] = await countQuery;
+      if (!counted) throw new Error("Counting search results returned no row.");
+      totalItems = Number(counted.count);
+    }
 
     const parentIds = [
       ...new Set(docs.flatMap((doc) => (doc.parentId ? [doc.parentId] : []))),

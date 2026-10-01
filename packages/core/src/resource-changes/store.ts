@@ -30,6 +30,7 @@ import {
   ensureIndexExists,
   ensureSchemaObject,
   ensureTableExists,
+  runGuardedDdl,
 } from "../db/ddl-guard.js";
 
 export const RESOURCE_CHANGES_TABLE = "app_resource_changes";
@@ -42,6 +43,11 @@ export const RESOURCE_CHANGE_MAX_ATTEMPTS = 5;
 const CLAIM_LEASE_SECONDS = 60;
 /** The longest wait between retries of a failing change. */
 const MAX_RETRY_SECONDS = 300;
+/**
+ * Caps the exponent: a failing change keeps being retried, and
+ * `power(2, attempts)` overflows after about a thousand attempts.
+ */
+const MAX_BACKOFF_DOUBLINGS = 10;
 
 const RESOURCE_CHANGE_CONSUMERS_CREATE_SQL = `
   CREATE TABLE IF NOT EXISTS ${RESOURCE_CHANGE_CONSUMERS_TABLE} (
@@ -210,43 +216,53 @@ export function assertResourceKey(value: string, label: string): string {
   return value;
 }
 
-/** FNV-1a, as 8 hex digits. */
+const FNV64_OFFSET = 0xcbf29ce484222325n;
+const FNV64_PRIME = 0x100000001b3n;
+const UINT64 = 0xffffffffffffffffn;
+
+/** 64-bit FNV-1a, as 16 hex digits. */
 function shortHash(value: string): string {
-  let hash = 0x811c9dc5;
+  let hash = FNV64_OFFSET;
   for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
+    hash ^= BigInt(value.charCodeAt(index));
+    hash = (hash * FNV64_PRIME) & UINT64;
   }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+  return hash.toString(16).padStart(16, "0");
 }
 
 /**
  * Names of the function and triggers generated for one source. Functions are
  * schema-wide and the readable part is shortened to fit Postgres's 63
  * characters, so a hash of the app, table, and type keeps every source's
- * names distinct.
+ * names distinct. Installing a source replaces whatever has its names, so
+ * the hash is wide enough that two sources never share them.
  */
 export function resourceChangeTriggerNames(source: ResourceChangeSource) {
   const table = assertIdentifier(source.table, "Resource table");
   const app = assertResourceKey(source.app, "App");
   const type = assertResourceKey(source.resourceType, "Resource type");
-  const readable = `an_rc_${table}__${type.replace(/-/g, "_")}`.slice(0, 50);
+  const readable = `an_rc_${table}__${type.replace(/-/g, "_")}`.slice(0, 42);
   const base = `${readable}_${shortHash(`${app}\u0000${table}\u0000${type}`)}`;
   return {
     function: base,
     insertDeleteTrigger: `${base}_iud`,
     updateTrigger: `${base}_upd`,
+    truncateTrigger: `${base}_trn`,
   };
 }
 
 /**
- * SQL that makes every committed insert, update, and delete on the source
- * table call the producer function. An update that changes nothing is
- * skipped. An update that changes the id reports both ids.
+ * SQL that makes every committed insert, update, delete, and truncate on the
+ * source table call the producer function. An update that changes nothing is
+ * skipped. An update that changes the id reports both ids. A truncate
+ * reports every row it removes as deleted.
  *
  * "Changes nothing" compares the rows' stored bytes (`*<>`), not their
  * values: a `json` or `point` column has no equality operator, and comparing
  * such rows by value would make every update on the table fail.
+ *
+ * Triggers are replaced in place, never dropped and recreated: a write
+ * committed between a drop and a create would never be recorded.
  */
 export function resourceChangeTriggerSql(
   source: ResourceChangeSource,
@@ -256,28 +272,29 @@ export function resourceChangeTriggerSql(
   const app = assertResourceKey(source.app, "App");
   const type = assertResourceKey(source.resourceType, "Resource type");
   const names = resourceChangeTriggerNames(source);
-  const changed = (row: "NEW" | "OLD", reason: string) =>
-    `PERFORM ${RESOURCE_CHANGED_FUNCTION}('${app}', '${type}', ${row}."${id}"::text, '${reason}');`;
+  const changed = (row: string, reason: string) =>
+    `${RESOURCE_CHANGED_FUNCTION}('${app}', '${type}', ${row}."${id}"::text, '${reason}')`;
   return [
     `CREATE OR REPLACE FUNCTION "${names.function}"() RETURNS trigger LANGUAGE plpgsql AS $an_rc$
 BEGIN
-  IF TG_OP = 'INSERT' THEN
-    ${changed("NEW", "insert")}
+  IF TG_OP = 'TRUNCATE' THEN
+    PERFORM ${changed("truncated", "delete")} FROM "${table}" AS truncated;
+  ELSIF TG_OP = 'INSERT' THEN
+    PERFORM ${changed("NEW", "insert")};
   ELSIF TG_OP = 'DELETE' THEN
-    ${changed("OLD", "delete")}
+    PERFORM ${changed("OLD", "delete")};
   ELSE
     IF OLD."${id}" IS DISTINCT FROM NEW."${id}" THEN
-      ${changed("OLD", "delete")}
+      PERFORM ${changed("OLD", "delete")};
     END IF;
-    ${changed("NEW", "update")}
+    PERFORM ${changed("NEW", "update")};
   END IF;
   RETURN NULL;
 END
 $an_rc$`,
-    `DROP TRIGGER IF EXISTS "${names.insertDeleteTrigger}" ON "${table}"`,
-    `CREATE TRIGGER "${names.insertDeleteTrigger}" AFTER INSERT OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION "${names.function}"()`,
-    `DROP TRIGGER IF EXISTS "${names.updateTrigger}" ON "${table}"`,
-    `CREATE TRIGGER "${names.updateTrigger}" AFTER UPDATE ON "${table}" FOR EACH ROW WHEN (OLD *<> NEW) EXECUTE FUNCTION "${names.function}"()`,
+    `CREATE OR REPLACE TRIGGER "${names.insertDeleteTrigger}" AFTER INSERT OR DELETE ON "${table}" FOR EACH ROW EXECUTE FUNCTION "${names.function}"()`,
+    `CREATE OR REPLACE TRIGGER "${names.updateTrigger}" AFTER UPDATE ON "${table}" FOR EACH ROW WHEN (OLD *<> NEW) EXECUTE FUNCTION "${names.function}"()`,
+    `CREATE OR REPLACE TRIGGER "${names.truncateTrigger}" BEFORE TRUNCATE ON "${table}" FOR EACH STATEMENT EXECUTE FUNCTION "${names.function}"()`,
   ];
 }
 
@@ -285,17 +302,26 @@ $an_rc$`,
  * Installs change capture for a source and subscribes a consumer to it.
  * Apps call this from a named migration, so the triggers ship with the app's
  * schema rather than being created on a request path.
+ *
+ * Creating a trigger waits for every open transaction on the table, and
+ * queues the table's writes behind it while it waits, so each waits at most
+ * a few seconds. Returns false when one gave up; the caller retries later.
  */
 export async function installResourceChangeCapture(
   exec: DbExec,
   source: ResourceChangeSource,
   consumer: string,
-): Promise<void> {
+): Promise<boolean> {
   await ensureResourceChangeTables(exec);
   await subscribeResourceChangeConsumer(exec, source, consumer);
   for (const statement of resourceChangeTriggerSql(source)) {
-    await exec.execute(statement);
+    const applied = await runGuardedDdl(statement, {
+      lockTimeout: "3s",
+      injectedClient: exec,
+    });
+    if (!applied) return false;
   }
+  return true;
 }
 
 export async function subscribeResourceChangeConsumer(
@@ -309,7 +335,11 @@ export async function subscribeResourceChangeConsumer(
   });
 }
 
-/** True when both generated triggers exist on the source table. */
+/**
+ * True when every generated trigger exists on the source table and fires.
+ * A disabled trigger (`ALTER TABLE ... DISABLE TRIGGER`) records nothing, so
+ * it counts as missing.
+ */
 export async function resourceChangeCaptureInstalled(
   exec: DbExec,
   source: ResourceChangeSource,
@@ -320,10 +350,16 @@ export async function resourceChangeCaptureInstalled(
           FROM pg_trigger t
           JOIN pg_class c ON c.oid = t.tgrelid
           JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE n.nspname = 'public' AND c.relname = ? AND t.tgname IN (?, ?) AND NOT t.tgisinternal`,
-    args: [source.table, names.insertDeleteTrigger, names.updateTrigger],
+          WHERE n.nspname = 'public' AND c.relname = ? AND t.tgname IN (?, ?, ?)
+            AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A')`,
+    args: [
+      source.table,
+      names.insertDeleteTrigger,
+      names.updateTrigger,
+      names.truncateTrigger,
+    ],
   });
-  return rows.length === 2;
+  return rows.length === 3;
 }
 
 export interface ResourceChangeFeed {
@@ -476,7 +512,7 @@ export async function failResourceChanges(
   const guard = fenced(fence);
   await exec.execute({
     sql: `UPDATE ${RESOURCE_CHANGES_TABLE} AS c
-          SET available_at = clock_timestamp() + make_interval(secs => least(${MAX_RETRY_SECONDS}, 5 * power(2, c.attempts))),
+          SET available_at = clock_timestamp() + make_interval(secs => least(${MAX_RETRY_SECONDS}, 5 * power(2, least(c.attempts, ${MAX_BACKOFF_DOUBLINGS})))),
               failed_at = CASE WHEN c.attempts >= ${RESOURCE_CHANGE_MAX_ATTEMPTS} THEN coalesce(c.failed_at, clock_timestamp()) ELSE c.failed_at END
           FROM (VALUES ${values.sql}) AS failed (resource_id, seq)
           WHERE c.consumer = ? AND c.app = ? AND c.resource_type = ?

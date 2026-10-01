@@ -40,6 +40,12 @@ let getDb: () => any;
 let schema: Schema;
 let searchDocuments: typeof import("./search-documents.js").default;
 
+// Too many words for the index to match as one phrase.
+const LONG_PHRASE = Array.from(
+  { length: 10_000 },
+  (_, index) => `w${index}`,
+).join(" ");
+
 const FIXTURES = [
   { id: "p1", title: "Task Priorities", description: "", content: "" },
   {
@@ -86,6 +92,7 @@ const FIXTURES = [
     description: "",
     content: `${"tick tock ".repeat(300)}bell`,
   },
+  { id: "long", title: "Word list", description: "", content: LONG_PHRASE },
 ];
 
 async function search(
@@ -167,6 +174,12 @@ describe("indexed search and the fallback scan", () => {
     // Nor in a document without every word position.
     expect(await search('"log tick"', { fallback: false })).toEqual([]);
     expect(await search('"log tick"', { fallback: true })).toEqual([]);
+  });
+
+  it("answer a phrase too long for the index with the scan", async () => {
+    expect(await search(`"${LONG_PHRASE}"`, { fallback: false })).toEqual([
+      "long",
+    ]);
   });
 
   it("agree on title-only searches", async () => {
