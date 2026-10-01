@@ -243,6 +243,24 @@ function storedMessages(
               .map((part) => messagePart(part, textFormat))
               .filter((part) => part !== null)
           : [];
+    const attachmentParts = Array.isArray(message.attachments)
+      ? message.attachments.flatMap((entry) => {
+          const attachment = asRecord(entry);
+          return Array.isArray(attachment?.content)
+            ? attachment.content
+                .map((part) => {
+                  const value = asRecord(part);
+                  return messagePart(
+                    value?.type === "image" && typeof value.image === "string"
+                      ? { ...value, url: value.image }
+                      : part,
+                    textFormat,
+                  );
+                })
+                .filter((part) => part !== null)
+            : [];
+        })
+      : [];
     return [
       {
         id:
@@ -250,7 +268,7 @@ function storedMessages(
             ? message.id
             : `repository-message-${index}`,
         role,
-        parts,
+        parts: [...parts, ...attachmentParts],
         createdAt: timestamp(message.createdAt, now()),
         ...(asRecord(message.metadata)
           ? { metadata: asRecord(message.metadata)! }
@@ -261,6 +279,19 @@ function storedMessages(
       },
     ];
   });
+}
+
+function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
+  return new Set(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      return message.role === "assistant" &&
+        message.status === "complete" &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
 }
 
 function reconcileDurableMessages(
@@ -274,10 +305,12 @@ function reconcileDurableMessages(
     return typeof value === "string" ? value : undefined;
   };
   const userText = (message: AgentMessage) =>
-    message.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
+    message.parts.some((part) => part.type !== "text")
+      ? undefined
+      : message.parts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("") || undefined;
   const submittedUsers = durable.filter(
     (message) =>
       message.role === "user" &&
@@ -285,47 +318,24 @@ function reconcileDurableMessages(
       submittedRunId(message) !== undefined,
   );
   const submittedIds = new Set(submittedUsers.map((message) => message.id));
-  const submittedRunIds = new Set(
-    submittedUsers.map((message) => submittedRunId(message)!),
+  const durableIndexById = new Map(
+    durable.map((message, index) => [message.id, index]),
   );
-  const representedIds = new Set<string>();
-  const representedRunIds = new Set<string>();
-  const unmatchedUserTextCounts = new Map<string, number>();
-  for (const message of messages) {
-    if (
-      message.role !== "user" ||
-      asRecord(message.metadata)?.hideUserMessage === true
-    ) {
-      continue;
-    }
-    const runId = submittedRunId(message);
-    if (submittedIds.has(message.id)) {
-      representedIds.add(message.id);
-    } else if (runId && submittedRunIds.has(runId)) {
-      representedRunIds.add(runId);
-    } else {
-      const text = userText(message);
-      if (text) {
-        unmatchedUserTextCounts.set(
-          text,
-          (unmatchedUserTextCounts.get(text) ?? 0) + 1,
-        );
-      }
-    }
-  }
-  const missingUsers: AgentMessage[] = [];
+  const submittedUsersByRun = new Map<string, AgentMessage | null>();
+  const submittedUsersByText = new Map<string, AgentMessage[]>();
   for (const stored of submittedUsers) {
     const runId = submittedRunId(stored)!;
-    if (representedIds.has(stored.id) || representedRunIds.has(runId)) continue;
+    submittedUsersByRun.set(
+      runId,
+      submittedUsersByRun.has(runId) ? null : stored,
+    );
     const text = userText(stored);
-    const textCount = unmatchedUserTextCounts.get(text) ?? 0;
-    if (text && textCount > 0) {
-      unmatchedUserTextCounts.set(text, textCount - 1);
-    } else {
-      missingUsers.push(stored);
+    if (text) {
+      const candidates = submittedUsersByText.get(text) ?? [];
+      candidates.push(stored);
+      submittedUsersByText.set(text, candidates);
     }
   }
-
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
   for (const event of events ?? []) {
@@ -352,19 +362,65 @@ function reconcileDurableMessages(
     durableByRun.set(runId, durableByRun.has(runId) ? null : message);
   }
 
-  const projectedMessages = [...messages, ...missingUsers];
+  const representedSubmittedUserIds = new Set<string>();
+  const unmatchedSnapshotUsersByText = new Map<string, AgentMessage[]>();
   const representedAssistantIds = new Set(
-    projectedMessages.flatMap((message) =>
+    messages.flatMap((message) =>
       message.role === "assistant" ? [message.id] : [],
     ),
   );
-  const completedRunIds = new Set(
-    (runs ?? [])
+  const representedAssistantRunIds = new Set<string>();
+  for (const message of messages) {
+    if (
+      message.role === "user" &&
+      asRecord(message.metadata)?.hideUserMessage !== true
+    ) {
+      const runId = submittedRunId(message);
+      const represented = submittedIds.has(message.id)
+        ? durableById.get(message.id)
+        : runId
+          ? submittedUsersByRun.get(runId)
+          : undefined;
+      if (represented?.role === "user") {
+        representedSubmittedUserIds.add(represented.id);
+      } else if (!runId) {
+        const text = userText(message);
+        if (text) {
+          const candidates = unmatchedSnapshotUsersByText.get(text) ?? [];
+          candidates.push(message);
+          unmatchedSnapshotUsersByText.set(text, candidates);
+        }
+      }
+    } else if (message.role === "assistant") {
+      const metadataRunId = asRecord(message.metadata)?.runId;
+      const runId =
+        typeof metadataRunId === "string"
+          ? metadataRunId
+          : runByAssistantId.get(message.id);
+      const stored = runId ? durableByRun.get(runId) : undefined;
+      if (runId && stored) representedAssistantRunIds.add(runId);
+    }
+  }
+  for (const [text, snapshotUsers] of unmatchedSnapshotUsersByText) {
+    const candidates = (submittedUsersByText.get(text) ?? []).filter(
+      (message) => !representedSubmittedUserIds.has(message.id),
+    );
+    if (snapshotUsers.length !== 1 || candidates.length !== 1) continue;
+    const stored = candidates[0]!;
+    representedSubmittedUserIds.add(stored.id);
+  }
+
+  const missingMessages: AgentMessage[] = submittedUsers.filter(
+    (message) => !representedSubmittedUserIds.has(message.id),
+  );
+  const completedRunIds = new Set([
+    ...(runs ?? [])
       .filter((run) =>
         ["completed", "failed", "cancelled"].includes(run.status),
       )
       .map((run) => run.id),
-  );
+    ...completedDurableRunIds(durable),
+  ]);
   for (const message of durable) {
     if (
       message.role !== "assistant" ||
@@ -374,6 +430,7 @@ function reconcileDurableMessages(
     }
     const runId = asRecord(message.metadata)?.runId;
     if (typeof runId !== "string" || !completedRunIds.has(runId)) continue;
+    if (representedAssistantRunIds.has(runId)) continue;
     const eventIds = assistantIdsByRun.get(runId);
     if (
       eventIds &&
@@ -381,9 +438,36 @@ function reconcileDurableMessages(
     ) {
       continue;
     }
-    projectedMessages.push(message);
+    missingMessages.push(message);
     representedAssistantIds.add(message.id);
+    representedAssistantRunIds.add(runId);
   }
+
+  const projectedMessages = [
+    ...messages,
+    ...missingMessages.sort(
+      (left, right) =>
+        (durableIndexById.get(left.id) ?? 0) -
+        (durableIndexById.get(right.id) ?? 0),
+    ),
+  ]
+    .map((message, index) => ({
+      message,
+      index,
+    }))
+    .sort((left, right) => {
+      const leftCreatedAt = Date.parse(left.message.createdAt ?? "");
+      const rightCreatedAt = Date.parse(right.message.createdAt ?? "");
+      if (
+        Number.isFinite(leftCreatedAt) &&
+        Number.isFinite(rightCreatedAt) &&
+        leftCreatedAt !== rightCreatedAt
+      ) {
+        return leftCreatedAt - rightCreatedAt;
+      }
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
 
   return projectedMessages.map((message) => {
     if (message.role !== "assistant") return message;
@@ -420,8 +504,9 @@ function reconcileDurableMessages(
 }
 
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
-  return value === "streaming" || value === "complete" || value === "error"
-    ? value
+  const status = asRecord(value)?.type ?? value;
+  return status === "streaming" || status === "complete" || status === "error"
+    ? status
     : undefined;
 }
 
@@ -1107,7 +1192,7 @@ export function createAgentNativeAgentKitTransport(
 
   async function activeRunSnapshot(
     threadId: string,
-  ): Promise<AgentRunSnapshot | undefined> {
+  ): Promise<AgentRunSnapshot | null | undefined> {
     const response = await fetcher(
       `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
       { headers: await headers({ sessionId: threadId }) },
@@ -1118,24 +1203,40 @@ export function createAgentNativeAgentKitTransport(
       throw new TypeError("Agent chat active-run response must be an object.");
     }
     const status = value.status;
-    if (
-      value.active !== true ||
-      typeof value.runId !== "string" ||
-      !value.runId ||
-      status === "completed" ||
-      status === "complete" ||
-      status === "failed" ||
-      status === "cancelled"
-    ) {
-      return undefined;
+    if (value.active === false) return null;
+    if (value.active !== true) return undefined;
+    if (typeof value.runId !== "string" || !value.runId) {
+      throw new TypeError(
+        "Agent chat active-run response must include an active run ID.",
+      );
     }
-    const runStatus: AgentRunSnapshot["status"] =
+    let runStatus: AgentRunSnapshot["status"];
+    let error: AgentRunSnapshot["error"];
+    if (status === "complete" || status === "completed") {
+      runStatus = "completed";
+    } else if (status === "failed" || status === "errored") {
+      runStatus = "failed";
+    } else if (status === "cancelled" || status === "aborted") {
+      runStatus = "cancelled";
+    } else if (status === "truncated") {
+      runStatus = "failed";
+      error = {
+        code: "run_truncated",
+        message: "The server stopped the run before it confirmed completion.",
+        retryable: true,
+      };
+    } else if (
       status === "queued" ||
       status === "running" ||
       status === "awaiting_approval" ||
       status === "awaiting_input"
-        ? status
-        : "running";
+    ) {
+      runStatus = status;
+    } else {
+      throw new TypeError(
+        "Agent chat active-run response has an invalid status.",
+      );
+    }
     return {
       id: value.runId,
       threadId,
@@ -1143,31 +1244,113 @@ export function createAgentNativeAgentKitTransport(
       // The durable SSE endpoint replays from its first event when a browser
       // has no saved AgentKit cursor; the protocol adapter rebuilds the log.
       lastSequence: 0,
+      ...(error ? { error } : {}),
     };
   }
 
   async function threadSnapshotWithActiveRun(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
-    const thread = await snapshot(threadId);
+    const stored = await fetchThread(threadId);
+    const thread = stored ? projectThread(threadId, stored) : null;
     if (
+      !stored ||
       !thread ||
       (options.runtime && options.runtime.kind !== "agent-native")
     ) {
       return thread;
     }
+    const durableMessages = storedMessages(
+      storedRepository(stored).messages,
+      now,
+      options.adapter?.textFormat,
+    );
+    const completedRunIds = completedDurableRunIds(durableMessages);
     const activeRun = await activeRunSnapshot(threadId);
-    if (!activeRun) return thread;
-    const runs = [
-      ...(thread.runs ?? []).filter((entry) => entry.id !== activeRun.id),
-      activeRun,
-    ];
+    if (activeRun === undefined) return thread;
+    const discoveredRun =
+      activeRun &&
+      completedRunIds.has(activeRun.id) &&
+      !["completed", "failed", "cancelled"].includes(activeRun.status)
+        ? { ...activeRun, status: "completed" as const }
+        : activeRun;
+    const knownActiveRunId =
+      discoveredRun &&
+      !["completed", "failed", "cancelled"].includes(discoveredRun.status)
+        ? discoveredRun.id
+        : undefined;
+    const runs = (thread.runs ?? [])
+      .filter((entry) => entry.id !== discoveredRun?.id)
+      .map((run) => {
+        if (completedRunIds.has(run.id)) {
+          return { ...run, status: "completed" as const };
+        }
+        if (
+          activeRun !== undefined &&
+          run.id !== knownActiveRunId &&
+          !["completed", "failed", "cancelled"].includes(run.status)
+        ) {
+          return {
+            ...run,
+            status: "failed" as const,
+            error: {
+              code: "run_state_unavailable",
+              message:
+                "The server no longer reports this run as active, so its final result could not be confirmed.",
+              retryable: true,
+            },
+          };
+        }
+        return run;
+      });
+    if (discoveredRun) runs.push(discoveredRun);
+    const activeRunIds =
+      discoveredRun &&
+      !["completed", "failed", "cancelled"].includes(discoveredRun.status)
+        ? [discoveredRun.id]
+        : [];
+    const messages = reconcileDurableMessages(
+      thread.messages,
+      durableMessages,
+      thread.events,
+      runs,
+    );
+    const replayFromStart = discoveredRun?.status === "running";
+    const streamingAssistants = messages.filter(
+      (message) =>
+        message.role === "assistant" && message.status === "streaming",
+    );
+    const replayedMessageIds = new Set<string>();
+    for (const event of thread.events ?? []) {
+      if (
+        event.runId === discoveredRun?.id &&
+        (event.type === "message.created" ||
+          event.type === "message.completed") &&
+        event.message.role === "assistant"
+      ) {
+        replayedMessageIds.add(event.message.id);
+      }
+    }
+    const messagesForReplay = replayFromStart
+      ? messages.filter((message) => {
+          if (message.role !== "assistant" || message.status !== "streaming") {
+            return true;
+          }
+          const runId = asRecord(message.metadata)?.runId;
+          return !(
+            runId === discoveredRun?.id ||
+            replayedMessageIds.has(message.id) ||
+            streamingAssistants.length === 1
+          );
+        })
+      : messages;
     return {
       ...thread,
+      // Replay starts at sequence zero, so rebuild an active assistant instead
+      // of appending the same prefix to its persisted partial projection.
+      messages: messagesForReplay,
       runs,
-      activeRunIds: [
-        ...new Set([...(thread.activeRunIds ?? []), activeRun.id]),
-      ],
+      activeRunIds,
     };
   }
 
@@ -1310,6 +1493,7 @@ export function createAgentNativeAgentKitTransport(
 
   async function waitForRunSlot(threadId: string): Promise<void> {
     let consecutiveClearPolls = 0;
+    let activeRunId: string | undefined;
     for (let poll = 0; poll < RUN_SLOT_MAX_POLLS; poll += 1) {
       const response = await fetcher(
         `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
@@ -1322,6 +1506,7 @@ export function createAgentNativeAgentKitTransport(
           "Agent chat active-run response must be an object.",
         );
       }
+      if (typeof status.runId === "string") activeRunId = status.runId;
       const clear =
         status.awaitingRedispatch !== true &&
         (status.active !== true ||
@@ -1339,7 +1524,9 @@ export function createAgentNativeAgentKitTransport(
         );
       }
     }
-    throw new AgentKitRunSlotBusyError();
+    const error = new AgentKitRunSlotBusyError();
+    if (activeRunId) Object.assign(error, { activeRunId });
+    throw error;
   }
 
   async function readQueue(threadId: string): Promise<AgentQueuedMessage[]> {
