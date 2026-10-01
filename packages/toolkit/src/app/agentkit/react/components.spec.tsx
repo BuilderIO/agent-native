@@ -1465,6 +1465,7 @@ describe("AgentKitChat", () => {
                 },
                 {
                   type: "text",
+                  format: "markdown",
                   text: "Assistant reply\n<context>private assistant context</context>",
                 },
               ],

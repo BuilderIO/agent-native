@@ -3017,7 +3017,7 @@ export function AgentMessageView({
       aria-busy={message.status === "streaming"}
     >
       <div className="agentkit-message-content">
-        {message.parts.map((part, index) => (
+        {visibleMessage.parts.map((part, index) => (
           <AgentMessagePartView
             key={`${message.id}-${index}`}
             value={part}
