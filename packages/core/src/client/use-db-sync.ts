@@ -70,6 +70,56 @@ const ACTIVE_CHAT_MAX = 1_000;
 const INVALIDATE_COALESCE_MS = 250;
 const IDLE_POLL_BACKOFF = [1, 2, 5] as const;
 const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
+const COLLAB_POLL_INTERVAL_MS = 2_500;
+const COLLAB_BOOST_IDLE_CEILING_MS = 3 * 60_000;
+
+// Collab poll boost: a page that knows another person is on the same resource
+// holds a lease, and every transport with no live stream (serverless refuses
+// /events) polls at COLLAB_POLL_INTERVAL_MS instead of the 1-5 minute idle
+// cadence. Module-level because the lease is about the tab, not one transport.
+let collabBoostLeases = 0;
+let collabBoostActivityAt = 0;
+
+function collabBoostFresh(): boolean {
+  return Date.now() - collabBoostActivityAt <= COLLAB_BOOST_IDLE_CEILING_MS;
+}
+
+function notifyCollabBoostChange(): void {
+  for (const transport of transportRegistry.values()) {
+    transport.onCollabBoostChange();
+  }
+}
+
+// Local input, an arriving remote event, or a new lease keeps the boost alive;
+// three minutes of silence on both sides lets it lapse so an abandoned shared tab
+// stops costing a poll every 2.5 s.
+function touchCollabBoost(): void {
+  const lapsed = collabBoostLeases > 0 && !collabBoostFresh();
+  collabBoostActivityAt = Date.now();
+  if (lapsed) notifyCollabBoostChange();
+}
+
+/**
+ * Declare that another person is working on the same resource as this tab.
+ * While any lease is held, the shared transport polls every 2.5 s whenever no
+ * stream (local SSE or the hosted gateway) is connected, so their edits land in
+ * seconds instead of at the idle cadence. A no-op while a stream is live.
+ * Returns the release function; callers must release when the other person
+ * leaves or the page unmounts.
+ */
+export function acquireCollabPollBoost(): () => void {
+  const lapsed = !collabBoostFresh();
+  collabBoostLeases += 1;
+  collabBoostActivityAt = Date.now();
+  if (collabBoostLeases === 1 || lapsed) notifyCollabBoostChange();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    collabBoostLeases = Math.max(0, collabBoostLeases - 1);
+    if (collabBoostLeases === 0) notifyCollabBoostChange();
+  };
+}
 const processedRunToolEvents = new WeakSet<Event>();
 const processedRunEndEvents = new WeakSet<Event>();
 
@@ -538,6 +588,25 @@ class SyncTransport {
     return this.activeChatIds.size > 0;
   }
 
+  // Only the local poll fallback is boosted: a connected stream (local SSE or
+  // the hosted gateway) already delivers within a second, and a hosted
+  // transport that is mid-reconnect has its own jittered retry.
+  private collabBoostInterval(): number | undefined {
+    if (collabBoostLeases === 0 || !collabBoostFresh()) return undefined;
+    if (this.mode !== "local" || this.sseConnected) return undefined;
+    return COLLAB_POLL_INTERVAL_MS;
+  }
+
+  onCollabBoostChange(): void {
+    if (this.stopped) return;
+    if (this.collabBoostInterval() !== undefined) {
+      this.idlePollBackoffIndex = 0;
+      this.pollNow();
+    } else {
+      this.reschedule();
+    }
+  }
+
   private get effectiveFallbackInterval(): number {
     let min = Infinity;
     for (const sub of this.subscribers.values()) {
@@ -572,6 +641,7 @@ class SyncTransport {
         }
       }
     }
+    if (events.length) touchCollabBoost();
     for (const sub of this.subscribers.values()) {
       sub.onEvents(events, version, cursor);
     }
@@ -610,9 +680,13 @@ class SyncTransport {
       }, authDelay);
       return;
     }
-    const visibleBase = this.isActive
+    const normalBase = this.isActive
       ? this.effectiveInterval
       : this.idlePollInterval;
+    const visibleBase = Math.min(
+      normalBase,
+      this.collabBoostInterval() ?? normalBase,
+    );
     const base = isDocumentHidden()
       ? Math.max(visibleBase, HIDDEN_POLL_INTERVAL_MS)
       : visibleBase;
@@ -954,6 +1028,7 @@ class SyncTransport {
       } else if (
         scheduled &&
         !this.isActive &&
+        this.collabBoostInterval() === undefined &&
         idleActivityGenerationAtStart === this.idleActivityGeneration
       ) {
         this.idlePollBackoffIndex = Math.min(
@@ -1030,6 +1105,7 @@ class SyncTransport {
 
   private handleActivity = (): void => {
     this.idleActivityGeneration++;
+    touchCollabBoost();
     if (this.idlePollBackoffIndex === 0) return;
     this.idlePollBackoffIndex = 0;
     this.reschedule();
@@ -1172,6 +1248,8 @@ export function _resetSyncTransportRegistryForTests(): void {
     transport["teardown"]();
   }
   transportRegistry.clear();
+  collabBoostLeases = 0;
+  collabBoostActivityAt = 0;
 }
 
 export interface SubscribeSyncEventsOptions {
