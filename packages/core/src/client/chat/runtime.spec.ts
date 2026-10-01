@@ -294,6 +294,33 @@ describe("createHttpAgentChatRuntime", () => {
     });
   });
 
+  it("preserves an explicit non-slot 409 that also includes an active run ID", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: "revision_conflict",
+              activeRunId: "run-active",
+              message: "The thread revision changed",
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession({ id: "thread-1" })).startTurn({
+        prompt: "Keep this request visible",
+      }),
+    ).rejects.toMatchObject({
+      code: "revision_conflict",
+      activeRunId: "run-active",
+      status: 409,
+    });
+  });
+
   it("lets a transport continue a paused turn with the previous input", async () => {
     const fetchMock = vi
       .fn()

@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 import nodePath from "node:path";
 
 import {
+  AgentProtocolValidationError,
+  parseAgentRunOptions,
+} from "@agent-native/agentkit/protocol";
+import {
   createError,
   defineEventHandler,
   setResponseStatus,
@@ -616,6 +620,39 @@ export function resolveInteractiveAgentRunOptions(
     runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
     durableBackgroundRuns: options?.durableBackgroundRuns,
   };
+}
+
+export function parseQueuedMessageForThread(
+  value: unknown,
+  threadId: string,
+): QueuedMessage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const queued = value as Record<string, unknown>;
+  if (
+    typeof queued.id !== "string" ||
+    !queued.id ||
+    typeof queued.text !== "string" ||
+    (queued.threadId !== undefined && queued.threadId !== threadId) ||
+    (queued.createdAt !== undefined && typeof queued.createdAt !== "string") ||
+    (queued.attachments !== undefined && !Array.isArray(queued.attachments)) ||
+    (queued.metadata !== undefined &&
+      (!queued.metadata ||
+        typeof queued.metadata !== "object" ||
+        Array.isArray(queued.metadata)))
+  ) {
+    return null;
+  }
+  if (queued.options !== undefined) {
+    try {
+      parseAgentRunOptions(queued.options, "queuedMessage.options");
+    } catch (error) {
+      if (error instanceof AgentProtocolValidationError) return null;
+      throw error;
+    }
+  }
+  return { ...queued, threadId } as QueuedMessage;
 }
 
 export function createSerializedA2ATaskStatusWriter(
@@ -6799,37 +6836,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 !Array.isArray(rawMutation)
                   ? (rawMutation as Record<string, unknown>)
                   : null;
-              const message = (value: unknown): QueuedMessage | null => {
-                if (
-                  !value ||
-                  typeof value !== "object" ||
-                  Array.isArray(value)
-                ) {
-                  return null;
-                }
-                const queued = value as Record<string, unknown>;
-                if (
-                  typeof queued.id !== "string" ||
-                  !queued.id ||
-                  typeof queued.text !== "string" ||
-                  (queued.threadId !== undefined &&
-                    queued.threadId !== threadId) ||
-                  (queued.createdAt !== undefined &&
-                    typeof queued.createdAt !== "string") ||
-                  (queued.attachments !== undefined &&
-                    !Array.isArray(queued.attachments)) ||
-                  (queued.metadata !== undefined &&
-                    (!queued.metadata ||
-                      typeof queued.metadata !== "object" ||
-                      Array.isArray(queued.metadata)))
-                ) {
-                  return null;
-                }
-                return { ...queued, threadId } as QueuedMessage;
-              };
               let mutation: ThreadQueuedMessageMutation | null = null;
               if (record?.type === "append" || record?.type === "restore") {
-                const queued = message(record.message);
+                const queued = parseQueuedMessageForThread(
+                  record.message,
+                  threadId,
+                );
                 if (queued) {
                   mutation =
                     record.type === "append"

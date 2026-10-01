@@ -2183,11 +2183,19 @@ describe("createAgentNativeAgentKitTransport", () => {
   });
 
   it("maps a start-run 409 without a run ID to a typed busy error", async () => {
+    let runSlotConflict = true;
     const transport = createAgentNativeAgentKitTransport({
       apiUrl: "/_agent-native/agent-chat",
-      fetch: vi.fn(async () =>
-        json({ message: "Run already in progress" }, 409),
-      ) as typeof fetch,
+      fetch: vi.fn(async () => {
+        if (runSlotConflict) {
+          runSlotConflict = false;
+          return json(
+            { code: "run_slot_busy", message: "Run already in progress" },
+            409,
+          );
+        }
+        return json({ message: "Run already in progress" }, 409);
+      }) as typeof fetch,
     });
 
     await expect(
@@ -2213,6 +2221,40 @@ describe("createAgentNativeAgentKitTransport", () => {
         value: "negative",
       }),
     ).rejects.toMatchObject({ code: "http_409", status: 409 });
+    await transport.dispose();
+  });
+
+  it("preserves explicitly non-slot start-run conflicts with an active run ID", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () =>
+        json(
+          {
+            code: "revision_conflict",
+            activeRunId: "run-other",
+            message: "The thread changed",
+          },
+          409,
+        ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Keep this visible" }],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "revision_conflict",
+      status: 409,
+      activeRunId: "run-other",
+    });
     await transport.dispose();
   });
 

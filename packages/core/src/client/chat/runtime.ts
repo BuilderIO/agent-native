@@ -1278,19 +1278,20 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
     (typeof data?.activeRunId === "string" && data.activeRunId) ||
     (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
     (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
-  const runSlotBusy =
-    status === 409 && (code === "run_slot_busy" || Boolean(activeRunId));
+  const errorCode =
+    typeof code === "string"
+      ? code
+      : status === 409 && activeRunId
+        ? "run_slot_busy"
+        : fallbackCode;
+  const runSlotBusy = status === 409 && errorCode === "run_slot_busy";
   const error = runSlotBusy
     ? new AgentKitRunSlotBusyError(
         typeof activeRunId === "string" ? activeRunId : undefined,
       )
     : new Error(runtimeErrorMessage(text, response.status));
   Object.assign(error, {
-    code: runSlotBusy
-      ? "run_slot_busy"
-      : typeof code === "string"
-        ? code
-        : fallbackCode,
+    code: runSlotBusy ? "run_slot_busy" : errorCode,
     ...(activeRunId ? { activeRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&

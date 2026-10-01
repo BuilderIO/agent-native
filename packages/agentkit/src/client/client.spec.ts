@@ -2592,6 +2592,8 @@ describe("AgentKitClient", () => {
       });
     });
     const queueMessage = vi.fn(async () => ({ message: queued }));
+    const removeQueuedMessage = vi.fn(async () => undefined);
+    const cancelRun = vi.fn(async () => undefined);
     const onLocalSubmit = vi.fn();
     const client = new AgentKitClient({
       transport: {
@@ -2599,6 +2601,8 @@ describe("AgentKitClient", () => {
         capabilities: { messageQueue: true },
         startRun,
         queueMessage,
+        removeQueuedMessage,
+        cancelRun,
         async *subscribeToRun({ signal }) {
           yield protocolEvent(1, { type: "run.started" });
           await new Promise<void>((resolve) =>
@@ -2632,6 +2636,59 @@ describe("AgentKitClient", () => {
       messages: [],
     });
 
+    await handle.cancel();
+    expect(removeQueuedMessage).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: queued.id },
+      expect.anything(),
+    );
+    expect(cancelRun).not.toHaveBeenCalled();
+
+    await client.shutdown();
+  });
+
+  it("cancels a queued send without cancelling the active run", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-cancel-send",
+      threadId: "thread-1",
+      text: "Keep this out of the queue",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const cancelRun = vi.fn(async () => undefined);
+    const removeQueuedMessage = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async startRun() {
+          return { runId: "run-active" };
+        },
+        async queueMessage() {
+          return { message: queued };
+        },
+        removeQueuedMessage,
+        async *subscribeToRun({ runId, signal }) {
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          await new Promise<void>((resolve) =>
+            signal?.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        },
+        cancelRun,
+      },
+    });
+    await client.sendMessage({ threadId: "thread-1", text: "Keep running" });
+
+    const queuedHandle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+    });
+    await queuedHandle.cancel();
+
+    expect(removeQueuedMessage).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: queued.id },
+      expect.anything(),
+    );
+    expect(cancelRun).not.toHaveBeenCalled();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
     await client.shutdown();
   });
 
@@ -2816,7 +2873,7 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("treats an item missing at promotion as already claimed by another tab", async () => {
+  it("keeps an unproven queue claim visible without adding it to history", async () => {
     const queued: AgentQueuedMessage = {
       id: "queued-claimed-elsewhere",
       threadId: "thread-1",
@@ -2839,10 +2896,13 @@ describe("AgentKitClient", () => {
     });
 
     await client.queueMessage({ threadId: "thread-1", text: queued.text });
-    await client.steerQueuedMessage("thread-1", queued.id);
+    await expect(
+      client.steerQueuedMessage("thread-1", queued.id),
+    ).rejects.toThrow(`Unknown queued message: ${queued.id}`);
 
-    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
-    expect(onError).not.toHaveBeenCalled();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([queued]);
+    expect(client.getThread("thread-1").messages).toEqual([]);
+    expect(onError).toHaveBeenCalledOnce();
     await client.shutdown();
   });
 
@@ -3231,13 +3291,10 @@ describe("AgentKitClient", () => {
     };
     const promoted = vi.fn(
       async (
-        input: Parameters<NonNullable<AgentTransport["steerQueuedMessage"]>>[0],
-      ) => {
-        if (input.messageId === queued.id) {
-          throw new Error(`Unknown queued message: ${queued.id}`);
-        }
-        return undefined;
-      },
+        _input: Parameters<
+          NonNullable<AgentTransport["steerQueuedMessage"]>
+        >[0],
+      ) => undefined,
     );
     const transport = createTransport([]);
     transport.capabilities = { messageQueue: true };
@@ -4515,9 +4572,8 @@ describe("AgentKitClient", () => {
       });
       await run.completed;
 
-      const retryDelays = [500, 1_000, 2_000, 4_000, 5_000, 5_000, 5_000];
-      for (const [index, delay] of retryDelays.entries()) {
-        await vi.advanceTimersByTimeAsync(delay);
+      for (let index = 0; index < 7; index += 1) {
+        await vi.advanceTimersByTimeAsync(500);
         expect(attempts).toBe(index + 2);
       }
       expect(client.getThread("thread-1").queuedMessages).toEqual([]);

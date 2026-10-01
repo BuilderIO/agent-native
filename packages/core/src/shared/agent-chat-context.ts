@@ -8,7 +8,11 @@ export function appendAgentChatContextToMessage(
 ): string {
   const trimmedContext = context.trim();
   if (!trimmedContext) return message;
-  return `${message}\n\n<context>\n${trimmedContext}\n</context>`;
+  return `${escapeContextMarkup(message)}\n\n<context data-agentkit-context-encoding="entities-v1">\n${escapeContextMarkup(trimmedContext)}\n</context>`;
+}
+
+function escapeContextMarkup(text: string): string {
+  return text.replaceAll("&", "&amp;").replace(/<(?=\/?context\b)/gi, "&lt;");
 }
 
 export const splitAgentChatContextFromMessage = splitAgentKitMessageContext;

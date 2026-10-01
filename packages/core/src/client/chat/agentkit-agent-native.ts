@@ -70,7 +70,7 @@ interface ActiveRunStatus {
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
-const RUN_SLOT_MAX_POLLS = RUN_SLOT_STABLE_POLLS * 2;
+const RUN_SLOT_MAX_POLLS = 20;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -782,9 +782,7 @@ async function responseError(response: Response): Promise<Error> {
     (typeof nestedError?.code === "string" && nestedError.code) ||
     (response.status === 409 && activeRunId ? "run_slot_busy" : undefined) ||
     httpErrorCode(response.status);
-  const runSlotBusy =
-    response.status === 409 &&
-    (code === "run_slot_busy" || Boolean(activeRunId));
+  const runSlotBusy = response.status === 409 && code === "run_slot_busy";
   const error = runSlotBusy
     ? new AgentKitRunSlotBusyError(
         typeof activeRunId === "string" ? activeRunId : undefined,
@@ -1254,22 +1252,35 @@ export function createAgentNativeAgentKitTransport(
     );
   }
 
-  async function waitForRunSlot(threadId: string): Promise<void> {
+  async function waitForRunSlot(
+    threadId: string,
+    maxPolls = RUN_SLOT_STABLE_POLLS * 2,
+  ): Promise<void> {
     let consecutiveClearPolls = 0;
-    for (let poll = 0; poll < RUN_SLOT_MAX_POLLS; poll += 1) {
-      const status = await activeRunStatus(threadId);
-      const clear = runSlotIsClear(status);
-      consecutiveClearPolls = clear ? consecutiveClearPolls + 1 : 0;
-      if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
-      if (poll + 1 < RUN_SLOT_MAX_POLLS) {
+    let status: ActiveRunStatus | undefined;
+    let lastError: unknown;
+    for (let poll = 0; poll < maxPolls; poll += 1) {
+      try {
+        status = await activeRunStatus(threadId);
+        lastError = undefined;
+        consecutiveClearPolls = runSlotIsClear(status)
+          ? consecutiveClearPolls + 1
+          : 0;
+        if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
+      } catch (error) {
+        if (asRecord(error)?.retryable !== true) throw error;
+        lastError = error;
+        consecutiveClearPolls = 0;
+      }
+      if (poll + 1 < maxPolls) {
         await new Promise((resolve) =>
           setTimeout(resolve, RUN_SLOT_POLL_INTERVAL_MS),
         );
       }
     }
-    const status = await activeRunStatus(threadId);
+    if (lastError) throw lastError;
     throw new AgentKitRunSlotBusyError(
-      typeof status.runId === "string" ? status.runId : undefined,
+      typeof status?.runId === "string" ? status.runId : undefined,
     );
   }
 
@@ -1404,7 +1415,10 @@ export function createAgentNativeAgentKitTransport(
             });
           }
         }
-        await waitForRunSlot(threadId);
+        await waitForRunSlot(
+          threadId,
+          interruptActiveRun ? RUN_SLOT_MAX_POLLS : RUN_SLOT_STABLE_POLLS * 2,
+        );
         const thread = await snapshot(threadId);
         if (!thread) throw new Error(`Unknown agent chat thread: ${threadId}`);
         let claim: Awaited<ReturnType<typeof persistQueueMutation>>;
@@ -1418,7 +1432,17 @@ export function createAgentNativeAgentKitTransport(
             error instanceof Error &&
             error.message === `Unknown queued message: ${messageId}`
           ) {
-            return;
+            const latest = await snapshot(threadId);
+            if (
+              latest?.messages.some((message) => message.id === messageId) ||
+              latest?.events?.some(
+                (event) =>
+                  event.type === "message.created" &&
+                  event.message.id === messageId,
+              )
+            ) {
+              return;
+            }
           }
           throw error;
         }
@@ -1611,8 +1635,18 @@ export function createAgentNativeAgentKitTransport(
     try {
       return await protocolStartRun(input, context);
     } catch (error) {
-      if (asRecord(error)?.status === 409) {
-        const activeRunId = asRecord(error)?.activeRunId;
+      const record = asRecord(error);
+      const activeRunId = record?.activeRunId;
+      const explicitNonSlotCode =
+        typeof record?.code === "string" &&
+        record.code !== "run_slot_busy" &&
+        record.code !== "http_409";
+      if (
+        record?.status === 409 &&
+        (error instanceof AgentKitRunSlotBusyError ||
+          record.code === "run_slot_busy" ||
+          (typeof activeRunId === "string" && !explicitNonSlotCode))
+      ) {
         const busy = new AgentKitRunSlotBusyError(
           typeof activeRunId === "string" ? activeRunId : undefined,
         );

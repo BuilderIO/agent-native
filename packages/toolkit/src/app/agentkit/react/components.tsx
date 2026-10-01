@@ -2182,11 +2182,15 @@ export function AgentMessagePartView({
 }: AgentMessagePartViewProps) {
   const { labels, slots, registry } = useAgentKit();
   if (part.type === "reasoning" && part.visibility === "hidden") return null;
+  const displayPart =
+    part.type === "text"
+      ? { ...part, text: splitAgentKitMessageContext(part.text).message }
+      : part;
   const RegisteredRenderer = registry.messageParts?.[part.type];
   if (RegisteredRenderer) {
     return (
       <RegisteredRenderer
-        value={part}
+        value={displayPart}
         threadId={threadId}
         active={active}
         resetKey={resetKey}
@@ -2195,19 +2199,23 @@ export function AgentMessagePartView({
   }
   switch (part.type) {
     case "text": {
+      const textPart = displayPart as Extract<
+        AgentMessagePart,
+        { type: "text" }
+      >;
       const Renderer = userMessage ? undefined : slots.text;
       return Renderer ? (
         <Renderer
-          value={part}
+          value={textPart}
           threadId={threadId}
           active={active}
           resetKey={resetKey}
         />
       ) : userMessage ? (
-        <AgentUserMessageText text={part.text} />
-      ) : part.format === "markdown" ? (
+        <AgentUserMessageText text={textPart.text} />
+      ) : textPart.format === "markdown" ? (
         <AgentStreamingText
-          text={part.text}
+          text={textPart.text}
           active={active}
           resetKey={resetKey}
         >
@@ -2216,7 +2224,7 @@ export function AgentMessagePartView({
       ) : (
         <p data-format="plain">
           <AgentStreamingText
-            text={part.text}
+            text={textPart.text}
             active={active}
             resetKey={resetKey}
           />
@@ -2841,7 +2849,7 @@ export function AgentMessageActions({
             ) : null}
             {slots.messageActionsTrailing ? (
               <slots.messageActionsTrailing
-                value={message}
+                value={stripAgentMessageContext(message)}
                 threadId={threadId}
               />
             ) : null}
@@ -2968,6 +2976,7 @@ export function AgentMessageView({
 }: AgentKitRenderProps<AgentMessage>) {
   const { labels, slots } = useAgentKit();
   const thread = useAgentThread(threadId);
+  const visibleMessage = stripAgentMessageContext(message);
   const Supplement = slots.messageSupplement;
   const Actions = slots.messageActions ?? AgentMessageActions;
   const embeddedWidgetIds = new Set(
@@ -2996,7 +3005,7 @@ export function AgentMessageView({
     !attachedAnnotations.length
   ) {
     return Supplement ? (
-      <Supplement value={message} threadId={threadId} />
+      <Supplement value={visibleMessage} threadId={threadId} />
     ) : null;
   }
   return (
@@ -3036,11 +3045,27 @@ export function AgentMessageView({
             ))}
           </div>
         ) : null}
-        {Supplement ? <Supplement value={message} threadId={threadId} /> : null}
+        {Supplement ? (
+          <Supplement value={visibleMessage} threadId={threadId} />
+        ) : null}
       </div>
-      <Actions value={message} threadId={threadId} />
+      <Actions
+        value={slots.messageActions ? visibleMessage : message}
+        threadId={threadId}
+      />
     </article>
   );
+}
+
+function stripAgentMessageContext(message: AgentMessage): AgentMessage {
+  return {
+    ...message,
+    parts: message.parts.map((part) =>
+      part.type === "text"
+        ? { ...part, text: splitAgentKitMessageContext(part.text).message }
+        : part,
+    ),
+  };
 }
 
 export function AgentRunFailure({
@@ -4451,13 +4476,16 @@ export function AgentKitChat({
         </AgentWorkDisclosure>,
       );
     }
+    const messageValue = messageRenderer
+      ? stripAgentMessageContext(displayMessage)
+      : displayMessage;
     transcriptItems.push(
       <AgentKitSurfaceBoundary
         key={`message:${threadId}:${message.id}`}
         surface="message"
         resetKey={`${message.id}:${thread.events.length}`}
       >
-        <Message value={displayMessage} threadId={threadId} />
+        <Message value={messageValue} threadId={threadId} />
       </AgentKitSurfaceBoundary>,
     );
     if (isAssistantBoundary && runId) {

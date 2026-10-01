@@ -1463,6 +1463,10 @@ describe("AgentKitChat", () => {
                   text: "Private chain of thought.",
                   visibility: "hidden",
                 },
+                {
+                  type: "text",
+                  text: "Assistant reply\n<context>private assistant context</context>",
+                },
               ],
             },
           ],
@@ -1485,6 +1489,108 @@ describe("AgentKitChat", () => {
     expect(html).toContain("Reviewed release boundaries");
     expect(html).toContain("Checking release boundaries.");
     expect(html).not.toContain("Private chain of thought.");
+    expect(html).toContain("Assistant reply");
+    expect(html).not.toContain("private assistant context");
+
+    const textSlot = vi.fn(({ value }: { value: { text: string } }) => (
+      <span data-custom-text="true">{value.text}</span>
+    ));
+    const textSlotHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ text: textSlot }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(textSlotHtml).toContain('data-custom-text="true"');
+    expect(textSlotHtml).not.toContain("private assistant context");
+    expect(textSlot.mock.calls[0]?.[0]).toMatchObject(
+      expect.objectContaining({
+        value: expect.objectContaining({ text: "Assistant reply" }),
+      }),
+    );
+
+    const visibleText = (value: {
+      parts: Array<{ type: string; text?: string }>;
+    }) =>
+      value.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+    const messageSlot = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => <span data-custom-message="true">{visibleText(value)}</span>,
+    );
+    const messageSlotHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ message: messageSlot }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(messageSlotHtml).toContain('data-custom-message="true"');
+    expect(messageSlotHtml).not.toContain("private assistant context");
+
+    const messageSupplement = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => <span data-message-supplement="true">{visibleText(value)}</span>,
+    );
+    const messageActions = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => <span data-message-actions="true">{visibleText(value)}</span>,
+    );
+    const wholeMessageSlotsHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ messageSupplement, messageActions }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(wholeMessageSlotsHtml).not.toContain("private assistant context");
+    expect(visibleText(messageSupplement.mock.calls[0]![0].value)).toBe(
+      "Assistant reply",
+    );
+    expect(visibleText(messageActions.mock.calls[0]![0].value)).toBe(
+      "Assistant reply",
+    );
+
+    const messageActionsTrailing = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => (
+        <span data-message-actions-trailing="true">{visibleText(value)}</span>
+      ),
+    );
+    const trailingSlotsHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ messageActionsTrailing }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(trailingSlotsHtml).not.toContain("private assistant context");
+    expect(visibleText(messageActionsTrailing.mock.calls[0]![0].value)).toBe(
+      "Assistant reply",
+    );
 
     const activeHtml = renderToStaticMarkup(
       <AgentKitProvider

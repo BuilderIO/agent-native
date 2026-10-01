@@ -18,6 +18,74 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("AgentKit queued steering", () => {
+  it.each([{ promoted: false }, { promoted: true }])(
+    "reconciles an unknown claim against durable history before assuming promotion (%s)",
+    async ({ promoted }) => {
+      const threadId = "thread-claim-race";
+      const messageId = "queued-claim-race";
+      const queued = {
+        id: messageId,
+        threadId,
+        text: "Run once",
+        createdAt: "2026-10-01T00:00:00.000Z",
+      };
+      let queuedMessages: Array<Record<string, unknown>> = [queued];
+      let messages: Array<Record<string, unknown>> = [];
+      let initialSnapshotRead = false;
+      let startRunRequests = 0;
+      const apiUrl = "/_agent-native/agent-chat";
+      const fetcher = vi.fn(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          const method = String(init?.method ?? "GET").toUpperCase();
+          if (url.startsWith(`${apiUrl}/runs/active?`)) {
+            return json({ active: false, status: "completed" });
+          }
+          if (
+            url.endsWith(`/threads/${threadId}/queued`) &&
+            method === "POST"
+          ) {
+            return json({ error: `Unknown queued message: ${messageId}` }, 409);
+          }
+          if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+            const response = json({
+              id: threadId,
+              createdAt: queued.createdAt,
+              updatedAt: queued.createdAt,
+              threadData: JSON.stringify({ messages, queuedMessages }),
+            });
+            if (!initialSnapshotRead) {
+              initialSnapshotRead = true;
+              queuedMessages = [];
+              if (promoted) {
+                messages = [
+                  { id: messageId, role: "user", content: queued.text },
+                ];
+              }
+            }
+            return response;
+          }
+          if (url === apiUrl) startRunRequests += 1;
+          return json({ error: `Unexpected request: ${method} ${url}` }, 404);
+        },
+      );
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      });
+
+      const steering = transport.steerQueuedMessage?.({ threadId, messageId });
+      if (promoted) await expect(steering).resolves.toBeUndefined();
+      else
+        await expect(steering).rejects.toThrow(
+          `Unknown queued message: ${messageId}`,
+        );
+
+      expect(startRunRequests).toBe(0);
+      await transport.dispose();
+    },
+  );
+
   it("cancels a server run discovered after reload", async () => {
     const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
     const runtime: AgentChatRuntime = {
@@ -149,7 +217,9 @@ describe("AgentKit queued steering", () => {
               })(),
               cancel: async () => {
                 cancellations.push(`run-${currentRun}`);
-                active = false;
+                setTimeout(() => {
+                  active = false;
+                }, 700);
                 release();
                 return { status: "cancelled" } as const;
               },
@@ -159,7 +229,9 @@ describe("AgentKit queued steering", () => {
       },
       async cancel({ runId }) {
         cancellations.push(runId ?? "");
-        active = false;
+        setTimeout(() => {
+          active = false;
+        }, 700);
         releaseFirstRun?.();
         return { status: "cancelled" };
       },
@@ -335,7 +407,7 @@ describe("AgentKit queued steering", () => {
     }
   });
 
-  it("treats a lost claim as already promoted by another tab", async () => {
+  it("keeps an unproven claim queued without adding transcript history", async () => {
     const threadId = "thread-other-tab-claim";
     const apiUrl = "/_agent-native/agent-chat";
     const queued = {
@@ -404,12 +476,10 @@ describe("AgentKit queued steering", () => {
       await client.loadThread(threadId);
       await expect(
         client.steerQueuedMessage(threadId, queued.id),
-      ).resolves.toBeUndefined();
-      expect(client.getThread(threadId).queuedMessages).toEqual([]);
-      expect(client.getThread(threadId).messages).toContainEqual(
-        expect.objectContaining({ id: queued.id, role: "user" }),
-      );
-      expect(onError).not.toHaveBeenCalled();
+      ).rejects.toThrow(`Unknown queued message: ${queued.id}`);
+      expect(client.getThread(threadId).queuedMessages).toEqual([queued]);
+      expect(client.getThread(threadId).messages).toEqual([]);
+      expect(onError).toHaveBeenCalledOnce();
     } finally {
       await client.shutdown();
       await transport.dispose();
