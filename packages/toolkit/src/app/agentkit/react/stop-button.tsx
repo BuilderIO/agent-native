@@ -1,10 +1,6 @@
-import { useT } from "@agent-native/core/client/i18n";
 import { IconPlayerStopFilled } from "@tabler/icons-react";
 
-import {
-  useAgentKitControl,
-  useAgentThread,
-} from "../../agentkit/react/context.js";
+import { useAgentKitControl, useAgentThread } from "./context.js";
 
 /**
  * The composer's primary action while a run is active. A host that renders
@@ -12,14 +8,15 @@ import {
  * shows what the host supplies.
  */
 export function useAgentKitStopButton(options: {
+  /** The accessible name and tooltip, already localized by the host. */
+  label: string;
   /** Called when stopping a run fails, so the host can tell the user it is still running. */
   onError: (error: Error) => void;
 }) {
-  const t = useT();
   const thread = useAgentThread();
   const control = useAgentKitControl();
   if (thread.activeRunIds.length === 0) return undefined;
-  const label = t("agentChat.composer.stopResponse");
+  const { label } = options;
   return (
     <button
       type="button"

@@ -11,6 +11,7 @@ import {
   AgentRunFailure,
   AgentConnectionRequestCard,
   AgentKitChat,
+  useAgentKitStopButton,
 } from "@agent-native/toolkit/app/agentkit/react/components";
 import {
   useAgentKit,
@@ -19,10 +20,7 @@ import {
   type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
 } from "@agent-native/toolkit/app/agentkit/react/context";
-import {
-  CoreComposerRuntimeProvider,
-  useAgentKitStopButton,
-} from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
+import { CoreComposerRuntimeProvider } from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
 import {
   McpAgentKitConnectionRequestCard,
   McpAgentKitConnectionResume,
@@ -503,6 +501,7 @@ function ChatCanvas({
   const t = useT();
   const thread = useAgentThread();
   const stopButton = useAgentKitStopButton({
+    label: t("agentChat.composer.stopResponse"), // i18n-key-ignore shared framework catalog
     onError: (error) => toast.error(error.message),
   });
   const hasConversation = thread.messages.length > 0;

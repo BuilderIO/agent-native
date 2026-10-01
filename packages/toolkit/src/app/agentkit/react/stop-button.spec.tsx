@@ -15,10 +15,7 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(async () => undefined),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
-}));
-vi.mock("../../agentkit/react/context.js", () => ({
+vi.mock("./context.js", () => ({
   useAgentThread: () => ({ activeRunIds: mocks.activeRunIds }),
   useAgentKitControl: () => ({ cancel: mocks.cancel }),
 }));
@@ -26,7 +23,7 @@ vi.mock("../../agentkit/react/context.js", () => ({
 const onError = vi.fn();
 
 function Harness() {
-  return <>{useAgentKitStopButton({ onError })}</>;
+  return <>{useAgentKitStopButton({ label: "Stop response", onError })}</>;
 }
 
 describe("useAgentKitStopButton", () => {
@@ -60,9 +57,7 @@ describe("useAgentKitStopButton", () => {
     const button = container.querySelector<HTMLButtonElement>(
       '[data-agent-composer-slot="stop-button"]',
     );
-    expect(button?.getAttribute("aria-label")).toBe(
-      "agentChat.composer.stopResponse",
-    );
+    expect(button?.getAttribute("aria-label")).toBe("Stop response");
     await act(async () => button!.click());
     expect(mocks.cancel).toHaveBeenCalledTimes(2);
     expect(mocks.cancel).toHaveBeenCalledWith("run-1");

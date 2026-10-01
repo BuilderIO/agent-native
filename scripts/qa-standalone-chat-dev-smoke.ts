@@ -2189,6 +2189,7 @@ async function assertViewportContract(
           "mode-button",
           "voice-button",
           "send-button",
+          "stop-button",
         ].map((slot) => {
           const node = document.querySelector<HTMLElement>(
             `[data-agent-composer-slot="${slot}"]`,
@@ -2244,9 +2245,12 @@ async function assertViewportContract(
     metrics.footerBottom <= metrics.viewportHeight + 1,
     `${label}: composer footer must remain inside the viewport`,
   );
+  // While a run is active and the composer is empty, Stop takes Send's place.
   const visibleControls = metrics.controlGeometry
     .filter((control) => control.visible)
-    .map((control) => control.slot)
+    .map((control) =>
+      control.slot === "stop-button" ? "send-button" : control.slot,
+    )
     .sort();
   assert.deepEqual(
     visibleControls,
