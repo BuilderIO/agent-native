@@ -18,7 +18,9 @@
  *   "camelCase", "camel", and "case camel" all find it.
  * - Chinese, Japanese, and Korean runs become overlapping character pairs,
  *   because they have no spaces to split on. A query becomes the same pairs
- *   as a phrase, which matches exactly that substring.
+ *   as a phrase, which matches exactly that substring. A run's last character
+ *   starts no pair, so it is also indexed alone, and a one-character query
+ *   finds every character as a prefix.
  */
 
 const WORD = /[\p{L}\p{N}\p{M}]+/gu;
@@ -128,7 +130,11 @@ export function documentTokens(
   for (const match of text.normalize("NFKC").matchAll(WORD)) {
     for (const segment of segments(match[0])) {
       if (segment.cjk) {
-        for (const pair of cjkPairs(segment.text)) push(pair, position++);
+        const pairs = cjkPairs(segment.text);
+        for (const pair of pairs) push(pair, position++);
+        // The last character also stands alone, at the last pair's position.
+        const last = Array.from(segment.text).at(-1)!;
+        if (pairs.at(-1) !== last) push(last, position - 1);
         continue;
       }
       const parts = camelParts(segment.text);
@@ -188,9 +194,9 @@ export interface SearchVector {
  * gap between fields, so a phrase never spans two of them. Postgres keeps at
  * most 255 positions per word and none past 16,383: later ones are dropped
  * or collapse onto the last. A very large document keeps one position per
- * word, and one with more distinct words than fit keeps the words that come
- * first, so the vector stays under Postgres's size limit. Any of these makes
- * `positionsComplete` false.
+ * word in each field, and one with more distinct words than fit keeps the
+ * words that come first, so the vector stays under Postgres's size limit.
+ * Any of these makes `positionsComplete` false.
  */
 export function buildSearchVector(
   fields: readonly WeightedField[],
@@ -231,7 +237,13 @@ export function buildSearchVector(
   let total = 0;
   let keptEveryLexeme = true;
   for (const { lexeme, positions, bytes } of sized) {
-    const kept = keepAllPositions ? positions : positions.slice(0, 1);
+    // Positions are in field order, so this keeps each field's first one.
+    const kept = keepAllPositions
+      ? positions
+      : positions.filter(
+          (entry, index) =>
+            index === 0 || entry.at(-1) !== positions[index - 1]!.at(-1),
+        );
     total += bytes + kept.length * POSITION_BYTES;
     if (total > MAX_VECTOR_BYTES) {
       keptEveryLexeme = false;

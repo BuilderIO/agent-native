@@ -69,7 +69,11 @@ describe("search tokens", () => {
       "ング",
     ]);
     expect(queryLexemes("日")).toEqual(["日"]);
-    expect(lexemes("Q3の計画")).toEqual(["q3@1", "の計@2", "計画@3"]);
+    expect(lexemes("Q3の計画")).toEqual(["q3@1", "の計@2", "計画@3", "画@3"]);
+  });
+
+  it("indexes a run's last character alone, so every character starts a lexeme", () => {
+    expect(lexemes("新しい 日")).toEqual(["新し@1", "しい@2", "い@2", "日@3"]);
   });
 
   it("applies NFKC so full-width text matches", () => {
@@ -124,9 +128,13 @@ describe("tsvector literals", () => {
     );
     const vector = buildSearchVector([
       { text: "Title", weight: "A" },
-      { text: words.join(" "), weight: "C" },
+      { text: `title ${words.join(" ")} title`, weight: "C" },
     ]);
-    expect(vector.literal.startsWith("'title':1A 'wxxxxxxx0':3C")).toBe(true);
+    // One position per word in each field, so a phrase in the body can
+    // still be told apart from words in the title.
+    expect(vector.literal.startsWith("'title':1A,3C 'wxxxxxxx0':4C")).toBe(
+      true,
+    );
     expect(vector.literal).not.toContain(`'${words.at(-1)}'`);
     expect(vector.positionsComplete).toBe(false);
   });

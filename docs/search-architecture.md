@@ -169,7 +169,8 @@ code tokenizes documents and queries, so they always agree.
   `index`, and `index state` all find it.
 - Chinese, Japanese, and Korean runs become overlapping character pairs,
   because they have no spaces to split on. A query becomes the same pairs as a
-  phrase, which matches exactly that substring.
+  phrase, which matches exactly that substring. A run's last character is
+  also indexed alone, so a one-character query finds any character.
 
 Mid-word matches in bodies ("port" inside "report") are deliberately not
 matched. Titles and summaries match anywhere, including mid-word.
@@ -326,9 +327,9 @@ Matching, for each term:
 - **Positions.** Postgres keeps at most 255 positions per word and none past
   16,383. It also rejects a vector whose words alone take 1 MB. Core keeps a
   vector's estimated size under 900 KB: past that, it keeps one position per
-  word, and then only the words that come first. A document past any of these
-  limits has `positions_complete` false, and a phrase matches it when every
-  word is present. Chunks will make that exact.
+  word in each field, and then only the words that come first. A document
+  past any of these limits has `positions_complete` false, and a phrase
+  matches it when every word is in one field. Chunks will make that exact.
 
 Ranking uses the tiers the browser lane uses: exact title 5, title prefix 4,
 title word prefixes 3, title substrings 2, title or summary 1. Ties go to how

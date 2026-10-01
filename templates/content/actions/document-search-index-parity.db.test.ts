@@ -79,6 +79,13 @@ const FIXTURES = [
     description: "",
     content: "webhook delivery retries; later, created duplicate charges",
   },
+  {
+    // Too repetitive for Postgres to keep every word position.
+    id: "repetitive",
+    title: "Loop log",
+    description: "",
+    content: `${"tick tock ".repeat(300)}bell`,
+  },
 ];
 
 async function search(
@@ -145,16 +152,21 @@ describe("indexed search and the fallback scan", () => {
     "docs.example.com",
     "エンジニア",
     "オンボーディング",
+    "順",
+    '"tock bell"',
   ])("agree on %s", async (query) => {
     const indexed = await search(query, { fallback: false });
     expect(indexed.length).toBeGreaterThan(0);
     expect(indexed).toEqual(await search(query, { fallback: true }));
   });
 
-  it("agree that a phrase doesn't span a title and a description", async () => {
+  it("agree that a phrase doesn't span two fields", async () => {
     // p4's title is "Roadmap" and its description starts "Covers".
     expect(await search('"roadmap covers"', { fallback: false })).toEqual([]);
     expect(await search('"roadmap covers"', { fallback: true })).toEqual([]);
+    // Nor in a document without every word position.
+    expect(await search('"log tick"', { fallback: false })).toEqual([]);
+    expect(await search('"log tick"', { fallback: true })).toEqual([]);
   });
 
   it("agree on title-only searches", async () => {

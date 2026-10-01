@@ -303,6 +303,8 @@ describe("the search index", () => {
       expect(await searchIds("オンボーディングガイド")).toEqual(["ja"]);
       expect(await searchIds("エンジニア")).toEqual(["ja"]);
       expect(await searchIds("ジニアの")).toEqual(["ja"]);
+      // The body's last character, which starts no character pair.
+      expect(await searchIds("順")).toEqual(["ja"]);
     });
 
     it("ranks a body phrase above scattered words", async () => {
@@ -321,6 +323,8 @@ describe("the search index", () => {
       expect(await searchIds(`"tock bell"`)).toEqual(["repetitive"]);
       expect(await searchIds(`"bell tick"`)).toEqual(["repetitive"]);
       expect(await searchIds(`"retries bell"`)).toEqual([]);
+      // Every word must still be in one field: "log" is the title's.
+      expect(await searchIds(`"log tick"`)).toEqual([]);
     });
 
     it("supports OR, negation, phrases, and intitle", async () => {

@@ -9,8 +9,8 @@
  * - bodies match whole words, every word as a prefix, through the GIN index;
  *   mid-word body matches are deliberately not supported. A phrase needs
  *   its words adjacent, except in a document too long or repetitive for
- *   Postgres to keep every word position, where every word being present
- *   is enough.
+ *   Postgres to keep every word position, where every word being in one
+ *   field is enough.
  *
  * Ranking reproduces the tiers the browser lane uses
  * (`TITLE_MATCH_TIER` in Content): exact title 5, title prefix 4, title word
@@ -52,6 +52,8 @@ export interface IndexedSearchSql {
 }
 
 const ALIAS = "search_index";
+/** The indexer's weights for title, summary, and body. */
+const FIELD_WEIGHTS = ["A", "B", "C"] as const;
 
 function escapeLike(value: string) {
   return value.replace(/([\\%_])/g, "\\$1");
@@ -107,12 +109,14 @@ export function indexedSearchSql(
     );
     if (!tsquery) return undefined;
     // A document whose vector lost positions can't be phrase-matched
-    // exactly, so a phrase matches it when every word is present.
+    // exactly, so a phrase matches it when every word is in one field.
     const anyOrder = anyOfTsquery(
       terms
         .filter((term) => isPhraseTerm(term.text))
-        .map((term) =>
-          termTsquery(term.text, { prefix: true, anyOrder: true }),
+        .flatMap((term) =>
+          FIELD_WEIGHTS.map((weights) =>
+            termTsquery(term.text, { prefix: true, anyOrder: true, weights }),
+          ),
         ),
     );
     const vectorMatch = anyOrder
