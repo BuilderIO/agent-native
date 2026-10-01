@@ -130,6 +130,39 @@ export interface StyleDiff {
   added: Array<{ key: string; inside: boolean }>;
 }
 
+export const followsCenteredFlexReflow = (
+  before: SnapRecord | undefined,
+  after: SnapRecord | undefined,
+  prop: string,
+  actualShift: number,
+) => {
+  const a = before?.flexCrossAlignment;
+  const b = after?.flexCrossAlignment;
+  if (
+    !a ||
+    !b ||
+    prop !== a.axis ||
+    a.axis !== b.axis ||
+    a.context !== b.context
+  )
+    return false;
+  const containerShift = b.containerPosition - a.containerPosition;
+  const containerSizeShift = b.containerSize - a.containerSize;
+  const editedItemSizeShift = b.editedItemSize - a.editedItemSize;
+  const expectedShift =
+    containerShift + (containerSizeShift - (b.itemSize - a.itemSize)) / 2;
+  // Only edit-caused line growth with a stationary parent and unchanged item-local offset is natural reflow.
+  const lineFollowsEdit =
+    Math.abs(containerSizeShift) <= 1 ||
+    (Math.sign(containerSizeShift) === Math.sign(editedItemSizeShift) &&
+      Math.abs(containerSizeShift) <= Math.abs(editedItemSizeShift) + 1);
+  return (
+    lineFollowsEdit &&
+    Math.abs(containerShift) <= 1 &&
+    Math.abs(actualShift - expectedShift) <= 1
+  );
+};
+
 function textOf(key: string): string | null {
   const m = key.match(/^text:(.*)#\d+$/);
   return m ? m[1].replace(/\s+/g, "") : null;

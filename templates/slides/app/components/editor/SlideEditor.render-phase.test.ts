@@ -263,7 +263,7 @@ describe("SlideEditor render-phase safety", () => {
     const enterBody = source.slice(enterStart, enterEnd);
     expect(enterBody).toContain("findEnclosingList(block, slideContent)");
     expect(enterBody).toMatch(
-      /const el =\s+list &&\s+isRichTextBlock\(list\) &&\s+!holdsPaintedTextBox\(list, slideContent\)\s+\? list\s+: block;/,
+      /const el =\s+list &&\s+\(isRichTextBlock\(list\) \|\| bulletRowCount\(list\) >= 2\) &&\s+!holdsPaintedTextBox\(list, slideContent\)\s+\? list\s+: block;/,
     );
   });
 

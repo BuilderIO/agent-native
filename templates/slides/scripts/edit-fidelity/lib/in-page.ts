@@ -35,6 +35,7 @@ export interface Rect {
 
 export interface TextTarget {
   index: number;
+  builderId: string | null;
   tag: string;
   className: string;
   text: string;
@@ -52,6 +53,15 @@ export interface SnapRecord {
   key: string;
   kind: "text" | "box";
   inside: boolean;
+  downstreamFlow?: boolean;
+  flexCrossAlignment?: {
+    context: string;
+    axis: "x" | "y";
+    containerPosition: number;
+    containerSize: number;
+    itemSize: number;
+    editedItemSize: number;
+  };
   tag?: string;
   inlineStyle?: string;
   props: Record<string, string>;
@@ -72,6 +82,8 @@ export interface Snapshot {
   inventory: Inventory;
   text: string;
   editedRect: Rect | null;
+  /** The edited target moves siblings through normal document flow. */
+  editedInFlow?: boolean;
   /** Rendered lines of the element the edit is matched to, in full. */
   editedText: string | null;
 }
@@ -429,6 +441,7 @@ export function installInPageHelpers(chromeSelector: string) {
       const hit = document.elementFromPoint(point.x, point.y);
       return {
         index,
+        builderId: el.getAttribute("data-builder-id"),
         tag: el.tagName,
         className: el.getAttribute("class") ?? "",
         text: norm(el.textContent),
@@ -796,7 +809,12 @@ export function installInPageHelpers(chromeSelector: string) {
 
   function snapshot(
     canvasSel: string,
-    edited: { targetIndex?: number; text?: string; marker?: string },
+    edited: {
+      targetIndex?: number;
+      text?: string;
+      marker?: string;
+      targetBuilderId?: string;
+    },
   ): Snapshot {
     const root = document.querySelector(canvasSel);
     if (!root) throw new Error(`canvas not found: ${canvasSel}`);
@@ -816,11 +834,138 @@ export function installInPageHelpers(chromeSelector: string) {
     } else if (edited.text) {
       editedEl = findByText(root, edited.text);
     }
-    const targetBlock =
-      editedEl ??
-      (edited.targetIndex === undefined && !edited.marker
-        ? editingBlock
+    const stableEditedTarget = edited.targetBuilderId
+      ? (Array.from(
+          root.querySelectorAll<HTMLElement>("[data-builder-id]"),
+        ).find(
+          (el) => el.getAttribute("data-builder-id") === edited.targetBuilderId,
+        ) ?? null)
+      : null;
+    const editedOwner =
+      stableEditedTarget ??
+      (editedEl
+        ? (editedEl.closest("[data-slide-object-id]") ??
+          editedEl.closest("ul, ol") ??
+          editedEl)
         : null);
+    const targetBlock = editingBlock ?? editedOwner;
+    const editedBox = editingBlock ?? targetBlock;
+    const isInNormalFlow = (el: Element | null) => {
+      if (!el) return false;
+      for (
+        let ancestor: Element | null = el;
+        ancestor && ancestor !== root;
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        if (
+          style.position === "absolute" ||
+          style.position === "fixed" ||
+          style.position === "sticky" ||
+          style.cssFloat !== "none" ||
+          style.transform !== "none" ||
+          (style.position === "relative" &&
+            [style.top, style.right, style.bottom, style.left].some(
+              (offset) => offset !== "auto" && Number.parseFloat(offset) !== 0,
+            ))
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+    const followsEditedFlow = (el: Element) => {
+      if (
+        !editedBox ||
+        editedBox === el ||
+        editedBox.contains(el) ||
+        el.contains(editedBox) ||
+        !isInNormalFlow(editedBox) ||
+        !isInNormalFlow(el)
+      ) {
+        return false;
+      }
+      let editedBranch: Element = editedBox;
+      while (
+        editedBranch.parentElement &&
+        !editedBranch.parentElement.contains(el)
+      ) {
+        editedBranch = editedBranch.parentElement;
+      }
+      let followingBranch: Element = el;
+      while (
+        followingBranch.parentElement &&
+        !followingBranch.parentElement.contains(editedBranch)
+      ) {
+        followingBranch = followingBranch.parentElement;
+      }
+      const parent = editedBranch.parentElement;
+      if (!parent || followingBranch.parentElement !== parent) return false;
+      const parentStyle = getComputedStyle(parent);
+      const editedOrder = Number.parseInt(
+        getComputedStyle(editedBranch).order,
+        10,
+      );
+      const followingOrder = Number.parseInt(
+        getComputedStyle(followingBranch).order,
+        10,
+      );
+      if (
+        parentStyle.display.includes("flex") &&
+        Number.isFinite(editedOrder) &&
+        Number.isFinite(followingOrder) &&
+        followingOrder < editedOrder
+      ) {
+        return false;
+      }
+      if (
+        editedBranch.compareDocumentPosition(followingBranch) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+      ) {
+        const flexDirection = parentStyle.flexDirection;
+        const isRow = flexDirection.startsWith("row");
+        const isColumn = flexDirection.startsWith("column");
+        const itemStyle = getComputedStyle(followingBranch);
+        const align =
+          itemStyle.alignSelf === "auto"
+            ? parentStyle.alignItems
+            : itemStyle.alignSelf;
+        if (
+          parentStyle.display.includes("flex") &&
+          parentStyle.flexWrap === "nowrap" &&
+          (isRow || isColumn) &&
+          align === "center"
+        ) {
+          const axis: "x" | "y" = isRow ? "y" : "x";
+          const parentRect = parent.getBoundingClientRect();
+          const itemRect = followingBranch.getBoundingClientRect();
+          const editedRect = editedBranch.getBoundingClientRect();
+          const size = axis === "x" ? "width" : "height";
+          const path: number[] = [];
+          for (
+            let node: Element | null = parent;
+            node && node !== root && node.parentElement;
+            node = node.parentElement
+          ) {
+            path.unshift(
+              Array.prototype.indexOf.call(node.parentElement!.children, node),
+            );
+          }
+          return {
+            flexCrossAlignment: {
+              context: path.join(".") || "root",
+              axis,
+              containerPosition: parentRect[axis] - origin[axis],
+              containerSize: parentRect[size],
+              itemSize: itemRect[size],
+              editedItemSize: editedRect[size],
+            },
+          };
+        }
+        return {};
+      }
+      return false;
+    };
     const insideEdited = (el: Element) =>
       (!!host && host.contains(el)) ||
       (!!targetBlock && (targetBlock === el || targetBlock.contains(el)));
@@ -833,6 +978,7 @@ export function installInPageHelpers(chromeSelector: string) {
       inside: boolean,
       props: Record<string, string>,
       rect: Rect,
+      flow: ReturnType<typeof followsEditedFlow> = false,
       textElement?: Pick<SnapRecord, "tag" | "inlineStyle">,
     ) => {
       const n = seen.get(base) ?? 0;
@@ -841,6 +987,10 @@ export function installInPageHelpers(chromeSelector: string) {
         key: `${base}#${n}`,
         kind,
         inside,
+        downstreamFlow: !!flow,
+        ...(flow && flow.flexCrossAlignment
+          ? { flexCrossAlignment: flow.flexCrossAlignment }
+          : {}),
         props,
         rect,
         ...textElement,
@@ -863,6 +1013,7 @@ export function installInPageHelpers(chromeSelector: string) {
       if (host && editingBlock && el === editingBlock) return;
       const cs = getComputedStyle(el);
       const inside = insideEdited(el);
+      const flow = followsEditedFlow(el);
       const text = norm(directText(el));
       if (text) {
         const range = document.createRange();
@@ -874,6 +1025,7 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           { ...pick(cs, TEXT_PROPS), visible: String(visible(el)) },
           textRect,
+          flow,
           {
             tag: el.tagName.toLowerCase(),
             inlineStyle: el.getAttribute("style") ?? "",
@@ -887,6 +1039,7 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           boxProps(el, cs),
           rectOf(el.getBoundingClientRect(), origin),
+          flow,
         );
       }
       for (const pseudo of ["::before", "::after"]) {
@@ -925,12 +1078,12 @@ export function installInPageHelpers(chromeSelector: string) {
       img: root.querySelectorAll("img").length,
       style: root.querySelectorAll("style").length,
     };
-    const editedBox = editingBlock ?? editedEl;
     return {
       records,
       inventory,
       text: norm((root as HTMLElement).innerText),
       editedRect: editedBox ? rectOf(paintedRect(editedBox), origin) : null,
+      editedInFlow: isInNormalFlow(editedBox),
       editedText: editedEl ? lines(editedEl) : null,
     };
   }

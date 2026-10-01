@@ -45,8 +45,8 @@ import SlideRenderer, {
 } from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
+  bulletRowCount,
   findEnclosingList,
-  isBulletRow,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
@@ -2981,12 +2981,10 @@ export default function SlideEditor({
       if (!slideContent || !slideContent.contains(block)) return;
       // A bullet is edited as part of its list: the list is the edit root, so
       // Enter adds a bullet beside the row and an empty last one is removed.
-      const list = isBulletRow(block)
-        ? findEnclosingList(block, slideContent)
-        : null;
+      const list = findEnclosingList(block, slideContent);
       const el =
         list &&
-        isRichTextBlock(list) &&
+        (isRichTextBlock(list) || bulletRowCount(list) >= 2) &&
         !holdsPaintedTextBox(list, slideContent)
           ? list
           : block;
