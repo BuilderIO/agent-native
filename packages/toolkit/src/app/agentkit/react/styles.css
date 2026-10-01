@@ -490,7 +490,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   color: var(--agentkit-palette-muted);
 }
 
-[data-agent-native-composer-popover="true"]
+[data-agent-native-mention-popover="true"]
   > div
   > div
   > div:not(:has([data-mention-index])) {
