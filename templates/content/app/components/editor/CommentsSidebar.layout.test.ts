@@ -559,7 +559,7 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
     expect(source).toMatch(
-      /utilityPanel === "comments" &&\s+!hasInlineCommentSpace &&\s+!!selectedSuggestionId/,
+      /const showUtilityPanelSheet = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
     );
     expect(source).toContain('window.addEventListener("resize", update)');
     expect(source).toContain(
