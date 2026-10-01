@@ -6,10 +6,11 @@ export const MAX_EXTRA_VALUE_LENGTH = 1000;
 
 const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
 const SQL_PARAMS_RE =
-  /\b((?:failed query|query failed):\s*(?:select|insert|update|delete|merge|with)\b[\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
+  /\b((?:failed query|query failed):\s*(?:select|insert|update|delete|merge|with|values)\b[\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
 const SQL_QUERY_FAILURE_RE =
-  /\b(?:failed query|query failed):\s*(?:select|insert|update|delete|merge|with)\b/i;
-const SQL_STATEMENT_RE = /^\s*(?:select|insert|update|delete|merge|with)\b/i;
+  /\b(?:failed query|query failed):\s*(?:select|insert|update|delete|merge|with|values)\b/i;
+const SQL_STATEMENT_RE =
+  /^\s*(?:select|insert|update|delete|merge|with|values)\b/i;
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;

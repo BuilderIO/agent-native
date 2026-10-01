@@ -274,6 +274,21 @@ describe("server/sentry", () => {
       expect(result.contexts.search.params).toEqual(searchParams);
     });
 
+    it("redacts parameters for structured standalone VALUES SQL", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        logentry: { query: "values ($1)", params: [privateValue] },
+      } as never) as { logentry: { params: unknown } };
+
+      expect(result.logentry.params).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
     it("redacts nested serialized SQL errors with bound parameters", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");

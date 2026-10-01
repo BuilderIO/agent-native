@@ -115,6 +115,23 @@ describe("tracking captureException", () => {
     expect(event.properties.exceptionStack).not.toContain(privateValue);
   });
 
+  it("redacts standalone VALUES bind parameters", () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    const privateValue = "private customer value";
+    captureException(
+      new Error(`Failed query: values ($1)\nparams: ${privateValue}`),
+    );
+
+    const [event] = track.mock.calls[0];
+    expect(event.properties.exceptionMessage).toContain(
+      "Failed query: values ($1)",
+    );
+    expect(event.properties.exceptionMessage).not.toContain(privateValue);
+    expect(event.properties.exceptionStack).not.toContain(privateValue);
+  });
+
   it("keeps tags after an undefined one instead of dropping the rest", () => {
     const track = vi.fn();
     registerTrackingProvider({ name: "qa-exception", track });
