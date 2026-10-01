@@ -76,7 +76,9 @@ export function Sidebar() {
       feedback={feedbackButton}
       footerContent={
         <>
-          <BuilderCreditNotice compact className="mb-2" />
+          <div className={collapsed ? "flex flex-col items-center" : undefined}>
+            <BuilderCreditNotice compact className="mb-2" />
+          </div>
           <AppSidebarFooter
             collapsed={collapsed}
             feedback={feedbackButton}
