@@ -253,15 +253,14 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
     .replace(PRE_CUSTOM_RETENTION_ANCHOR_RANGE, CUSTOM_RETENTION_ANCHOR_RANGE);
 
 export const PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
-  FIRST_PARTY_BIGQUERY_RETENTION_SQL.replaceAll(
+  FIRST_PARTY_BIGQUERY_RETENTION_SQL.split(
     "NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), ",
-    "",
   )
-    .replaceAll(
-      "NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), ",
-      "",
-    )
-    .replaceAll("NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), ", "")
+    .join("")
+    .split("NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), ")
+    .join("")
+    .split("NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), ")
+    .join("")
     .replace(
       `   AND ${BIGQUERY_CONTENT_OR_CHAT_ACTIVITY_FILTER}\n${CUSTOM_RETENTION_COVERAGE_RANGE}`,
       CUSTOM_RETENTION_COVERAGE_RANGE,
