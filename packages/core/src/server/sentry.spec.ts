@@ -335,6 +335,29 @@ describe("server/sentry", () => {
       expect(JSON.stringify(result)).not.toContain(privateValue);
     });
 
+    it("redacts parameterized PostgreSQL CALL failures", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const message = `Failed query: CALL process_user($1)\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [{ type: "DrizzleQueryError", value: message }],
+        },
+        logentry: { message, params: [privateValue] },
+      } as never) as {
+        exception: { values: Array<{ value: string }> };
+        logentry: { params?: unknown[] };
+      };
+
+      expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.logentry.params).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
     it("redacts structured params associated with raw SQL messages", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
