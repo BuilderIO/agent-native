@@ -343,6 +343,7 @@ export default defineAction({
           })
         : null;
 
+    console.log(`shomix - rec - ${JSON.stringify(rec)}`);
     return {
       role: access.role,
       canComment: canCommentRecording,
