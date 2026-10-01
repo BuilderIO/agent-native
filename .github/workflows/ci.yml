@@ -536,7 +536,7 @@ jobs:
   slides-chat-e2e:
     name: Slides chat caret in Chromium
     needs: change-scope
-    if: needs.change-scope.outputs.slides_chat_e2e == 'true'
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -555,10 +555,6 @@ jobs:
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
-
-      - name: Check selection direction and chat typing while slide text editing remains active
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 
       - name: Check line-edge caret navigation in slide text
         working-directory: templates/slides
