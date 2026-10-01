@@ -3200,7 +3200,7 @@ function ThreadView({
       {popoverHeader}
       <div
         className={cn(
-          "relative grid gap-3.5",
+          "relative grid grid-cols-1 gap-3.5",
           isPanel ? "px-4 py-3.5" : "px-4 pb-3.5 pt-3.5",
         )}
       >

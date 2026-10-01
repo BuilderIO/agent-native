@@ -2,6 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
   agentChat: {
     setup: {
+      connectBuilder: "Builder.io verbinden",
       providerStatusUnavailable:
         "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
@@ -1494,16 +1495,11 @@ const messages = {
       "Nach 5 Minuten kam keine Antwort von Builder. Prüfe das Popup und versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
-    connectBuilder: "Builder.io nutzen",
+    description:
+      "Speichere aufgenommene Videos mit Builder.io oder S3-kompatiblem Speicher. Builder.io enthält kostenloses Hosting und KI-Guthaben.",
     createBuilderAccount: "Builder.io-Konto erstellen",
     signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
-    builderConsentPrefix:
-      "Mit der Erstellung eines Builder.io-Kontos stimmst du unseren",
-    builderTerms: "Nutzungsbedingungen",
-    builderConsentAnd: "und",
-    builderPrivacy: "Datenschutzrichtlinien",
     free: "Kostenlos",
-    configureS3: "S3-kompatiblen Speicher konfigurieren",
     whyPrompt: "Warum sehe ich das?",
     whyDescription:
       "Clips ist 100 % kostenlos und Open Source, deshalb musst du eine Möglichkeit zum Speichern deiner Clips verbinden. Verbinde Speicher mit Builder.io für Speicher und KI im kostenlosen Tarif, oder nutze S3-kompatiblen Objektspeicher und deine eigenen LLM-Schlüssel.",

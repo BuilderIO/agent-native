@@ -146,6 +146,59 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(consent?.className).toContain("z-[330]");
   });
 
+  it("stacks the create and sign-in buttons together with the terms below them", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry: vi.fn(() => true),
+      statusResolved: false,
+      statusReadSettledCount: 0,
+      agentNativeProvisioningEnabled: false,
+    };
+    const props = {
+      onConnect: vi.fn(),
+      contentTestId: "consent",
+      primaryTestId: "create",
+      secondaryTestId: "sign-in",
+    };
+
+    render(
+      React.createElement(BuilderConnectPopover, { flow, ...props }, trigger()),
+    );
+    click(connectButton());
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow: {
+            ...flow,
+            statusResolved: true,
+            statusReadSettledCount: 1,
+            agentNativeProvisioningEnabled: true,
+          },
+          ...props,
+        },
+        trigger(),
+      ),
+    );
+
+    const consent = document.querySelector("[data-testid='consent']");
+    const create = consent?.querySelector("[data-testid='create']");
+    const signIn = consent?.querySelector("[data-testid='sign-in']");
+    const terms = Array.from(consent?.querySelectorAll("p") ?? []).find((p) =>
+      p.querySelector("a"),
+    );
+    expect(create && signIn && terms).toBeTruthy();
+    expect(signIn?.parentElement).toBe(create?.parentElement);
+    expect(create!.compareDocumentPosition(signIn!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(signIn!.compareDocumentPosition(terms!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(signIn!.className).toContain("bg-secondary");
+  });
+
   it("releases the queued click when the read it triggered settles unresolved", () => {
     const onConnect = vi.fn();
     const flow = {

@@ -2,6 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
   agentChat: {
     setup: {
+      connectBuilder: "连接 Builder.io",
       providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
     common: { retry: "重试" },
@@ -1387,15 +1388,11 @@ const messages = {
     builderTimeout: "5 分钟内未收到 Builder 响应。请检查弹出窗口并重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",
-    connectBuilder: "使用 Builder.io",
+    description:
+      "使用 Builder.io 或兼容 S3 的存储来保存录制的视频。Builder.io 包含免费托管和 AI 额度。",
     createBuilderAccount: "创建 Builder.io 账户",
     signInWithBuilderAccount: "使用 Builder.io 账户登录",
-    builderConsentPrefix: "创建 Builder.io 账户即表示您同意我们的",
-    builderTerms: "服务条款",
-    builderConsentAnd: "和",
-    builderPrivacy: "隐私政策",
     free: "免费",
-    configureS3: "配置 S3 兼容存储",
     whyPrompt: "为什么会看到这个？",
     whyDescription:
       "Clips 是 100% 免费且开源的应用，所以你需要连接一种方式来存储剪辑。使用 Builder.io 可获得免费套餐存储和 AI，或使用 S3 兼容对象存储和你自己的 LLM 密钥。",
