@@ -54,6 +54,11 @@ export interface SnapRecord {
   kind: "text" | "box";
   inside: boolean;
   downstreamFlow?: boolean;
+  flexCrossAlignment?: {
+    context: string;
+    axis: "x" | "y";
+    centerOffset: number;
+  };
   tag?: string;
   inlineStyle?: string;
   props: Record<string, string>;
@@ -910,10 +915,51 @@ export function installInPageHelpers(chromeSelector: string) {
       ) {
         return false;
       }
-      return Boolean(
+      if (
         editedBranch.compareDocumentPosition(followingBranch) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      );
+        Node.DOCUMENT_POSITION_FOLLOWING
+      ) {
+        const flexDirection = parentStyle.flexDirection;
+        const isRow = flexDirection.startsWith("row");
+        const isColumn = flexDirection.startsWith("column");
+        const itemStyle = getComputedStyle(followingBranch);
+        const align =
+          itemStyle.alignSelf === "auto"
+            ? parentStyle.alignItems
+            : itemStyle.alignSelf;
+        if (
+          parentStyle.display.includes("flex") &&
+          parentStyle.flexWrap === "nowrap" &&
+          (isRow || isColumn) &&
+          align === "center"
+        ) {
+          const axis: "x" | "y" = isRow ? "y" : "x";
+          const parentRect = parent.getBoundingClientRect();
+          const itemRect = followingBranch.getBoundingClientRect();
+          const extent = axis === "x" ? "width" : "height";
+          const parentCenter = parentRect[axis] + parentRect[extent] / 2;
+          const itemCenter = itemRect[axis] + itemRect[extent] / 2;
+          const path: number[] = [];
+          for (
+            let node: Element | null = parent;
+            node && node !== root && node.parentElement;
+            node = node.parentElement
+          ) {
+            path.unshift(
+              Array.prototype.indexOf.call(node.parentElement!.children, node),
+            );
+          }
+          return {
+            flexCrossAlignment: {
+              context: path.join(".") || "root",
+              axis,
+              centerOffset: itemCenter - parentCenter,
+            },
+          };
+        }
+        return {};
+      }
+      return false;
     };
     const insideEdited = (el: Element) =>
       (!!host && host.contains(el)) ||
@@ -927,7 +973,7 @@ export function installInPageHelpers(chromeSelector: string) {
       inside: boolean,
       props: Record<string, string>,
       rect: Rect,
-      downstreamFlow = false,
+      flow: ReturnType<typeof followsEditedFlow> = false,
       textElement?: Pick<SnapRecord, "tag" | "inlineStyle">,
     ) => {
       const n = seen.get(base) ?? 0;
@@ -936,7 +982,10 @@ export function installInPageHelpers(chromeSelector: string) {
         key: `${base}#${n}`,
         kind,
         inside,
-        downstreamFlow,
+        downstreamFlow: !!flow,
+        ...(flow && flow.flexCrossAlignment
+          ? { flexCrossAlignment: flow.flexCrossAlignment }
+          : {}),
         props,
         rect,
         ...textElement,
@@ -959,7 +1008,7 @@ export function installInPageHelpers(chromeSelector: string) {
       if (host && editingBlock && el === editingBlock) return;
       const cs = getComputedStyle(el);
       const inside = insideEdited(el);
-      const downstreamFlow = followsEditedFlow(el);
+      const flow = followsEditedFlow(el);
       const text = norm(directText(el));
       if (text) {
         const range = document.createRange();
@@ -971,7 +1020,7 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           { ...pick(cs, TEXT_PROPS), visible: String(visible(el)) },
           textRect,
-          downstreamFlow,
+          flow,
           {
             tag: el.tagName.toLowerCase(),
             inlineStyle: el.getAttribute("style") ?? "",
@@ -985,7 +1034,7 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           boxProps(el, cs),
           rectOf(el.getBoundingClientRect(), origin),
-          downstreamFlow,
+          flow,
         );
       }
       for (const pseudo of ["::before", "::after"]) {

@@ -4,6 +4,7 @@ import type { SnapRecord, Snapshot } from "./in-page.ts";
 import {
   ceilingFor,
   diffSnapshots,
+  followsCenteredFlexReflow,
   findBaselineProblems,
   hardFailures,
   isDraftRevert,
@@ -128,6 +129,31 @@ describe("diffSnapshots", () => {
     expect(d.deltas).toEqual([]);
     expect(d.missing).toEqual([]);
     expect(d.added).toEqual([]);
+  });
+});
+
+describe("followsCenteredFlexReflow", () => {
+  const centered = (context: string, centerOffset: number, axis = "y") => ({
+    ...rec("box:div#0", {}),
+    flexCrossAlignment: { context, centerOffset, axis: axis as "x" | "y" },
+  });
+
+  it("allows a centered sibling to follow a flex line's cross-axis growth", () => {
+    expect(
+      followsCenteredFlexReflow(centered("1.2", -8), centered("1.2", -8), "y"),
+    ).toBe(true);
+  });
+
+  it("rejects unrelated movement or a different flex parent", () => {
+    expect(
+      followsCenteredFlexReflow(centered("1.2", -8), centered("1.2", 5), "y"),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(centered("1.2", -8), centered("1.3", -8), "y"),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(centered("1.2", -8), centered("1.2", -8), "x"),
+    ).toBe(false);
   });
 });
 

@@ -130,6 +130,24 @@ export interface StyleDiff {
   added: Array<{ key: string; inside: boolean }>;
 }
 
+export const followsCenteredFlexReflow = (
+  before: SnapRecord | undefined,
+  after: SnapRecord | undefined,
+  prop: string,
+) => {
+  const a = before?.flexCrossAlignment;
+  const b = after?.flexCrossAlignment;
+  // A single centered flex line keeps each item's center offset as it grows.
+  return (
+    !!a &&
+    !!b &&
+    prop === a.axis &&
+    a.axis === b.axis &&
+    a.context === b.context &&
+    Math.abs(a.centerOffset - b.centerOffset) <= 1
+  );
+};
+
 function textOf(key: string): string | null {
   const m = key.match(/^text:(.*)#\d+$/);
   return m ? m[1].replace(/\s+/g, "") : null;

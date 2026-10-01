@@ -45,6 +45,7 @@ import {
 import {
   diffPngs,
   diffSnapshots,
+  followsCenteredFlexReflow,
   findBaselineProblems,
   hardFailures,
   isDraftRevert,
@@ -3309,7 +3310,14 @@ async function runAuthoringCorpusQa(
               before.editedRect[position] -
               before.editedRect[extent];
             const actualShift = Number(change.b) - Number(change.a);
-            return Math.abs(actualShift - expectedShift) <= 1;
+            return (
+              Math.abs(actualShift - expectedShift) <= 1 ||
+              followsCenteredFlexReflow(
+                beforeRecords.get(change.key),
+                afterRecords.get(change.key),
+                change.prop,
+              )
+            );
           };
           const outsideChanges = [
             ...outside.deltas,
