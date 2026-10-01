@@ -2170,7 +2170,7 @@ const AgentKitAssistantChatBody = forwardRef<
             reportAgentChatSubmitResult(
               options.submitMessageId,
               false,
-              "submission-failed",
+              submitFailureReason(error),
             );
             dispatchSetupRequiredEvent(error, props.tabId, threadId);
             throw error;
@@ -2195,7 +2195,7 @@ const AgentKitAssistantChatBody = forwardRef<
         reportAgentChatSubmitResult(
           options.submitMessageId,
           false,
-          "submission-failed",
+          submitFailureReason(error),
         );
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
@@ -4804,7 +4804,22 @@ async function attachmentToFile(
       type: attachment.contentType ?? "text/plain",
     });
   }
-  throw new Error(`Attachment ${attachment.name} has no uploadable content.`);
+  throw Object.assign(
+    new Error(`Attachment ${attachment.name} has no uploadable content.`),
+    { code: ATTACHMENT_UNREADABLE_SUBMIT_REASON },
+  );
+}
+
+/**
+ * The submit result a host sees when an attached file has nothing to upload,
+ * so it can say which part failed instead of a generic send failure.
+ */
+const ATTACHMENT_UNREADABLE_SUBMIT_REASON = "attachment-unreadable";
+
+function submitFailureReason(error: unknown): string {
+  return asRecord(error)?.code === ATTACHMENT_UNREADABLE_SUBMIT_REASON
+    ? ATTACHMENT_UNREADABLE_SUBMIT_REASON
+    : "submission-failed";
 }
 
 async function uploadAgentChatAttachments(

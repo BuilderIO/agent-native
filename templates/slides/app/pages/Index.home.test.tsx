@@ -704,6 +704,33 @@ describe("Slides prompt-led home", () => {
     expect(attachments.commit).toHaveBeenCalledOnce();
   });
 
+  it("explains an unreadable attachment instead of showing the raw send-failure code", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    agentSubmit.mockResolvedValueOnce({
+      delivered: false,
+      reason: "attachment-unreadable",
+    });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      promptProps.mock.lastCall![0].onSubmit("Summarize my notes", [], {
+        commit: vi.fn(),
+        discard: vi.fn(),
+        attachments: [],
+      });
+    });
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const description = toastError.mock.lastCall?.[1]?.description;
+    expect(description).not.toBe("attachment-unreadable");
+    // The test catalog may echo the key; either way it is the attachment copy.
+    expect(description).toMatch(/uploadAttachedFailed|attached file/i);
+  });
+
   it("sends the direct-start payload through existing persisted deck generation and chat", async () => {
     createDeck.mockReturnValue({ id: "new-deck" });
     renderHome({

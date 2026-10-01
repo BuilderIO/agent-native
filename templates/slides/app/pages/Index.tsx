@@ -1467,9 +1467,12 @@ export default function Index({ active = true }: { active?: boolean }) {
         },
       );
       if (!submission.delivered) {
+        // The reason is a machine code for analytics, never toast copy.
         recoverFromGenerationSetupFailure(
-          submission.reason ?? t("home.generationStartFailedDescription"),
-          "agent_submit_failed",
+          submission.reason === "attachment-unreadable"
+            ? t("raw.uploadAttachedFailed")
+            : t("home.generationStartFailedDescription"),
+          submission.reason ?? "agent_submit_failed",
         );
         return;
       }

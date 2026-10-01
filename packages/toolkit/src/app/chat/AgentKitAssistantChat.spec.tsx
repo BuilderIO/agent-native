@@ -3083,6 +3083,33 @@ describe("AgentKitAssistantChat host behavior", () => {
     window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
   });
 
+  it("reports an attachment with nothing to upload as its own failed-send reason", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const results: CustomEvent[] = [];
+    const listener = (event: Event) => results.push(event as CustomEvent);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+
+    await act(async () => {
+      await ref
+        .current!.sendMessage("Use my notes", undefined, {
+          submitMessageId: "submit-empty-attachment",
+          attachments: [{ type: "file", name: "notes.txt" }],
+        })
+        .catch(() => undefined);
+    });
+
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(results.map((event) => event.detail)).toEqual([
+      {
+        submitMessageId: "submit-empty-attachment",
+        delivered: false,
+        reason: "attachment-unreadable",
+      },
+    ]);
+  });
+
   it("returns typed rejection results for imperative sends while the engine is unavailable", async () => {
     chatMocks.readiness = {
       canChat: false,
