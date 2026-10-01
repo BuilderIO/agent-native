@@ -70,6 +70,8 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
   },
+  changeResource: (input) =>
+    input.planId ? { resourceType: "plan", resourceId: input.planId } : null,
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();
     const requesterName = getRequestUserName();
