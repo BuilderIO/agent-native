@@ -1233,7 +1233,7 @@ describe("AgentChat lifecycle", () => {
       parts: [
         {
           type: "widget" as const,
-          widget: { id: "empty-widget", kind: "empty", data: {} },
+          widget: { id: "empty-widget", kind: "empty", data: "" },
         },
       ],
     };
@@ -1276,6 +1276,84 @@ describe("AgentChat lifecycle", () => {
       tree.container.querySelector("[data-visible-empty-widget]")?.textContent,
     ).toBe("Rendered widget");
     expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
+    const attachedWidgetMessage = {
+      ...response,
+      status: "streaming" as const,
+      parts: [],
+    };
+    const attachedWidget = {
+      id: "attached-empty-widget",
+      kind: "empty",
+      data: "",
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [attachedWidgetMessage],
+          events: [
+            {
+              ...responseEvent,
+              type: "message.created" as const,
+              message: attachedWidgetMessage,
+            },
+            {
+              id: "event-attached-widget-work",
+              threadId,
+              runId,
+              sequence: 2,
+              occurredAt: "2026-09-30T00:00:02.000Z",
+              type: "activity.completed" as const,
+              activity: {
+                id: "attached-widget-work",
+                kind: "read",
+                label: "Reading components.tsx",
+                status: "completed" as const,
+              },
+            },
+            {
+              id: "event-attached-widget",
+              threadId,
+              runId,
+              sequence: 3,
+              occurredAt: "2026-09-30T00:00:03.000Z",
+              type: "widget.updated" as const,
+              messageId: attachedWidgetMessage.id,
+              widget: attachedWidget,
+            },
+          ],
+          activities: {
+            "attached-widget-work": {
+              id: "attached-widget-work",
+              kind: "read",
+              label: "Reading components.tsx",
+              status: "completed",
+            },
+          },
+          widgets: { [attachedWidget.id]: attachedWidget },
+          widgetMessageIds: {
+            [attachedWidget.id]: attachedWidgetMessage.id,
+          },
+          runs: {
+            [runId]: { ...thread.runs[runId], lastSequence: 3 },
+          },
+        },
+      },
+      revision: 5,
+    });
+    await flush();
+
+    expect(
+      tree.container.querySelector("[data-visible-empty-widget]")?.textContent,
+    ).toBe("Rendered widget");
+    expect(tree.container.textContent).toContain("Reading components.tsx");
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]"),
+    ).toBeNull();
 
     await tree.unmount();
   });

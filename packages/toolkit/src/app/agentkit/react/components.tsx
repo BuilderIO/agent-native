@@ -900,6 +900,20 @@ function firstWorkEvents(events: AgentEvent[]): AgentEvent[] {
   });
 }
 
+function widgetHasVisibleAssistantOutput(
+  widget: AgentWidget,
+  widgetRenderer: AgentKitSlots["widget"],
+  widgetRenderers: AgentKitRegistry["widgets"],
+  messagePartRenderers: AgentKitRegistry["messageParts"],
+): boolean {
+  return Boolean(
+    messagePartRenderers?.widget ||
+    widgetRenderers?.[widget.kind] ||
+    widgetRenderer ||
+    hasVisibleDefaultWidgetOutput(widget),
+  );
+}
+
 function messageHasVisibleAssistantOutput(
   message: AgentMessage,
   messageRenderer: AgentKitSlots["message"],
@@ -908,36 +922,47 @@ function messageHasVisibleAssistantOutput(
   widgetRenderer: AgentKitSlots["widget"],
   widgetRenderers: AgentKitRegistry["widgets"],
   messagePartRenderers: AgentKitRegistry["messageParts"],
+  attachedWidgets: readonly AgentWidget[] = [],
 ): boolean {
   if (message.role !== "assistant") return false;
   if (messageRenderer) return true;
-  return message.parts.some((part) => {
-    if (part.type === "reasoning") return false;
-    if (part.type === "text") {
-      return (
-        Boolean(textRenderer || messagePartRenderers?.text) ||
-        part.text.trim().length > 0
-      );
-    }
-    if (part.type === "data") {
-      return Boolean(dataRenderer || messagePartRenderers?.data);
-    }
-    if (part.type === "widget") {
-      return Boolean(
-        messagePartRenderers?.widget ||
-        widgetRenderers?.[part.widget.kind] ||
-        widgetRenderer ||
-        hasVisibleDefaultWidgetOutput(part.widget),
-      );
-    }
-    if (part.type.startsWith("x-")) {
-      return Boolean(messagePartRenderers?.[part.type]);
-    }
-    return true;
-  });
+  return (
+    message.parts.some((part) => {
+      if (part.type === "reasoning") return false;
+      if (part.type === "text") {
+        return (
+          Boolean(textRenderer || messagePartRenderers?.text) ||
+          part.text.trim().length > 0
+        );
+      }
+      if (part.type === "data") {
+        return Boolean(dataRenderer || messagePartRenderers?.data);
+      }
+      if (part.type === "widget") {
+        return widgetHasVisibleAssistantOutput(
+          part.widget,
+          widgetRenderer,
+          widgetRenderers,
+          messagePartRenderers,
+        );
+      }
+      if (part.type.startsWith("x-")) {
+        return Boolean(messagePartRenderers?.[part.type]);
+      }
+      return true;
+    }) ||
+    attachedWidgets.some((widget) =>
+      widgetHasVisibleAssistantOutput(
+        widget,
+        widgetRenderer,
+        widgetRenderers,
+        messagePartRenderers,
+      ),
+    )
+  );
 }
 
-function messageEventHasVisibleAssistantOutput(
+function eventHasVisibleAssistantOutput(
   event: AgentEvent,
   assistantMessageIds: ReadonlySet<string>,
   messageRenderer: AgentKitSlots["message"],
@@ -952,6 +977,18 @@ function messageEventHasVisibleAssistantOutput(
       assistantMessageIds.has(event.messageId) &&
       (event.text.trim().length > 0 ||
         Boolean(messageRenderer || textRenderer || messagePartRenderers?.text))
+    );
+  }
+  if (event.type === "widget.created" || event.type === "widget.updated") {
+    return Boolean(
+      event.messageId &&
+      assistantMessageIds.has(event.messageId) &&
+      widgetHasVisibleAssistantOutput(
+        event.widget,
+        widgetRenderer,
+        widgetRenderers,
+        messagePartRenderers,
+      ),
     );
   }
   if (event.type !== "message.created" && event.type !== "message.completed") {
@@ -1999,7 +2036,9 @@ function AgentWidgetActionButton({
 
 function hasVisibleDefaultWidgetOutput(widget: AgentWidget): boolean {
   return Boolean(
-    widget.title || typeof widget.data === "string" || widget.actions?.length,
+    widget.title ||
+    (typeof widget.data === "string" && widget.data.trim().length > 0) ||
+    widget.actions?.length,
   );
 }
 
@@ -4219,6 +4258,7 @@ export function AgentKitChat({
   const messageBoundarySequences = useMemo(() => {
     const firstVisibleSequence = new Map<string, number>();
     const lastTextDeltaSequence = new Map<string, number>();
+    const lastWidgetSequence = new Map<string, number>();
     const assistantMessageIds = new Set(
       thread.messages
         .filter((message) => message.role === "assistant")
@@ -4226,7 +4266,7 @@ export function AgentKitChat({
     );
     for (const event of thread.events) {
       if (
-        !messageEventHasVisibleAssistantOutput(
+        !eventHasVisibleAssistantOutput(
           event,
           assistantMessageIds,
           messageRenderer,
@@ -4244,7 +4284,9 @@ export function AgentKitChat({
           ? event.message.id
           : event.type === "message.delta"
             ? event.messageId
-            : undefined;
+            : event.type === "widget.created" || event.type === "widget.updated"
+              ? event.messageId
+              : undefined;
       if (!messageId) continue;
       if (!firstVisibleSequence.has(messageId)) {
         firstVisibleSequence.set(messageId, event.sequence);
@@ -4252,10 +4294,20 @@ export function AgentKitChat({
       if (event.type === "message.delta") {
         lastTextDeltaSequence.set(messageId, event.sequence);
       }
+      if (event.type === "widget.created" || event.type === "widget.updated") {
+        lastWidgetSequence.set(messageId, event.sequence);
+      }
     }
     const result = new Map<string, number>();
     for (const [messageId, sequence] of firstVisibleSequence) {
-      result.set(messageId, lastTextDeltaSequence.get(messageId) ?? sequence);
+      result.set(
+        messageId,
+        Math.max(
+          sequence,
+          lastTextDeltaSequence.get(messageId) ?? sequence,
+          lastWidgetSequence.get(messageId) ?? sequence,
+        ),
+      );
     }
     return result;
   }, [
@@ -4308,6 +4360,14 @@ export function AgentKitChat({
         event.runId === runId &&
         sequenceInRange(event.sequence, { afterSequence, throughSequence }),
     );
+  const attachedWidgetsByMessage = new Map<string, AgentWidget[]>();
+  for (const [widgetId, messageId] of Object.entries(thread.widgetMessageIds)) {
+    const widget = thread.widgets[widgetId];
+    if (!widget) continue;
+    const widgets = attachedWidgetsByMessage.get(messageId) ?? [];
+    widgets.push(widget);
+    attachedWidgetsByMessage.set(messageId, widgets);
+  }
   const activeRunsBeforeAssistantOutput = thread.activeRunIds.filter(
     (runId) =>
       thread.runs[runId]?.status === "running" &&
@@ -4322,6 +4382,7 @@ export function AgentKitChat({
             widgetRenderer,
             widgetRenderers,
             messagePartRenderers,
+            attachedWidgetsByMessage.get(message.id),
           ),
       ),
   );
