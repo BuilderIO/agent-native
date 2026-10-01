@@ -33,6 +33,7 @@ import {
   landingOptimisticTitle,
   stashLandingTitleHint,
 } from "@/lib/document-title-hint";
+import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
 
 const SEO_TITLE = "Content - Open Source, agent-friendly Obsidian alternative";
 const SEO_DESCRIPTION =
@@ -233,10 +234,9 @@ export default function HomeRoute() {
     <>
       <PrefetchPageLinks page={`/page/${likelyDocumentId ?? "home"}`} />
       <DocumentEditorSkeleton
-        title={
-          lastLocationHint === undefined
-            ? undefined
-            : landingOptimisticTitle(null, lastLocationHint)
+        title={landingOptimisticTitle(null, lastLocationHint) ?? undefined}
+        iconRow={
+          likelyDocumentId ? readPageIconRowHint(likelyDocumentId) : undefined
         }
       />
     </>

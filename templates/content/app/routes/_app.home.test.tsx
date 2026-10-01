@@ -86,6 +86,7 @@ import {
   peekLandingTitleHint,
   stashLandingTitleHint,
 } from "@/lib/document-title-hint";
+import { rememberPageIconRow } from "@/lib/page-icon-row-hint";
 
 import HomeRoute from "./_app.home";
 
@@ -190,7 +191,7 @@ describe("home landing route optimistic title", () => {
     );
   });
 
-  it("holds the body placeholder until the saved title has loaded", () => {
+  it("holds the body placeholder until a saved title names the page", () => {
     resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
     useLastLocationTitleHint.mockReturnValue(undefined);
     renderHome(root);
@@ -201,9 +202,31 @@ describe("home landing route optimistic title", () => {
 
     useLastLocationTitleHint.mockReturnValue(null);
     renderHome(root);
+    expect(container.querySelector('[data-startup-anchor="body"]')).toBeNull();
+
+    useLastLocationTitleHint.mockReturnValue({
+      documentId: "doc-1",
+      title: "Quarterly planning notes",
+    });
+    renderHome(root);
     expect(
       container.querySelector('[data-startup-anchor="body"]'),
     ).not.toBeNull();
+  });
+
+  it("holds the remembered icon row of the page it expects to open", () => {
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+    rememberPageIconRow("doc-1", "icon");
+    useLastLocationTitleHint.mockReturnValue({
+      documentId: "doc-1",
+      title: "Quarterly planning notes",
+    });
+    renderHome(root);
+    expect(
+      container.querySelector('[data-startup-anchor="title"]')
+        ?.previousElementSibling?.firstElementChild?.className,
+    ).toContain("size-14");
+    rememberPageIconRow("doc-1", "add");
   });
 
   it("draws the page placeholder without the app header, which messages get back", () => {

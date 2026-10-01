@@ -25,11 +25,12 @@ export function useLastLocationTitleHint(
   return query.data ?? null;
 }
 
-// Undefined while the title could still come from the saved last location.
+// Undefined until a hint names this page's title. The placeholder leaves the
+// body out until then, since a title that wraps would move it.
 export function useOptimisticDocumentTitle(
   documentId: string | null,
   options: { seededTitle?: string | null; enabled?: boolean } = {},
-): string | null | undefined {
+): string | undefined {
   const lastLocation = useLastLocationTitleHint({
     enabled: (options.enabled ?? true) && !!documentId,
   });
@@ -40,7 +41,7 @@ export function useOptimisticDocumentTitle(
       lastLocation,
       cachedTitle: options.seededTitle,
     });
-    return title ?? (lastLocation === undefined ? undefined : null);
+    return title ?? undefined;
   }, [documentId, lastLocation, options.seededTitle]);
 }
 

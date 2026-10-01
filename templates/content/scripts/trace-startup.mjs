@@ -21,7 +21,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 // headers, and first Files row, on placeholders and real elements alike) on
 // every animation frame from the first frame it appears, and reports how far
 // each moved. A run fails when any anchor moves more than --max-shift pixels
-// (default 2). The layout-shift score cannot replace this: it ignores
+// (default 2). The script exits 1 when any run fails, and 2 when a run found
+// no anchors to follow. The layout-shift score cannot replace this: it ignores
 // placeholders that are removed and replaced, which is most loading jank.
 //
 //   --frames <dir>         save every screencast frame per run, with an index
@@ -347,7 +348,14 @@ function summarizeStability(anchors) {
   const moved = Object.entries(anchors)
     .filter(([, anchor]) => anchor.maxShift > maxShift)
     .map(([name]) => name);
-  return { stable: moved.length === 0, moved, shifts };
+  // A run that found no anchors checked nothing, so it is not stable.
+  const checked = Object.keys(anchors).length > 0;
+  return {
+    stable: checked && moved.length === 0,
+    moved,
+    shifts,
+    ...(checked ? {} : { unchecked: true }),
+  };
 }
 
 function summarizeStabilityRuns(results) {
@@ -597,4 +605,8 @@ console.log(JSON.stringify({ ...report, results: undefined }, null, 2));
 if (outPath) {
   mkdirSync(dirname(resolve(outPath)), { recursive: true });
   writeFileSync(resolve(outPath), `${JSON.stringify(report, null, 2)}\n`);
+}
+if (stability) {
+  if (results.some((result) => result.summary.unchecked)) process.exitCode = 2;
+  else if (report.stability.stableRuns < runs) process.exitCode = 1;
 }

@@ -358,7 +358,8 @@ layout-shift score ignores placeholders that are removed and replaced.
 
 Check it with the Content startup trace. It follows every `data-startup-anchor`
 element (placeholders and real elements share a name) on every frame, and
-fails a run when any anchor moves more than 2px:
+fails a run when any anchor moves more than 2px. It exits 1 when a run fails
+and 2 when a run found no anchors:
 
 ```sh
 node templates/content/scripts/trace-startup.mjs --base-url <url>   --email <fixture> --password <fixture password>   --state cached --path /page/<id> --runs 5 --stability   --latency-ms 150 --jitter-ms 150 --frames .tmp/frames --out .tmp/trace.json

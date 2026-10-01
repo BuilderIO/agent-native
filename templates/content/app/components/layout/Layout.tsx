@@ -38,6 +38,7 @@ import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
 } from "@/lib/document-history-restore-controller";
+import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
 import { retirePageOpenReads } from "@/lib/page-open-reads";
 
 import { Header } from "./Header";
@@ -362,8 +363,11 @@ export function Layout({ children }: LayoutProps) {
               className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
             />
             <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
-              {showPendingDocumentSkeleton ? (
-                <DocumentEditorSkeleton title={pendingDocumentTitle} />
+              {showPendingDocumentSkeleton && pendingDocumentId ? (
+                <DocumentEditorSkeleton
+                  title={pendingDocumentTitle}
+                  iconRow={readPageIconRowHint(pendingDocumentId)}
+                />
               ) : (
                 children
               )}

@@ -542,6 +542,10 @@ describe("document sidebar layout", () => {
 
     expect(sidebar).toContain("<PersonalSidebarSections");
     expect(sidebar).toContain("renderFiles={renderWorkspaceNavigation}");
+    // Without a space Recent never loads, so its placeholder would never leave.
+    expect(sidebar).toMatch(
+      /\{selectedSpace \|\| contentSpaceState === "loading" \? \(\s*<PersonalSidebarSections/,
+    );
     expect(sidebar).toContain("renderPinned={(limit) =>");
     expect(sections).toContain("sections[id].visible");
     expect(sections).toContain("expanded={sections[id].expanded}");

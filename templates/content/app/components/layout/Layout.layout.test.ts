@@ -64,8 +64,8 @@ describe("app layout", () => {
       "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
-    expect(source).toContain(
-      "<DocumentEditorSkeleton title={pendingDocumentTitle} />",
+    expect(source).toMatch(
+      /<DocumentEditorSkeleton\s+title=\{pendingDocumentTitle\}\s+iconRow=\{readPageIconRowHint\(pendingDocumentId\)\}/,
     );
   });
 
