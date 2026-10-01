@@ -910,9 +910,15 @@ export default defineAction({
         deckId,
         clientWrite,
         {
-          allowRevisionMismatch: operations.every(
-            (operation) =>
-              operation.op === "patch-slide" || operation.op === "add-slide",
+          allowRevisionMismatch: operations.every((operation) =>
+            operation.op === "add-slide"
+              ? true
+              : operation.op === "patch-slide" &&
+                operation.fields.content !== undefined &&
+                operation.baseContentHash !== undefined &&
+                Object.keys(operation.fields).every(
+                  (field) => field === "content",
+                ),
           ),
         },
       );

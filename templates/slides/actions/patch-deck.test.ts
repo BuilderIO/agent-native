@@ -3516,7 +3516,7 @@ describe("run() — client write ordering", () => {
     ]);
   });
 
-  it("rejects stale delete, reorder, and deck-field operations", async () => {
+  it("rejects stale unguarded slide, delete, reorder, and deck-field operations", async () => {
     await runPatchDeckAction(
       {
         deckId: "deck-1",
@@ -3537,6 +3537,18 @@ describe("run() — client write ordering", () => {
     );
 
     for (const operation of [
+      {
+        op: "patch-slide",
+        slideId: "slide-2",
+        fields: { notes: "Stale notes" },
+      },
+      { op: "patch-slide", slideId: "slide-1", fields: { layout: "title" } },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Stale mixed edit", notes: "Stale notes" },
+        baseContentHash: hashSlideContent("base"),
+      },
       { op: "delete-slide", slideId: "slide-1" },
       { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
       { op: "patch-deck-fields", fields: { title: "Stale title" } },
