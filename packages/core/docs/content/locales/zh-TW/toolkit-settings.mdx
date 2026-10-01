@@ -1,0 +1,200 @@
+---
+title: "設定工具組"
+description: "每個應用程式都有同一個可搜尋的設定頁面，包含帳戶、連線、代理與組織群組，另有一個群組專門放置該應用程式自己的設定。"
+---
+
+# 設定工具組
+
+設定工具組讓每個應用程式都有同一種架構的設定頁面。設定所在的位置代表它會影響什麼：**帳戶**、**連線**、**代理**和**組織**在每個應用程式中都相同，另外還有一個以應用程式名稱命名的群組，放置只影響該應用程式的設定。使用者不必猜測模型金鑰是在應用程式頁面、代理側邊欄，還是供應商設定卡片中。
+
+您可以從帳戶選單開啟設定，也就是側邊欄底部顯示大頭貼和姓名的位置。您也可以在應用程式的任何位置按 **⌘,**（Windows 和 Linux 上按 **Ctrl+,**）開啟設定。命令選單（⌘K）也有 **設定**命令。每個頁面都內建搜尋功能：輸入「語言」、「S3」或「API 金鑰」，就會跳到檢視者可存取的各個頁面中的相符列。
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:3px'><div class='wf-muted' style='display:flex;align-items:center;gap:6px;margin-bottom:6px'><span data-icon='chevronLeft'></span> 返回郵件</div><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>搜尋</span><span class='wf-pill'>/</span></div><small class='wf-muted'>帳戶</small><div style='padding:4px 9px'>個人資料</div><div style='padding:4px 9px'>偏好設定</div><small class='wf-muted' style='margin-top:6px'>連線</small><div style='padding:4px 9px'>整合</div><div style='padding:4px 9px'>API 金鑰</div><small class='wf-muted' style='margin-top:6px'>代理</small><div style='padding:4px 9px;border-radius:8px;background:var(--wf-accent-soft)'>模型</div><div style='padding:4px 9px'>指示</div><div style='padding:4px 9px'>子代理</div><small class='wf-muted' style='margin-top:6px'>組織</small><div style='padding:4px 9px'>成員</div><div style='padding:4px 9px'>用量</div><small class='wf-muted' style='margin-top:6px'>郵件</small><div style='padding:4px 9px'>一般</div><div style='padding:4px 9px'>頻道</div><div style='flex:1'></div><div class='wf-muted' style='padding:4px 9px'>實驗功能 · 最新消息</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>模型</h2><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>組織供應商</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Builder.io</div><span class='wf-pill'>已連線</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Anthropic</div><button>管理</button></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>個人供應商</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>OpenAI</div><button>新增</button></div></div><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>預設模型</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Claude Sonnet</div><span data-icon='chevronDown'></span></div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## 群組與頁面 {#groups-and-pages}
+
+頁面 id 是穩定的 URL 路徑片段（`/settings/<page>` 和
+`/settings/<page>/<sub>`），也是搜尋目標及代理對該頁面的稱呼。
+
+| 群組         | 頁面（id）                                                                                                                               | 可見對象       |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| 帳戶         | 個人資料（`profile`）、偏好設定（`preferences`）、安全性（`security`）                                                                   | 所有人         |
+| 連線         | 整合（`integrations`，其中 Builder.io 頁面為 `integrations/builder`）、API 金鑰（`api-keys`）                                            | 所有人         |
+| 代理         | 模型（`model`）、指示（`instructions`）、記憶（`memory`）、技能（`skills`）、檔案（`files`）、子代理（`sub-agents`）                     | 所有人         |
+| 組織         | 一般（`org`）、成員（`members`）、用量（`usage`）                                                                                        | 所有人         |
+| 組織         | 驗證（`auth`）、應用程式（`apps`）、基礎設施（`infra`）、稽核記錄（`audit`）                                                             | 擁有者和管理員 |
+| 應用程式名稱 | 一般（`app`）、通知（`notifications`）、自動化（`automations`）、頻道（`channels`）、MCP 伺服器（`mcp`）、創意脈絡（`creative-context`） | 所有人         |
+| 頁尾         | 實驗功能（`labs`）、最新消息（`whats-new`）                                                                                              | 所有人         |
+
+應用程式群組會使用應用程式的名稱和圖示。只有在應用程式提供通知設定時才會顯示「通知」，而「創意脈絡」只會在其實驗功能啟用時顯示。如果檢視者無權查看某個頁面，開啟時會改為顯示「個人資料」。除非連結指定頁面，否則設定會開啟在「個人資料」。隱藏頁面只會影響呈現方式，頁面背後的每個 action 仍會在伺服器上驗證檢視者的角色。
+
+## 頁面契約 {#page-contract}
+
+每個應用程式都會公開 `/settings` 和一個萬用字元路由（`settings.$.tsx` 重新匯出設定路由），讓 `/settings/<page>/<sub>` 能正確解析。此路由會呈現 `<SettingsTabsPage>`。核心負責帳戶、連線、代理和組織頁面，應用程式只提供自己的內容。
+
+```tsx
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+
+  return (
+    <div className="h-dvh">
+      <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
+        generalGroups={<RecordingDefaults />}
+        appAreas={[
+          { id: "meetings", label: "會議", content: <MeetingSettings /> },
+        ]}
+        notifications={<EmailNotificationSettings />}
+        mcpAbout="在任何 MCP 主機中錄製、搜尋和分享片段。"
+        whatsNewMarkdown={changelog}
+      />
+    </div>
+  );
+}
+```
+
+設定頁面會自帶返回應用程式的連結、導覽和頁面標題，因此應用程式版面配置會在設定路由上隱藏側邊欄和標題列（`isSettingsPathname(pathname)`）。
+
+| Prop                                          | 顯示位置                                                                                                                                 |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `generalGroups`                               | 應用程式自己的 `SettingsGroup`，位於「應用程式 › 一般」，排列在核心的「代理 › 預設模型」和「此瀏覽器 › 示範模式」之間。                  |
+| `appAreas`                                    | 「應用程式 › 一般」中的分頁，路由為 `/settings/app/<id>`：`{ id, label, content, visible?, icon?, keywords?, searchEntries? }`。         |
+| `notifications`, `notificationsSearchEntries` | 「應用程式 › 通知」。只有傳入 `notifications` 時才會顯示此頁面。                                                                         |
+| `mcpAbout`                                    | 「應用程式 › MCP 伺服器」上的說明文字，指出 MCP 主機在此應用程式中可以執行的操作。                                                       |
+| `labs`                                        | 「實驗功能」頁面上的實驗功能定義。                                                                                                       |
+| `whatsNewMarkdown` 或 `whatsNew`              | 「最新消息」頁面，使用者造訪前會顯示未讀圓點。                                                                                           |
+| `appName`, `appIcon`, `appId`                 | 應用程式群組的標籤和圖示。預設值為該範本自己的設定。                                                                                     |
+| `extraTabs`                                   | 其他應用程式分頁。每個分頁會在應用程式群組中成為獨立頁面。設定 `settingsPlacement: "app-area"` 可讓分頁改為「應用程式 › 一般」中的分頁。 |
+
+當某個應用程式區域背後的實驗功能關閉時，請設定 `visible: false`。`useLab(ref)` 和 `useLabState(ref)` 接受 `LabReference`，可以是索引鍵，也可以是 `{ key, defaultEnabled? }`。請傳入實驗功能定義，而非只有索引鍵，這樣實驗功能載入期間就會採用其 `defaultEnabled` 值。請勿在應用程式群組中新增預設模型、語言或示範模式列，核心已經會顯示這些項目。
+
+### 註冊頁面 {#registering-a-page}
+
+應用程式頁面通常從 `extraTabs` 項目開始，並在應用程式群組中成為獨立頁面。若需要更多控制，可在模組範圍呼叫 `registerSettingsPages`，註冊 `SettingsPageDefinition`（`id`、`group`、`order`、`label`、`icon`、`component`，以及選填的 `visible`、`subpages` 和 `searchEntries`）。如果定義的 id 與現有頁面相同，就會取代該頁面。應用程式可以用這種方式替換核心頁面。Dispatch 就是用此方式在「成員」頁面上加入應用程式角色欄：
+
+```tsx
+import { OrgMembersPage } from "@agent-native/core/client/org";
+import {
+  CORE_SETTINGS_PAGES,
+  registerSettingsPages,
+} from "@agent-native/toolkit/app/settings";
+
+const coreMembersPage = CORE_SETTINGS_PAGES.find(
+  (page) => page.id === "members",
+)!;
+
+registerSettingsPages([
+  {
+    ...coreMembersPage,
+    component: () => <OrgMembersPage appRoles={dispatchAccessDescriptor} />,
+  },
+]);
+```
+
+頁面元件會收到 `{ pageId, sub, context, bridge }`。`context` 會帶有檢視者的角色、實驗功能和旗標。在頁面內呼叫 `useSettingsPageHeader({ title?, action?, badge? })`，可設定子頁面階層導覽、標題列的主要 action，或標題旁的標籤。
+
+應用程式可以在模組範圍呼叫 `registerChannelSettingsExtensions([{ id, platform, component }])`，在某個頻道的頁面加入區段，位置就在設定路由旁。Clips 和 Mail 會用它顯示 Slack 群組。
+
+## 連結 {#links}
+
+請勿手動撰寫 `/settings/...` 字串。請使用路由 helper 建立連結：
+
+```ts
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+
+buildSettingsRoute("integrations", "builder"); // /settings/integrations/builder
+buildSettingsRoute("app", "recordings"); // /settings/app/recordings
+buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limits
+```
+
+舊連結仍可使用。較早期的分頁 id（`agent`、`keys`、`team`）、巢狀 id（`agent:resources:memory`）、區段雜湊（`#llm`、`#secrets:OPENAI_API_KEY`）和 `agent-panel:open-settings` 區段，都會透過 `packages/core/src/navigation/settings-redirects.ts` 中的一個重新導向表處理。若要搬移舊連結，請修改該表中的項目，並在 `settings-redirects.spec.ts` 加入案例。
+
+`@agent-native/core/client/navigation` 的 `openSettingsPage(page?)` 可從任何位置開啟設定，包括路由之外。`AppProviders` 已透過 `useSettingsShortcut()` 綁定 ⌘,，因此應用程式不必再次綁定。
+
+## 搜尋 {#search}
+
+搜尋會索引頁面名稱以及各頁面宣告的 `searchEntries`，不會呈現頁面內容。搜尋結果會顯示列標籤和所在位置（「代理 › 模型」）。按 Enter 即可開啟頁面並短暫醒目提示該列。
+
+- 在頁面定義中，搜尋項目的 `anchor` 是該列 `SettingsRow` 的 id。
+- 在應用程式區域或 `notificationsSearchEntries` 中，搜尋項目的 `hash` 是該列 `SettingsRow` 的 id。
+- 請為標籤未包含的同義詞和供應商名稱加入 `keywords`，例如為檔案儲存加入「S3」、「R2」和「bucket」。
+
+每個可搜尋的 `SettingsRow` 或 `SettingsGroup` 都要有穩定的 `id`。這些 id 也是連結錨點，因此不要重新命名。
+
+## 代理功能對等 {#agent-parity}
+
+代理可以透過 actions 讀取和變更這些頁面上的所有項目，也知道使用者目前開啟的頁面：
+
+- 設定外框會為瀏覽器分頁寫入應用程式狀態 `settings-view` = `{ page, sub, label }`，而 `<current-url>` 會顯示為 `settingsPage: integrations/builder (Connections › Integrations › Builder.io)`。
+- 內建的 `open-settings-page` 工具可依 id 開啟任何頁面，並可選擇指定 `sub` 和 `anchor`。較早期的分頁和區段 id 也能使用。
+
+| 頁面              | Actions                                                                                                                                            |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 個人資料          | `get-user-profile`、`update-user-profile`                                                                                                          |
+| 整合 › Builder.io | `manage-builder-connection`                                                                                                                        |
+| API 金鑰          | `list-api-keys`、`preview-secret-removal`、`delete-api-key`                                                                                        |
+| 模型              | `list-model-providers`、`check-provider-key`、`get-provider-models`、`manage-provider-models`、`manage-provider-key-policy`、`manage-agent-engine` |
+| 用量              | `get-usage-metrics`、`manage-usage-alert`                                                                                                          |
+| 驗證              | `list-sign-in-methods`                                                                                                                             |
+| 應用程式          | `list-workspace-app-access`、`set-workspace-app-access`                                                                                            |
+| 基礎設施          | `get-infrastructure-status`、`get-file-storage`、`manage-file-storage`、`manage-service-providers`                                                 |
+| 稽核記錄          | `list-audit-events`、`get-audit-event`、`export-audit-events`                                                                                      |
+| 應用程式 › 自動化 | `manage-automations`                                                                                                                               |
+| 應用程式 › 頻道   | `list-messaging-channels`、`manage-messaging-channel`                                                                                              |
+
+應用程式自己的列也遵守相同規則：`generalGroups`、`appAreas` 或 `notifications` 中的每個控制項，都會透過代理能呼叫的應用程式 action 儲存設定。
+
+## 角色 {#roles}
+
+| 功能                                                  | 成員           | 管理員                            | 擁有者       |
+| ----------------------------------------------------- | -------------- | --------------------------------- | ------------ |
+| 帳戶頁面、為自己連結整合                              | 可以           | 可以                              | 可以         |
+| 個人供應商和個人 Builder.io 連線                      | 可以，除非受限 | 自有金鑰；Builder.io 會為組織連線 | 與管理員相同 |
+| 組織供應商、預設模型、最大反覆次數、限制個人 API 金鑰 | 唯讀           | 可以                              | 可以         |
+| 組織指示、記憶、技能和檔案                            | 唯讀           | 可以                              | 可以         |
+| 邀請成員                                              | 不可以         | 成員                              | 成員和管理員 |
+| 變更成員角色                                          | 不可以         | 不可以                            | 可以         |
+| 驗證、應用程式、基礎設施、稽核記錄                    | 隱藏           | 可以                              | 可以         |
+| 共用 A2A 密鑰、刪除組織                               | 不可以         | 不可以                            | 可以         |
+
+## 使用者體驗標準 {#ux-standard}
+
+- 長期設定放在「設定」中。代理側邊欄會連到相應頁面，而不是直接呈現設定。
+- 無論從哪個頁面開啟，新增、變更或移除供應商金鑰都使用同一個對話框。
+- 唯讀列會顯示數值、鎖頭和提示文字，指出誰可以變更（`ReadOnlySettingValue`）。移除金鑰、中斷 Builder.io 連線或限制個人金鑰時，會開啟確認對話框並列出受影響的功能。
+- 每列包含標籤、選填說明和一個控制項。頁面不加副標題、眉標或統計列。
+- 每個有意義的列都要註冊搜尋項目。
+
+## 開放原始碼應用程式的「使用 ChatGPT 登入」 {#chatgpt-subscription-lab}
+
+Agent-Native 會在符合資格的開放原始碼用途上，使用 OpenAI 官方的「使用 ChatGPT 登入」權杖分享流程。此流程會授權本機應用程式，使用已登入使用者的 ChatGPT 方案向 OpenAI 公開的 Responses API 發出符合資格的請求。它不會授予應用程式讀取使用者 ChatGPT 對話或歷史紀錄的權限。
+
+OpenAI 的自助流程要求 OAuth 回呼使用 `127.0.0.1` 上的 HTTP 位址，也就是使用者裝置上的迴路位址。此流程不適用於遠端託管的應用程式，而且 `localhost` 不能取代 `127.0.0.1`。此自助流程尚未核准用於託管或付費部署。這些用途需要透過 OpenAI 的[意願表單](https://openai.com/form/sign-in-with-chatgpt-interest)另外取得核准。
+
+<Steps>
+
+### 連結 ChatGPT
+
+開啟 **設定 → 代理 → 模型**，並在個人供應商清單中連結 ChatGPT。使用您想套用方案的 ChatGPT 帳戶登入，然後核准所要求的存取權。連結後，請在聊天的模型選擇器中選擇可用模型。您可以在同一個設定列中中斷 ChatGPT 連線。如果 OpenAI 無法確認遠端撤銷，系統仍會清除本機權杖。請使用警告連結，在 ChatGPT「設定 → 使用量」中管理此應用程式的存取權。
+
+</Steps>
+
+推論只能使用公開的 Responses API。ChatGPT 私有後端端點和 ChatGPT 對話資料不在此授權範圍內。OpenAI 將權杖分享流程標示為預覽版，因此可用模型、限制和支援的 API 功能都可能變更。請參閱 OpenAI 的[使用 ChatGPT 登入概覽](https://developers.openai.com/siwc/token-sharing-open-source)、[註冊與登入](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)、[帳戶與工作階段](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)、[模型與推論](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)、[預覽版限制](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)、[錯誤復原](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery)和 [UI/UX 指引](https://developers.openai.com/siwc/ui-ux-guidelines)。
+
+## 下一步
+
+- [**國際化**](/docs/internationalization) — 將應用程式的設定文字在地化。
+- [**新手引導**](/docs/onboarding) — 註冊設定深層連結會帶使用者前往的設定步驟。
+- [**工作區連線**](/docs/workspace-connections) — 供應商準備狀態背後共用的連線模型。

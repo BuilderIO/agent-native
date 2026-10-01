@@ -1,0 +1,243 @@
+---
+title: "सेटिंग्स किट (Settings Kit)"
+description: "एक खोज योग्य सेटिंग्स पृष्ठ, जिसमें हर ऐप में खाता, कनेक्शन, एजेंट और संगठन समूह समान हैं; साथ ही ऐप की अपनी सेटिंग्स के लिए एक समूह है।"
+---
+
+# सेटिंग्स किट (Settings Kit)
+
+Settings Kit हर ऐप को एक ही संरचना वाला सेटिंग्स पृष्ठ देता है। सेटिंग कहाँ रखी गई है, इससे पता चलता है कि वह किस चीज़ को प्रभावित करती है: **खाता**, **कनेक्शन**, **एजेंट** और **संगठन** सभी ऐप में समान होते हैं, जबकि ऐप के नाम वाला एक समूह केवल उसी ऐप को प्रभावित करने वाली सेटिंग्स रखता है। इससे उपयोगकर्ताओं को यह अनुमान नहीं लगाना पड़ता कि मॉडल कुंजी ऐप पृष्ठ में है, एजेंट साइडबार में है या प्रदाता सेटअप कार्ड में।
+
+ऐप में कहीं से भी साइडबार के नीचे अपनी तस्वीर और नाम वाले खाता मेनू से, या **⌘,** (**Windows और Linux पर Ctrl+,**) दबाकर सेटिंग्स खोलें। कमांड मेनू (⌘K) में भी **सेटिंग्स** कमांड है। हर पृष्ठ शुरू से खोज योग्य है: “भाषा”, “S3” या “API कुंजी” लिखने पर उपयोगकर्ता को दिखने वाले किसी भी पृष्ठ की संबंधित पंक्ति खुल जाती है।
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:3px'><div class='wf-muted' style='display:flex;align-items:center;gap:6px;margin-bottom:6px'><span data-icon='chevronLeft'></span> Mail पर वापस जाएँ</div><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>खोजें</span><span class='wf-pill'>/</span></div><small class='wf-muted'>खाता</small><div style='padding:4px 9px'>प्रोफ़ाइल</div><div style='padding:4px 9px'>प्राथमिकताएँ</div><small class='wf-muted' style='margin-top:6px'>कनेक्शन</small><div style='padding:4px 9px'>इंटीग्रेशन</div><div style='padding:4px 9px'>API कुंजियाँ</div><small class='wf-muted' style='margin-top:6px'>एजेंट</small><div style='padding:4px 9px;border-radius:8px;background:var(--wf-accent-soft)'>मॉडल</div><div style='padding:4px 9px'>निर्देश</div><div style='padding:4px 9px'>सब-एजेंट</div><small class='wf-muted' style='margin-top:6px'>संगठन</small><div style='padding:4px 9px'>सदस्य</div><div style='padding:4px 9px'>उपयोग</div><small class='wf-muted' style='margin-top:6px'>Mail</small><div style='padding:4px 9px'>सामान्य</div><div style='padding:4px 9px'>चैनल</div><div style='flex:1'></div><div class='wf-muted' style='padding:4px 9px'>लैब · नया क्या है</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>मॉडल</h2><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>संगठन के प्रदाता</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Builder.io</div><span class='wf-pill'>कनेक्ट किया गया</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Anthropic</div><button>प्रबंधित करें</button></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>व्यक्तिगत प्रदाता</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>OpenAI</div><button>जोड़ें</button></div></div><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>डिफ़ॉल्ट मॉडल</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Claude Sonnet</div><span data-icon='chevronDown'></span></div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## समूह और पृष्ठ {#groups-and-pages}
+
+पृष्ठ आईडी स्थिर URL सेगमेंट (`/settings/<page>` और `/settings/<page>/<sub>`), खोज लक्ष्य और उस पृष्ठ के लिए एजेंट द्वारा इस्तेमाल किया जाने वाला नाम हैं।
+
+| समूह      | पृष्ठ (id)                                                                                                                                           | किसे दिखता है  |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| खाता      | प्रोफ़ाइल (`profile`), प्राथमिकताएँ (`preferences`), सुरक्षा (`security`)                                                                            | सभी            |
+| कनेक्शन   | इंटीग्रेशन (`integrations`, Builder.io के लिए `integrations/builder` सहित), API कुंजियाँ (`api-keys`)                                                | सभी            |
+| एजेंट     | मॉडल (`model`), निर्देश (`instructions`), मेमोरी (`memory`), स्किल (`skills`), फ़ाइलें (`files`), सब-एजेंट (`sub-agents`)                            | सभी            |
+| संगठन     | सामान्य (`org`), सदस्य (`members`), उपयोग (`usage`)                                                                                                  | सभी            |
+| संगठन     | प्रमाणीकरण (`auth`), ऐप्स (`apps`), इन्फ्रास्ट्रक्चर (`infra`), ऑडिट लॉग (`audit`)                                                                   | मालिक और एडमिन |
+| ऐप का नाम | सामान्य (`app`), सूचनाएँ (`notifications`), ऑटोमेशन (`automations`), चैनल (`channels`), MCP सर्वर (`mcp`), क्रिएटिव कॉन्टेक्स्ट (`creative-context`) | सभी            |
+| फ़ूटर     | लैब (`labs`), नया क्या है (`whats-new`)                                                                                                              | सभी            |
+
+ऐप समूह में उसी ऐप का नाम और आइकन होता है। सूचनाएँ तभी दिखता है जब ऐप सूचना सेटिंग्स देता है, और रचनात्मक संदर्भ तभी दिखता है जब उससे जुड़ा लैब चालू हो। दर्शक जिस पृष्ठ को नहीं देख सकता, उसके बजाय प्रोफ़ाइल खुलता है; और जब तक कोई लिंक किसी पृष्ठ का नाम न बताए, सेटिंग्स प्रोफ़ाइल पर खुलता है। पृष्ठ छिपाने से केवल प्रस्तुति बदलती है: उससे जुड़ी हर कार्रवाई सर्वर पर दर्शक की भूमिका लागू करती है।
+
+## पृष्ठ अनुबंध {#page-contract}
+
+हर ऐप `/settings` और एक catch-all route (splat route) (`settings.$.tsx`, जो settings route को फिर से export करता है) देता है, ताकि `/settings/<page>/<sub>` काम करे। यह route `<SettingsTabsPage>` रेंडर करता है; खाता, कनेक्शन, एजेंट और संगठन पृष्ठ core के स्वामित्व में हैं, और ऐप केवल अपनी सामग्री देता है।
+
+```tsx
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+
+  return (
+    <div className="h-dvh">
+      <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
+        generalGroups={<RecordingDefaults />}
+        appAreas={[
+          { id: "meetings", label: "Meetings", content: <MeetingSettings /> },
+        ]}
+        notifications={<EmailNotificationSettings />}
+        mcpAbout="Record, search, and share clips from any MCP host."
+        whatsNewMarkdown={changelog}
+      />
+    </div>
+  );
+}
+```
+
+Settings brings its own back link to the app, navigation, and page header, so
+the app layout hides its sidebar and header on Settings routes
+(`isSettingsPathname(pathname)`).
+
+| प्रॉपर्टी                                     | यह कहाँ दिखती है                                                                                                         |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `generalGroups`                               | ऐप के अपने `SettingsGroup`s, ऐप › सामान्य में; core के एजेंट › डिफ़ॉल्ट मॉडल और इस ब्राउज़र › डेमो मोड के बीच।           |
+| `appAreas`                                    | ऐप › सामान्य के टैब, route `/settings/app/<id>`: `{ id, label, content, visible?, icon?, keywords?, searchEntries? }`।   |
+| `notifications`, `notificationsSearchEntries` | ऐप › सूचनाएँ। यह पृष्ठ तभी दिखता है जब `notifications` दिया गया हो।                                                      |
+| `mcpAbout`                                    | ऐप › MCP सर्वर पर अनुवादित परिचय पंक्ति, जो बताती है कि MCP होस्ट इस ऐप में क्या कर सकता है।                             |
+| `labs`                                        | लैब पृष्ठ पर लैब की परिभाषाएँ।                                                                                           |
+| `whatsNewMarkdown` or `whatsNew`              | नया क्या है पृष्ठ; देखे जाने तक अपठित बिंदु दिखता है।                                                                    |
+| `appName`, `appIcon`, `appId`                 | ऐप समूह का नाम और आइकन। डिफ़ॉल्ट रूप से टेम्पलेट का नाम और आइकन इस्तेमाल होते हैं।                                       |
+| `extraTabs`                                   | ऐप के अन्य टैब। हर टैब ऐप समूह में अपना पृष्ठ बनता है; `settingsPlacement: "app-area"` उसे ऐप › सामान्य का टैब बनाता है। |
+
+Set `visible: false` on an app area while the lab behind it is off. `useLab(ref)`
+and `useLabState(ref)` take a `LabReference`, either a key or
+`{ key, defaultEnabled? }`; pass the lab definition rather than a bare key so
+the lab reads as its `defaultEnabled` while labs load. Don't add a default-model, language, or demo
+mode row to the app's groups: core already renders them.
+
+### Registering a page {#registering-a-page}
+
+An app page usually starts as an `extraTabs` item, which becomes its own page
+in the app's group. For more control, register a `SettingsPageDefinition`
+(`id`, `group`, `order`, `label`, `icon`, `component`, and optional `visible`,
+`subpages`, and `searchEntries`) with `registerSettingsPages` at module scope. A definition
+with the same id as an existing page replaces it, which is how an app swaps a
+core page for its own variant. Dispatch keeps its app-role column on Members
+this way:
+
+```tsx
+import { OrgMembersPage } from "@agent-native/core/client/org";
+import {
+  CORE_SETTINGS_PAGES,
+  registerSettingsPages,
+} from "@agent-native/toolkit/app/settings";
+
+const coreMembersPage = CORE_SETTINGS_PAGES.find(
+  (page) => page.id === "members",
+)!;
+
+registerSettingsPages([
+  {
+    ...coreMembersPage,
+    component: () => <OrgMembersPage appRoles={dispatchAccessDescriptor} />,
+  },
+]);
+```
+
+A page component receives `{ pageId, sub, context, bridge }`, where `context`
+carries the viewer's role, labs, and flags. Inside a page,
+`useSettingsPageHeader({ title?, action?, badge? })` sets a sub-page breadcrumb,
+the header's primary action, or a chip beside the title.
+
+An app adds a section to one channel's page with
+`registerChannelSettingsExtensions([{ id, platform, component }])` at module
+scope next to its settings route. Clips and Mail use it for their Slack groups.
+
+## Links {#links}
+
+Never hand-write `/settings/...` strings. Build links with the route helper:
+
+```ts
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+
+buildSettingsRoute("integrations", "builder"); // /settings/integrations/builder
+buildSettingsRoute("app", "recordings"); // /settings/app/recordings
+buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limits
+```
+
+Older links keep working. Earlier tab ids (`agent`, `keys`, `team`), nested ids
+(`agent:resources:memory`), section hashes (`#llm`, `#secrets:OPENAI_API_KEY`),
+and `agent-panel:open-settings` sections all resolve through one redirect table
+in `packages/core/src/navigation/settings-redirects.ts`. To move an old link,
+change its row there and add a case to `settings-redirects.spec.ts`.
+
+`openSettingsPage(page?)` from `@agent-native/core/client/navigation` opens
+Settings from anywhere, including outside the router. `AppProviders` already
+binds ⌘, through `useSettingsShortcut()`, so an app never binds it again.
+
+## Search {#search}
+
+Search indexes page names plus the `searchEntries` each page declares, without
+rendering the pages. A result shows the row label and its location
+("Agent › Model"); Enter opens it and flashes the row.
+
+- On a page definition, a search entry's `anchor` is the row's `SettingsRow` id.
+- On an app area or `notificationsSearchEntries`, the entry's `hash` is the
+  row's `SettingsRow` id.
+- Add `keywords` for synonyms and provider names the label doesn't contain,
+  for example "S3", "R2", and "bucket" for file storage.
+
+Give each searchable `SettingsRow` or `SettingsGroup` a stable `id`. Those ids
+are link anchors too, so don't rename one.
+
+## Agent parity {#agent-parity}
+
+Everything on these pages can be read and changed by the agent through actions,
+and the agent knows which page the user has open:
+
+- The Settings shell writes application state `settings-view` =
+  `{ page, sub, label }` for the browser tab, and `<current-url>` shows it as
+  `settingsPage: integrations/builder (Connections › Integrations › Builder.io)`.
+- The built-in `open-settings-page` tool opens any page by id, with an optional
+  `sub` and `anchor`. Earlier tab and section ids work there too.
+
+| पृष्ठ                   | कार्रवाइयाँ                                                                                                                                        |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| प्रोफ़ाइल               | `get-user-profile`, `update-user-profile`                                                                                                          |
+| इंटीग्रेशन › Builder.io | `manage-builder-connection`                                                                                                                        |
+| API कुंजियाँ            | `list-api-keys`, `preview-secret-removal`, `delete-api-key`                                                                                        |
+| मॉडल                    | `list-model-providers`, `check-provider-key`, `get-provider-models`, `manage-provider-models`, `manage-provider-key-policy`, `manage-agent-engine` |
+| उपयोग                   | `get-usage-metrics`, `manage-usage-alert`                                                                                                          |
+| प्रमाणीकरण              | `list-sign-in-methods`                                                                                                                             |
+| ऐप्स                    | `list-workspace-app-access`, `set-workspace-app-access`                                                                                            |
+| इन्फ्रास्ट्रक्चर        | `get-infrastructure-status`, `get-file-storage`, `manage-file-storage`, `manage-service-providers`                                                 |
+| ऑडिट लॉग                | `list-audit-events`, `get-audit-event`, `export-audit-events`                                                                                      |
+| ऐप › ऑटोमेशन            | `manage-automations`                                                                                                                               |
+| ऐप › चैनल               | `list-messaging-channels`, `manage-messaging-channel`                                                                                              |
+
+An app's own rows follow the same rule: every control on `generalGroups`,
+`appAreas`, or `notifications` saves through an app action the agent can call.
+
+## Roles {#roles}
+
+| क्षमता                                                                                       | सदस्य                      | एडमिन                                                 | मालिक          |
+| -------------------------------------------------------------------------------------------- | -------------------------- | ----------------------------------------------------- | -------------- |
+| खाता पृष्ठ और अपने लिए इंटीग्रेशन कनेक्ट करना                                                | हाँ                        | हाँ                                                   | हाँ            |
+| व्यक्तिगत प्रदाता और व्यक्तिगत Builder.io कनेक्शन                                            | हाँ, जब तक प्रतिबंधित न हो | अपनी कुंजियाँ; Builder.io संगठन के लिए कनेक्ट होता है | एडमिन जैसा     |
+| संगठन के प्रदाता, डिफ़ॉल्ट मॉडल, अधिकतम पुनरावृत्तियाँ और व्यक्तिगत API कुंजियों पर प्रतिबंध | केवल पढ़ने योग्य           | हाँ                                                   | हाँ            |
+| संगठन के निर्देश, मेमोरी, स्किल और फ़ाइलें                                                   | केवल पढ़ने योग्य           | हाँ                                                   | हाँ            |
+| सदस्यों को आमंत्रित करना                                                                     | नहीं                       | सदस्य                                                 | सदस्य और एडमिन |
+| सदस्यों की भूमिकाएँ बदलना                                                                    | नहीं                       | नहीं                                                  | हाँ            |
+| प्रमाणीकरण, ऐप्स, इन्फ्रास्ट्रक्चर, ऑडिट लॉग                                                 | छिपा हुआ                   | हाँ                                                   | हाँ            |
+| साझा A2A secret, संगठन हटाना                                                                 | नहीं                       | नहीं                                                  | हाँ            |
+
+## UX standard {#ux-standard}
+
+- Keep durable settings in Settings. The agent sidebar links into a page
+  instead of rendering settings inline.
+- A provider key is added, changed, and removed in one dialog, whichever page
+  opened it.
+- Read-only rows show the value with a lock and a tooltip naming who can change
+  it (`ReadOnlySettingValue`). Removing a key, disconnecting Builder.io, or
+  restricting personal keys opens a confirm dialog that lists what stops
+  working.
+- Rows are a label, an optional description, and one control. No page
+  subtitles, eyebrows, or count strips.
+- Register a search entry for every meaningful row.
+
+## Sign in with ChatGPT for open-source apps {#chatgpt-subscription-lab}
+
+Agent-Native uses OpenAI's official Sign in with ChatGPT token-sharing flow for
+eligible open-source use. It authorizes the local app to make eligible requests
+to OpenAI's public Responses API with the signed-in user's ChatGPT plan. It does
+not grant access to the user's ChatGPT conversations or history.
+
+OpenAI's self-serve flow requires an HTTP OAuth callback on `127.0.0.1`, a
+loopback address on the user's machine. It does not work for a remotely hosted
+app, and `localhost` is not an accepted substitute for `127.0.0.1` का स्वीकार्य विकल्प नहीं है। hosted या paid deployment के लिए स्वयं-सेवा प्रक्रिया स्वीकृत नहीं है। ऐसे उपयोगों के लिए [रुचि फ़ॉर्म](https://openai.com/form/sign-in-with-chatgpt-interest) के ज़रिए OpenAI की अलग मंज़ूरी चाहिए।
+
+<Steps>
+
+### ChatGPT कनेक्ट करें
+
+**सेटिंग्स → एजेंट → मॉडल** खोलें और व्यक्तिगत प्रदाता सूची से ChatGPT कनेक्ट करें। उस ChatGPT खाते से साइन इन करें जिसकी योजना आप इस्तेमाल करना चाहते हैं, फिर माँगी गई पहुँच को मंज़ूरी दें। कनेक्ट होने के बाद chat के मॉडल चयनक में उपलब्ध मॉडल चुनें। उसी सेटिंग्स पंक्ति से ChatGPT डिस्कनेक्ट कर सकते हैं। यदि OpenAI remote revocation की पुष्टि न कर सके, तब भी स्थानीय tokens मिटा दिए जाते हैं; ChatGPT सेटिंग्स → उपयोग में इस ऐप की पहुँच प्रबंधित करने के लिए चेतावनी लिंक खोलें।
+
+</Steps>
+
+Inference के लिए केवल सार्वजनिक Responses API इस्तेमाल करें। ChatGPT के निजी backend endpoints और ChatGPT बातचीत का डेटा इस अनुमति के दायरे में नहीं आते। OpenAI टोकन साझा करने की प्रक्रिया को पूर्वावलोकन बताता है, इसलिए मॉडल की उपलब्धता, सीमाएँ और समर्थित API सुविधाएँ बदल सकती हैं। OpenAI की [Sign in with ChatGPT अवलोकन](https://developers.openai.com/siwc/token-sharing-open-source), [पंजीकरण और साइन-इन](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), [खाते और सत्र](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions), [मॉडल और इन्फ़रेंस](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference), [पूर्वावलोकन सीमाएँ](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations), [त्रुटि से उबरना](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery) और [UI/UX दिशानिर्देश](https://developers.openai.com/siwc/ui-ux-guidelines) देखें।
+
+## आगे क्या
+
+- [**अंतरराष्ट्रीयकरण**](/docs/internationalization) — ऐप की सेटिंग्स का पाठ का स्थानीयकरण करें।
+- [**ऑनबोर्डिंग**](/docs/onboarding) — उन setup चरणों को दर्ज करें जहाँ settings deep links उपयोगकर्ताओं को ले जाते हैं।
+- [**Workspace कनेक्शन**](/docs/workspace-connections) — provider readiness के पीछे का साझा provider-connection model।
