@@ -336,6 +336,7 @@ describe("patch-database-items", () => {
           itemId: row.itemId,
           documentId: row.documentId,
           expectedRowRevision: row.rowRevision,
+          ...(index % 3 === 0 ? { title: `Retitled ${index}` } : {}),
           propertyEntries: [
             {
               propertyId: ids.properties.rank,
@@ -371,6 +372,22 @@ describe("patch-database-items", () => {
     );
     expect(await storedValues(documentIds, ids.properties.status)).toEqual(
       rows.map((_, index) => (index % 2 === 0 ? "waiting" : null)),
+    );
+    const titles = new Map(
+      (
+        await getDb()
+          .select({ id: schema.documents.id, title: schema.documents.title })
+          .from(schema.documents)
+          .where(inArray(schema.documents.id, documentIds))
+      ).map((document: { id: string; title: string }) => [
+        document.id,
+        document.title,
+      ]),
+    );
+    expect(documentIds.map((id) => titles.get(id))).toEqual(
+      rows.map((_, index) =>
+        index % 3 === 0 ? `Retitled ${index}` : `Task ${index + 1}`,
+      ),
     );
   }, 180_000);
 

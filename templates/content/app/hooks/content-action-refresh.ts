@@ -33,6 +33,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "migrate-content-database-rows",
   "move-document",
   "mutate-content-database-block",
+  "patch-database-items",
   "process-builder-body-hydration",
   "pull-builder-doc",
   "pull-document",

@@ -1153,6 +1153,12 @@ async function createInsideTransaction(
   return snapshot;
 }
 
+function nextRowUpdatedAt(now: string, before: RowSnapshot) {
+  return now > before.document.updatedAt
+    ? now
+    : new Date(new Date(before.document.updatedAt).getTime() + 1).toISOString();
+}
+
 async function writeRowTitle(
   tx: Db,
   actor: ReturnType<typeof requireDocumentRequestActor>,
@@ -1160,17 +1166,11 @@ async function writeRowTitle(
   before: RowSnapshot,
   args: { title: string; expectedRowRevision: string },
 ) {
-  const nextUpdatedAt =
-    now > before.document.updatedAt
-      ? now
-      : new Date(
-          new Date(before.document.updatedAt).getTime() + 1,
-        ).toISOString();
   const [updatedDocument] = await tx
     .update(schema.documents)
     .set({
       title: args.title.trim(),
-      updatedAt: nextUpdatedAt,
+      updatedAt: nextRowUpdatedAt(now, before),
       ...documentEditAttribution(actor),
     })
     .where(
@@ -2188,14 +2188,65 @@ async function patchRowsInsideTransaction(
     return { snapshot, changedPropertyIds, titleChanged };
   });
 
-  for (const [index, plan] of planned.entries()) {
-    if (plan.titleChanged) {
-      await writeRowTitle(tx, actor, now, plan.snapshot, {
-        title: rows[index].title!,
-        expectedRowRevision: rows[index].expectedRowRevision,
+  const documents = schema.documents;
+  const titleWrites = planned.flatMap((plan, index) =>
+    plan.titleChanged
+      ? [{ index, snapshot: plan.snapshot, title: rows[index].title!.trim() }]
+      : [],
+  );
+  const staleTitles: RowPatchIssue[] = [];
+  for (const chunk of chunked(titleWrites, ROW_PATCH_WRITE_CHUNK)) {
+    const written = await tx
+      .update(documents)
+      .set({
+        title: sql`CASE ${sql.join(
+          chunk.map(
+            (write) =>
+              sql`WHEN ${documents.id} = ${write.snapshot.document.id} THEN ${write.title}`,
+          ),
+          sql` `,
+        )} ELSE ${documents.title} END`,
+        updatedAt: sql`CASE ${sql.join(
+          chunk.map(
+            (write) =>
+              sql`WHEN ${documents.id} = ${write.snapshot.document.id} THEN ${nextRowUpdatedAt(now, write.snapshot)}`,
+          ),
+          sql` `,
+        )} ELSE ${documents.updatedAt} END`,
+        ...documentEditAttribution(actor),
+      })
+      .where(
+        and(
+          isNull(documents.trashedAt),
+          or(
+            ...chunk.map((write) =>
+              and(
+                eq(documents.id, write.snapshot.document.id),
+                eq(documents.updatedAt, write.snapshot.document.updatedAt),
+              ),
+            ),
+          ),
+        ),
+      )
+      .returning({ id: documents.id });
+    const writtenIds = new Set(written.map((document) => document.id));
+    for (const write of chunk) {
+      if (writtenIds.has(write.snapshot.document.id)) continue;
+      staleTitles.push({
+        index: write.index,
+        itemId: write.snapshot.item.id,
+        documentId: write.snapshot.document.id,
+        reason: "stale_revision",
+        expected: rows[write.index].expectedRowRevision,
       });
     }
   }
+  rowPatchIssues(
+    "ROW_REVISION_CONFLICT",
+    "Some rows changed while the batch was writing; nothing was written. Reread the listed rows before retrying.",
+    staleTitles,
+    409,
+  );
   const values = schema.documentPropertyValues;
   for (const chunk of chunked(valueUpdates, ROW_PATCH_WRITE_CHUNK)) {
     await tx
