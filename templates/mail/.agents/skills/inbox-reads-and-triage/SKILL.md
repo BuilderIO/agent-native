@@ -38,6 +38,17 @@ next step. The inbox client follows this cadence automatically. A plain
 `list-inbox-threads` call never starts Gmail work. Use `resync-inbox` only to
 reset and restart an account's local inbox sync; it performs one bounded step.
 
+## Gmail cooldown
+
+A Gmail-backed read (`search-emails`, `list-emails`, `get-email`,
+`get-thread`, `manage-gmail-filters`) that fails with `errorCode:
+gmail_quota_cooldown` is a rate limit, not an outage. `details.retryAfterMs` and
+`details.cooldownUntil` say when Gmail is ready again. Do not call any
+Gmail-backed read again before then: calls inside the window are rejected
+without reaching Gmail and return the same error. Report the limit as a
+coverage gap, use `list-inbox-threads` (always served from the synced store) for
+inbox questions, and offer to retry after the cooldown.
+
 ## Coverage-aware inventory reads
 
 `list-emails` remains the compatibility list action for the UI and internal

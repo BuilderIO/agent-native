@@ -176,6 +176,9 @@ export async function mutateSetting(
     const current = raw == null ? null : JSON.parse(raw);
     const next = await updater(current);
     const nextRaw = JSON.stringify(next);
+    // An unchanged value is not a write: it would bump updated_at and publish
+    // a settings event that makes every open page refetch for nothing.
+    if (raw !== null && nextRaw === raw) return JSON.parse(raw);
     const timestamp = Date.now();
     const result =
       raw == null

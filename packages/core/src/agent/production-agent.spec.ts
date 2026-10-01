@@ -110,6 +110,9 @@ import type { AgentChatEvent, RunEvent } from "./types.js";
 const mockTryClaimRunSlot = vi.hoisted(() =>
   vi.fn(async () => ({ claimed: true, activeRunId: null })),
 );
+const mockGetSlotHoldingRunId = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | undefined> => undefined),
+);
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -123,6 +126,7 @@ vi.mock("./run-manager.js", async () => ({
     "./run-manager.js",
   )),
   tryClaimRunSlot: mockTryClaimRunSlot,
+  getSlotHoldingRunId: mockGetSlotHoldingRunId,
 }));
 
 describe("runCompletionCallbackWithDatabaseRetry", () => {
@@ -2103,6 +2107,65 @@ describe("createProductionAgentHandler", () => {
     });
     expect(event.res.status).toBe(400);
     expect(systemPrompt).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("refuses a busy thread before uploading the message's attachments", async () => {
+    // The client sends the same message again once the thread frees up, so
+    // uploading before the refusal would store every file again per retry.
+    mockGetSlotHoldingRunId.mockResolvedValueOnce("run-earlier");
+    mockTryClaimRunSlot.mockClear();
+    const stream = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream,
+      },
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Look at this",
+          threadId: "thread-busy",
+          attachments: [
+            {
+              type: "image",
+              name: "shot.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,iVBORw0KGgo=",
+            },
+          ],
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: "alice@example.com", run: {} }, () =>
+        handler(event),
+      ),
+    ).resolves.toEqual({
+      error: "Run already in progress for this thread",
+      code: "run_slot_busy",
+      retryable: true,
+      activeRunId: "run-earlier",
+    });
+    expect(event.res.status).toBe(409);
+    expect(mockGetSlotHoldingRunId).toHaveBeenCalledWith("thread-busy");
+    expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
     expect(stream).not.toHaveBeenCalled();
   });
 

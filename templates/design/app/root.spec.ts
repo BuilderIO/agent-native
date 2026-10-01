@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,5 +38,16 @@ describe("computeSessionBypass", () => {
 
   it("still bypasses public design app routes with no embed credential", () => {
     expect(computeSessionBypass("/visual-edit/abc123")).toBe(true);
+  });
+});
+
+describe("command menu shortcut", () => {
+  it("opens from the home prompt composer, which holds focus on load", () => {
+    // The shared hook drops the shortcut while a contenteditable has focus
+    // unless the app opts in; the focused home composer made it a dead key.
+    const source = readFileSync(join(import.meta.dirname, "root.tsx"), "utf8");
+    expect(source).toMatch(
+      /useCommandMenuShortcut\([\s\S]*?\{ allowContentEditable: true \},?\s*\);/,
+    );
   });
 });

@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   createWorkspaceResource: vi.fn(),
   listWorkspaceResources: vi.fn(),
   updateWorkspaceResource: vi.fn(),
+  resolveEngine: vi.fn(),
+  isResolvedEngineUsableForRequest: vi.fn(),
 }));
 
 vi.mock("../../db/index.js", async () => {
@@ -55,9 +57,22 @@ vi.mock("./thread-debug-store.js", () => ({
 
 vi.mock("@agent-native/core/resources/store", () => ({
   SHARED_OWNER: "__shared__",
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? owner.slice("__organization__:".length)
+      : null,
   resourceGetByPath: mocks.resourceGetByPath,
   resourceList: mocks.resourceList,
   resourcePut: mocks.resourcePut,
+}));
+
+vi.mock("@agent-native/core/agent/engine", () => ({
+  resolveEngine: mocks.resolveEngine,
+  isResolvedEngineUsableForRequest: mocks.isResolvedEngineUsableForRequest,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  runWithRequestContext: (_context: unknown, run: () => unknown) => run(),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -1496,6 +1511,73 @@ describe("ensureDreamJob", () => {
       "Invalid cron expression",
     );
     expect(mocks.resourcePut).not.toHaveBeenCalled();
+  });
+
+  it("does not look up an LLM credential for a personal owner", async () => {
+    await ensureDreamJob({});
+    expect(mocks.resolveEngine).not.toHaveBeenCalled();
+    expect(mocks.isResolvedEngineUsableForRequest).not.toHaveBeenCalled();
+    expect(mocks.resourcePut).toHaveBeenCalled();
+  });
+
+  describe("for an organization or shared owner", () => {
+    beforeEach(() => {
+      mocks.currentOwnerEmail.mockReturnValue("__organization__:acme");
+      mocks.currentOrgId.mockReturnValue("acme" as never);
+      mocks.resolveEngine.mockResolvedValue({ name: "builder" });
+    });
+
+    it("does not schedule a job whose identity has no LLM provider, and records why once", async () => {
+      mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
+
+      await expect(ensureDreamJob({})).rejects.toMatchObject({
+        errorCode: "missing_credentials",
+        statusCode: 409,
+        message: expect.stringContaining("__organization__:acme"),
+      });
+
+      expect(mocks.resourcePut).not.toHaveBeenCalled();
+      expect(mocks.recordAudit).toHaveBeenCalledTimes(1);
+      expect(mocks.recordAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "dream.job.skipped",
+          metadata: {
+            reason: "missing_credentials",
+            owner: "__organization__:acme",
+          },
+        }),
+      );
+      expect(mocks.isResolvedEngineUsableForRequest).toHaveBeenCalledWith(
+        { name: "builder" },
+        {
+          credentialIdentity: {
+            userEmail: "__organization__:acme",
+            orgId: "acme",
+          },
+        },
+      );
+    });
+
+    it("schedules the job once the identity has a provider", async () => {
+      mocks.isResolvedEngineUsableForRequest.mockResolvedValue(true);
+
+      await expect(ensureDreamJob({})).resolves.toMatchObject({
+        path: "jobs/dispatch-dream.md",
+        enabled: true,
+      });
+      expect(mocks.resourcePut).toHaveBeenCalledOnce();
+    });
+
+    it("treats the shared owner the same way", async () => {
+      mocks.currentOwnerEmail.mockReturnValue("__shared__");
+      mocks.currentOrgId.mockReturnValue(null);
+      mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
+
+      await expect(ensureDreamJob({})).rejects.toMatchObject({
+        errorCode: "missing_credentials",
+      });
+      expect(mocks.resourcePut).not.toHaveBeenCalled();
+    });
   });
 
   it("persists recurring dream settings", async () => {

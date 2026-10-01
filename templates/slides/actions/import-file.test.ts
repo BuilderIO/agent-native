@@ -233,6 +233,23 @@ describe("import-file PDF source extraction", () => {
     });
   });
 
+  it("opens the file through the shared reader with the run's attachments and does not rewrap its typed error", async () => {
+    const typedError = Object.assign(new Error("storage down"), {
+      errorCode: "attachment_storage_unavailable",
+      statusCode: 503,
+    });
+    mockReadUserUploadedFile.mockRejectedValue(typedError);
+    const ctx = {
+      caller: "tool" as const,
+      attachments: [{ type: "file" as const, name: "deck.pdf" }],
+    };
+
+    await expect(
+      action.run({ filePath: "deck.pdf", format: "pdf" }, ctx),
+    ).rejects.toBe(typedError);
+    expect(mockReadUserUploadedFile).toHaveBeenCalledWith("deck.pdf", ctx);
+  });
+
   it("fails clearly when a private raster exceeds the vision tool limit", async () => {
     mockReadUserUploadedFile.mockResolvedValue({
       data: Buffer.alloc(1_500_001),

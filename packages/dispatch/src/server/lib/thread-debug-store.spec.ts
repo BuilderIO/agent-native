@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -374,9 +375,19 @@ describe("thread-debug-store", () => {
       ]),
     );
     expect(mocks.createDbExec).not.toHaveBeenCalled();
-    await expect(
-      listAgentRunFailures({ sourceId: "missing-prod" }),
-    ).rejects.toThrow("configured but disconnected");
+    // Asking for that one source is a deploy misconfiguration, not a user
+    // state: an untyped error the action boundary captures as a 500.
+    const disconnected = await listAgentRunFailures({
+      sourceId: "missing-prod",
+    }).catch((error: unknown) => error);
+    expect(disconnected).toBeInstanceOf(Error);
+    expect((disconnected as Error).message).toContain(
+      "configured but disconnected",
+    );
+    expect(isActionContractError(disconnected)).toBe(false);
+    expect(
+      (disconnected as { statusCode?: unknown }).statusCode,
+    ).toBeUndefined();
   });
 
   it("does not misclassify a missing additive column as a missing table", async () => {

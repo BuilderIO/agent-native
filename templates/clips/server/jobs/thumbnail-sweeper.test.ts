@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
+const mockMarkThumbnailFailed = vi.hoisted(() => vi.fn());
+const mockCountAttempt = vi.hoisted(() => vi.fn());
+const mockClaimLease = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() =>
   vi.fn((_context: unknown, fn: () => unknown) => fn()),
 );
@@ -49,9 +52,22 @@ vi.mock("../db/index.js", () => ({
 vi.mock("../lib/ensure-recording-thumbnail.js", () => ({
   ensureRecordingThumbnail: (...args: unknown[]) =>
     mockEnsureRecordingThumbnail(...args),
+  markThumbnailFailed: (...args: unknown[]) => mockMarkThumbnailFailed(...args),
+  isRetryableRecordingThumbnailStatus: (status: string) =>
+    status.startsWith("skipped-") &&
+    status !== "skipped-no-media" &&
+    status !== "skipped-not-ready" &&
+    status !== "skipped-loom-embed",
 }));
 
-import { runThumbnailSweepOnce } from "./thumbnail-sweeper";
+vi.mock("../lib/recording-leases.js", () => ({
+  claimLease: (...args: unknown[]) => mockClaimLease(...args),
+  countAttempt: (...args: unknown[]) => mockCountAttempt(...args),
+}));
+
+import registerThumbnailSweeperJob, {
+  runThumbnailSweepOnce,
+} from "./thumbnail-sweeper";
 
 describe("thumbnail sweeper", () => {
   beforeEach(() => {
@@ -60,6 +76,8 @@ describe("thumbnail sweeper", () => {
       status: "generated",
       changed: true,
     });
+    mockMarkThumbnailFailed.mockResolvedValue(undefined);
+    mockCountAttempt.mockResolvedValue(1);
     mockRows.rows = [];
   });
 
@@ -133,5 +151,116 @@ describe("thumbnail sweeper", () => {
     await expect(runThumbnailSweepOnce()).resolves.toBeUndefined();
 
     expect(mockEnsureRecordingThumbnail).toHaveBeenCalledTimes(2);
+  });
+
+  it("sweeps only on the instance that wins the cluster-wide sweep lease", async () => {
+    vi.useFakeTimers();
+    process.env.RUN_BACKGROUND_JOBS = "1";
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      mockClaimLease
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ key: "thumbnail-sweeper", token: "t" });
+      registerThumbnailSweeperJob();
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(mockClaimLease).toHaveBeenCalledWith(
+        "thumbnail-sweeper",
+        expect.any(Number),
+      );
+      expect(mockSelect).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      delete process.env.RUN_BACKGROUND_JOBS;
+    }
+  });
+
+  describe("unrecoverable recordings", () => {
+    const row = { id: "zzqa-1", ownerEmail: "qa@example.com", orgId: null };
+
+    it("counts a retryable failure and keeps the recording eligible until the cap", async () => {
+      mockRows.rows = [row];
+      mockEnsureRecordingThumbnail.mockResolvedValue({
+        status: "skipped-media-fetch",
+        changed: false,
+      });
+      mockCountAttempt.mockResolvedValue(4);
+
+      await runThumbnailSweepOnce();
+
+      expect(mockCountAttempt).toHaveBeenCalledWith(
+        "thumbnail-sweeper-attempts:zzqa-1",
+      );
+      expect(mockMarkThumbnailFailed).not.toHaveBeenCalled();
+    });
+
+    it("marks the recording failed on the fifth failed attempt so the sweep stops retrying it", async () => {
+      mockRows.rows = [row];
+      mockEnsureRecordingThumbnail.mockResolvedValue({
+        status: "skipped-frame-extraction",
+        changed: false,
+      });
+      mockCountAttempt.mockResolvedValue(5);
+
+      await runThumbnailSweepOnce();
+
+      expect(mockMarkThumbnailFailed).toHaveBeenCalledWith(
+        "zzqa-1",
+        expect.stringContaining("gave up after 5 attempts"),
+      );
+    });
+
+    it("never gives up on recordings because of a storage or network outage", async () => {
+      mockRows.rows = [
+        row,
+        { id: "rec-upload", ownerEmail: "a@example.com", orgId: null },
+        { id: "rec-fetch-5xx", ownerEmail: "a@example.com", orgId: null },
+        { id: "rec-race", ownerEmail: "a@example.com", orgId: null },
+      ];
+      const outcomes: Record<string, () => Promise<unknown>> = {
+        "zzqa-1": async () => {
+          throw new Error("connection terminated");
+        },
+        "rec-upload": async () => ({
+          status: "skipped-upload-failed",
+          changed: false,
+        }),
+        "rec-fetch-5xx": async () => ({
+          status: "skipped-media-fetch",
+          changed: false,
+          transient: true,
+        }),
+        "rec-race": async () => ({ status: "skipped-race", changed: false }),
+      };
+      mockEnsureRecordingThumbnail.mockImplementation(
+        ({ recordingId }: { recordingId: string }) => outcomes[recordingId]!(),
+      );
+      // Already at the cap: one counted attempt here would mark it failed.
+      mockCountAttempt.mockResolvedValue(5);
+
+      // Six sweeps is half an hour of outage.
+      for (let sweep = 0; sweep < 6; sweep += 1) await runThumbnailSweepOnce();
+
+      expect(mockCountAttempt).not.toHaveBeenCalled();
+      expect(mockMarkThumbnailFailed).not.toHaveBeenCalled();
+    });
+
+    it("does not count a recovered recording or one another producer is working on", async () => {
+      mockRows.rows = [
+        row,
+        { id: "busy", ownerEmail: "qa@example.com", orgId: null },
+      ];
+      mockEnsureRecordingThumbnail
+        .mockResolvedValueOnce({ status: "generated", changed: true })
+        .mockResolvedValueOnce({ status: "skipped-lease", changed: false });
+
+      await runThumbnailSweepOnce();
+
+      expect(mockCountAttempt).not.toHaveBeenCalled();
+      expect(mockMarkThumbnailFailed).not.toHaveBeenCalled();
+    });
   });
 });

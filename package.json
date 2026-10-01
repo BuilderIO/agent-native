@@ -156,6 +156,7 @@
     "guard:tracking-event-names": "node scripts/guard-tracking-event-names.mjs",
     "guard:no-untracked-imports": "node scripts/guard-no-untracked-imports.mjs",
     "guard:no-unbounded-table-reads": "node scripts/guard-no-unbounded-table-reads.mjs",
+    "guard:no-bare-error-in-actions": "tsx scripts/guard-no-bare-error-in-actions.ts",
     "check:production-cache-contract": "node scripts/check-production-cache-contract.mjs",
     "check:google-redirect-uris": "tsx scripts/check-google-redirect-uris.ts",
     "check:function-size-baseline": "node scripts/check-function-size-baseline.mjs",
