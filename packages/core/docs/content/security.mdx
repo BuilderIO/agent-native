@@ -244,7 +244,7 @@ CREATE TEMPORARY VIEW "notes" AS
 
 INSERT statements get `owner_email` auto-injected when the column isn't already present.
 
-The `db-query`, `db-exec`, and `db-patch` tools read each statement the way Postgres does and check, inside the transaction, that every name resolves to one of the temporary views above. They refuse schema- or database-qualified names (`public.<table>`), relations the views do not cover, app-defined SQL or PL/pgSQL functions and operators, and built-ins that run SQL text or change session settings. `db-query` runs read-only. Agents use bare table names; scoping is applied automatically. Use `@agent-native/core/agent-sql` to apply the same checks when your app runs agent-written SQL itself.
+The `db-query`, `db-exec`, and `db-patch` tools check SQL token boundaries and verify, inside the transaction, that each relation name resolves to one of the temporary views above. They refuse schema- or database-qualified names (`public.<table>`), relations the views do not cover, names matching functions or operators outside `pg_catalog` (including extensions), and selected built-ins that execute SQL text or access server, session, or sequence state. PostgreSQL escape-string continuation is unsupported and refused. `db-query` runs read-only. Agents use bare table names. Scoping is applied automatically. Apps can reuse these checks through `@agent-native/core/agent-sql`. Its `readAgentSqlQuery()` identifies table sources and their exact text spans in supported `SELECT`/`WITH` queries, and `rewriteAgentSqlQuerySources()` replaces those spans. Callers must enforce allowed sources and read-only execution.
 
 ### Per-Org Scoping (`org_id`)
 
