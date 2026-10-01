@@ -460,32 +460,7 @@ describe("OrgSwitcher (account menu)", () => {
     },
   );
 
-  it("shows live Builder balance and quota in the expanded sidebar", () => {
-    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
-    mocks.useActionQuery
-      .mockReturnValueOnce({
-        data: { email: ownerOrg.email, name: "Olivia Owner" },
-      })
-      .mockReturnValueOnce({
-        data: {
-          exhausted: false,
-          period: "monthly",
-          balance: 210,
-          quota: { period: "monthly", limit: 500, used: 120, remaining: 380 },
-        },
-        isError: false,
-      });
-
-    render(<OrgSwitcher />);
-
-    expect(container.textContent).toContain("Builder credits");
-    expect(container.textContent).toContain("Workspace balance: 210");
-    expect(container.textContent).toContain("120 of 500 used");
-    expect(container.textContent).toContain("380 remaining");
-    expect(container.textContent).not.toContain("$");
-  });
-
-  it("preserves supported fractional Builder credits", () => {
+  it("hides the Builder credit notice while any quota remains", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
     mocks.useActionQuery
       .mockReturnValueOnce({
@@ -503,12 +478,11 @@ describe("OrgSwitcher (account menu)", () => {
 
     render(<OrgSwitcher />);
 
-    expect(container.textContent).toContain("Workspace balance: 0.001");
-    expect(container.textContent).toContain("0.999 of 1 used");
-    expect(container.textContent).toContain("0.001 remaining");
+    expect(container.textContent).not.toContain("Builder credits");
+    expect(container.textContent).not.toContain("Workspace balance");
   });
 
-  it("includes the credit summary in the compact sidebar tooltip", () => {
+  it("shows a compact credit notice only when the quota is exhausted", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
     mocks.useActionQuery
       .mockReturnValueOnce({
@@ -516,10 +490,10 @@ describe("OrgSwitcher (account menu)", () => {
       })
       .mockReturnValueOnce({
         data: {
-          exhausted: false,
+          exhausted: true,
           period: "monthly",
-          balance: 210,
-          quota: { period: "monthly", limit: 500, used: 120, remaining: 380 },
+          balance: 0,
+          quota: { period: "monthly", limit: 500, used: 500, remaining: 0 },
         },
         isError: false,
       });
@@ -528,10 +502,9 @@ describe("OrgSwitcher (account menu)", () => {
 
     expect(
       container
-        .querySelector<HTMLButtonElement>("button[aria-label]")
+        .querySelector<HTMLAnchorElement>("a[aria-label]")
         ?.getAttribute("aria-label"),
-    ).toContain("Workspace balance: 210 · Monthly limit · 120 of 500 used");
-    expect(container.querySelector("a[aria-label]")).toBeNull();
+    ).toContain("Your Builder credits are used up");
     expect(container.textContent).not.toContain("$");
   });
 

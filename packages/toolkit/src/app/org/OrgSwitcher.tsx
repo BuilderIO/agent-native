@@ -55,7 +55,6 @@ import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
-  IconCoin,
   IconDownload,
   IconExternalLink,
   IconAlertCircle,
@@ -158,22 +157,20 @@ export function BuilderCreditNotice({
       ? { balance: status.balance, quota: status.quota }
       : null;
 
-  if (builderCreditStatus.isError || (status?.exhausted !== true && !usage)) {
+  const exhausted = status?.exhausted === true;
+  if (builderCreditStatus.isError || !exhausted) {
     return null;
   }
 
-  const exhausted = status?.exhausted === true;
   const quotaLabel =
     (usage?.quota.period ?? status?.period) === "daily"
       ? t("agentChat.usage.dailyDefaultLimit")
       : (usage?.quota.period ?? status?.period) === "monthly"
         ? t("agentChat.usage.monthlyLimit")
         : null;
-  const title = exhausted
-    ? [t("agentChat.billing.builderCreditLimitTitle"), quotaLabel]
-        .filter((label): label is string => label !== null)
-        .join(" · ")
-    : t("agentChat.usage.builderCredits");
+  const title = [t("agentChat.billing.builderCreditLimitTitle"), quotaLabel]
+    .filter((label): label is string => label !== null)
+    .join(" · ");
   const balance = usage?.balance.toLocaleString(undefined, {
     maximumFractionDigits: 3,
   });
@@ -194,12 +191,7 @@ export function BuilderCreditNotice({
     ? t("agentChat.usage.creditRemaining", { amount: remaining })
     : null;
   const usageDetails = usage
-    ? [
-        `${balanceLabel}: ${balance}`,
-        ...(!exhausted && quotaLabel ? [quotaLabel] : []),
-        usedLabel,
-        remainingLabel,
-      ]
+    ? [`${balanceLabel}: ${balance}`, usedLabel, remainingLabel]
         .filter((label): label is string => label !== null)
         .join(" · ")
     : null;
@@ -209,7 +201,7 @@ export function BuilderCreditNotice({
   const noticeLabel = [
     title,
     ...(usageDetails ? [usageDetails] : []),
-    ...(exhausted ? [t("agentChat.billing.builderCreditUpgrade")] : []),
+    t("agentChat.billing.builderCreditUpgrade"),
   ]
     .filter((label): label is string => label !== null)
     .join(" · ");
@@ -220,25 +212,15 @@ export function BuilderCreditNotice({
     <TooltipProvider delayDuration={0}>
       <Tooltip>
         <TooltipTrigger asChild>
-          {exhausted ? (
-            <a
-              href={builderUpgradeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={noticeLabel}
-              className={compactTriggerClassName}
-            >
-              <IconAlertCircle className="size-4" aria-hidden="true" />
-            </a>
-          ) : (
-            <button
-              type="button"
-              aria-label={noticeLabel}
-              className={compactTriggerClassName}
-            >
-              <IconCoin className="size-4" aria-hidden="true" />
-            </button>
-          )}
+          <a
+            href={builderUpgradeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={noticeLabel}
+            className={cn(compactTriggerClassName, className)}
+          >
+            <IconAlertCircle className="size-4" aria-hidden="true" />
+          </a>
         </TooltipTrigger>
         <TooltipContent side="right">{noticeLabel}</TooltipContent>
       </Tooltip>
@@ -252,33 +234,24 @@ export function BuilderCreditNotice({
       )}
     >
       <div className="flex items-start gap-2">
-        {exhausted ? (
-          <IconAlertCircle
-            className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-            aria-hidden="true"
-          />
-        ) : (
-          <IconCoin
-            className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-            aria-hidden="true"
-          />
-        )}
+        <IconAlertCircle
+          className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
         <div className="min-w-0 flex-1">
           <p className="leading-snug text-foreground">{title}</p>
           {usageDetails ? (
             <p className="mt-1 text-muted-foreground">{usageDetails}</p>
           ) : null}
-          {exhausted ? (
-            <a
-              href={builderUpgradeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
-            >
-              {t("agentChat.billing.builderCreditUpgrade")}
-              <IconArrowUpRight className="size-3" aria-hidden="true" />
-            </a>
-          ) : null}
+          <a
+            href={builderUpgradeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+          >
+            {t("agentChat.billing.builderCreditUpgrade")}
+            <IconArrowUpRight className="size-3" aria-hidden="true" />
+          </a>
         </div>
       </div>
     </div>

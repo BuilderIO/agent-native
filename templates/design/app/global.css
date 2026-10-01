@@ -77,7 +77,6 @@
 }
 
 .design-home-mobile-header-actions {
-  display: grid;
   grid-template-columns: minmax(4rem, 1fr) minmax(0, min(30rem, 60vw)) minmax(
       4rem,
       1fr
@@ -86,6 +85,12 @@
   min-height: 3rem;
   border-bottom: 0;
   overflow: visible;
+}
+
+@media (width < 48rem) {
+  .design-home-mobile-header-actions {
+    display: grid;
+  }
 }
 
 .design-home-mobile-header-actions > div:last-child {
