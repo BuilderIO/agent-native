@@ -592,6 +592,21 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     );
   });
 
+  it("uses content and chat activity with canonical auth identities for BigQuery retention", () => {
+    const baseStart =
+      FIRST_PARTY_BIGQUERY_RETENTION_SQL.indexOf("WITH base AS");
+    const baseEnd = FIRST_PARTY_BIGQUERY_RETENTION_SQL.indexOf("first_seen AS");
+    const base = FIRST_PARTY_BIGQUERY_RETENTION_SQL.slice(baseStart, baseEnd);
+
+    expect(base).toContain("'recording_ready', 'run_started')");
+    expect(base).toContain("generation_completed");
+    expect(base).toContain(
+      "COALESCE(NULLIF(JSON_VALUE(properties, '$.auth_user_id'), ''), NULLIF(user_key, '')) AS user_key",
+    );
+    expect(base).not.toContain("session status");
+    expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).not.toContain("session status");
+  });
+
   it("repairs the persisted last-valid BigQuery retention query for custom ranges", () => {
     const retention = requiredFirstPartyPanel("retention-over-time");
     const repaired = repairFirstPartyBigQueryDashboardQueries({

@@ -126,6 +126,7 @@ import {
   isSourceImprovementRequest,
   persistDeckGenerationContext,
   requestedSlideCount,
+  type DeckGenerationContext,
   WEBSITE_STYLE_REFERENCE_DIRECTIVE,
 } from "@/lib/create-deck-generation";
 import {
@@ -1104,6 +1105,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       deck = createDeck(undefined, {
         noDefaultSlides: true,
         designSystemId: selectedDesignSystem?.id ?? null,
+        deferPersistence: true,
       });
     });
     if (!deck) {
@@ -1189,19 +1191,26 @@ export default function Index({ active = true }: { active?: boolean }) {
       }
     };
 
-    const persisted = await ensureDeckPersisted(deck.id);
-    if (!persisted.persisted) {
-      recoverFromGenerationSetupFailure(
-        describeDeckPersistenceFailure(
-          persisted,
-          t("home.generationStartFailedDescription"),
-        ),
-      );
-      return;
-    }
-
     let importedSourceDeck: ImportedSourceDeck | null = null;
-    if (isSourceImprovementRequest(prompt, filesForSourceImprovement)) {
+    const sourceImprovementRequest = isSourceImprovementRequest(
+      prompt,
+      filesForSourceImprovement,
+    );
+    let deckPersisted = false;
+    if (sourceImprovementRequest) {
+      const persisted = await ensureDeckPersisted(deck.id);
+      if (!persisted.persisted) {
+        recoverFromGenerationSetupFailure(
+          describeDeckPersistenceFailure(
+            persisted,
+            t("home.generationStartFailedDescription"),
+          ),
+        );
+        return;
+      }
+      deckPersisted = true;
+    }
+    if (sourceImprovementRequest) {
       try {
         importedSourceDeck = await importUploadedDeckIntoDeck(
           filesForSourceImprovement,
@@ -1380,26 +1389,42 @@ export default function Index({ active = true }: { active?: boolean }) {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
 
+    const generationContext: DeckGenerationContext = {
+      originalPrompt: trimmedPrompt,
+      additionalContext,
+      files: filesForGeneration.map((file) => ({
+        path: file.path,
+        ...(file.url ? { url: file.url } : {}),
+        originalName: file.originalName,
+        type: file.type,
+      })),
+      designSystemId,
+      referenceDeckId,
+      composerContext: referenceSelection.composerContext,
+      contextItems: referenceSelection.contextItems,
+      ...(referenceSource ? { referenceSource } : {}),
+      mode: importedSourceDeck ? "source-preserving" : "new",
+      targetSlideCount:
+        importedSourceDeck?.slideCount ?? requestedSlideCount(trimmedPrompt),
+      generationAttemptId,
+    };
+
     try {
-      await persistDeckGenerationContext(deckId, {
-        originalPrompt: trimmedPrompt,
-        additionalContext,
-        files: filesForGeneration.map((file) => ({
-          path: file.path,
-          ...(file.url ? { url: file.url } : {}),
-          originalName: file.originalName,
-          type: file.type,
-        })),
-        designSystemId,
-        referenceDeckId,
-        composerContext: referenceSelection.composerContext,
-        contextItems: referenceSelection.contextItems,
-        ...(referenceSource ? { referenceSource } : {}),
-        mode: importedSourceDeck ? "source-preserving" : "new",
-        targetSlideCount:
-          importedSourceDeck?.slideCount ?? requestedSlideCount(trimmedPrompt),
-        generationAttemptId,
-      });
+      if (!deckPersisted) {
+        updateDeck(deckId, { generationContext });
+        const persisted = await ensureDeckPersisted(deckId);
+        if (!persisted.persisted) {
+          recoverFromGenerationSetupFailure(
+            describeDeckPersistenceFailure(
+              persisted,
+              t("home.generationStartFailedDescription"),
+            ),
+          );
+          return;
+        }
+      } else {
+        await persistDeckGenerationContext(deckId, generationContext);
+      }
     } catch (error) {
       recoverFromGenerationSetupFailure(
         error instanceof Error

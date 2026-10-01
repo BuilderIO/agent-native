@@ -230,6 +230,9 @@ const FIRST_TOUCH_QUERY_FIELDS = [
   "utm_campaign",
   "utm_content",
   "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
 ] as const;
 
 let _firstTouchCaptured = false;
@@ -242,6 +245,9 @@ export interface FirstTouchAttribution {
   utm_campaign?: string;
   utm_content?: string;
   utm_term?: string;
+  gclid?: string;
+  msclkid?: string;
+  vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
   landed_at?: string;
@@ -279,6 +285,9 @@ function readCachedLlmConnectionStatus(): LlmConnectionStatus | null {
     }
     return {
       configured: parsed.configured,
+      ...(typeof parsed.chatEligible === "boolean"
+        ? { chatEligible: parsed.chatEligible }
+        : {}),
       engine: parsed.engine,
       model: parsed.model,
       source: parsed.source,
@@ -299,15 +308,20 @@ function cacheLlmConnectionStatus(status: LlmConnectionStatus): void {
 
 function normalizeAgentEngineStatus(data: unknown): LlmConnectionStatus {
   const value = data as Record<string, unknown> | null;
-  if (!value || value.configured !== true) {
-    return { configured: false };
-  }
+  if (!value) return { configured: false };
   return {
-    configured: true,
-    engine: typeof value.engine === "string" ? value.engine : null,
-    model: typeof value.model === "string" ? value.model : null,
-    source: typeof value.source === "string" ? value.source : null,
-    envVar: typeof value.envVar === "string" ? value.envVar : null,
+    configured: value.configured === true,
+    ...(typeof value.chatEligible === "boolean"
+      ? { chatEligible: value.chatEligible }
+      : {}),
+    ...(value.configured === true
+      ? {
+          engine: typeof value.engine === "string" ? value.engine : null,
+          model: typeof value.model === "string" ? value.model : null,
+          source: typeof value.source === "string" ? value.source : null,
+          envVar: typeof value.envVar === "string" ? value.envVar : null,
+        }
+      : {}),
   };
 }
 

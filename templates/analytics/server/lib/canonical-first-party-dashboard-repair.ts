@@ -22,6 +22,14 @@ export const FIRST_PARTY_BIGQUERY_DASHBOARD_ID =
 const BIGQUERY_SESSION_STATUS_EVENT_FILTER =
   "event_name IN ('session status', 'session_status')";
 const BIGQUERY_SIGNED_IN_ACTIVITY_FILTER = `(((${BIGQUERY_SESSION_STATUS_EVENT_FILTER} AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND NULLIF(user_key, '') IS NOT NULL)`;
+const BIGQUERY_CONTENT_OR_CHAT_ACTIVITY_FILTER = `(
+  (event_name IN ('action_completed', 'core_action_completed')
+    AND COALESCE(JSON_VALUE(properties, '$.success'), 'true') = 'true'
+    AND NULLIF(JSON_VALUE(properties, '$.output_id'), '') IS NOT NULL)
+  OR event_name IN ('generation_completed', 'design_created', 'plan_created', 'recording_ready', 'run_started')
+  OR (event_name = 'app.first_action' AND JSON_VALUE(properties, '$.action') = 'chat_submit')
+  OR (event_name = 'core_action_started' AND JSON_VALUE(properties, '$.action_name') = 'chat_submit')
+)`;
 
 export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
   SELECT
@@ -173,6 +181,14 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
   )
     .split("event_name = 'session status'")
     .join(BIGQUERY_SESSION_STATUS_EVENT_FILTER)
+    .replace(
+      BIGQUERY_SIGNED_IN_ACTIVITY_FILTER,
+      BIGQUERY_CONTENT_OR_CHAT_ACTIVITY_FILTER,
+    )
+    .replace(
+      "SELECT NULLIF(user_key, '') AS user_key",
+      "SELECT COALESCE(NULLIF(JSON_VALUE(properties, '$.auth_user_id'), ''), NULLIF(user_key, '')) AS user_key",
+    )
     .replace(PRE_CUSTOM_RETENTION_BASE_RANGE, CUSTOM_RETENTION_BASE_RANGE)
     .replace(
       "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\nperiods AS",
@@ -198,7 +214,11 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
       "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nORDER BY",
       "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nLEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\nORDER BY",
     )
-    .replace(PRE_CUSTOM_RETENTION_ANCHOR_RANGE, CUSTOM_RETENTION_ANCHOR_RANGE);
+    .replace(PRE_CUSTOM_RETENTION_ANCHOR_RANGE, CUSTOM_RETENTION_ANCHOR_RANGE)
+    .replace(
+      `   AND ${BIGQUERY_SESSION_STATUS_EVENT_FILTER}\n${CUSTOM_RETENTION_COVERAGE_RANGE}`,
+      CUSTOM_RETENTION_COVERAGE_RANGE,
+    );
 
 const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
   FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(

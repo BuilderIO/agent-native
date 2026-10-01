@@ -32,6 +32,9 @@ export interface FirstTouchAttribution {
   utm_campaign?: string;
   utm_content?: string;
   utm_term?: string;
+  gclid?: string;
+  msclkid?: string;
+  vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
   landed_at?: string;
@@ -63,6 +66,9 @@ const STRING_FIELDS: Array<keyof FirstTouchAttribution> = [
   "utm_campaign",
   "utm_content",
   "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
   "landing_path",
   "landing_referrer",
   "landed_at",
@@ -192,6 +198,9 @@ export function deriveSignupAttribution(
   setIf("utm_campaign", ft.utm_campaign);
   setIf("utm_content", ft.utm_content);
   setIf("utm_term", ft.utm_term);
+  setIf("gclid", ft.gclid);
+  setIf("msclkid", ft.msclkid);
+  setIf("vector_source", ft.vector_source);
   setIf("first_touch_path", ft.landing_path);
   setIf("landing_referrer", ft.landing_referrer);
 

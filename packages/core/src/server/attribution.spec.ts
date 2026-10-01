@@ -167,6 +167,9 @@ describe("deriveSignupAttribution", () => {
       utm_campaign: "launch",
       utm_content: "card-a",
       utm_term: "agents",
+      gclid: "google-click-1",
+      msclkid: "microsoft-click-1",
+      vector_source: "vector-campaign",
       landing_path: "/plan/xyz",
       landing_referrer: "t.co",
     };
@@ -180,6 +183,9 @@ describe("deriveSignupAttribution", () => {
       utm_campaign: "launch",
       utm_content: "card-a",
       utm_term: "agents",
+      gclid: "google-click-1",
+      msclkid: "microsoft-click-1",
+      vector_source: "vector-campaign",
       first_touch_path: "/plan/xyz",
       landing_referrer: "t.co",
     });

@@ -244,6 +244,7 @@ describe("browser analytics pageviews", () => {
         new Response(
           JSON.stringify({
             configured: true,
+            chatEligible: false,
             engine: "builder",
             model: "claude-sonnet-4-6",
             source: "app_secrets",
@@ -262,6 +263,7 @@ describe("browser analytics pageviews", () => {
       properties: {
         llm_connection: "builder",
         llm_connection_configured: true,
+        llm_chat_eligible: false,
       },
     });
   });

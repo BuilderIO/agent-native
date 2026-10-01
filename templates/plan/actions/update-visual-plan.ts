@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
   getRequestUserEmail,
@@ -728,13 +728,15 @@ export default defineAction({
 
     if (isDestructiveStructuredWrite) {
       if (!args.expectedUpdatedAt) {
-        throw new Error(
+        fail(
           "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
+          { errorCode: "plan_revision_required", statusCode: 400 },
         );
       }
       if (bundleAtLoad?.plan.updatedAt !== args.expectedUpdatedAt) {
-        throw new Error(
+        fail(
           "This destructive update was prepared from an outdated plan revision. Reload the plan and retry with the latest expectedUpdatedAt.",
+          { errorCode: "plan_revision_conflict", statusCode: 409 },
         );
       }
       versionAtLoad = args.expectedUpdatedAt;
@@ -1020,8 +1022,9 @@ export default defineAction({
           .returning({ id: schema.plans.id });
 
         if (updatedRows.length === 0) {
-          throw new Error(
+          fail(
             "This plan was updated by someone else while your change was being saved. Reload the plan and retry.",
+            { errorCode: "plan_revision_conflict", statusCode: 409 },
           );
         }
       }

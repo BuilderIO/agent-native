@@ -40,11 +40,24 @@ async function seedFirstSeenEvent(
   userKey: string,
   date: string,
   template = "chat",
+  authUserId?: string,
 ) {
+  const rowId = `row-${nextRowId++}`;
   await client.query(
-    `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, signed_in)
-     VALUES ($1, 'session status', $2, $3, $4, $4, $5, 'true')`,
-    [`row-${nextRowId++}`, `${userKey}@example.com`, userKey, date, template],
+    `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, properties)
+     VALUES ($1, 'run_started', $2, $3, $4, $4, $5, $6)`,
+    [
+      rowId,
+      `${userKey}@example.com`,
+      userKey,
+      date,
+      template,
+      JSON.stringify({
+        thread_id: `thread-${rowId}`,
+        attempt_id: `attempt-${rowId}`,
+        ...(authUserId ? { auth_user_id: authUserId } : {}),
+      }),
+    ],
   );
 }
 
@@ -172,6 +185,62 @@ describe("retention-over-time panel SQL", () => {
         (row) => row.date === cohortDate && row.period === "1-7d return",
       ),
     ).toMatchObject({ cohort_users: 5, retained_users: 3, rate: 0.6 });
+  });
+
+  it("counts server-started chats, ignores passive sessions, and joins changed emails by auth identity", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(cohortDate, -3);
+
+    for (let index = 0; index < 5; index++) {
+      await seedFirstSeenEvent(
+        client,
+        `user-${index}`,
+        cohortDate,
+        "chat",
+        `auth-${index}`,
+      );
+    }
+    await seedFirstSeenEvent(
+      client,
+      "changed-email",
+      returnDate,
+      "chat",
+      "auth-0",
+    );
+    await client.query(
+      `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, signed_in)
+       VALUES ('passive-session', 'session status', 'passive@example.com', 'passive', $1, $1, 'chat', 'true')`,
+      [cohortDate],
+    );
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number | null;
+          rate: number | null;
+        }>;
+      }
+    ).rows;
+    expect(
+      rows.find(
+        (row) => row.date === cohortDate && row.period === "1-7d return",
+      ),
+    ).toMatchObject({ cohort_users: 5, retained_users: 1, rate: 0.2 });
   });
 
   it("sizes a bounded spine to the same calendar days as the shared time-range filter", async () => {

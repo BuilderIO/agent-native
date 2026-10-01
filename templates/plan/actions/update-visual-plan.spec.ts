@@ -1426,9 +1426,12 @@ describe("update-visual-plan comments", () => {
         comments: [],
         consumedCommentIds: [],
       }),
-    ).rejects.toThrow(
-      "expectedUpdatedAt is required for full content replacement and replace-blocks",
-    );
+    ).rejects.toMatchObject({
+      message:
+        "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
+      errorCode: "plan_revision_required",
+      statusCode: 400,
+    });
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
   });
 
@@ -1466,7 +1469,13 @@ describe("update-visual-plan comments", () => {
           comments: [],
           consumedCommentIds: [],
         }),
-      ).rejects.toThrow("prepared from an outdated plan revision");
+      ).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "prepared from an outdated plan revision",
+        ),
+        errorCode: "plan_revision_conflict",
+        statusCode: 409,
+      });
       expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
     },
   );
@@ -1564,6 +1573,33 @@ describe("update-visual-plan comments", () => {
         { op: "eq", args: ["plans.id", "plan_public"] },
         { op: "eq", args: ["plans.updatedAt", baseUpdatedAt] },
       ],
+    });
+  });
+
+  it("returns a typed conflict when another writer wins the revision CAS", async () => {
+    request.email = "editor@example.com";
+    const { returningMock } = useSuccessfulDb();
+    returningMock.mockResolvedValueOnce([]);
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: "intro",
+            markdown: "Updated intro.",
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("updated by someone else"),
+      errorCode: "plan_revision_conflict",
+      statusCode: 409,
     });
   });
 

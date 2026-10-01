@@ -53,6 +53,7 @@ describe("onboarding funnel metrics", () => {
         app text,
         template text,
         hostname text,
+        signed_in text,
         properties text NOT NULL DEFAULT '{}'
       )
     `);
@@ -124,6 +125,70 @@ describe("onboarding funnel metrics", () => {
         users_no_recorded_outcome: 1,
       }),
     );
+  }, 20_000);
+
+  it("joins pre-signup visits and later activity by canonical auth identity", async () => {
+    await createEventsTable();
+    const anonymous = {
+      email: null,
+      anonymousId: "visitor-1",
+      authUserId: null,
+    };
+    const signedIn = {
+      email: "alice-new@example.com",
+      userKey: "alice-new@example.com",
+      anonymousId: "visitor-1",
+      authUserId: "auth-alice",
+    };
+
+    await insertEvent("auth.signup_viewed", "anon", {}, anonymous);
+    await insertEvent(
+      "auth.signup_clicked",
+      "anon",
+      { method: "google" },
+      anonymous,
+    );
+    await insertEvent(
+      "signup",
+      "alice",
+      { signup_method: "google" },
+      {
+        email: "alice-old@example.com",
+        userKey: "alice-old@example.com",
+        anonymousId: "visitor-1",
+        authUserId: "auth-alice",
+      },
+    );
+    await insertEvent("onboarding_started", "alice", {}, signedIn);
+    await insertEvent(
+      "onboarding_step_viewed",
+      "alice",
+      { flow: "first_run", step_id: "connect", step_index: 1 },
+      signedIn,
+    );
+    await insertEvent("onboarding_completed", "alice", {}, signedIn);
+    await insertEvent("app_entered", "alice", {}, signedIn);
+    await insertEvent(
+      "app.first_action",
+      "alice",
+      { action: "chat_submit" },
+      signedIn,
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(result.rows.map(({ stage, users }) => [stage, users])).toEqual([
+      ["Signup page viewed", 1],
+      ["Signup CTA clicked", 1],
+      ["Signed up", 1],
+      ["Onboarding started", 1],
+      ["Onboarding step reached", 1],
+      ["Onboarding completed", 1],
+      ["Entered app", 1],
+      ["First significant action", 1],
+    ]);
   }, 20_000);
 
   it("joins choice, Builder outcomes, and unresolved attempts by canonical identity and attempt id", async () => {

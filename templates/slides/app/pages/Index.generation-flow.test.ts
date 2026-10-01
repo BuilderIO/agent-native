@@ -56,6 +56,26 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
+  it("defers new empty deck persistence until generation setup is ready", () => {
+    const createIndex = flow.indexOf("deck = createDeck(undefined, {");
+    const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");
+    const contextIndex = flow.indexOf(
+      "updateDeck(deckId, { generationContext });",
+    );
+    const latePersistenceIndex = flow.indexOf(
+      "const persisted = await ensureDeckPersisted(deckId)",
+      contextIndex,
+    );
+
+    expect(createIndex).toBeGreaterThan(-1);
+    expect(flow.slice(createIndex, createIndex + 260)).toContain(
+      "deferPersistence: true",
+    );
+    expect(contextIndex).toBeGreaterThan(hydrationIndex);
+    expect(latePersistenceIndex).toBeGreaterThan(contextIndex);
+    expect(flow).toContain("if (sourceImprovementRequest)");
+  });
+
   it("restores the complete reference selection after a failed generation", () => {
     expect(source).toContain(
       "retryReferenceSelection?: NewDeckReferenceSelection",

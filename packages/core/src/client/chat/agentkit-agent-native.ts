@@ -1078,9 +1078,33 @@ export function createAgentNativeAgentKitTransport(
     threadId: string;
     snapshot: AgentThreadSnapshot;
   }): Promise<void> {
-    const stored = await fetchThread(input.threadId);
+    let stored = await fetchThread(input.threadId);
     if (!stored) {
-      throw new Error(`Agent chat thread ${input.threadId} does not exist.`);
+      const requestHeaders = await headers({ sessionId: input.threadId });
+      requestHeaders.set("content-type", "application/json");
+      const response = await fetcher(
+        scopedThreadEndpoint(`${apiUrl}/threads`, options),
+        {
+          method: "POST",
+          headers: requestHeaders,
+          body: JSON.stringify({
+            id: input.threadId,
+            title: input.snapshot.title ?? "",
+          }),
+        },
+      );
+      if (response.status === 409) {
+        const racedThread = await fetchThread(input.threadId);
+        if (!racedThread) throw await responseError(response);
+        stored = racedThread;
+      } else {
+        if (!response.ok) throw await responseError(response);
+        const value = await response.json();
+        if (!asRecord(value)) {
+          throw new TypeError("Agent chat thread response must be an object.");
+        }
+        stored = value as StoredThread;
+      }
     }
     const repository = storedRepository(stored);
     const previousAgentKit = asRecord(repository.agentKit) ?? {};

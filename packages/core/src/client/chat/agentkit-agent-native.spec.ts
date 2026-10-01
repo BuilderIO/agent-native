@@ -18,6 +18,187 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("createAgentNativeAgentKitTransport", () => {
+  it("creates a missing thread when its first snapshot races the user-message save", async () => {
+    const requests: Array<{ url: string; method: string; body?: string }> = [];
+    let created = false;
+    let savedThreadData: string | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        requests.push({
+          url,
+          method,
+          ...(typeof init?.body === "string" ? { body: init.body } : {}),
+        });
+        if (url.startsWith("/_agent-native/agent-chat/threads/first-save")) {
+          if (method === "GET" && !created) {
+            return json({ error: "Thread not found" }, 404);
+          }
+          if (method === "PUT") {
+            savedThreadData = JSON.parse(String(init?.body)).threadData;
+            return json({ ok: true });
+          }
+          return json({
+            id: "first-save",
+            title: "First prompt",
+            threadData: JSON.stringify({}),
+          });
+        }
+        if (
+          url ===
+            "/_agent-native/agent-chat/threads?scopeType=workspace-app&scopeId=app-one" &&
+          method === "POST"
+        ) {
+          created = true;
+          expect(JSON.parse(String(init?.body))).toEqual({
+            id: "first-save",
+            title: "First prompt",
+          });
+          return json({
+            id: "first-save",
+            title: "First prompt",
+            threadData: JSON.stringify({}),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+      scope: { type: "workspace-app", id: "app-one" },
+      isolateHistoryByScope: true,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "first-save",
+      snapshot: {
+        id: "first-save",
+        title: "First prompt",
+        createdAt: "2026-09-30T00:00:00.000Z",
+        updatedAt: "2026-09-30T00:00:00.000Z",
+        messages: [
+          {
+            id: "prompt-1",
+            role: "user",
+            parts: [{ type: "text", text: "Make a launch deck" }],
+          },
+        ],
+      },
+    });
+
+    expect(requests.map(({ method }) => method)).toEqual([
+      "GET",
+      "POST",
+      "PUT",
+    ]);
+    expect(requests[1]?.url).toBe(
+      "/_agent-native/agent-chat/threads?scopeType=workspace-app&scopeId=app-one",
+    );
+    expect(JSON.parse(savedThreadData ?? "{}").agentKit.messages).toEqual([
+      expect.objectContaining({ id: "prompt-1", role: "user" }),
+    ]);
+  });
+
+  it("re-reads an accessible thread when its concurrent create returns 409", async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+    let threadReads = 0;
+    let savedThreadData: string | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        requests.push({ url, method });
+        if (url.endsWith("/threads/raced-thread")) {
+          if (method === "GET") {
+            threadReads++;
+            if (threadReads === 1) {
+              return json({ error: "Thread not found" }, 404);
+            }
+            return json({
+              id: "raced-thread",
+              title: "Typed prompt",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    id: "saved-prompt",
+                    role: "user",
+                    content: "Keep the typed prompt",
+                  },
+                ],
+              }),
+            });
+          }
+          if (method === "PUT") {
+            savedThreadData = JSON.parse(String(init?.body)).threadData;
+            return json({ ok: true });
+          }
+        }
+        if (url === "/_agent-native/agent-chat/threads" && method === "POST") {
+          return json({ error: "Thread id already in use" }, 409);
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "raced-thread",
+      snapshot: {
+        id: "raced-thread",
+        title: "Typed prompt",
+        createdAt: "2026-09-30T00:00:00.000Z",
+        updatedAt: "2026-09-30T00:00:00.000Z",
+        messages: [],
+      },
+    });
+
+    expect(requests.map(({ method }) => method)).toEqual([
+      "GET",
+      "POST",
+      "GET",
+      "PUT",
+    ]);
+    expect(JSON.parse(savedThreadData ?? "{}").messages).toEqual([
+      expect.objectContaining({ id: "saved-prompt", role: "user" }),
+    ]);
+  });
+
+  it("preserves a thread-create failure when no accessible row exists", async () => {
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).endsWith("/threads/rejected-thread")) {
+          return json({ error: "Thread not found" }, 404);
+        }
+        if (String(input).endsWith("/threads") && init?.method === "POST") {
+          return json({ error: "Unavailable" }, 503);
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.persistThreadSnapshot?.({
+        threadId: "rejected-thread",
+        snapshot: {
+          id: "rejected-thread",
+          createdAt: "2026-09-30T00:00:00.000Z",
+          updatedAt: "2026-09-30T00:00:00.000Z",
+          messages: [],
+        },
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     {
       isolateHistoryByScope: true,
