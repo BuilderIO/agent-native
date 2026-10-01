@@ -3,10 +3,20 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Fixed
+
+- Deleted dictations disappear from your history right away instead of after a few seconds
+- Dictation shortcuts stay hidden when voice dictation is disabled.
+- Opening a recording link no longer flashes a "Recording not found" message before the recording loads
+- The Screenshots view labels its list Screenshots instead of Recordings
+
 ## 2026-09-30
 
 ### Improved
 
+- Storage setup checks finish faster when starting a recording.
 - Dark mode gives the sidebars a darker surface than the center
 - Sidebars use clearer surface contrast
 - Recording saved notifications keep the Copy link action available.
