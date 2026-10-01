@@ -11,6 +11,8 @@ import { expandAllLayers, gotoEditor } from "./helpers";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
+// Figma's Cmd+D gap is 40px; Design deliberately keeps the shared 56px board gap.
+const DESIGN_SCREEN_GAP = 56;
 
 async function action(
   request: APIRequestContext,
@@ -701,7 +703,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .toEqual({
         copy: {
           ...sourceGeometry,
-          x: sourceGeometry.x + sourceGeometry.width + 56,
+          x: sourceGeometry.x + sourceGeometry.width + DESIGN_SCREEN_GAP,
           z: 1,
         },
         neighborZ: 2,
@@ -765,7 +767,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .toEqual({
         copy: {
           ...sourceGeometry,
-          x: sourceGeometry.x + 2 * (sourceGeometry.width + 56),
+          x: sourceGeometry.x + 2 * (sourceGeometry.width + DESIGN_SCREEN_GAP),
           z: 1,
         },
         firstCopyZ: 2,
@@ -820,7 +822,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .toEqual({
         copy: {
           ...sourceGeometry,
-          x: sourceGeometry.x + sourceGeometry.width + 56,
+          x: sourceGeometry.x + sourceGeometry.width + DESIGN_SCREEN_GAP,
           z: 1,
         },
         sourceZ: 0,
@@ -847,7 +849,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .toEqual({
         copy: {
           ...sourceGeometry,
-          x: sourceGeometry.x + 2 * (sourceGeometry.width + 56),
+          x: sourceGeometry.x + 2 * (sourceGeometry.width + DESIGN_SCREEN_GAP),
           z: 1,
         },
         firstCopyZ: 2,
@@ -945,17 +947,25 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .toEqual({
         sourceCopy: {
           ...geometry[sourceId],
-          x: geometry[neighborId].x + geometry[neighborId].width + 56,
+          x:
+            geometry[neighborId].x +
+            geometry[neighborId].width +
+            DESIGN_SCREEN_GAP,
           z: 1,
         },
         neighborCopy: {
           ...geometry[neighborId],
-          x: geometry[fartherId].x + geometry[fartherId].width + 56,
+          x:
+            geometry[fartherId].x +
+            geometry[fartherId].width +
+            DESIGN_SCREEN_GAP,
           z: 3,
         },
         fartherCopy: {
           ...geometry[fartherId],
-          x: geometry[fartherId].x + 2 * (geometry[fartherId].width + 56),
+          x:
+            geometry[fartherId].x +
+            2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
           z: 5,
         },
         farther: { ...geometry[fartherId], z: 4 },
@@ -1001,17 +1011,25 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .toEqual({
         sourceCopy: {
           ...geometry[sourceId],
-          x: geometry[neighborId].x + geometry[neighborId].width + 56,
+          x:
+            geometry[neighborId].x +
+            geometry[neighborId].width +
+            DESIGN_SCREEN_GAP,
           z: 1,
         },
         neighborCopy: {
           ...geometry[neighborId],
-          x: geometry[fartherId].x + geometry[fartherId].width + 56,
+          x:
+            geometry[fartherId].x +
+            geometry[fartherId].width +
+            DESIGN_SCREEN_GAP,
           z: 3,
         },
         fartherCopy: {
           ...geometry[fartherId],
-          x: geometry[fartherId].x + 2 * (geometry[fartherId].width + 56),
+          x:
+            geometry[fartherId].x +
+            2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
           z: 5,
         },
       });
