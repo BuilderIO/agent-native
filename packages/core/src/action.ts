@@ -251,6 +251,7 @@ export type ActionMcpAppCspBuilder = (ctx: {
   actionName: string;
   appId?: string;
   requestOrigin?: string;
+  catalogMode?: "app" | "directory";
 }) => ActionMcpAppCsp | Promise<ActionMcpAppCsp>;
 
 export interface ActionMcpAppPermissions {
@@ -271,6 +272,7 @@ export type ActionMcpAppHtmlBuilder = (ctx: {
   actionName: string;
   appId?: string;
   requestOrigin?: string;
+  catalogMode?: "app" | "directory";
 }) => string;
 
 export interface ActionMcpAppResourceConfig {

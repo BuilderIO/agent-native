@@ -40,9 +40,12 @@ describe("export-coding-handoff", () => {
   it("is available in the compact MCP Apps catalog", () => {
     expect(action.mcpApp?.compactCatalog).toBe(true);
     expect(action.mcpApp?.resource.title).toBe("Design agent handoff");
-    expect(action.mcpApp?.resource.html()).toContain(
-      "--agent-native-shell-height: 680px",
-    );
+    expect(
+      action.mcpApp?.resource.html({
+        actionName: "export-coding-handoff",
+        catalogMode: "app",
+      }),
+    ).toContain("--agent-native-shell-height: 680px");
   });
 
   it("returns an editor deep link for external hosts", () => {

@@ -13940,32 +13940,56 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: "absolute-container"
         };
       }
-      var exitedContainer = el.parentElement;
-      var receivingContainer = exitedContainer && exitedContainer.parentElement;
-      var targetContainer = dropContainerForTarget(target);
-      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && !unnestPromotedBoardRootTarget && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
-        target = {
-          ...target,
-          anchor: exitedContainer,
-          placement: "after",
-          axis: parentFlowAxis(receivingContainer),
-          persistenceAnchor: exitedContainer,
-          persistencePlacement: "after",
-          gridCell: void 0,
-          gridPlacement: void 0,
-          gridDisplacement: void 0,
-          gridDisplacementPlacements: void 0,
-          gridDisplacementPrevStyles: void 0,
-          guideRect: void 0,
-          guideMode: void 0,
-          guidePlacement: void 0
-        };
-      }
+      target = preferExitedFrameOrderForPlainReceiver(
+        el,
+        target,
+        clientX,
+        clientY,
+        excludeEls,
+        ignoreTargetAutoLayout
+      );
       if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container) && isEmptyDropContainer(container, dragged)) {
         target.needsAutoLayoutConversion = true;
         target.conversionTarget = container;
       }
       return target;
+    }
+    function preferExitedFrameOrderForPlainReceiver(el, target, clientX, clientY, excludeEls, ignoreTargetAutoLayout) {
+      if (!target || ignoreTargetAutoLayout || !el || !el.parentElement) {
+        return target;
+      }
+      var exitedContainer = el.parentElement;
+      var receivingContainer = exitedContainer.parentElement;
+      var dragged = [el].concat(excludeEls || []);
+      var pointHit = elementFromEditorPointIgnoring(clientX, clientY, dragged);
+      var targetContainer = dropContainerForTarget(target);
+      var unnestPromotedBoardRootTarget = target.dropMode === "absolute-container" && target.placement !== "inside" && target.anchor?.parentElement === document.body;
+      if (!receivingContainer || !isContainerDropTarget(exitedContainer) || isAutoLayoutElement(receivingContainer) || unnestPromotedBoardRootTarget || targetContainer !== receivingContainer && target.anchor !== receivingContainer || pointHit !== receivingContainer && pointHit && pointHit !== document.body && pointHit !== document.documentElement) {
+        return target;
+      }
+      if (target.dropMode === "absolute-container" && target.placement === "inside" && target.anchor === receivingContainer) {
+        return {
+          ...target,
+          persistenceAnchor: exitedContainer,
+          persistencePlacement: "after"
+        };
+      }
+      return {
+        ...target,
+        anchor: exitedContainer,
+        placement: "after",
+        axis: parentFlowAxis(receivingContainer),
+        persistenceAnchor: exitedContainer,
+        persistencePlacement: "after",
+        gridCell: void 0,
+        gridPlacement: void 0,
+        gridDisplacement: void 0,
+        gridDisplacementPlacements: void 0,
+        gridDisplacementPrevStyles: void 0,
+        guideRect: void 0,
+        guideMode: void 0,
+        guidePlacement: void 0
+      };
     }
     function ignoreAutoLayoutForDropTarget(target) {
       var container = dropContainerForTarget(target);
@@ -15082,7 +15106,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           gridDisplacementPrevStyles: [],
           persistenceAnchor: previous,
           persistencePlacement: previous ? "after" : "inside"
-        } : target.dropMode === "absolute-container" ? target : {
+        } : target.dropMode === "absolute-container" ? previous ? {
+          ...target,
+          persistenceAnchor: previous,
+          persistencePlacement: "after"
+        } : target : {
           anchor: previous,
           placement: "after",
           axis: target.axis,
@@ -16921,6 +16949,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (target && isIgnoreAutoLayoutChordForDragPoint(point)) {
             target = ignoreAutoLayoutForDropTarget(target);
           }
+          target = preferExitedFrameOrderForPlainReceiver(
+            dragEl,
+            target,
+            point.clientX,
+            point.clientY,
+            groupOthers,
+            ignoreAutoLayoutHeld(point)
+          );
           currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
           if (currentAutoLayoutTarget) {
             showInsertionGuideFor(currentAutoLayoutTarget);
@@ -17277,6 +17313,14 @@ export const editorChromeBridgeScript: string = `"use strict";
               finalAutoLayoutTarget
             );
           }
+          finalAutoLayoutTarget = preferExitedFrameOrderForPlainReceiver(
+            dragEl,
+            finalAutoLayoutTarget,
+            ev.clientX,
+            ev.clientY,
+            groupOthers,
+            ignoreAutoLayoutHeld(ev)
+          );
           finalAutoLayoutTarget = applyFreeDropSizeGuard(
             finalAutoLayoutTarget,
             ev

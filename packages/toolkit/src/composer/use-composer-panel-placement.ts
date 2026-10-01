@@ -24,14 +24,13 @@ export function useComposerPanelPlacement(
     if (!trigger || !frame) return;
     const viewport = window.visualViewport;
     const measure = () => {
-      const bounds = frame.getBoundingClientRect();
       const button = trigger.getBoundingClientRect();
       const rtl = getComputedStyle(frame).direction === "rtl";
       const viewportTop = viewport?.offsetTop ?? 0;
       const viewportBottom =
         viewportTop + (viewport?.height ?? window.innerHeight);
-      const spaceAbove = Math.max(0, bounds.top - viewportTop - 24);
-      const spaceBelow = Math.max(0, viewportBottom - bounds.bottom - 24);
+      const spaceAbove = Math.max(0, button.top - viewportTop - 24);
+      const spaceBelow = Math.max(0, viewportBottom - button.bottom - 24);
       const side =
         spaceAbove < MIN_USABLE_PANEL_HEIGHT && spaceBelow > spaceAbove
           ? "bottom"
@@ -43,13 +42,8 @@ export function useComposerPanelPlacement(
           MAX_COMPOSER_PANEL_HEIGHT,
           side === "top" ? spaceAbove : spaceBelow,
         ),
-        sideOffset:
-          side === "top"
-            ? button.top - bounds.top + 8
-            : bounds.bottom - button.bottom + 8,
-        alignOffset: rtl
-          ? button.right - bounds.right
-          : bounds.left - button.left,
+        sideOffset: 8,
+        alignOffset: 0,
       });
     };
     measure();
