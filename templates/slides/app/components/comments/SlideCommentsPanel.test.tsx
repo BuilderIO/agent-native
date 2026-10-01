@@ -7,11 +7,28 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { createContext, useContext, useState, type ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReplyInput, SlideCommentsPanel } from "./SlideCommentsPanel";
 
 const refetch = vi.fn();
+const useSlideCommentsArgs = vi.fn();
+const commentFiltersStorage = new Map<string, string>();
+const localStorageMock = {
+  get length() {
+    return commentFiltersStorage.size;
+  },
+  clear: () => commentFiltersStorage.clear(),
+  getItem: (key: string) => commentFiltersStorage.get(key) ?? null,
+  key: (index: number) =>
+    Array.from(commentFiltersStorage.keys())[index] ?? null,
+  removeItem: (key: string) => {
+    commentFiltersStorage.delete(key);
+  },
+  setItem: (key: string, value: string) => {
+    commentFiltersStorage.set(key, value);
+  },
+} as Storage;
 const {
   createComment,
   deleteComment,
@@ -56,6 +73,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "comments.addReaction": "Add reaction",
       "comments.toggleReaction": "Toggle reaction {{emoji}}",
       "comments.reactWith": "React with {{emoji}}",
+      "comments.filters": "Comment filters",
       "comments.scope": "Comment scope",
       "comments.thisSlide": "This slide",
       "comments.allComments": "All slides",
@@ -65,6 +83,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "comments.goToSlide": "Go to slide",
       "comments.hideResolved": "Hide resolved",
       "comments.showResolved": "Show resolved comments",
+      "comments.search": "Search comments",
+      "comments.searchPlaceholder": "Search all comments...",
     };
     return messages[key] ?? key;
   },
@@ -116,11 +136,14 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 vi.mock("@/hooks/use-slide-comments", () => ({
-  useSlideComments: () => ({
-    data: commentQueryState?.data,
-    isError: commentQueryState?.isError ?? false,
-    refetch,
-  }),
+  useSlideComments: (...args: unknown[]) => {
+    useSlideCommentsArgs(...args);
+    return {
+      data: commentQueryState?.data,
+      isError: commentQueryState?.isError ?? false,
+      refetch,
+    };
+  },
   useCreateSlideComment: () => ({
     mutateAsync: createComment,
     isPending: false,
@@ -138,9 +161,210 @@ vi.mock("@/hooks/use-slide-comments", () => ({
 
 afterEach(() => {
   cleanup();
+  commentFiltersStorage.clear();
+});
+
+beforeEach(() => {
+  commentFiltersStorage.clear();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: localStorageMock,
+  });
+  useSlideCommentsArgs.mockClear();
 });
 
 describe("SlideCommentsPanel", () => {
+  it("keeps filters collapsed by default and remembers the disclosure state", () => {
+    commentQueryState = { data: [], isError: false };
+    const props = {
+      deckId: "deck-1",
+      slideId: "slide-1",
+      canComment: true,
+      canEdit: true,
+      currentUserEmail: "writer@example.com",
+      pendingComment: null,
+      onPendingDone: vi.fn(),
+      onClose: vi.fn(),
+    };
+
+    const view = render(<SlideCommentsPanel {...props} />);
+    const filtersButton = screen.getByRole("button", {
+      name: "Comment filters",
+    });
+    expect(filtersButton.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("group", { name: "Comment scope" })).toBeNull();
+    expect(screen.queryByPlaceholderText("Search all comments...")).toBeNull();
+    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
+      "deck-1",
+      "slide-1",
+      "slide",
+    );
+
+    fireEvent.click(filtersButton);
+    expect(filtersButton.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("group", { name: "Comment scope" })).toBeTruthy();
+    expect(screen.getByPlaceholderText("Search all comments...")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "All slides" }));
+    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
+      "deck-1",
+      "slide-1",
+      "deck",
+    );
+
+    view.unmount();
+    render(<SlideCommentsPanel {...props} />);
+    expect(
+      screen
+        .getByRole("button", { name: "Comment filters" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
+      "deck-1",
+      "slide-1",
+      "slide",
+    );
+  });
+
+  it("scrolls to and highlights a selected thread", () => {
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-1",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-1",
+              author_email: "writer@example.com",
+              author_name: "Writer",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Review this slide",
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+    const props = {
+      deckId: "deck-1",
+      slideId: "slide-1",
+      canComment: false,
+      canEdit: false,
+      currentUserEmail: "viewer@example.com",
+      pendingComment: null,
+      onPendingDone: vi.fn(),
+      onClose: vi.fn(),
+    };
+
+    const view = render(<SlideCommentsPanel {...props} />);
+    const card = view.container.querySelector<HTMLElement>(
+      '[data-slide-comment-thread="thread-1"]',
+    );
+    expect(card).toBeTruthy();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(card, "scrollIntoView", { value: scrollIntoView });
+
+    view.rerender(
+      <SlideCommentsPanel {...props} selectedThreadId="thread-1" />,
+    );
+
+    expect(card?.getAttribute("data-selected-comment")).toBe("true");
+    expect(card?.className).toContain("ring-2");
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({
+      behavior: "smooth",
+      block: "nearest",
+    });
+  });
+
+  it("keeps an anchored selected thread visible through active filters", () => {
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-1",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-1",
+              author_email: "writer@example.com",
+              author_name: "Writer",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Review this slide",
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+    const props = {
+      deckId: "deck-1",
+      slideId: "slide-1",
+      canComment: false,
+      canEdit: false,
+      currentUserEmail: "viewer@example.com",
+      pendingComment: null,
+      onPendingDone: vi.fn(),
+      onClose: vi.fn(),
+    };
+
+    const view = render(<SlideCommentsPanel {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Comment filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "For you" }));
+    fireEvent.change(screen.getByLabelText("Search comments"), {
+      target: { value: "not in this comment" },
+    });
+
+    view.rerender(
+      <SlideCommentsPanel {...props} selectedThreadId="thread-1" />,
+    );
+
+    const card = view.container.querySelector<HTMLElement>(
+      '[data-slide-comment-thread="thread-1"]',
+    );
+    expect(card?.getAttribute("data-selected-comment")).toBe("true");
+    expect(screen.queryByText("comments.noCommentsYet")).toBeNull();
+  });
+
+  it("keeps the add-reaction picker available from the smile affordance", () => {
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-1",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-1",
+              author_email: "writer@example.com",
+              author_name: "Writer",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Review this slide",
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+
+    render(
+      <SlideCommentsPanel
+        deckId="deck-1"
+        slideId="slide-1"
+        canComment
+        canEdit
+        currentUserEmail="writer@example.com"
+        pendingComment={null}
+        onPendingDone={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add reaction" }));
+    expect(
+      screen.getAllByRole("button", { name: "React with {{emoji}}" }),
+    ).toHaveLength(7);
+  });
+
   it("saves a selected-text comment with its object anchor", async () => {
     const anchor = {
       x: 42,
@@ -290,6 +514,7 @@ describe("SlideCommentsPanel", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Comment filters" }));
     fireEvent.click(screen.getByRole("button", { name: "For you" }));
 
     expect(screen.queryByText("Only my note")).toBeNull();
@@ -353,6 +578,7 @@ describe("SlideCommentsPanel", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Comment filters" }));
     fireEvent.click(screen.getByRole("button", { name: "All slides" }));
     fireEvent.click(screen.getByRole("button", { name: "Go to slide" }));
 

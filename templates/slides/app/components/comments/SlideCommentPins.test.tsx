@@ -335,8 +335,10 @@ describe("SlideCommentPins", () => {
     expect(ensureObjectId).toHaveBeenCalledWith(object);
   });
 
-  it("opens the full thread when an avatar marker is clicked", async () => {
+  it("opens and selects the full thread when an avatar marker is clicked", async () => {
+    const onSelectThread = vi.fn();
     renderWithCanvas({
+      onSelectThread,
       comments: [
         {
           threadId: "thread-1",
@@ -372,6 +374,7 @@ describe("SlideCommentPins", () => {
 
     fireEvent.click(marker);
     expect(screen.getAllByText("Check this image").length).toBeGreaterThan(0);
+    expect(onSelectThread).toHaveBeenCalledWith("thread-1");
   });
 
   it("measures the whole canvas when it contains multiple content panes", async () => {

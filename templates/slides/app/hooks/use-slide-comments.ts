@@ -1,10 +1,12 @@
+import { agentNativeApiDisabledReason } from "@agent-native/core/client/api-surface";
 import { emailToColor } from "@agent-native/core/client/collab";
 import {
+  callActionWithRetry,
   useActionMutation,
-  useActionQuery,
 } from "@agent-native/core/client/hooks";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import type { SlideCommentReaction } from "@shared/slide-comment-reactions";
+import { useQuery } from "@tanstack/react-query";
 
 export interface SlideComment {
   id: string;
@@ -56,6 +58,53 @@ function groupIntoThreads(comments: SlideComment[]): CommentThread[] {
   return Array.from(map.values());
 }
 
+interface SlideCommentPage {
+  comments: SlideComment[];
+  has_more: boolean;
+  next_offset: number | null;
+}
+
+const SLIDE_COMMENT_PAGE_SIZE = 200;
+
+async function listAllSlideComments(
+  params: { deckId: string; slideId?: string },
+  signal: AbortSignal,
+): Promise<SlideComment[]> {
+  const comments: SlideComment[] = [];
+  let offset = 0;
+
+  for (;;) {
+    const page = await callActionWithRetry<SlideCommentPage | SlideComment[]>(
+      "list-slide-comments",
+      { ...params, limit: SLIDE_COMMENT_PAGE_SIZE, offset },
+      { signal },
+    );
+
+    if (Array.isArray(page)) return page;
+    if (!page || !Array.isArray(page.comments)) {
+      throw new Error("Could not load slide comments: invalid page response.");
+    }
+
+    comments.push(...page.comments);
+    if (page.has_more === false) return comments;
+
+    const nextOffset = page.next_offset;
+    if (
+      page.has_more !== true ||
+      typeof nextOffset !== "number" ||
+      !Number.isSafeInteger(nextOffset) ||
+      nextOffset !== offset + SLIDE_COMMENT_PAGE_SIZE ||
+      page.comments.length !== SLIDE_COMMENT_PAGE_SIZE
+    ) {
+      throw new Error(
+        "Could not load all slide comments: invalid pagination response.",
+      );
+    }
+
+    offset = nextOffset;
+  }
+}
+
 export function useSlideComments(
   deckId: string | null,
   slideId: string | null,
@@ -69,14 +118,18 @@ export function useSlideComments(
           ...(scope === "slide" && slideId ? { slideId } : {}),
         }
       : undefined;
-  return useActionQuery<CommentThread[]>("list-slide-comments", queryArgs, {
-    enabled,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    select: (data: any) => {
-      const raw = data?.comments ?? data;
-      const comments: SlideComment[] = Array.isArray(raw) ? raw : [];
-      return groupIntoThreads(comments);
+  const apiDisabled = Boolean(agentNativeApiDisabledReason());
+
+  return useQuery<CommentThread[]>({
+    queryKey: ["action", "list-slide-comments", queryArgs],
+    queryFn: async ({ signal }) => {
+      if (!queryArgs) {
+        throw new Error("Slide comments require a deck ID.");
+      }
+      return groupIntoThreads(await listAllSlideComments(queryArgs, signal));
     },
+    enabled: enabled && !apiDisabled,
+    retry: false,
   });
 }
 

@@ -481,6 +481,7 @@ const inFlightSaveControllers = new Map<string, AbortController>();
 const deckSaveGenerations = new Map<string, number>();
 const immediateFlushRequests = new Map<string, boolean>();
 const deckSaveRetryAttempts = new Map<string, number>();
+const deckRevisionConflictRetryAttempts = new Map<string, number>();
 const failedSaveDecks = new Set<string>();
 const staleContentConflicts = new Map<string, Set<string> | null>();
 const staleFullReplaceDrafts = new Map<string, Deck>();
@@ -500,6 +501,8 @@ const conflictResolutionDecks = new Set<string>();
 const saveStateListeners = new Set<() => void>();
 const MAX_DECK_SAVE_RETRIES = 2;
 const DECK_SAVE_RETRY_BASE_MS = 250;
+const MAX_DECK_REVISION_CONFLICT_RETRIES = 5;
+const DECK_REVISION_CONFLICT_RETRY_MAX_MS = 2_000;
 
 const pendingOpsQueue = new Map<string, GranularOp[]>();
 const pendingPersistedResultHandlers = new Map<
@@ -643,6 +646,46 @@ function nextDeckClientWrite(deckId: string) {
       ? { expectedUpdatedAt: deckServerRevisions.get(deckId) }
       : {}),
   };
+}
+
+function isDeckRevisionConflict(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "status" in error &&
+    error.status === 409 &&
+    !("code" in error && error.code === "client_build_mismatch") &&
+    !("errorCode" in error && error.errorCode === "slide_content_stale"),
+  );
+}
+
+function didRefreshDeckRevision(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "deckRevisionRefreshed" in error &&
+    error.deckRevisionRefreshed === true,
+  );
+}
+
+function revisionConflictError(
+  error: unknown,
+  refreshed: boolean,
+): Error & { status: 409; deckRevisionRefreshed: boolean } {
+  const wrapped = Object.assign(
+    new Error(error instanceof Error ? error.message : "Deck revision changed"),
+    { status: 409 as const, deckRevisionRefreshed: refreshed },
+  );
+  Object.assign(wrapped, { cause: error });
+  return wrapped;
+}
+
+function deckRevisionConflictRetryDelay(retryAttempt: number): number {
+  const ceiling = Math.min(
+    DECK_REVISION_CONFLICT_RETRY_MAX_MS,
+    DECK_SAVE_RETRY_BASE_MS * 2 ** (retryAttempt - 1),
+  );
+  return Math.floor(ceiling / 2 + Math.random() * (ceiling / 2));
 }
 
 function rememberDeckServerRevision(deckId: string, value: unknown) {
@@ -951,17 +994,10 @@ async function callDeckWriteAction<TResult>(
           ...(options?.signal ? { signal: options.signal } : {}),
         });
   } catch (error) {
-    if (
-      actionName === "patch-deck" &&
-      error &&
-      typeof error === "object" &&
-      "status" in error &&
-      error.status === 409 &&
-      !("code" in error && error.code === "client_build_mismatch") &&
-      !("errorCode" in error && error.errorCode === "slide_content_stale")
-    ) {
+    if (actionName === "patch-deck" && isDeckRevisionConflict(error)) {
       const latest = await fetchDeckFromAPI(deckId);
       if (latest) rememberDeckServerRevision(deckId, latest);
+      throw revisionConflictError(error, latest !== null);
     }
     throw error;
   }
@@ -1300,6 +1336,7 @@ function drainPendingDeckOps(
       }
       onSaveSuccess?.(ops);
       deckSaveRetryAttempts.delete(deckId);
+      deckRevisionConflictRetryAttempts.delete(deckId);
       failedSaveDecks.delete(deckId);
     })
     .catch(async (err) => {
@@ -1416,6 +1453,7 @@ function drainPendingDeckOps(
                 conflicts,
               );
               deckSaveRetryAttempts.delete(deckId);
+              deckRevisionConflictRetryAttempts.delete(deckId);
               return;
             }
 
@@ -1428,6 +1466,7 @@ function drainPendingDeckOps(
             }
             failedSaveDecks.delete(deckId);
             deckSaveRetryAttempts.delete(deckId);
+            deckRevisionConflictRetryAttempts.delete(deckId);
             immediateFlushRequests.set(
               deckId,
               immediateFlushRequests.get(deckId) ?? false,
@@ -1622,6 +1661,7 @@ function drainPendingDeckOps(
           }
         }
         deckSaveRetryAttempts.delete(deckId);
+        deckRevisionConflictRetryAttempts.delete(deckId);
         if (failedSaveDecks.has(deckId) && !canRetryPendingOps) {
           deckSaveRetryAttempts.set(deckId, MAX_DECK_SAVE_RETRIES + 1);
         }
@@ -1665,17 +1705,28 @@ function drainPendingDeckOps(
 
       const attempt = (deckSaveRetryAttempts.get(deckId) ?? 0) + 1;
       deckSaveRetryAttempts.set(deckId, attempt);
+      const retryableRevisionConflict =
+        isDeckRevisionConflict(err) && didRefreshDeckRevision(err);
+      const revisionConflictAttempt = retryableRevisionConflict
+        ? (deckRevisionConflictRetryAttempts.get(deckId) ?? 0) + 1
+        : 0;
+      if (retryableRevisionConflict) {
+        deckRevisionConflictRetryAttempts.set(deckId, revisionConflictAttempt);
+      }
       immediateFlushRequests.delete(deckId);
       const pendingTimer = pendingSaves.get(deckId);
       if (pendingTimer) clearTimeout(pendingTimer);
       pendingSaves.delete(deckId);
-      if (attempt <= MAX_DECK_SAVE_RETRIES) {
-        const retryTimer = setTimeout(
-          () => {
-            void drainPendingDeckOps(deckId);
-          },
-          DECK_SAVE_RETRY_BASE_MS * 2 ** (attempt - 1),
-        );
+      const shouldRetry = retryableRevisionConflict
+        ? revisionConflictAttempt <= MAX_DECK_REVISION_CONFLICT_RETRIES
+        : attempt <= MAX_DECK_SAVE_RETRIES;
+      if (shouldRetry) {
+        const delay = retryableRevisionConflict
+          ? deckRevisionConflictRetryDelay(revisionConflictAttempt)
+          : DECK_SAVE_RETRY_BASE_MS * 2 ** (attempt - 1);
+        const retryTimer = setTimeout(() => {
+          void drainPendingDeckOps(deckId);
+        }, delay);
         pendingSaves.set(deckId, retryTimer);
       } else {
         failedSaveDecks.add(deckId);
@@ -1839,9 +1890,7 @@ async function flushDeckSave(
       continue;
     }
     if (failedSaveDecks.has(deckId)) {
-      throw new Error(
-        `Failed to save deck ${deckId} after ${MAX_DECK_SAVE_RETRIES} attempts`,
-      );
+      throw new Error(`Failed to save deck ${deckId}; retries were exhausted`);
     }
     if (
       staleContentConflicts.has(deckId) &&
@@ -1881,9 +1930,7 @@ async function flushSafeDeckWritesForConflictResolution(
       continue;
     }
     if (failedSaveDecks.has(deckId)) {
-      throw new Error(
-        `Failed to save deck ${deckId} after ${MAX_DECK_SAVE_RETRIES} attempts`,
-      );
+      throw new Error(`Failed to save deck ${deckId}; retries were exhausted`);
     }
     if (pendingOpsQueue.has(deckId) || pendingSaves.has(deckId)) {
       await drainPendingDeckOps(deckId);
@@ -1960,11 +2007,13 @@ function enqueueDeckOp(
     !inFlightSaveChains.has(deckId)
   ) {
     deckSaveRetryAttempts.delete(deckId);
+    deckRevisionConflictRetryAttempts.delete(deckId);
     failedSaveDecks.delete(deckId);
   }
 
   if (op.op === "full-replace") {
     deckSaveRetryAttempts.delete(deckId);
+    deckRevisionConflictRetryAttempts.delete(deckId);
     failedSaveDecks.delete(deckId);
     staleContentConflicts.delete(deckId);
     staleContentDrafts.delete(deckId);
@@ -2046,6 +2095,7 @@ function discardPendingDeckOp(
   ) {
     failedSaveDecks.delete(deckId);
     deckSaveRetryAttempts.delete(deckId);
+    deckRevisionConflictRetryAttempts.delete(deckId);
   }
   notifySaveListeners();
 }
@@ -2123,6 +2173,7 @@ function discardPendingDeckOps(deckId: string) {
   pendingOpsQueue.delete(deckId);
   pendingPersistedResultHandlers.delete(deckId);
   deckSaveRetryAttempts.delete(deckId);
+  deckRevisionConflictRetryAttempts.delete(deckId);
   failedSaveDecks.delete(deckId);
   staleContentConflicts.delete(deckId);
   staleFullReplaceDrafts.delete(deckId);
@@ -5410,6 +5461,7 @@ export function DeckProvider({
         if (!hasPendingWrites) {
           const wasFailed = failedSaveDecks.delete(deckId);
           deckSaveRetryAttempts.delete(deckId);
+          deckRevisionConflictRetryAttempts.delete(deckId);
           if (wasFailed) notifySaveListeners();
         }
         if (pendingOpsQueue.has(deckId)) void drainPendingDeckOps(deckId);

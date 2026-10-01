@@ -88,7 +88,11 @@ import {
   getPersistedElementPath,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
-import { slideCommentAnchorAtPoint } from "@/lib/slide-comment-anchor";
+import {
+  slideCommentAnchorAtPoint,
+  slideCommentAnchorFromRange,
+  slideCommentThreadAtPoint,
+} from "@/lib/slide-comment-anchor";
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
@@ -1055,6 +1059,8 @@ interface SlideEditorProps {
   onComment?: (quotedText: string, anchor?: SlideCommentAnchor) => void;
   /** Existing persisted threads used to render slide-positioned markers. */
   comments?: CommentThread[];
+  /** Opens the thread anchored to text the user clicked on the canvas. */
+  onSelectCommentThread?: (threadId: string) => void;
   /** Zero-based index of the current slide */
   slideIndex?: number;
   /** Design system to inject as CSS custom properties on the slide */
@@ -1651,6 +1657,7 @@ export default function SlideEditor({
   onSelectedAnimationTargetChange,
   slideId,
   comments = [],
+  onSelectCommentThread,
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
@@ -2137,6 +2144,11 @@ export default function SlideEditor({
   const shapePressRef = useRef<{
     owner: HTMLElement;
     wasSelected: boolean;
+  } | null>(null);
+  const commentThreadPressRef = useRef<{
+    threadId: string;
+    x: number;
+    y: number;
   } | null>(null);
   const activeGestureCancelRef = useRef<(() => void) | null>(null);
   /**
@@ -2893,6 +2905,7 @@ export default function SlideEditor({
         : selected;
       const selector = getBuilderSelector(selectionTarget);
       editingElRef.current = null;
+      (ended?.element ?? el).blur();
       richTextSelectionRef.current = null;
       window.getSelection()?.removeAllRanges();
       const initial = inlineEditInitialContentRef.current;
@@ -3870,7 +3883,7 @@ export default function SlideEditor({
       e.preventDefault();
       e.stopImmediatePropagation();
       if (action === "edit") {
-        exitInlineEdit(undefined, true);
+        exitInlineEdit();
       } else if (action === "gesture") {
         activeGestureCancelRef.current?.();
       } else if (action === "mode") {
@@ -7690,17 +7703,21 @@ export default function SlideEditor({
         e.clientX,
         e.clientY,
       );
-      const selected = resolveSelectedElement();
-      const grabbedShape = findGrabbedSlideShape(
-        target,
-        slideContent,
-        selected,
+      const editableTextBlock = findSmartBlock(target, slideContent);
+      const targetIsEditableText = Boolean(
+        editableTextBlock && !isSlideCanvasShell(editableTextBlock),
       );
+      const selected = resolveSelectedElement();
+      const grabbedShape =
+        targetIsEditableText && !e.altKey
+          ? null
+          : findGrabbedSlideShape(target, slideContent, selected);
       const hovered = grabbedShape ?? resolveClickObject(target, slideContent);
       setCanvasHoverElement(hovered === selected ? null : hovered);
       const shouldShowMoveCursor =
         grabbedShape !== null ||
-        (selected !== null &&
+        (!targetIsEditableText &&
+          selected !== null &&
           !isSlideCanvasShell(selected) &&
           isWithinSlidesCanvasEdgeMoveBand(
             selected.getBoundingClientRect(),
@@ -7740,6 +7757,7 @@ export default function SlideEditor({
         e.clientX,
         e.clientY,
       );
+      commentThreadPressRef.current = null;
 
       if (shapeType) {
         e.preventDefault();
@@ -7792,6 +7810,21 @@ export default function SlideEditor({
         if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
+      if (!pinMode && !drawMode) {
+        const threadId = slideCommentThreadAtPoint(
+          comments,
+          slideContent,
+          e.clientX,
+          e.clientY,
+        );
+        if (threadId) {
+          commentThreadPressRef.current = {
+            threadId,
+            x: e.clientX,
+            y: e.clientY,
+          };
+        }
+      }
       const additive = e.shiftKey || e.metaKey || e.ctrlKey;
       const targetIsEditingBlock =
         editingEl?.contains(e.target as Node) ?? false;
@@ -7805,13 +7838,17 @@ export default function SlideEditor({
       ) {
         return;
       }
+      const editableTextBlock = findSmartBlock(target, slideContent);
+      const targetIsEditableText = Boolean(
+        editableTextBlock && !isSlideCanvasShell(editableTextBlock),
+      );
       if (e.currentTarget instanceof HTMLElement) {
         e.currentTarget.focus({ preventScroll: true });
       }
 
       // Pointer-down on a member of the current multi-selection drags the
       // whole group instead of the single-object flow below.
-      if (multiSelection.size > 0) {
+      if (multiSelection.size > 0 && !targetIsEditableText) {
         const id = findSelectableId(target, slideContent);
         if (id && multiSelection.has(id)) {
           startGroupDrag(e, multiSelection);
@@ -7822,11 +7859,10 @@ export default function SlideEditor({
       const selected = resolveSelectedElement();
       // Once the selection has moved inside a shape (one of its text blocks
       // was edited or selected), that child's text-box rules apply instead.
-      const grabbedShape = findGrabbedSlideShape(
-        target,
-        slideContent,
-        selected,
-      );
+      const grabbedShape =
+        targetIsEditableText && !e.altKey
+          ? null
+          : findGrabbedSlideShape(target, slideContent, selected);
       shapePressRef.current = grabbedShape
         ? { owner: grabbedShape, wasSelected: selected === grabbedShape }
         : null;
@@ -7849,7 +7885,6 @@ export default function SlideEditor({
         selected && !isSlideCanvasShell(selected) ? selected : null,
         clicked && !isSlideCanvasShell(clicked) ? clicked : null,
       );
-      const editableTextBlock = findSmartBlock(target, slideContent);
       const pointerIntent = resolveSlidesCanvasPointerIntent({
         hasSelectedObject: dragTarget !== null,
         targetWithinSelectedObject: dragTarget?.contains(target) ?? false,
@@ -7863,9 +7898,7 @@ export default function SlideEditor({
             e.clientX,
             e.clientY,
           ),
-        targetIsEditableText: Boolean(
-          editableTextBlock && !isSlideCanvasShell(editableTextBlock),
-        ),
+        targetIsEditableText,
         duplicateModifierActive: e.altKey,
       });
       if (
@@ -7911,6 +7944,8 @@ export default function SlideEditor({
     },
     [
       clearCanvasHover,
+      comments,
+      drawMode,
       editingEl,
       findSelectableId,
       getSlideContent,
@@ -7919,6 +7954,7 @@ export default function SlideEditor({
       applyMultiSelection,
       clearSelectedElement,
       textBoxMode,
+      pinMode,
       shapeType,
       exitInlineEdit,
       resolveSelectedElement,
@@ -8538,6 +8574,18 @@ export default function SlideEditor({
         suppressNextClickRef.current = false;
         return;
       }
+      const commentPress = commentThreadPressRef.current;
+      commentThreadPressRef.current = null;
+      if (
+        commentPress &&
+        onSelectCommentThread &&
+        Math.hypot(e.clientX - commentPress.x, e.clientY - commentPress.y) <= 4
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelectCommentThread(commentPress.threadId);
+        return;
+      }
 
       // If currently editing a block, clicks inside it are for the caret —
       // don't select/style-edit.
@@ -8694,6 +8742,7 @@ export default function SlideEditor({
       readOnly,
       isHtmlSlide,
       enterInlineEdit,
+      onSelectCommentThread,
     ],
   );
 
@@ -10067,18 +10116,17 @@ export default function SlideEditor({
           const canvas = document.querySelector<HTMLElement>(
             "[data-main-slide-canvas='true']",
           );
-          const selectionRect = range.getBoundingClientRect();
           const target =
             editingEl.closest<HTMLElement>("[data-slide-object-id]") ??
             editingEl;
           const objectId = ensureCommentObjectId(target);
           const anchor = canvas
-            ? slideCommentAnchorAtPoint({
-                clientX: selectionRect.left + selectionRect.width / 2,
-                clientY: selectionRect.top + selectionRect.height / 2,
+            ? slideCommentAnchorFromRange({
+                range,
                 slideRect: canvas.getBoundingClientRect(),
                 objectId,
                 objectRect: target.getBoundingClientRect(),
+                objectElement: target,
                 targetText: quotedText,
               })
             : undefined;
@@ -10197,6 +10245,7 @@ export default function SlideEditor({
         currentUserEmail={currentUserEmail ?? null}
         onBeforeCommentSubmit={onFlushInlineEdit}
         onEnsureObjectId={ensureCommentObjectId}
+        onSelectThread={onSelectCommentThread}
       />
     </div>
   );

@@ -587,7 +587,7 @@ async function action<T = any>(
   }
 }
 
-async function getSlideContent(page: Page, deckId: string, slideId: string) {
+async function getSlideState(page: Page, deckId: string, slideId: string) {
   const deck = await action(
     page,
     "get-deck",
@@ -595,8 +595,14 @@ async function getSlideContent(page: Page, deckId: string, slideId: string) {
     "GET",
   );
   const slide = deck.slides?.find((s: any) => s.id === slideId);
-  if (!slide) throw new Error(`get-deck returned no slide ${slideId}`);
-  return String(slide.content);
+  if (!slide || typeof slide.contentHash !== "string") {
+    throw new Error(`get-deck returned no hashed slide ${slideId}`);
+  }
+  return { content: String(slide.content), contentHash: slide.contentHash };
+}
+
+async function getSlideContent(page: Page, deckId: string, slideId: string) {
+  return (await getSlideState(page, deckId, slideId)).content;
 }
 
 async function ensureSignedIn(page: Page) {
@@ -3922,10 +3928,18 @@ async function restoreSlide(
   slideId: string,
   stored: string,
 ) {
-  if ((await getSlideContent(page, deckId, slideId)) === stored) return;
+  const current = await getSlideState(page, deckId, slideId);
+  if (current.content === stored) return;
   await action(page, "patch-deck", {
     deckId,
-    operations: [{ op: "patch-slide", slideId, fields: { content: stored } }],
+    operations: [
+      {
+        op: "patch-slide",
+        slideId,
+        fields: { content: stored },
+        baseContentHash: current.contentHash,
+      },
+    ],
   });
   if ((await getSlideContent(page, deckId, slideId)) !== stored) {
     throw new Error(

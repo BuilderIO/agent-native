@@ -65,6 +65,7 @@ import {
   deckClientWriteFields,
   deckClientWriteSchema,
   nextDeckRevision,
+  retryDeckWrite,
 } from "./_deck-write.js";
 import {
   assertNoRenderArtifacts,
@@ -167,7 +168,7 @@ const PatchSlideOp = z
       .min(1)
       .optional()
       .describe(
-        "Content hash from the exact get-deck source. Required for styleOnly and for each slide in an agent's multi-slide content batch.",
+        "Content hash from this slide's exact get-deck source. Required whenever fields.content is replaced.",
       ),
     styleOnly: z
       .boolean()
@@ -184,19 +185,22 @@ const PatchSlideOp = z
       ),
   })
   .superRefine((operation, context) => {
+    if (
+      operation.fields.content !== undefined &&
+      operation.baseContentHash === undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["baseContentHash"],
+        message: "Content replacement requires the source slide contentHash",
+      });
+    }
     if (!operation.styleOnly) return;
     if (operation.fields.content === undefined) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["fields", "content"],
         message: "styleOnly requires a complete slide content value",
-      });
-    }
-    if (operation.baseContentHash === undefined) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["baseContentHash"],
-        message: "styleOnly requires the source slide contentHash",
       });
     }
     const unsupportedFields = Object.keys(operation.fields).filter(
@@ -418,7 +422,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "Use patch-slide for content or slide fields, add-slide to append a slide, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields for top-level deck fields such as title or starred. For multi-slide content changes, read each target's full source and contentHash, then include baseContentHash on every patch-slide. Set styleOnly=true only for CSS-only content changes that preserve text, markup, element order, and protected layout CSS. For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide.",
+      "Use patch-slide for content or slide fields, add-slide to append a slide, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields for top-level deck fields such as title or starred. For every patch-slide that changes content, read that target with get-deck compact=false and include its contentHash as baseContentHash. Set styleOnly=true only for CSS-only content changes that preserve text, markup, element order, and protected layout CSS. For a deck-wide source restyle, include one patch-slide operation with content and its matching hash for every existing source slide.",
     ),
 });
 
@@ -814,7 +818,7 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
 export default defineAction({
   title: "Patch Slides deck",
   description:
-    "Granular deck patch used by the browser editor for concurrent-safe writes. Before a multi-slide content patch, read all target source with one get-deck compact=false call so every patch has its exact contentHash; use compact=true only for orientation when full source is not needed. Call get-design-system once for the full linked context. For a short, completed deck, pass all slides to create-deck in one call; use sequential add-slide calls only for long or live in-app generation. Reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
+    "Granular deck patch used by the browser editor for concurrent-safe writes. Every patch-slide operation that replaces fields.content must include that slide's exact contentHash as baseContentHash; read targets with get-deck compact=false first. Metadata and structural operations rebase against the latest deck, while stale same-slide content is rejected. Call get-design-system once for the full linked context. For a short, completed deck, pass all slides to create-deck in one call; use sequential add-slide calls only for long or live in-app generation. Reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
     "Each operation touches only the target slide or field — concurrent writers " +
     "on different slides never overwrite each other's work. For a deck-wide " +
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
@@ -887,7 +891,7 @@ export default defineAction({
     await assertAccess("deck", deckId, "editor");
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
 
-    return withDeckLock(deckId, async () => {
+    const applyPatch = async () => {
       const db = getDb();
       const [row] = await db
         .select()
@@ -905,6 +909,7 @@ export default defineAction({
         row,
         deckId,
         clientWrite,
+        { allowRevisionMismatch: true },
       );
       if (writeDisposition === "already-applied") {
         return {
@@ -950,18 +955,14 @@ export default defineAction({
           operation.op === "patch-slide" &&
           operation.fields.content !== undefined,
       );
-      const contentSlideIds = new Set(
-        contentPatchOperations.map((operation) => operation.slideId),
-      );
       if (
-        isAgentCaller &&
-        contentSlideIds.size > 1 &&
+        (isAgentCaller || clientWrite !== undefined) &&
         contentPatchOperations.some(
           (operation) => operation.baseContentHash === undefined,
         )
       ) {
         fail(
-          "A multi-slide content patch requires the contentHash read for every slide. Read the target slides with get-deck, then retry the batch.",
+          "Every slide content replacement requires its source contentHash. Read each target with get-deck, then retry the patch.",
           {
             errorCode: "slide_content_hash_required",
             statusCode: 400,
@@ -1404,7 +1405,7 @@ export default defineAction({
       deck.updatedAt = now;
 
       await db.transaction(async (tx: any) => {
-        if (isAgentCaller && row.ownerEmail) {
+        if (row.ownerEmail) {
           await createDeckVersionSnapshot(
             {
               id: row.id,
@@ -1413,7 +1414,7 @@ export default defineAction({
               ownerEmail: row.ownerEmail,
             },
             {
-              force: true,
+              force: isAgentCaller,
               chatContext: deckVersionChatContextFromAction(ctx),
               label: "Before deck patch",
               db: tx,
@@ -1517,6 +1518,7 @@ export default defineAction({
           : {}),
       };
       return base;
-    });
+    };
+    return withDeckLock(deckId, () => retryDeckWrite(applyPatch));
   },
 });
