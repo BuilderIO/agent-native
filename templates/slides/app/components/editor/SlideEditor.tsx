@@ -47,7 +47,6 @@ import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
   bulletRowCount,
   findEnclosingList,
-  isBulletRow,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
