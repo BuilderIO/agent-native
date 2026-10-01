@@ -1,0 +1,199 @@
+---
+title: "Settings Kit"
+description: "모든 앱에서 동일한 계정, 연결, 에이전트, 조직 그룹과 앱 자체 설정을 위한 그룹 하나를 제공하는 검색 가능한 설정 페이지입니다."
+---
+
+# Settings Kit
+
+Settings Kit은 모든 앱에 동일한 구조의 설정 페이지를 제공합니다. 설정이 어디에 있는지만 보면 어떤 범위에 영향을 주는지 알 수 있습니다. **계정**, **연결**, **에이전트**, **조직** 그룹은 모든 앱에서 동일하며, 앱 이름을 딴 그룹에는 해당 앱에만 영향을 주는 설정을 모읍니다. 사용자는 모델 키가 앱 페이지, 에이전트 사이드바, 공급자 설정 카드 중 어디에 있는지 더 이상 헷갈리지 않습니다.
+
+설정은 사이드바 하단의 계정 메뉴(사진과 이름)에서 열 수 있고, 앱 어디서나 **⌘,**(Windows 및 Linux에서는 **Ctrl+,**)를 눌러 열 수 있습니다. 명령 메뉴(⌘K)에도 **설정** 명령이 있습니다. 모든 페이지는 기본으로 검색할 수 있습니다. "언어", "S3", "API 키" 등을 입력하면 볼 수 있는 모든 페이지에서 해당 행으로 이동합니다.
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:3px'><div class='wf-muted' style='display:flex;align-items:center;gap:6px;margin-bottom:6px'><span data-icon='chevronLeft'></span> 메일로 돌아가기</div><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>검색</span><span class='wf-pill'>/</span></div><small class='wf-muted'>계정</small><div style='padding:4px 9px'>프로필</div><div style='padding:4px 9px'>환경설정</div><small class='wf-muted' style='margin-top:6px'>연결</small><div style='padding:4px 9px'>통합</div><div style='padding:4px 9px'>API 키</div><small class='wf-muted' style='margin-top:6px'>에이전트</small><div style='padding:4px 9px;border-radius:8px;background:var(--wf-accent-soft)'>모델</div><div style='padding:4px 9px'>지침</div><div style='padding:4px 9px'>하위 에이전트</div><small class='wf-muted' style='margin-top:6px'>조직</small><div style='padding:4px 9px'>구성원</div><div style='padding:4px 9px'>사용량</div><small class='wf-muted' style='margin-top:6px'>메일</small><div style='padding:4px 9px'>일반</div><div style='padding:4px 9px'>채널</div><div style='flex:1'></div><div class='wf-muted' style='padding:4px 9px'>랩 · 새 소식</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>모델</h2><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>조직 공급자</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Builder.io</div><span class='wf-pill'>연결됨</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Anthropic</div><button>관리</button></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>개인 공급자</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>OpenAI</div><button>추가</button></div></div><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>기본 모델</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Claude Sonnet</div><span data-icon='chevronDown'></span></div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## 그룹 및 페이지 {#groups-and-pages}
+
+페이지 ID는 안정적인 URL 세그먼트(`/settings/<page>` 및 `/settings/<page>/<sub>`), 검색 대상, 에이전트가 페이지를 가리키는 이름입니다.
+
+| 그룹     | 페이지 (id)                                                                                                                                   | 표시 대상        |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| 계정     | 프로필 (`profile`), 환경설정 (`preferences`), 보안 (`security`)                                                                               | 모든 사용자      |
+| 연결     | 통합 (`integrations`, Builder.io의 경우 `integrations/builder`), API 키 (`api-keys`)                                                          | 모든 사용자      |
+| 에이전트 | 모델 (`model`), 지침 (`instructions`), 메모리 (`memory`), 스킬 (`skills`), 파일 (`files`), 하위 에이전트 (`sub-agents`)                       | 모든 사용자      |
+| 조직     | 일반 (`org`), 구성원 (`members`), 사용량 (`usage`)                                                                                            | 모든 사용자      |
+| 조직     | 인증 (`auth`), 앱 (`apps`), 인프라 (`infra`), 감사 로그 (`audit`)                                                                             | 소유자 및 관리자 |
+| 앱 이름  | 일반 (`app`), 알림 (`notifications`), 자동화 (`automations`), 채널 (`channels`), MCP 서버 (`mcp`), 크리에이티브 컨텍스트 (`creative-context`) | 모든 사용자      |
+| 푸터     | 랩 (`labs`), 새 소식 (`whats-new`)                                                                                                            | 모든 사용자      |
+
+앱 그룹에는 앱의 이름과 아이콘이 사용됩니다. 알림은 앱에서 알림 설정을 전달한 경우에만 표시되고, 크리에이티브 컨텍스트는 해당 랩이 켜져 있을 때만 표시됩니다. 볼 수 없는 페이지를 열면 프로필이 대신 열립니다. 링크로 페이지를 지정하지 않은 경우에도 설정은 프로필에서 열립니다. 페이지를 숨기는 것은 표시 방식에만 영향을 줍니다. 각 페이지의 모든 액션은 서버에서 사용자의 역할을 확인합니다.
+
+## 페이지 계약 {#page-contract}
+
+각 앱은 `/settings`와 스플랫 라우트(설정 라우트를 다시 내보내는 `settings.$.tsx`)를 제공하여 `/settings/<page>/<sub>` 경로를 처리합니다. 이 라우트는 `<SettingsTabsPage>`를 렌더링합니다. 계정, 연결, 에이전트, 조직 페이지는 core가 소유하고, 앱은 자체 콘텐츠만 제공합니다.
+
+```tsx
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+
+  return (
+    <div className="h-dvh">
+      <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
+        generalGroups={<RecordingDefaults />}
+        appAreas={[
+          { id: "meetings", label: "Meetings", content: <MeetingSettings /> },
+        ]}
+        notifications={<EmailNotificationSettings />}
+        mcpAbout="Record, search, and share clips from any MCP host."
+        whatsNewMarkdown={changelog}
+      />
+    </div>
+  );
+}
+```
+
+설정 페이지에는 앱으로 돌아가는 링크, 탐색 메뉴, 페이지 헤더가 포함되므로 설정 라우트에서는 앱 레이아웃의 사이드바와 헤더를 숨깁니다(`isSettingsPathname(pathname)`).
+
+| Prop                                          | 표시 위치                                                                                                                               |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `generalGroups`                               | 앱 › 일반에 표시되는 앱 자체 `SettingsGroup`입니다. core의 에이전트 › 기본 모델과 이 브라우저 › 데모 모드 사이에 표시됩니다.            |
+| `appAreas`                                    | 앱 › 일반의 탭이며 `/settings/app/<id>`로 라우팅됩니다: `{ id, label, content, visible?, icon?, keywords?, searchEntries? }`.           |
+| `notifications`, `notificationsSearchEntries` | 앱 › 알림. `notifications`가 전달된 경우에만 페이지가 표시됩니다.                                                                       |
+| `mcpAbout`                                    | 앱 › MCP 서버에 표시되는 번역된 설명입니다. 이 앱에서 MCP 호스트로 할 수 있는 일을 설명합니다.                                          |
+| `labs`                                        | 랩 페이지에 표시할 랩 정의입니다.                                                                                                       |
+| `whatsNewMarkdown` 또는 `whatsNew`            | 새 소식 페이지입니다. 방문할 때까지 읽지 않음 점이 표시됩니다.                                                                          |
+| `appName`, `appIcon`, `appId`                 | 앱 그룹의 레이블과 아이콘입니다. 기본값은 템플릿 자체의 이름과 아이콘입니다.                                                            |
+| `extraTabs`                                   | 추가 앱 탭입니다. 각 항목은 앱 그룹 안의 독립 페이지가 됩니다. `settingsPlacement: "app-area"`로 설정하면 대신 앱 › 일반의 탭이 됩니다. |
+
+뒤의 랩이 꺼져 있는 동안 앱 영역에 `visible: false`를 설정합니다. `useLab(ref)`와 `useLabState(ref)`는 키 또는 `{ key, defaultEnabled? }` 형태의 `LabReference`를 받습니다. 랩이 로드되는 동안에도 `defaultEnabled` 값을 적용하도록 키만 전달하지 말고 랩 정의를 전달하세요. 기본 모델, 언어, 데모 모드 행은 core가 이미 렌더링하므로 앱 그룹에 추가하지 마세요.
+
+### 페이지 등록 {#registering-a-page}
+
+일반적으로 앱 페이지는 `extraTabs` 항목에서 시작하며, 이 항목은 앱 그룹의 독립 페이지가 됩니다. 더 세밀하게 제어하려면 모듈 범위에서 `registerSettingsPages`로 `SettingsPageDefinition`(`id`, `group`, `order`, `label`, `icon`, `component` 및 선택 항목인 `visible`, `subpages`, `searchEntries`)을 등록합니다. 기존 페이지와 같은 ID를 가진 정의를 등록하면 해당 페이지를 대체합니다. 앱이 core 페이지를 자체 변형으로 바꿀 때 이 방식을 사용합니다. Dispatch는 이 방식으로 Members에 앱 역할 열을 둡니다.
+
+```tsx
+import { OrgMembersPage } from "@agent-native/core/client/org";
+import {
+  CORE_SETTINGS_PAGES,
+  registerSettingsPages,
+} from "@agent-native/toolkit/app/settings";
+
+const coreMembersPage = CORE_SETTINGS_PAGES.find(
+  (page) => page.id === "members",
+)!;
+
+registerSettingsPages([
+  {
+    ...coreMembersPage,
+    component: () => <OrgMembersPage appRoles={dispatchAccessDescriptor} />,
+  },
+]);
+```
+
+페이지 컴포넌트는 `{ pageId, sub, context, bridge }`를 받습니다. `context`에는 사용자의 역할, 랩, 플래그가 포함됩니다. 페이지 안에서 `useSettingsPageHeader({ title?, action?, badge? })`를 사용하면 하위 페이지 이동 경로, 헤더의 기본 동작, 제목 옆 칩을 설정할 수 있습니다.
+
+앱은 설정 라우트 옆의 모듈 범위에서 `registerChannelSettingsExtensions([{ id, platform, component }])`로 채널 페이지에 섹션을 추가할 수 있습니다. Clips와 Mail은 Slack 그룹에 이 기능을 사용합니다.
+
+## 링크 {#links}
+
+`/settings/...` 문자열을 직접 작성하지 마세요. 라우트 헬퍼로 링크를 만드세요.
+
+```ts
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+
+buildSettingsRoute("integrations", "builder"); // /settings/integrations/builder
+buildSettingsRoute("app", "recordings"); // /settings/app/recordings
+buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limits
+```
+
+이전 링크도 계속 작동합니다. 이전 탭 ID(`agent`, `keys`, `team`), 중첩 ID(`agent:resources:memory`), 섹션 해시(`#llm`, `#secrets:OPENAI_API_KEY`), `agent-panel:open-settings` 섹션은 모두 `packages/core/src/navigation/settings-redirects.ts`의 단일 리디렉션 테이블을 통해 처리됩니다. 이전 링크의 대상을 옮기려면 해당 행을 수정하고 `settings-redirects.spec.ts`에 테스트 케이스를 추가하세요.
+
+`@agent-native/core/client/navigation`의 `openSettingsPage(page?)`는 라우터 외부를 포함해 어디서나 설정을 엽니다. `AppProviders`는 `useSettingsShortcut()`을 통해 ⌘,를 이미 연결하므로 앱에서 다시 연결하지 않아도 됩니다.
+
+## 검색 {#search}
+
+검색은 페이지를 렌더링하지 않고 페이지 이름과 각 페이지가 선언한 `searchEntries`를 인덱싱합니다. 결과에는 행 레이블과 위치(“에이전트 › 모델”)가 표시됩니다. Enter를 누르면 해당 페이지가 열리고 행이 잠시 강조 표시됩니다.
+
+- 페이지 정의에서 검색 항목의 `anchor`는 행의 `SettingsRow` ID입니다.
+- 앱 영역 또는 `notificationsSearchEntries`에서는 항목의 `hash`가 행의 `SettingsRow` ID입니다.
+- 레이블에 포함되지 않은 동의어나 공급자 이름은 `keywords`에 추가합니다. 예를 들어 파일 저장소에는 "S3", "R2", "버킷"을 추가합니다.
+
+검색 가능한 모든 `SettingsRow` 또는 `SettingsGroup`에는 안정적인 `id`를 지정하세요. 이 ID는 링크 앵커이기도 하므로 변경하지 마세요.
+
+## 에이전트 기능 동등성 {#agent-parity}
+
+에이전트는 액션을 통해 이 페이지의 모든 항목을 읽고 변경할 수 있으며, 사용자가 현재 열어 둔 페이지도 알 수 있습니다.
+
+- 설정 셸은 브라우저 탭의 애플리케이션 상태 `settings-view`에 `{ page, sub, label }`을 기록합니다. `<current-url>`에는 `settingsPage: integrations/builder (Connections › Integrations › Builder.io)`와 같이 표시됩니다.
+- 기본 제공 `open-settings-page` 도구는 ID로 모든 페이지를 엽니다. `sub`와 `anchor`는 선택 사항이며 이전 탭 ID와 섹션 ID도 사용할 수 있습니다.
+
+| 페이지            | 액션                                                                                                                                               |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 프로필            | `get-user-profile`, `update-user-profile`                                                                                                          |
+| 통합 › Builder.io | `manage-builder-connection`                                                                                                                        |
+| API 키            | `list-api-keys`, `preview-secret-removal`, `delete-api-key`                                                                                        |
+| 모델              | `list-model-providers`, `check-provider-key`, `get-provider-models`, `manage-provider-models`, `manage-provider-key-policy`, `manage-agent-engine` |
+| 사용량            | `get-usage-metrics`, `manage-usage-alert`                                                                                                          |
+| 인증              | `list-sign-in-methods`                                                                                                                             |
+| 앱                | `list-workspace-app-access`, `set-workspace-app-access`                                                                                            |
+| 인프라            | `get-infrastructure-status`, `get-file-storage`, `manage-file-storage`, `manage-service-providers`                                                 |
+| 감사 로그         | `list-audit-events`, `get-audit-event`, `export-audit-events`                                                                                      |
+| 앱 › 자동화       | `manage-automations`                                                                                                                               |
+| 앱 › 채널         | `list-messaging-channels`, `manage-messaging-channel`                                                                                              |
+
+앱 자체 행에도 같은 규칙이 적용됩니다. `generalGroups`, `appAreas`, `notifications`의 모든 컨트롤은 에이전트가 호출할 수 있는 앱 액션을 통해 저장됩니다.
+
+## 역할 {#roles}
+
+| 권한                                                     | 구성원                  | 관리자                                     | 소유자                     |
+| -------------------------------------------------------- | ----------------------- | ------------------------------------------ | -------------------------- |
+| 계정 페이지, 본인용 통합 연결                            | 가능                    | 가능                                       | 가능                       |
+| 개인 공급자와 개인 Builder.io 연결                       | 제한되지 않은 경우 가능 | 본인 키 관리, Builder.io는 조직용으로 연결 | 관리자와 동일              |
+| 조직 공급자, 기본 모델, 최대 반복 횟수, 개인 API 키 제한 | 읽기 전용               | 가능                                       | 가능                       |
+| 조직 지침, 메모리, 스킬, 파일                            | 읽기 전용               | 가능                                       | 가능                       |
+| 구성원 초대                                              | 불가                    | 구성원 초대 가능                           | 구성원 및 관리자 초대 가능 |
+| 구성원 역할 변경                                         | 불가                    | 불가                                       | 가능                       |
+| 인증, 앱, 인프라, 감사 로그                              | 숨김                    | 표시                                       | 표시                       |
+| 공유 A2A 암호, 조직 삭제                                 | 불가                    | 불가                                       | 가능                       |
+
+## UX 기준 {#ux-standard}
+
+- 지속적으로 유지되는 설정은 설정 페이지에 둡니다. 에이전트 사이드바는 설정을 인라인으로 표시하는 대신 해당 페이지로 연결합니다.
+- 어느 페이지에서 열었든 공급자 키 추가, 변경, 삭제는 하나의 대화상자에서 처리합니다.
+- 읽기 전용 행은 잠금 표시와 함께 값을 보여 주고, 툴팁(`ReadOnlySettingValue`)에 변경 권한이 있는 사용자를 표시합니다. 키 삭제, Builder.io 연결 해제, 개인 키 제한 시에는 중단되는 기능을 나열한 확인 대화상자를 엽니다.
+- 행은 레이블, 선택적 설명, 컨트롤 하나로 구성합니다. 페이지 부제목, 아이브로, 개수 표시줄은 두지 않습니다.
+- 의미 있는 모든 행에 검색 항목을 등록합니다.
+
+## 오픈 소스 앱을 위한 Sign in with ChatGPT {#chatgpt-subscription-lab}
+
+Agent-Native는 자격을 갖춘 오픈 소스 사용에 OpenAI의 공식 Sign in with ChatGPT 토큰 공유 흐름을 사용합니다. 이 흐름은 로그인한 사용자의 ChatGPT 요금제로 로컬 앱이 OpenAI 공개 Responses API에 적격 요청을 보낼 수 있도록 합니다. 사용자의 ChatGPT 대화나 기록에는 접근하지 않습니다.
+
+OpenAI의 셀프 서비스 흐름에는 사용자 컴퓨터의 루프백 주소인 `127.0.0.1`에서 HTTP OAuth 콜백을 받아야 합니다. 원격 호스팅 앱에서는 작동하지 않으며 `localhost`는 `127.0.0.1`을 대신할 수 없습니다. 호스팅 또는 유료 배포에는 셀프 서비스 흐름이 승인되지 않았습니다. 이러한 사용에는 OpenAI의 별도 승인이 필요하며 [관심 양식](https://openai.com/form/sign-in-with-chatgpt-interest)에서 신청할 수 있습니다.
+
+<Steps>
+
+### ChatGPT 연결
+
+**설정 → 에이전트 → 모델**을 열고 개인 공급자 목록에서 ChatGPT를 연결합니다. 사용할 요금제가 있는 ChatGPT 계정으로 로그인한 뒤 요청된 접근 권한을 승인합니다. 연결 후 채팅의 모델 선택기에서 사용 가능한 모델을 선택합니다. 같은 설정 행에서 ChatGPT 연결을 해제할 수 있습니다. OpenAI가 원격 철회를 확인하지 못하더라도 로컬 토큰은 삭제됩니다. 경고 링크를 열어 ChatGPT 설정 → 사용량에서 이 앱의 접근 권한을 관리하세요.
+
+</Steps>
+
+추론에는 공개 Responses API만 사용하세요. ChatGPT의 비공개 백엔드 엔드포인트와 ChatGPT 대화 데이터는 이 승인 범위에 포함되지 않습니다. OpenAI는 토큰 공유 흐름을 미리보기로 표시하므로 모델 제공 여부, 한도, 지원 API 기능이 바뀔 수 있습니다. OpenAI의 [Sign in with ChatGPT 개요](https://developers.openai.com/siwc/token-sharing-open-source), [등록 및 로그인](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), [계정 및 세션](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions), [모델 및 추론](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference), [미리보기 제한사항](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations), [오류 복구](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery), [UI/UX 지침](https://developers.openai.com/siwc/ui-ux-guidelines)을 확인하세요.
+
+## 다음 단계
+
+- [**국제화**](/docs/internationalization) — 앱 설정 문구를 현지화합니다.
+- [**온보딩**](/docs/onboarding) — 설정 딥 링크가 사용자를 안내하는 설정 단계를 등록합니다.
+- [**워크스페이스 연결**](/docs/workspace-connections) — 공급자 사용 준비의 기반이 되는 공통 연결 모델입니다.

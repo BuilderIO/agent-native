@@ -18,6 +18,7 @@ import type {
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   appendAgentChatContextToMessage,
   filterAgentChatContextItems,
@@ -3827,7 +3828,24 @@ function AgentKitComposerSurface({
           onConnectLocalRuntime={props.onConnectLocalRuntime}
           imageModelMenu={props.imageModelMenu}
           voiceEnabled
-          toolbarSlot={props.composerToolbarSlot}
+          toolbarSlot={
+            <>
+              {props.selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME ? (
+                <span className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span>{t("agentChat.composer.chatgptPlanUsing")}</span>
+                  <a
+                    href="https://chatgpt.com/settings/usage"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    {t("agentChat.composer.chatgptManageUsage")}
+                  </a>
+                </span>
+              ) : null}
+              {props.composerToolbarSlot}
+            </>
+          }
           extraActionButton={props.composerExtraActionButton}
           includeDefaultSlashCommands
           includeDefaultSlashSkills
@@ -4394,6 +4412,12 @@ function AgentKitConnectionError({
   recoveryError,
 }: AgentConnectionErrorRenderProps) {
   const t = useT();
+  const surface = useAgentKitSurface();
+  const chatGPTPlanUsageError =
+    surface.props.selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+    `${error.code} ${error.message}`.match(
+      /subscription_sharing_usage_limit_(exceeded|unavailable)/,
+    )?.[1];
   return (
     <div
       className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground"
@@ -4404,7 +4428,27 @@ function AgentKitConnectionError({
       <strong className="mr-2 font-medium text-foreground">
         {t("agentChat.error.failed")}
       </strong>
-      <span>{formatAgentKitErrorText(error, t)}</span>
+      {chatGPTPlanUsageError ? (
+        <>
+          <span>
+            {t(
+              chatGPTPlanUsageError === "exceeded"
+                ? "agentChat.error.chatgptPlanUsageLimit"
+                : "agentChat.error.chatgptPlanUsageUnavailable",
+            )}
+          </span>
+          <a
+            href="https://chatgpt.com/settings/usage"
+            target="_blank"
+            rel="noreferrer"
+            className="ml-3 font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            {t("agentChat.composer.chatgptManageUsage")}
+          </a>
+        </>
+      ) : (
+        <span>{formatAgentKitErrorText(error, t)}</span>
+      )}
       {error.retryable ? (
         <button
           type="button"

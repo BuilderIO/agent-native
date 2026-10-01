@@ -17,6 +17,7 @@ import {
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
 
+import { CHATGPT_SUBSCRIPTION_CALLBACK_PATH } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
@@ -78,8 +79,6 @@ import {
 import { uploadFile } from "../file-upload/index.js";
 import { listFileUploadProviderStatusesForRequest } from "../file-upload/registry.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
-import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
-import { registerLabs } from "../labs/registry.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -2544,7 +2543,6 @@ export function createCoreRoutesPlugin(
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
     registerFeatureFlags([BUILDER_CREDIT_USAGE_REPORTING_FLAG]);
-    registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
     let resolveInit: () => void = () => {};
@@ -2600,7 +2598,7 @@ export function createCoreRoutesPlugin(
         createChatGPTSubscriptionOAuthStartHandler(),
       );
       getH3App(nitroApp).use(
-        `${P}/agent-engine/chatgpt-subscription/callback`,
+        CHATGPT_SUBSCRIPTION_CALLBACK_PATH,
         createChatGPTSubscriptionOAuthCallbackHandler(),
       );
 

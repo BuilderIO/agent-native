@@ -225,6 +225,9 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
     { sinceDays, scope, app },
     { placeholderData: keepPreviousData },
   );
+  const chatGPTStatus = useActionQuery<{ connected: boolean }>(
+    "get-chatgpt-subscription-status" as never,
+  );
   const data = query.data;
   const canViewOrganization =
     data?.access.canViewWorkspace ?? mayViewOrganization;
@@ -575,6 +578,19 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
           ) : (
             <BuilderCreditUsageSkeleton />
           )
+        ) : null}
+        {chatGPTStatus.data?.connected ? (
+          <div className="flex justify-end">
+            <Button asChild variant="link" size="sm" className="px-0">
+              <a
+                href="https://chatgpt.com/settings/usage"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("agentChat.composer.chatgptManageUsage")}
+              </a>
+            </Button>
+          </div>
         ) : null}
         <div
           className={cn(

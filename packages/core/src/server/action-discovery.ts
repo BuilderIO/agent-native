@@ -626,6 +626,14 @@ export async function mergeCoreSharingActions(
       () => import("../agent/actions/disconnect-chatgpt-subscription.js"),
     ],
     [
+      "list-chatgpt-subscription-accounts",
+      () => import("../agent/actions/list-chatgpt-subscription-accounts.js"),
+    ],
+    [
+      "select-chatgpt-subscription-account",
+      () => import("../agent/actions/select-chatgpt-subscription-account.js"),
+    ],
+    [
       "preview-secret-removal",
       () => import("../secrets/actions/preview-secret-removal.js"),
     ],

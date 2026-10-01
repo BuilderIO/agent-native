@@ -18,7 +18,6 @@ const state = vi.hoisted(() => ({
   chatgpt: undefined as unknown,
   modelsError: false,
   modelsRefetch: vi.fn(),
-  lab: false,
   builder: {} as Record<string, unknown>,
   header: null as { action?: unknown } | null,
   loop: {
@@ -56,15 +55,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: { orgName: "Acme" }, isLoading: false }),
-}));
-
-vi.mock("@agent-native/core/client/labs/use-lab", () => ({
-  useLabState: () => ({
-    enabled: state.lab,
-    isLoading: false,
-    isError: false,
-    isSuccess: true,
-  }),
 }));
 
 vi.mock("../useBuilderStatus.js", () => ({
@@ -254,8 +244,15 @@ describe("ModelSettingsPage", () => {
     state.models = models();
     state.modelsError = false;
     state.modelsRefetch = vi.fn();
-    state.chatgpt = { connected: false, reconnectRequired: false };
-    state.lab = false;
+    state.chatgpt = {
+      supported: true,
+      supportReason: null,
+      connected: false,
+      reconnectRequired: false,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+    };
     state.builder = builderFlow();
     state.header = null;
     state.loop = { ...state.loop, canUpdate: true };
@@ -622,7 +619,10 @@ describe("ModelSettingsPage", () => {
     expect(empty.textContent).toContain("Add a model provider");
     expect(empty.textContent).toContain("Ask an owner or admin to add one.");
     expect(buttons(empty)).toEqual([]);
-    expect(document.getElementById("personal-providers")).toBeNull();
+    expect(row("personal-providers")).toBeTruthy();
+    expect(buttons(row("chatgpt-subscription"))).toEqual([
+      "Continue with ChatGPT",
+    ]);
   });
 
   it("makes Add provider the empty state's primary when Builder.io can't be connected", async () => {
@@ -697,13 +697,108 @@ describe("ModelSettingsPage", () => {
     expect(row("provider-org-builder")).toBeTruthy();
   });
 
-  it("lists the ChatGPT subscription with a Labs badge while its lab is on", async () => {
-    state.lab = true;
+  it("offers official local ChatGPT plan access without a Labs opt-in", async () => {
     await render();
     const chatgpt = row("chatgpt-subscription");
-    expect(chatgpt.textContent).toContain("ChatGPT subscription");
-    expect(chatgpt.textContent).toContain("Labs");
-    expect(buttons(chatgpt)).toEqual(["Connect"]);
+    expect(chatgpt.textContent).toContain("ChatGPT plan access");
+    expect(chatgpt.textContent).not.toContain("Labs");
+    expect(buttons(chatgpt)).toEqual(["Continue with ChatGPT"]);
+  });
+
+  it("shows where to revoke ChatGPT access after an unconfirmed sign-out", async () => {
+    const account = {
+      id: "siwc_test-account",
+      email: "person@example.test",
+      label: "person@example.test",
+      connected: true,
+      reconnectRequired: false,
+      planUsageEnabled: true,
+      active: true,
+    };
+    state.chatgpt = {
+      supported: true,
+      supportReason: null,
+      connected: true,
+      reconnectRequired: false,
+      activeAccountId: account.id,
+      activeAccount: account,
+      accounts: [account],
+    };
+    callActionMock.mockResolvedValue({ remoteRevocationConfirmed: false });
+    await render();
+
+    const chatgpt = row("chatgpt-subscription");
+    await act(async () => {
+      const disconnect = [...chatgpt.querySelectorAll("button")].find(
+        (button) => button.textContent === "Disconnect",
+      ) as HTMLElement;
+      disconnect.click();
+    });
+
+    expect(chatgpt.textContent).toContain(
+      "Signed out here, but OpenAI did not confirm remote revocation.",
+    );
+    const manageAccess = chatgpt.querySelector(
+      'a[href="https://chatgpt.com/settings/usage"]',
+    ) as HTMLAnchorElement;
+    expect(manageAccess.textContent).toBe("Manage access in ChatGPT");
+  });
+
+  it("offers explicit removal of an unusable legacy ChatGPT sign-in", async () => {
+    state.chatgpt = {
+      supported: true,
+      supportReason: null,
+      connected: false,
+      reconnectRequired: false,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: true,
+    };
+    callActionMock.mockResolvedValue({
+      removed: true,
+      remoteRevocationConfirmed: false,
+    });
+    await render();
+
+    const chatgpt = row("chatgpt-subscription");
+    expect(chatgpt.textContent).toContain(
+      "An older ChatGPT sign-in is saved here. The official flow cannot use it.",
+    );
+    await act(async () => {
+      const remove = [...chatgpt.querySelectorAll("button")].find(
+        (button) => button.textContent === "Remove old sign-in",
+      ) as HTMLElement;
+      remove.click();
+    });
+
+    expect(callActionMock).toHaveBeenCalledWith(
+      "disconnect-chatgpt-subscription",
+      { removeLegacyCredential: true },
+    );
+    expect(chatgpt.textContent).toContain(
+      "Signed out here, but OpenAI did not confirm remote revocation.",
+    );
+  });
+
+  it("points hosted apps to the ChatGPT partner access path", async () => {
+    state.chatgpt = {
+      supported: false,
+      supportReason: "requires_local_loopback",
+      connected: false,
+      reconnectRequired: false,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+    };
+    await render();
+    const chatgpt = row("chatgpt-subscription");
+    expect(chatgpt.textContent).toContain(
+      "Hosted or paid apps need OpenAI partner access.",
+    );
+    expect((chatgpt.querySelector("a") as HTMLAnchorElement).href).toBe(
+      "https://openai.com/form/sign-in-with-chatgpt-interest/",
+    );
   });
 
   it("saves Max iterations for admins and refuses a value out of range", async () => {

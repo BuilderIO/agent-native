@@ -366,6 +366,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "自動",
   "composer.builderModelCredits": "Claude、OpenAI 與 Gemini 的免費額度",
   "composer.chatGptSubscription": "ChatGPT 訂閱",
+  "composer.chatgptManageUsage": "管理使用量",
+  "composer.chatgptPlanUsing": "正在使用 ChatGPT 方案",
   "composer.closePreview": "關閉預覽",
   "composer.configureProviderKeys": "設定 Anthropic、OpenAI 或其他供應商",
   "composer.connectAbove": "請在上方連線 AI 以繼續...",
@@ -553,6 +555,9 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "正在載入聊天...",
   "empty.prompt": "我能如何協助您？",
   "error.afterDuration": "{{duration}} 後{{headline}}",
+  "error.chatgptPlanUsageLimit": "已達到您的 ChatGPT 方案使用上限。",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI 無法檢查此 ChatGPT 方案的使用上限。請查看 ChatGPT 使用量，或嘗試其他模型。",
   "error.failed": "代理發生錯誤",
   "error.render": "無法顯示此內容。",
   "error.stopped": "代理在完成前已停止",
@@ -2496,10 +2501,29 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "取消",
   "settingsModel.change": "變更",
   "settingsModel.chatgptConnected": "已連線",
-  "settingsModel.chatgptDescription": "透過您的 ChatGPT 方案使用 Codex 引擎。",
+  "settingsModel.chatgptDescription":
+    "透過您的 ChatGPT 方案使用符合資格的 OpenAI 模型。",
   "settingsModel.chatgptPopupBlocked":
     "請允許此網站的彈出式視窗，然後再試一次。",
-  "settingsModel.chatgptTitle": "ChatGPT 訂閱",
+  "settingsModel.chatgptTitle": "ChatGPT 方案存取",
+  "settingsModel.chatgptAddAccount": "新增另一個帳戶",
+  "settingsModel.chatgptConnecting": "正在連線…",
+  "settingsModel.chatgptContinue": "繼續使用 ChatGPT",
+  "settingsModel.chatgptDisconnect": "中斷連線",
+  "settingsModel.chatgptRemoveLegacySignIn": "移除舊版登入",
+  "settingsModel.chatgptLegacySignInDetails":
+    "此處儲存了舊版 ChatGPT 登入資訊，官方流程無法使用。",
+  "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理存取權",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "已在此處登出，但 OpenAI 未確認遠端撤銷。",
+  "settingsModel.chatgptLocalOnly":
+    "此開源登入流程需要本機或自架應用程式。託管或付費應用程式需要 OpenAI 合作夥伴存取權。",
+  "settingsModel.chatgptNoDirectUse":
+    "重新連線並允許模型直接存取，才能使用此 ChatGPT 帳戶。",
+  "settingsModel.chatgptPartnerInterest": "申請合作夥伴存取權",
+  "settingsModel.chatgptReconnect": "重新連線",
+  "settingsModel.chatgptSelectAccount": "ChatGPT 帳戶",
+  "settingsModel.chatgptUsageLimit": "已達到您的 ChatGPT 方案使用上限。",
   "settingsModel.checkAgain": "重新檢查",
   "settingsModel.checkedJustNow": "剛剛已檢查。",
   "settingsModel.checkedOn": "已於 {{date}} 檢查。",

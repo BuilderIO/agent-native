@@ -393,6 +393,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "自動",
   "composer.builderModelCredits": "Claude、OpenAI、Gemini の無料クレジット",
   "composer.chatGptSubscription": "ChatGPT サブスクリプション",
+  "composer.chatgptManageUsage": "使用状況を管理",
+  "composer.chatgptPlanUsing": "ChatGPTプランを使用中",
   "composer.closePreview": "プレビューを閉じる",
   "composer.configureProviderKeys":
     "Anthropic、OpenAI、または別のプロバイダーを設定",
@@ -596,6 +598,9 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "チャットを読み込み中...",
   "empty.prompt": "どのようにお手伝いできますか？",
   "error.afterDuration": "{{duration}} 後に{{headline}}",
+  "error.chatgptPlanUsageLimit": "ChatGPTプランの使用上限に達しました。",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAIはこのChatGPTプランの使用上限を確認できませんでした。ChatGPTの使用状況を確認するか、別のモデルをお試しください。",
   "error.failed": "エージェントでエラーが発生しました",
   "error.render": "このコンテンツを表示できませんでした。",
   "error.stopped": "エージェントは完了前に停止しました",
@@ -2720,10 +2725,28 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "変更",
   "settingsModel.chatgptConnected": "接続済み",
   "settingsModel.chatgptDescription":
-    "ChatGPT のプランで Codex エンジンを使えます。",
+    "ChatGPTプランで対象のOpenAIモデルを利用できます。",
   "settingsModel.chatgptPopupBlocked":
     "このサイトのポップアップを許可してから、もう一度お試しください。",
-  "settingsModel.chatgptTitle": "ChatGPT サブスクリプション",
+  "settingsModel.chatgptTitle": "ChatGPT プランへのアクセス",
+  "settingsModel.chatgptAddAccount": "別のアカウントを追加",
+  "settingsModel.chatgptConnecting": "接続中…",
+  "settingsModel.chatgptContinue": "ChatGPTで続行",
+  "settingsModel.chatgptDisconnect": "接続を解除",
+  "settingsModel.chatgptRemoveLegacySignIn": "古いサインインを削除",
+  "settingsModel.chatgptLegacySignInDetails":
+    "以前の ChatGPT サインインが保存されています。公式フローでは使用できません。",
+  "settingsModel.chatgptManageAccess": "ChatGPT でアクセスを管理",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "ここではサインアウトしましたが、OpenAI はリモートでの取り消しを確認できませんでした。",
+  "settingsModel.chatgptLocalOnly":
+    "このオープンソースのサインインフローには、ローカルまたはセルフホストのアプリが必要です。ホスト型または有料アプリにはOpenAIのパートナーアクセスが必要です。",
+  "settingsModel.chatgptNoDirectUse":
+    "このChatGPTアカウントを使用するには、再接続してモデルへの直接アクセスを許可してください。",
+  "settingsModel.chatgptPartnerInterest": "パートナーアクセスをリクエスト",
+  "settingsModel.chatgptReconnect": "再接続",
+  "settingsModel.chatgptSelectAccount": "ChatGPTアカウント",
+  "settingsModel.chatgptUsageLimit": "ChatGPTプランの使用上限に達しました。",
   "settingsModel.checkAgain": "もう一度確認",
   "settingsModel.checkedJustNow": "たった今確認しました。",
   "settingsModel.checkedOn": "{{date}} に確認しました。",

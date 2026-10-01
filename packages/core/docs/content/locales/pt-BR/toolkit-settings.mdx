@@ -1,0 +1,294 @@
+---
+title: "Kit de Configurações"
+description: "Uma página de Configurações pesquisável, com os mesmos grupos Conta, Conexões, Agente e Organização em todos os apps, além de um grupo para as configurações específicas do próprio app."
+---
+
+# Kit de Configurações
+
+O Kit de Configurações oferece a cada app uma única página de Configurações com a
+mesma estrutura. O local de cada configuração indica o que ela afeta: **Conta**,
+**Conexões**, **Agente** e **Organização** são iguais em todos os apps, e um grupo
+com o nome do app reúne o que afeta somente aquele app. Assim, ninguém precisa
+adivinhar se uma chave de modelo fica na página do app, na barra lateral do agente
+ou em um cartão de configuração do provedor.
+
+Abra Configurações pelo menu da conta (sua foto e seu nome na parte inferior da
+barra lateral) ou pressione **⌘,** (**Ctrl+,** no Windows e no Linux) em qualquer
+ponto do app. O menu de comandos (⌘K) também inclui o comando **Configurações**.
+Todas as páginas já podem ser pesquisadas: digitar "idioma", "S3" ou "chave de
+API" leva diretamente à linha correspondente em qualquer página que você possa
+ver.
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:3px'><div class='wf-muted' style='display:flex;align-items:center;gap:6px;margin-bottom:6px'><span data-icon='chevronLeft'></span> Voltar ao Mail</div><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>Buscar</span><span class='wf-pill'>/</span></div><small class='wf-muted'>Conta</small><div style='padding:4px 9px'>Perfil</div><div style='padding:4px 9px'>Preferências</div><small class='wf-muted' style='margin-top:6px'>Conexões</small><div style='padding:4px 9px'>Integrações</div><div style='padding:4px 9px'>Chaves de API</div><small class='wf-muted' style='margin-top:6px'>Agente</small><div style='padding:4px 9px;border-radius:8px;background:var(--wf-accent-soft)'>Modelo</div><div style='padding:4px 9px'>Instruções</div><div style='padding:4px 9px'>Subagentes</div><small class='wf-muted' style='margin-top:6px'>Organização</small><div style='padding:4px 9px'>Membros</div><div style='padding:4px 9px'>Uso</div><small class='wf-muted' style='margin-top:6px'>Mail</small><div style='padding:4px 9px'>Geral</div><div style='padding:4px 9px'>Canais</div><div style='flex:1'></div><div class='wf-muted' style='padding:4px 9px'>Labs · Novidades</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>Modelo</h2><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Provedores da organização</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Builder.io</div><span class='wf-pill'>Conectado</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Anthropic</div><button>Gerenciar</button></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Provedores pessoais</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>OpenAI</div><button>Adicionar</button></div></div><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>Modelo padrão</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Claude Sonnet</div><span data-icon='chevronDown'></span></div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## Grupos e páginas {#groups-and-pages}
+
+Os ids das páginas são segmentos estáveis de URL (`/settings/<page>` e
+`/settings/<page>/<sub>`), destinos de pesquisa e o nome que o agente usa para
+identificar cada página.
+
+| Grupo       | Página (id)                                                                                                                                                  | Visível para                    |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| Conta       | Perfil (`profile`), Preferências (`preferences`), Segurança (`security`)                                                                                     | Todos                           |
+| Conexões    | Integrações (`integrations`, com `integrations/builder` para Builder.io), Chaves de API (`api-keys`)                                                         | Todos                           |
+| Agente      | Modelo (`model`), Instruções (`instructions`), Memória (`memory`), Habilidades (`skills`), Arquivos (`files`), Subagentes (`sub-agents`)                     | Todos                           |
+| Organização | Geral (`org`), Membros (`members`), Uso (`usage`)                                                                                                            | Todos                           |
+| Organização | Autenticação (`auth`), Apps (`apps`), Infraestrutura (`infra`), Registro de auditoria (`audit`)                                                              | Proprietários e administradores |
+| Nome do app | Geral (`app`), Notificações (`notifications`), Automações (`automations`), Canais (`channels`), Servidor MCP (`mcp`), Contexto criativo (`creative-context`) | Todos                           |
+| Rodapé      | Labs (`labs`), Novidades (`whats-new`)                                                                                                                       | Todos                           |
+
+O grupo do app usa o nome e o ícone do próprio app. Notificações aparece somente
+quando o app fornece configurações de notificação, e Contexto criativo aparece
+somente enquanto o respectivo lab está ativado. Se a pessoa não puder ver uma
+página, ela abrirá Perfil; Configurações também abre em Perfil, a menos que o link
+indique outra página. Ocultar uma página altera somente a apresentação: cada ação
+associada a ela verifica no servidor se a função da pessoa tem permissão.
+
+## Contrato da página {#page-contract}
+
+Cada app expõe `/settings` e uma rota splat (`settings.$.tsx`, que reexporta a rota
+de configurações) para resolver `/settings/<page>/<sub>`. A rota renderiza
+`<SettingsTabsPage>`; o core é responsável pelas páginas Conta, Conexões, Agente e
+Organização, e o app fornece somente o próprio conteúdo.
+
+```tsx
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+
+  return (
+    <div className="h-dvh">
+      <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
+        generalGroups={<RecordingDefaults />}
+        appAreas={[
+          { id: "meetings", label: "Reuniões", content: <MeetingSettings /> },
+        ]}
+        notifications={<EmailNotificationSettings />}
+        mcpAbout="Grave, pesquise e compartilhe clipes de qualquer host MCP."
+        whatsNewMarkdown={changelog}
+      />
+    </div>
+  );
+}
+```
+
+Configurações já inclui um link para voltar ao app, a navegação e o cabeçalho da
+página. Por isso, o layout do app oculta a barra lateral e o cabeçalho nas rotas de
+Configurações (`isSettingsPathname(pathname)`).
+
+| Prop                                          | Onde aparece                                                                                                                          |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `generalGroups`                               | Os `SettingsGroup`s do app em App › Geral, entre Agente › Modelo padrão do core e Este navegador › Modo de demonstração.              |
+| `appAreas`                                    | Abas em App › Geral, na rota `/settings/app/<id>`: `{ id, label, content, visible?, icon?, keywords?, searchEntries? }`.              |
+| `notifications`, `notificationsSearchEntries` | App › Notificações. A página aparece somente quando `notifications` é informado.                                                      |
+| `mcpAbout`                                    | A frase traduzida em App › Servidor MCP, que descreve o que um host MCP pode fazer neste app.                                         |
+| `labs`                                        | Definições dos labs na página Labs.                                                                                                   |
+| `whatsNewMarkdown` ou `whatsNew`              | Novidades, com um ponto indicando conteúdo não lido até a página ser visitada.                                                        |
+| `appName`, `appIcon`, `appId`                 | O rótulo e o ícone do grupo do app. Por padrão, são os do próprio template.                                                           |
+| `extraTabs`                                   | Outras abas do app. Cada uma vira uma página no grupo do app; `settingsPlacement: "app-area"` a transforma em uma aba de App › Geral. |
+
+Defina `visible: false` para uma área do app enquanto o lab correspondente estiver
+desativado. `useLab(ref)` e `useLabState(ref)` recebem um `LabReference`, que pode
+ser uma chave ou `{ key, defaultEnabled? }`. Passe a definição do lab, em vez de
+uma chave isolada, para que ele use `defaultEnabled` enquanto os labs são
+carregados. Não adicione uma linha de modelo padrão, idioma ou modo de demonstração
+aos grupos do app: o core já as exibe.
+
+### Registrar uma página {#registering-a-page}
+
+Uma página do app geralmente começa como um item de `extraTabs`, que se torna uma
+página no grupo do app. Para ter mais controle, registre uma
+`SettingsPageDefinition` (`id`, `group`, `order`, `label`, `icon`, `component` e,
+opcionalmente, `visible`, `subpages` e `searchEntries`) com `registerSettingsPages`
+no escopo do módulo. Uma definição com o mesmo id de uma página existente a
+substitui; assim, um app pode usar sua própria versão de uma página do core. O
+Dispatch usa esse recurso para manter a coluna de função do app em Membros:
+
+```tsx
+import { OrgMembersPage } from "@agent-native/core/client/org";
+import {
+  CORE_SETTINGS_PAGES,
+  registerSettingsPages,
+} from "@agent-native/toolkit/app/settings";
+
+const coreMembersPage = CORE_SETTINGS_PAGES.find(
+  (page) => page.id === "members",
+)!;
+
+registerSettingsPages([
+  {
+    ...coreMembersPage,
+    component: () => <OrgMembersPage appRoles={dispatchAccessDescriptor} />,
+  },
+]);
+```
+
+Um componente de página recebe `{ pageId, sub, context, bridge }`; `context`
+contém a função da pessoa que está usando o app, os labs e as flags. Dentro da
+página, `useSettingsPageHeader({ title?, action?, badge? })` define o breadcrumb
+de uma subpágina, a ação principal do cabeçalho ou um selo ao lado do título.
+
+Um app adiciona uma seção à página de um canal com
+`registerChannelSettingsExtensions([{ id, platform, component }])`, no escopo do
+módulo, junto à rota de configurações. Clips e Mail usam esse recurso para seus
+grupos do Slack.
+
+## Links {#links}
+
+Não escreva strings `/settings/...` manualmente. Crie links com o helper de rotas:
+
+```ts
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+
+buildSettingsRoute("integrations", "builder"); // /settings/integrations/builder
+buildSettingsRoute("app", "recordings"); // /settings/app/recordings
+buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limits
+```
+
+Os links antigos continuam funcionando. Os ids anteriores de abas (`agent`,
+`keys`, `team`), ids aninhados (`agent:resources:memory`), hashes de seção
+(`#llm`, `#secrets:OPENAI_API_KEY`) e seções `agent-panel:open-settings` passam
+por uma única tabela de redirecionamento em
+`packages/core/src/navigation/settings-redirects.ts`. Para atualizar um link
+antigo, altere a linha correspondente e adicione um caso a
+`settings-redirects.spec.ts`.
+
+`openSettingsPage(page?)`, de `@agent-native/core/client/navigation`, abre
+Configurações de qualquer lugar, inclusive fora do router. `AppProviders` já
+associa ⌘, a `useSettingsShortcut()`, então o app não precisa associar esse atalho
+novamente.
+
+## Pesquisa {#search}
+
+A pesquisa indexa os nomes das páginas e os `searchEntries` declarados por cada
+uma, sem renderizar as páginas. O resultado mostra o rótulo da linha e seu local
+("Agente › Modelo"); ao pressionar Enter, a página abre e a linha fica destacada.
+
+- Em uma definição de página, o `anchor` de uma entrada de pesquisa é o id da
+  linha `SettingsRow`.
+- Em uma área do app ou em `notificationsSearchEntries`, o `hash` da entrada é o
+  id da linha `SettingsRow`.
+- Adicione `keywords` para sinônimos e nomes de provedores que não aparecem no
+  rótulo, como "S3", "R2" e "bucket" para armazenamento de arquivos.
+
+Defina um `id` estável para cada `SettingsRow` ou `SettingsGroup` pesquisável.
+Esses ids também são âncoras de links, então não os renomeie.
+
+## Paridade com o agente {#agent-parity}
+
+O agente pode ler e alterar tudo nestas páginas por meio de ações e sabe qual
+página está aberta para a pessoa:
+
+- O shell de Configurações grava o estado da aplicação `settings-view` =
+  `{ page, sub, label }` para a aba do navegador, e `<current-url>` o mostra como
+  `settingsPage: integrations/builder (Conexões › Integrações › Builder.io)`.
+- A ferramenta integrada `open-settings-page` abre qualquer página pelo id, com
+  `sub` e `anchor` opcionais. Os ids antigos de abas e seções também funcionam.
+
+| Página                   | Ações                                                                                                                                              |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Perfil                   | `get-user-profile`, `update-user-profile`                                                                                                          |
+| Integrações › Builder.io | `manage-builder-connection`                                                                                                                        |
+| Chaves de API            | `list-api-keys`, `preview-secret-removal`, `delete-api-key`                                                                                        |
+| Modelo                   | `list-model-providers`, `check-provider-key`, `get-provider-models`, `manage-provider-models`, `manage-provider-key-policy`, `manage-agent-engine` |
+| Uso                      | `get-usage-metrics`, `manage-usage-alert`                                                                                                          |
+| Autenticação             | `list-sign-in-methods`                                                                                                                             |
+| Apps                     | `list-workspace-app-access`, `set-workspace-app-access`                                                                                            |
+| Infraestrutura           | `get-infrastructure-status`, `get-file-storage`, `manage-file-storage`, `manage-service-providers`                                                 |
+| Registro de auditoria    | `list-audit-events`, `get-audit-event`, `export-audit-events`                                                                                      |
+| App › Automações         | `manage-automations`                                                                                                                               |
+| App › Canais             | `list-messaging-channels`, `manage-messaging-channel`                                                                                              |
+
+As linhas próprias do app seguem a mesma regra: cada controle em `generalGroups`,
+`appAreas` ou `notifications` salva os dados por uma ação do app que o agente
+também pode chamar.
+
+## Funções e permissões {#roles}
+
+| Recurso                                                                                    | Membro               | Administrador                                     | Proprietário              |
+| ------------------------------------------------------------------------------------------ | -------------------- | ------------------------------------------------- | ------------------------- |
+| Páginas da conta e conexão das próprias integrações                                        | Sim                  | Sim                                               | Sim                       |
+| Provedores pessoais e conexão pessoal do Builder.io                                        | Sim, salvo restrição | Chaves próprias; Builder.io conecta à organização | Igual ao administrador    |
+| Provedores da organização, modelo padrão, iterações máximas e restrição de chaves pessoais | Somente leitura      | Sim                                               | Sim                       |
+| Instruções, memória, skills e arquivos da organização                                      | Somente leitura      | Sim                                               | Sim                       |
+| Convidar membros                                                                           | Não                  | Membros                                           | Membros e administradores |
+| Alterar funções de membros                                                                 | Não                  | Não                                               | Sim                       |
+| Autenticação, Apps, Infraestrutura e registro de auditoria                                 | Ocultos              | Sim                                               | Sim                       |
+| Segredo A2A compartilhado e exclusão da organização                                        | Não                  | Não                                               | Sim                       |
+
+## Padrão de UX {#ux-standard}
+
+- Mantenha as configurações persistentes em Configurações. A barra lateral do
+  agente deve levar a uma página, em vez de exibir as configurações em linha.
+- Adicione, altere e remova uma chave de provedor em um único diálogo, seja qual
+  for a página que o abriu.
+- Linhas somente para leitura mostram o valor com um cadeado e uma dica que
+  identifica quem pode alterá-lo (`ReadOnlySettingValue`). Ao remover uma chave,
+  desconectar o Builder.io ou restringir chaves pessoais, abra um diálogo de
+  confirmação que informe o que deixará de funcionar.
+- Cada linha tem um rótulo, uma descrição opcional e um controle. Não use
+  subtítulos de página, chamadas acima dos títulos nem faixas com contagens.
+- Registre uma entrada de pesquisa para cada linha relevante.
+
+## Sign in with ChatGPT para apps de código aberto {#chatgpt-subscription-lab}
+
+O Agent-Native usa o fluxo oficial de compartilhamento de tokens Sign in with
+ChatGPT da OpenAI para usos elegíveis de código aberto. Ele autoriza o app local
+a fazer solicitações elegíveis à Responses API pública da OpenAI usando o plano
+ChatGPT da conta conectada. Isso não concede acesso às conversas nem ao histórico
+do ChatGPT da pessoa.
+
+O fluxo de autoatendimento da OpenAI exige um callback OAuth HTTP em
+`127.0.0.1`, um endereço de loopback na máquina do usuário. Ele não funciona em
+um app hospedado remotamente, e `localhost` não é um substituto aceito para
+`127.0.0.1`. O fluxo de autoatendimento não está aprovado para implantações
+hospedadas ou pagas. Esses usos exigem aprovação separada da OpenAI por meio do
+[formulário de interesse](https://openai.com/form/sign-in-with-chatgpt-interest).
+
+<Steps>
+
+### Conectar o ChatGPT
+
+Abra **Configurações → Agente → Modelo** e conecte o ChatGPT na lista de
+provedores pessoais. Entre na conta do ChatGPT cujo plano você quer usar e
+autorize o acesso solicitado. Depois de conectar, escolha um modelo disponível
+no seletor de modelos do chat. Você pode desconectar o ChatGPT na mesma linha de
+configurações. Se a OpenAI não confirmar a revogação remota, os tokens locais
+ainda serão apagados; use o link de aviso para gerenciar o acesso deste app em
+Configurações do ChatGPT → Uso.
+
+</Steps>
+
+Use somente a Responses API pública para inferência. Os endpoints privados do
+backend do ChatGPT e os dados das conversas do ChatGPT não estão cobertos por
+esta autorização. A OpenAI classifica o compartilhamento de tokens como uma
+prévia, então a disponibilidade de modelos, os limites e os recursos de API
+compatíveis podem mudar. Consulte a [visão geral do Sign in with
+ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source),
+[registro e login](https://developers.openai.com/siwc/token-sharing-open-source/sign-in),
+[contas e sessões](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions),
+[modelos e inferência](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference),
+[limitações da prévia](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations),
+[recuperação de erros](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery)
+e [diretrizes de UI/UX](https://developers.openai.com/siwc/ui-ux-guidelines).
+
+## Próximos passos
+
+- [**Internacionalização**](/docs/internationalization) — localize os textos de
+  Configurações do app.
+- [**Onboarding**](/docs/onboarding) — registre as etapas de configuração para
+  as quais os links diretos de Configurações levam as pessoas.
+- [**Conexões do espaço de trabalho**](/docs/workspace-connections) — o modelo
+  compartilhado de conexões de provedores usado para determinar se estão prontos.

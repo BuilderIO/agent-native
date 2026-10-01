@@ -378,6 +378,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "تلقائي",
   "composer.builderModelCredits": "أرصدة مجانية لـ Claude وOpenAI وGemini",
   "composer.chatGptSubscription": "اشتراك ChatGPT",
+  "composer.chatgptManageUsage": "إدارة الاستخدام",
+  "composer.chatgptPlanUsing": "استخدام خطة ChatGPT",
   "composer.closePreview": "إغلاق المعاينة",
   "composer.configureProviderKeys": "إعداد Anthropic أو OpenAI أو مزوّد آخر",
   "composer.connectAbove": "اتصل بالذكاء الاصطناعي أعلاه للمتابعة...",
@@ -581,6 +583,9 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "جارٍ تحميل المحادثة...",
   "empty.prompt": "كيف يمكنني مساعدتك؟",
   "error.afterDuration": "{{headline}} بعد {{duration}}",
+  "error.chatgptPlanUsageLimit": "تم بلوغ حد الاستخدام لخطة ChatGPT.",
+  "error.chatgptPlanUsageUnavailable":
+    "تعذّر على OpenAI التحقق من حد الاستخدام لخطة ChatGPT هذه. تحقّق من استخدام ChatGPT أو جرّب نموذجًا آخر.",
   "error.failed": "واجه الوكيل خطأ",
   "error.render": "تعذّر عرض هذا المحتوى.",
   "error.stopped": "توقف الوكيل قبل الانتهاء",
@@ -2860,10 +2865,28 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "تغيير",
   "settingsModel.chatgptConnected": "متصل",
   "settingsModel.chatgptDescription":
-    "استخدم محرك Codex مع خطة ChatGPT الخاصة بك.",
+    "استخدم نماذج OpenAI المؤهلة من خلال خطة ChatGPT الخاصة بك.",
   "settingsModel.chatgptPopupBlocked":
     "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول مرة أخرى.",
-  "settingsModel.chatgptTitle": "اشتراك ChatGPT",
+  "settingsModel.chatgptTitle": "الوصول إلى خطة ChatGPT",
+  "settingsModel.chatgptAddAccount": "إضافة حساب آخر",
+  "settingsModel.chatgptConnecting": "جارٍ الاتصال…",
+  "settingsModel.chatgptContinue": "المتابعة باستخدام ChatGPT",
+  "settingsModel.chatgptDisconnect": "قطع الاتصال",
+  "settingsModel.chatgptRemoveLegacySignIn": "إزالة تسجيل الدخول القديم",
+  "settingsModel.chatgptLegacySignInDetails":
+    "تم حفظ تسجيل دخول قديم إلى ChatGPT هنا. لا يمكن استخدامه في التدفق الرسمي.",
+  "settingsModel.chatgptManageAccess": "إدارة الوصول في ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "تم تسجيل الخروج هنا، لكن OpenAI لم يؤكد إلغاء الجلسة عن بُعد.",
+  "settingsModel.chatgptLocalOnly":
+    "يتطلب تدفق تسجيل الدخول مفتوح المصدر هذا تطبيقًا محليًا أو مستضافًا ذاتيًا. تحتاج التطبيقات المستضافة أو المدفوعة إلى وصول الشركاء من OpenAI.",
+  "settingsModel.chatgptNoDirectUse":
+    "أعِد الاتصال واسمح بالوصول المباشر إلى النماذج لاستخدام حساب ChatGPT هذا.",
+  "settingsModel.chatgptPartnerInterest": "طلب وصول الشركاء",
+  "settingsModel.chatgptReconnect": "إعادة الاتصال",
+  "settingsModel.chatgptSelectAccount": "حساب ChatGPT",
+  "settingsModel.chatgptUsageLimit": "تم بلوغ حد الاستخدام لخطة ChatGPT.",
   "settingsModel.checkAgain": "التحقق مرة أخرى",
   "settingsModel.checkedJustNow": "تم التحقق الآن.",
   "settingsModel.checkedOn": "تم التحقق في {{date}}.",

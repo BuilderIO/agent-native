@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
   AGENT_CHAT_CONTEXT_CHANGED_EVENT,
@@ -988,6 +989,32 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(view.engineOf()).toBe("anthropic");
     expect(view.modelOf()).toBe("claude-sonnet-5");
+    await view.cleanup();
+  });
+
+  it("reconciles a saved ChatGPT model with the selected account catalog", async () => {
+    window.localStorage.setItem(
+      "agent-native:chat-models:selection:catalog-test",
+      JSON.stringify({
+        model: "model-from-previous-account",
+        engine: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      }),
+    );
+    const view = await mountWithCatalog(
+      [
+        {
+          name: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+          label: "ChatGPT plan access",
+          supportedModels: ["model-on-current-account"],
+          configured: true,
+          requiredEnvVars: [],
+        },
+      ],
+      [],
+    );
+
+    expect(view.engineOf()).toBe(CHATGPT_SUBSCRIPTION_ENGINE_NAME);
+    expect(view.modelOf()).toBe("model-on-current-account");
     await view.cleanup();
   });
 

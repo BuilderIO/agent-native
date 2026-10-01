@@ -4,6 +4,37 @@ import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 
 const messages = {
   iconPicker: ICON_PICKER_MESSAGES["en-US"],
+  agentChat: {
+    settingsModel: {
+      chatgptAddAccount: "Add another account",
+      chatgptConnecting: "Connecting…",
+      chatgptContinue: "Continue with ChatGPT",
+      chatgptDescription:
+        "Use eligible OpenAI models through your ChatGPT plan.",
+      chatgptDisconnect: "Disconnect",
+      chatgptLocalOnly:
+        "This open-source sign-in flow requires a local or self-hosted app. Hosted or paid apps need OpenAI partner access.",
+      chatgptManageAccess: "Manage access in ChatGPT",
+      chatgptNoDirectUse:
+        "Reconnect and allow direct model access to use this ChatGPT account.",
+      chatgptPartnerInterest: "Request partner access",
+      chatgptReconnect: "Reconnect",
+      chatgptRemoteRevocationUnconfirmed:
+        "Signed out here, but OpenAI did not confirm remote revocation.",
+      chatgptSelectAccount: "ChatGPT account",
+      chatgptTitle: "ChatGPT plan access",
+      chatgptUsageLimit: "Your ChatGPT plan usage limit has been reached.",
+    },
+    composer: {
+      chatgptManageUsage: "Manage usage",
+      chatgptPlanUsing: "Using ChatGPT plan",
+    },
+    error: {
+      chatgptPlanUsageLimit: "Your ChatGPT plan usage limit has been reached.",
+      chatgptPlanUsageUnavailable:
+        "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
+    },
+  },
   environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",
