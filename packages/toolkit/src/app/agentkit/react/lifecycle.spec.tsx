@@ -28,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentChat } from "./chat.js";
 import {
   AgentActivityGroup,
+  AgentCollaborationFeed,
   AgentConnectionRequestCard,
   AgentKitChat,
   AgentMessageActions,
@@ -2165,6 +2166,120 @@ describe("AgentChat lifecycle", () => {
       "Reading private agent state",
     );
     expect(tree.container.textContent).not.toContain("read-private-data");
+    await tree.unmount();
+  });
+
+  it("removes late-delegated activity from the main group and settles it in the agent feed", async () => {
+    const threadId = "thread-late-delegated-activity";
+    const runId = "run-late-delegated-activity";
+    const activity = {
+      id: "late-delegated-activity",
+      kind: "read",
+      label: "Reading delegated files",
+    };
+    const tool: AgentToolCall = {
+      id: "late-delegated-tool",
+      name: "read-delegated-files",
+      status: "running",
+    };
+    const delegatedTool: AgentToolCall = {
+      ...tool,
+      agentId: "subagent-1",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [tool.id]: tool },
+      activities: {
+        [activity.id]: { ...activity, status: "completed" as const },
+      },
+      events: [
+        {
+          id: "activity-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          type: "activity.started" as const,
+          activity: { ...activity, status: "running" as const },
+        },
+        {
+          id: "activity-delegated",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-28T00:00:02.000Z",
+          type: "activity.updated" as const,
+          activity: {
+            ...activity,
+            status: "running" as const,
+            agentId: "subagent-1",
+          },
+        },
+        {
+          id: "tool-started",
+          threadId,
+          runId,
+          sequence: 3,
+          occurredAt: "2026-09-28T00:00:03.000Z",
+          type: "tool.started" as const,
+          toolCall: tool,
+        },
+        {
+          id: "tool-delegated",
+          threadId,
+          runId,
+          sequence: 4,
+          occurredAt: "2026-09-28T00:00:04.000Z",
+          type: "tool.updated" as const,
+          toolCall: delegatedTool,
+        },
+        {
+          id: "activity-completed",
+          threadId,
+          runId,
+          sequence: 5,
+          occurredAt: "2026-09-28T00:00:05.000Z",
+          type: "activity.completed" as const,
+          activity: { ...activity, status: "completed" as const },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 5,
+          startedAt: "2026-09-28T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} excludeAgentActivities />
+        <AgentCollaborationFeed runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+    const feed = tree.container.querySelector(
+      "[data-agent-collaboration-feed='true']",
+    );
+    expect(
+      feed?.querySelector("[data-status='completed']")?.textContent,
+    ).toContain("Reading delegated files");
+    expect(tree.container.textContent).not.toContain("read-delegated-files");
     await tree.unmount();
   });
 

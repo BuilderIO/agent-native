@@ -1033,6 +1033,32 @@ export function AgentActivityGroup({
   const latestSequence = new Map<string, number>();
   const delegatedActivityIds = new Set<string>();
   const delegatedToolIds = new Set<string>();
+  if (excludeAgentActivities) {
+    for (const event of runEvents) {
+      if (
+        event.type === "activity.started" ||
+        event.type === "activity.updated" ||
+        event.type === "activity.completed"
+      ) {
+        const activity = thread.activities[event.activity.id] ?? event.activity;
+        if (event.activity.agentId || activity.agentId) {
+          delegatedActivityIds.add(event.activity.id);
+        }
+      }
+      if (event.type === "tool.started" || event.type === "tool.updated") {
+        const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
+        if (event.toolCall.agentId || tool.agentId) {
+          delegatedToolIds.add(event.toolCall.id);
+        }
+      }
+      if (
+        event.type === "tool.delta" &&
+        thread.tools[event.toolCallId]?.agentId
+      ) {
+        delegatedToolIds.add(event.toolCallId);
+      }
+    }
+  }
   const itemOrder: string[] = [];
   const seenItems = new Set<string>();
   const isInternalActivity = (activity: AgentActivity) => {
@@ -1096,9 +1122,6 @@ export function AgentActivityGroup({
       event.type === "activity.completed"
     ) {
       const activity = thread.activities[event.activity.id] ?? event.activity;
-      if (event.activity.agentId || activity.agentId) {
-        delegatedActivityIds.add(event.activity.id);
-      }
       if (
         excludeAgentActivities &&
         delegatedActivityIds.has(event.activity.id)
@@ -1112,9 +1135,6 @@ export function AgentActivityGroup({
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
       const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
-      if (event.toolCall.agentId || tool.agentId) {
-        delegatedToolIds.add(event.toolCall.id);
-      }
       if (excludeAgentActivities && delegatedToolIds.has(event.toolCall.id)) {
         continue;
       }
@@ -1125,7 +1145,6 @@ export function AgentActivityGroup({
     }
     if (event.type === "tool.delta") {
       const tool = thread.tools[event.toolCallId];
-      if (tool?.agentId) delegatedToolIds.add(event.toolCallId);
       if (excludeAgentActivities && delegatedToolIds.has(event.toolCallId)) {
         continue;
       }
@@ -1588,15 +1607,23 @@ export function AgentCollaborationFeed({
       });
     }
     if (
-      (event.type === "activity.started" ||
-        event.type === "activity.updated" ||
-        event.type === "activity.completed") &&
-      event.activity.agentId
+      event.type === "activity.started" ||
+      event.type === "activity.updated" ||
+      event.type === "activity.completed"
     ) {
-      remember(`activity:${event.activity.id}`, event.sequence, {
-        type: "activity",
-        value: event.activity,
-      });
+      const key = `activity:${event.activity.id}`;
+      const previous = entries.get(key);
+      const agentId =
+        event.activity.agentId ??
+        (previous?.type === "activity" ? previous.value.agentId : undefined);
+      if (agentId) {
+        remember(key, event.sequence, {
+          type: "activity",
+          value: event.activity.agentId
+            ? event.activity
+            : { ...event.activity, agentId },
+        });
+      }
     }
   }
   const selectedOrder = order.filter((key) => {
