@@ -1228,6 +1228,55 @@ describe("AgentChat lifecycle", () => {
     expect(tree.container.textContent).toContain("Registered data");
     expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
 
+    const emptyWidgetResponse = {
+      ...response,
+      parts: [
+        {
+          type: "widget" as const,
+          widget: { id: "empty-widget", kind: "empty", data: {} },
+        },
+      ],
+    };
+    observable.update({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...thread,
+          messages: [emptyWidgetResponse],
+          events: [{ ...responseEvent, message: emptyWidgetResponse }],
+        },
+      },
+      revision: 4,
+    });
+    await flush();
+
+    expect(tree.container.querySelector(".agentkit-widget-shell")).toBeNull();
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{
+          widgets: {
+            empty: () => <span data-visible-empty-widget>Rendered widget</span>,
+          },
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    expect(
+      tree.container.querySelector("[data-visible-empty-widget]")?.textContent,
+    ).toBe("Rendered widget");
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
+
     await tree.unmount();
   });
 

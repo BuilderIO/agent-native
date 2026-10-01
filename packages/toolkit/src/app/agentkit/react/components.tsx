@@ -905,6 +905,8 @@ function messageHasVisibleAssistantOutput(
   messageRenderer: AgentKitSlots["message"],
   textRenderer: AgentKitSlots["text"],
   dataRenderer: AgentKitSlots["data"],
+  widgetRenderer: AgentKitSlots["widget"],
+  widgetRenderers: AgentKitRegistry["widgets"],
   messagePartRenderers: AgentKitRegistry["messageParts"],
 ): boolean {
   if (message.role !== "assistant") return false;
@@ -920,6 +922,14 @@ function messageHasVisibleAssistantOutput(
     if (part.type === "data") {
       return Boolean(dataRenderer || messagePartRenderers?.data);
     }
+    if (part.type === "widget") {
+      return Boolean(
+        messagePartRenderers?.widget ||
+        widgetRenderers?.[part.widget.kind] ||
+        widgetRenderer ||
+        hasVisibleDefaultWidgetOutput(part.widget),
+      );
+    }
     if (part.type.startsWith("x-")) {
       return Boolean(messagePartRenderers?.[part.type]);
     }
@@ -933,6 +943,8 @@ function messageEventHasVisibleAssistantOutput(
   messageRenderer: AgentKitSlots["message"],
   textRenderer: AgentKitSlots["text"],
   dataRenderer: AgentKitSlots["data"],
+  widgetRenderer: AgentKitSlots["widget"],
+  widgetRenderers: AgentKitRegistry["widgets"],
   messagePartRenderers: AgentKitRegistry["messageParts"],
 ): boolean {
   if (event.type === "message.delta") {
@@ -950,6 +962,8 @@ function messageEventHasVisibleAssistantOutput(
     messageRenderer,
     textRenderer,
     dataRenderer,
+    widgetRenderer,
+    widgetRenderers,
     messagePartRenderers,
   );
 }
@@ -1983,17 +1997,17 @@ function AgentWidgetActionButton({
   );
 }
 
+function hasVisibleDefaultWidgetOutput(widget: AgentWidget): boolean {
+  return Boolean(
+    widget.title || typeof widget.data === "string" || widget.actions?.length,
+  );
+}
+
 export function AgentWidgetView({
   value: widget,
   threadId,
 }: AgentKitRenderProps<AgentWidget>) {
-  if (
-    !widget.title &&
-    typeof widget.data !== "string" &&
-    !widget.actions?.length
-  ) {
-    return null;
-  }
+  if (!hasVisibleDefaultWidgetOutput(widget)) return null;
   const titleId = `${widget.id}-title`;
   return (
     <section
@@ -4199,6 +4213,8 @@ export function AgentKitChat({
   const dataRenderer = slots.data;
   const messageRenderer = slots.message;
   const textRenderer = slots.text;
+  const widgetRenderer = slots.widget;
+  const widgetRenderers = registry.widgets;
   const messagePartRenderers = registry.messageParts;
   const messageBoundarySequences = useMemo(() => {
     const firstVisibleSequence = new Map<string, number>();
@@ -4216,6 +4232,8 @@ export function AgentKitChat({
           messageRenderer,
           textRenderer,
           dataRenderer,
+          widgetRenderer,
+          widgetRenderers,
           messagePartRenderers,
         )
       ) {
@@ -4245,6 +4263,8 @@ export function AgentKitChat({
     messagePartRenderers,
     messageRenderer,
     textRenderer,
+    widgetRenderer,
+    widgetRenderers,
     thread.events,
     thread.messages,
   ]);
@@ -4299,6 +4319,8 @@ export function AgentKitChat({
             messageRenderer,
             textRenderer,
             dataRenderer,
+            widgetRenderer,
+            widgetRenderers,
             messagePartRenderers,
           ),
       ),
