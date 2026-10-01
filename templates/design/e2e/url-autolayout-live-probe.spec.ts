@@ -1555,10 +1555,15 @@ test.describe("URL-backed live auto-layout probe", () => {
         ?.slice("data:".length)
         .trim();
       return JSON.parse(data ?? body) as {
+        jsonrpc?: unknown;
+        id?: unknown;
         error?: unknown;
         result?: {
+          capabilities?: unknown;
           content?: Array<{ text?: string }>;
           isError?: boolean;
+          protocolVersion?: unknown;
+          serverInfo?: { name?: unknown; version?: unknown };
           structuredContent?: Record<string, unknown>;
           tools?: Array<{ name: string }>;
         };
@@ -1574,7 +1579,18 @@ test.describe("URL-backed live auto-layout probe", () => {
         clientInfo: { name: "visual-edit-e2e", version: "1.0.0" },
       },
     });
-    expect(initialization?.error).toBeUndefined();
+    expect(initialization).toMatchObject({
+      jsonrpc: "2.0",
+      id: "visual-edit-init",
+      result: {
+        protocolVersion: "2025-03-26",
+        capabilities: expect.any(Object),
+        serverInfo: {
+          name: expect.any(String),
+          version: expect.any(String),
+        },
+      },
+    });
     await callDesignMcp({
       jsonrpc: "2.0",
       method: "notifications/initialized",
