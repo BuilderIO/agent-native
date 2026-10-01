@@ -682,12 +682,30 @@ export default function Index() {
       if (!canChatRef.current) return;
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
-      const designSystemId =
+      let designSystemId =
         selectedTemplate &&
         newDesignMode === "design" &&
         !newDesignSystemWasChosenRef.current
           ? undefined
           : newDesignSystemId;
+      const linkedSystemId = selectedTemplate?.designSystemId;
+      if (
+        linkedSystemId &&
+        newDesignMode === "app" &&
+        systemsEnabled &&
+        !newDesignSystemWasChosenRef.current &&
+        designSystemsLoading
+      ) {
+        const result = await refetchDesignSystems();
+        if (!result.isSuccess || !result.data) {
+          throw result.error ?? new Error(t("home.failedToCreateDesign"));
+        }
+        designSystemId = result.data.designSystems.some(
+          (system) => system.id === linkedSystemId,
+        )
+          ? linkedSystemId
+          : null;
+      }
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
@@ -859,13 +877,16 @@ export default function Index() {
       createFromTemplateMutation,
       createFusionAppMutation,
       designSystems,
+      designSystemsLoading,
       fullAppBuildingEnabled,
       handleGenerateDesignTitle,
       navigate,
       newDesignMode,
       newDesignSystemId,
       queryClient,
+      refetchDesignSystems,
       selectedTemplate,
+      systemsEnabled,
       t,
     ],
   );

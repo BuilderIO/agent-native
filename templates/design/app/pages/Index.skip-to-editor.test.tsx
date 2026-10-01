@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   systemsLoading: false,
   systemIds: ["default-system", "linked-system", "override-system"],
   systemsQuery: vi.fn(),
+  refetchSystems: vi.fn(),
   createDesign: vi.fn(),
   createFromTemplate: vi.fn(),
   generateTitle: vi.fn(),
@@ -348,6 +349,7 @@ vi.mock("@/hooks/use-design-systems", () => ({
         data: "{}",
       },
       isLoading: mocks.systemsLoading,
+      refetch: mocks.refetchSystems,
     }
   ),
 }));
@@ -800,8 +802,15 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps?.selectedDesignSystemId).toBe("linked-system");
   });
 
-  it("uses the linked template system when creating an app", async () => {
+  it("resolves the linked template system before creating an app while systems load", async () => {
     mocks.fullAppBuilding = true;
+    mocks.systemsLoading = true;
+    mocks.refetchSystems.mockResolvedValue({
+      isSuccess: true,
+      data: {
+        designSystems: [{ id: "linked-system" }],
+      },
+    });
     await act(async () => root.render(<Index />));
     await act(async () => mocks.promptProps?.onCreationModeChange("app"));
     await act(async () =>
@@ -812,6 +821,7 @@ describe("Index skip to editor", () => {
       await mocks.promptProps?.onSubmit("Build an app", [], {});
     });
 
+    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
     expect(mocks.createDesign).toHaveBeenCalledWith(
       expect.objectContaining({ designSystemId: "linked-system" }),
     );
