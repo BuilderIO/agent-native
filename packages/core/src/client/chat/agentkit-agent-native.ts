@@ -761,6 +761,10 @@ async function responseError(response: Response): Promise<Error> {
               : undefined;
   const explicitRetryable =
     data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
+  const activeRunId =
+    (typeof data?.activeRunId === "string" && data.activeRunId) ||
+    (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
+    (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
   const error = new Error(
     nestedMessage ??
       (body.trim() || `Agent chat request failed with ${response.status}.`),
@@ -777,6 +781,7 @@ async function responseError(response: Response): Promise<Error> {
       typeof explicitRetryable === "boolean"
         ? explicitRetryable
         : isRetryableHttpStatus(response.status),
+    ...(activeRunId ? { activeRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined

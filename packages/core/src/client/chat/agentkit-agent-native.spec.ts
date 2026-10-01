@@ -2135,6 +2135,52 @@ describe("createAgentNativeAgentKitTransport", () => {
     );
   });
 
+  it("preserves the active run ID from an HTTP conflict", async () => {
+    const conflict = () =>
+      json(
+        {
+          code: "run_slot_busy",
+          message: "Run already in progress",
+          activeRunId: "run-active",
+          retryable: true,
+        },
+        409,
+      );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () => conflict()) as typeof fetch,
+    });
+
+    await expect(
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Queue me" }],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-active",
+      status: 409,
+    });
+    await expect(
+      transport.submitFeedback?.({
+        threadId: "thread-1",
+        messageId: "assistant-1",
+        value: "negative",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-active",
+      status: 409,
+    });
+    await transport.dispose();
+  });
+
   it("persists response feedback and forks durable history from a message", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];
     const fetcher = vi.fn(

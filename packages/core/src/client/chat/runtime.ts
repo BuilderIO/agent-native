@@ -1265,8 +1265,13 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
             : `http_${status}`;
   const explicitRetryable =
     data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
+  const activeRunId =
+    (typeof data?.activeRunId === "string" && data.activeRunId) ||
+    (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
+    (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
   Object.assign(error, {
     code: typeof code === "string" ? code : fallbackCode,
+    ...(activeRunId ? { activeRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined

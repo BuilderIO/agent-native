@@ -2889,12 +2889,16 @@ export function createAgentKitProtocolAdapter(
     async cancelRun(input) {
       pruneRetainedRuns();
       const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
+      if (run && run.threadId !== input.threadId) {
+        throw new Error(`Unknown AgentKit run: ${input.runId}`);
+      }
+      if (!run) {
         if (!runtime.cancel) {
           throw new Error(`Unknown AgentKit run: ${input.runId}`);
         }
+        const session = await getSession(input.threadId);
         const result = await runtime.cancel({
-          sessionId: input.threadId,
+          sessionId: session.id,
           runId: input.runId,
           reason: "protocol-cancel",
         });

@@ -471,6 +471,9 @@ describe("AgentKitChat", () => {
     expect(source).toContain(
       "control.steerQueued(item.id, { interruptActiveRun: true })",
     );
+    expect(source).toContain(
+      "...(options.steer ? { interruptActiveRun: true } : {}),",
+    );
     expect(source).toContain("control.removeQueued(item.id)");
     expect(source).toContain("await onBeforeSubmit()");
     expect(source).toContain(

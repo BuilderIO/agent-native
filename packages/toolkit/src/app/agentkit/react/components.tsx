@@ -3630,6 +3630,7 @@ export function AgentKitComposer({
       attachments: [...payload.attachments],
       options: payload.options,
       metadata: sendMetadata,
+      ...(options.steer ? { interruptActiveRun: true } : {}),
       onLocalSubmit,
     };
     if (payload.intent === "queued") {

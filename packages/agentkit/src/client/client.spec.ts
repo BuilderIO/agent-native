@@ -2628,6 +2628,66 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("preserves interrupt intent when a server-rejected send is steered", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-steered-conflict",
+      threadId: "thread-1",
+      text: "Interrupt with this",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const cancelRun = vi.fn(async () => undefined);
+    const steerQueuedMessage = vi.fn(async () => ({ runId: "run-steered" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async startRun() {
+          throw Object.assign(new Error("Run already in progress"), {
+            code: "run_slot_busy",
+            retryable: true,
+            activeRunId: "run-active",
+          });
+        },
+        async queueMessage() {
+          return { message: queued };
+        },
+        async *subscribeToRun({ signal }) {
+          yield protocolEvent(1, { type: "run.started" });
+          await new Promise<void>((resolve) =>
+            signal?.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        },
+        cancelRun,
+        steerQueuedMessage,
+      },
+    });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      interruptActiveRun: true,
+    });
+
+    expect(handle.runId).toBe("run-steered");
+    expect(cancelRun).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "thread-1", runId: "run-active" }),
+      expect.anything(),
+    );
+    expect(steerQueuedMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "thread-1",
+        messageId: queued.id,
+      }),
+      expect.anything(),
+    );
+    expect(client.getThread("thread-1")).toMatchObject({
+      messages: [expect.objectContaining({ id: queued.id })],
+      queuedMessages: [],
+    });
+
+    await client.shutdown();
+  });
+
   it("treats an item missing at promotion as already claimed by another tab", async () => {
     const queued: AgentQueuedMessage = {
       id: "queued-claimed-elsewhere",
