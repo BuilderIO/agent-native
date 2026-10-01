@@ -109,6 +109,20 @@ const PLAIN_FRAME_WITH_ABSOLUTE_CHILD_HTML = `<!doctype html>
      style="position:absolute;left:500px;top:100px;width:120px;height:100px;background:#475569"></div>
 </body></html>`;
 
+const PLAIN_OUTER_WITH_ABSOLUTE_CHILD_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1280px;height:900px;overflow:visible">
+<main data-agent-native-node-id="outer-frame" data-agent-native-layer-name="Outer frame" data-an-primitive="frame"
+      style="position:absolute;left:100px;top:100px;width:620px;height:300px;overflow:visible;background:#1e293b">
+  <section data-agent-native-node-id="exit-frame" data-agent-native-layer-name="Exit frame" data-an-primitive="frame"
+           style="position:absolute;left:20px;top:30px;width:220px;height:180px;overflow:visible;background:#334155">
+    <div data-agent-native-node-id="absolute-child" data-agent-native-layer-name="Absolute child"
+         style="position:absolute;left:20px;top:20px;width:120px;height:52px;background:#2563eb">Child</div>
+  </section>
+  <div data-agent-native-node-id="later-sibling" data-agent-native-layer-name="Later sibling"
+       style="position:absolute;left:400px;top:40px;width:160px;height:130px;background:#475569"></div>
+</main>
+</body></html>`;
+
 function boardHtml(
   options: {
     rootOverflow?: "visible" | "hidden";
@@ -1486,6 +1500,189 @@ test.describe("absolute child exit from a plain frame", () => {
         );
       }, persisted);
       expect(persistedOrder).toEqual(order);
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+
+  test("keeps an absolute child directly after its exited frame in a plain receiver", async ({
+    page,
+    request,
+  }) => {
+    const { designId } = await createDesign(
+      request,
+      PLAIN_OUTER_WITH_ABSOLUTE_CHILD_HTML,
+    );
+    try {
+      await gotoEditor(page, designId);
+      const frame = designFrame(page);
+      const outer = frame.locator('[data-agent-native-node-id="outer-frame"]');
+      const exitFrame = frame.locator(
+        '[data-agent-native-node-id="exit-frame"]',
+      );
+      const child = frame.locator(
+        '[data-agent-native-node-id="absolute-child"]',
+      );
+      const laterSibling = frame.locator(
+        '[data-agent-native-node-id="later-sibling"]',
+      );
+      await expect(child).toBeVisible();
+      const [outerBox, childBox, laterBox] = await Promise.all([
+        outer.boundingBox(),
+        child.boundingBox(),
+        laterSibling.boundingBox(),
+      ]);
+      if (!outerBox || !childBox || !laterBox) {
+        throw new Error(
+          "absolute-child exit fixture nodes need rendered bounds",
+        );
+      }
+      const zoom = await canvasZoom(page);
+      const grabOffset = { x: childBox.width / 2, y: childBox.height / 2 };
+      const start = {
+        x: childBox.x + grabOffset.x,
+        y: childBox.y + grabOffset.y,
+      };
+      const release = {
+        x: outerBox.x + 380 * zoom,
+        y: outerBox.y + 100 * zoom,
+      };
+      expect(release.x).toBeLessThan(laterBox.x);
+      const beforeDrop = await fileContent(request, designId, "index.html");
+
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x + 8, start.y + 6, { steps: 2 });
+      await page.mouse.move(release.x, release.y, { steps: 16 });
+      expect(await fileContent(request, designId, "index.html")).toBe(
+        beforeDrop,
+      );
+      await page.mouse.up();
+
+      const directChildren = () =>
+        outer.evaluate((element) =>
+          Array.from(element.children).map((child) =>
+            child.getAttribute("data-agent-native-node-id"),
+          ),
+        );
+      await expect
+        .poll(directChildren)
+        .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+      await expect
+        .poll(() =>
+          child.evaluate((element) =>
+            element.parentElement?.getAttribute("data-agent-native-node-id"),
+          ),
+        )
+        .toBe("outer-frame");
+      const movedBox = await child.boundingBox();
+      expect(movedBox).not.toBeNull();
+      expect(movedBox!.x).toBeCloseTo(release.x - grabOffset.x, -1);
+      expect(movedBox!.y).toBeCloseTo(release.y - grabOffset.y, -1);
+      const overlapProof = await child.evaluate((element) => {
+        const childBox = element.getBoundingClientRect();
+        const later = element.ownerDocument.querySelector<HTMLElement>(
+          '[data-agent-native-node-id="later-sibling"]',
+        );
+        if (!later) return { hitNodeId: null, laterFound: false };
+        const laterBox = later.getBoundingClientRect();
+        const x =
+          (Math.max(childBox.left, laterBox.left) +
+            Math.min(childBox.right, laterBox.right)) /
+          2;
+        const y =
+          (Math.max(childBox.top, laterBox.top) +
+            Math.min(childBox.bottom, laterBox.bottom)) /
+          2;
+        const shields = Array.from(
+          element.ownerDocument.querySelectorAll<HTMLElement>(
+            '[data-agent-native-edit-overlay="shield"]',
+          ),
+        );
+        const pointerEvents = shields.map(
+          (shield) => shield.style.pointerEvents,
+        );
+        shields.forEach((shield) => {
+          shield.style.pointerEvents = "none";
+        });
+        let hit: Element | null = null;
+        try {
+          hit = element.ownerDocument.elementFromPoint(x, y);
+        } finally {
+          shields.forEach((shield, index) => {
+            shield.style.pointerEvents = pointerEvents[index] ?? "";
+          });
+        }
+        return {
+          hitNodeId: hit?.getAttribute("data-agent-native-node-id") ?? null,
+          hitTag: hit?.tagName ?? null,
+          hitClass: hit?.getAttribute("class") ?? null,
+          hitHtml: hit?.outerHTML ?? null,
+          point: { x, y },
+          childBox: {
+            left: childBox.left,
+            right: childBox.right,
+            top: childBox.top,
+            bottom: childBox.bottom,
+          },
+          laterBox: {
+            left: laterBox.left,
+            right: laterBox.right,
+            top: laterBox.top,
+            bottom: laterBox.bottom,
+          },
+          viewport: {
+            width: element.ownerDocument.documentElement.clientWidth,
+            height: element.ownerDocument.documentElement.clientHeight,
+          },
+        };
+      });
+      expect(overlapProof.hitNodeId, JSON.stringify(overlapProof)).toBe(
+        "later-sibling",
+      );
+
+      const persistedChildren = async () => {
+        const html = await fileContent(request, designId, "index.html");
+        return page.evaluate((source) => {
+          const document = new DOMParser().parseFromString(source, "text/html");
+          const persistedOuter = document.querySelector<HTMLElement>(
+            '[data-agent-native-node-id="outer-frame"]',
+          );
+          return Array.from(persistedOuter?.children ?? []).map((child) =>
+            child.getAttribute("data-agent-native-node-id"),
+          );
+        }, html);
+      };
+      await expect
+        .poll(persistedChildren)
+        .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+      const savedHtml = await fileContent(request, designId, "index.html");
+      await gotoEditor(page, designId);
+      const reloadedFrame = designFrame(page);
+      const reloadedOuter = reloadedFrame.locator(
+        '[data-agent-native-node-id="outer-frame"]',
+      );
+      await expect
+        .poll(() =>
+          reloadedOuter.evaluate((element) =>
+            Array.from(element.children).map((child) =>
+              child.getAttribute("data-agent-native-node-id"),
+            ),
+          ),
+        )
+        .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+      await expect
+        .poll(() =>
+          reloadedFrame
+            .locator('[data-agent-native-node-id="absolute-child"]')
+            .evaluate((element) =>
+              element.parentElement?.getAttribute("data-agent-native-node-id"),
+            ),
+        )
+        .toBe("outer-frame");
+      expect(await fileContent(request, designId, "index.html")).toBe(
+        savedHtml,
+      );
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }
