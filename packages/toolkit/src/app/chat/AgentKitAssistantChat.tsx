@@ -535,7 +535,7 @@ interface AgentKitSurfaceContextValue {
     text: string,
     recoveryAction: "continue" | "retry",
     images?: string[],
-    attachments?: AgentChatAttachment[],
+    fileParts?: FilePart[],
     references?: Reference[],
     recoveryOptions?: Pick<
       AgentKitInternalSendOptions,
@@ -2084,20 +2084,19 @@ const AgentKitAssistantChatBody = forwardRef<
             const selectionRevision = selectionRevisionRef.current;
             const attachments = options.attachments ?? [];
             const needsFileStorage =
-              files.length > 0 ||
-              attachments.some(
-                (attachment) => !attachment.displayOnly && !attachment.url,
-              );
+              !options.deferredFileParts &&
+              (files.length > 0 ||
+                attachments.some(
+                  (attachment) => !attachment.displayOnly && !attachment.url,
+                ));
             if (needsFileStorage && !fileStorageConfigured) {
               throw new Error(t("onboarding.fileStorage.title"));
             }
             // Persist only URLs or opaque file handles; application_state is
             // not a file store and must never receive attachment bodies.
-            const fileParts = await uploadAgentChatAttachments(
-              control,
-              attachments,
-              files,
-            );
+            const fileParts =
+              options.deferredFileParts ??
+              (await uploadAgentChatAttachments(control, attachments, files));
             const selectionChangedDuringUpload =
               selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
@@ -2555,7 +2554,7 @@ const AgentKitAssistantChatBody = forwardRef<
       text: string,
       recoveryAction: "continue" | "retry",
       images?: string[],
-      attachments?: AgentChatAttachment[],
+      fileParts?: FilePart[],
       references?: Reference[],
       recoveryOptions?: Pick<
         AgentKitInternalSendOptions,
@@ -2575,13 +2574,16 @@ const AgentKitAssistantChatBody = forwardRef<
           recoveryAction,
           recoveryReferences: references,
           ...recoveryOptions,
-          attachments: [
-            ...(attachments ?? []),
-            ...(images ?? []).map((url) => ({
-              type: "image",
-              name: "image",
-              url,
-            })),
+          deferredFileParts: [
+            ...(fileParts ?? []),
+            ...(images ?? []).map(
+              (url): FilePart => ({
+                type: "file",
+                name: "image",
+                mediaType: "image",
+                url,
+              }),
+            ),
           ],
         },
       );
@@ -4340,19 +4342,11 @@ function AgentKitRunFailure({
     const value = retryMetadata?.[key] ?? retryCustomMetadata?.[key];
     return typeof value === "string" && value.trim() ? value : undefined;
   };
-  const retryAttachments =
-    lastUserMessage?.parts.flatMap((part) =>
-      part.type === "file"
-        ? [
-            {
-              type: "file",
-              name: part.name,
-              ...(part.mediaType ? { contentType: part.mediaType } : {}),
-              ...(part.url ? { url: part.url } : {}),
-            },
-          ]
-        : [],
-    ) ?? [];
+  const retryFileParts =
+    lastUserMessage?.parts.filter((part) => part.type === "file") ?? [];
+  const retryHasUnavailableAttachment = retryFileParts.some(
+    (part) => !part.url && !part.fileId,
+  );
   const retryReferences = Array.isArray(retryMetadata?.references)
     ? (retryMetadata.references as Reference[])
     : [];
@@ -4368,7 +4362,7 @@ function AgentKitRunFailure({
           retryText || "Please retry the last request.",
           "retry",
           undefined,
-          retryAttachments,
+          retryFileParts,
           retryReferences,
           {
             recoveryModel: metadataString("model"),
@@ -4380,6 +4374,7 @@ function AgentKitRunFailure({
           },
         )
       }
+      retryHasUnavailableAttachment={retryHasUnavailableAttachment}
       onFork={async () => {
         if (!lastUserMessage) return surface.props.onForkChat?.();
         const fork = await control.fork(lastUserMessage.id);
