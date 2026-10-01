@@ -377,6 +377,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "Carregando chat...",
   "empty.prompt": "Como posso ajudar?",
   "error.afterDuration": "{{headline}} após {{duration}}",
+  "error.chatgptPlanUsageLimit":
+    "O limite de uso do seu plano do ChatGPT foi atingido.",
+  "error.chatgptPlanUsageUnavailable":
+    "A OpenAI não conseguiu verificar o limite de uso deste plano do ChatGPT. Confira seu uso do ChatGPT ou tente outro modelo.",
   "error.failed": "O agente encontrou um erro",
   "error.render": "Não foi possível exibir este conteúdo.",
   "error.stopped": "O agente parou antes de concluir",
@@ -775,6 +779,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Conectando ao Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
+  "recovery.retryAttachmentUnavailable":
+    "Esta solicitação incluía um arquivo que não pode ser reenviado. Anexe-o novamente no campo de mensagem e tente outra vez.",
   "recovery.deferredSubmissionFailed":
     "Não foi possível enviar esta mensagem. Verifique sua conexão ou a configuração do chat e tente novamente.",
   "recovery.credentialRejected":
@@ -884,6 +890,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultando {{agent}}...",
   "tool.elapsed": "{{duration}} decorridos",
   "tool.askingAgentFailed": "Erro ao consultar {{agent}}",
+  "tool.failedWithoutDetails": "Nenhum detalhe do erro disponível.",
   "tool.input": "Entrada",
   "tool.inputWithLabel": "Entrada - {{label}}",
   "tool.interrupted":
@@ -972,6 +979,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.builderModelCredits":
     "Créditos grátis para Claude, OpenAI e Gemini",
   "composer.chatGptSubscription": "Assinatura do ChatGPT",
+  "composer.chatgptManageUsage": "Gerenciar uso",
+  "composer.chatgptPlanUsing": "Usando o plano do ChatGPT",
   "composer.closePreview": "Fechar visualização",
   "composer.configureProviderKeys":
     "Configurar Anthropic, OpenAI ou outro provedor",
@@ -1222,6 +1231,12 @@ const messages: ToolkitAgentChatTranslation = {
     "O esquema de uma ferramenta era inválido, então o modelo rejeitou a solicitação antes de iniciá-la. Você pode ignorar a ferramenta inválida e tentar novamente.",
   "errorMessages.malformedRequest":
     "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
+  "errorMessages.runInterrupted": "O agente parou antes de terminar.",
+  "errorMessages.runFailed": "A execução do agente falhou.",
+  "errorMessages.runUnverified":
+    "Este chat perdeu o acompanhamento do agente, que ainda pode estar em execução. Recarregue para ver o progresso.",
+  "errorMessages.runSignedOut":
+    "Você saiu da sua conta, então este chat não consegue acompanhar o agente. Entre novamente e recarregue.",
   "errorMessages.malformedRequestAttachment":
     "O modelo rejeitou um arquivo anexado, então esta mensagem nunca foi enviada. Remova o anexo e tente novamente: um PDF, um arquivo de texto simples ou uma imagem JPEG, PNG, GIF ou WebP é lido diretamente; outros formatos precisam ser enviados e vinculados.",
   "errorMessages.noProviderConnected":
@@ -1647,6 +1662,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "Seu gasto estimado",
   "settings.usage.yourCreditSpend": "Seu gasto em créditos do Builder.io",
   "settings.usage.calls": "Chamadas",
+  "settings.usage.chatgptPlanUsage": "Uso do plano do ChatGPT",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Pessoas ativas",
   "settings.usage.history": "Histórico de uso",
@@ -2867,10 +2883,32 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "Alterar",
   "settingsModel.chatgptConnected": "Conectado",
   "settingsModel.chatgptDescription":
-    "Use o mecanismo Codex com seu plano do ChatGPT.",
+    "Use modelos elegíveis da OpenAI pelo seu plano do ChatGPT.",
   "settingsModel.chatgptPopupBlocked":
     "Permita pop-ups para este site e tente de novo.",
-  "settingsModel.chatgptTitle": "Assinatura do ChatGPT",
+  "settingsModel.chatgptTitle": "Acesso ao plano do ChatGPT",
+  "settingsModel.chatgptAddAccount": "Adicionar outra conta",
+  "settingsModel.chatgptConnecting": "Conectando…",
+  "settingsModel.chatgptContinue": "Continuar com o ChatGPT",
+  "settingsModel.chatgptDisconnect": "Desconectar",
+  "settingsModel.chatgptDisconnectTitle": "Desconectar o ChatGPT?",
+  "settingsModel.chatgptDisconnectDescription":
+    "A conta {{account}} será desconectada deste app e o agente deixará de usar seu plano do ChatGPT. Você pode entrar de novo quando quiser.",
+  "settingsModel.chatgptDisconnecting": "Desconectando…",
+  "settingsModel.chatgptRemoveLegacySignIn": "Remover acesso antigo",
+  "settingsModel.chatgptLegacySignInDetails":
+    "Um login antigo do ChatGPT está salvo aqui. O fluxo oficial não pode usá-lo.",
+  "settingsModel.chatgptManageAccess": "Gerenciar no ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "Desconectado aqui. O acesso pode continuar ativo no ChatGPT.",
+  "settingsModel.chatgptLocalOnly":
+    "Apps de código aberto podem ser usados sem solicitação quando executados localmente com um callback de loopback; não é necessário solicitar acesso de parceiro. Apps hospedados em *.agent-native.com precisam da aprovação do operador e de um callback hospedado.",
+  "settingsModel.chatgptNoDirectUse":
+    "Reconecte e permita o acesso direto aos modelos para usar esta conta do ChatGPT.",
+  "settingsModel.chatgptReconnect": "Reconectar",
+  "settingsModel.chatgptSelectAccount": "Conta do ChatGPT",
+  "settingsModel.chatgptUsageLimit":
+    "O limite de uso do seu plano do ChatGPT foi atingido.",
   "settingsModel.checkAgain": "Verificar de novo",
   "settingsModel.checkedJustNow": "Verificada agora mesmo.",
   "settingsModel.checkedOn": "Verificada em {{date}}.",

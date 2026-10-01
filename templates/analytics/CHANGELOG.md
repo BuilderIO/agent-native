@@ -3,6 +3,23 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Improved
+
+- Error issues in Monitoring link straight to the chat thread that failed, and one underlying error now stays a single issue instead of splitting after each deploy
+- The observability settings tab is now labeled Observability.
+
+## 2026-09-30
+
+### Improved
+
+- Removed excess spacing above the sidebar footer
+
+### Fixed
+
+- Chat message actions no longer show unavailable request IDs.
+
 ## 2026-09-29
 
 ### Improved
@@ -13,6 +30,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The chat history menu stays open when opened from the header.
+- Chat prompts clear immediately while the assistant thinks.
+- App filters now keep retention charts scoped to the selected app.
+- Chat stays ready for your next draft while a message is being sent.
 - Adding panels now saves without a layout width error.
 - Analytics accepts valid field names that contain SQL keywords and digits
 - Analytics date filters support custom date ranges across dashboards.
@@ -23,6 +44,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Flags moved to an app's Labs settings no longer appear as editable rollout controls.
 - Analytics starts faster on hosted serverless deployments.
 - The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
 - Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.

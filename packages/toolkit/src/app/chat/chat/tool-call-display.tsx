@@ -30,7 +30,6 @@ import { cn } from "@agent-native/toolkit/utils";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
   IconAlertTriangle,
-  IconCircleX,
   IconCheck,
   IconChevronRight,
   IconCopy,
@@ -630,6 +629,7 @@ export function ToolCallDisplay({
   mcpApp,
   chatUI,
   isRunning,
+  isError,
   outcome,
   structuredMeta,
   activity,
@@ -646,6 +646,7 @@ export function ToolCallDisplay({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
+  isError?: boolean;
   outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
@@ -670,16 +671,17 @@ export function ToolCallDisplay({
   const isDelegatedAgentCall =
     toolName === "call-agent" || toolName.startsWith("agent:");
   const effectiveIsRunning =
-    isRunning ||
-    (isDelegatedAgentCall &&
-      isToolCallActive({
-        type: "tool-call",
-        toolName,
-        result,
-        outcome,
-        activity,
-        structuredMeta,
-      }));
+    !isError &&
+    (isRunning ||
+      (isDelegatedAgentCall &&
+        isToolCallActive({
+          type: "tool-call",
+          toolName,
+          result,
+          outcome,
+          activity,
+          structuredMeta,
+        })));
   const showActiveTail = isActiveTail ?? isLatestRunning;
   const toolKind = structuredMeta?.toolKind as string | undefined;
   const wrapToolDisplay = (children: React.ReactNode) => (
@@ -694,7 +696,7 @@ export function ToolCallDisplay({
       {children}
     </ToolActivityPresentation>
   );
-  if (toolKind === "bash") {
+  if (!isError && toolKind === "bash") {
     return wrapToolDisplay(
       <BashCell
         meta={
@@ -705,7 +707,7 @@ export function ToolCallDisplay({
       />,
     );
   }
-  if (toolKind === "edit") {
+  if (!isError && toolKind === "edit") {
     return wrapToolDisplay(
       <EditCell
         meta={
@@ -715,7 +717,7 @@ export function ToolCallDisplay({
       />,
     );
   }
-  if (toolKind === "write") {
+  if (!isError && toolKind === "write") {
     return wrapToolDisplay(
       <WriteCell
         meta={
@@ -735,6 +737,7 @@ export function ToolCallDisplay({
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={effectiveIsRunning}
+      isError={isError}
       outcome={outcome}
       isActiveTail={showActiveTail}
       structuredMeta={structuredMeta}
@@ -756,6 +759,7 @@ function ToolCallDisplayGeneric({
   mcpApp,
   chatUI,
   isRunning,
+  isError = false,
   outcome,
   isActiveTail,
   structuredMeta,
@@ -771,6 +775,7 @@ function ToolCallDisplayGeneric({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
+  isError?: boolean;
   outcome?: "unknown";
   isActiveTail: boolean;
   structuredMeta?: Record<string, unknown>;
@@ -788,20 +793,23 @@ function ToolCallDisplayGeneric({
   const suppressInlineOpenApp = React.useContext(SuppressInlineOpenAppContext);
   const isRawCallAgent = toolName === "call-agent";
   const isAgentCall = toolName.startsWith("agent:") || isRawCallAgent;
-  const [expanded, setExpanded] = useState(isAgentCall);
+  const [expanded, setExpanded] = useState(false);
   const [outputOpen, setOutputOpen] = useState(false);
   const agentName = toolName.startsWith("agent:")
     ? toolName.slice(6)
     : typeof args.agent === "string"
       ? args.agent
       : null;
-  const isAgentError = isAgentCall && result === "Error calling agent";
+  const isAgentError =
+    isAgentCall && (isError || result === "Error calling agent");
   const isUnknownOutcome = !isRunning && outcome === "unknown";
-  const agentStreamText = isRawCallAgent
-    ? (result ?? "")
-    : isAgentCall
-      ? (argsText ?? "")
-      : "";
+  const agentStreamText = isAgentError
+    ? ""
+    : isRawCallAgent
+      ? (result ?? "")
+      : isAgentCall
+        ? (argsText ?? "")
+        : "";
   const agentActivity = structuredMeta?.agentActivity as
     | A2AAgentActivitySnapshot
     | undefined;
@@ -811,7 +819,7 @@ function ToolCallDisplayGeneric({
   const hasStreamText = agentStreamText.length > 0;
   const hasArgs = !isAgentCall && Object.keys(args).length > 0;
 
-  if (toolName === "connect-builder" && result) {
+  if (!isError && toolName === "connect-builder" && result) {
     try {
       const parsed = JSON.parse(result);
       if (parsed?.kind === "connect-builder-card") {
@@ -832,7 +840,7 @@ function ToolCallDisplayGeneric({
     }
   }
 
-  if (toolName === "connect-file-storage" && result) {
+  if (!isError && toolName === "connect-file-storage" && result) {
     try {
       const parsed = JSON.parse(result);
       if (parsed?.kind === "connect-file-storage-card") {
@@ -845,6 +853,7 @@ function ToolCallDisplayGeneric({
   }
 
   if (
+    !isError &&
     toolName === "agent-teams" &&
     (args as Record<string, string>)?.action === "spawn" &&
     result
@@ -898,11 +907,14 @@ function ToolCallDisplayGeneric({
   };
   const skipRegistryRenderer =
     !isAgentCall && isBuiltinDataWidgetActionRenderer(nativeToolContext);
-  const NativeToolRenderer = isAgentCall
-    ? null
-    : (resolveBuiltinActionChatRenderer(nativeToolContext) ??
-      (skipRegistryRenderer ? null : resolveToolRenderer(nativeToolContext)) ??
-      resolveBuiltinFallbackToolRenderer(nativeToolContext));
+  const NativeToolRenderer =
+    isError || isAgentCall
+      ? null
+      : (resolveBuiltinActionChatRenderer(nativeToolContext) ??
+        (skipRegistryRenderer
+          ? null
+          : resolveToolRenderer(nativeToolContext)) ??
+        resolveBuiltinFallbackToolRenderer(nativeToolContext));
   if (NativeToolRenderer) {
     return (
       <ActionChatUiSurface
@@ -930,15 +942,13 @@ function ToolCallDisplayGeneric({
   const displayName = isAgentCall
     ? isRunning
       ? t("agentChat.tool.askingAgent", { agent: agentName })
-      : isAgentError
-        ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
-        : t("agentChat.tool.askedAgent", { agent: agentName })
+      : t("agentChat.tool.askedAgent", { agent: agentName })
     : toolLabel(t, toolName);
   const rowContext = isAgentCall ? null : resolveToolCallRowContext(args);
 
   const canExpand = isAgentCall
     ? hasStreamText
-    : hasArgs || result !== undefined;
+    : hasArgs || result !== undefined || isError;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
   const integration = resolveToolIntegration(toolName, args);
   const ToolIcon = resolveToolIcon(toolName);
@@ -954,6 +964,11 @@ function ToolCallDisplayGeneric({
         responseText={agentStreamText}
         isRunning={isRunning}
         isError={isAgentError}
+        errorText={
+          isAgentError
+            ? result || t("agentChat.tool.failedWithoutDetails")
+            : undefined
+        }
         durationMs={
           typeof structuredMeta?.agentDurationMs === "number"
             ? structuredMeta.agentDurationMs
@@ -988,8 +1003,6 @@ function ToolCallDisplayGeneric({
             <IntegrationToolBadge integration={integration} />
           ) : isRunning ? (
             <CubeLoader aria-hidden="true" className="size-3.5" />
-          ) : isAgentError ? (
-            <IconCircleX className="size-3.5 text-destructive" />
           ) : isUnknownOutcome ? (
             <IconAlertTriangle className="size-3.5 text-muted-foreground" />
           ) : (
@@ -1052,7 +1065,11 @@ function ToolCallDisplayGeneric({
         ) : null}
       </button>
       <AnimatedCollapse
-        open={isExpanded && !isAgentCall && (hasArgs || result !== undefined)}
+        open={
+          isExpanded &&
+          !isAgentCall &&
+          (hasArgs || result !== undefined || isError)
+        }
       >
         <div className={cn("mt-1 space-y-2", !embeddedInWorkSummary && "pl-5")}>
           {inputPayload && (
@@ -1061,7 +1078,11 @@ function ToolCallDisplayGeneric({
               lang={inputPayload.lang}
             />
           )}
-          {resultPayload && (
+          {isError ? (
+            <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
+              {result || t("agentChat.tool.failedWithoutDetails")}
+            </div>
+          ) : resultPayload ? (
             <ToolOutputPopover
               open={outputOpen}
               onOpenChange={setOutputOpen}
@@ -1078,7 +1099,7 @@ function ToolCallDisplayGeneric({
                 <IconCode className="size-3.5" />
               </button>
             </ToolOutputPopover>
-          )}
+          ) : null}
         </div>
       </AnimatedCollapse>
       {isUnknownOutcome && (
@@ -1112,6 +1133,7 @@ function AgentCallCell({
   responseText,
   isRunning,
   isError,
+  errorText,
   durationMs,
 }: {
   agentName: string;
@@ -1121,34 +1143,40 @@ function AgentCallCell({
   responseText: string;
   isRunning: boolean;
   isError: boolean;
+  errorText?: string;
   durationMs?: number;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(!isError);
+  useLayoutEffect(() => {
+    if (isError) setOpen(false);
+  }, [isError]);
   const responseKey = toolCallId ?? agentName;
+  const activeReasoning = isRunning ? (activity?.reasoning ?? []) : [];
   const toolCount = activity?.toolCalls?.length ?? 0;
   const segments = activity?.response ?? [];
-  const inlineSegments =
-    responseText && !isRunning ? segments.slice(0, toolCount) : segments;
-  const finalText =
-    responseText || (inlineSegments.length ? "" : activity?.responseText);
-  const work =
-    activity?.reasoning?.length || toolCount || inlineSegments.length;
+  const inlineSegments = isError
+    ? []
+    : responseText && !isRunning
+      ? segments.slice(0, toolCount)
+      : segments;
+  const finalText = isError
+    ? ""
+    : responseText || (inlineSegments.length ? "" : activity?.responseText);
+  const work = activeReasoning.length || toolCount || inlineSegments.length;
   const workItemCount = Math.max(
-    activity?.reasoning?.length ?? 0,
+    activeReasoning.length,
     toolCount,
     inlineSegments.length,
   );
   const label = isRunning
     ? t("agentChat.tool.askingAgent", { agent: agentName })
-    : isError
-      ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
-      : t("agentChat.tool.askedAgent", { agent: agentName });
+    : t("agentChat.tool.askedAgent", { agent: agentName });
   const workContent = work ? (
     <div className="space-y-1">
       {Array.from({ length: workItemCount }, (_, index) => {
-        const reasoningText = activity?.reasoning?.[index];
+        const reasoningText = activeReasoning[index];
         const segment = inlineSegments[index];
         const tool = activity?.toolCalls?.[index];
         return (
@@ -1158,11 +1186,11 @@ function AgentCallCell({
                 text={reasoningText}
                 isStreaming={
                   isRunning &&
-                  activity.activePhase === "reasoning" &&
-                  index === activity.reasoning.length - 1
+                  activity?.activePhase === "reasoning" &&
+                  index === activeReasoning.length - 1
                 }
-                defaultOpen={index === activity.reasoning.length - 1}
-                collapseWhenReplaced={index < activity.toolCalls.length}
+                defaultOpen={index === activeReasoning.length - 1}
+                collapseWhenReplaced={index < toolCount}
               />
             )}
             {segment && (
@@ -1183,7 +1211,9 @@ function AgentCallCell({
               <AgentActivityToolCallRow
                 tool={tool}
                 isActiveTail={
-                  isRunning && index === activity.toolCalls.length - 1
+                  isRunning &&
+                  tool.status === "running" &&
+                  index === activity.toolCalls.length - 1
                 }
               />
             )}
@@ -1215,8 +1245,6 @@ function AgentCallCell({
       >
         {isRunning ? (
           <CubeLoader aria-hidden="true" className="size-3.5" />
-        ) : isError ? (
-          <IconCircleX className="size-3.5 text-destructive" />
         ) : (
           <IconChevronRight
             className={cn("size-3.5 transition-transform", open && "rotate-90")}
@@ -1260,6 +1288,11 @@ function AgentCallCell({
               />
             </div>
           )}
+          {isError && errorText ? (
+            <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
+              {errorText}
+            </div>
+          ) : null}
         </div>
       </AnimatedCollapse>
     </div>
@@ -1273,13 +1306,46 @@ function AgentActivityToolCallRow({
   tool: A2AAgentActivityToolCall;
   isActiveTail: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const t = useT();
   const isRunning = tool.status === "running";
+  const failureDetails =
+    tool.status === "failed"
+      ? tool.result?.trim()
+        ? tool.result
+        : t("agentChat.tool.failedWithoutDetails")
+      : undefined;
   const integration = resolveToolIntegration(
     tool.name,
     tool.input ? parseJsonText(tool.input) : undefined,
   );
   const ToolIcon = resolveToolIcon(tool.name);
+  const row = (
+    <>
+      <span
+        className={cn(
+          "flex shrink-0 items-center justify-center",
+          integration ? "size-5" : "size-4",
+        )}
+      >
+        {integration ? (
+          <IntegrationToolBadge integration={integration} />
+        ) : isRunning ? (
+          <CubeLoader aria-hidden="true" className="size-3.5" />
+        ) : (
+          <ToolIcon className="size-3.5" />
+        )}
+      </span>
+      <span
+        className={cn(
+          "min-w-0 truncate font-normal",
+          isActiveTail && "agent-running-shimmer",
+        )}
+      >
+        {toolLabel(t, tool.name)}
+      </span>
+    </>
+  );
 
   return (
     <ToolActivityPresentation
@@ -1288,30 +1354,34 @@ function AgentActivityToolCallRow({
       toolCallId={tool.id}
       suppressLongRunningHint
     >
-      <div className="agent-kit-density my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground">
-        <span
-          className={cn(
-            "flex shrink-0 items-center justify-center",
-            integration ? "size-5" : "size-4",
-          )}
-        >
-          {integration ? (
-            <IntegrationToolBadge integration={integration} />
-          ) : isRunning ? (
-            <CubeLoader aria-hidden="true" className="size-3.5" />
-          ) : (
-            <ToolIcon className="size-3.5" />
-          )}
-        </span>
-        <span
-          className={cn(
-            "min-w-0 truncate font-normal",
-            isActiveTail && "agent-running-shimmer",
-          )}
-        >
-          {toolLabel(t, tool.name)}
-        </span>
-      </div>
+      {tool.status === "failed" ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            className="agent-kit-density my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {row}
+            <IconChevronRight
+              aria-hidden="true"
+              className={cn(
+                "size-3.5 transition-transform",
+                open && "rotate-90",
+              )}
+            />
+          </button>
+          <AnimatedCollapse open={open}>
+            <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
+              {failureDetails}
+            </div>
+          </AnimatedCollapse>
+        </div>
+      ) : (
+        <div className="agent-kit-density my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground">
+          {row}
+        </div>
+      )}
     </ToolActivityPresentation>
   );
 }
@@ -1369,6 +1439,7 @@ export function ToolCallFallback({
       structuredMeta={rest.structuredMeta}
       activity={rest.activity}
       isRunning={isRunning}
+      isError={rest.isError}
       outcome={rest.outcome}
       isActiveTail={rest.isActiveTail}
       isLatestRunning={rest.isLatestRunning}
@@ -1399,6 +1470,7 @@ export function ReconnectStreamMessage({
   const latestActiveToolIndex = content.reduce(
     (latestIndex, part, index) =>
       part.type === "tool-call" &&
+      !part.isError &&
       !isCallAgentToolCallShadowed(content, index) &&
       (chatRunning || (allowActivitySpinner && part.activity === true))
         ? index
@@ -1440,12 +1512,14 @@ export function ReconnectStreamMessage({
         argsText={part.argsText}
         args={part.args}
         result={part.result}
+        isError={part.isError}
         mcpApp={part.mcpApp}
         chatUI={part.chatUI}
         structuredMeta={part.structuredMeta}
         activity={part.activity}
         outcome={part.outcome}
         isRunning={
+          !part.isError &&
           part.result === undefined &&
           (chatRunning || (allowActivitySpinner && part.activity === true))
         }

@@ -199,7 +199,10 @@ export function useAgentEngineConfigured(
       return check(options);
     };
     const onConfiguredChanged = () => {
-      checkNow();
+      // Read after the shared client-status cache invalidates in its listener.
+      queueMicrotask(() => {
+        if (!cancelled) checkNow();
+      });
     };
     const onMissing = (event: Event) => {
       if (!missingKeyEventMatchesScope(event, options)) return;

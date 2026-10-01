@@ -51,6 +51,102 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.199.0
+
+### Minor Changes
+
+- a80ad13: Add official Sign in with ChatGPT plan access for local open-source apps.
+- 9e1dbd1: Add a curated MCP directory profile with explicit tool annotations, widget origins, and the OpenAI domain challenge route.
+
+### Patch Changes
+
+- 917578c: Tag internal AgentKit startup activities with stable IDs so clients can hide them without matching display text.
+- 3f34a17: Keep active durable chat runs connected after repeated stream interruptions.
+- 2a52597: Show Builder credit balance and quota in the sidebar for workspace admins.
+- a77dfe9: Disable the remote MCP Apps bridge fallback for ChatGPT directory widgets, validate profiles against the request MCP action surface, keep dev-open requests on the sparse surface, resolve the configured owner through typed app config, and return a typed 503 for invalid profiles or widget origins.
+- a1e74f5: Gate ChatGPT plan access behind an opt-in lab and simplify account management.
+- a1e74f5: Count a connected ChatGPT plan as a model provider in Settings, offer its models as the default, and simplify the ChatGPT account row with a disconnect confirmation.
+- 628a01f: Fix local Claude Code runs failing at startup with "Cannot read properties of undefined (reading 'userEmail')" when loading workspace MCP servers.
+- 1ef02b8: Give local Claude Code runs the same workspace app MCP servers that Codex runs already receive, through a private `--mcp-config` file that is removed after the run. Both paths now reject MCP server IDs that normalize to the same key (for example `sales.prod` and `sales/prod`) instead of silently dropping one of them.
+- e00c9c1: Actions that throw `FeatureNotConfiguredError` now return its message with a 400 status and `errorCode: "feature_not_configured"` instead of a generic "Internal server error".
+- 44825d4: Preserve full structured results from read-only MCP tools in agent context.
+- ebface7: Harden the boundaries behind the most-reported breakage. A closed chat stream now asks the server for the run's real state before the UI shows an outcome, and a user message sent during an active run waits instead of erroring. Sign-in state is one shared fact with one navigator, so reloads no longer flash to sign-in. Credential state is one typed value, so the credits banner and chat errors agree and activation can no longer replace an organization's Builder connection. Attachments resolve through one typed reference. Background automations record their real failure cause and pause after repeated identical failures instead of re-failing every tick. Error capture classifies and aggregates floods, groups one error into one issue, and filters third-party noise at one boundary. Tool-call errors keep a redacted reason, and human-in-the-loop pauses are no longer counted as errors. Expected action failures are typed 4xx responses, action hooks back off and stop on terminal errors, and a guard rejects new bare `throw new Error(...)` in actions. The shared command menu opens from the focused agent composer.
+- Release all public npm packages with a patch version bump.
+- 00518ee: Expose request-scoped secret prefetching through the server API so apps can batch credential lookups.
+- d385f5a: Preserve the client asset directory when assembling a Netlify workspace app named `assets`.
+- e47f4a2: Protect hosted serverless schema guards when `NODE_ENV=test` is set.
+- d98fcf3: Validate raw MCP tool schemas with their declared or protocol-default JSON
+  Schema dialect.
+- 08d2811: Resolve the authenticated principal before building MCP configuration for Claude CLI runs, and reject inconsistent Builder credit quota totals.
+- 452757b: Normalize changing provider cooldown countdowns so repeated tool failures trigger the shared stop guard.
+- Updated dependencies
+  - @agent-native/agentkit@0.199.0
+  - @agent-native/recap-cli@0.5.59
+
+## 0.198.8
+
+### Patch Changes
+
+- 5b37ae2: Expose app actions to dev-mode sub-agents.
+- Release all public npm packages with a patch version bump.
+- eca03a6: Keep optional migration codemods out of application build graphs.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.8
+  - @agent-native/recap-cli@0.5.58
+
+## 0.198.7
+
+### Patch Changes
+
+- 1f2c8d5: Scope workspace dependency checks to Core apps, resolve Dispatch admin email settings through typed app config, and require Core 0.198.6 or newer for Dispatch.
+- 3ba09b7: Stop an agent from retrying a typed provider rate-limit error in the same turn.
+- 3ba09b7: Refresh chat readiness after a provider connection so chat unlocks immediately.
+- Release all public npm packages with a patch version bump.
+- 52d8c49: Include Drizzle ORM in generated app dependencies so production server bundles can resolve database modules.
+- 3ba09b7: Copy complete Visual Edit instructions by default and show Builder.io for Builder credit connections.
+- c3427be: `agent-native dev` no longer crashes in headless environments when no browser opener is installed. Workspace dev skips browser auto-open in CI, remote containers, and Linux without a display, and accepts `--no-open`.
+- Updated dependencies
+- Updated dependencies [3ba09b7]
+  - @agent-native/agentkit@0.198.7
+  - @agent-native/recap-cli@0.5.57
+
+## 0.198.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.6
+  - @agent-native/recap-cli@0.5.56
+
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.5
+  - @agent-native/recap-cli@0.5.55
+
+## 0.198.4
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- 7a25922: Support Manual and Automatic Gong MCP OAuth registration.
+- df67544: Keep icon upload validation and transfer errors visible in the shared picker, with localized feedback for unsupported image formats and failed uploads.
+- c82ae28: Resolve migrated Labs choices against existing feature flag settings while preserving explicit Off and showing inherited mixed settings.
+- Release all public npm packages with a patch version bump.
+- df67544: Store uploaded icons in private blobs with scoped metadata and verified image reads.
+- a24f1d7: Route raw database queries through the active Drizzle transaction.
+- 20d3bb8: Restore typed workspace connection requests when chat resumes OAuth or a custom credential resolver finds no connection.
+- Updated dependencies [85a87e6]
+- Updated dependencies
+- Updated dependencies [20d3bb8]
+- Updated dependencies [be78352]
+  - @agent-native/agentkit@0.198.4
+  - @agent-native/recap-cli@0.5.54
+
 ## 0.198.3
 
 ### Patch Changes
@@ -3609,43 +3705,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
   Builder gateway engines now drop the sampling parameters when thinking is on or
   when the model family removed them, and Observational Memory compaction runs at
   low effort so thinking cannot consume its whole output budget.
-
-## 0.164.24
-
-### Patch Changes
-
-- 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
-- 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
-
-## 0.164.23
-
-### Patch Changes
-
-- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
-
-## 0.164.22
-
-### Patch Changes
-
-- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
-- 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
-
-## 0.164.21
-
-### Patch Changes
-
-- 68f299c: Clarify deployment targets and document Agent-Native app configuration.
-
-## 0.164.20
-
-### Patch Changes
-
-- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
-
-## 0.164.19
-
-### Patch Changes
-
-- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

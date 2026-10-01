@@ -46,7 +46,7 @@ const messages = {
     designSystems: "أنظمة التصميم",
   },
   settings: {
-    agentObservability: "مراقبة الوكيل",
+    agentObservability: "قابلية المراقبة",
     title: "الإعدادات",
     labs: "المختبرات",
     labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
@@ -303,6 +303,19 @@ const messages = {
     importing: "جارٍ الاستيراد...",
     importFile: "استيراد ملف",
     downloadBackup: "تنزيل نسخة احتياطية",
+    conflictStatus: "تعارض في النص",
+    conflictStatusDescription: "راجع النص المتعارض قبل حفظ تغييرات أخرى.",
+    reviewConflict: "مراجعة التعارض",
+    conflictTitle: "تعارض نصي في الشريحة {{number}}",
+    conflictDescription: "غيّر إصدار آخر هذه الشريحة أثناء تحرير النص.",
+    conflictChoicesDescription:
+      "سيحفظ الاحتفاظ بنصك فوق أحدث إصدار. أما استخدام النص المحفوظ فيستبدل المسودة المحلية لهذه الشريحة فقط.",
+    conflictBackupDescription:
+      "لا يمكن حل مسودة العرض الكامل هذه شريحةً واحدةً في كل مرة. نزّل نسخة احتياطية للاحتفاظ بها.",
+    conflictResolveFailed:
+      "تعذّر حل التعارض. ما زالت مسودتك متاحة على هذا الجهاز.",
+    conflictKeepMine: "الاحتفاظ بنصي",
+    conflictUseLatest: "استخدام النص المحفوظ",
     importBackup: "استيراد نسخة احتياطية",
     backupDownloaded: "تم تنزيل النسخة الاحتياطية",
     backupDownloadFailed: "تعذر تنزيل النسخة الاحتياطية",
@@ -400,6 +413,8 @@ const messages = {
     orderedList: "قائمة مرتبة",
     quote: "اقتباس",
     blockquote: "اقتباس كتلي",
+    divider: "فاصل",
+    horizontalRule: "خط أفقي",
   },
   comments: {
     deleteComment: "حذف التعليق",
@@ -433,6 +448,7 @@ const messages = {
     retry: "إعادة المحاولة",
     clickToAddComment: "انقر لإضافة تعليق",
     selectSlideToAdd: "حدد شريحة لإضافة تعليق",
+    filters: "عوامل تصفية التعليقات",
     scope: "نطاق التعليقات",
     thisSlide: "هذه الشريحة",
     allComments: "كل الشرائح",

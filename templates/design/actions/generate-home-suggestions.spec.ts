@@ -132,4 +132,15 @@ describe("generate-home-suggestions", () => {
       action.run({}, { userEmail: "user@example.test" } as never),
     ).rejects.toThrow("invalid JSON");
   });
+
+  it("lets a missing LLM provider through unwrapped so the action boundary can type it as llm_provider_missing", async () => {
+    const missing = Object.assign(new Error("No LLM provider is connected."), {
+      errorCode: "missing_credentials",
+    });
+    mocks.completeText.mockRejectedValue(missing);
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).rejects.toBe(missing);
+  });
 });

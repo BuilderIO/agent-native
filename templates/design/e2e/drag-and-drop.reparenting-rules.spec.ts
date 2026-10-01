@@ -16,6 +16,23 @@ test.beforeEach(async ({}, testInfo) => {
   setBaseURL(testInfo);
 });
 
+async function persistedNodeParent(
+  page: Page,
+  designId: string,
+  nodeId: string,
+) {
+  const html = await indexHtml(page, designId);
+  return page.evaluate(
+    ({ html, nodeId }) => {
+      const document = new DOMParser().parseFromString(html, "text/html");
+      return document
+        .querySelector(`[data-agent-native-node-id="${nodeId}"]`)
+        ?.parentElement?.getAttribute("data-agent-native-node-id");
+    },
+    { html, nodeId },
+  );
+}
+
 test.describe("reparenting rules", () => {
   test("dragging a flow child out places it directly above the exited frame in visible overlap and persists after reload", async ({
     page,
@@ -264,79 +281,245 @@ test.describe("reparenting rules", () => {
   test("holding Space while dragging keeps the object in its current parent", async ({
     page,
   }) => {
-    const inRow = (target: Page) =>
-      target
-        .locator("iframe[data-design-preview-iframe]")
-        .first()
-        .contentFrame()
-        .locator("body")
-        .evaluate(() => {
-          const row = document.querySelector(
-            '[data-agent-native-node-id="row"]',
-          );
-          const chip = document.querySelector(
-            '[data-agent-native-node-id="chip-1"]',
-          );
-          return !!row && !!chip && row.contains(chip);
-        });
+    const chipParent = () =>
+      node(page, "chip-1").evaluate((chip) =>
+        chip.parentElement?.getAttribute("data-agent-native-node-id"),
+      );
 
     const controlId = await newDesign(page);
-    await openEditor(page, controlId);
-    await selectViaTree(page, "Chip 1");
-    let chip = (await node(page, "chip-1").boundingBox())!;
-    let outside = (await node(page, "frame-a").boundingBox())!;
-    await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(
-      outside.x + outside.width / 2,
-      outside.y + outside.height / 2,
-      { steps: 18 },
-    );
-    await page.mouse.up();
-    await page.waitForTimeout(2200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
-    // peer PR (hotkeys) owns the Space-modifier retain-parent behavior; if an
-    // unmodified drag also fails to reparent, the assertion below fails for
-    // that real reason instead of silently skipping.
+    let id: string | undefined;
+    try {
+      await openEditor(page, controlId);
+      await selectViaTree(page, "Chip 1");
+      let chip = (await node(page, "chip-1").boundingBox())!;
+      let outside = (await node(page, "frame-a").boundingBox())!;
+      await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        outside.x + outside.width / 2,
+        outside.y + outside.height / 2,
+        { steps: 18 },
+      );
+      await page.mouse.up();
+      await page.waitForTimeout(2200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
+      await expect.poll(chipParent).not.toBe("row");
+      // The unmodified control proves this fixture can exercise reparenting.
 
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await selectViaTree(page, "Chip 1");
-    chip = (await node(page, "chip-1").boundingBox())!;
-    outside = (await node(page, "frame-a").boundingBox())!;
+      const retentionId = await newDesign(page);
+      id = retentionId;
+      await openEditor(page, retentionId);
+      await selectViaTree(page, "Chip 1");
+      chip = (await node(page, "chip-1").boundingBox())!;
+      outside = (await node(page, "frame-a").boundingBox())!;
 
-    const previewBody = page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame()
-      .locator("body");
-    const spaceKey = (type: "keydown" | "keyup") =>
-      previewBody.evaluate((_b, t) => {
-        document.dispatchEvent(
-          new KeyboardEvent(t, {
-            key: " ",
-            code: "Space",
-            bubbles: true,
-            cancelable: true,
-          }),
+      await page.evaluate(() => {
+        document.body.dataset.editorDragStarted = "false";
+        window.addEventListener(
+          "message",
+          (event: MessageEvent) => {
+            if (
+              event.data?.type === "agent-native:editor-drag-state" &&
+              event.data.active === true
+            ) {
+              document.body.dataset.editorDragStarted = "true";
+            }
+          },
+          true,
         );
-      }, type);
+      });
 
-    await spaceKey("keydown");
-    await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(
-      outside.x + outside.width / 2,
-      outside.y + outside.height / 2,
-      { steps: 20 },
-    );
-    await page.mouse.up();
-    await spaceKey("keyup");
-    await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
+      await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        chip.x + chip.width / 2 + 8,
+        chip.y + chip.height / 2,
+        { steps: 2 },
+      );
+      await expect(page.locator("body")).toHaveAttribute(
+        "data-editor-drag-started",
+        "true",
+      );
+      await expect.poll(chipParent).toBe("row");
+      await page.keyboard.down("Space");
+      await page.mouse.move(
+        outside.x + outside.width / 2,
+        outside.y + outside.height / 2,
+        { steps: 20 },
+      );
+      await expect.poll(chipParent).toBe("row");
+      await page.mouse.up();
+      await page.keyboard.up("Space");
+      await expect.poll(chipParent).toBe("row");
+      await expect
+        .poll(() => persistedNodeParent(page, retentionId, "chip-1"))
+        .toBe("row");
+      await page.reload();
+      await expect
+        .poll(chipParent, {
+          message:
+            'Figma: "When moving an object out of a frame\'s bounds, hold the Space bar to keep an object within the current parent."',
+        })
+        .toBe("row");
+    } finally {
+      await Promise.all(
+        [controlId, id]
+          .filter((designId): designId is string => Boolean(designId))
+          .map((designId) =>
+            postAction(page, "delete-design", { id: designId }).catch(
+              () => undefined,
+            ),
+          ),
+      );
+    }
+  });
 
-    expect(
-      await inRow(page),
-      "Figma: \"When moving an object out of a frame's bounds, hold the Space bar to keep " +
-        'an object within the current parent."',
-    ).toBe(true);
+  test("holding Space keeps a flow child in its nested auto-layout parent", async ({
+    page,
+  }) => {
+    const nestedFixture = `<!doctype html><html><body style="margin:0;min-height:900px">
+      <div data-agent-native-node-id="frame-a" data-agent-native-layer-name="Container" style="position:absolute;left:20px;top:60px;width:280px;height:160px;background:#1f2937"></div>
+      <section data-an-primitive="frame" data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:360px;top:360px;width:300px;height:220px;display:flex;flex-direction:column;gap:8px;background:#374151">
+        <div data-agent-native-node-id="row" data-agent-native-layer-name="Row" style="display:flex;flex-direction:row;gap:8px">
+          <div data-agent-native-node-id="chip-1" data-agent-native-layer-name="Chip 1" style="width:80px;height:50px;background:#a855f7"></div>
+          <div data-agent-native-node-id="chip-2" data-agent-native-layer-name="Chip 2" style="width:80px;height:50px;background:#ec4899"></div>
+          <div data-agent-native-node-id="chip-3" data-agent-native-layer-name="Chip 3" style="width:80px;height:50px;background:#f59e0b"></div>
+        </div>
+      </section>
+    </body></html>`;
+    const controlId = await newDesign(page, nestedFixture);
+    try {
+      await openEditor(page, controlId);
+      await selectViaTree(page, "Chip 1");
+      const controlChip = (await node(page, "chip-1").boundingBox())!;
+      const controlTarget = (await node(page, "frame-a").boundingBox())!;
+      await page.mouse.move(
+        controlChip.x + controlChip.width / 2,
+        controlChip.y + controlChip.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        controlChip.x + controlChip.width / 2 + 8,
+        controlChip.y + controlChip.height / 2,
+        { steps: 2 },
+      );
+      await page.mouse.move(
+        controlTarget.x + controlTarget.width / 2,
+        controlTarget.y + controlTarget.height / 2,
+        { steps: 20 },
+      );
+      await page.mouse.up();
+      await expect
+        .poll(() => persistedNodeParent(page, controlId, "chip-1"))
+        .toBe("frame-a");
+    } finally {
+      await postAction(page, "delete-design", { id: controlId }).catch(
+        () => undefined,
+      );
+    }
+
+    const id = await newDesign(page, nestedFixture);
+    try {
+      await openEditor(page, id);
+      await selectViaTree(page, "Chip 1");
+
+      const chipParent = () =>
+        node(page, "chip-1").evaluate((chip) =>
+          chip.parentElement?.getAttribute("data-agent-native-node-id"),
+        );
+
+      await page.evaluate(() => {
+        document.body.dataset.editorDragStarted = "false";
+        window.addEventListener(
+          "message",
+          (event: MessageEvent) => {
+            if (
+              event.data?.type === "agent-native:editor-drag-state" &&
+              event.data.active === true
+            ) {
+              document.body.dataset.editorDragStarted = "true";
+            }
+          },
+          true,
+        );
+      });
+
+      const chip = (await node(page, "chip-1").boundingBox())!;
+      const outside = (await node(page, "frame-a").boundingBox())!;
+      await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        chip.x + chip.width / 2 + 8,
+        chip.y + chip.height / 2,
+        { steps: 2 },
+      );
+      await expect(page.locator("body")).toHaveAttribute(
+        "data-editor-drag-started",
+        "true",
+      );
+      await page.keyboard.down("Space");
+      await page.mouse.move(
+        outside.x + outside.width / 2,
+        outside.y + outside.height / 2,
+        { steps: 20 },
+      );
+      await expect.poll(chipParent).toBe("row");
+      await page.mouse.up();
+      await page.keyboard.up("Space");
+      await expect.poll(chipParent).toBe("row");
+      await expect
+        .poll(() => persistedNodeParent(page, id, "chip-1"))
+        .toBe("row");
+      await page.reload();
+      await expect
+        .poll(chipParent, {
+          message:
+            'Figma: "When moving an object out of a frame\'s bounds, hold the Space bar to keep an object within the current parent."',
+        })
+        .toBe("row");
+    } finally {
+      await postAction(page, "delete-design", { id }).catch(() => undefined);
+    }
+  });
+
+  test("releasing Space before the drop restores normal reparenting", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    try {
+      await openEditor(page, id);
+      await selectViaTree(page, "Chip 1");
+      const chipParent = () =>
+        node(page, "chip-1").evaluate((chip) =>
+          chip.parentElement?.getAttribute("data-agent-native-node-id"),
+        );
+      const chip = (await node(page, "chip-1").boundingBox())!;
+      const outside = (await node(page, "frame-a").boundingBox())!;
+
+      await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        chip.x + chip.width / 2 + 8,
+        chip.y + chip.height / 2,
+        { steps: 2 },
+      );
+      await page.keyboard.down("Space");
+      await page.mouse.move(
+        outside.x + outside.width / 2,
+        outside.y + outside.height / 2,
+        { steps: 20 },
+      );
+      await expect.poll(chipParent).toBe("row");
+      await page.keyboard.up("Space");
+      await page.mouse.up();
+
+      await expect.poll(chipParent).toBe("frame-a");
+      await expect
+        .poll(() => persistedNodeParent(page, id, "chip-1"))
+        .toBe("frame-a");
+      await page.reload();
+      await expect.poll(chipParent).toBe("frame-a");
+    } finally {
+      await postAction(page, "delete-design", { id }).catch(() => undefined);
+    }
   });
 });

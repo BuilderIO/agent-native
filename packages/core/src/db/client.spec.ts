@@ -338,6 +338,9 @@ describe("db/client Postgres URL handling", () => {
     vi.stubEnv("NODE_ENV", "development");
     expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
     vi.stubEnv("NETLIFY_LOCAL", "true");
     expect(isHostedFunctionInvocationRuntime()).toBe(false);
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
@@ -391,6 +394,10 @@ describe("db/client Postgres URL handling", () => {
     expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
 
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+
     vi.stubEnv("NODE_ENV", "development");
     expect(isHostedFunctionInvocationRuntime()).toBe(false);
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
@@ -413,6 +420,17 @@ describe("db/client Postgres URL handling", () => {
     ).toThrow(/release job/);
 
     vi.stubGlobal("__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__", false);
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE worker_guard_test (id TEXT)"),
+    ).toThrow(/release job/);
+
+    vi.stubEnv("NODE_ENV", "development");
     expect(isHostedFunctionInvocationRuntime()).toBe(false);
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
   });
@@ -466,6 +484,16 @@ describe("db/client Postgres URL handling", () => {
         ).not.toThrow();
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("rejects request-time schema mutations when NODE_ENV=test has a hosted marker", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "analytics");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_guard (id TEXT)"),
+    ).toThrow(/release job/);
   });
 
   it("allows DDL only while a hosted runtime migration is executing", async () => {

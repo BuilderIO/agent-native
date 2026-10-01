@@ -13,15 +13,20 @@ const mocks = vi.hoisted(() => ({
   uploadFile: vi.fn(),
   deleteUploadedFile: vi.fn(),
   readAppState: vi.fn(),
-  compareAndSetAppState: vi.fn(),
   writeAppState: vi.fn(),
+  claimLease: vi.fn(),
+  releaseLease: vi.fn(),
 }));
 
+// The factory deliberately has no compareAndSetAppState: the thumbnail lease
+// must not go through application_state, which publishes a sync event per write.
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mocks.readAppState(...args),
-  compareAndSetAppState: (...args: unknown[]) =>
-    mocks.compareAndSetAppState(...args),
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
+}));
+vi.mock("./recording-leases.js", () => ({
+  claimLease: (...args: unknown[]) => mocks.claimLease(...args),
+  releaseLease: (...args: unknown[]) => mocks.releaseLease(...args),
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: (...args: unknown[]) => mocks.uploadFile(...args),
@@ -135,7 +140,12 @@ describe("ensureRecordingThumbnail", () => {
     });
     mocks.deleteUploadedFile.mockResolvedValue(true);
     mocks.readAppState.mockResolvedValue(null);
-    mocks.compareAndSetAppState.mockResolvedValue(true);
+    mocks.claimLease.mockImplementation(async (key: string, ttlMs: number) => ({
+      key,
+      token: "lease-token",
+      expiresAt: Date.now() + ttlMs,
+    }));
+    mocks.releaseLease.mockResolvedValue(undefined);
     mocks.writeAppState.mockResolvedValue(undefined);
   });
 
@@ -241,6 +251,33 @@ describe("ensureRecordingThumbnail", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { statusCode: 503, transient: true },
+    { statusCode: 504, transient: true },
+    { statusCode: 404, transient: false },
+  ])(
+    "tells a storage outage from a missing recording when the media fetch fails ($statusCode)",
+    async ({ statusCode, transient }) => {
+      const { db } = createDb(recording());
+      mocks.getDb.mockReturnValue(db);
+      const { loadRecordingMediaBytes } =
+        await import("./public-agent-context.js");
+      vi.mocked(loadRecordingMediaBytes).mockRejectedValueOnce(
+        Object.assign(new Error(`HTTP ${statusCode}`), { statusCode }),
+      );
+
+      const result = await ensureRecordingThumbnail({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+      });
+
+      expect(result).toMatchObject({
+        status: "skipped-media-fetch",
+        transient,
+      });
+    },
+  );
+
   it("markThumbnailFailed persists a failed status with the given reason", async () => {
     const { db, update, updateSet } = createDb(recording());
     mocks.getDb.mockReturnValue(db);
@@ -304,10 +341,7 @@ describe("ensureRecordingThumbnail", () => {
   it("defers to a thumbnail producer in another process", async () => {
     const { db } = createDb(recording());
     mocks.getDb.mockReturnValue(db);
-    mocks.readAppState.mockResolvedValue({
-      token: "other-process",
-      expiresAt: Date.now() + 60_000,
-    });
+    mocks.claimLease.mockResolvedValue(null);
 
     await expect(
       ensureRecordingThumbnail({
@@ -322,7 +356,7 @@ describe("ensureRecordingThumbnail", () => {
     });
     expect(mocks.extractJpegFrame).not.toHaveBeenCalled();
     expect(mocks.uploadFile).not.toHaveBeenCalled();
-    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.releaseLease).not.toHaveBeenCalled();
   });
 
   it("single-flights concurrent thumbnail uploads for one recording", async () => {
@@ -471,5 +505,48 @@ describe("ensureRecordingThumbnail", () => {
     expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
       url: "https://cdn.example.com/thumb.jpg",
     });
+  });
+
+  it("holds the lease in the lease table and never touches application_state for it", async () => {
+    const { db } = createDb(recording());
+    mocks.getDb.mockReturnValue(db);
+
+    await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      mediaBytes: new Uint8Array([9, 9, 9]),
+    });
+
+    expect(mocks.claimLease).toHaveBeenCalledWith(
+      "recording-thumbnail:rec-1",
+      5 * 60 * 1000,
+    );
+    expect(mocks.releaseLease).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "recording-thumbnail:rec-1",
+        token: "lease-token",
+      }),
+    );
+    const syncedKeys = [
+      ...mocks.writeAppState.mock.calls,
+      ...mocks.readAppState.mock.calls,
+    ].map(([key]) => String(key));
+    expect(syncedKeys.filter((key) => key.includes("lease"))).toEqual([]);
+  });
+
+  it("releases the lease when the attempt ends without a thumbnail", async () => {
+    const { db } = createDb(recording());
+    mocks.getDb.mockReturnValue(db);
+    mocks.extractJpegFrame.mockRejectedValue(new Error("corrupt media"));
+
+    await expect(
+      ensureRecordingThumbnail({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        mediaBytes: new Uint8Array([9, 9, 9]),
+      }),
+    ).resolves.toMatchObject({ status: "skipped-frame-extraction" });
+
+    expect(mocks.releaseLease).toHaveBeenCalledTimes(1);
   });
 });

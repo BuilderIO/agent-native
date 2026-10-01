@@ -54,6 +54,111 @@ describe("rich text selection", () => {
     expect(block.querySelector("span")?.style.color).toBe("#609ff8");
   });
 
+  it("preserves a backward selection when toggling formatting across inline runs", () => {
+    const block = editable("before <span>middle</span> after");
+    const first = block.firstChild as Text;
+    const last = block.lastChild as Text;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(last, 2, first, 2);
+
+    toggleInlineTextFormat(block, "bold", selection);
+
+    expect(selection.toString()).toBe("fore middle a");
+    expect((selection.anchorNode as Text).data).toBe(" a");
+    expect(selection.anchorOffset).toBe(2);
+    expect((selection.focusNode as Text).data).toBe("fore ");
+    expect(selection.focusOffset).toBe(0);
+    expect(block.textContent).toBe("before middle after");
+  });
+
+  it("toggles inline code around only the selected text", () => {
+    const block = editable("left right");
+    const text = block.firstChild as Text;
+    rangeFor(text, 5, text, 10);
+
+    toggleInlineTextFormat(block, "code");
+    expect(block.innerHTML).toBe(
+      'left <code data-slide-authoring-format="code">right</code>',
+    );
+    expect(window.getSelection()!.toString()).toBe("right");
+
+    toggleInlineTextFormat(block, "code");
+    expect(block.innerHTML).toBe("left right");
+  });
+
+  it("removes code from a styled run without dropping its wrapper", () => {
+    const block = editable(
+      '<code><span style="color: red">beforebold</span></code>',
+    );
+    const text = block.querySelector("span")!.firstChild as Text;
+    rangeFor(text, 6, text, 10);
+
+    toggleInlineTextFormat(block, "code");
+
+    expect(block.innerHTML).toBe(
+      '<code><span style="color: red">before</span></code><span style="color: red">bold</span>',
+    );
+    expect(block.textContent).toBe("beforebold");
+    expect(window.getSelection()!.toString()).toBe("bold");
+  });
+
+  it.each([
+    [
+      "call <strong>fetch</strong>() now",
+      (block: HTMLElement) => {
+        const bold = block.querySelector("strong")!.firstChild as Text;
+        const suffix = block.lastChild as Text;
+        rangeFor(bold, 0, suffix, 2);
+      },
+      'call <code data-slide-authoring-format="code"><strong>fetch</strong>()</code> now',
+    ],
+    [
+      "say a<code>b</code>c end",
+      (block: HTMLElement) => {
+        const prefix = block.firstChild as Text;
+        const suffix = block.lastChild as Text;
+        rangeFor(prefix, 4, suffix, 1);
+      },
+      'say <code data-slide-authoring-format="code">abc</code> end',
+    ],
+  ])(
+    "wraps one contiguous selected code run across inline boundaries",
+    (html, select, expected) => {
+      const block = editable(html as string);
+      (select as (block: HTMLElement) => void)(block);
+
+      toggleInlineTextFormat(block, "code");
+
+      expect(block.innerHTML).toBe(expected);
+      expect(block.querySelectorAll("code")).toHaveLength(1);
+      expect(block.querySelector("code")?.textContent).toMatch(/fetch\(\)|abc/);
+    },
+  );
+
+  it("wraps cross-block code selections without nesting blocks inside code", () => {
+    const block = editable("<p>one two</p><p>three four</p>");
+    const [first, second] = Array.from(
+      block.querySelectorAll("p"),
+      (p) => p.firstChild as Text,
+    );
+    rangeFor(first!, 1, second!, 4);
+    const selectedText = window.getSelection()?.toString();
+
+    toggleInlineTextFormat(block, "code");
+
+    const code = Array.from(block.querySelectorAll("code"));
+    expect(code.map((run) => run.textContent)).toEqual(["ne two", "thre"]);
+    expect(code.every((run) => run.parentElement?.tagName === "P")).toBe(true);
+    expect(block.querySelector("code p, p code p")).toBeNull();
+    expect(
+      Array.from(
+        block.querySelectorAll("p"),
+        (paragraph) => paragraph.textContent,
+      ),
+    ).toEqual(["one two", "three four"]);
+    expect(window.getSelection()?.toString()).toBe(selectedText);
+  });
+
   it("styles each selected run inside its own markup without splitting it", () => {
     const block = editable("one <strong>two</strong> three");
     const [one, two] = [
@@ -357,6 +462,42 @@ describe("normalizeSlideClipboardHtml", () => {
     expect(html).toContain("Copied text");
     expect(html).toContain("image label");
     expect(html).not.toContain("data:image");
+  });
+
+  it("unwraps neutral Google Docs wrappers while keeping paragraph and list blocks", () => {
+    const paragraph = (text: string, weight: number) =>
+      `<p dir="ltr" style="line-height:1.38;margin-top:0pt;margin-bottom:0pt"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;font-weight:${weight}">${text}</span></p>`;
+    const docs = normalizeSlideClipboardHtml(
+      `<meta charset="utf-8"><b style="font-weight:normal" id="docs-internal-guid-x">${paragraph("Line one", 700)}${paragraph("Line two", 400)}</b><br class="Apple-interchange-newline">`,
+    );
+    const list = normalizeSlideClipboardHtml(
+      '<b style="font-weight:normal" id="docs-internal-guid-x"><ul><li><p>Item A</p></li><li><p>Item B</p></li></ul></b>',
+    );
+    const paragraphs = new DOMParser().parseFromString(docs!, "text/html");
+    const listDoc = new DOMParser().parseFromString(list!, "text/html");
+
+    expect(
+      Array.from(paragraphs.querySelectorAll("p")).map((p) => p.textContent),
+    ).toEqual(["Line one", "Line two"]);
+    expect(paragraphs.querySelector("b[style*='font-weight']")).toBeNull();
+    expect(listDoc.querySelectorAll("ul > li")).toHaveLength(2);
+    expect(
+      Array.from(listDoc.querySelectorAll("li")).map((li) => li.textContent),
+    ).toEqual(["Item A", "Item B"]);
+    expect(listDoc.querySelector("b[style*='font-weight']")).toBeNull();
+  });
+
+  it("drops Word list marker spans before sanitizing their Office-only styles", () => {
+    const html = normalizeSlideClipboardHtml(
+      '<html xmlns:o="urn:schemas-microsoft-com:office:office"><body><!--StartFragment--><p class="MsoListParagraph" style="text-indent:-.25in;mso-list:l0 level1 lfo1"><![if !supportLists]><span style="font-family:Symbol"><span style="mso-list:Ignore">·<span style="font:7.0pt &quot;Times New Roman&quot;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span></span></span><![endif]>Word item<o:p></o:p></p><!--EndFragment--></body></html>',
+    );
+    const doc = new DOMParser().parseFromString(html!, "text/html");
+
+    expect(doc.body.textContent).toBe("Word item");
+    expect(doc.body.textContent).not.toContain("·");
+    expect(doc.body.innerHTML).not.toMatch(
+      /Symbol|Times New Roman|7pt|&nbsp;/i,
+    );
   });
 });
 

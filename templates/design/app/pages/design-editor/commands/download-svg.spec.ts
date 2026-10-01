@@ -30,17 +30,22 @@ describe("resolveSvgExportIframe", () => {
     expect(resolveSvgExportIframe(previews, "screen-b")).toBeNull();
   });
 
-  it("uses the only preview when the active frame has no screen marker", () => {
+  it("does not replace a missing requested frame with the only other preview", () => {
+    const preview = previewIframe("other-screen");
+
+    expect(resolveSvgExportIframe([preview], "stale-screen")).toBeNull();
+  });
+
+  it("uses the only preview when no frame was requested", () => {
     const preview = previewIframe();
 
-    expect(resolveSvgExportIframe([preview], "board")).toBe(preview);
+    expect(resolveSvgExportIframe([preview])).toBe(preview);
   });
 });
 
 describe("runDownloadSvg", () => {
   it("downloads parseable XML when the preview contains Alpine directives", async () => {
     const iframe = document.createElement("iframe");
-    iframe.setAttribute("data-design-preview-iframe", "true");
     iframe.setAttribute("data-screen-iframe-id", "screen-1");
     document.body.append(iframe);
 

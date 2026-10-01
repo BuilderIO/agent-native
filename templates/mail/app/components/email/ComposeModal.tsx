@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAliases } from "@/hooks/use-aliases";
+import { FOCUS_COMPOSE_DRAFT_EVENT } from "@/hooks/use-compose-state";
 import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
 import {
   useSendEmail,
@@ -302,6 +303,22 @@ export function ComposeModal({
   const schedulingRef = useRef(false);
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
+
+  useEffect(() => {
+    const handleFocusDraft = (event: Event) => {
+      const id = (event as CustomEvent<{ id?: unknown }>).detail?.id;
+      if (
+        typeof id === "string" &&
+        draftsRef.current.some((draft) => draft.id === id)
+      ) {
+        setMinimized(false);
+      }
+    };
+
+    window.addEventListener(FOCUS_COMPOSE_DRAFT_EVENT, handleFocusDraft);
+    return () =>
+      window.removeEventListener(FOCUS_COMPOSE_DRAFT_EVENT, handleFocusDraft);
+  }, []);
 
   useEffect(() => {
     const [account] = allAccounts;

@@ -1228,6 +1228,7 @@ export default {
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
+      copyAgentPrompt: "複製代理提示",
       copyFullPrompt: "複製完整提示",
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",

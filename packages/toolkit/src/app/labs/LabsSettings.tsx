@@ -64,6 +64,11 @@ function useLabsSettingsState(
       setLab.mutate(
         { key, enabled },
         {
+          onSuccess: () => {
+            window.dispatchEvent(
+              new CustomEvent("agent-engine:configured-changed"),
+            );
+          },
           onError: () => {
             setFailedKey(key);
             setOverrides((current) => {
@@ -117,7 +122,12 @@ function LabRows({ state }: { state: LabsSettingsState }) {
         />
       ) : null}
       {state.labs.map((lab) => {
-        const label = lab.displayName ?? lab.key;
+        const label = lab.displayNameKey
+          ? t(lab.displayNameKey)
+          : (lab.displayName ?? lab.key);
+        const description = lab.descriptionKey
+          ? t(lab.descriptionKey)
+          : lab.description;
         const failed = state.failedLab?.key === lab.key;
         const mixed = state.mixed(lab);
         return (
@@ -133,9 +143,9 @@ function LabRows({ state }: { state: LabsSettingsState }) {
                   })}
                 </span>
               ) : mixed ? (
-                (lab.inheritedMixedDescription ?? lab.description)
+                (lab.inheritedMixedDescription ?? description)
               ) : (
-                lab.description
+                description
               )
             }
             control={

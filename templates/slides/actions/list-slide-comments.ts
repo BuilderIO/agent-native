@@ -3,7 +3,7 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { resolveUserProfileName } from "@agent-native/core/user-profile";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, gt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -14,7 +14,7 @@ const DEFAULT_COMMENT_PAGE_SIZE = 100;
 
 export default defineAction({
   description:
-    "List comments for one slide, or all comments in a deck when slideId is omitted, ordered by creation time. Returns the first bounded page of 100 comments by default; pass limit (max 200) and offset for other pages, and inspect has_more/next_offset when paging.",
+    "List comments for one slide, or all comments in a deck when slideId is omitted, ordered by creation time. Returns the first bounded page of 100 comments by default; pass limit (max 200) and cursor for stable pagination, or offset for compatibility.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().optional().describe("Slide ID; omit for all slides"),
@@ -31,6 +31,13 @@ export default defineAction({
       .min(0)
       .optional()
       .describe("Number of matching comments to skip; defaults to 0"),
+    cursor: z
+      .object({
+        createdAt: z.string().min(1),
+        id: z.string().min(1),
+      })
+      .optional()
+      .describe("Continue after the last comment returned by the prior page"),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -41,24 +48,33 @@ export default defineAction({
 
     const db = getDb();
     const viewerEmail = getRequestUserEmail();
+    const filters = [eq(schema.slideComments.deckId, deckId)];
+    if (slideId) filters.push(eq(schema.slideComments.slideId, slideId));
+    if (args.cursor) {
+      filters.push(
+        or(
+          gt(schema.slideComments.createdAt, args.cursor.createdAt),
+          and(
+            eq(schema.slideComments.createdAt, args.cursor.createdAt),
+            gt(schema.slideComments.id, args.cursor.id),
+          ),
+        )!,
+      );
+    }
     const query = db
       .select()
       .from(schema.slideComments)
-      .where(
-        slideId
-          ? and(
-              eq(schema.slideComments.deckId, deckId),
-              eq(schema.slideComments.slideId, slideId),
-            )
-          : eq(schema.slideComments.deckId, deckId),
-      )
+      .where(and(...filters))
       .orderBy(
         asc(schema.slideComments.createdAt),
         asc(schema.slideComments.id),
       );
-    const rows = await query.limit(pageLimit + 1).offset(offset);
+    const rows = await query
+      .limit(pageLimit + 1)
+      .offset(args.cursor ? 0 : offset);
     const hasMore = rows.length > pageLimit;
     const visibleRows = hasMore ? rows.slice(0, pageLimit) : rows;
+    const lastVisibleRow = visibleRows[visibleRows.length - 1];
     const profiles = await getUserProfiles(
       visibleRows.map((row) => row.authorEmail),
     );
@@ -88,6 +104,10 @@ export default defineAction({
       })),
       has_more: hasMore,
       next_offset: hasMore ? offset + pageLimit : null,
+      next_cursor:
+        hasMore && lastVisibleRow
+          ? { createdAt: lastVisibleRow.createdAt, id: lastVisibleRow.id }
+          : null,
       limit: pageLimit,
       offset,
     };

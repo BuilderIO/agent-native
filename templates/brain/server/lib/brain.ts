@@ -266,18 +266,18 @@ function retrievalPolicy(
       return {
         rawCaptureFallback: "never-answer" as const,
         instructions: [
-          "Answer from reviewed Brain knowledge only.",
+          "Answer from distilled Brain knowledge only.",
           "Use raw captures for distillation and exact quote validation, not as answer support.",
-          "If reviewed knowledge is missing or thin, say Brain does not have enough reviewed support.",
+          "If distilled knowledge is missing or thin, say Brain does not have enough distilled support.",
         ],
       };
     case "exploratory":
       return {
         rawCaptureFallback: "allowed-leads" as const,
         instructions: [
-          "Start with reviewed Brain knowledge, then include accessible raw captures and source records as clearly labeled leads.",
-          "Never present raw capture matches as approved company knowledge or answer evidence; use them only as leads for review.",
-          "Say when a result is unreviewed and needs distillation or review.",
+          "Use distilled Brain knowledge together with synced captures (Slack, Zoom, and other connected sources) whose answerEligible is true.",
+          "Name the source (channel or meeting) and date behind each fact, and prefer the most recent capture when sources disagree.",
+          "Label weaker or conflicting signals as uncertain instead of dropping them.",
         ],
       };
     case "balanced":
@@ -285,8 +285,8 @@ function retrievalPolicy(
       return {
         rawCaptureFallback: "thin-results" as const,
         instructions: [
-          "Prefer reviewed Brain knowledge.",
-          "Use accessible raw captures only when reviewed knowledge is missing or too thin, return them as clearly labeled leads, and never use their text as answer evidence.",
+          "Prefer distilled Brain knowledge.",
+          "When distilled knowledge is missing or thin, answer from synced captures (Slack, Zoom, and other connected sources) whose answerEligible is true, naming the source (channel or meeting) and date behind each fact.",
           "Do not invent facts beyond returned Brain results.",
         ],
       };
@@ -355,9 +355,14 @@ export function buildBrainAgentGuidance(
     },
     response: {
       toneInstruction: toneInstruction(tone),
-      citationInstruction: requireCitations
-        ? "Cite published Brain knowledge evidence or source URLs for factual claims; raw captures are leads, not answer citations; say when approved support is missing."
-        : "Include published Brain knowledge citations when helpful; raw captures are leads, not answer evidence, and concise uncited summaries are allowed by workspace settings.",
+      citationInstruction:
+        sourcePolicy === "strict"
+          ? requireCitations
+            ? "Cite published Brain knowledge evidence for factual claims; raw captures are not answer citations under the strict policy; say when distilled support is missing."
+            : "Include published Brain knowledge citations when helpful; raw captures are not answer evidence under the strict policy, and concise uncited summaries are allowed by workspace settings."
+          : requireCitations
+            ? "Cite published Brain knowledge or answer-eligible captures for factual claims, giving each capture's source (channel or meeting), date, and link; say when support is missing."
+            : "Include knowledge or answer-eligible capture citations (source, date, link) when helpful; concise uncited summaries are allowed by workspace settings.",
     },
   };
 }

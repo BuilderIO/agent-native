@@ -205,6 +205,33 @@ The builtin cross-app tools (`list_apps`, `open_app`, `ask_app`, `create_embed_s
 
 `mcp.catalog: "app"` is the opposite choice: it serves this app's entire action registry flat, with no compact or connector trimming. The two are mutually exclusive — declaring both throws at plugin init rather than silently ignoring the allow-list, since an allow-list exists to keep something off the external surface.
 
+### Separate directory profiles
+
+Use `mcp.directoryProfile` when a public plugin listing needs a smaller action
+surface than the app's normal MCP connector. The framework mounts that profile
+at `/mcp/directory`; `/mcp` keeps its existing catalog and instructions. Point
+the listing package at `/mcp/directory` so the host cannot accidentally use the
+broader connector profile.
+
+```ts
+mcp: {
+  connectorCatalog: ["view-screen", "navigate", "edit-design"],
+  instructions: "Keep the full external-agent workflow instructions here.",
+  directoryProfile: {
+    connectorCatalog: ["list-designs", "create-design", "edit-design"],
+    instructions: "Create and refine saved design prototypes.",
+  },
+}
+```
+
+Every directory action must define boolean `mcpAnnotations` values for
+`readOnlyHint`, `destructiveHint`, and `openWorldHint`. The server validates
+the allowlist, annotations, and reserved-tool exclusions when it mounts, and
+again when it builds the directory server. Directory listings omit generic
+builtins, `ask-agent`, and `tool-search`. MCP App widget origins are derived
+from the request origin, so deployments should not hard-code a production
+`widgetDomain` into a profile.
+
 ## Tool exposure once connected {#tool-exposure}
 
 Once an agent is connected, it sees the [compact catalog](#catalog-tiers) by default: template-declared app actions plus the builtin cross-app verbs (`list_apps`, `open_app`, `ask_app`, and the app-only embed helper). Use `ask_app` to route a natural-language task through an app agent (the same cross-app entry point [A2A](/docs/a2a-protocol) uses).

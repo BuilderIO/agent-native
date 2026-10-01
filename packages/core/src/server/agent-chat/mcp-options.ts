@@ -9,13 +9,23 @@ export interface AgentChatMcpIcon {
 
 export interface AgentChatMcpOptions {
   enabled?: boolean;
-  catalog?: "app";
+  catalog?: "app" | "directory";
   connectorCatalog?: string[];
+  directoryProfile?: {
+    connectorCatalog: string[];
+    instructions?: string;
+    keyToolNames?: readonly string[];
+    toolDescriptions?: Record<string, string>;
+    toolParameterDescriptions?: Record<string, Record<string, string>>;
+    hiddenToolParameters?: Record<string, string[]>;
+    projectResult?: (toolName: string, result: unknown) => unknown;
+  };
   externalAgents?: ExternalAgentPolicy;
   builtinCrossAppTools?: boolean;
   title?: string;
   description?: string;
   websiteUrl?: string;
+  widgetDomain?: string;
   icons?: AgentChatMcpIcon[];
   instructions?: string;
   keyToolNames?: readonly string[];
@@ -42,13 +52,15 @@ export interface AgentChatMcpLegacyInput {
 
 export interface ResolvedAgentChatMcp {
   enabled: boolean;
-  catalog: "app" | undefined;
+  catalog: "app" | "directory" | undefined;
   connectorCatalog: string[] | undefined;
+  directoryProfile: AgentChatMcpOptions["directoryProfile"] | undefined;
   externalAgents: ExternalAgentPolicy | undefined;
   builtinCrossAppTools: boolean | undefined;
   title: string | undefined;
   description: string | undefined;
   websiteUrl: string | undefined;
+  widgetDomain: string | undefined;
   icons: AgentChatMcpIcon[] | undefined;
   instructions: string | undefined;
   keyToolNames: readonly string[] | undefined;
@@ -124,6 +136,7 @@ export function resolveAgentChatMcpOptions(
     enabled: enabled ?? true,
     catalog: mcp.catalog,
     connectorCatalog,
+    directoryProfile: mcp.directoryProfile,
     externalAgents: pick(
       "externalAgents",
       "externalAgents",
@@ -144,6 +157,7 @@ export function resolveAgentChatMcpOptions(
       legacyInfo?.websiteUrl,
       mcp.websiteUrl,
     ),
+    widgetDomain: mcp.widgetDomain,
     icons: pick("icons", "mcpServerInfo.icons", legacyInfo?.icons, mcp.icons),
     instructions: pick(
       "instructions",

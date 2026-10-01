@@ -383,6 +383,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "Chargement du chat...",
   "empty.prompt": "Comment puis-je vous aider ?",
   "error.afterDuration": "{{headline}} après {{duration}}",
+  "error.chatgptPlanUsageLimit":
+    "La limite d’utilisation de votre forfait ChatGPT a été atteinte.",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI n’a pas pu vérifier la limite d’utilisation de ce forfait ChatGPT. Vérifiez votre utilisation de ChatGPT ou essayez un autre modèle.",
   "error.failed": "L’agent a rencontré une erreur",
   "error.render": "Impossible d’afficher ce contenu.",
   "error.stopped": "L’agent s’est arrêté avant d’avoir terminé",
@@ -788,6 +792,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Connexion à Builder.io",
   "recovery.copyDebug": "Copier les informations de débogage",
   "recovery.copyFailed": "Échec de la copie",
+  "recovery.retryAttachmentUnavailable":
+    "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
   "recovery.deferredSubmissionFailed":
     "Impossible d’envoyer ce message. Vérifiez votre connexion ou la configuration du chat, puis réessayez.",
   "recovery.credentialRejected":
@@ -898,6 +904,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultation de {{agent}}...",
   "tool.elapsed": "Temps écoulé : {{duration}}",
   "tool.askingAgentFailed": "Erreur lors de la consultation de {{agent}}",
+  "tool.failedWithoutDetails": "Aucun détail d’erreur disponible.",
   "tool.input": "Entrée",
   "tool.inputWithLabel": "Entrée - {{label}}",
   "tool.interrupted":
@@ -988,6 +995,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.builderModelCredits":
     "Crédits gratuits pour Claude, OpenAI et Gemini",
   "composer.chatGptSubscription": "Abonnement à ChatGPT",
+  "composer.chatgptManageUsage": "Gérer l’utilisation",
+  "composer.chatgptPlanUsing": "Forfait ChatGPT utilisé",
   "composer.closePreview": "Fermer l'aperçu",
   "composer.configureProviderKeys":
     "Configurer Anthropic, OpenAI ou un autre fournisseur",
@@ -1242,6 +1251,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
   "errorMessages.malformedRequest":
     "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.runInterrupted": "L’agent s’est arrêté avant de terminer.",
+  "errorMessages.runFailed": "L’exécution de l’agent a échoué.",
+  "errorMessages.runUnverified":
+    "Cette conversation a perdu la trace de l’agent, qui est peut-être encore en cours. Rechargez pour voir sa progression.",
+  "errorMessages.runSignedOut":
+    "Vous êtes déconnecté, cette conversation ne peut donc pas suivre l’agent. Reconnectez-vous, puis rechargez.",
   "errorMessages.malformedRequestAttachment":
     "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
   "errorMessages.noProviderConnected":
@@ -1667,6 +1682,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "Vos dépenses estimées",
   "settings.usage.yourCreditSpend": "Vos crédits Builder.io dépensés",
   "settings.usage.calls": "Appels",
+  "settings.usage.chatgptPlanUsage": "Utilisation du forfait ChatGPT",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Personnes actives",
   "settings.usage.history": "Historique d'utilisation",
@@ -2904,10 +2920,32 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "Modifier",
   "settingsModel.chatgptConnected": "Connecté",
   "settingsModel.chatgptDescription":
-    "Utilisez le moteur Codex avec votre abonnement ChatGPT.",
+    "Utilisez des modèles OpenAI éligibles avec votre forfait ChatGPT.",
   "settingsModel.chatgptPopupBlocked":
     "Autorisez les fenêtres pop-up pour ce site, puis réessayez.",
-  "settingsModel.chatgptTitle": "Abonnement ChatGPT",
+  "settingsModel.chatgptTitle": "Accès au forfait ChatGPT",
+  "settingsModel.chatgptAddAccount": "Ajouter un autre compte",
+  "settingsModel.chatgptConnecting": "Connexion…",
+  "settingsModel.chatgptContinue": "Continuer avec ChatGPT",
+  "settingsModel.chatgptDisconnect": "Déconnecter",
+  "settingsModel.chatgptDisconnectTitle": "Déconnecter ChatGPT ?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} sera déconnecté de cette application et l’agent cessera d’utiliser votre forfait ChatGPT. Vous pouvez vous reconnecter à tout moment.",
+  "settingsModel.chatgptDisconnecting": "Déconnexion…",
+  "settingsModel.chatgptRemoveLegacySignIn": "Supprimer l’ancienne connexion",
+  "settingsModel.chatgptLegacySignInDetails":
+    "Une ancienne connexion ChatGPT est enregistrée ici. Le parcours officiel ne peut pas l’utiliser.",
+  "settingsModel.chatgptManageAccess": "Gérer dans ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "Déconnecté ici. L’accès peut rester actif dans ChatGPT.",
+  "settingsModel.chatgptLocalOnly":
+    "Les applications open source sont accessibles sans demande lorsque vous les exécutez localement avec un callback loopback ; aucune demande de partenariat n’est nécessaire. Les applications hébergées sur *.agent-native.com nécessitent l’approbation de l’opérateur et un callback hébergé.",
+  "settingsModel.chatgptNoDirectUse":
+    "Reconnectez-vous et autorisez l’accès direct aux modèles pour utiliser ce compte ChatGPT.",
+  "settingsModel.chatgptReconnect": "Reconnecter",
+  "settingsModel.chatgptSelectAccount": "Compte ChatGPT",
+  "settingsModel.chatgptUsageLimit":
+    "La limite d’utilisation de votre forfait ChatGPT a été atteinte.",
   "settingsModel.checkAgain": "Vérifier à nouveau",
   "settingsModel.checkedJustNow": "Vérifiée à l’instant.",
   "settingsModel.checkedOn": "Vérifiée le {{date}}.",

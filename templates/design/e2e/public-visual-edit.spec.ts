@@ -1015,6 +1015,53 @@ test.describe.serial("public visual edit", () => {
         }),
       ).toBeVisible();
 
+      await signedOut.page
+        .locator("[data-screen-shell]")
+        .first()
+        .locator("[data-frame-title]")
+        .click();
+      const capabilityScreenUrl = signedOut.page.getByRole("textbox", {
+        name: "Screen URL",
+      });
+      await expect(capabilityScreenUrl).toBeEnabled();
+      await capabilityScreenUrl.fill(
+        `${visualEditTargetUrl}/?e2eRoute=account`,
+      );
+      const updateSourceResponse = signedOut.page.waitForResponse(
+        (response) =>
+          response.url().includes("/actions/update-screen-source") &&
+          response.request().method() === "POST",
+      );
+      await signedOut.page.getByRole("button", { name: "Update" }).click();
+      const updateSourceResult = await updateSourceResponse;
+      const updateSourceBody = await updateSourceResult.json();
+      expect(
+        updateSourceResult.status(),
+        JSON.stringify(updateSourceBody),
+      ).toBe(200);
+      expect(JSON.stringify(updateSourceBody)).toContain("e2eRoute=account");
+      const updatedPreview = signedOut.page
+        .locator("iframe[data-screen-iframe-id]")
+        .first();
+      await expect
+        .poll(async () => {
+          const src = await updatedPreview.getAttribute("src");
+          return src ? new URL(src).searchParams.get("url") : null;
+        })
+        .toContain("e2eRoute=account");
+      await expect
+        .poll(
+          () =>
+            signedOut.page
+              .frames()
+              .some((frame) => frame.url().includes("e2eRoute=account")),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await signedOut.page.screenshot({
+        path: test.info().outputPath("visual-edit-url-updated.png"),
+      });
+
       const direct = await openSignedOutPage(
         browser,
         `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview`,

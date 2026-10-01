@@ -628,6 +628,11 @@ jobs:
 
           pagerduty_status=0
           page_oncall || pagerduty_status=$?
+          # The job is still running, so match on its failed step rather than
+          # its conclusion. A failed lookup is said in the issue, not hidden.
+          JOB_LINKS="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(any(.steps[]; .conclusion == "failure")) | "- [\(.name)](\(.url)): failed at step \"\([.steps[] | select(.conclusion == "failure") | .name] | first)\""] | join("\n")')" || JOB_LINKS="(failed-job link unavailable: gh run view failed)"
+          if [ -z "$JOB_LINKS" ]; then JOB_LINKS="(no failed step recorded yet)"; fi
+          BODY="$(printf '%s\n\nFailed job and step:\n%s\n\nReproduce: gh workflow run %s --ref main' "$BODY" "$JOB_LINKS" "monitor-agent-native-sites.yml")"
           # Avoid GitHub's eventually consistent issue-search index here. A
           # direct open-issue listing keeps one rolling incident even when a
           # previous run created it moments ago.

@@ -58,7 +58,6 @@ import React, {
 import { flushSync } from "react-dom";
 
 import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
-import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   AGENT_CHAT_RUNNING_EVENT,
@@ -73,19 +72,14 @@ import {
   SettingsReturnPathRecorder,
   URLSync,
 } from "./agent-sidebar-url-sync.js";
+import { AgentSidebarPanel } from "./AgentSidebarPanel.js";
 import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 import type { AssistantChatProps } from "./chat/surface-types.js";
 import type { MultiTabAssistantChatProps } from "./MultiTabAssistantChat.js";
 import "@agent-native/core/client/mcp-app-host";
 
-const loadAgentSidebarPanel = () =>
-  import("./AgentSidebarPanel.js").then((m) => ({
-    default: m.AgentSidebarPanel,
-  }));
-const AgentSidebarPanelLazy = lazy(loadAgentSidebarPanel);
-
 export function preloadAgentChatSurface(): Promise<void> {
-  return loadAgentSidebarPanel().then(() => undefined);
+  return Promise.resolve();
 }
 
 const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
@@ -221,31 +215,6 @@ function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
 
 function parentFrameTargetOrigin(): string {
   return getFramePostMessageTargetOrigin() ?? window.location.origin;
-}
-
-function AgentSidebarPanelSkeleton() {
-  const t = useT();
-  return (
-    <div
-      className="flex min-h-0 flex-1 flex-col bg-background animate-pulse"
-      data-agent-sidebar-panel-skeleton="true"
-      role="status"
-      aria-label={t("agentChat.common.loading")}
-    >
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
-        <div className="h-5 w-5 rounded bg-muted" />
-        <div className="h-4 w-24 rounded bg-muted" />
-      </div>
-      <div className="flex-1 space-y-4 p-4">
-        <div className="h-4 w-2/3 rounded bg-muted" />
-        <div className="h-4 w-5/6 rounded bg-muted" />
-        <div className="h-24 rounded-lg bg-muted" />
-      </div>
-      <div className="border-t border-border p-3">
-        <div className="h-10 rounded-lg bg-muted" />
-      </div>
-    </div>
-  );
 }
 
 export interface AgentSidebarProps {
@@ -1160,67 +1129,63 @@ export function AgentSidebar({
         aria-hidden={sidebarAnimationEnabled && !panelOpen ? true : undefined}
       >
         <div className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col">
-          <LazyChunkErrorBoundary fallback={<AgentSidebarPanelSkeleton />}>
-            <Suspense fallback={<AgentSidebarPanelSkeleton />}>
-              <AgentSidebarPanelLazy
-                emptyStateText={emptyStateText}
-                suggestions={suggestions}
-                dynamicSuggestions={dynamicSuggestions}
-                suggestionPlacement="context-chips"
-                composerToolbarSlot={composerToolbarSlot}
-                composerSlot={composerSlot}
-                composerContextProvider={composerContextProvider}
-                onComposerTextChange={onComposerTextChange}
-                imageModelMenu={imageModelMenu}
-                availableAgents={effectiveAvailableAgents}
-                availableModels={availableModels}
-                modelListLoading={modelListLoading}
-                selectedAgent={effectiveSelectedAgent}
-                onAgentChange={effectiveOnAgentChange}
-                hostedHarness={hostedHarnessEnabled}
-                onConnectProvider={onConnectProvider}
-                onConnectLocalRuntime={onConnectLocalRuntime}
-                runtime={runtime}
-                adapterReloadKey={adapterReloadKey}
-                threadFooterSlot={threadFooterSlot}
-                apiUrl={apiUrl}
-                agentChatSurface={agentChatSurface}
-                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
-                desktopIdentityAuthenticated={desktopIdentityAuthenticated}
-                showTabBar={effectiveShowTabBar}
-                suppressInlineOpenApp={suppressInlineOpenApp}
-                composerPlaceholder={composerPlaceholder}
-                showMissingApiKeySetup={showMissingApiKeySetup}
-                missingApiKeySetupLayout="sidebar"
-                defaultMode={defaultMode}
-                onCollapse={() => setOpenPersisted(false)}
-                showCollapseButton={showCollapseButton}
-                onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
-                isWideDrawer={isMobile ? false : isWideDrawer}
-                onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
-                onFullViewRequest={onFullscreenRequest}
-                onOpenSettings={onOpenSettings}
-                onNewCliTab={onNewCliTab}
-                onNewUiTab={onNewUiTab}
-                renderCliTab={renderCliTab}
-                newTabMode={newTabMode}
-                newCliTabLabel={newCliTabLabel}
-                newUiTabLabel={newUiTabLabel}
-                storageKey={storageKey}
-                restoreActiveThread={restoreActiveThread}
-                scope={scope}
-                chatHistory={chatHistory}
-                isolateHistoryByScope={isolateHistoryByScope}
-                showScopeBadge={showScopeBadge}
-                browserTabId={resolvedBrowserTabId}
-                threadUrlSync={threadUrlSync}
-                agentPageHref={agentPageHref}
-                thinkingDisplay={thinkingDisplay}
-                showModelSelector={showModelSelector}
-                chatOnly={chatOnly}
-              />
-            </Suspense>
-          </LazyChunkErrorBoundary>
+          <AgentSidebarPanel
+            emptyStateText={emptyStateText}
+            suggestions={suggestions}
+            dynamicSuggestions={dynamicSuggestions}
+            suggestionPlacement="context-chips"
+            composerToolbarSlot={composerToolbarSlot}
+            composerSlot={composerSlot}
+            composerContextProvider={composerContextProvider}
+            onComposerTextChange={onComposerTextChange}
+            imageModelMenu={imageModelMenu}
+            availableAgents={effectiveAvailableAgents}
+            availableModels={availableModels}
+            modelListLoading={modelListLoading}
+            selectedAgent={effectiveSelectedAgent}
+            onAgentChange={effectiveOnAgentChange}
+            hostedHarness={hostedHarnessEnabled}
+            onConnectProvider={onConnectProvider}
+            onConnectLocalRuntime={onConnectLocalRuntime}
+            runtime={runtime}
+            adapterReloadKey={adapterReloadKey}
+            threadFooterSlot={threadFooterSlot}
+            apiUrl={apiUrl}
+            agentChatSurface={agentChatSurface}
+            desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+            desktopIdentityAuthenticated={desktopIdentityAuthenticated}
+            showTabBar={effectiveShowTabBar}
+            suppressInlineOpenApp={suppressInlineOpenApp}
+            composerPlaceholder={composerPlaceholder}
+            showMissingApiKeySetup={showMissingApiKeySetup}
+            missingApiKeySetupLayout="sidebar"
+            defaultMode={defaultMode}
+            onCollapse={() => setOpenPersisted(false)}
+            showCollapseButton={showCollapseButton}
+            onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
+            isWideDrawer={isMobile ? false : isWideDrawer}
+            onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
+            onFullViewRequest={onFullscreenRequest}
+            onOpenSettings={onOpenSettings}
+            onNewCliTab={onNewCliTab}
+            onNewUiTab={onNewUiTab}
+            renderCliTab={renderCliTab}
+            newTabMode={newTabMode}
+            newCliTabLabel={newCliTabLabel}
+            newUiTabLabel={newUiTabLabel}
+            storageKey={storageKey}
+            restoreActiveThread={restoreActiveThread}
+            scope={scope}
+            chatHistory={chatHistory}
+            isolateHistoryByScope={isolateHistoryByScope}
+            showScopeBadge={showScopeBadge}
+            browserTabId={resolvedBrowserTabId}
+            threadUrlSync={threadUrlSync}
+            agentPageHref={agentPageHref}
+            thinkingDisplay={thinkingDisplay}
+            showModelSelector={showModelSelector}
+            chatOnly={chatOnly}
+          />
         </div>
       </div>
       {showResizeHandle && isLeft && (
@@ -1331,6 +1296,8 @@ export function focusAgentChat() {
 
 function focusAgentChatComposer() {
   const focusComposer = (attempt = 0) => {
+    if (typeof window === "undefined" || typeof document === "undefined")
+      return;
     const panel = document.querySelector(
       ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
         ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",

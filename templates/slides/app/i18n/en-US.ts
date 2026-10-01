@@ -46,7 +46,7 @@ const messages = {
     designSystems: "Design Systems",
   },
   settings: {
-    agentObservability: "Agent Observability",
+    agentObservability: "Observability",
     title: "Settings",
     labs: "Labs",
     labsIntro: "Preview experimental features before they ship.",
@@ -302,6 +302,21 @@ const messages = {
     importing: "Importing...",
     importFile: "Import file",
     downloadBackup: "Download backup",
+    conflictStatus: "Text conflict",
+    conflictStatusDescription:
+      "Review the conflicting text before saving more changes.",
+    reviewConflict: "Review conflict",
+    conflictTitle: "Slide {{number}} has a text conflict",
+    conflictDescription:
+      "Another version changed this slide while your text was being edited.",
+    conflictChoicesDescription:
+      "Keeping your text saves it over the latest version. Using saved text replaces only this slide's local draft.",
+    conflictBackupDescription:
+      "This full-deck draft can't be resolved one slide at a time. Download a backup to keep it safe.",
+    conflictResolveFailed:
+      "Couldn't resolve the conflict. Your draft is still available on this device.",
+    conflictKeepMine: "Keep my text",
+    conflictUseLatest: "Use saved text",
     importBackup: "Import backup",
     backupDownloaded: "Backup downloaded",
     backupDownloadFailed: "Could not download backup",
@@ -399,6 +414,8 @@ const messages = {
     orderedList: "Ordered list",
     quote: "Quote",
     blockquote: "Blockquote",
+    divider: "Divider",
+    horizontalRule: "Horizontal rule",
   },
   comments: {
     deleteComment: "Delete comment",
@@ -432,6 +449,7 @@ const messages = {
     retry: "Retry",
     clickToAddComment: "Click to add a comment",
     selectSlideToAdd: "Select a slide to add one",
+    filters: "Comment filters",
     scope: "Comment scope",
     thisSlide: "This slide",
     allComments: "All slides",

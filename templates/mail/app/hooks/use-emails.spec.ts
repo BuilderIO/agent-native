@@ -107,6 +107,30 @@ describe("emailListRefetchInterval", () => {
       ),
     ).toBe(false);
   });
+
+  it("looks once more after the cooldown Gmail named, and never sooner", () => {
+    const cooldown = (retryAfterMs: number) =>
+      Object.assign(new Error("busy"), {
+        status: 429,
+        errorCode: "gmail_quota_cooldown",
+        retryAfterMs,
+      });
+
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: cooldown(20_000),
+      }),
+    ).toBe(21_000);
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: cooldown(60 * 60_000),
+      }),
+    ).toBe(5 * 60_000);
+  });
 });
 
 describe("removal undo claim ownership", () => {
@@ -464,8 +488,12 @@ describe("useMarkRead", () => {
       source.indexOf("export function useMarkThreadRead()"),
     );
 
-    expect(hook).toContain("getCachedThread(resolvedThreadId)");
-    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
+    expect(hook).toMatch(
+      /getCachedThread\(\s*resolvedThreadId,\s*resolvedAccountEmail\s*\)/,
+    );
+    expect(hook).toMatch(
+      /supersedeCachedThreadFetch\(\s*resolvedThreadId,\s*resolvedAccountEmail\s*\)/,
+    );
     expect(hook).toContain(
       "message.id === id ? { ...message, isRead } : message",
     );
@@ -533,7 +561,9 @@ describe("useMarkRead", () => {
     );
 
     expect(hook).toContain("const restartThread = resolvedThreadId");
-    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
+    expect(hook).toMatch(
+      /supersedeCachedThreadFetch\(\s*resolvedThreadId,\s*resolvedAccountEmail\s*\)/,
+    );
     expect(hook).toContain("resolvedThreadId && restartThread");
     expect(source).toContain("clearOptimisticOverrideProperty(emailId, field)");
     expect(hook).toContain("refreshThreadAfterMutations(");
@@ -543,7 +573,7 @@ describe("useMarkRead", () => {
 describe("thread fetch ownership", () => {
   it("only lets the current request clear its in-flight entry", () => {
     expect(threadCacheSource()).toContain(
-      "if (inflight.get(threadId) === request) inflight.delete(threadId)",
+      "if (inflight.get(key) === request) inflight.delete(key)",
     );
     expect(threadCacheSource()).toContain("return superseded");
   });
@@ -633,7 +663,9 @@ describe("useMarkThreadRead", () => {
       source.indexOf("export function useToggleStar()"),
     );
 
-    expect(hook).toContain("supersedeCachedThreadFetch(threadId)");
+    expect(hook).toMatch(
+      /supersedeCachedThreadFetch\(\s*threadId,\s*resolvedAccountEmail,?\s*\)/,
+    );
     expect(hook).toContain("beginReadMutation(id, false, true)");
     expect(hook).not.toContain("context.previousThread");
   });
@@ -802,6 +834,30 @@ describe("apiFetch quota signaling", () => {
     });
   });
 
+  it("carries the typed cooldown fields from the response body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: "Email service is briefly busy.",
+            errorCode: "gmail_quota_cooldown",
+            retryAfterMs: 12_500,
+            cooldownUntil: 1_790_000_000_000,
+          }),
+          { status: 429, headers: { "Retry-After": "13" } },
+        ),
+      ),
+    );
+
+    await expect(apiFetch("/api/emails")).rejects.toMatchObject({
+      status: 429,
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 12_500,
+      cooldownUntil: 1_790_000_000_000,
+    });
+  });
+
   it("leaves retryAfterMs undefined without a Retry-After header", async () => {
     vi.stubGlobal(
       "fetch",
@@ -930,6 +986,13 @@ describe("inbox-thread cache rollback on mutation error", () => {
       const hook = source.slice(source.indexOf(start), source.indexOf(end));
       for (const marker of markers) expect(hook).toContain(marker);
     }
+    const starHook = source.slice(
+      source.indexOf("export function useBulkToggleStar()"),
+      source.indexOf("export function useBulkMarkRead()"),
+    );
+    expect(starHook).toContain("accountEmailsByEmailId");
+    expect(starHook).toContain("context.accountEmailsByEmailId");
+    expect(source).toContain("getCachedThread(threadId, accountEmail)");
     expect(source).toContain('enqueueBulkGmailMutation("trash"');
     expect(source).toContain('cancelOrWait("trash", id)');
   });

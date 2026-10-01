@@ -20,11 +20,18 @@ import { fileURLToPath } from "node:url";
 
 import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
 
+import { IN_PLACE_TEXT_UNDO_LIMIT } from "../../app/components/editor/in-place-text-session.ts";
 import {
   pick,
   resolvePnpmEntry,
   WORKTREE_ROOT,
 } from "../export-fidelity/resolve-pkg.ts";
+import {
+  assertAuthoringPersistence,
+  canonicalizeAuthoringFuzzPersistence,
+  runAuthoringFuzz,
+  type AuthoringFuzzPersistence,
+} from "./authoring-fuzz.ts";
 import {
   CHROME_SELECTOR,
   installInPageHelpers,
@@ -38,6 +45,7 @@ import {
 import {
   diffPngs,
   diffSnapshots,
+  followsCenteredFlexReflow,
   findBaselineProblems,
   hardFailures,
   isDraftRevert,
@@ -87,8 +95,12 @@ const VALUE_FLAGS = new Set([
   "--targets",
   "--scenarios",
   "--concurrency",
+  "--browser",
   "--resume",
   "--cpu-throttle",
+  "--seed",
+  "--steps",
+  "--seeds",
 ]);
 const opt = (name: string) => {
   const i = argv.indexOf(name);
@@ -137,6 +149,35 @@ const headed = argv.includes("--headed");
 const typingChatOnly = argv.includes("--typing-chat");
 const imeEscapeOnly = argv.includes("--ime-escape");
 const textSurfaceQaOnly = argv.includes("--text-surface-qa");
+const lineStartKey = process.platform === "darwin" ? "Meta+ArrowLeft" : "Home";
+const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
+const authoringOnly = argv.includes("--authoring");
+const authoringCorpusOnly = argv.includes("--authoring-corpus");
+const authoringFuzzOnly = argv.includes("--authoring-fuzz");
+const fuzzSeed = Number(opt("--seed") ?? 1);
+if (!Number.isSafeInteger(fuzzSeed) || fuzzSeed < 0) {
+  fatal(`--seed expects a non-negative safe integer, got ${opt("--seed")}`);
+}
+const fuzzSteps = numOpt("--steps", 500);
+const fuzzSeeds = numOpt("--seeds", 1);
+if (fuzzSeed + fuzzSeeds - 1 > Number.MAX_SAFE_INTEGER) {
+  fatal("--seed plus --seeds exceeds the safe integer range");
+}
+const browserName = opt("--browser") ?? "chromium";
+if (!["chromium", "webkit", "firefox"].includes(browserName)) {
+  fatal(`--browser expects chromium, webkit, or firefox, got ${browserName}`);
+}
+if (
+  browserName !== "chromium" &&
+  !textSurfaceQaOnly &&
+  !authoringOnly &&
+  !authoringCorpusOnly &&
+  !authoringFuzzOnly
+) {
+  fatal(
+    "--browser webkit|firefox is supported with --authoring, --authoring-corpus, --authoring-fuzz, or --text-surface-qa",
+  );
+}
 for (const s of scenarios) {
   if (!SCENARIOS.includes(s))
     fatal(`unknown scenario ${s}; expected ${SCENARIOS.join(",")}`);
@@ -173,6 +214,21 @@ interface CorpusCase {
   expectStyles?: ExpectedStyle[];
 }
 
+interface CorpusAuthoringSource {
+  id: string;
+  kind:
+    | "absolute"
+    | "flex-grid"
+    | "styled-list"
+    | "styled-flex-bullet-row"
+    | "styled-paragraph-bullet-row"
+    | "scaled"
+    | "largest";
+  testTarget: "absolute" | "flex-grid" | "list" | "bullet-row" | "any";
+  corpusCase: CorpusCase;
+  slide: CorpusSlide;
+}
+
 function loadCorpus(): CorpusCase[] {
   if (!existsSync(corpusDir))
     fatal(`corpus directory ${corpusDir} does not exist`);
@@ -207,6 +263,200 @@ function loadCorpus(): CorpusCase[] {
     );
   }
   return cases;
+}
+
+function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
+  const allSlides = cases.flatMap((corpusCase) =>
+    corpusCase.slides.map((slide) => ({ corpusCase, slide })),
+  );
+  const eligible = allSlides.filter(
+    ({ slide }) =>
+      // Keep blob-bearing imports out of authoring decks in the scratch database.
+      !/data:/i.test(slide.content) &&
+      Buffer.byteLength(slide.content, "utf8") <= 512_000,
+  );
+  const orderedEligible = [...eligible].sort(
+    (a, b) =>
+      Number(a.slide.content.toLowerCase().includes("<style")) -
+        Number(b.slide.content.toLowerCase().includes("<style")) ||
+      Buffer.byteLength(a.slide.content, "utf8") -
+        Buffer.byteLength(b.slide.content, "utf8"),
+  );
+  const find = (predicate: (content: string) => boolean) =>
+    orderedEligible.find(({ slide }) => predicate(slide.content));
+  const inlineStyles = (content: string) =>
+    Array.from(
+      content.matchAll(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi),
+      (match) => match[1] ?? match[2] ?? "",
+    );
+  const hasAbsoluteTextBox = (content: string, expectedClass: string) => {
+    const visit = (node: P5.Node): boolean => {
+      if (!("childNodes" in node)) return false;
+      if ("tagName" in node) {
+        const element = node as P5.Element;
+        const className =
+          element.attrs.find((attribute) => attribute.name === "class")
+            ?.value ?? "";
+        const style =
+          element.attrs.find((attribute) => attribute.name === "style")
+            ?.value ?? "";
+        if (
+          className.split(/\s+/).includes(expectedClass) &&
+          /position\s*:\s*absolute\b/i.test(style) &&
+          visibleTextOf(element).trim()
+        ) {
+          return true;
+        }
+      }
+      return (node as P5.ParentNode).childNodes.some(visit);
+    };
+    return parse(content).childNodes.some(visit);
+  };
+  const absolute =
+    find((content) => hasAbsoluteTextBox(content, "fmd-pptx-text")) ??
+    find((content) => hasAbsoluteTextBox(content, "fmd-text-box"));
+  const flexGrid = find((content) => {
+    if (/text-transform\s*:\s*uppercase\b/i.test(content)) return false;
+    const styles = inlineStyles(content);
+    return (
+      styles.some((style) => /display\s*:\s*flex\b/i.test(style)) &&
+      styles.some(
+        (style) =>
+          /display\s*:\s*grid\b/i.test(style) &&
+          /grid-template-(?:columns|rows)\s*:/i.test(style),
+      )
+    );
+  });
+  const styledList = find(
+    (content) =>
+      /<(?:ul|ol)\b[^>]*\bstyle\s*=/i.test(content) &&
+      /<li\b[\s\S]*?(?:<span\b[^>]*\bstyle\s*=|<li\b[^>]*\bstyle\s*=)/i.test(
+        content,
+      ),
+  );
+  const styledBulletRows = (content: string) => {
+    const rows: { tag: string; flex: boolean; glyph: boolean }[] = [];
+    const visit = (node: P5.Node): void => {
+      if (!("childNodes" in node)) return;
+      if ("tagName" in node) {
+        const element = node as P5.Element;
+        if (/^(?:div|li|p)$/i.test(element.tagName)) {
+          const marker = element.childNodes.find(
+            (child) => "tagName" in child,
+          ) as P5.Element | undefined;
+          if (marker?.tagName === "span") {
+            const markerText = visibleTextOf(marker).trim();
+            const style =
+              marker.attrs.find((attribute) => attribute.name === "style")
+                ?.value ?? "";
+            const glyphMarker = /^[-*•●◦▪‣·⁃–—]+$/u.test(markerText);
+            const width = Number(
+              /(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)(?:px)?/i.exec(style)?.[1],
+            );
+            const height = Number(
+              /(?:^|;)\s*height\s*:\s*(\d+(?:\.\d+)?)(?:px)?/i.exec(style)?.[1],
+            );
+            const shapeMarker =
+              !markerText &&
+              width > 0 &&
+              width <= 48 &&
+              height > 0 &&
+              height <= 48 &&
+              width / height >= 0.5 &&
+              width / height <= 2 &&
+              /(?:border|background|border-radius)\s*:/i.test(style);
+            const rowText = visibleTextOf(element).trim();
+            if (
+              (glyphMarker && rowText.slice(markerText.length).trim()) ||
+              (shapeMarker && rowText)
+            ) {
+              rows.push({
+                tag: element.tagName.toLowerCase(),
+                glyph: glyphMarker || shapeMarker,
+                flex: /display\s*:\s*flex\b/i.test(
+                  element.attrs.find((attribute) => attribute.name === "style")
+                    ?.value ?? "",
+                ),
+              });
+            }
+          }
+        }
+      }
+      (node as P5.ParentNode).childNodes.forEach(visit);
+    };
+    parse(content).childNodes.forEach(visit);
+    return rows;
+  };
+  const styledFlexBulletRow = find((content) =>
+    styledBulletRows(content).some(
+      (row) => row.tag === "div" && row.flex && row.glyph,
+    ),
+  );
+  const styledParagraphBulletRow = find((content) =>
+    styledBulletRows(content).some((row) => row.tag === "p" && row.glyph),
+  );
+  const selected = [
+    absolute,
+    flexGrid,
+    styledList,
+    styledFlexBulletRow,
+    styledParagraphBulletRow,
+  ].filter(Boolean);
+  const scaled =
+    orderedEligible.find(
+      (entry) =>
+        !selected.some((candidate) => candidate === entry) &&
+        entry.slide.content.length > 200 &&
+        /<(?:div|p|h[1-4]|li)\b/i.test(entry.slide.content),
+    ) ?? selected[0];
+  const largestEntry = [...allSlides].sort(
+    (a, b) =>
+      Buffer.byteLength(b.slide.content, "utf8") -
+      Buffer.byteLength(a.slide.content, "utf8"),
+  )[0];
+  const largest = largestEntry
+    ? {
+        ...largestEntry,
+        slide: {
+          ...largestEntry.slide,
+          // Preserve source geometry but never store embedded image bytes in SQL.
+          content: largestEntry.slide.content.replace(
+            /data:[^"'\s)<>]+/gi,
+            "about:blank",
+          ),
+        },
+      }
+    : undefined;
+  const required: Array<
+    [
+      CorpusAuthoringSource["kind"],
+      CorpusAuthoringSource["testTarget"],
+      { corpusCase: CorpusCase; slide: CorpusSlide } | undefined,
+    ]
+  > = [
+    ["absolute", "absolute", absolute],
+    ["flex-grid", "flex-grid", flexGrid],
+    ["styled-list", "list", styledList],
+    ["styled-flex-bullet-row", "bullet-row", styledFlexBulletRow],
+    ["styled-paragraph-bullet-row", "bullet-row", styledParagraphBulletRow],
+    ["scaled", "any", scaled],
+    ["largest", "any", largest],
+  ];
+  const missing = required
+    .filter(([, , source]) => !source)
+    .map(([kind]) => kind);
+  if (missing.length) {
+    throw new CouldNotRun(
+      `authoring corpus lacks safe source slides for: ${missing.join(", ")}`,
+    );
+  }
+  return required.map(([kind, testTarget, source]) => ({
+    id: kind,
+    kind,
+    testTarget,
+    corpusCase: source!.corpusCase,
+    slide: source!.slide,
+  }));
 }
 
 // ---------------------------------------------------------------- server ---
@@ -340,12 +590,15 @@ async function action<T = any>(
     },
     { name, body, method },
   );
-  if (!res.ok)
-    throw new Error(`${name} ${res.status}: ${res.text.slice(0, 400)}`);
-  return JSON.parse(res.text);
+  if (!res.ok) throw new Error(`${name} returned HTTP ${res.status}`);
+  try {
+    return JSON.parse(res.text);
+  } catch {
+    throw new Error(`${name} returned a non-JSON response`);
+  }
 }
 
-async function getSlideContent(page: Page, deckId: string, slideId: string) {
+async function getSlideState(page: Page, deckId: string, slideId: string) {
   const deck = await action(
     page,
     "get-deck",
@@ -353,8 +606,14 @@ async function getSlideContent(page: Page, deckId: string, slideId: string) {
     "GET",
   );
   const slide = deck.slides?.find((s: any) => s.id === slideId);
-  if (!slide) throw new Error(`get-deck returned no slide ${slideId}`);
-  return String(slide.content);
+  if (!slide || typeof slide.contentHash !== "string") {
+    throw new Error(`get-deck returned no hashed slide ${slideId}`);
+  }
+  return { content: String(slide.content), contentHash: slide.contentHash };
+}
+
+async function getSlideContent(page: Page, deckId: string, slideId: string) {
+  return (await getSlideState(page, deckId, slideId)).content;
 }
 
 async function ensureSignedIn(page: Page) {
@@ -502,9 +761,18 @@ async function enterEdit(
         window.__editFidelity.entryCaretProblem(p, how),
       [point, name] as const,
     );
-    if (entry)
+    // Some engines leave a click-aligned caret instead of selecting a word.
+    const caretFallback =
+      entry && name === "dblclick"
+        ? await page.evaluate(
+            (p: { x: number; y: number }) =>
+              window.__editFidelity.entryCaretProblem(p, "click"),
+            point,
+          )
+        : null;
+    if (entry && caretFallback)
       violations.push(
-        `entering edit put the caret away from the click (${entry})`,
+        `entering edit put the caret away from the click (${caretFallback})`,
       );
     // A double-click enters edit with its word selected, and typing would
     // replace that word; every scenario edits at a caret.
@@ -821,7 +1089,7 @@ async function runImeEscapeRegression(
     const selector = `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
     const editor = page.locator(selector);
     await editor.focus();
-    await page.keyboard.press("End");
+    await page.keyboard.press(lineEndKey);
     const cdp = await page.context().newCDPSession(page);
     detach = () => cdp.detach();
     await cdp.send("Input.imeSetComposition", {
@@ -938,8 +1206,9 @@ async function runImeEscapeRegression(
   }
 }
 
-async function runTextSurfaceQa(page: Page, base: string) {
+async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
   const problems: string[] = [];
+  const usesChromiumIme = browserName === "chromium";
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   const normalizeText = (text: string) =>
     text
@@ -963,9 +1232,13 @@ async function runTextSurfaceQa(page: Page, base: string) {
     }, html);
   const slideOne = "text-surface-slide-one";
   const slideTwo = "text-surface-slide-two";
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: new URL(base).origin,
-  });
+  if (browserName === "chromium") {
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(base).origin,
+      });
+  }
   await page.route("**/_agent-native/agent-engine/status", (route: any) =>
     route.fulfill({
       status: 200,
@@ -1001,8 +1274,56 @@ async function runTextSurfaceQa(page: Page, base: string) {
   const surfaceText = (locator: any) => locator.inputValue();
   const waitForText = (locator: any, expected: string) =>
     waitFor(async () => (await surfaceText(locator)) === expected, 4000, 50);
+  const emitComposition = async (
+    locator: any,
+    type:
+      | "compositionstart"
+      | "compositionupdate"
+      | "compositionend"
+      | "beforeinput",
+    data: string,
+  ) =>
+    locator.evaluate(
+      (element: HTMLElement, event: { type: string; data: string }) => {
+        const input = new InputEvent(event.type, {
+          bubbles: true,
+          cancelable: event.type === "beforeinput",
+          data: event.data,
+          inputType:
+            event.type === "beforeinput" ? "insertCompositionText" : "",
+          isComposing:
+            event.type === "beforeinput" || event.type !== "compositionend",
+        });
+        if (event.type.startsWith("composition")) {
+          element.dispatchEvent(
+            new CompositionEvent(event.type, {
+              bubbles: true,
+              data: event.data,
+            }),
+          );
+        } else {
+          element.dispatchEvent(input);
+        }
+      },
+      { type, data },
+    );
+  const emitComposingEscape = async (locator: any) =>
+    locator.evaluate((element: HTMLElement) => {
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "Escape",
+        code: "Escape",
+        isComposing: true,
+        keyCode: 229,
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
   const composingEscape = async (locator: any, label: string) => {
-    const cdp = await page.context().newCDPSession(page);
+    const cdp = usesChromiumIme
+      ? await page.context().newCDPSession(page)
+      : null;
     const before = await surfaceText(locator);
     await locator.focus();
     await locator.evaluate(
@@ -1033,11 +1354,17 @@ async function runTextSurfaceQa(page: Page, base: string) {
         });
       }
     });
-    await cdp.send("Input.imeSetComposition", {
-      text: "に",
-      selectionStart: 1,
-      selectionEnd: 1,
-    });
+    if (cdp) {
+      await cdp.send("Input.imeSetComposition", {
+        text: "に",
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+    } else {
+      await emitComposition(locator, "compositionstart", "に");
+      await locator.fill(`${before}に`);
+      await emitComposition(locator, "beforeinput", "に");
+    }
     const candidateVisible = await waitForText(locator, `${before}に`);
     if (!candidateVisible) {
       const failedCandidate = await locator.evaluate(
@@ -1053,11 +1380,16 @@ async function runTextSurfaceQa(page: Page, base: string) {
       problems.push(
         `${label}: Chromium did not show the active IME candidate ${JSON.stringify({ before, failedCandidate, events })}`,
       );
-      await cdp.send("Input.imeSetComposition", {
-        text: "",
-        selectionStart: 0,
-        selectionEnd: 0,
-      });
+      if (cdp) {
+        await cdp.send("Input.imeSetComposition", {
+          text: "",
+          selectionStart: 0,
+          selectionEnd: 0,
+        });
+      } else {
+        await locator.fill(before);
+        await emitComposition(locator, "compositionend", "");
+      }
       await waitFor(
         () =>
           page.evaluate(() =>
@@ -1067,16 +1399,17 @@ async function runTextSurfaceQa(page: Page, base: string) {
           ),
         2000,
       );
-      await cdp.detach();
+      await cdp?.detach();
       return await locator.isVisible();
     }
-    await locator.press("Escape");
+    if (cdp) await locator.press("Escape");
+    else await emitComposingEscape(locator);
     const remainsOpen = await locator.isVisible();
     if (!remainsOpen) {
       problems.push(
         `${label}: Escape closed the editor during IME composition`,
       );
-      await cdp.detach();
+      await cdp?.detach();
       return false;
     }
     const escape = await page.evaluate(() =>
@@ -1089,11 +1422,16 @@ async function runTextSurfaceQa(page: Page, base: string) {
     }
     // Headless Chromium has no platform IME to consume Escape. Cancel through
     // the same CDP input domain after asserting the app left the field mounted.
-    await cdp.send("Input.imeSetComposition", {
-      text: "",
-      selectionStart: 0,
-      selectionEnd: 0,
-    });
+    if (cdp) {
+      await cdp.send("Input.imeSetComposition", {
+        text: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+      });
+    } else {
+      await locator.fill(before);
+      await emitComposition(locator, "compositionend", "");
+    }
     await waitFor(
       () =>
         page.evaluate(() =>
@@ -1112,17 +1450,21 @@ async function runTextSurfaceQa(page: Page, base: string) {
     );
     if (
       !events.some(
-        (event: any) => event.type === "compositionstart" && event.trusted,
+        (event: any) =>
+          event.type === "compositionstart" &&
+          (usesChromiumIme ? event.trusted : !event.trusted),
       ) ||
       !events.some(
         (event: any) =>
-          event.type === "beforeinput" && event.isComposing && event.trusted,
+          event.type === "beforeinput" &&
+          event.isComposing &&
+          (usesChromiumIme ? event.trusted : !event.trusted),
       ) ||
       !events.some((event: any) => event.type === "compositionend")
     ) {
       problems.push(`${label}: Escape did not end the active composition`);
     }
-    await cdp.detach();
+    await cdp?.detach();
     return remainsOpen;
   };
   const exerciseControl = async (
@@ -1142,13 +1484,43 @@ async function runTextSurfaceQa(page: Page, base: string) {
       key,
     );
     const start = await surfaceText(locator);
+    await page.evaluate(
+      (text: string) => navigator.clipboard.writeText(text),
+      " paste",
+    );
+    await locator.press(`${modifier}+V`);
+    let expected = `${start} paste`;
+    if (!(await waitForText(locator, expected))) {
+      problems.push(
+        `${label}: native clipboard paste did not land at the caret`,
+      );
+    }
+    await locator.press(`${modifier}+Z`);
+    if (!(await waitForText(locator, start))) {
+      problems.push(
+        `${label}: undo produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(start)}`,
+      );
+    }
+    await locator.press(`${modifier}+Shift+Z`);
+    if (!(await waitForText(locator, expected))) {
+      problems.push(`${label}: redo did not restore the paste`);
+    }
+    await locator.press(`${modifier}+Z`);
+    if (!(await waitForText(locator, start))) {
+      problems.push(`${label}: undo did not restore the pre-paste text`);
+    }
+
+    await locator.evaluate((element: HTMLInputElement | HTMLTextAreaElement) =>
+      element.setSelectionRange(element.value.length, element.value.length),
+    );
+    expected = start;
     await locator.pressSequentially(" fast");
     await sleep(600);
     await locator.pressSequentially(" pause");
-    let expected = `${start} fast pause`;
+    expected = `${start} fast pause`;
     if (!(await waitForText(locator, expected))) {
       problems.push(
-        `${label}: rapid typing and debounce pause changed the text`,
+        `${label}: rapid typing produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(expected)}`,
       );
     }
     if (multiline) {
@@ -1159,7 +1531,7 @@ async function runTextSurfaceQa(page: Page, base: string) {
       expected += "\nline2";
       if (!(await waitForText(locator, expected))) {
         problems.push(
-          `${label}: Enter or Backspace changed the text unexpectedly`,
+          `${label}: Enter or Backspace produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(expected)}`,
         );
       }
     } else {
@@ -1168,42 +1540,36 @@ async function runTextSurfaceQa(page: Page, base: string) {
       await locator.pressSequentially("e");
       expected += "e";
       if (!(await waitForText(locator, expected))) {
-        problems.push(`${label}: Backspace changed the text unexpectedly`);
+        problems.push(
+          `${label}: Backspace sequence produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(expected)}`,
+        );
       }
     }
 
-    const beforePaste = expected;
-    await page.evaluate(
-      (text: string) => navigator.clipboard.writeText(text),
-      " paste",
-    );
-    await locator.press(`${modifier}+V`);
-    expected += " paste";
-    if (!(await waitForText(locator, expected))) {
-      problems.push(
-        `${label}: native clipboard paste did not land at the caret`,
-      );
+    const cdp = usesChromiumIme
+      ? await page.context().newCDPSession(page)
+      : null;
+    await locator.press(lineEndKey);
+    if (cdp) {
+      await cdp.send("Input.imeSetComposition", {
+        text: "に",
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+    } else {
+      await emitComposition(locator, "compositionstart", "に");
+      await locator.fill(`${expected}に`);
+      await emitComposition(locator, "beforeinput", "に");
     }
-    await locator.press(`${modifier}+Z`);
-    if (!(await waitForText(locator, beforePaste))) {
-      problems.push(`${label}: undo did not remove the paste`);
-    }
-    await locator.press(`${modifier}+Shift+Z`);
-    if (!(await waitForText(locator, expected))) {
-      problems.push(`${label}: redo did not restore the paste`);
-    }
-
-    const cdp = await page.context().newCDPSession(page);
-    await locator.press("End");
-    await cdp.send("Input.imeSetComposition", {
-      text: "に",
-      selectionStart: 1,
-      selectionEnd: 1,
-    });
     if (!(await waitForText(locator, `${expected}に`))) {
       problems.push(`${label}: IME composition did not update the text`);
     }
-    await cdp.send("Input.insertText", { text: "日" });
+    if (cdp) {
+      await cdp.send("Input.insertText", { text: "日" });
+    } else {
+      await locator.fill(`${expected}日`);
+      await emitComposition(locator, "compositionend", "日");
+    }
     expected += "日";
     if (!(await waitForText(locator, expected))) {
       problems.push(`${label}: IME commit changed the text unexpectedly`);
@@ -1226,7 +1592,7 @@ async function runTextSurfaceQa(page: Page, base: string) {
     if (!state.focused) problems.push(`${label}: typing lost focus`);
     if (!state.sameNode)
       problems.push(`${label}: input DOM node was replaced while typing`);
-    await cdp.detach();
+    await cdp?.detach();
     return expected;
   };
 
@@ -1243,7 +1609,7 @@ async function runTextSurfaceQa(page: Page, base: string) {
     await editor.evaluate((element: HTMLElement) => {
       (window as any).__textSurfaceSlideEditor = element;
     });
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.pressSequentially(" fast");
     await sleep(400);
     await editor.pressSequentially(" pause");
@@ -1251,6 +1617,23 @@ async function runTextSurfaceQa(page: Page, base: string) {
     if ((await editor.innerText()) !== expectedSlideText) {
       problems.push(
         "slide text: rapid typing and debounce pause changed the text",
+      );
+    }
+    const beforeCaretKeys = expectedSlideText;
+    await editor.press(lineStartKey);
+    await editor.pressSequentially("Caret start ");
+    expectedSlideText = `Caret start ${beforeCaretKeys}`;
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: line-start key did not put the caret at the line start",
+      );
+    }
+    await editor.press(lineEndKey);
+    await editor.pressSequentially(" caret end");
+    expectedSlideText += " caret end";
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: line-end key did not put the caret at the line end",
       );
     }
     const titleInput = page
@@ -1402,7 +1785,7 @@ async function runTextSurfaceQa(page: Page, base: string) {
     } else {
       problems.push("slide text: could not locate the pointer re-entry target");
     }
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await page.evaluate(
       (text: string) => navigator.clipboard.writeText(text),
       " paste",
@@ -1443,7 +1826,7 @@ async function runTextSurfaceQa(page: Page, base: string) {
         `slide text: redo produced ${JSON.stringify(await editor.innerText())}`,
       );
     }
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.press("Enter");
     await editor.pressSequentially("lineX");
     await editor.press("Backspace");
@@ -1459,13 +1842,21 @@ async function runTextSurfaceQa(page: Page, base: string) {
         `slide text: Enter/Backspace produced ${JSON.stringify(await editor.innerText())}`,
       );
     }
-    const cdp = await page.context().newCDPSession(page);
-    await editor.press("End");
-    await cdp.send("Input.imeSetComposition", {
-      text: "に",
-      selectionStart: 1,
-      selectionEnd: 1,
-    });
+    const cdp = usesChromiumIme
+      ? await page.context().newCDPSession(page)
+      : null;
+    await editor.press(lineEndKey);
+    if (cdp) {
+      await cdp.send("Input.imeSetComposition", {
+        text: "に",
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+    } else {
+      await emitComposition(editor, "compositionstart", "に");
+      await editor.pressSequentially("に");
+      await emitComposition(editor, "beforeinput", "に");
+    }
     if (
       !(await waitFor(
         async () => (await editor.innerText()) === `${expectedSlideText}に`,
@@ -1474,8 +1865,13 @@ async function runTextSurfaceQa(page: Page, base: string) {
     ) {
       problems.push("slide text: IME composition did not update the text");
     }
-    await cdp.send("Input.insertText", { text: "日" });
-    expectedSlideText += "日";
+    if (cdp) {
+      await cdp.send("Input.insertText", { text: "日" });
+    } else {
+      await editor.pressSequentially("日");
+      await emitComposition(editor, "compositionend", "日");
+    }
+    expectedSlideText += usesChromiumIme ? "日" : "に日";
     if (
       !(await waitFor(
         async () => (await editor.innerText()) === expectedSlideText,
@@ -1486,7 +1882,7 @@ async function runTextSurfaceQa(page: Page, base: string) {
         `slide text: IME commit produced ${JSON.stringify(await editor.innerText())}`,
       );
     }
-    await cdp.detach();
+    await cdp?.detach();
     await editor.pressSequentially(" switch");
     expectedSlideText += " switch";
     await page.locator(`[data-slide-thumbnail-id="${slideTwo}"]`).click();
@@ -1661,6 +2057,1902 @@ async function runTextSurfaceQa(page: Page, base: string) {
   return problems;
 }
 
+async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
+  const problems: string[] = [];
+  let firstMarkupMismatch = "";
+  const shortcuts = [
+    ["- ", "bullet"],
+    ["* ", "bullet"],
+    ["+ ", "bullet"],
+    ["1. ", "ordered"],
+    ["# ", "H1"],
+    ["## ", "H2"],
+    ["### ", "H3"],
+    ["#### ", "H4"],
+    ["> ", "BLOCKQUOTE"],
+    ["--- ", "divider"],
+    ["___ ", "divider"],
+    ["*** ", "divider"],
+    ["**bold**", "bold"],
+    ["__bold__", "bold"],
+    ["*italic*", "italic"],
+    ["_italic_", "italic"],
+    ["~~strike~~", "strike"],
+    ["`code`", "code"],
+  ] as const;
+  const slashCommands = [
+    ["paragraph", "paragraph", "H2", "P"],
+    ["heading1", "heading1", "P", "H1"],
+    ["heading2", "heading2", "P", "H2"],
+    ["heading3", "heading3", "P", "H3"],
+    ["bulletList", "bulletList", "P", "UL"],
+    ["orderedList", "orderedList", "P", "OL"],
+    ["quote", "quote", "P", "BLOCKQUOTE"],
+    ["divider", "divider", "P", "DIV"],
+  ] as const;
+  const allCases = [
+    ...shortcuts.flatMap(([shortcut, result], index) =>
+      (["start", "after-enter"] as const).map((position) => ({
+        id: `authoring-shortcut-${index}-${position}`,
+        kind: "shortcut" as const,
+        shortcut,
+        result,
+        position,
+      })),
+    ),
+    ...slashCommands.map(([kind, command, initialTag, resultTag]) => ({
+      id: `authoring-slash-${kind}`,
+      kind: "slash" as const,
+      command,
+      initialTag,
+      resultTag,
+    })),
+    { id: "authoring-list-ul", kind: "ul-flow" as const },
+    { id: "authoring-list-ol", kind: "ol-flow" as const },
+    { id: "authoring-list-styled", kind: "styled-flow" as const },
+    { id: "authoring-soft-break-slash", kind: "soft-break-slash" as const },
+  ];
+  const cases = allCases;
+
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  const created = await action(page, "create-deck", {
+    title: `[edit-fidelity] authoring parity ${Date.now()}`,
+    slides: cases.map((test) => {
+      if (test.kind === "ul-flow") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><ul style="list-style-type: disc"><li><p>Alpha</p></li></ul></div>',
+        };
+      }
+      if (test.kind === "ol-flow") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><ol style="list-style-type: decimal"><li><p>Alpha</p></li></ol></div>',
+        };
+      }
+      if (test.kind === "soft-break-slash") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><div class="fmd-text-box"><p style="color: red">Before</p></div></div>',
+        };
+      }
+      const tag = "initialTag" in test ? test.initialTag : "div";
+      return {
+        id: test.id,
+        content: `<div class="fmd-slide"><${tag}>Alpha</${tag}></div>`,
+      };
+    }),
+  });
+  const deckId = String(created.id ?? created.deckId);
+  const initialMarkup = new Map(
+    await Promise.all(
+      cases.map(
+        async ({ id }) =>
+          [id, await getSlideContent(page, deckId, id)] as const,
+      ),
+    ),
+  );
+  const selectorFor = (slideId: string) =>
+    `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+  const getEditor = (slideId: string) => page.locator(selectorFor(slideId));
+  let currentCaseId = "setup";
+  const waitForSlashOption = async (editor: any, caseId: string) => {
+    const option = page.locator('[role="listbox"] [role="option"]').first();
+    try {
+      await option.waitFor({ state: "visible", timeout: 3_000 });
+    } catch {
+      const state = await editor.evaluate((element: HTMLElement) => {
+        const selection = window.getSelection();
+        const range = selection?.rangeCount
+          ? selection.getRangeAt(0)
+          : undefined;
+        const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
+        return {
+          html: element.innerHTML,
+          focused: document.activeElement === element,
+          ariaExpanded: element.getAttribute("aria-expanded"),
+          ariaActiveDescendant: element.getAttribute("aria-activedescendant"),
+          selection: range
+            ? {
+                text: range.startContainer.textContent,
+                offset: range.startOffset,
+                collapsed: range.collapsed,
+              }
+            : null,
+          listbox: listbox?.outerHTML ?? null,
+        };
+      });
+      throw new Error(
+        `${caseId}: slash menu did not open: ${JSON.stringify(state)}`,
+      );
+    }
+  };
+
+  async function begin(index: number) {
+    const { id } = cases[index];
+    await openSlide(page, base, deckId, index, id);
+    const [target] = await listTargets(page, id);
+    if (!target) throw new Error(`${id}: no editable text target`);
+    const entryProblems: string[] = [];
+    if (!(await enterEdit(page, id, target.point, entryProblems))) {
+      throw new Error(`${id}: could not open in-place text editing`);
+    }
+    problems.push(...entryProblems.map((problem) => `${id}: ${problem}`));
+    return getEditor(id);
+  }
+
+  async function finish(index: number, assertion: () => Promise<void>) {
+    const { id } = cases[index];
+    await assertion();
+    if (!(await exitEdit(page, id, "escape"))) {
+      throw new Error(`${id}: Escape did not exit in-place text editing`);
+    }
+    const live = await page
+      .locator(`${canvasSelector(id)} .slide-content`)
+      .innerHTML();
+    const stored = await settleSaved(page, deckId, id, () => 0, 1400);
+    const changedFromSource = await page.evaluate(
+      ({ original, stored }: { original: string; stored: string }) =>
+        JSON.stringify(window.__editFidelity.canonical(original)) !==
+        JSON.stringify(window.__editFidelity.canonical(stored)),
+      { original: initialMarkup.get(id) ?? "", stored },
+    );
+    if (!changedFromSource) {
+      problems.push(`${id}: authoring changes were not persisted`);
+    }
+    const matchesLive = await page.evaluate(
+      ({ live, stored }: { live: string; stored: string }) =>
+        JSON.stringify(window.__editFidelity.canonical(live)) ===
+        JSON.stringify(window.__editFidelity.canonical(stored)),
+      { live, stored },
+    );
+    if (!matchesLive) {
+      problems.push(`${id}: saved markup differs from the rendered slide`);
+      if (!firstMarkupMismatch) {
+        const detail = await page.evaluate(
+          ({ live, stored }: { live: string; stored: string }) => {
+            const left = window.__editFidelity.canonical(live);
+            const right = window.__editFidelity.canonical(stored);
+            let index = 0;
+            while (
+              index < left.length &&
+              index < right.length &&
+              left[index] === right[index]
+            ) {
+              index += 1;
+            }
+            const from = Math.max(0, index - 2);
+            const to = index + 3;
+            return {
+              index,
+              live: left.slice(from, to),
+              saved: right.slice(from, to),
+              liveHtml: live.slice(0, 700),
+              savedHtml: stored.slice(0, 700),
+            };
+          },
+          { live, stored },
+        );
+        firstMarkupMismatch = `${id}: first canonical mismatch ${JSON.stringify(detail)}`;
+      }
+    }
+    await openSlide(page, base, deckId, index, id);
+    const reloaded = await page
+      .locator(`${canvasSelector(id)} .slide-content`)
+      .innerHTML();
+    const matchesReload = await page.evaluate(
+      ({ stored, reloaded }: { stored: string; reloaded: string }) =>
+        JSON.stringify(window.__editFidelity.canonical(stored)) ===
+        JSON.stringify(window.__editFidelity.canonical(reloaded)),
+      { stored, reloaded },
+    );
+    if (!matchesReload) {
+      problems.push(`${id}: reloaded markup differs from the saved slide`);
+      if (!firstMarkupMismatch) {
+        const detail = await page.evaluate(
+          ({ stored, reloaded }: { stored: string; reloaded: string }) => {
+            const left = window.__editFidelity.canonical(stored);
+            const right = window.__editFidelity.canonical(reloaded);
+            let index = 0;
+            while (
+              index < left.length &&
+              index < right.length &&
+              left[index] === right[index]
+            ) {
+              index += 1;
+            }
+            const from = Math.max(0, index - 2);
+            const to = index + 3;
+            return {
+              index,
+              saved: left.slice(from, to),
+              reloaded: right.slice(from, to),
+              savedHtml: stored.slice(0, 700),
+              reloadedHtml: reloaded.slice(0, 700),
+            };
+          },
+          { stored, reloaded },
+        );
+        firstMarkupMismatch = `${id}: first canonical mismatch ${JSON.stringify(detail)}`;
+      }
+    }
+  }
+
+  const assertTag = async (editor: any, tag: string) => {
+    const actual = await editor.evaluate(
+      (element: HTMLElement) => element.tagName,
+    );
+    if (actual !== tag) {
+      const html = await editor.evaluate(
+        (element: HTMLElement) => element.outerHTML,
+      );
+      throw new Error(`expected ${tag}, got ${actual} in ${html}`);
+    }
+  };
+  const assertBlock = async (editor: any, selector: string) => {
+    const found = await editor.evaluate(
+      (element: HTMLElement, query: string) => {
+        const rootQuery = query.replace(
+          new RegExp(`^${element.tagName.toLowerCase()}(?=\\s|>|$)`),
+          ":scope",
+        );
+        return (
+          element.matches(query) ||
+          element.querySelector(query) !== null ||
+          element.querySelector(rootQuery) !== null
+        );
+      },
+      selector,
+    );
+    if (!found) {
+      const html = await editor.evaluate(
+        (element: HTMLElement) => element.outerHTML,
+      );
+      throw new Error(`expected authoring markup ${selector} in ${html}`);
+    }
+  };
+  const assertPlainLine = async (editor: any) => {
+    const found = await editor.evaluate((element: HTMLElement) =>
+      Array.from(element.querySelectorAll("p, div")).some(
+        (line) =>
+          line.textContent?.replaceAll("\u200b", "").trim() === "Plain" &&
+          !line.querySelector("span"),
+      ),
+    );
+    if (!found) throw new Error("empty list Enter did not create a plain line");
+  };
+
+  try {
+    for (let index = 0; index < cases.length; index += 1) {
+      const test = cases[index];
+      currentCaseId = test.id;
+      const editor = await begin(index);
+      if (test.kind === "shortcut") {
+        if (test.position === "after-enter") {
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+        } else {
+          await editor.press(lineStartKey);
+        }
+        await editor.pressSequentially(test.shortcut);
+        if (
+          !(["bold", "italic", "strike", "code"] as string[]).includes(
+            test.result,
+          )
+        )
+          await editor.pressSequentially("Tail");
+        await finish(index, async () => {
+          const result = test.result;
+          if (result === "bullet") {
+            await assertBlock(editor, 'div[style*="display: flex"] > span');
+          } else if (result === "ordered") {
+            await assertBlock(editor, "ol > li");
+          } else if (result === "bold") {
+            await assertBlock(editor, 'span[style*="font-weight"]');
+          } else if (result === "italic") {
+            await assertBlock(editor, 'span[style*="font-style"]');
+          } else if (result === "strike") {
+            await assertBlock(editor, 'span[style*="text-decoration"]');
+          } else if (result === "code") {
+            await assertBlock(editor, "code");
+          } else if (result === "divider") {
+            await assertBlock(editor, "hr");
+          } else if (test.position === "start") {
+            await assertTag(editor, result);
+          } else {
+            await assertBlock(editor, result.toLowerCase());
+          }
+        });
+      } else if (test.kind === "slash") {
+        await editor.press(lineStartKey);
+        if (test.command === "heading2") {
+          await editor.pressSequentially("/");
+          await waitForSlashOption(editor, test.id);
+          await editor.pressSequentially("heading 2");
+          await page
+            .locator('[role="listbox"] [role="option"][data-value="heading2"]')
+            .waitFor({ state: "visible", timeout: 3_000 });
+          const active = await editor.getAttribute("aria-activedescendant");
+          const headingOptionId = await page
+            .locator('[role="listbox"] [role="option"][data-value="heading2"]')
+            .getAttribute("id");
+          if (!headingOptionId || active !== headingOptionId) {
+            throw new Error(
+              `/heading 2 did not select Heading 2 (active: ${active})`,
+            );
+          }
+          await page.screenshot({
+            path: path.join(outRoot, "slide-authoring-slash-menu.png"),
+            fullPage: true,
+          });
+        } else {
+          await editor.pressSequentially("/");
+          const options = page.locator('[role="listbox"] [role="option"]');
+          await waitForSlashOption(editor, test.id);
+          if ((await options.count()) !== slashCommands.length) {
+            throw new Error(
+              `slash menu showed ${await options.count()} commands`,
+            );
+          }
+          const commandIndex = slashCommands.findIndex(
+            ([, kind]) => kind === test.command,
+          );
+          for (let step = 0; step < commandIndex; step += 1) {
+            await page.keyboard.press("ArrowDown");
+          }
+        }
+        await page.keyboard.press("Enter");
+        await finish(index, async () => {
+          if (test.command === "divider") await assertBlock(editor, "hr");
+          if (test.command === "bulletList")
+            await assertBlock(editor, "ul > li");
+          else if (test.command === "orderedList")
+            await assertBlock(editor, "ol > li");
+          else await assertTag(editor, test.resultTag);
+          const text = await editor.innerText();
+          if (text.includes("/"))
+            throw new Error("slash token remained in slide text");
+        });
+      } else if (test.kind === "soft-break-slash") {
+        await editor.press(lineEndKey);
+        await editor.press("Shift+Enter");
+        await editor.pressSequentially("After /heading 2");
+        const option = page.locator(
+          '[role="listbox"] [role="option"][data-value="heading2"]',
+        );
+        await option.waitFor({ state: "visible" });
+        await page.keyboard.press("Enter");
+        await finish(index, async () => {
+          const lines = await editor.evaluate((element: HTMLElement) => ({
+            blocks: Array.from(element.children, (child) => ({
+              tag: child.tagName,
+              text: child.textContent?.replaceAll("\u200b", "").trim(),
+              color: (child as HTMLElement).style.color,
+            })),
+          }));
+          if (
+            lines.blocks.length !== 2 ||
+            lines.blocks[0]?.tag !== "P" ||
+            lines.blocks[0]?.text !== "Before" ||
+            lines.blocks[0]?.color !== "red" ||
+            lines.blocks[1]?.tag !== "H2" ||
+            lines.blocks[1]?.text !== "After"
+          ) {
+            throw new Error(
+              `slash heading did not isolate the soft-break line: ${JSON.stringify(lines.blocks)}`,
+            );
+          }
+        });
+      } else if (test.kind === "ul-flow" || test.kind === "ol-flow") {
+        await editor.press(lineEndKey);
+        await editor.press("Enter");
+        await editor.pressSequentially("Beta");
+        if (test.kind === "ul-flow") {
+          await editor.press("Tab");
+          await assertBlock(editor, "ul > li ul > li");
+          await editor.press("Shift+Tab");
+          await editor.press(lineStartKey);
+          await editor.press("Backspace");
+          await editor.press("Backspace");
+          const joined = await editor.innerText();
+          if (!joined.includes("AlphaBeta") && !joined.includes("Alpha Beta")) {
+            throw new Error(
+              `Backspace did not join list text: ${JSON.stringify(joined)}`,
+            );
+          }
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          await editor.press("Enter");
+          await editor.pressSequentially("Plain");
+          await assertPlainLine(editor);
+        } else {
+          await assertBlock(editor, "ol > li:nth-child(2)");
+          await editor.press("Tab");
+          await assertBlock(editor, "ol > li ol > li");
+          await editor.press("Shift+Tab");
+          await editor.press(lineStartKey);
+          await editor.press("Backspace");
+          await editor.press("Backspace");
+          const text = await editor.innerText();
+          if (!text.includes("AlphaBeta") && !text.includes("Alpha Beta")) {
+            throw new Error(
+              `ordered-list Backspace lost text: ${JSON.stringify(text)}`,
+            );
+          }
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          await editor.press("Enter");
+          await editor.pressSequentially("Plain");
+          await assertPlainLine(editor);
+        }
+        await finish(index, async () => {});
+      } else {
+        await editor.press(lineStartKey);
+        await editor.pressSequentially("- ");
+        await editor.press(lineEndKey);
+        await editor.press("Enter");
+        await editor.pressSequentially("Beta");
+        await editor.press("Tab");
+        await editor.press("Shift+Tab");
+        await editor.press(lineStartKey);
+        await editor.press("Backspace");
+        await editor.press("Backspace");
+        const merged = await editor.innerText();
+        if (!merged.includes("AlphaBeta") && !merged.includes("Alpha Beta")) {
+          throw new Error(
+            `styled bullet Backspace lost text: ${JSON.stringify(merged)}`,
+          );
+        }
+        await editor.press(lineEndKey);
+        await editor.press("Enter");
+        await editor.press("Enter");
+        await editor.pressSequentially("Plain");
+        await finish(index, async () => {
+          await assertBlock(editor, 'div[style*="display: flex"] > span');
+          const text = await editor.innerText();
+          if (!text.includes("Plain")) {
+            throw new Error("styled bullet list exit lost the plain line");
+          }
+        });
+      }
+    }
+  } catch (error) {
+    problems.push(`authoring parity ${currentCaseId}: ${String(error)}`);
+  } finally {
+    try {
+      await action(page, "delete-deck", { id: deckId }, "DELETE");
+    } catch (error) {
+      problems.push(
+        `authoring parity could not delete its synthetic deck: ${String(error)}`,
+      );
+    }
+  }
+  if (firstMarkupMismatch) problems.push(firstMarkupMismatch);
+  return problems;
+}
+
+async function runAuthoringCorpusQa(
+  page: Page,
+  base: string,
+  cases: CorpusCase[],
+) {
+  const problems: string[] = [];
+  const sources = corpusAuthoringSources(cases);
+  const slideIdFor = (source: CorpusAuthoringSource) =>
+    `authoring-corpus-${source.id}`;
+  const selectorFor = (slideId: string) =>
+    `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+  const editorHas = (editor: any, selector: string) =>
+    editor.evaluate((element: HTMLElement, query: string) => {
+      const rootQuery = query.replace(
+        new RegExp(`^${element.tagName.toLowerCase()}(?=\\s|>|$)`),
+        ":scope",
+      );
+      return (
+        element.matches(query) ||
+        element.querySelector(query) !== null ||
+        element.querySelector(rootQuery) !== null
+      );
+    }, selector);
+  const normalized = (value: string) =>
+    value.replace(/[\s\u200b\ufeff]+/g, " ").trim();
+  const editorDetails = async (editor: any) =>
+    editor.evaluate((element: HTMLElement) => ({
+      textLength: element.textContent?.length ?? 0,
+      renderedTextLength: element.innerText?.length ?? 0,
+      htmlLength: element.innerHTML.length,
+      tags: Array.from(element.querySelectorAll<HTMLElement>("*"))
+        .map((child) => child.tagName.toLowerCase())
+        .slice(0, 20),
+    }));
+  const editorText = async (editor: any) =>
+    normalized(
+      await editor.evaluate(
+        (element: HTMLElement) => element.textContent ?? "",
+      ),
+    );
+  const canonicalMarkup = async (html: string) =>
+    page.evaluate(
+      (value: string) => JSON.stringify(window.__editFidelity.canonical(value)),
+      html,
+    );
+  const assertSlashPopoverGeometry = async (editor: any) => {
+    const geometry = await editor.evaluate((root: HTMLElement) => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount !== 1) {
+        throw new Error("slash menu has no caret selection");
+      }
+      const caretRange = selection.getRangeAt(0);
+      let anchor = caretRange.getBoundingClientRect();
+      if (!anchor.width && !anchor.height) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node as Text;
+          const slash = text.data.lastIndexOf("/");
+          if (slash < 0) continue;
+          const slashRange = document.createRange();
+          slashRange.setStart(text, slash);
+          slashRange.setEnd(text, slash + 1);
+          anchor = slashRange.getBoundingClientRect();
+        }
+      }
+      const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
+      const popover = listbox?.closest<HTMLElement>(
+        "[data-radix-popper-content-wrapper]",
+      );
+      const content = listbox?.closest<HTMLElement>("[data-side]");
+      if (
+        !listbox ||
+        !popover ||
+        !content ||
+        (!anchor.width && !anchor.height)
+      ) {
+        throw new Error("slash menu or its caret geometry is unavailable");
+      }
+      const caret = {
+        left: anchor.left,
+        top: anchor.top,
+        right: anchor.right,
+        bottom: anchor.bottom,
+      };
+      const rect = popover.getBoundingClientRect();
+      return {
+        caret,
+        popover: {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        },
+        side: content.getAttribute("data-side"),
+        viewport: { width: innerWidth, height: innerHeight },
+        focused: document.activeElement === root,
+      };
+    });
+    const { caret, popover, side, viewport } = geometry;
+    const viewportContained =
+      popover.left >= 0 &&
+      popover.top >= 0 &&
+      popover.right <= viewport.width &&
+      popover.bottom <= viewport.height;
+    if (!viewportContained) {
+      throw new Error(
+        `slash popover escaped the viewport: ${JSON.stringify(geometry)}`,
+      );
+    }
+    if (!geometry.focused) {
+      throw new Error("slash popover stole focus from the editing caret");
+    }
+    const verticalGap =
+      side === "top" ? caret.top - popover.bottom : popover.top - caret.bottom;
+    if (side !== "top" && side !== "bottom") {
+      throw new Error(`slash popover has unknown side ${String(side)}`);
+    }
+    if (Math.abs(verticalGap - 4) > 2) {
+      throw new Error(
+        `slash popover is not anchored 4px from the caret: ${JSON.stringify({ ...geometry, verticalGap })}`,
+      );
+    }
+    const alignedAtStart = Math.abs(popover.left - caret.left) <= 2;
+    const collisionShifted =
+      caret.left >= popover.left - 2 &&
+      caret.left <= popover.right + 2 &&
+      (Math.abs(popover.left - 8) <= 2 ||
+        Math.abs(popover.right - (viewport.width - 8)) <= 2);
+    if (!alignedAtStart && !collisionShifted) {
+      throw new Error(
+        `slash popover is not horizontally anchored to the caret: ${JSON.stringify(geometry)}`,
+      );
+    }
+    return geometry;
+  };
+  const targetHints = async (slideId: string) =>
+    page.evaluate(
+      ({ selector, chrome }: { selector: string; chrome: string }) => {
+        const root = document.querySelector(selector);
+        if (!root) throw new Error(`canvas not found: ${selector}`);
+        const normalizeText = (value: string | null) =>
+          (value ?? "").replace(/[\s\u200b\ufeff]+/g, " ").trim();
+        const isStyledBulletRow = (element: HTMLElement) => {
+          if (!/^(DIV|LI|P)$/.test(element.tagName)) return false;
+          const marker = element.firstElementChild as HTMLElement | null;
+          if (!marker || marker.tagName !== "SPAN") return false;
+          const text = marker.textContent?.trim() ?? "";
+          if (text) return /^[-*•●◦▪‣·⁃–—]+$/u.test(text);
+          const style = getComputedStyle(marker);
+          const width = Number.parseFloat(style.width);
+          const height = Number.parseFloat(style.height);
+          const colorParts = style.backgroundColor
+            .replace(/[(),/]/g, " ")
+            .trim()
+            .split(/\s+/);
+          const alpha =
+            colorParts.length === 4 ? Number(colorParts[3]) : undefined;
+          return (
+            width > 0 &&
+            height > 0 &&
+            width <= 48 &&
+            height <= 48 &&
+            (Number.parseFloat(style.borderTopWidth) > 0 ||
+              Number.parseFloat(style.borderLeftWidth) > 0 ||
+              (style.backgroundColor !== "transparent" && alpha !== 0) ||
+              Number.parseFloat(style.borderRadius) > 0)
+          );
+        };
+        const textPoint = (
+          element: HTMLElement,
+          excluded: HTMLElement | null = null,
+        ) => {
+          const walker = document.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT,
+          );
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const text = node as Text;
+            if (excluded?.contains(text)) continue;
+            const offset = text.data.search(/\S/);
+            if (offset < 0) continue;
+            const range = document.createRange();
+            range.setStart(text, offset);
+            range.setEnd(text, offset + 1);
+            const rect = range.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+              };
+            }
+          }
+          return null;
+        };
+        const rowTextPoint = (row: HTMLElement) => {
+          const marker = isStyledBulletRow(row)
+            ? (row.firstElementChild as HTMLElement)
+            : null;
+          const content = marker
+            ? Array.from(row.children).find(
+                (child) =>
+                  child !== marker && normalizeText(child.textContent) !== "",
+              )
+            : null;
+          return textPoint(
+            (content as HTMLElement | undefined) ?? row,
+            content ? null : marker,
+          );
+        };
+        const listItemFor = (element: HTMLElement) =>
+          element.closest<HTMLElement>("li") ??
+          element.querySelector<HTMLElement>("li");
+        const bulletRowFor = (element: HTMLElement) => {
+          for (
+            let ancestor: HTMLElement | null = element;
+            ancestor && root.contains(ancestor);
+            ancestor = ancestor.parentElement
+          ) {
+            if (isStyledBulletRow(ancestor)) return ancestor;
+          }
+          return (
+            Array.from(element.querySelectorAll<HTMLElement>("div,li,p")).find(
+              isStyledBulletRow,
+            ) ?? null
+          );
+        };
+        return Array.from(
+          root.querySelectorAll<HTMLElement>('[data-slide-text-block="true"]'),
+        )
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return (
+              !/^(STYLE|SCRIPT)$/.test(element.tagName) &&
+              !element.closest(chrome) &&
+              rect.width > 0 &&
+              rect.height > 0 &&
+              normalizeText(element.textContent) !== ""
+            );
+          })
+          .map((element, index) => {
+            let absolute = false;
+            let grid = false;
+            const listItem = listItemFor(element);
+            const bulletRow = bulletRowFor(element);
+            for (
+              let ancestor: HTMLElement | null = element;
+              ancestor && root.contains(ancestor);
+              ancestor = ancestor.parentElement
+            ) {
+              const style = getComputedStyle(ancestor);
+              absolute ||= style.position === "absolute";
+              grid ||= style.display === "grid";
+            }
+            return {
+              index,
+              textLength: normalizeText(element.textContent).length,
+              textTransform: getComputedStyle(element).textTransform,
+              absolute,
+              grid,
+              list: !!listItem,
+              bulletRow: !!bulletRow,
+              listPoint: listItem ? rowTextPoint(listItem) : null,
+              bulletPoint: bulletRow ? rowTextPoint(bulletRow) : null,
+            };
+          });
+      },
+      { selector: canvasSelector(slideId), chrome: CHROME_SELECTOR },
+    );
+  const chooseTarget = async (
+    slideId: string,
+    requirement: CorpusAuthoringSource["testTarget"],
+  ) => {
+    const targets: TextTarget[] = await listTargets(page, slideId);
+    const hints = await targetHints(slideId);
+    const hint = hints.find(
+      (candidate: any) =>
+        candidate.textLength >= 4 &&
+        !(
+          requirement === "flex-grid" && candidate.textTransform === "uppercase"
+        ) &&
+        (requirement === "any" ||
+          (requirement === "absolute" && candidate.absolute) ||
+          (requirement === "flex-grid" && candidate.grid) ||
+          (requirement === "list" && candidate.list && candidate.listPoint) ||
+          (requirement === "bullet-row" &&
+            candidate.bulletRow &&
+            candidate.bulletPoint)),
+    );
+    const target = hint
+      ? targets.find((candidate) => candidate.index === hint.index)
+      : undefined;
+    if (!target) return undefined;
+    const point =
+      requirement === "list"
+        ? hint.listPoint
+        : requirement === "bullet-row"
+          ? hint.bulletPoint
+          : null;
+    return point ? { ...target, point } : target;
+  };
+  const assertReloadMarkup = async (
+    slideId: string,
+    stored: string,
+  ): Promise<boolean> =>
+    page.evaluate(
+      ({ selector, source }: { selector: string; source: string }) => {
+        const root = document
+          .querySelector(selector)
+          ?.querySelector(".slide-content") as HTMLElement | null;
+        if (!root) return false;
+        const clone = root.cloneNode(true) as HTMLElement;
+        for (const element of [
+          clone,
+          ...Array.from(clone.querySelectorAll<HTMLElement>("*")),
+        ]) {
+          for (const attribute of [
+            "data-builder-id",
+            "data-slide-text-block",
+            "data-editing-block",
+            "contenteditable",
+            "data-src-i",
+            "data-slide-content-scope",
+            "spellcheck",
+            "aria-expanded",
+            "aria-controls",
+            "aria-activedescendant",
+            "aria-haspopup",
+          ]) {
+            element.removeAttribute(attribute);
+          }
+        }
+        return (
+          JSON.stringify(window.__editFidelity.canonical(source)) ===
+          JSON.stringify(window.__editFidelity.canonical(clone.innerHTML))
+        );
+      },
+      { selector: canvasSelector(slideId), source: stored },
+    );
+
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  for (const source of sources.filter((source) => source.kind !== "largest")) {
+    const slideId = slideIdFor(source);
+    let deckId: string | null = null;
+    let original = "";
+    try {
+      const created = await action(page, "create-deck", {
+        title: `[edit-fidelity] corpus authoring ${Date.now()}`,
+        ...(source.corpusCase.aspectRatio
+          ? { aspectRatio: source.corpusCase.aspectRatio }
+          : {}),
+        slides: [
+          {
+            id: slideId,
+            content: source.slide.content,
+            ...(source.slide.layout ? { layout: source.slide.layout } : {}),
+          },
+        ],
+      });
+      deckId = String(created.id ?? created.deckId);
+      original = await getSlideContent(page, deckId, slideId);
+      const originalCanonical = await canonicalMarkup(original);
+      for (const flow of ["slash", "shortcut", "list", "paste"] as const) {
+        const scaled = source.kind === "scaled";
+        await page.setViewportSize(
+          scaled ? { width: 850, height: 650 } : { width: 1600, height: 1000 },
+        );
+        try {
+          await restoreSlide(page, deckId, slideId, original);
+          await openSlide(page, base, deckId, 0, slideId);
+          if (scaled) {
+            const scale = await page
+              .locator(canvasSelector(slideId))
+              .evaluate((element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                return element.offsetWidth > 0
+                  ? rect.width / element.offsetWidth
+                  : 1;
+              });
+            if (!(scale > 0 && scale < 0.99)) {
+              throw new Error(
+                `scaled fixture did not scale below 1 (scale ${scale.toFixed(3)})`,
+              );
+            }
+          }
+          const target = await chooseTarget(slideId, source.testTarget);
+          if (!target) {
+            throw new Error(`no visible ${source.testTarget} text target`);
+          }
+          if (!(await enterEdit(page, slideId, target.point, []))) {
+            throw new Error("could not enter in-place text editing");
+          }
+          const editor = page.locator(selectorFor(slideId));
+          const editedBuilderId =
+            (await editor.getAttribute("data-builder-id")) ??
+            target.builderId ??
+            undefined;
+          const before = await snapshot(page, slideId, {
+            targetIndex: target.index,
+            targetBuilderId: editedBuilderId,
+          });
+          if (flow === "shortcut") {
+            await editor.press(lineStartKey);
+            await editor.pressSequentially("**bold** next");
+            const shortcutState = await editor.evaluate(
+              (element: HTMLElement) => {
+                const marks = Array.from(
+                  element.querySelectorAll<HTMLElement>(
+                    'strong, b, span[style*="font-weight"]',
+                  ),
+                ).filter((mark) => mark.textContent === "bold");
+                const mark = marks[0];
+                const next = mark?.nextSibling;
+                const nextText =
+                  next?.nodeType === Node.TEXT_NODE
+                    ? (next.textContent ?? "")
+                    : "";
+                return {
+                  markCount: marks.length,
+                  computedBold:
+                    Number.parseInt(
+                      mark ? getComputedStyle(mark).fontWeight : "",
+                      10,
+                    ) >= 600,
+                  nextText,
+                  nextIsOutside: Boolean(mark && next && !mark.contains(next)),
+                };
+              },
+            );
+            if (
+              shortcutState.markCount !== 1 ||
+              !shortcutState.computedBold ||
+              !shortcutState.nextIsOutside ||
+              !shortcutState.nextText
+                .replaceAll("\u00a0", " ")
+                .startsWith(" next")
+            ) {
+              throw new Error(
+                `the strong Markdown shortcut did not bold the inserted run and leave following text outside it: ${JSON.stringify(shortcutState)}`,
+              );
+            }
+          } else if (flow === "slash") {
+            await editor.press(lineStartKey);
+            await editor.pressSequentially("/heading 2");
+            const options = page.locator('[role="listbox"] [role="option"]');
+            await options.first().waitFor({ state: "visible" });
+            const active = await editor.getAttribute("aria-activedescendant");
+            const headingOptionId = await page
+              .locator(
+                '[role="listbox"] [role="option"][data-value="heading2"]',
+              )
+              .getAttribute("id");
+            if (!headingOptionId || active !== headingOptionId) {
+              throw new Error(
+                `slash filter selected ${active ?? "no command"}`,
+              );
+            }
+            if (scaled) await assertSlashPopoverGeometry(editor);
+            await page.keyboard.press("Enter");
+            if (!(await editorHas(editor, "h2"))) {
+              throw new Error(
+                "the Heading 2 slash command did not create an H2",
+              );
+            }
+          } else if (flow === "paste") {
+            await editor.press(lineStartKey);
+            const slideContent = page.locator(
+              `${canvasSelector(slideId)} .slide-content`,
+            );
+            const beforePaste = await slideContent.innerHTML();
+            await editor.evaluate((element: HTMLElement) => {
+              const clipboard = new DataTransfer();
+              clipboard.setData(
+                "text/html",
+                // guard:allow-raw-color — foreign paste styles must be stripped from slide text.
+                '<p><strong style="font-weight: normal">Docs paragraph</strong></p><p>Second paragraph</p><ul><li><span style="color: rgb(255, 0, 0); font-size: 48px">Docs list item</span></li></ul>',
+              );
+              clipboard.setData(
+                "text/plain",
+                "Docs paragraph\nSecond paragraph\nDocs list item",
+              );
+              const event = new ClipboardEvent("paste", {
+                clipboardData: clipboard,
+                bubbles: true,
+                cancelable: true,
+              });
+              element.dispatchEvent(event);
+              if (!event.defaultPrevented) {
+                throw new Error(
+                  "the editor did not handle rich clipboard paste",
+                );
+              }
+            });
+            const pasted = await slideContent.innerHTML();
+            const pastedText = await slideContent.innerText();
+            for (const token of [
+              "Docs paragraph",
+              "Second paragraph",
+              "Docs list item",
+            ]) {
+              if (!pastedText.includes(token)) {
+                throw new Error(
+                  `Docs-shaped paste lost ${token}: ${JSON.stringify(await editorDetails(editor))}`,
+                );
+              }
+            }
+            const pastedStructure = await slideContent.evaluate(
+              (element: HTMLElement) => {
+                const walker = document.createTreeWalker(
+                  element,
+                  NodeFilter.SHOW_TEXT,
+                );
+                let pastedText: Text | null = null;
+                for (
+                  let node = walker.nextNode();
+                  node;
+                  node = walker.nextNode()
+                ) {
+                  if (node.textContent?.trim() === "Docs list item") {
+                    pastedText = node as Text;
+                    break;
+                  }
+                }
+                const pastedItem = pastedText?.parentElement?.closest("li");
+                const pastedRun = pastedText?.parentElement;
+                return {
+                  paragraphCount: Array.from([
+                    ...(element.tagName === "P" ? [element] : []),
+                    ...Array.from(element.querySelectorAll("p")),
+                  ]).filter((paragraph) =>
+                    /Docs paragraph|Second paragraph/.test(
+                      paragraph.textContent ?? "",
+                    ),
+                  ).length,
+                  unorderedListItem:
+                    pastedItem?.closest("ul, ol")?.tagName === "UL",
+                  foreignStyle:
+                    !pastedRun ||
+                    Boolean(pastedRun.style.color || pastedRun.style.fontSize),
+                };
+              },
+            );
+            if (
+              pastedStructure.paragraphCount !== 2 ||
+              !pastedStructure.unorderedListItem ||
+              pastedStructure.foreignStyle
+            ) {
+              throw new Error(
+                `Docs-shaped paste structure/style mismatch: ${JSON.stringify(pastedStructure)}`,
+              );
+            }
+            if (corpusDir === path.join(HERE, "corpus")) {
+              await page.screenshot({
+                path: path.join(outRoot, "slide-authoring-docs-paste.png"),
+                fullPage: true,
+              });
+            }
+            await page.keyboard.press(
+              `${process.platform === "darwin" ? "Meta" : "Control"}+Z`,
+            );
+            if (
+              (await canonicalMarkup(await slideContent.innerHTML())) !==
+              (await canonicalMarkup(beforePaste))
+            ) {
+              throw new Error("undo did not restore the pre-paste markup");
+            }
+            await page.keyboard.press(
+              `${process.platform === "darwin" ? "Meta" : "Control"}+Shift+Z`,
+            );
+            if (
+              (await canonicalMarkup(await slideContent.innerHTML())) !==
+              (await canonicalMarkup(pasted))
+            ) {
+              throw new Error("redo did not restore the Docs-shaped paste");
+            }
+          } else {
+            const listHint = (await targetHints(slideId)).find(
+              (candidate: any) => candidate.index === target.index,
+            );
+            const inList = listHint?.list || listHint?.bulletRow;
+            if (inList) {
+              await editor.press(lineEndKey);
+              await editor.press("Enter");
+              await editor.pressSequentially("Corpus row");
+            } else {
+              await editor.press(lineStartKey);
+              await editor.pressSequentially("- ");
+              await editor.press(lineEndKey);
+              await editor.press("Enter");
+              await editor.pressSequentially("Corpus row");
+            }
+            const hasListStructure = await editor.evaluate(
+              (element: HTMLElement) => {
+                const normalizeText = (value: string | null) =>
+                  (value ?? "").replace(/[\s\u200b\ufeff]+/g, " ").trim();
+                const listElements = [
+                  ...(element.matches("ul, ol") ? [element] : []),
+                  ...Array.from(
+                    element.querySelectorAll<HTMLElement>("ul, ol"),
+                  ),
+                ];
+                const isStyledBulletRow = (row: HTMLElement) => {
+                  if (!/^(DIV|LI|P)$/.test(row.tagName)) return false;
+                  const marker = row.firstElementChild as HTMLElement | null;
+                  if (!marker || marker.tagName !== "SPAN") return false;
+                  const text = marker.textContent?.trim() ?? "";
+                  if (text) return /^[-*•●◦▪‣·⁃–—]+$/u.test(text);
+                  const style = getComputedStyle(marker);
+                  const width = Number.parseFloat(style.width);
+                  const height = Number.parseFloat(style.height);
+                  const colorParts = style.backgroundColor
+                    .replace(/[(),/]/g, " ")
+                    .trim()
+                    .split(/\s+/);
+                  const alpha =
+                    colorParts.length === 4 ? Number(colorParts[3]) : undefined;
+                  return (
+                    width > 0 &&
+                    height > 0 &&
+                    width <= 48 &&
+                    height <= 48 &&
+                    (Number.parseFloat(style.borderTopWidth) > 0 ||
+                      Number.parseFloat(style.borderLeftWidth) > 0 ||
+                      (style.backgroundColor !== "transparent" &&
+                        alpha !== 0) ||
+                      Number.parseFloat(style.borderRadius) > 0)
+                  );
+                };
+                const bulletRows = [
+                  ...(isStyledBulletRow(element) ? [element] : []),
+                  ...Array.from(
+                    element.querySelectorAll<HTMLElement>("div,li,p"),
+                  ).filter(isStyledBulletRow),
+                ];
+                const corpusListRow = listElements.some((list) =>
+                  Array.from(list.children).some(
+                    (row) =>
+                      row.tagName === "LI" &&
+                      normalizeText(row.textContent).includes("Corpus row"),
+                  ),
+                );
+                const corpusBulletRow = bulletRows.some((row) =>
+                  normalizeText(row.textContent).includes("Corpus row"),
+                );
+                return {
+                  hasStructure:
+                    listElements.length > 0 || bulletRows.length > 0,
+                  hasCorpusRow: corpusListRow || corpusBulletRow,
+                  listCount: listElements.length,
+                  bulletRowCount: bulletRows.length,
+                };
+              },
+            );
+            if (
+              !hasListStructure.hasStructure ||
+              !hasListStructure.hasCorpusRow
+            ) {
+              throw new Error(
+                `list entry did not create the Corpus row: ${JSON.stringify(hasListStructure)}`,
+              );
+            }
+            await editor.press("Tab");
+            await editor.press("Shift+Tab");
+            await editor.press(lineStartKey);
+            await editor.press("Backspace");
+            await editor.press("Backspace");
+            const joined = await editorText(editor);
+            if (!joined.includes("Corpus row")) {
+              throw new Error(
+                `Backspace after list indentation lost the new row: ${JSON.stringify(await editorDetails(editor))}`,
+              );
+            }
+            await editor.press(lineEndKey);
+            await editor.press("Enter");
+            await editor.press("Enter");
+            await editor.pressSequentially("Plain");
+            if (!(await editorText(editor)).includes("Plain")) {
+              throw new Error(
+                `empty-list exit lost the plain text row: ${JSON.stringify(await editorDetails(editor))}`,
+              );
+            }
+          }
+          const mutationMarker = `authoring-${flow}-${Date.now()}`;
+          await editor.press(lineEndKey);
+          await editor.pressSequentially(` ${mutationMarker}`);
+          if (!(await editorText(editor)).includes(mutationMarker)) {
+            throw new Error(
+              `${flow} marker did not enter the edited slide: ${JSON.stringify(await editorDetails(editor))}`,
+            );
+          }
+          if (!(await exitEdit(page, slideId, "escape"))) {
+            throw new Error("Escape did not leave in-place text editing");
+          }
+          const live = await page
+            .locator(`${canvasSelector(slideId)} .slide-content`)
+            .innerHTML();
+          const saved = await settleSaved(page, deckId, slideId, () => 0, 1500);
+          await openSlide(page, base, deckId, 0, slideId);
+          const reloaded = await page
+            .locator(`${canvasSelector(slideId)} .slide-content`)
+            .innerHTML();
+          assertAuthoringPersistence({
+            originalHtml: originalCanonical,
+            liveHtml: await canonicalMarkup(live),
+            savedHtml: await canonicalMarkup(saved),
+            reloadedHtml: await canonicalMarkup(reloaded),
+          });
+          if (!(await assertReloadMarkup(slideId, saved))) {
+            throw new Error(
+              "saved HTML did not match the reloaded slide markup",
+            );
+          }
+          const after = await snapshot(page, slideId, {
+            marker: mutationMarker,
+            targetBuilderId: editedBuilderId,
+          });
+          const outside = diffSnapshots(before, after);
+          const targetResized =
+            before.editedRect !== null &&
+            after.editedRect !== null &&
+            (Math.abs(before.editedRect.width - after.editedRect.width) > 1 ||
+              Math.abs(before.editedRect.height - after.editedRect.height) > 1);
+          const naturalReflow =
+            targetResized && before.editedInFlow && after.editedInFlow;
+          const beforeRecords = new Map(
+            before.records.map((record) => [record.key, record]),
+          );
+          const afterRecords = new Map(
+            after.records.map((record) => [record.key, record]),
+          );
+          const followsNaturalReflow = (
+            change: (typeof outside.geometry)[number],
+          ) => {
+            if (
+              !naturalReflow ||
+              (change.prop !== "x" && change.prop !== "y") ||
+              !beforeRecords.get(change.key)?.downstreamFlow ||
+              !afterRecords.get(change.key)?.downstreamFlow ||
+              !before.editedRect ||
+              !after.editedRect
+            ) {
+              return false;
+            }
+            const position =
+              change.prop === "x" ? ("x" as const) : ("y" as const);
+            const extent =
+              change.prop === "x" ? ("width" as const) : ("height" as const);
+            const expectedShift =
+              after.editedRect[position] +
+              after.editedRect[extent] -
+              before.editedRect[position] -
+              before.editedRect[extent];
+            const actualShift = Number(change.b) - Number(change.a);
+            return (
+              Math.abs(actualShift - expectedShift) <= 1 ||
+              followsCenteredFlexReflow(
+                beforeRecords.get(change.key),
+                afterRecords.get(change.key),
+                change.prop,
+                actualShift,
+              )
+            );
+          };
+          const outsideChanges = [
+            ...outside.deltas,
+            ...outside.geometry.filter(
+              (change) => !followsNaturalReflow(change),
+            ),
+            ...outside.missing,
+            ...outside.added,
+          ].filter((change) => !change.inside);
+          if (outsideChanges.length) {
+            const records = new Map(
+              [...before.records, ...after.records].map((record) => [
+                record.key,
+                record,
+              ]),
+            );
+            const describe = (key: string) => {
+              const record = records.get(key);
+              const tag =
+                record?.kind === "box"
+                  ? /^box:([^.#]+)/.exec(key)?.[1]
+                  : undefined;
+              const index = /#(\d+)$/.exec(key)?.[1];
+              return {
+                element: record?.kind ?? "unknown",
+                tag,
+                index: index === undefined ? undefined : Number(index),
+              };
+            };
+            const outsideSamples = [
+              ...outside.geometry
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(({ key, prop, a, b }) => ({
+                  kind: "geometry",
+                  ...describe(key),
+                  prop,
+                  a,
+                  b,
+                })),
+              ...outside.deltas
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(({ key, prop }) => ({
+                  kind: "style",
+                  ...describe(key),
+                  prop,
+                })),
+              ...outside.missing
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(() => ({ kind: "missing" })),
+              ...outside.added
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(() => ({ kind: "added" })),
+            ].slice(0, 12);
+            throw new Error(
+              `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect })}): ${JSON.stringify(outsideSamples)}`,
+            );
+          }
+          console.log(
+            `[edit-fidelity] corpus ${source.id}/${flow}: save-reload markup and outside-block snapshot passed`,
+          );
+        } catch (error) {
+          problems.push(`${source.id}/${flow}: ${String(error)}`);
+        } finally {
+          try {
+            if (deckId && (await editorState(page, slideId)).editing) {
+              await exitEdit(page, slideId, "escape");
+            }
+            if (deckId) await restoreSlide(page, deckId, slideId, original);
+          } catch (error) {
+            problems.push(
+              `${source.id}/${flow}: could not restore source slide (${String(error)})`,
+            );
+          }
+        }
+      }
+    } catch (error) {
+      problems.push(
+        `${source.id}: corpus authoring setup failed (${String(error)})`,
+      );
+    } finally {
+      if (deckId) {
+        try {
+          await action(page, "delete-deck", { id: deckId }, "DELETE");
+        } catch (error) {
+          problems.push(
+            `${source.id}: could not delete scratch deck (${String(error)})`,
+          );
+        }
+      }
+    }
+  }
+
+  let edgeDeckId: string | null = null;
+  const edgeSlideId = "authoring-slash-viewport-edge";
+  try {
+    await page.setViewportSize({ width: 800, height: 520 });
+    const edgeDeck = await action(page, "create-deck", {
+      title: `[edit-fidelity] slash viewport edge ${Date.now()}`,
+      slides: [
+        {
+          id: edgeSlideId,
+          content:
+            '<div class="fmd-slide" style="padding:0"><p style="position:absolute;right:8px;bottom:8px;margin:0;text-align:right;white-space:nowrap">Edge anchor&nbsp;</p></div>',
+        },
+      ],
+    });
+    edgeDeckId = String(edgeDeck.id ?? edgeDeck.deckId);
+    await openSlide(page, base, edgeDeckId, 0, edgeSlideId);
+    const [target] = await listTargets(page, edgeSlideId);
+    if (!target) throw new Error("viewport-edge slide has no text target");
+    if (!(await enterEdit(page, edgeSlideId, target.point, []))) {
+      throw new Error("could not edit the viewport-edge text target");
+    }
+    const editor = page.locator(selectorFor(edgeSlideId));
+    await editor.press(lineEndKey);
+    await editor.pressSequentially("/");
+    await page
+      .locator('[role="listbox"] [role="option"]')
+      .first()
+      .waitFor({ state: "visible" });
+    const geometry = await assertSlashPopoverGeometry(editor);
+    const horizontalCollision =
+      geometry.caret.left + geometry.popover.width + 8 >
+      geometry.viewport.width;
+    const verticalCollision =
+      geometry.viewport.height - geometry.caret.bottom <
+      geometry.popover.height + 12;
+    if (!horizontalCollision || !verticalCollision) {
+      throw new Error(
+        `viewport-edge fixture did not pressure both popover edges: ${JSON.stringify({ geometry, horizontalCollision, verticalCollision })}`,
+      );
+    }
+    if (
+      geometry.side !== "top" ||
+      geometry.popover.left >= geometry.caret.left ||
+      Math.abs(geometry.popover.right - (geometry.viewport.width - 8)) > 2
+    ) {
+      throw new Error(
+        `viewport-edge popover did not shift left and flip above the caret: ${JSON.stringify(geometry)}`,
+      );
+    }
+    await page.keyboard.press("Escape");
+    await page.locator('[role="listbox"]').waitFor({ state: "hidden" });
+    await exitEdit(page, edgeSlideId, "escape");
+  } catch (error) {
+    problems.push(`slash viewport-edge geometry: ${String(error)}`);
+  } finally {
+    if (edgeDeckId) {
+      try {
+        await action(page, "delete-deck", { id: edgeDeckId }, "DELETE");
+      } catch (error) {
+        problems.push(`slash viewport-edge cleanup failed: ${String(error)}`);
+      }
+    }
+    await page.setViewportSize({ width: 1600, height: 1000 });
+  }
+
+  const largest = sources.find((source) => source.kind === "largest");
+  if (!largest) return problems;
+  const latencyDeck = await action(page, "create-deck", {
+    title: `[edit-fidelity] corpus latency ${Date.now()}`,
+    ...(largest.corpusCase.aspectRatio
+      ? { aspectRatio: largest.corpusCase.aspectRatio }
+      : {}),
+    slides: [
+      {
+        id: "authoring-corpus-largest-latency",
+        content: largest.slide.content,
+        ...(largest.slide.layout ? { layout: largest.slide.layout } : {}),
+      },
+    ],
+  });
+  const latencyDeckId = String(latencyDeck.id ?? latencyDeck.deckId);
+  try {
+    const latencySlideId = "authoring-corpus-largest-latency";
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await openSlide(page, base, latencyDeckId, 0, latencySlideId);
+    const target = await chooseTarget(latencySlideId, "any");
+    if (!target)
+      throw new Error("largest corpus slide has no editable text target");
+    if (!(await enterEdit(page, latencySlideId, target.point, []))) {
+      throw new Error("could not enter the largest corpus text target");
+    }
+    const editor = page.locator(selectorFor(latencySlideId));
+    await editor.press(lineEndKey);
+    await editor.evaluate((element: HTMLElement) => {
+      const metrics = {
+        mode: "first-rAF-layout-proxy" as
+          | "first-rAF-layout-proxy"
+          | "event-timing",
+        keydowns: 0,
+        sampleWindow: null as { start: number; end: number } | null,
+        eventSamples: [] as Array<{
+          duration: number;
+          inputDelay: number;
+          handlerDuration: number;
+          presentationDelay: number;
+        }>,
+        frameSamples: [] as number[],
+        observer: null as PerformanceObserver | null,
+      };
+      const supportsEventTiming =
+        PerformanceObserver.supportedEntryTypes?.includes("event") ?? false;
+      if (supportsEventTiming) {
+        try {
+          metrics.observer = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              const event = entry as PerformanceEntry & {
+                duration: number;
+                processingStart: number;
+                processingEnd: number;
+                target: Node | null;
+              };
+              const sampleWindow = metrics.sampleWindow;
+              if (
+                entry.name === "keydown" &&
+                event.target &&
+                (event.target === element || element.contains(event.target)) &&
+                sampleWindow &&
+                entry.startTime >= sampleWindow.start &&
+                entry.startTime < sampleWindow.end
+              ) {
+                metrics.eventSamples.push({
+                  duration: event.duration,
+                  inputDelay: event.processingStart - entry.startTime,
+                  handlerDuration: event.processingEnd - event.processingStart,
+                  presentationDelay:
+                    entry.startTime + event.duration - event.processingEnd,
+                });
+              }
+            }
+          });
+          metrics.observer.observe({
+            type: "event",
+            buffered: false,
+            durationThreshold: 16,
+          } as PerformanceObserverInit);
+          metrics.mode = "event-timing";
+        } catch {
+          metrics.observer?.disconnect();
+          metrics.observer = null;
+        }
+      }
+      (window as any).__slideKeyPaintMetrics = metrics;
+      element.addEventListener(
+        "keydown",
+        (event) => {
+          if (event.key.length !== 1) return;
+          metrics.keydowns += 1;
+          const started = performance.now();
+          requestAnimationFrame(() => {
+            element.getBoundingClientRect();
+            metrics.frameSamples.push(performance.now() - started);
+          });
+        },
+        true,
+      );
+    });
+    await page.evaluate(() => {
+      const metrics = (window as any).__slideKeyPaintMetrics;
+      metrics.sampleWindow = {
+        start: performance.now(),
+        end: Number.POSITIVE_INFINITY,
+      };
+    });
+    for (let index = 0; index < 64; index += 1) {
+      await editor.press("x");
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          ),
+      );
+    }
+    await page.evaluate(() => {
+      const metrics = (window as any).__slideKeyPaintMetrics;
+      if (metrics.sampleWindow) metrics.sampleWindow.end = performance.now();
+    });
+    await page.waitForTimeout(50);
+    const metrics = (await page.evaluate(() => {
+      const value = (window as any).__slideKeyPaintMetrics;
+      value?.observer?.disconnect();
+      return value
+        ? {
+            mode: value.mode as string,
+            keydowns: value.keydowns as number,
+            eventSamples: value.eventSamples as Array<{
+              duration: number;
+              inputDelay: number;
+              handlerDuration: number;
+              presentationDelay: number;
+            }>,
+            frameSamples: value.frameSamples as number[],
+          }
+        : null;
+    })) as {
+      mode: string;
+      keydowns: number;
+      eventSamples: Array<{
+        duration: number;
+        inputDelay: number;
+        handlerDuration: number;
+        presentationDelay: number;
+      }>;
+      frameSamples: number[];
+    } | null;
+    if (!metrics || metrics.keydowns < 32) {
+      throw new Error(
+        `only captured ${metrics?.keydowns ?? 0} keydown samples`,
+      );
+    }
+    if (metrics.mode === "event-timing") {
+      const sortedFrames = [...metrics.frameSamples].sort((a, b) => a - b);
+      if (sortedFrames.length < 32) {
+        throw new Error(
+          `only captured ${sortedFrames.length} frame-layout proxy samples`,
+        );
+      }
+      const frameP95 = sortedFrames[Math.ceil(sortedFrames.length * 0.95) - 1];
+      const slow = metrics.eventSamples
+        .filter((sample) => sample.duration > 16)
+        .sort((a, b) => a.duration - b.duration);
+      const p95Rank = Math.ceil(metrics.keydowns * 0.95);
+      const p95IsOverThreshold = slow.length >= metrics.keydowns - p95Rank + 1;
+      const p95Event = p95IsOverThreshold
+        ? slow[slow.length - (metrics.keydowns - p95Rank + 1)]
+        : null;
+      console.log(
+        `[edit-fidelity] largest corpus slide Event Timing p95=${p95Event === null ? "<=16" : `${p95Event.duration.toFixed(2)}ms`} (input-to-paint diagnostic, input=${p95Event?.inputDelay.toFixed(2) ?? "n/a"}ms handler=${p95Event?.handlerDuration.toFixed(2) ?? "n/a"}ms presentation=${p95Event?.presentationDelay.toFixed(2) ?? "n/a"}ms, observed=${metrics.eventSamples.length}/${metrics.keydowns})`,
+      );
+      console.log(
+        `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
+      );
+      if (frameP95 > 16) {
+        problems.push(
+          `largest corpus slide keydown-to-first-rAF-plus-layout p95 ${frameP95.toFixed(2)}ms exceeds 16ms`,
+        );
+      }
+    } else {
+      const sorted = [...metrics.frameSamples].sort((a, b) => a - b);
+      if (sorted.length < 32) {
+        throw new Error(
+          `only captured ${sorted.length} frame-layout proxy samples`,
+        );
+      }
+      const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1];
+      console.log(
+        `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${p95.toFixed(2)}ms (proxy, not paint; Event Timing unavailable, n=${sorted.length})`,
+      );
+      if (p95 > 16) {
+        problems.push(
+          `largest corpus slide keydown-to-first-rAF-plus-layout p95 ${p95.toFixed(2)}ms exceeds 16ms`,
+        );
+      }
+    }
+  } catch (error) {
+    problems.push(`largest corpus latency sample failed: ${String(error)}`);
+  } finally {
+    try {
+      await action(page, "delete-deck", { id: latencyDeckId }, "DELETE");
+    } catch (error) {
+      problems.push(
+        `largest corpus latency deck cleanup failed: ${String(error)}`,
+      );
+    }
+  }
+  return problems;
+}
+
+async function runAuthoringFuzzQa(
+  page: Page,
+  base: string,
+  cases: CorpusCase[],
+  firstSeed: number,
+  steps: number,
+  seeds: number,
+) {
+  const sources = corpusAuthoringSources(cases).filter(
+    (source) => source.kind !== "largest",
+  );
+  const profiles = [
+    ...sources.filter((source) => source.kind === "absolute"),
+    ...sources.filter((source) => source.kind === "flex-grid"),
+    ...sources.filter((source) => source.kind === "styled-list"),
+    ...sources.filter((source) => source.kind === "styled-flex-bullet-row"),
+    ...sources.filter(
+      (source) => source.kind === "styled-paragraph-bullet-row",
+    ),
+    ...sources.filter((source) => source.kind === "scaled"),
+  ];
+  if (profiles.length !== 6) {
+    throw new CouldNotRun(
+      "authoring fuzz requires committed absolute, flex/grid, semantic-list, flex bullet-row, paragraph bullet-row, and scaled slides",
+    );
+  }
+
+  const selectorFor = (slideId: string) =>
+    `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+  const canonicalMarkup = async (html: string) =>
+    JSON.stringify(
+      await page.evaluate(
+        (value: string) => window.__editFidelity.canonical(value),
+        html,
+      ),
+    );
+  const profileFor = (round: number) =>
+    round % 2 === 0 ? null : profiles[Math.floor(round / 2) % profiles.length];
+  const sourceTarget = async (
+    slideId: string,
+    source: CorpusAuthoringSource | null,
+  ) => {
+    const targets = await listTargets(page, slideId);
+    if (!source) return targets[0];
+    const hints = await page.evaluate(
+      ({ selector, chrome }: { selector: string; chrome: string }) => {
+        const canvas = document.querySelector(selector);
+        if (!canvas) return [];
+        const isStyledBulletRow = (element: HTMLElement) => {
+          if (!/^(DIV|LI|P)$/.test(element.tagName)) return false;
+          const marker = element.firstElementChild as HTMLElement | null;
+          if (!marker || marker.tagName !== "SPAN") return false;
+          const text = marker.textContent?.trim() ?? "";
+          if (text) return /^[-*•●◦▪‣·⁃–—]+$/u.test(text);
+          const style = getComputedStyle(marker);
+          const width = Number.parseFloat(style.width);
+          const height = Number.parseFloat(style.height);
+          const colorParts = style.backgroundColor
+            .replace(/[(),/]/g, " ")
+            .trim()
+            .split(/\s+/);
+          const alpha =
+            colorParts.length === 4 ? Number(colorParts[3]) : undefined;
+          return (
+            width > 0 &&
+            height > 0 &&
+            width <= 48 &&
+            height <= 48 &&
+            (Number.parseFloat(style.borderTopWidth) > 0 ||
+              Number.parseFloat(style.borderLeftWidth) > 0 ||
+              (style.backgroundColor !== "transparent" && alpha !== 0) ||
+              Number.parseFloat(style.borderRadius) > 0)
+          );
+        };
+        const containsStyledBulletRow = (element: HTMLElement) =>
+          isStyledBulletRow(element) ||
+          Array.from(element.querySelectorAll<HTMLElement>("div,li,p")).some(
+            isStyledBulletRow,
+          );
+        return Array.from(
+          canvas.querySelectorAll<HTMLElement>(
+            '[data-slide-text-block="true"]',
+          ),
+        )
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return (
+              !/^(STYLE|SCRIPT)$/.test(element.tagName) &&
+              !element.closest(chrome) &&
+              rect.width > 0 &&
+              rect.height > 0 &&
+              !!element.textContent?.replace(/[\s\u200b\ufeff]+/g, " ").trim()
+            );
+          })
+          .map((element, index) => {
+            let absolute = false;
+            let grid = false;
+            let list =
+              /^(LI|UL|OL)$/.test(element.tagName) ||
+              element.querySelector("li,ul,ol") !== null;
+            let bulletRow = containsStyledBulletRow(element);
+            for (
+              let ancestor: HTMLElement | null = element;
+              ancestor && canvas.contains(ancestor);
+              ancestor = ancestor.parentElement
+            ) {
+              const style = getComputedStyle(ancestor);
+              absolute ||= style.position === "absolute";
+              grid ||= style.display === "grid";
+              list ||=
+                ancestor.tagName === "LI" || /^(UL|OL)$/.test(ancestor.tagName);
+              bulletRow ||= isStyledBulletRow(ancestor);
+            }
+            return { index, absolute, grid, list, bulletRow };
+          });
+      },
+      { selector: canvasSelector(slideId), chrome: CHROME_SELECTOR },
+    );
+    const hint = hints.find((candidate: any) =>
+      source.testTarget === "absolute"
+        ? candidate.absolute
+        : source.testTarget === "flex-grid"
+          ? candidate.grid
+          : source.testTarget === "list"
+            ? candidate.list
+            : source.testTarget === "bullet-row"
+              ? candidate.bulletRow
+              : true,
+    );
+    return targets.find((target) => target.index === hint?.index);
+  };
+
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  const problems: string[] = [];
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  const exercisedProfiles = new Set<string>();
+
+  for (let round = 0; round < seeds; round += 1) {
+    const seed = firstSeed + round;
+    const profile = profileFor(round);
+    exercisedProfiles.add(profile?.kind ?? "synthetic");
+    await page.setViewportSize(
+      profile?.kind === "scaled"
+        ? { width: 850, height: 650 }
+        : { width: 1600, height: 1000 },
+    );
+    const slideId = `authoring-fuzz-${round}`;
+    let deckId: string | null = null;
+    try {
+      const created = await action(page, "create-deck", {
+        title: `[edit-fidelity] authoring fuzz ${seed}`,
+        ...(profile?.corpusCase.aspectRatio
+          ? { aspectRatio: profile.corpusCase.aspectRatio }
+          : {}),
+        slides: [
+          {
+            id: slideId,
+            content:
+              profile?.slide.content ??
+              `<div class="fmd-slide"><p>Fuzz seed ${seed} starts here.</p></div>`,
+            ...(profile?.slide.layout ? { layout: profile.slide.layout } : {}),
+          },
+        ],
+      });
+      deckId = String(created.id ?? created.deckId);
+      await openSlide(page, base, deckId, 0, slideId);
+      if (profile?.kind === "scaled") {
+        const scale = await page
+          .locator(canvasSelector(slideId))
+          .evaluate((element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            return element.offsetWidth > 0
+              ? rect.width / element.offsetWidth
+              : 1;
+          });
+        if (!(scale > 0 && scale < 0.99)) {
+          throw new Error(
+            `scaled fuzz fixture did not scale below 1 (scale ${scale.toFixed(3)})`,
+          );
+        }
+      }
+      const target = await sourceTarget(slideId, profile);
+      if (!target) throw new Error("no target matched the authoring profile");
+      const editorSelector = selectorFor(slideId);
+      const rootSelector = `${canvasSelector(slideId)} .slide-content`;
+      const originalHtml = await page.evaluate(
+        ({ selector, index }: { selector: string; index: number }) =>
+          window.__editFidelity.targetSourceHtml(selector, index),
+        { selector: canvasSelector(slideId), index: target.index },
+      );
+      const originalSlideHtml = await page.locator(rootSelector).innerHTML();
+      if (!(await enterEdit(page, slideId, target.point, []))) {
+        throw new Error("could not enter in-place text editing");
+      }
+      const slideHtml = () => page.locator(rootSelector).innerHTML();
+      const result = await runAuthoringFuzz(page, {
+        seed,
+        steps,
+        editorSelector,
+        slideSelector: canvasSelector(slideId),
+        slideContentSelector: rootSelector,
+        originalHtml,
+        originalSlideHtml,
+        modifier,
+        historyLimit: IN_PLACE_TEXT_UNDO_LIMIT,
+        expectScaledSlide: profile?.kind === "scaled",
+        finishAndReload: async (): Promise<AuthoringFuzzPersistence> => {
+          if (!(await exitEdit(page, slideId, "escape"))) {
+            throw new Error("Escape did not leave in-place text editing");
+          }
+          const liveHtml = await slideHtml();
+          const stored = await settleSaved(
+            page,
+            deckId!,
+            slideId,
+            () => 0,
+            2500,
+          );
+          await openSlide(page, base, deckId!, 0, slideId);
+          const reloadedHtml = await slideHtml();
+          return canonicalizeAuthoringFuzzPersistence(
+            {
+              originalHtml: originalSlideHtml,
+              liveHtml,
+              savedHtml: stored,
+              reloadedHtml,
+            },
+            canonicalMarkup,
+          );
+        },
+      });
+      console.log(
+        `[edit-fidelity] fuzz seed=${result.seed} passed ${result.stepsRun} steps on ${profile ? `committed-${profile.kind}` : "synthetic"} (${result.undoSteps} undo steps)`,
+      );
+    } catch (error) {
+      problems.push(
+        `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`,
+      );
+    } finally {
+      try {
+        if (deckId && (await editorState(page, slideId)).editing) {
+          await exitEdit(page, slideId, "escape");
+        }
+        if (deckId) await action(page, "delete-deck", { id: deckId }, "DELETE");
+      } catch (error) {
+        problems.push(
+          `seed ${seed}: scratch deck cleanup failed (${String(error)})`,
+        );
+      }
+    }
+  }
+  if (problems.length) {
+    return problems;
+  }
+  console.log(
+    `[edit-fidelity] ${seeds} seeded authoring runs of ${steps} steps passed in ${browserName}; profiles: ${Array.from(exercisedProfiles).join(", ")}`,
+  );
+  return problems;
+}
+
 /**
  * Polls the stored slide until it stops changing and no write the page sent
  * is still in flight. Saves are debounced, so "no change yet" is only trusted
@@ -1707,10 +3999,18 @@ async function restoreSlide(
   slideId: string,
   stored: string,
 ) {
-  if ((await getSlideContent(page, deckId, slideId)) === stored) return;
+  const current = await getSlideState(page, deckId, slideId);
+  if (current.content === stored) return;
   await action(page, "patch-deck", {
     deckId,
-    operations: [{ op: "patch-slide", slideId, fields: { content: stored } }],
+    operations: [
+      {
+        op: "patch-slide",
+        slideId,
+        fields: { content: stored },
+        baseContentHash: current.contentHash,
+      },
+    ],
   });
   if ((await getSlideContent(page, deckId, slideId)) !== stored) {
     throw new Error(
@@ -1722,7 +4022,12 @@ async function restoreSlide(
 async function snapshot(
   page: Page,
   slideId: string,
-  edited: { targetIndex?: number; text?: string },
+  edited: {
+    targetIndex?: number;
+    text?: string;
+    marker?: string;
+    targetBuilderId?: string;
+  },
 ): Promise<Snapshot> {
   return page.evaluate(
     ({ sel, edited }: any) => window.__editFidelity.snapshot(sel, edited),
@@ -2131,10 +4436,10 @@ async function runScenario(
       await page.keyboard.type("x");
       await page.keyboard.press("Backspace");
     } else if (scenario === "append") {
-      await page.keyboard.press("End");
+      await page.keyboard.press(lineEndKey);
       await page.keyboard.type(" ok");
     } else if (scenario === "enter3") {
-      await page.keyboard.press("End");
+      await page.keyboard.press(lineEndKey);
       let prevPng = editing;
       // End keeps the caret's line, but at a soft wrap a Range measures the
       // next line; read after End only when entry left no measurable caret.
@@ -2558,7 +4863,12 @@ async function runScenario(
         v.push(
           `no element on the reloaded slide has the typed text line for line (closest: ${JSON.stringify((snapReload.editedText ?? "none").slice(0, 160))})`,
         );
-      const restyled = restyledAddedText(snapView, snapReload);
+      // Heading Enter and list exit intentionally create a plain paragraph.
+      const restyled = restyledAddedText(
+        snapView,
+        snapReload,
+        scenario === "enter3" ? state0.caretConvertibleTag : null,
+      );
       if (restyled.length)
         v.push(
           `typed text on the reloaded slide has a style no text of the element had (${restyled.slice(0, 3).join("; ")})`,
@@ -2939,8 +5249,16 @@ async function main() {
   }
 
   const playwright: any = await import(resolvePnpmEntry("playwright", "1.63"));
-  const chromium = pick<any>(playwright, "chromium");
-  const browser = await chromium.launch({ headless: !headed });
+  const browserType = pick<any>(playwright, browserName);
+  let browser: any;
+  try {
+    browser = await browserType.launch({ headless: !headed });
+  } catch (error) {
+    await cleanup();
+    fatal(
+      `could not launch ${browserName}; install it with pnpm exec playwright install ${browserName}: ${String(error)}`,
+    );
+  }
   const results: ScenarioResult[] = [];
   const slides: SlideReport[] = [];
   const envelope = new Map<string, Set<string>>();
@@ -2997,7 +5315,7 @@ async function main() {
 
     if (textSurfaceQaOnly) {
       const page = await context.newPage();
-      const problems = await runTextSurfaceQa(page, base);
+      const problems = await runTextSurfaceQa(page, base, browserName);
       await page.close();
       if (problems.length) {
         console.error(
@@ -3006,7 +5324,57 @@ async function main() {
         return 1;
       }
       console.log(
-        "[edit-fidelity] Slides text surfaces passed typing, composition, paste, undo/redo, and switching checks",
+        `[edit-fidelity] Slides text surfaces passed typing, composition, paste, undo/redo, and switching checks in ${browserName}`,
+      );
+      return 0;
+    }
+
+    if (authoringCorpusOnly) {
+      const page = await context.newPage();
+      const problems = await runAuthoringCorpusQa(page, base, cases);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] corpus authoring: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        `[edit-fidelity] corpus authoring passed in ${browserName}; representative committed/private layouts and save/reload markup were checked`,
+      );
+      return 0;
+    }
+
+    if (authoringFuzzOnly) {
+      const page = await context.newPage();
+      const problems = await runAuthoringFuzzQa(
+        page,
+        base,
+        cases,
+        fuzzSeed,
+        fuzzSteps,
+        fuzzSeeds,
+      );
+      await page.close();
+      if (problems.length) {
+        console.error(`[edit-fidelity] authoring fuzz: ${problems.join("; ")}`);
+        return 1;
+      }
+      return 0;
+    }
+
+    if (authoringOnly) {
+      const page = await context.newPage();
+      const problems = await runAuthoringParityQa(page, base, outRoot);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] authoring parity: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        `[edit-fidelity] Slides slash commands, Markdown shortcuts, and list authoring passed in ${browserName}`,
       );
       return 0;
     }

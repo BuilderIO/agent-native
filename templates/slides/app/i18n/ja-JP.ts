@@ -47,7 +47,7 @@ const messages = {
     designSystems: "デザインシステム",
   },
   settings: {
-    agentObservability: "エージェントの可観測性",
+    agentObservability: "可観測性",
     title: "設定",
     labs: "Labs",
     labsIntro: "リリース前に実験的な機能をプレビューできます。",
@@ -304,6 +304,21 @@ const messages = {
     importing: "インポート中...",
     importFile: "ファイルをインポート",
     downloadBackup: "バックアップをダウンロード",
+    conflictStatus: "テキストの競合",
+    conflictStatusDescription:
+      "変更を保存する前に、競合しているテキストを確認してください。",
+    reviewConflict: "競合を確認",
+    conflictTitle: "スライド {{number}} でテキストが競合しています",
+    conflictDescription:
+      "編集中に別のバージョンでこのスライドが変更されました。",
+    conflictChoicesDescription:
+      "自分のテキストを保持すると最新バージョンに保存されます。保存済みテキストを使うと、このスライドのローカル下書きだけが置き換わります。",
+    conflictBackupDescription:
+      "このプレゼンテーション全体の下書きはスライドごとに解決できません。下書きを残すにはバックアップをダウンロードしてください。",
+    conflictResolveFailed:
+      "競合を解決できませんでした。下書きはこのデバイスに残っています。",
+    conflictKeepMine: "自分のテキストを保持",
+    conflictUseLatest: "保存済みテキストを使う",
     importBackup: "バックアップをインポート",
     backupDownloaded: "バックアップをダウンロードしました",
     backupDownloadFailed: "バックアップをダウンロードできませんでした",
@@ -403,6 +418,8 @@ const messages = {
     orderedList: "順序付きリスト",
     quote: "引用",
     blockquote: "ブロック引用",
+    divider: "区切り線",
+    horizontalRule: "水平線",
   },
   comments: {
     deleteComment: "コメントを削除",
@@ -436,6 +453,7 @@ const messages = {
     retry: "再試行",
     clickToAddComment: "クリックしてコメントを追加",
     selectSlideToAdd: "追加するにはスライドを選択してください",
+    filters: "コメントの絞り込み",
     scope: "コメントの範囲",
     thisSlide: "このスライド",
     allComments: "すべてのスライド",

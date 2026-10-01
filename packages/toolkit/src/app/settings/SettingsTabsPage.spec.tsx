@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { SIGN_OUT_SEARCH_TERMS } from "@agent-native/core/client/sign-out";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { BrowserRouter, MemoryRouter, useNavigate } from "react-router";
@@ -28,7 +29,11 @@ vi.mock("../labs/index.js", () => ({
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) =>
-    key === "agentChat.auth.logOut" ? "Cerrar sesión" : key,
+    key === "agentChat.auth.logOut"
+      ? "Cerrar sesión"
+      : key === "agentChat.settingsModel.chatgptTitle"
+        ? "ChatGPT plan access"
+        : key,
   useOptionalLocale: () => ({ locale: "en" }),
 }));
 
@@ -72,6 +77,17 @@ function captureAnimationFrame() {
   return () => frame?.(0);
 }
 
+let activeQueryClient: QueryClient | null = null;
+
+function createQueryClientWithLabs(labs: Record<string, unknown>) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  activeQueryClient = queryClient;
+  queryClient.setQueryData(["action", "get-lab-states", undefined], labs);
+  return queryClient;
+}
+
 describe("SettingsTabsPage", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -86,6 +102,8 @@ describe("SettingsTabsPage", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    activeQueryClient?.clear();
+    activeQueryClient = null;
     container.remove();
     document.body.innerHTML = "";
     vi.unstubAllGlobals();
@@ -258,21 +276,19 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Integration content");
   });
 
-  it("always includes the core lab and indexes app labs", async () => {
+  it("only exposes and searches the core ChatGPT lab when it is registered", async () => {
+    const queryClient = createQueryClientWithLabs({});
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/settings"]}>
-          <SettingsTabsPage
-            general={<div>General content</div>}
-            labs={[
-              {
-                key: "clips.meetings",
-                displayName: "Meetings and transcription",
-                description: "Try meetings",
-              },
-            ]}
-          />
-        </MemoryRouter>,
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/settings"]}>
+            <SettingsTabsPage
+              redesign={false}
+              general={<div>General content</div>}
+              labs={[{ key: "app.example", displayName: "App lab" }]}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
       );
     });
 
@@ -282,6 +298,68 @@ describe("SettingsTabsPage", () => {
       'input[type="search"]',
     );
     expect(searchInput).not.toBeNull();
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(searchInput, "ChatGPT plan access");
+      searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(
+      Array.from(container.querySelectorAll('[role="option"]')).some((option) =>
+        option.textContent?.includes("ChatGPT plan access"),
+      ),
+    ).toBe(false);
+  });
+
+  it("indexes a registered core ChatGPT lab alongside app labs", async () => {
+    const queryClient = createQueryClientWithLabs({
+      "chatgpt-subscription": {
+        enabled: false,
+        source: "default",
+        mixed: false,
+      },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/settings"]}>
+            <SettingsTabsPage
+              redesign={false}
+              general={<div>General content</div>}
+              labs={[
+                {
+                  key: "clips.meetings",
+                  displayName: "Meetings and transcription",
+                  description: "Try meetings",
+                },
+              ]}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    expect(searchInput).not.toBeNull();
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(searchInput, "ChatGPT plan access");
+      searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(
+      Array.from(container.querySelectorAll('[role="option"]')).some((option) =>
+        option.textContent?.includes("ChatGPT plan access"),
+      ),
+    ).toBe(true);
     await act(async () => {
       const valueSetter = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
@@ -302,17 +380,28 @@ describe("SettingsTabsPage", () => {
     expect(
       container.querySelector("[data-testid=labs-content]")?.textContent,
     ).toContain("Meetings and transcription");
+    expect(
+      container.querySelector("[data-testid=labs-content]")?.textContent,
+    ).toContain("ChatGPT plan access");
 
     await act(async () => {
       root.unmount();
       root = createRoot(container);
       root.render(
-        <MemoryRouter initialEntries={["/settings"]}>
-          <SettingsTabsPage general={<div>General content</div>} />
-        </MemoryRouter>,
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/settings/labs"]}>
+            <SettingsTabsPage
+              redesign={false}
+              general={<div>General content</div>}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
       );
     });
     expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid=labs-content]")?.textContent,
+    ).toContain("ChatGPT plan access");
   });
 
   it("places labs after app-specific tabs such as notifications", () => {
@@ -584,6 +673,7 @@ describe("SettingsTabsPage", () => {
           general={<div>General content</div>}
           team={<div>Team members</div>}
           whatsNew={<div>Recent updates</div>}
+          labs={[{ key: "test.example", displayName: "Example lab" }]}
           extraTabs={[
             {
               id: "agent",
@@ -616,6 +706,7 @@ describe("SettingsTabsPage", () => {
           generalGroups={<div>App groups</div>}
           notifications={<div>Email settings</div>}
           notificationsLabel="Notifications"
+          labs={[{ key: "test.example", displayName: "Example lab" }]}
           appAreas={[
             {
               id: "recordings",
@@ -721,6 +812,7 @@ describe("SettingsTabsPage", () => {
       root.render(
         <SettingsTabsPage
           general={<div>General content</div>}
+          labs={[{ key: "test.example", displayName: "Example lab" }]}
           extraTabs={[
             {
               id: "gmail-filters",
@@ -772,6 +864,7 @@ describe("SettingsTabsPage", () => {
             general={<div>General content</div>}
             team={<div>Team members</div>}
             whatsNew={<div>Recent updates</div>}
+            labs={[{ key: "test.example", displayName: "Example lab" }]}
             extraTabs={[
               {
                 id: "integrations",
@@ -824,7 +917,7 @@ describe("SettingsTabsPage", () => {
             extraTabs={[
               {
                 id: "observability",
-                label: "Agent Observability",
+                label: "Observability",
                 href: "/settings/observability/overview",
                 content: <div>Observability content</div>,
               },
@@ -838,6 +931,7 @@ describe("SettingsTabsPage", () => {
       'a[href="/settings/observability/overview"]',
     );
     expect(observabilityLink).not.toBeNull();
+    expect(observabilityLink?.textContent?.trim()).toBe("Observability");
     expect(observabilityLink?.querySelector("svg")).toBeNull();
   });
 

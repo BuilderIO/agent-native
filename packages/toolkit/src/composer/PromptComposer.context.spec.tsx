@@ -96,8 +96,9 @@ describe("controlled composer context", () => {
       ),
     );
     const menu = document.querySelector('[role="menu"]')!;
-    expect(menu.querySelector('[role="searchbox"]')).not.toBeNull();
+    expect(menu.querySelector('[role="searchbox"]')).toBeNull();
     expect(menu.textContent).toContain("Upload File");
+    expect(menu.textContent).toContain("Add context");
     await act(async () =>
       document.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
@@ -129,18 +130,39 @@ describe("controlled composer context", () => {
 
     const mentionMenu = document.querySelector<HTMLElement>('[role="menu"]');
     expect(mentionMenu?.textContent).toContain("Upload File");
-    expect(mentionMenu?.textContent).toContain("Choose source");
+    expect(mentionMenu?.textContent).toContain("Add context");
+    expect(mentionMenu?.textContent).not.toContain("Choose source");
     expect(editor.textContent).toBe("");
-    const mentionOptions = Array.from(
-      mentionMenu!.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-    ).map((item) => item.textContent);
+    const openContext = async () => {
+      const trigger = Array.from(
+        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).find((item) => item.textContent === "Add context")!;
+      await act(async () => {
+        trigger.focus();
+        trigger.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowRight",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    };
+    const nestedItems = () =>
+      Array.from(
+        Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]'))
+          .at(-1)!
+          .querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).map((item) => item.textContent);
+    await openContext();
+    const mentionOptions = nestedItems();
 
     const plusButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Add context"]',
     )!;
     await act(async () =>
-      mentionMenu!
-        .querySelector<HTMLElement>('[role^="menuitem"]')!
+      Array.from(document.querySelectorAll<HTMLElement>('[role^="menuitem"]'))
+        .find((item) => item.textContent === "Choose source")!
         .dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "Escape",
@@ -148,6 +170,11 @@ describe("controlled composer context", () => {
             cancelable: true,
           }),
         ),
+    );
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
     );
     expect(document.querySelector('[role="menu"]')).toBeNull();
     await act(async () =>
@@ -161,13 +188,11 @@ describe("controlled composer context", () => {
     );
 
     const plusMenu = document.querySelector<HTMLElement>('[role="menu"]');
-    expect(
-      Array.from(
-        plusMenu!.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).map((item) => item.textContent),
-    ).toEqual(mentionOptions);
+    expect(plusMenu?.textContent).toContain("Add context");
+    await openContext();
+    expect(nestedItems()).toEqual(mentionOptions);
     const sourceAction = Array.from(
-      plusMenu!.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
     ).find((item) => item.textContent === "Choose source")!;
     await act(async () => sourceAction.click());
     expect(onSelect).toHaveBeenCalledOnce();
@@ -205,9 +230,22 @@ describe("controlled composer context", () => {
           }),
         );
       });
-      const integrations = document.querySelector<HTMLElement>(
-        '[role="menuitem"][aria-haspopup="menu"]',
-      )!;
+      const addContext = Array.from(
+        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).find((item) => item.textContent === "Add context")!;
+      await act(async () => {
+        addContext.focus();
+        addContext.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowRight",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      const integrations = Array.from(
+        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).find((item) => item.textContent === "Integrations")!;
       expect(integrations.textContent).toBe("Integrations");
       await act(async () => {
         integrations.focus();
@@ -268,6 +306,36 @@ describe("controlled composer context", () => {
           }),
         );
       });
+      const addContext = Array.from(
+        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).find((item) => item.textContent === "Add context");
+      if (addContext) {
+        await act(async () => {
+          addContext.focus();
+          addContext.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "ArrowRight",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+      }
+      const section = Array.from(
+        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).find((item) => item.textContent === "Connected Agents");
+      if (section) {
+        await act(async () => {
+          section.focus();
+          section.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "ArrowRight",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+      }
       const row = Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).find(
@@ -364,6 +432,19 @@ describe("controlled composer context", () => {
       vi.spyOn(frame, "getBoundingClientRect").mockImplementation(() =>
         DOMRect.fromRect(bounds),
       );
+      if (plusMenu) {
+        const button = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Add context"]',
+        )!;
+        vi.spyOn(button, "getBoundingClientRect").mockImplementation(() =>
+          DOMRect.fromRect({
+            x: bounds.x + 16,
+            y: bounds.y + bounds.height - 40,
+            width: 28,
+            height: 28,
+          }),
+        );
+      }
       // A wider ancestor must not override the narrower composer that owns the panel.
       container.dataset.agentComposerSlot = "root";
       vi.spyOn(container, "getBoundingClientRect").mockReturnValue(
@@ -398,22 +479,35 @@ describe("controlled composer context", () => {
         '[data-agent-native-composer-popover="true"]',
       )!;
       expect(panel).not.toBeNull();
-      expect(panel.style.width).toBe("700px");
+      if (plusMenu) {
+        expect(panel.classList.contains("w-64")).toBe(true);
+        expect(panel.style.width).toBe("");
+      } else {
+        expect(panel.style.width).toBe("700px");
+      }
       const observation = observations.find(({ target }) => target === frame)!;
       expect(observation).toBeDefined();
       for (const width of [324, 280, 700]) {
         bounds = { ...bounds, width };
         await act(async () => observation.resize());
-        expect(panel.style.width).toBe(`${width}px`);
+        if (plusMenu) {
+          expect(panel.style.width).toBe("");
+          expect(panel.classList.contains("w-64")).toBe(true);
+        } else {
+          expect(panel.style.width).toBe(`${width}px`);
+        }
         if (!plusMenu) expect(panel.style.left).toBe("100px");
       }
+      bounds = { ...bounds, y: window.innerHeight + 500 };
+      await act(async () => observation.resize());
+      if (plusMenu) expect(panel.style.maxHeight).toBe("280px");
       bounds = { ...bounds, x: 120, y: 160 };
       await act(async () => window.dispatchEvent(new Event("scroll")));
       if (!plusMenu) {
         expect(panel.style.left).toBe("120px");
         expect(panel.style.bottom).toContain("160px");
       }
-      expect(panel.style.maxHeight).toBe("136px");
+      expect(panel.style.maxHeight).toBe(plusMenu ? "246px" : "136px");
       await act(async () =>
         editor.dispatchEvent(
           new KeyboardEvent("keydown", {
@@ -785,25 +879,35 @@ describe("controlled composer context", () => {
           new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
         ),
       );
+      const addContext = Array.from(
+        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).find((element) => element.textContent === "Add context")!;
+      await act(async () => {
+        addContext.focus();
+        addContext.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowRight",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
       const option = Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).find((element) => element.textContent?.includes("Choose brief"))!;
       expect(option).toBeDefined();
       await act(async () => option.click());
       expect(onSelect).toHaveBeenCalledOnce();
+      const contextRow = container.querySelector('[data-context-key="brief"]');
+      expect(contextRow?.querySelectorAll("button")).toHaveLength(1);
       await act(async () => {
-        container
-          .querySelector<HTMLButtonElement>(
-            'button[aria-label="Retry Brief context"]',
-          )!
-          .click();
         container
           .querySelector<HTMLButtonElement>(
             'button[aria-label="Remove Brief context"]',
           )!
           .click();
       });
-      expect(onRetry).toHaveBeenCalledWith("brief");
+      expect(onRetry).not.toHaveBeenCalled();
       expect(onRemove).toHaveBeenCalledWith("brief");
       expect(onDisabledClick).not.toHaveBeenCalled();
       const send = container.querySelector<HTMLButtonElement>(
@@ -1456,10 +1560,9 @@ describe("controlled composer context", () => {
       expect(remove).not.toHaveBeenCalled();
     },
   );
-  it("renders context inside the frame, forwards inspection/retry/removal, and blocks click and keyboard submission until ready", async () => {
+  it("renders a noninteractive context chip with only removal and blocks submission until ready", async () => {
     const onSubmit = vi.fn();
     const onRemoveContextItem = vi.fn();
-    const onInspectContextItem = vi.fn();
     const onRetryContextItem = vi.fn();
     const composerRef = React.createRef<TiptapComposerHandle>();
     const item: AgentChatContextItem = {
@@ -1474,7 +1577,6 @@ describe("controlled composer context", () => {
           React.createElement(PromptComposer, {
             contextItems: [item],
             onRemoveContextItem,
-            onInspectContextItem,
             onRetryContextItem,
             composerRef,
             onSubmit,
@@ -1522,24 +1624,39 @@ describe("controlled composer context", () => {
     await pressEnter();
     expect(onSubmit).not.toHaveBeenCalled();
     const contextRow = container.querySelector('[data-context-key="brief"]')!;
+    expect(contextRow.className).toContain("py-0.5");
+    expect(contextRow.querySelector("span")?.textContent).toBe("Brief");
+    expect(contextRow.querySelectorAll("button")).toHaveLength(1);
+    expect(
+      contextRow.querySelector('[aria-label="Context failed"]'),
+    ).not.toBeNull();
+    const retryContext = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry Brief context"]',
+    );
+    expect(retryContext).not.toBeNull();
+    expect(contextRow.contains(retryContext)).toBe(false);
+    await act(async () => retryContext!.click());
+    expect(onRetryContextItem).toHaveBeenCalledWith("brief");
     await act(async () => {
-      contextRow.querySelector<HTMLButtonElement>("button")!.click();
-      contextRow
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="Retry Brief context"]',
-        )!
-        .click();
       contextRow
         .querySelector<HTMLButtonElement>(
           'button[aria-label="Remove Brief context"]',
         )!
         .click();
     });
-    expect(onInspectContextItem).toHaveBeenCalledWith("brief");
-    expect(onRetryContextItem).toHaveBeenCalledWith("brief");
+    expect(onRetryContextItem).toHaveBeenCalledOnce();
     expect(onRemoveContextItem).toHaveBeenCalledWith("brief");
     expect(
       container.querySelector('[data-context-key="brief"]'),
+    ).not.toBeNull();
+    item.removable = false;
+    await render();
+    const nonremovableContextRow = container.querySelector(
+      '[data-context-key="brief"]',
+    )!;
+    expect(nonremovableContextRow.querySelectorAll("button")).toHaveLength(0);
+    expect(
+      container.querySelector('button[aria-label="Retry Brief context"]'),
     ).not.toBeNull();
     item.status = "ready";
     await render();
@@ -1552,5 +1669,27 @@ describe("controlled composer context", () => {
     item.context = "Changed later";
     expect(options.contextItems[0].context).toBe("Original context");
     expect(Object.isFrozen(options.contextItems[0])).toBe(true);
+  });
+
+  it("keeps context chips inert except for the remove button", async () => {
+    const onInspectContextItem = vi.fn();
+    const onRemoveContextItem = vi.fn();
+    await mount({
+      contextItems: [
+        { key: "brief", title: "Brief", context: "Original context" },
+      ],
+      onRemoveContextItem,
+      onInspectContextItem,
+    });
+
+    const contextChip = container.querySelector('[data-context-key="brief"]')!;
+    expect(contextChip.querySelector("span")?.textContent).toBe("Brief");
+    expect(contextChip.querySelectorAll("button")).toHaveLength(1);
+    expect(
+      contextChip.querySelector('button[aria-label="Remove Brief context"]'),
+    ).not.toBeNull();
+    expect(contextChip.className).toContain("py-0.5");
+    await act(async () => contextChip.click());
+    expect(onInspectContextItem).not.toHaveBeenCalled();
   });
 });

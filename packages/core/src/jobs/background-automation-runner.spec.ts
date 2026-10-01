@@ -39,6 +39,21 @@ const getThreadMock = vi.hoisted(() =>
   })),
 );
 const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+const createThreadMock = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => ({ id: "thread-1" })),
+);
+
+vi.mock("../agent/engine/index.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../agent/engine/index.js")>();
+  return {
+    ...actual,
+    // Delegates to the real check unless a test overrides it.
+    isResolvedEngineUsableForRequest: vi.fn(
+      actual.isResolvedEngineUsableForRequest,
+    ),
+  };
+});
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   runAgentLoopDirectWithSoftTimeout: vi.fn(async () => ({
@@ -51,7 +66,7 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 }));
 
 vi.mock("../chat-threads/store.js", () => ({
-  createThread: vi.fn(async () => ({ id: "thread-1" })),
+  createThread: createThreadMock,
   getThread: getThreadMock,
   updateThreadData: updateThreadDataMock,
   withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
@@ -260,14 +275,12 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
           appId: "calendar",
         },
       ),
-    ).rejects.toMatchObject({
-      errorCode: "background_automation_mcp_tools_unavailable",
-    });
+    ).rejects.toMatchObject({ errorCode: "missing_tools" });
 
     const run = (await pglite
       .prepare(`SELECT error_code FROM automation_runs WHERE automation = ?`)
       .get(automationName)) as { error_code: string } | undefined;
-    expect(run?.error_code).toBe("background_automation_mcp_tools_unavailable");
+    expect(run?.error_code).toBe("missing_tools");
   });
 
   it("forwards the automation's configured reasoningEffort into the agent loop", async () => {
@@ -807,5 +820,420 @@ describe("runBackgroundAutomation — engine credentials with no deps.engine", (
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
     }
+  });
+});
+
+async function countRowsWithPrefix(prefix: string): Promise<number> {
+  const table = (await pglite
+    .prepare(`SELECT to_regclass('agent_runs') AS name`)
+    .get()) as { name: string | null };
+  if (!table.name) return 0;
+  const row = (await pglite
+    .prepare(`SELECT count(*) AS n FROM agent_runs WHERE id LIKE ?`)
+    .get(`${prefix}%`)) as { n: number | string };
+  return Number(row.n);
+}
+
+function precondition(name: string, overrides: Record<string, unknown> = {}) {
+  return {
+    name,
+    meta: {
+      schedule: "*/15 * * * *",
+      enabled: true,
+      model: "test-model",
+      ...overrides,
+    },
+    body: "Send the reminders.",
+    resource: {
+      owner: "alice@agent-native.test",
+      path: `jobs/${name}.md`,
+    } as any,
+  };
+}
+
+function runOptions(
+  automation: ReturnType<typeof precondition>,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    automation,
+    ownerEmail: "alice@agent-native.test",
+    prompt: "Send the reminders.",
+    threadTitle: `Job: ${automation.name}`,
+    runIdPrefix: `job-${automation.name}`,
+    usageLabel: `recurring-job:${automation.name}`,
+    ...overrides,
+  };
+}
+
+const standardDeps = {
+  getActions: () => ({}),
+  getSystemPrompt: async () => "system",
+  engine: testEngine,
+};
+
+describe("runBackgroundAutomation — preconditions fail before any thread or run exists", () => {
+  async function usableCheck() {
+    const engineIndex = await import("../agent/engine/index.js");
+    return vi.mocked(engineIndex.isResolvedEngineUsableForRequest);
+  }
+
+  it("records missing_credentials with its real cause and creates no thread or run", async () => {
+    const usable = await usableCheck();
+    usable.mockResolvedValueOnce(false);
+    createThreadMock.mockClear();
+    const automation = precondition("no-credentials");
+
+    await expect(
+      runBackgroundAutomation(runOptions(automation), standardDeps),
+    ).rejects.toMatchObject({
+      errorCode: "missing_credentials",
+      message: expect.stringContaining("No LLM provider is connected"),
+    });
+
+    expect(createThreadMock).not.toHaveBeenCalled();
+    await expect(countRowsWithPrefix("job-no-credentials")).resolves.toBe(0);
+    const history = (await pglite
+      .prepare(
+        `SELECT status, error, error_code FROM automation_runs WHERE automation = ?`,
+      )
+      .get("no-credentials")) as {
+      status: string;
+      error: string;
+      error_code: string;
+    };
+    expect(history).toMatchObject({
+      status: "error",
+      error_code: "missing_credentials",
+    });
+    expect(history.error).toContain("No LLM provider is connected");
+    expect(history.error).not.toContain("ended with status");
+  });
+
+  async function seedOrg(members: Array<[email: string, role: string]>) {
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
+      INSERT INTO "user" (id, email) VALUES ('u-alice', 'alice@agent-native.test')
+        ON CONFLICT DO NOTHING;
+      CREATE TABLE IF NOT EXISTS org_members (
+        org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
+        federation_removal_pending_at BIGINT
+      );
+      DELETE FROM org_members;
+    `);
+    for (const [email, role] of members) {
+      await pglite
+        .prepare(
+          `INSERT INTO org_members (org_id, email, role) VALUES ('acme', ?, ?)`,
+        )
+        .run(email, role);
+    }
+  }
+
+  async function orgJobAlertRecipient(name: string) {
+    const usable = await usableCheck();
+    usable.mockResolvedValueOnce(false);
+    const automation = precondition(name, {
+      runAs: "shared",
+      orgId: "acme",
+      createdBy: "alice@agent-native.test",
+    });
+    automation.resource.owner = "__organization__:acme";
+    await expect(
+      runBackgroundAutomation(
+        runOptions(automation, {
+          ownerEmail: "__organization__:acme",
+          orgId: "acme",
+        }),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({ errorCode: "missing_credentials" });
+    const history = (await pglite
+      .prepare(
+        `SELECT notification_email FROM automation_runs WHERE automation = ?`,
+      )
+      .get(name)) as { notification_email: string | null };
+    return history.notification_email;
+  }
+
+  it("alerts an org owner, not a creator who has left the organization", async () => {
+    await seedOrg([["bob@agent-native.test", "owner"]]);
+    expect(await orgJobAlertRecipient("org-creator-left")).toBe(
+      "bob@agent-native.test",
+    );
+  });
+
+  it("records no recipient, loudly, when nobody in the organization can be alerted", async () => {
+    await seedOrg([["carol@agent-native.test", "member"]]);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await orgJobAlertRecipient("org-no-recipient")).toBeNull();
+      expect(
+        errors.mock.calls.some((call) =>
+          String(call[0]).includes("automation_alert_no_recipient"),
+        ),
+      ).toBe(true);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("names who can fix a shared organization job and alerts its creator, not the pseudo owner", async () => {
+    await seedOrg([["alice@agent-native.test", "member"]]);
+    const usable = await usableCheck();
+    usable.mockResolvedValueOnce(false);
+    const automation = precondition("org-reminders", {
+      runAs: "shared",
+      orgId: "acme",
+      createdBy: "alice@agent-native.test",
+    });
+    automation.resource.owner = "__organization__:acme";
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(automation, {
+          ownerEmail: "__organization__:acme",
+          orgId: "acme",
+        }),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "missing_credentials",
+      message: expect.stringMatching(
+        /organization "acme".*admin.*personal connection is not used/s,
+      ),
+    });
+
+    const history = (await pglite
+      .prepare(
+        `SELECT notification_email FROM automation_runs WHERE automation = ?`,
+      )
+      .get("org-reminders")) as { notification_email: string | null };
+    expect(history.notification_email).toBe("alice@agent-native.test");
+  });
+
+  it("types the tool supplier's untyped missing-tools error and creates no thread", async () => {
+    createThreadMock.mockClear();
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("supplier-missing-tools")),
+        {
+          ...standardDeps,
+          getActions: () => {
+            throw new Error(
+              "Configured MCP tools are unavailable in this run: mcp__codex_apps__github_create_pr. Reconnect the MCP server or update the automation's capability list.",
+            );
+          },
+        },
+      ),
+    ).rejects.toThrow("Configured MCP tools are unavailable");
+
+    expect(createThreadMock).not.toHaveBeenCalled();
+    const history = (await pglite
+      .prepare(
+        `SELECT error, error_code FROM automation_runs WHERE automation = ?`,
+      )
+      .get("supplier-missing-tools")) as { error: string; error_code: string };
+    expect(history.error_code).toBe("missing_tools");
+    expect(history.error).toContain("mcp__codex_apps__github_create_pr");
+  });
+
+  it("does not call an unreadable credential store a missing credential", async () => {
+    const usable = await usableCheck();
+    const { CredentialStoreUnavailableError } =
+      await import("../server/credential-provider.js");
+    usable.mockRejectedValueOnce(new CredentialStoreUnavailableError());
+    createThreadMock.mockClear();
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("unreadable-store")),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({ errorCode: "credential_store_unavailable" });
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsupported delivery platform before running the agent", async () => {
+    createThreadMock.mockClear();
+    const automation = precondition("bad-delivery", {
+      deliveryPlatform: "carrier-pigeon",
+      deliveryDestination: "coop-1",
+    });
+
+    await expect(
+      runBackgroundAutomation(runOptions(automation), standardDeps),
+    ).rejects.toMatchObject({
+      errorCode: "config_invalid",
+      message: expect.stringContaining("carrier-pigeon"),
+    });
+    expect(createThreadMock).not.toHaveBeenCalled();
+    await expect(countRowsWithPrefix("job-bad-delivery")).resolves.toBe(0);
+  });
+
+  it("emails only the run that pauses the automation", async () => {
+    const usable = await usableCheck();
+    const runHistory = await import("./run-history.js");
+    const finishSpy = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      for (const [streak, quiet] of [
+        [undefined, true],
+        [1, true],
+        [2, false],
+      ] as const) {
+        usable.mockResolvedValueOnce(false);
+        finishSpy.mockClear();
+        const automation = precondition(`streak-${streak ?? 0}`, {
+          ...(streak
+            ? {
+                lastErrorCode: "missing_credentials",
+                consecutiveFailures: streak,
+              }
+            : {}),
+        });
+        await expect(
+          runBackgroundAutomation(runOptions(automation), standardDeps),
+        ).rejects.toMatchObject({ errorCode: "missing_credentials" });
+
+        const [, status, error, code, options] = finishSpy.mock.calls[0]!;
+        expect(status).toBe("error");
+        expect(code).toBe("missing_credentials");
+        if (quiet) {
+          expect(options).toEqual({ notify: false });
+          expect(error).not.toContain("Paused");
+        } else {
+          expect(options).toBeUndefined();
+          expect(error).toContain("Paused after 3 consecutive");
+        }
+      }
+    } finally {
+      finishSpy.mockRestore();
+    }
+  });
+
+  it("never lets a manual run count toward a pause", async () => {
+    const usable = await usableCheck();
+    const runHistory = await import("./run-history.js");
+    const finishSpy = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      usable.mockResolvedValueOnce(false);
+      const automation = precondition("manual-check", {
+        lastErrorCode: "missing_credentials",
+        consecutiveFailures: 2,
+      });
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, { manual: true }),
+          standardDeps,
+        ),
+      ).rejects.toMatchObject({ errorCode: "missing_credentials" });
+      const [, , error] = finishSpy.mock.calls[0]!;
+      expect(error).not.toContain("Paused");
+    } finally {
+      finishSpy.mockRestore();
+    }
+  });
+});
+
+describe("runBackgroundAutomation — a failed run reports its own cause", () => {
+  it("surfaces the run's error instead of 'ended with status: errored'", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const { EngineError } = await import("../agent/engine/types.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async () => {
+        throw new EngineError(
+          "No LLM provider is connected. Open Settings > Agent > AI providers.",
+          { errorCode: "missing_credentials" },
+        );
+      },
+    );
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("engine-credentials")),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "missing_credentials",
+      message: expect.stringContaining("No LLM provider is connected"),
+    });
+    const history = (await pglite
+      .prepare(
+        `SELECT error, error_code FROM automation_runs WHERE automation = ?`,
+      )
+      .get("engine-credentials")) as { error: string; error_code: string };
+    expect(history.error_code).toBe("missing_credentials");
+    expect(history.error).not.toContain("ended with status");
+  });
+
+  it("keeps a runtime error's real code and cause", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const { EngineError } = await import("../agent/engine/types.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async () => {
+        throw new EngineError("Gateway returned 502", {
+          errorCode: "http_502",
+        });
+      },
+    );
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("engine-runtime")),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "http_502",
+      message: expect.stringContaining("Gateway returned 502"),
+    });
+  });
+
+  it("tags the captured error with its code, owner kind and automation", async () => {
+    const { registerErrorCaptureProvider } =
+      await import("../server/capture-error.js");
+    const captured: Array<{ context: Record<string, any> }> = [];
+    const unregister = registerErrorCaptureProvider(
+      "background-automation-outcome-spec",
+      (_error, context) => {
+        captured.push({ context: context as Record<string, any> });
+        return undefined;
+      },
+    );
+    const usable = await (async () => {
+      const engineIndex = await import("../agent/engine/index.js");
+      return vi.mocked(engineIndex.isResolvedEngineUsableForRequest);
+    })();
+    usable.mockResolvedValueOnce(false);
+    try {
+      await expect(
+        runBackgroundAutomation(
+          runOptions(precondition("tagged-failure")),
+          standardDeps,
+        ),
+      ).rejects.toBeDefined();
+    } finally {
+      unregister();
+    }
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.context.tags).toMatchObject({
+      area: "background-automation",
+      automation: "tagged-failure",
+      errorCode: "missing_credentials",
+      failureKind: "precondition",
+      ownerKind: "user",
+    });
+    expect(captured[0]!.context.extra).toMatchObject({
+      automationName: "tagged-failure",
+      errorCode: "missing_credentials",
+      consecutiveFailures: 1,
+      paused: false,
+    });
   });
 });
