@@ -1120,6 +1120,7 @@ import {
   PngCaptureError,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
+import { mergePresenceUsers } from "./design-editor/presence-users";
 import { openPreviewUrl } from "./design-editor/preview-navigation";
 import {
   computeInteractZoomToFit,
@@ -7202,6 +7203,9 @@ function DesignEditor() {
     awareness: overviewAwareness,
     ydoc: overviewYdoc,
     isSynced: overviewIsSynced,
+    activeUsers: overviewActiveUsers,
+    agentPresent: overviewAgentPresent,
+    agentActive: overviewAgentActive,
   } = useCollaborativeDoc({
     docId:
       isSignedIn && canEditDesign && overviewPresenceFileId
@@ -26332,12 +26336,13 @@ function DesignEditor() {
           {hostEmbeddedEditor ? null : (
             <>
               <PresenceBar
-                activeUsers={[
-                  ...(currentUser ? [currentUser] : []),
-                  ...(activeUsers ?? []),
-                ]}
-                agentPresent={agentPresent}
-                agentActive={agentActive}
+                activeUsers={mergePresenceUsers(
+                  currentUser ? [currentUser] : [],
+                  activeUsers,
+                  overviewActiveUsers,
+                )}
+                agentPresent={agentPresent || overviewAgentPresent}
+                agentActive={agentActive || overviewAgentActive}
                 currentUserEmail={currentUser?.email}
                 showCurrentUser
                 followingEmail={followingEmail}
