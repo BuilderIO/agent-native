@@ -439,6 +439,7 @@ const messages = {
     retry: "重试",
     clickToAddComment: "点击添加评论",
     selectSlideToAdd: "选择幻灯片以添加评论",
+    filters: "评论筛选",
     scope: "评论范围",
     thisSlide: "此幻灯片",
     allComments: "所有幻灯片",

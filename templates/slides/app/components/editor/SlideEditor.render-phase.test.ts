@@ -509,6 +509,41 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain("window.getSelection()?.removeAllRanges();");
   });
 
+  it("gives inline text editing priority over comment-highlight clicks", () => {
+    const pointerStart = source.indexOf("const handleSlidePointerDown");
+    const pointerEnd = source.indexOf(
+      "// Keep these listeners stable while React re-renders the marquee overlay.",
+      pointerStart,
+    );
+    const pointerBody = source.slice(pointerStart, pointerEnd);
+    expect(pointerBody.indexOf("const targetIsEditingBlock")).toBeLessThan(
+      pointerBody.indexOf("slideCommentThreadAtPoint("),
+    );
+    expect(pointerBody).toContain("if (!editingEl && !pinMode && !drawMode)");
+
+    const clickStart = source.indexOf("const handleSlideClick");
+    const clickEnd = source.indexOf(
+      "const handleCanvasBackgroundPointerDown",
+      clickStart,
+    );
+    const clickBody = source.slice(clickStart, clickEnd);
+    expect(
+      clickBody.indexOf("if (editingEl?.contains(e.target as Node))"),
+    ).toBeLessThan(clickBody.indexOf("commentPress &&"));
+  });
+
+  it("starts a group drag when the pointer is on a selected text member", () => {
+    const pointerStart = source.indexOf(
+      "// Pointer-down on a member of the current multi-selection",
+    );
+    const selectedStart = source.indexOf("const selected =", pointerStart);
+    const groupDragPath = source.slice(pointerStart, selectedStart);
+
+    expect(groupDragPath).toContain("if (multiSelection.size > 0)");
+    expect(groupDragPath).toContain("if (id && multiSelection.has(id))");
+    expect(groupDragPath).not.toContain("!targetIsEditableText");
+  });
+
   it("does not let selection rerenders clear a newly selected object set", () => {
     const start = source.indexOf("const applyMultiSelectionRef");
     const end = source.indexOf("// One Escape owner", start);

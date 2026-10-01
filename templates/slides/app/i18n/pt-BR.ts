@@ -452,6 +452,7 @@ const messages = {
     retry: "Tentar novamente",
     clickToAddComment: "Clique para adicionar um comentário",
     selectSlideToAdd: "Selecione um slide para adicionar um",
+    filters: "Filtros de comentários",
     scope: "Escopo dos comentários",
     thisSlide: "Este slide",
     allComments: "Todos os slides",

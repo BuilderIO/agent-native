@@ -456,6 +456,7 @@ const messages = {
     retry: "Erneut versuchen",
     clickToAddComment: "Klicken, um einen Kommentar hinzuzufügen",
     selectSlideToAdd: "Wähle eine Folie aus, um einen hinzuzufügen",
+    filters: "Kommentarfilter",
     scope: "Kommentarbereich",
     thisSlide: "Diese Folie",
     allComments: "Alle Folien",
