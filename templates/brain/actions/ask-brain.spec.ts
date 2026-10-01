@@ -348,6 +348,33 @@ describe("ask-brain source answer policy", () => {
     ]);
   });
 
+  it("judges capture freshness by when the message was captured", async () => {
+    mocks.captures = [
+      {
+        ...capture({
+          id: "old-thread",
+          sourceId: "source-slack",
+          title: "Old retailer thread",
+          snippet: "Nick is demoing to a national grocery retailer next week.",
+        }),
+        capturedAt: "2020-01-01T00:00:00.000Z",
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    mocks.policies.set(
+      "source-slack",
+      policy("source-slack", { freshnessWindowDays: 30 }),
+    );
+
+    const result = await action.run({
+      question: "What retailer is Nick Nestle demoing to?",
+      mode: "cited",
+    });
+
+    expect(result.answerSource).toBe("none");
+    expect(result.citations).toEqual([]);
+  });
+
   it("reports an incomplete search when a capture search lane fails", async () => {
     mocks.lanes = {
       fts: { status: "ok" },

@@ -269,7 +269,7 @@ export default defineAction({
       answerPolicy: evaluateSourceAnswerPolicy({
         sourceIds: item.source?.id ? [item.source.id] : [],
         sourcePolicies,
-        contentUpdatedAt: item.updatedAt,
+        contentUpdatedAt: item.capturedAt ?? item.updatedAt,
         resultType: "capture",
         reviewed: false,
       }),
