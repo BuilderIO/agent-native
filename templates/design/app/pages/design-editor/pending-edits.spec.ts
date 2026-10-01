@@ -19,6 +19,7 @@ import {
   pendingVisualStyleRouteMatches,
   pendingVisualStyleGestureIdForPhase,
   resolveOverviewScreenSourceType,
+  updateVisualEditHandoffPublication,
 } from "./pending-edits";
 
 function styleEdit(
@@ -529,6 +530,37 @@ describe("isVisualEditHandoffAcknowledged", () => {
     expect(
       isVisualEditHandoffAcknowledged({ ...base, serverRevision: null }),
     ).toBe(false);
+  });
+
+  it("rechecks an empty response when the matching server revision arrives later", () => {
+    const handoff = { status: "empty", revision: 81 } as const;
+    const queued = updateVisualEditHandoffPublication(null, {
+      status: "queued",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+    const publication = updateVisualEditHandoffPublication(queued, {
+      status: "ready",
+      designId: "design-1",
+      publicationRevision: 4,
+      serverRevision: 81,
+    });
+
+    expect(
+      isVisualEditHandoffAcknowledged({
+        serverRevision: null,
+        pendingEditCount: 3,
+        ...handoff,
+      }),
+    ).toBe(false);
+    expect(publication?.serverRevision).toBe(81);
+    expect(
+      isVisualEditHandoffAcknowledged({
+        serverRevision: publication?.serverRevision ?? null,
+        pendingEditCount: 3,
+        ...handoff,
+      }),
+    ).toBe(true);
   });
 });
 

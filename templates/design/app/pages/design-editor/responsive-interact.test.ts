@@ -207,10 +207,10 @@ describe("responsive Interact wiring", () => {
     const consentQuery = source.slice(consentIndex, consentIndex + 700);
     expect(consentQuery).toContain("enabled: Boolean(id && canEditDesign)");
     expect(consentQuery).not.toContain("isSignedIn");
+    expect(consentQuery).toContain("localhostConsentRequestRefetchInterval({");
     expect(consentQuery).toContain(
-      "failedLocalhostConsentClear === `${id}:${request.requestedAt}`",
+      "failedClearKey: failedLocalhostConsentClear",
     );
-    expect(consentQuery).toMatch(/\?\s*1_000\s*:\s*false/);
 
     const consentEffect = source.slice(
       source.indexOf(
@@ -222,6 +222,13 @@ describe("responsive Interact wiring", () => {
     expect(consentEffect).not.toMatch(/!id\s*\|\|\s*!isSignedIn/);
     expect(consentEffect).toContain("localhostConsentRequestQuery.refetch()");
     expect(consentEffect).toContain("setFailedLocalhostConsentClear");
+    expect(consentEffect).not.toContain(
+      "lastLocalhostConsentRequestRef.current ===",
+    );
+    expect(consentEffect).toContain('if (disposition === "ignore") return;');
+    expect(consentEffect).toContain(
+      'const retryingClear = disposition === "retry-clear";',
+    );
 
     const commandChannel = source.slice(
       source.indexOf("designEditorCommandFromSearchParams(\n") - 600,

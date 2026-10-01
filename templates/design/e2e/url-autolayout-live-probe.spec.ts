@@ -1368,16 +1368,31 @@ test.describe("URL-backed live auto-layout probe", () => {
       sourceBox.y + sourceBox.height / 2,
     );
     await page.mouse.down();
-    await page.mouse.move(
-      sourceBox.x + sourceBox.width / 2 + 10,
-      sourceBox.y + sourceBox.height / 2 + 6,
-      { steps: 6 },
-    );
-    await page.mouse.move(
-      targetBox.x + targetBox.width / 2,
-      targetBox.y + targetBox.height * 0.85,
-      { steps: 20 },
-    );
+    const dragStart = {
+      x: sourceBox.x + sourceBox.width / 2,
+      y: sourceBox.y + sourceBox.height / 2,
+    };
+    const dragThreshold = { x: dragStart.x + 10, y: dragStart.y + 6 };
+    const dropPoint = {
+      x: targetBox.x + targetBox.width / 2,
+      y: targetBox.y + targetBox.height * 0.85,
+    };
+    for (let step = 1; step <= 6; step += 1) {
+      const progress = step / 6;
+      await page.mouse.move(
+        dragStart.x + (dragThreshold.x - dragStart.x) * progress,
+        dragStart.y + (dragThreshold.y - dragStart.y) * progress,
+      );
+      await page.waitForTimeout(16);
+    }
+    for (let step = 1; step <= 20; step += 1) {
+      const progress = step / 20;
+      await page.mouse.move(
+        dragThreshold.x + (dropPoint.x - dragThreshold.x) * progress,
+        dragThreshold.y + (dropPoint.y - dragThreshold.y) * progress,
+      );
+      await page.waitForTimeout(16);
+    }
     await expect
       .poll(() =>
         frame
@@ -1457,119 +1472,43 @@ test.describe("URL-backed live auto-layout probe", () => {
     expect(unloadGuarded).toBe(true);
     console.log("URL probe pending unload guard", unloadGuarded);
 
-    const applyUpdates = page.getByRole("button", {
-      name: "Apply design updates",
+    const copyPrompt = page.getByRole("button", {
+      name: "Copy prompt to your agent",
       exact: true,
     });
-    await expect(applyUpdates).toBeVisible({ timeout: 10_000 });
-    console.log(
-      "URL probe chat frame state",
-      await page.evaluate(() => ({
-        parentIsSelf: window.parent === window,
-        frameElement: Boolean(window.frameElement),
-        search: window.location.search,
-      })),
-    );
-    await page.evaluate(() => {
-      const state = window as typeof window & {
-        __urlProbeHandoff?: {
-          submitMessageId: string;
-          tabId?: string;
-          message?: string;
-          context?: string;
-        };
-      };
-      window.addEventListener("message", (event) => {
-        const payload = event.data;
-        if (payload?.type) {
-          console.log("URL probe chat message", payload.type);
-        }
-        const submitMessageId = payload?.data?.submitMessageId;
-        if (
-          payload?.type !== "agentNative.submitChat" ||
-          typeof submitMessageId !== "string"
-        ) {
-          return;
-        }
-        state.__urlProbeHandoff = {
-          submitMessageId,
-          tabId:
-            typeof payload.data.tabId === "string"
-              ? payload.data.tabId
-              : undefined,
-          message:
-            typeof payload.data.message === "string"
-              ? payload.data.message
-              : undefined,
-          context:
-            typeof payload.data.context === "string"
-              ? payload.data.context
-              : undefined,
-        };
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatSubmitResult", {
-            detail: { submitMessageId, delivered: true },
-          }),
-        );
+    await expect(copyPrompt).toBeVisible({ timeout: 10_000 });
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
       });
-    });
-    await applyUpdates.click();
-    console.log("URL probe started Apply design updates handoff");
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            document.body.innerText.includes("Verifying source and runtime"),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    console.log(
-      "URL probe apply state after 1s",
-      await page.evaluate(() => ({
-        toolbar: document.querySelector(
-          "[data-design-pending-visual-style-toolbar]",
-        )?.textContent,
-        dialogs: Array.from(document.querySelectorAll('[role="dialog"]')).map(
-          (dialog) => ({
-            text: dialog.textContent,
-            hidden: (dialog as HTMLElement).hidden,
-          }),
-        ),
-        body: document.body.innerText.includes("Verifying source and runtime"),
-      })),
+    await copyPrompt.click();
+    const copiedPrompt = await page.evaluate(() =>
+      navigator.clipboard.readText(),
     );
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            Boolean(
-              (window as typeof window & { __urlProbeHandoff?: unknown })
-                .__urlProbeHandoff,
-            ),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    const sourceHandoff = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __urlProbeHandoff?: {
-              submitMessageId?: string;
-              message?: string;
-              context?: string;
-            };
-          }
-        ).__urlProbeHandoff,
+    expect(copiedPrompt).toContain("get-visual-edit-pending");
+    expect(copiedPrompt).toContain(designId);
+    await page.getByRole("button", { name: "Pending visual preview" }).click();
+    await page.getByRole("menuitem", { name: "Copy full prompt" }).click();
+    const copiedFullPrompt = await page.evaluate(() =>
+      navigator.clipboard.readText(),
     );
-    expect(sourceHandoff?.submitMessageId).toBeTruthy();
-    expect(sourceHandoff?.message).toContain("source");
-    expect(sourceHandoff?.context).toContain("index.html");
-    expect(sourceHandoff?.context).toContain('"sourceId": "v1"');
-    expect(sourceHandoff?.context).toContain('"anchorSourceId": "v3"');
-    expect(sourceHandoff?.context).toContain('"dropMode": "flow-insert"');
-    console.log("URL probe source handoff acknowledged", sourceHandoff);
+    expect(copiedFullPrompt).toContain("Design ID: " + designId);
+    expect(copiedFullPrompt).toContain("idiomatic code changes");
+    expect(copiedFullPrompt).toContain("index.html");
+    expect(copiedFullPrompt).toContain('"sourceId": "v1"');
+    expect(copiedFullPrompt).toContain('"anchorSourceId": "v3"');
+
+    const handoffResponse = await page.request.get(
+      `${baseURL}/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(designId)}`,
+    );
+    expect(handoffResponse.ok()).toBe(true);
+    const handoff = (await handoffResponse.json()) as {
+      revision?: number;
+      status?: string;
+    };
+    expect(handoff.status).toBe("ready");
+    expect(handoff.revision).toEqual(expect.any(Number));
 
     const readResult = (await call("read-local-file", {
       designId,
@@ -1641,6 +1580,16 @@ test.describe("URL-backed live auto-layout probe", () => {
       "URL probe source order after bridge write",
       [...diskAfterApply.matchAll(/\sid="(v[123])"/g)].map((match) => match[1]),
     );
+    await expect.poll(order, { timeout: 30_000 }).toEqual(["v2", "v3", "v1"]);
+    const acknowledgementResponse = await page.request.post(
+      `${baseURL}/_agent-native/actions/acknowledge-visual-edit-pending`,
+      { data: { designId, revision: handoff.revision } },
+    );
+    expect(acknowledgementResponse.ok()).toBe(true);
+    expect(await acknowledgementResponse.json()).toMatchObject({
+      status: "empty",
+      pendingEditCount: 0,
+    });
     await expect
       .poll(
         async () => {

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveLocalhostSourceWriteContent } from "./design-editor/editor-state";
-import { localhostConsentRequestDisposition } from "./design-editor/localhost-consent-request";
+import {
+  localhostConsentRequestDisposition,
+  localhostConsentRequestRefetchInterval,
+} from "./design-editor/localhost-consent-request";
 
 describe("resolveLocalhostSourceWriteContent", () => {
   it("uses the authenticated live snapshot for URL-backed HTML screens", () => {
@@ -81,5 +84,29 @@ describe("localhostConsentRequestDisposition", () => {
         failedClearKey: null,
       }),
     ).toBe("ignore");
+  });
+
+  it("backs off idle polling and retries only a failed clear", () => {
+    expect(
+      localhostConsentRequestRefetchInterval({
+        requestKey: null,
+        failedClearKey: null,
+        queryFailed: false,
+      }),
+    ).toBe(10_000);
+    expect(
+      localhostConsentRequestRefetchInterval({
+        requestKey: "design:requested-at",
+        failedClearKey: null,
+        queryFailed: false,
+      }),
+    ).toBe(false);
+    expect(
+      localhostConsentRequestRefetchInterval({
+        requestKey: "design:requested-at",
+        failedClearKey: "design:requested-at",
+        queryFailed: false,
+      }),
+    ).toBe(1_000);
   });
 });
