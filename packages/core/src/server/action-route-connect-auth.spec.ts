@@ -72,10 +72,24 @@ function mockDb(
         return { rows: [{ role: "member" }] };
       }
       if (
-        /SELECT org_id FROM mcp_connect_tokens/.test(sql) &&
+        /FROM organizations/.test(sql) &&
+        opts.memberOf?.includes(String(args[0]))
+      ) {
+        return { rows: [{ identity_authority: null, identity_id: null }] };
+      }
+      if (
+        /SELECT org_id, owner_email, kind FROM mcp_connect_tokens/.test(sql) &&
         opts.storedTokenOrgId !== undefined
       ) {
-        return { rows: [{ org_id: opts.storedTokenOrgId }] };
+        return {
+          rows: [
+            {
+              org_id: opts.storedTokenOrgId,
+              owner_email: "owner@plans.test",
+              kind: "personal",
+            },
+          ],
+        };
       }
       return { rows: [] };
     },

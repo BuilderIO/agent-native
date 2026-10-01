@@ -66,6 +66,8 @@ import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
+  type ConnectTokenOrgLookup,
+  type StoredConnectTokenIdentity,
 } from "./connect-store.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
@@ -2715,11 +2717,13 @@ async function markConnectTokenUsed(jti: string | undefined): Promise<void> {
 }
 
 type ConnectTokenOrgResolution =
-  | { status: "claimed"; orgId: string | null }
-  | { status: "found"; orgId: string | null }
-  | { status: "missing" }
-  | { status: "unclaimed" }
-  | { status: "unavailable" };
+  | {
+      status: "claimed";
+      orgId: string | null;
+      storedConnectToken?: StoredConnectTokenIdentity;
+    }
+  | ConnectTokenOrgLookup
+  | { status: "unclaimed" };
 
 /**
  * `connectJti` is set only for connect tokens. Any other token without an
@@ -2730,12 +2734,20 @@ async function resolveConnectTokenOrgId(
   connectJti: string | undefined,
   claimedOrgId: string | null | undefined,
 ): Promise<ConnectTokenOrgResolution> {
-  if (claimedOrgId !== undefined) {
-    return { status: "claimed", orgId: claimedOrgId };
+  let stored: ConnectTokenOrgLookup | undefined;
+  if (connectJti) {
+    const { lookupConnectTokenOrg } = await import("./connect-store.js");
+    stored = await lookupConnectTokenOrg(connectJti);
+    if (stored.status === "unavailable") return stored;
   }
-  if (!connectJti) return { status: "unclaimed" };
-  const { lookupConnectTokenOrg } = await import("./connect-store.js");
-  return lookupConnectTokenOrg(connectJti);
+  if (claimedOrgId !== undefined) {
+    return {
+      status: "claimed",
+      orgId: claimedOrgId,
+      ...(stored?.status === "found" ? { storedConnectToken: stored } : {}),
+    };
+  }
+  return stored ?? { status: "unclaimed" };
 }
 
 function orgIdFromConnectTokenResolution(
@@ -2780,6 +2792,7 @@ export type VerifyAuthResult = {
 async function admitIssuedCredential(
   result: VerifyAuthResult & { identity: MCPCallerIdentity },
   requestOrigin: string | undefined,
+  orgResolution: ConnectTokenOrgResolution,
 ): Promise<VerifyAuthResult> {
   const orgId = result.identity.orgId;
   if (typeof orgId !== "string" || !orgId) return result;
@@ -2789,6 +2802,11 @@ async function admitIssuedCredential(
     orgId,
     email: result.identity.userEmail,
     requestOrigin,
+    ...(orgResolution.status === "found"
+      ? { storedConnectToken: orgResolution }
+      : orgResolution.status === "claimed" && orgResolution.storedConnectToken
+        ? { storedConnectToken: orgResolution.storedConnectToken }
+        : {}),
   });
   if (membership === "member") return result;
   return membership === "unavailable"
@@ -2870,6 +2888,7 @@ export async function verifyAuth(
           fullCatalog: oauthIdentity.catalogScope === "full",
         },
         options.requestOrigin,
+        orgResolution,
       );
       if (
         admitted.authed &&
@@ -2915,8 +2934,10 @@ export async function verifyAuth(
 
     const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
     if (!orgIdClaim) return { authed: false };
+    const firstPartyMcp = payload.agent_native_first_party_mcp === true;
     const orgResolution = await resolveConnectTokenOrgId(
-      tokenScope === MCP_CONNECT_SCOPE
+      tokenScope === MCP_CONNECT_SCOPE &&
+        (!firstPartyMcp || orgIdClaim.orgId === undefined)
         ? (payload.jti as string | undefined)
         : undefined,
       orgIdClaim.orgId,
@@ -2925,7 +2946,6 @@ export async function verifyAuth(
       return { authed: false, unavailable: true };
     }
     const orgId = orgIdFromConnectTokenResolution(orgResolution);
-    const firstPartyMcp = payload.agent_native_first_party_mcp === true;
     const verified = {
       authed: true,
       identity: {
@@ -2944,7 +2964,11 @@ export async function verifyAuth(
     // sibling app per call, so they are cross-app A2A tokens.
     const admitted =
       tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp
-        ? await admitIssuedCredential(verified, options.requestOrigin)
+        ? await admitIssuedCredential(
+            verified,
+            options.requestOrigin,
+            orgResolution,
+          )
         : verified;
     if (admitted.authed && tokenScope === MCP_CONNECT_SCOPE) {
       await markConnectTokenUsed(payload.jti as string | undefined);

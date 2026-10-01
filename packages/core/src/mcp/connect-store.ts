@@ -199,8 +199,13 @@ export async function isJtiRevoked(jti: string): Promise<boolean> {
   }
 }
 
+export type StoredConnectTokenIdentity = Pick<
+  MintedTokenRow,
+  "kind" | "ownerEmail" | "orgId"
+>;
+
 export type ConnectTokenOrgLookup =
-  | { status: "found"; orgId: string | null }
+  | ({ status: "found" } & StoredConnectTokenIdentity)
   | { status: "missing" }
   | { status: "unavailable" };
 
@@ -211,13 +216,25 @@ export async function lookupConnectTokenOrg(
     await ensureTable();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT org_id FROM mcp_connect_tokens WHERE jti = ?`,
+      sql: `SELECT org_id, owner_email, kind FROM mcp_connect_tokens WHERE jti = ?`,
       args: [jti],
     });
     if (rows.length === 0) return { status: "missing" };
     const rawOrgId = rows[0].org_id ?? rows[0].orgId;
+    const ownerEmail = rows[0].owner_email ?? rows[0].ownerEmail;
+    const kind = rows[0].kind;
+    if (
+      typeof ownerEmail !== "string" ||
+      !ownerEmail.trim() ||
+      (kind !== "personal" && kind !== "service") ||
+      (rawOrgId != null && (typeof rawOrgId !== "string" || !rawOrgId.trim()))
+    ) {
+      return { status: "unavailable" };
+    }
     return {
       status: "found",
+      ownerEmail,
+      kind,
       orgId:
         typeof rawOrgId === "string" && rawOrgId.trim()
           ? rawOrgId.trim()

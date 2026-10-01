@@ -768,6 +768,69 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
+  it.each(["legacy", "oauth"])(
+    "passes local service provenance for an authenticated %s connect credential with an org claim",
+    async (transport) => {
+      const stored = {
+        status: "found",
+        kind: "service",
+        ownerEmail: "svc-ci@service.org_123",
+        orgId: "org_123",
+      };
+      lookupConnectTokenOrgMock.mockResolvedValue(stored);
+      const token =
+        transport === "legacy"
+          ? await sign({
+              sub: stored.ownerEmail,
+              scope: "mcp-connect",
+              jti: "jti-service-provenance",
+              org_id: stored.orgId,
+            })
+          : await signMcpOAuthAccessToken({
+              ownerEmail: stored.ownerEmail,
+              orgId: stored.orgId,
+              clientId: "agent-native-connect",
+              jti: "jti-service-provenance",
+              scope: "mcp:read",
+              resource,
+              issuer: "https://mail.agent-native.com",
+            });
+
+      expect(
+        (
+          await verifyAuth(`Bearer ${token}`, undefined, {
+            resourceUrl: resource,
+          })
+        ).authed,
+      ).toBe(true);
+      expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith(
+        "jti-service-provenance",
+      );
+      expect(checkCredentialOrgMembershipMock).toHaveBeenCalledWith({
+        orgId: stored.orgId,
+        email: stored.ownerEmail,
+        requestOrigin: undefined,
+        storedConnectToken: stored,
+      });
+    },
+  );
+
+  it("answers a retryable failure for a connect token with an org claim when stored provenance is unreadable", async () => {
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
+    const token = await sign({
+      sub: "svc-ci@service.org_123",
+      scope: "mcp-connect",
+      jti: "jti-service-provenance-unavailable",
+      org_id: "org_123",
+    });
+    expect(await verifyAuth(`Bearer ${token}`)).toEqual({
+      authed: false,
+      unavailable: true,
+    });
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
   it("does not record use of a connect token it cannot admit", async () => {
     checkCredentialOrgMembershipMock.mockResolvedValue("unavailable");
     const token = await sign({
@@ -828,6 +891,37 @@ describe("verifyAuth — the token's organization must still be the user's", () 
         firstPartyMcp: true,
       },
     });
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves Personal scope for an unclaimed first-party token with no local row", async () => {
+    resolveOrgByDomainMock.mockResolvedValue({
+      orgId: "recipient-org-by-domain",
+    });
+    resolveOrgIdForEmailMock.mockResolvedValue("recipient-org-by-email");
+    const token = await sign(
+      {
+        sub: "a@example.com",
+        scope: "mcp-connect",
+        jti: "jti-first-party-unclaimed",
+        org_domain: "builder.io",
+        agent_native_first_party_mcp: true,
+      },
+      SECRET,
+      { audience: "https://assets.example.com/_agent-native/mcp" },
+    );
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://assets.example.com/_agent-native/mcp",
+    });
+    expect(res).toMatchObject({ authed: true, identity: { orgId: null } });
+    await expect(
+      resolveMcpIdentityOrgId(res.identity),
+    ).resolves.toBeUndefined();
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith(
+      "jti-first-party-unclaimed",
+    );
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
   });
 });

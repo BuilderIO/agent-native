@@ -34,11 +34,11 @@ vi.mock("../org/membership.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../org/membership.js")>();
   return {
     ...actual,
-    isOrgMember: async (orgId: string, email: string) => {
+    isOrgMember: async (...args: Parameters<typeof actual.isOrgMember>) => {
       if (membershipLookup.fail) {
         throw new Error("synthetic: the database connection was lost");
       }
-      return actual.isOrgMember(orgId, email);
+      return actual.isOrgMember(...args);
     },
   };
 });
@@ -78,6 +78,7 @@ const BOB = "bob@example.test";
 const CAROL = "carol@example.test";
 const DAVE = "dave@example.test";
 const ORG = "org-synthetic-membership";
+const SERVICE_SHAPED_HUMAN = `svc-human@service.${ORG}`;
 const REDIRECT_URI = "http://localhost:5555/callback";
 const CODE_VERIFIER = "synthetic-pkce-verifier-".padEnd(64, "x");
 const ORG_DOC = "synthetic-org-visible-doc";
@@ -304,6 +305,8 @@ let carolPendingCode: { client: McpClient; code: string };
 let bobConnectToken: { token: string; jti: string };
 let bobDeviceCode: string;
 let serviceToken: string;
+let serviceShapedHuman: McpConnection;
+let serviceShapedHumanPendingCode: { client: McpClient; code: string };
 let removal: unknown;
 const beforeRemoval: {
   bob?: Awaited<ReturnType<typeof authenticateMcpRequest>>;
@@ -345,12 +348,18 @@ beforeAll(async () => {
       ('synthetic-bob', 'Bob', '${BOB}', true, now(), now()),
       ('synthetic-carol', 'Carol', '${CAROL}', true, now(), now())
   `);
+  await exec.execute({
+    sql: `INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at)
+          VALUES ('synthetic-service-shaped-human', 'Human', ?, true, now(), now())`,
+    args: [SERVICE_SHAPED_HUMAN],
+  });
 
   // Alice creates the org; she invites Bob and Carol, who accept — the real
   // handlers.
   await createOrganization("Synthetic Org", ALICE, "owner", { id: ORG });
   await invite(BOB);
   await invite(CAROL);
+  await invite(SERVICE_SHAPED_HUMAN);
 
   // A document Alice shares with her org, the kind of row org scope exposes.
   await exec.execute(`
@@ -385,6 +394,15 @@ beforeAll(async () => {
   alice = await connectMcpClient(ALICE);
   bob = await connectMcpClient(BOB);
   carol = await connectMcpClient(CAROL);
+  serviceShapedHuman = await connectMcpClient(SERVICE_SHAPED_HUMAN);
+  const serviceShapedHumanPendingClient = await registerMcpClient();
+  serviceShapedHumanPendingCode = {
+    client: serviceShapedHumanPendingClient,
+    code: await authorizationCode(
+      SERVICE_SHAPED_HUMAN,
+      serviceShapedHumanPendingClient,
+    ),
+  };
   const bobPendingClient = await registerMcpClient();
   bobPendingCode = {
     client: bobPendingClient,
@@ -449,6 +467,10 @@ beforeAll(async () => {
   await exec.execute({
     sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
     args: [ORG, CAROL],
+  });
+  await exec.execute({
+    sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+    args: [ORG, SERVICE_SHAPED_HUMAN],
   });
 }, 180_000);
 
@@ -554,6 +576,32 @@ describe("MCP OAuth access after the user is removed from the org", () => {
 });
 
 describe("MCP OAuth access after membership ends without offboarding", () => {
+  it("refuses a human OAuth access token whose subject uses a service address", async () => {
+    const { auth } = await authenticateMcpRequest(
+      serviceShapedHuman.accessToken,
+    );
+    expect(auth).toEqual({ authed: false });
+  });
+
+  it("refuses a human OAuth refresh whose subject uses a service address", async () => {
+    const refreshed = await refresh(serviceShapedHuman);
+    expect(refreshed.status).toBe(400);
+    expect(refreshed.body.error).toBe("invalid_grant");
+    expect(refreshed.body.access_token).toBeUndefined();
+  });
+
+  it("refuses human OAuth code issuance whose subject uses a service address", async () => {
+    const exchanged = await exchangeCode(
+      serviceShapedHumanPendingCode.client,
+      serviceShapedHumanPendingCode.code,
+    );
+    expect(exchanged.status).toBe(400);
+    expect(exchanged.body.error).toBe("invalid_grant");
+    expect(await refreshRowsFor(serviceShapedHumanPendingCode.client)).toEqual(
+      [],
+    );
+  });
+
   it("refuses the access token of a user whose membership row is gone", async () => {
     const { auth } = await authenticateMcpRequest(carol.accessToken);
     expect(auth).toEqual({ authed: false });

@@ -8869,11 +8869,30 @@ describe("server/auth", () => {
       delete process.env.A2A_SECRET;
 
       // The token names org-123, so its owner must still be a member there.
-      const mockExecute = vi.fn(async ({ sql }: { sql: string }) => ({
-        rows: /FROM org_members/.test(sql)
-          ? [{ role: "member", federation_removal_pending_at: null }]
-          : [],
-      }));
+      const mockExecute = vi.fn(async ({ sql }: { sql: string }) => {
+        if (/FROM org_members/.test(sql)) {
+          return {
+            rows: [{ role: "member", federation_removal_pending_at: null }],
+          };
+        }
+        if (/FROM organizations/.test(sql)) {
+          return { rows: [{ identity_authority: null, identity_id: null }] };
+        }
+        if (
+          /SELECT org_id, owner_email, kind FROM mcp_connect_tokens/.test(sql)
+        ) {
+          return {
+            rows: [
+              {
+                org_id: "org-123",
+                owner_email: "owner@plans.test",
+                kind: "personal",
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,

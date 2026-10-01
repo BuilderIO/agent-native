@@ -71,13 +71,22 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     const t = tokens.find((r) => r.jti === args[0]);
     return { rows: t ? [{ revoked_at: t.revoked_at }] : [], rowsAffected: 0 };
   }
-  if (/^SELECT org_id FROM mcp_connect_tokens WHERE jti = \?/i.test(sql)) {
+  if (
+    /^SELECT org_id, owner_email, kind FROM mcp_connect_tokens WHERE jti = \?/i.test(
+      sql,
+    )
+  ) {
     if (failNextOrgLookup) {
       failNextOrgLookup = false;
       throw new Error("transient org lookup failure");
     }
     const t = tokens.find((r) => r.jti === args[0]);
-    return { rows: t ? [{ org_id: t.org_id }] : [], rowsAffected: 0 };
+    return {
+      rows: t
+        ? [{ org_id: t.org_id, owner_email: t.owner_email, kind: t.kind }]
+        : [],
+      rowsAffected: 0,
+    };
   }
   if (
     /^SELECT id, jti, owner_email.* FROM mcp_connect_tokens WHERE owner_email = \?/i.test(
@@ -321,12 +330,50 @@ describe("connect-store", () => {
       await expect(store.lookupConnectTokenOrg("jti-org")).resolves.toEqual({
         status: "found",
         orgId: "org-1",
+        ownerEmail: "a@example.com",
+        kind: "personal",
       });
       await expect(
         store.lookupConnectTokenOrg("jti-personal"),
-      ).resolves.toEqual({ status: "found", orgId: null });
+      ).resolves.toEqual({
+        status: "found",
+        orgId: null,
+        ownerEmail: "a@example.com",
+        kind: "personal",
+      });
       await expect(store.lookupConnectTokenOrg("missing")).resolves.toEqual({
         status: "missing",
+      });
+    });
+
+    it("returns stored service identity provenance for credential admission", async () => {
+      await store.recordMintedToken({
+        jti: "jti-service",
+        ownerEmail: "svc-ci@service.org-1",
+        orgId: "org-1",
+        kind: "service",
+      });
+      await expect(store.lookupConnectTokenOrg("jti-service")).resolves.toEqual(
+        {
+          status: "found",
+          orgId: "org-1",
+          ownerEmail: "svc-ci@service.org-1",
+          kind: "service",
+        },
+      );
+    });
+
+    it("reports unreadable credential metadata instead of admitting a plausible identity", async () => {
+      await store.recordMintedToken({
+        jti: "jti-invalid-kind",
+        ownerEmail: "svc-ci@service.org-1",
+        orgId: "org-1",
+      });
+      tokens[0].kind = "unknown";
+      await expect(
+        store.lookupConnectTokenOrg("jti-invalid-kind"),
+      ).resolves.toEqual({
+        status: "unavailable",
       });
     });
 

@@ -19,6 +19,7 @@ import {
   getRequestContext,
   runWithRequestContext,
 } from "../server/request-context.js";
+import type { StoredConnectTokenIdentity } from "./connect-store.js";
 
 /**
  * `unavailable` means the check could not run (database or identity-authority
@@ -31,19 +32,26 @@ export type CredentialOrgMembership = "member" | "not-member" | "unavailable";
 export async function checkCredentialOrgMembership(input: {
   orgId: string;
   email: string | undefined;
+  storedConnectToken?: StoredConnectTokenIdentity;
   /** This app's public origin; federated orgs need it to reach the identity authority. */
   requestOrigin?: string;
 }): Promise<CredentialOrgMembership> {
   const orgId = input.orgId.trim();
   const email = input.email?.trim();
   if (!orgId || !email) return "not-member";
-  // Org service tokens authenticate as `svc-<name>@service.<orgId>` and are
-  // never in org_members. The signed org claim must match the identity's org,
-  // exactly as on the session path. (Not lowercased: org ids keep their case.)
-  if (implicitServiceOrgRole({ email, orgId, requestOrgId: orgId })) {
+  // A human OAuth subject can use a service-shaped address. Only the local
+  // record of an authenticated connect token proves it is a service identity.
+  const stored = input.storedConnectToken;
+  if (
+    stored?.kind === "service" &&
+    stored.ownerEmail === email &&
+    stored.orgId === orgId &&
+    implicitServiceOrgRole({ email, orgId, requestOrgId: stored.orgId })
+  ) {
     return "member";
   }
-  const lookup = () => isOrgMember(orgId, email);
+  const lookup = () =>
+    isOrgMember(orgId, email, { requireOrganizationMetadata: true });
   const context = getRequestContext();
   try {
     const member =
