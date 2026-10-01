@@ -808,13 +808,24 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .poll(async () => {
         const frames = (await designData(request, designId)).canvasFrames;
         return {
+          copy: frames?.[dup1Id],
           sourceZ: frames?.[sourceId]?.z,
           firstCopyZ: frames?.[dup1Id]?.z,
           neighborZ: frames?.[neighborId]?.z,
           fartherZ: frames?.[fartherId]?.z,
         };
       })
-      .toEqual({ sourceZ: 0, firstCopyZ: 1, neighborZ: 2, fartherZ: 3 });
+      .toEqual({
+        copy: {
+          ...sourceGeometry,
+          x: sourceGeometry.x + sourceGeometry.width + DESIGN_SCREEN_GAP,
+          z: 1,
+        },
+        sourceZ: 0,
+        firstCopyZ: 1,
+        neighborZ: 2,
+        fartherZ: 3,
+      });
 
     await page.keyboard.press(`${MOD}+Shift+z`);
     await expect
@@ -926,9 +937,29 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         };
       })
       .toEqual({
-        sourceCopy: { ...geometry[sourceId], x: 736, z: 1 },
-        neighborCopy: { ...geometry[neighborId], x: 1488, z: 3 },
-        fartherCopy: { ...geometry[fartherId], x: 1848, z: 5 },
+        sourceCopy: {
+          ...geometry[sourceId],
+          x:
+            geometry[neighborId].x +
+            geometry[neighborId].width +
+            DESIGN_SCREEN_GAP,
+          z: 1,
+        },
+        neighborCopy: {
+          ...geometry[neighborId],
+          x:
+            geometry[fartherId].x +
+            geometry[fartherId].width +
+            DESIGN_SCREEN_GAP,
+          z: 3,
+        },
+        fartherCopy: {
+          ...geometry[fartherId],
+          x:
+            geometry[fartherId].x +
+            2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
+          z: 5,
+        },
         farther: { ...geometry[fartherId], z: 4 },
       });
 
@@ -939,13 +970,9 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await expect
       .poll(async () => {
         const frames = (await designData(request, designId)).canvasFrames;
-        return [
-          frames?.[sourceId]?.z,
-          frames?.[neighborId]?.z,
-          frames?.[fartherId]?.z,
-        ];
+        return [frames?.[sourceId], frames?.[neighborId], frames?.[fartherId]];
       })
-      .toEqual([0, 1, 2]);
+      .toEqual([geometry[sourceId], geometry[neighborId], geometry[fartherId]]);
 
     await page.keyboard.press(`${MOD}+Shift+z`);
     await expect
@@ -954,6 +981,46 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await expect
       .poll(() => selectedScreenFilenames(request, designId))
       .toEqual(copies.slice().sort());
+    const [redoneSourceCopyId, redoneNeighborCopyId, redoneFartherCopyId] =
+      await Promise.all([
+        fileId(request, designId, "index-copy.html"),
+        fileId(request, designId, "neighbor-copy.html"),
+        fileId(request, designId, "farther-copy.html"),
+      ]);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          sourceCopy: frames?.[redoneSourceCopyId],
+          neighborCopy: frames?.[redoneNeighborCopyId],
+          fartherCopy: frames?.[redoneFartherCopyId],
+        };
+      })
+      .toEqual({
+        sourceCopy: {
+          ...geometry[sourceId],
+          x:
+            geometry[neighborId].x +
+            geometry[neighborId].width +
+            DESIGN_SCREEN_GAP,
+          z: 1,
+        },
+        neighborCopy: {
+          ...geometry[neighborId],
+          x:
+            geometry[fartherId].x +
+            geometry[fartherId].width +
+            DESIGN_SCREEN_GAP,
+          z: 3,
+        },
+        fartherCopy: {
+          ...geometry[fartherId],
+          x:
+            geometry[fartherId].x +
+            2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
+          z: 5,
+        },
+      });
   });
 
   test("step 6 [in-screen]: dragging a new element into the assembled page reorders it between existing children via the layers panel", async ({
