@@ -491,9 +491,9 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   maxResultChars: 100_000,
   description:
-    "Query bounded Gong sales-call evidence. Pass --users for the user list, --transcript for one transcript, or --company for a bounded search by company/domain/person/email. Without --company, the action lists calls in the date window; set exhaustive=true only for a small bounded cohort of fewer than 500 records, not a broad org-wide export. For account-level transcript mention questions, transcriptQuery performs a case-insensitive local scan after batched transcript retrieval and returns coverage counts plus snippets; it is not Gong's server-side keyword search. Use includeTranscripts=true for bounded qualitative context. For broad keyword, tracker, cross-account, or absence-sensitive work, use provider-api-catalog/provider-api-docs, stage the raw Gong API response, then use query-staged-dataset or a Data Program; use provider-corpus-job only when raw transcript bodies are required.",
+    "Query bounded Gong sales-call evidence. Pass --users for the user list, --transcript for one transcript, or --company for a bounded call search; without --company, lists calls in the date window. For broad keyword, tracker, cross-account, or absence-sensitive work, stage the raw Gong API response via provider-api-catalog/provider-api-docs/provider-api-request, then use query-staged-dataset or a Data Program; use provider-corpus-job only for durable scans that require raw transcript bodies.",
   schema: z.object({
-    users: cliBoolean.optional().describe("Set to true to list Gong users"),
+    users: cliBoolean.optional().describe("List Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),
     rawTranscript: cliBoolean
       .optional()
@@ -515,7 +515,7 @@ export default defineAction({
       .max(200)
       .optional()
       .describe(
-        "Maximum number of calls to return for call searches (default 8, max 200). Use 5-8 for quick checks, 20-50 for thorough account analysis, 100-200 for large-scale coverage.",
+        "Max calls to return (default 8). Use 5-8 for quick checks, 20-50 for thorough account analysis, 100-200 for large-scale coverage.",
       ),
     includeTranscripts: cliBoolean
       .optional()
@@ -529,7 +529,7 @@ export default defineAction({
       .max(MAX_GONG_TRANSCRIPT_LIMIT)
       .optional()
       .describe(
-        "Number of matching calls to load transcripts for when includeTranscripts=true (default 3, max 50). Use 3-5 for a first pass; increase to 10-20+ for thorough account analysis.",
+        "Matching calls to load transcripts for when includeTranscripts=true (default 3). Use 3-5 for a first pass, 10-20+ for thorough account analysis.",
       ),
     transcriptMaxChars: z.coerce
       .number()
@@ -538,13 +538,13 @@ export default defineAction({
       .max(MAX_TRANSCRIPT_MAX_CHARS)
       .optional()
       .describe(
-        "Maximum transcript characters to return per call (default 8000, max 100000). Batched results also share a 60000-character aggregate excerpt budget. Use the default for analysis; raise it only when the user asks for more quoted detail.",
+        "Max transcript characters per call (default 8000). Batched results also share a 60000-character aggregate excerpt budget. Use the default for analysis; raise it only when the user asks for more quoted detail.",
       ),
     transcriptQuery: z
       .string()
       .optional()
       .describe(
-        "Case-insensitive phrase to search inside matching call transcripts after batched retrieval. Use only for bounded account/call searches where the matching set is already small. For broad cohort or exhaustive absence research, use the raw Gong API tracker/staging path plus query-staged-dataset or a Data Program, or provider-corpus-job when raw transcript bodies are required. Returns coverage counts and short snippets only, not full transcripts.",
+        "Case-insensitive phrase for a local scan of matching call transcripts after batched retrieval; not Gong's server-side keyword search. Use only for bounded account-level mention questions where the matching call set is already small. Returns coverage counts and short snippets, not full transcripts.",
       ),
     transcriptScanLimit: z.coerce
       .number()
@@ -553,24 +553,24 @@ export default defineAction({
       .max(MAX_TRANSCRIPT_SCAN_LIMIT)
       .optional()
       .describe(
-        "Maximum number of matching calls whose transcripts should be fetched and searched when transcriptQuery is set (default 50, max 200). Combine with exhaustive=true and after/before for defensible bounded coverage.",
+        "Max matching calls whose transcripts are fetched and searched when transcriptQuery is set (default 50). Combine with exhaustive=true and after/before for defensible bounded coverage.",
       ),
     exhaustive: cliBoolean
       .optional()
       .describe(
-        "Return EVERY matching call in the window instead of stopping at `limit`; without company, return every call page only for a small bounded cohort of fewer than 500 records. Cohorts at or above 500 fail closed with guidance to use provider-api-request staging and query-staged-dataset or a Data Program. By default this is metadata-only. With includeTranscripts=true, transcripts are fetched in batches and explicit coverage is returned. For broad or absence-sensitive work, prefer the raw Gong API tracker/staging path plus query-staged-dataset or a Data Program; use provider-corpus-job for durable raw-transcript scans. Always bound this with after/before or a small days window.",
+        "Return EVERY matching call in the window instead of stopping at `limit`. Without company, use only for a small bounded cohort of fewer than 500 records, not a broad org-wide export. Cohorts at or above 500 fail closed with staging guidance. Metadata-only unless includeTranscripts=true, which fetches transcripts in batches and returns explicit coverage. Always bound this with after/before or a small days window.",
       ),
     after: z
       .string()
       .optional()
       .describe(
-        "Only include calls on/after this date (ISO yyyy-mm-dd or full timestamp), e.g. a deal's closed-won date. Sets the window start and overrides `days` for the start bound.",
+        "Only include calls on/after this date (ISO yyyy-mm-dd or full timestamp), e.g. a deal's closed-won date. Overrides `days` for the window start.",
       ),
     before: z
       .string()
       .optional()
       .describe(
-        "Only include calls on/before this date (ISO yyyy-mm-dd or full timestamp). Sets the window end.",
+        "Only include calls on/before this date (ISO yyyy-mm-dd or full timestamp).",
       ),
   }),
   http: { method: "GET" },

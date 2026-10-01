@@ -428,50 +428,48 @@ export default defineAction({
   readOnly: true,
   mcpTool: true,
   description:
-    "Get HubSpot deals with normalized stage, pipeline, owner, forecast, and NBM fields. This is a bounded deal analytics shortcut, not the full HubSpot capability surface. Use query for a specific customer/deal/account deep dive. For cohorts like products field = Publish, closed-won, pipeline = New Business, or close date in a range, use the structured product, pipeline, closedStatus, closedDateFrom, and closedDateTo filters instead of query when the answer is the deal list itself. If the cohort feeds a cross-source join, transcript/message/ticket search, exhaustive absence check, or downstream code/corpus workflow, prefer provider-api-catalog/provider-api-request with provider = hubspot and stageAs so the cohort is available as a staged dataset. Both paths are bounded: at most limit deals are returned (default 25, max 200). HubSpot search returns a total but no server-side aggregates and cannot page past 10,000 matches for one query; compute metrics on filtered/projected rows, and split larger cohorts into non-overlapping date windows while reporting coverage. The structured-filter path returns total as the matched count and a truncated flag; page with offset (or narrow filters) instead of expecting the whole cohort in one call, since a full enriched cohort can be several MB and overruns extension and context budgets. For non-deal CRM records use hubspot-records; for arbitrary HubSpot endpoints, filters, associations, batch APIs, or payloads use provider-api-catalog/provider-api-docs/provider-api-request with provider = hubspot.",
+    "Get HubSpot deals with normalized stage, pipeline, owner, forecast, and NBM fields. This is a bounded deal analytics shortcut, not the full HubSpot capability surface. Use query for a specific customer/deal/account deep dive. For cohorts, use the structured product, pipeline, closedStatus, closedDateFrom, and closedDateTo filters instead of query when the answer is the deal list itself. If the cohort feeds a cross-source join, transcript/message/ticket search, exhaustive absence check, or downstream code/corpus workflow, prefer provider-api-request with provider = hubspot and stageAs so the cohort is available as a staged dataset. HubSpot search returns a total but no server-side aggregates and cannot page past 10,000 matches for one query; compute metrics on filtered/projected rows, and split larger cohorts into non-overlapping date windows while reporting coverage. The structured-filter path also returns a truncated flag; page with offset (or narrow filters) instead of expecting the whole cohort in one call, since a full enriched cohort can be several MB and overruns extension and context budgets. For non-deal CRM records use hubspot-records; for arbitrary HubSpot endpoints, filters, associations, batch APIs, or payloads use provider-api-catalog/provider-api-docs/provider-api-request with provider = hubspot.",
   schema: z.object({
     properties: StringListSchema.describe(
-      "Optional comma-separated extra HubSpot deal property names to include.",
+      "Comma-separated extra HubSpot deal property names to include.",
     ),
     owner: z
       .string()
       .optional()
-      .describe("Optional owner name filter, case-insensitive."),
+      .describe("Owner name filter, case-insensitive."),
     product: z
       .string()
       .optional()
-      .describe(
-        "Optional structured filter for the HubSpot deals products field, e.g. Publish. Do not put product-field filters in query.",
-      ),
+      .describe("Filter on the HubSpot deals products field, e.g. Publish."),
     productMatch: TextMatchSchema.default("token").describe(
-      "How to match the products field: token for multi-select values, contains for substring, exact for exact full-field match.",
+      "How to match the products field: token for multi-select values, contains for substring, exact for full-field match.",
     ),
     pipeline: z
       .string()
       .optional()
       .describe(
-        "Optional structured filter for HubSpot deal pipeline id or label, case-insensitive contains match, e.g. New Business.",
+        "Deal pipeline id or label, case-insensitive contains match, e.g. New Business.",
       ),
     closedStatus: ClosedStatusSchema.default("any").describe(
-      "Optional structured stage filter based on normalized HubSpot pipeline stage metadata.",
+      "Stage filter based on normalized HubSpot pipeline stage metadata.",
     ),
     closedDateFrom: z
       .string()
       .optional()
       .describe(
-        "Optional inclusive close-date lower bound for deals, YYYY-MM-DD or ISO date/time.",
+        "Inclusive close-date lower bound, YYYY-MM-DD or ISO date/time.",
       ),
     closedDateTo: z
       .string()
       .optional()
       .describe(
-        "Optional inclusive close-date upper bound for deals, YYYY-MM-DD or ISO date/time.",
+        "Inclusive close-date upper bound, YYYY-MM-DD or ISO date/time.",
       ),
     query: z
       .string()
       .optional()
       .describe(
-        "Optional HubSpot full-text deal search query, such as a company name, deal name, domain, or keyword. Use for customer/deal deep dives. Do not use query as a substitute for field-specific product, pipeline, stage, or date filters.",
+        "HubSpot full-text deal search, such as a company name, deal name, domain, or keyword. Not a substitute for the product, pipeline, stage, or date filters.",
       ),
     limit: z.coerce
       .number()
@@ -480,7 +478,7 @@ export default defineAction({
       .max(200)
       .default(25)
       .describe(
-        "Maximum deals to return. Applies to BOTH full-text query results and structured-filter cohorts. The structured-filter path returns at most this many enriched deals (use total for the true matched count and offset to page).",
+        "Maximum deals to return on BOTH the full-text query and structured-filter paths. Use total for the true matched count.",
       ),
     offset: z.coerce
       .number()
@@ -489,12 +487,12 @@ export default defineAction({
       .max(HUBSPOT_SEARCH_RESULT_CAP - 1)
       .default(0)
       .describe(
-        "Number of structured-filter results to skip before returning limit deals. Use for paging through a large cohort; ignored when query is provided.",
+        "Structured-filter results to skip when paging; ignored when query is provided.",
       ),
     after: z
       .string()
       .optional()
-      .describe("Optional HubSpot pagination cursor for query results."),
+      .describe("HubSpot pagination cursor for query results."),
   }),
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
