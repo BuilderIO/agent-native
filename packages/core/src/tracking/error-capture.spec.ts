@@ -64,6 +64,23 @@ describe("tracking captureException", () => {
     expect(event.properties.exceptionStack).toMatch(/\n\s+at /);
   });
 
+  it("preserves a redacted stack from non-Error throws", () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    const privateValue = "example transcript content";
+    captureException({
+      name: "DrizzleQueryError",
+      message: `Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`,
+      stack: `DrizzleQueryError: Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}\n    at loadTranscript (server/db.ts:5:7)`,
+    });
+
+    const [event] = track.mock.calls[0];
+    expect(event.properties.exceptionStack).toContain("params: <redacted>");
+    expect(event.properties.exceptionStack).not.toContain(privateValue);
+    expect(event.properties.exceptionStack).toContain("at loadTranscript");
+  });
+
   it("keeps tags after an undefined one instead of dropping the rest", () => {
     const track = vi.fn();
     registerTrackingProvider({ name: "qa-exception", track });

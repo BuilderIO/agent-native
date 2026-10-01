@@ -36,7 +36,14 @@ export function redactErrorStack(error: unknown): string | undefined {
         : undefined;
   if (typeof stack !== "string") return undefined;
 
-  if (error instanceof Error) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "name" in error &&
+    typeof error.name === "string" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
     const prefix = `${error.name || "Error"}${error.message ? `: ${error.message}` : ""}`;
     const suffix = stack.slice(prefix.length);
     if (stack.startsWith(prefix) && (!suffix || /^\r?\n/.test(suffix))) {
@@ -112,8 +119,10 @@ export function exceptionParts(error: unknown): ExceptionParts {
       ...(stack ? { stack } : {}),
     };
   }
+  const stack = redactErrorStack(error);
   return {
     type: "Error",
     message: boundedText(error, MAX_MESSAGE_LENGTH),
+    ...(stack ? { stack } : {}),
   };
 }
