@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isNewDeckGenerationFailed,
   nextNewDeckGenerationPhase,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
@@ -10,6 +11,63 @@ import {
 } from "./generation-state";
 
 describe("new deck generation state", () => {
+  const base = {
+    slideCount: 0,
+    hasGenerationContext: true,
+    failureCode: undefined,
+    isNewDeckCreation: false,
+    phase: "started" as const,
+    generating: false,
+    waitingOnQuestions: false,
+  };
+
+  it("fails a generation whose run ended without a slide", () => {
+    expect(isNewDeckGenerationFailed(base)).toBe(true);
+  });
+
+  it("fails a generation that never started", () => {
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        isNewDeckCreation: true,
+        phase: "abandoned",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps waiting while the run is live, questions are open, or slides exist", () => {
+    expect(isNewDeckGenerationFailed({ ...base, generating: true })).toBe(
+      false,
+    );
+    expect(
+      isNewDeckGenerationFailed({ ...base, waitingOnQuestions: true }),
+    ).toBe(false);
+    expect(isNewDeckGenerationFailed({ ...base, slideCount: 2 })).toBe(false);
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        isNewDeckCreation: true,
+        phase: "pending",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not call a reopened, unprompted empty deck a failure", () => {
+    expect(isNewDeckGenerationFailed({ ...base, phase: "pending" })).toBe(
+      false,
+    );
+    expect(
+      isNewDeckGenerationFailed({ ...base, hasGenerationContext: false }),
+    ).toBe(false);
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        phase: "pending",
+        failureCode: "agent_error",
+      }),
+    ).toBe(true);
+  });
+
   it("shows the blocking overlay before and during the first slide", () => {
     expect(
       shouldShowNewDeckGeneratingOverlay({

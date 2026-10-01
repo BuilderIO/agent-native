@@ -321,6 +321,9 @@ export default function Index() {
       setPreflightAgentEngineState(null);
     }
   }, [agentEngine.state]);
+  // A send that missing AI setup held back is sent once, as soon as setup is
+  // ready, however it was connected (card, sign-in popup, or activation).
+  const resumeDraftAfterSetupRef = useRef(false);
   const ensureAgentEngineConfigured = useCallback(async () => {
     if (agentEngineConfigured) return true;
     const requestId = ++preflightRequestIdRef.current;
@@ -335,8 +338,14 @@ export default function Index() {
     }
     setPreflightAgentEngineState(nextState);
     canChatRef.current = nextState === "configured";
+    if (nextState === "missing") resumeDraftAfterSetupRef.current = true;
     return canChatRef.current;
   }, [agentEngine.state, agentEngineConfigured]);
+  useEffect(() => {
+    if (!agentEngineConfigured || !resumeDraftAfterSetupRef.current) return;
+    resumeDraftAfterSetupRef.current = false;
+    void composerRef.current?.submit?.();
+  }, [agentEngineConfigured]);
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);

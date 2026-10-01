@@ -158,6 +158,7 @@ import {
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
+  isNewDeckGenerationFailed,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
@@ -1842,11 +1843,15 @@ export default function DeckEditor() {
       generating: newDeckGenerationSignal,
       waitingOnQuestions: waitingOnNewDeckQuestions,
     });
-  const generationFailed =
-    slideCount === 0 &&
-    generationContext !== null &&
-    (typeof generationContext.generationFailureCode === "string" ||
-      (isNewDeckCreation && newDeckGenerationPhase === "abandoned"));
+  const generationFailed = isNewDeckGenerationFailed({
+    slideCount,
+    hasGenerationContext: generationContext !== null,
+    failureCode: generationContext?.generationFailureCode,
+    isNewDeckCreation,
+    phase: newDeckGenerationPhase,
+    generating: newDeckGenerationSignal,
+    waitingOnQuestions: waitingOnNewDeckQuestions,
+  });
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,

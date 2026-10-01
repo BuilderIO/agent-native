@@ -112,6 +112,8 @@ export interface TiptapComposerHandle {
   setText(text: string): void;
   /** Submit replacement text with the current attachments and context, without editing the draft on failure. */
   submitWithText(text: string): Promise<boolean>;
+  /** Submit the current draft as if the person pressed send. */
+  submit?(): Promise<boolean>;
   insertReference(ref: AgentComposerReference): void;
   replaceReference(refType: string, ref: AgentComposerReference | null): void;
   getSelection(): ComposerTextSelection | null;
@@ -3547,6 +3549,7 @@ export function TiptapComposer({
       flushComposerDraft();
     },
     submitWithText: (text: string) => submitComposer("immediate", text),
+    submit: () => submitComposer("immediate"),
     insertReference,
     replaceReference(refType, ref) {
       if (!isComposerEditorUsable(editor)) return;

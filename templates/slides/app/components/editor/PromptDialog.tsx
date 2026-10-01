@@ -150,6 +150,8 @@ export interface PromptPopoverHandle {
     files: File[],
     sourceContext?: string,
   ): Promise<boolean>;
+  /** Send the current draft, with its attachments, as if send were pressed. */
+  submitDraft(): Promise<boolean>;
 }
 
 interface PromptPopoverProps {
@@ -597,6 +599,19 @@ export default function PromptPopover({
           sourceFilesRef.current = [];
           sourceContextRef.current = undefined;
         }
+      },
+      async submitDraft() {
+        if (
+          !open ||
+          disabled ||
+          submissionDisabled ||
+          loading ||
+          uploading ||
+          submittingRef.current ||
+          !composerRef.current?.submit
+        )
+          return false;
+        return composerRef.current.submit();
       },
     }),
     [open, disabled, submissionDisabled, loading, uploading, promptText],

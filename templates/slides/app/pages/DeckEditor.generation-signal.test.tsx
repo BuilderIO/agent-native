@@ -617,9 +617,10 @@ describe("DeckEditor generation signal wiring", () => {
       expect(params.has("generating")).toBe(false);
       expect(params.has("generation_attempt_id")).toBe(false);
       expect(mocks.broadGenerating).toBe(true);
-      expect(
-        screen.getByTestId("generating-preview").getAttribute("data-busy"),
-      ).toBe("false");
+      // The run ended without a slide: a failure with Try again, not an idle
+      // empty canvas that reads as still working.
+      expect(screen.getByRole("alert").querySelector("button")).toBeTruthy();
+      expect(screen.queryByTestId("generating-preview")).toBeNull();
     });
   });
 

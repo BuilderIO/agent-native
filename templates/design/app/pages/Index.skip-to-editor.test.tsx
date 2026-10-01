@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   focusComposer: vi.fn(),
   submitWithText: vi.fn(),
+  submitDraft: vi.fn(async () => true),
   agentEngine: { state: "configured", missing: false },
   fetchAgentEngineConfiguredState: vi.fn(
     async () => "missing" as AgentEngineConfiguredState,
@@ -286,6 +287,7 @@ vi.mock("@/components/editor/PromptDialog", () => ({
       props.composerRef.current = {
         focus: mocks.focusComposer,
         submitWithText: mocks.submitWithText,
+        submit: mocks.submitDraft,
       };
     return null;
   },
@@ -689,6 +691,24 @@ describe("Index skip to editor", () => {
 
     expect(await preflight).toBe(true);
     expect(container.textContent).not.toContain("Connect AI");
+  });
+
+  it("sends the held-back draft once after AI setup becomes ready", async () => {
+    mocks.agentEngine = { state: "missing", missing: true };
+    mocks.fetchAgentEngineConfiguredState.mockResolvedValue("missing");
+    await act(async () => root.render(<Index />));
+    let canSubmit: unknown;
+    await act(async () => {
+      canSubmit = await mocks.promptProps?.onBeforeSubmit?.();
+    });
+    expect(canSubmit).toBe(false);
+    expect(mocks.submitDraft).not.toHaveBeenCalled();
+
+    mocks.agentEngine = { state: "configured", missing: false };
+    await act(async () => root.render(<Index />));
+    await act(async () => root.render(<Index />));
+
+    expect(mocks.submitDraft).toHaveBeenCalledOnce();
   });
 
   it("hides home suggestions while provider setup is pending", async () => {

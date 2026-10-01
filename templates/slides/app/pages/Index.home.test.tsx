@@ -9,7 +9,12 @@ import {
   within,
   waitFor,
 } from "@testing-library/react";
-import { type ComponentProps, type ReactElement, type ReactNode } from "react";
+import {
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+  useImperativeHandle,
+} from "react";
 import { createPortal } from "react-dom";
 import { renderToString } from "react-dom/server";
 import { Link, MemoryRouter, useMatch } from "react-router";
@@ -99,7 +104,9 @@ const {
   headerActions,
   pageTitle,
   homeSuggestions,
+  submitDraft,
 } = vi.hoisted(() => ({
+  submitDraft: vi.fn(async () => true),
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
   createDeck: vi.fn(),
@@ -380,6 +387,10 @@ vi.mock("@/components/editor/NewDeckReferenceStep", () => ({
 vi.mock("@/components/editor/PromptDialog", () => ({
   default: (props: ComponentProps<typeof PromptPopover>) => {
     promptProps(props);
+    useImperativeHandle(props.controllerRef, () => ({
+      submitSource: vi.fn(async () => true),
+      submitDraft,
+    }));
     if (!props.open) return null;
     return (
       <textarea
@@ -1171,6 +1182,43 @@ describe("Slides prompt-led home", () => {
         modelStatusChecksEnabled: true,
       }),
     );
+  });
+
+  it("sends the held-back draft once after AI setup becomes ready", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    let canSubmit: unknown;
+    await act(async () => {
+      canSubmit = await promptProps.mock.lastCall![0].onBeforeSubmit();
+    });
+    expect(canSubmit).toBe(false);
+    expect(submitDraft).not.toHaveBeenCalled();
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).toHaveBeenCalledOnce();
+    expect(createDeck).not.toHaveBeenCalled();
+  });
+
+  it("does not send a draft nobody tried to send when setup becomes ready", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).not.toHaveBeenCalled();
   });
 
   it("keeps the composer interactive while checking and offers retry if status is unavailable", async () => {
