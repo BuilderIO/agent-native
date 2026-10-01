@@ -56,4 +56,15 @@ describe("mountMCP", () => {
 
     expect(use.mock.calls.map(([path]) => path)).toEqual(["/custom/mcp"]);
   });
+
+  it("mounts the curated directory before the broader public MCP prefix", () => {
+    const use = vi.fn();
+    mountMCP({ h3: { use } }, { actions: {}, directoryProfile: {} } as any);
+
+    expect(use.mock.calls.map(([path]) => path)).toEqual([
+      "/mcp/directory",
+      "/_agent-native/mcp",
+      "/mcp",
+    ]);
+  });
 });

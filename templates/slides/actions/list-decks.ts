@@ -170,6 +170,7 @@ export default defineAction({
       .optional()
       .describe("Opaque cursor returned by the previous page"),
   }),
+  readOnly: true,
   http: { method: "GET" },
   link: () => ({
     url: slidesDeepLink(),

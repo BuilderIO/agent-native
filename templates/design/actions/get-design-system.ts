@@ -316,7 +316,7 @@ export default defineAction({
   mcpAnnotations: {
     readOnlyHint: true,
     destructiveHint: false,
-    openWorldHint: false,
+    openWorldHint: true,
   },
   run: async ({ id, compact }) => {
     const access = await resolveAccess("design-system", id);

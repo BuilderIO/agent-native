@@ -372,7 +372,7 @@ export function mountMCP(
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]
       : [joinMcpRoute(routePrefix, "/mcp")];
-  if (config.directoryProfile) routePaths.push(MCP_DIRECTORY_ROUTE_PREFIX);
+  if (config.directoryProfile) routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
 
   for (const routePath of routePaths) {
     getH3App(nitroApp).use(
