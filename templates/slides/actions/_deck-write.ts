@@ -25,6 +25,7 @@ export function assertDeckClientWriteCurrent(
   resource: DeckWriteRevision,
   deckId: string,
   write: DeckClientWrite | undefined,
+  options: { allowRevisionMismatch?: boolean } = {},
 ): "apply" | "already-applied" {
   if (!write) return "apply";
 
@@ -42,13 +43,17 @@ export function assertDeckClientWriteCurrent(
     return "already-applied";
   }
   if (
+    !options.allowRevisionMismatch &&
     write.expectedUpdatedAt !== undefined &&
     write.expectedUpdatedAt !== resource.updatedAt &&
     !(sameCurrentWriter && write.sequence > lastSequence)
   ) {
-    throw deckHttpError(
-      409,
-      `Deck ${deckId} changed while saving; re-read it before retrying.`,
+    throw Object.assign(
+      deckHttpError(
+        409,
+        `Deck ${deckId} changed while saving; re-read it before retrying.`,
+      ),
+      { errorCode: "deck_revision_conflict" },
     );
   }
   return "apply";
@@ -127,10 +132,36 @@ export function assertDeckWriteApplied(
     );
   }
   if (affected !== 1) {
-    throw deckHttpError(
-      409,
-      `Deck ${deckId} changed while saving ${operation}; re-read the deck and retry the edit.`,
+    throw Object.assign(
+      deckHttpError(
+        409,
+        `Deck ${deckId} changed while saving ${operation}; re-read the deck and retry the edit.`,
+      ),
+      { errorCode: "deck_write_conflict" },
     );
+  }
+}
+
+export async function retryDeckWrite<T>(
+  operation: () => Promise<T>,
+  retryConflicts = true,
+): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        (error as { errorCode?: unknown })?.errorCode !==
+          "deck_write_conflict" ||
+        !retryConflicts ||
+        attempt === 5
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.random() * 25 * (attempt + 1)),
+      );
+    }
   }
 }
 

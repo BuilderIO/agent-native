@@ -390,11 +390,11 @@ describe("app group pages", () => {
       );
     }
 
-    it("groups the core and app labs under the app's name with the footnote", async () => {
+    it("groups app labs under the app's name with the footnote", async () => {
       await renderPage(LabsSettingsPage, { input: { labs } });
       const title = container.querySelector("#labs h2");
       expect(title?.textContent).toBe("Clips");
-      expect(container.textContent).toContain("ChatGPT subscription");
+      expect(container.textContent).not.toContain("ChatGPT subscription");
       expect(container.textContent).toContain(
         "These new, unstable features may have bugs.",
       );
@@ -440,6 +440,54 @@ describe("app group pages", () => {
         switchFor("Meetings and transcription")?.getAttribute("aria-checked"),
       ).toBe("true");
       expect(switchFor("Voice dictation")?.disabled).toBe(false);
+    });
+
+    it("refreshes the model catalog after a ChatGPT lab change succeeds", async () => {
+      labsActions.query.data = {
+        "chatgpt-subscription": {
+          enabled: false,
+          source: "default",
+          mixed: false,
+        },
+      };
+      const modelConfigChanged = vi.fn();
+      window.addEventListener(
+        "agent-engine:configured-changed",
+        modelConfigChanged,
+      );
+      try {
+        await renderPage(LabsSettingsPage, {
+          input: {
+            labs: [
+              {
+                key: "chatgpt-subscription",
+                displayName: "ChatGPT plan access",
+              },
+            ],
+          },
+        });
+
+        const toggle = switchFor("ChatGPT plan access");
+        expect(toggle?.getAttribute("aria-checked")).toBe("false");
+
+        for (const [index, enabled] of [true, false].entries()) {
+          act(() => toggle?.click());
+          const [variables, options] =
+            labsActions.mutate.mock.calls[index] ?? [];
+          expect(variables).toEqual({ key: "chatgpt-subscription", enabled });
+          expect(modelConfigChanged).toHaveBeenCalledTimes(index);
+          act(() => {
+            (options as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+          });
+          expect(modelConfigChanged).toHaveBeenCalledTimes(index + 1);
+          expect(toggle?.getAttribute("aria-checked")).toBe(String(enabled));
+        }
+      } finally {
+        window.removeEventListener(
+          "agent-engine:configured-changed",
+          modelConfigChanged,
+        );
+      }
     });
 
     it("offers explicit choices for inherited mixed settings", async () => {

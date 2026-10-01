@@ -964,6 +964,7 @@ export interface ActionEntry {
   uiOnly?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
+  mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;

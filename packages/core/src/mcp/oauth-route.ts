@@ -40,6 +40,7 @@ import {
 } from "./oauth-token.js";
 import { resolveMcpOrgChoices } from "./org-choice.js";
 import {
+  MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
   MCP_ROUTE_PREFIXES,
@@ -184,9 +185,13 @@ export function getMcpOAuthIssuer(event: H3Event): string | undefined {
 }
 
 function normalizeMcpResourcePath(routePath?: string): string {
-  return routePath === MCP_LEGACY_ROUTE_PREFIX
-    ? MCP_LEGACY_ROUTE_PREFIX
-    : MCP_PUBLIC_ROUTE_PREFIX;
+  if (
+    routePath === MCP_LEGACY_ROUTE_PREFIX ||
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX
+  ) {
+    return routePath;
+  }
+  return MCP_PUBLIC_ROUTE_PREFIX;
 }
 
 export function getMcpOAuthResource(
@@ -198,13 +203,21 @@ export function getMcpOAuthResource(
   return `${issuer}${normalizeMcpResourcePath(routePath)}`;
 }
 
-function mcpResourcesForIssuer(issuer: string): string[] {
-  return [
-    MCP_PUBLIC_ROUTE_PREFIX,
-    ...MCP_ROUTE_PREFIXES.filter(
-      (prefix) => prefix !== MCP_PUBLIC_ROUTE_PREFIX,
-    ),
-  ].map((prefix) => `${issuer}${prefix}`);
+function mcpResourcesForIssuer(
+  issuer: string,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): string[] {
+  const normalizedPath = normalizeMcpResourcePath(routePath);
+  const paths =
+    normalizedPath === MCP_DIRECTORY_ROUTE_PREFIX
+      ? [MCP_DIRECTORY_ROUTE_PREFIX]
+      : [
+          MCP_PUBLIC_ROUTE_PREFIX,
+          ...MCP_ROUTE_PREFIXES.filter(
+            (prefix) => prefix !== MCP_PUBLIC_ROUTE_PREFIX,
+          ),
+        ];
+  return paths.map((prefix) => `${issuer}${prefix}`);
 }
 
 /**
@@ -216,7 +229,10 @@ function mcpResourcesForIssuer(issuer: string): string[] {
  * derived URL and vice-versa.  Returns both so `verifyMcpOAuthAccessToken`
  * accepts either without issuing a 401.
  */
-export function getMcpOAuthAudiences(event: H3Event): string[] {
+export function getMcpOAuthAudiences(
+  event: H3Event,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): string[] {
   const configuredIssuer = (() => {
     const base = configuredPublicBaseUrl();
     if (!base) return undefined;
@@ -226,9 +242,11 @@ export function getMcpOAuthAudiences(event: H3Event): string[] {
   const out: string[] = [];
   for (const r of [
     ...(getMcpOAuthIssuer(event)
-      ? mcpResourcesForIssuer(getMcpOAuthIssuer(event) as string)
+      ? mcpResourcesForIssuer(getMcpOAuthIssuer(event) as string, routePath)
       : []),
-    ...(configuredIssuer ? mcpResourcesForIssuer(configuredIssuer) : []),
+    ...(configuredIssuer
+      ? mcpResourcesForIssuer(configuredIssuer, routePath)
+      : []),
   ]) {
     const n = r?.replace(/\/+$/, "");
     if (n && !seen.has(n)) {
@@ -246,8 +264,11 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer) return undefined;
   const metadataUrl = new URL(`${issuer}/.well-known/oauth-protected-resource`);
-  if (normalizeMcpResourcePath(routePath) === MCP_LEGACY_ROUTE_PREFIX) {
-    metadataUrl.searchParams.set("resource", MCP_LEGACY_ROUTE_PREFIX);
+  if (normalizeMcpResourcePath(routePath) !== MCP_PUBLIC_ROUTE_PREFIX) {
+    metadataUrl.searchParams.set(
+      "resource",
+      normalizeMcpResourcePath(routePath),
+    );
   }
   return metadataUrl.toString();
 }
@@ -261,6 +282,26 @@ export function buildMcpOAuthChallenge(
   return metadata
     ? `Bearer resource_metadata="${metadata}", scope="${scope}"`
     : `Bearer scope="${scope}"`;
+}
+
+function protectedResourcePathFromRequest(
+  event: H3Event,
+): string | undefined | null {
+  let pathname = event.url?.pathname ?? "";
+  const wellKnownPath = "/.well-known/oauth-protected-resource";
+  const wellKnownIndex = pathname.lastIndexOf(wellKnownPath);
+  if (wellKnownIndex >= 0) {
+    pathname = pathname.slice(wellKnownIndex + wellKnownPath.length);
+  }
+  pathname = pathname.replace(/\/+$/, "");
+  if (!pathname || pathname === "/") return undefined;
+  return (
+    [
+      MCP_PUBLIC_ROUTE_PREFIX,
+      MCP_LEGACY_ROUTE_PREFIX,
+      MCP_DIRECTORY_ROUTE_PREFIX,
+    ].find((path) => path === pathname) ?? null
+  );
 }
 
 function authorizationEndpoint(event: H3Event): string | undefined {
@@ -288,12 +329,30 @@ export function handleMcpOAuthProtectedResourceMetadata(
   if (getMethod(event) !== "GET") {
     return oauthError("invalid_request", "Method not allowed", 405);
   }
-  const requestedResourcePath = getQuery(event).resource;
+  const pathResource = protectedResourcePathFromRequest(event);
+  const queryResource = getQuery(event).resource;
+  const allowedPaths = [
+    MCP_PUBLIC_ROUTE_PREFIX,
+    MCP_LEGACY_ROUTE_PREFIX,
+    MCP_DIRECTORY_ROUTE_PREFIX,
+  ];
+  const queryPath =
+    queryResource === undefined
+      ? undefined
+      : typeof queryResource === "string" &&
+          allowedPaths.includes(queryResource)
+        ? queryResource
+        : null;
+  if (
+    pathResource === null ||
+    queryPath === null ||
+    (pathResource && queryPath && pathResource !== queryPath)
+  ) {
+    return oauthError("invalid_target", "Unknown MCP resource", 404);
+  }
   const resource = getMcpOAuthResource(
     event,
-    requestedResourcePath === MCP_LEGACY_ROUTE_PREFIX
-      ? MCP_LEGACY_ROUTE_PREFIX
-      : MCP_PUBLIC_ROUTE_PREFIX,
+    pathResource ?? queryPath ?? MCP_PUBLIC_ROUTE_PREFIX,
   );
   const issuer = getMcpOAuthIssuer(event);
   if (!resource || !issuer) {
@@ -768,7 +827,10 @@ async function handleAuthorize(
     /\/+$/,
     "",
   );
-  const expectedResources = getMcpOAuthAudiences(event);
+  const expectedResources = [
+    ...getMcpOAuthAudiences(event),
+    ...getMcpOAuthAudiences(event, MCP_DIRECTORY_ROUTE_PREFIX),
+  ];
 
   if (params.response_type !== "code") {
     return oauthError(

@@ -1,8 +1,4 @@
-import {
-  CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
-  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-  CHATGPT_SUBSCRIPTION_LAB_KEY,
-} from "@agent-native/core/agent/chatgpt-subscription-contract";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import { PROVIDER_ENV_PLACEHOLDERS } from "@agent-native/core/agent/engine/provider-env-vars";
 import { useDevMode } from "@agent-native/core/client/agent-chat";
 import {
@@ -32,8 +28,6 @@ import {
 } from "@agent-native/core/client/client-status-requests";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
-import { useLabState } from "@agent-native/core/client/labs/use-lab";
-import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { useOrg } from "@agent-native/core/client/org";
 import {
   buildSettingsRoute,
@@ -127,6 +121,7 @@ import { AutomationsSection } from "./AutomationsSection.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
+import { ChatGPTSubscriptionRow } from "./model/ChatGPTSubscriptionRow.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import {
@@ -141,8 +136,6 @@ import { StorageSettingsForm } from "./StorageSettingsForm.js";
 import { UsageSection } from "./UsageSection.js";
 import { useProviderKeySaveScope } from "./use-provider-key-save-scope.js";
 import {
-  isPopupClosed,
-  POPUP_CLOSED_CONFIRMATION_GRACE_MS,
   type BuilderConnectFlow,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -782,277 +775,6 @@ const PROVIDER_DOCS: Record<string, string> = {
   "ai-sdk:cohere": "https://dashboard.cohere.com/api-keys",
 };
 
-interface ChatGPTSubscriptionStatus {
-  connected: boolean;
-  reconnectRequired: boolean;
-}
-
-function ChatGPTSubscriptionCard({
-  currentEngine,
-  canUpdateDefault,
-  onConfigured,
-  grouped = false,
-}: {
-  currentEngine: string;
-  /** "Use in chat" changes the default model, so it needs owner/admin. */
-  canUpdateDefault: boolean | null;
-  onConfigured: () => void;
-  grouped?: boolean;
-}) {
-  const isPage = useSettingsSurface() === "page";
-  const t = useT();
-  const lab = useLabState(CHATGPT_SUBSCRIPTION_LAB_KEY);
-  const [status, setStatus] = useState<ChatGPTSubscriptionStatus | null>(null);
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const popupRef = useRef<Window | null>(null);
-  const popupClosedAtRef = useRef<number | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const next = (await callAction(
-        "get-chatgpt-subscription-status" as any,
-        {} as any,
-        { method: "GET" },
-      )) as ChatGPTSubscriptionStatus;
-      setStatus(next);
-      return next;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-      return null;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (lab.isSuccess && lab.enabled) void refresh();
-  }, [lab.enabled, lab.isSuccess, refresh]);
-
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (
-        event.origin === window.location.origin &&
-        event.data?.type === "agent-native-chatgpt-subscription-connected"
-      ) {
-        popupRef.current = null;
-        popupClosedAtRef.current = null;
-        setConnecting(false);
-        void refresh().then((next) => {
-          if (next?.connected) onConfigured();
-        });
-      }
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [onConfigured, refresh]);
-
-  useEffect(() => {
-    if (!connecting || !popupRef.current) return;
-    const timer = window.setInterval(() => {
-      if (!isPopupClosed(popupRef.current)) return;
-      popupClosedAtRef.current ??= Date.now();
-      if (
-        Date.now() - popupClosedAtRef.current <=
-        POPUP_CLOSED_CONFIRMATION_GRACE_MS
-      ) {
-        return;
-      }
-      window.clearInterval(timer);
-      popupRef.current = null;
-      popupClosedAtRef.current = null;
-      setConnecting(false);
-      void refresh().then((next) => {
-        if (next?.connected) onConfigured();
-      });
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [connecting, onConfigured, refresh]);
-
-  const connect = useCallback(() => {
-    setError(null);
-    const popup = openOAuthPopup({
-      initialUrl: agentNativePath(
-        "/_agent-native/agent-engine/chatgpt-subscription/start",
-      ),
-      features: "popup,width=520,height=720",
-    });
-    if (!popup) {
-      setError(
-        t("agentPanel.chatgptSubscriptionPopupBlocked", {
-          defaultValue: "Allow pop-ups for this site, then try again.",
-        }),
-      );
-      return;
-    }
-    popupRef.current = popup;
-    popupClosedAtRef.current = null;
-    setConnecting(true);
-  }, [t]);
-
-  const disconnect = useCallback(async () => {
-    setError(null);
-    try {
-      await callAction("disconnect-chatgpt-subscription" as any, {} as any);
-      setStatus({ connected: false, reconnectRequired: false });
-      onConfigured();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }, [onConfigured]);
-
-  const selectSubscriptionEngine = useCallback(async () => {
-    setError(null);
-    try {
-      await callAction(
-        "manage-agent-engine" as any,
-        {
-          action: "set",
-          engine: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-          model: CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
-        } as any,
-      );
-      onConfigured();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }, [onConfigured]);
-
-  if (!lab.isSuccess || !lab.enabled) return null;
-
-  const connected = status?.connected === true;
-  const inUse = currentEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME;
-  const title = t("agentPanel.chatgptSubscriptionTitle", {
-    defaultValue: "ChatGPT subscription",
-  });
-  const description = t("agentPanel.chatgptSubscriptionDescription", {
-    defaultValue:
-      "Experimental Codex access through your ChatGPT subscription.",
-  });
-  const statusLabel = connected ? (
-    <span className="flex shrink-0 items-center gap-1 text-primary">
-      <IconCheck size={isPage ? 14 : 11} />
-      {inUse
-        ? t("agentPanel.chatgptSubscriptionInUse", {
-            defaultValue: "In use",
-          })
-        : t("agentPanel.chatgptSubscriptionConnected", {
-            defaultValue: "Connected",
-          })}
-    </span>
-  ) : null;
-  const actions = !connected ? (
-    <Button
-      type="button"
-      intent="primary"
-      emphasis="solid"
-      onClick={connect}
-      disabled={connecting}
-      className={cn(
-        "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-70",
-        isPage ? "text-sm" : "text-[11px]",
-      )}
-    >
-      {connecting
-        ? t("agentPanel.chatgptSubscriptionConnecting", {
-            defaultValue: "Connecting…",
-          })
-        : status?.reconnectRequired
-          ? t("agentPanel.chatgptSubscriptionReconnect", {
-              defaultValue: "Reconnect",
-            })
-          : t("agentPanel.chatgptSubscriptionConnect", {
-              defaultValue: "Connect ChatGPT",
-            })}
-    </Button>
-  ) : (
-    <>
-      {!inUse && canUpdateDefault !== false ? (
-        <Button
-          type="button"
-          intent="primary"
-          emphasis="solid"
-          onClick={() => void selectSubscriptionEngine()}
-          className={cn(
-            "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90",
-            isPage ? "text-sm" : "text-[11px]",
-          )}
-        >
-          {t("agentPanel.chatgptSubscriptionUse", {
-            defaultValue: "Use in chat",
-          })}
-        </Button>
-      ) : null}
-      <Button
-        type="button"
-        intent="neutral"
-        emphasis="outline"
-        onClick={() => void disconnect()}
-        className={cn(
-          "rounded-md border border-border px-3 py-1.5 text-foreground hover:bg-accent/40",
-          isPage ? "text-sm" : "text-[11px]",
-        )}
-      >
-        {t("agentPanel.chatgptSubscriptionDisconnect", {
-          defaultValue: "Disconnect",
-        })}
-      </Button>
-    </>
-  );
-
-  if (isPage) {
-    return (
-      <SettingsRow
-        className={cn(grouped ? "border-b border-border/60" : "-mx-5 sm:-mx-6")}
-        label={title}
-        description={description}
-        status={statusLabel}
-        control={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {actions}
-          </div>
-        }
-      >
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      </SettingsRow>
-    );
-  }
-
-  return (
-    <div
-      className={cn(
-        "rounded-md border border-border bg-accent/20",
-        isPage ? "px-4 py-3.5" : "px-3 py-3",
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p
-            className={cn("font-medium text-foreground", subTextClass(isPage))}
-          >
-            {title}
-          </p>
-          <p
-            className={cn(
-              "mt-0.5 text-muted-foreground",
-              noteTextClass(isPage),
-            )}
-          >
-            {description}
-          </p>
-        </div>
-        {statusLabel}
-      </div>
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-        {actions}
-      </div>
-      {error ? (
-        <p className={cn("mt-2 text-destructive", noteTextClass(isPage))}>
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 function LLMSectionInner({
   builderFlow,
   builderLoading,
@@ -1584,12 +1306,7 @@ function LLMSectionInner({
         <SettingsLoadingRow controlCount={2} />
       ) : (
         <>
-          <ChatGPTSubscriptionCard
-            currentEngine={currentEngine}
-            canUpdateDefault={canUpdateDefault}
-            onConfigured={notifyConfigChanged}
-            grouped={isPage && grouped}
-          />
+          <ChatGPTSubscriptionRow />
           <div
             className={cn(
               isPage

@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   metrics: undefined as unknown,
   creditUsage: null as unknown,
   alerts: [] as unknown[],
+  chatgpt: undefined as unknown,
   calls: [] as Array<{ name: string; params: unknown }>,
   mutations: [] as Array<{ name: string; input: unknown }>,
 }));
@@ -41,7 +42,12 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       };
     }
     return {
-      data: name === "get-usage-alerts" ? state.alerts : undefined,
+      data:
+        name === "get-usage-alerts"
+          ? state.alerts
+          : name === "get-chatgpt-subscription-status"
+            ? state.chatgpt
+            : undefined,
       isError: false,
       isLoading: false,
       isFetching: false,
@@ -184,6 +190,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.calls = [];
   state.alerts = [];
+  state.chatgpt = undefined;
   state.creditUsage = null;
   state.mutations = [];
   container = document.createElement("div");
@@ -198,6 +205,23 @@ afterEach(() => {
 });
 
 describe("UsagePage", () => {
+  it("links to ChatGPT plan usage beside the filters only while a plan is connected", () => {
+    state.metrics = metrics();
+    render(member);
+    expect(container.textContent).not.toContain("ChatGPT plan usage");
+    act(() => root?.unmount());
+
+    state.chatgpt = { connected: true };
+    render(member);
+    const link = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://chatgpt.com/settings/usage"]',
+    );
+    expect(link?.textContent).toBe("ChatGPT plan usage");
+    expect(
+      link?.closest("div")?.querySelector('[role="combobox"]'),
+    ).not.toBeNull();
+  });
+
   it("shows a member only their own usage across all apps, in dollars", () => {
     state.metrics = metrics();
     render(member);

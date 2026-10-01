@@ -164,6 +164,10 @@ beforeEach(() => {
 });
 
 describe("create-deck chat result", () => {
+  it("marks replacement of an existing deck as destructive in MCP", () => {
+    expect(action.mcpAnnotations?.destructiveHint).toBe(true);
+  });
+
   it("projects at most three sanitized slide previews without notes or design context", () => {
     const chatUI = action.chatUI;
     const projected = chatUI?.projectResult?.(

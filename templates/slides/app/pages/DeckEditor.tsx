@@ -702,6 +702,11 @@ export default function DeckEditor() {
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
   const [shapeType, setShapeType] = useState<SlideShapeType | null>(null);
+  const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<
+    string | null
+  >(null);
+  const [selectedCommentThreadRequestId, setSelectedCommentThreadRequestId] =
+    useState(0);
 
   const openAnimationsForTarget = useCallback(
     (target: SelectedAnimationTarget) => {
@@ -814,8 +819,24 @@ export default function DeckEditor() {
         panel: "comments",
       });
     }
+    if (!opening) setSelectedCommentThreadId(null);
     setSidePanel(opening ? "comments" : null);
   }, [sidePanel]);
+  const selectCommentThread = useCallback(
+    (threadId: string) => {
+      setSelectedCommentThreadId(threadId);
+      setSelectedCommentThreadRequestId((requestId) => requestId + 1);
+      if (sidePanel !== "comments") {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "comments",
+        });
+      }
+      setSidePanel("comments");
+    },
+    [sidePanel],
+  );
   const [pendingComment, setPendingComment] = useState<{
     slideId: string;
     quotedText: string;
@@ -1729,11 +1750,14 @@ export default function DeckEditor() {
             const target =
               editingEl?.closest<HTMLElement>("[data-slide-object-id]") ??
               selectionElement?.closest<HTMLElement>("[data-slide-object-id]");
+            const textRoot =
+              target ?? canvas.querySelector<HTMLElement>(".slide-content");
             return slideCommentAnchorFromRange({
               range: requestedAnchor,
               slideRect: canvas.getBoundingClientRect(),
               objectId: target?.getAttribute("data-slide-object-id"),
               objectRect: target?.getBoundingClientRect(),
+              objectElement: textRoot,
               targetText: quotedText,
             });
           })()
@@ -2763,6 +2787,8 @@ export default function DeckEditor() {
           const object = selectionElement?.closest<HTMLElement>(
             "[data-slide-object-id]",
           );
+          const textRoot =
+            object ?? canvas.querySelector<HTMLElement>(".slide-content");
           openCommentComposer(
             quotedText,
             slideCommentAnchorFromRange({
@@ -2770,6 +2796,7 @@ export default function DeckEditor() {
               slideRect: canvas.getBoundingClientRect(),
               objectId: object?.getAttribute("data-slide-object-id"),
               objectRect: object?.getBoundingClientRect(),
+              objectElement: textRoot,
               targetText: quotedText,
             }),
           );
@@ -4013,6 +4040,7 @@ export default function DeckEditor() {
             canComment={canComment}
             currentUserEmail={session?.email ?? null}
             comments={currentSlideThreads}
+            onSelectCommentThread={selectCommentThread}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
             layersPanelSlot={layersPanelSlot}
@@ -4181,6 +4209,8 @@ export default function DeckEditor() {
             canComment={canComment}
             canEdit={canEdit}
             currentUserEmail={session?.email ?? null}
+            selectedThreadId={selectedCommentThreadId}
+            selectedThreadRequestId={selectedCommentThreadRequestId}
             onBeforeCommentSubmit={flushCommentWrites}
             onSelectSlide={handleSlideSelection}
             pendingComment={
@@ -4191,6 +4221,7 @@ export default function DeckEditor() {
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
               setSidePanel(null);
+              setSelectedCommentThreadId(null);
               setPendingComment(null);
             }}
           />

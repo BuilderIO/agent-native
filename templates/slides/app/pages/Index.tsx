@@ -108,7 +108,7 @@ import {
   clearStartedGenerationAttempt,
   useAgentGenerating,
 } from "@/hooks/use-agent-generating";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
+import { useDesignSystemWorkflowsState } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
@@ -517,16 +517,19 @@ export default function Index({ active = true }: { active?: boolean }) {
     updateDeck,
     loading,
     loadError,
+    deckListRefreshing,
     reloadDecks,
     catchUpStaleDeckList,
   } = useDecks();
-  const systemsEnabled = useDesignSystemWorkflows();
+  const systemsFlag = useDesignSystemWorkflowsState();
+  const systemsEnabled = systemsFlag.enabled;
   const {
     designSystems,
     defaultSystem,
     refetch: refetchDesignSystems,
     error: designSystemsError,
     isLoading: designSystemsLoading,
+    isFetching: designSystemsFetching,
   } = useDesignSystems(systemsEnabled && isHome);
   const {
     referenceDeck: workspaceReferenceDeck,
@@ -2668,6 +2671,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         }}
         designSystems={designSystems}
         decks={decks}
+        referenceOptionsLoaded={
+          systemsFlag.status === "ready" &&
+          !loading &&
+          !deckListRefreshing &&
+          !loadError &&
+          (!systemsEnabled ||
+            (!designSystemsLoading &&
+              !designSystemsFetching &&
+              !designSystemsError))
+        }
         defaultDesignSystemId={
           pendingDeck?.composerContext
             ? pendingDeck.composerContext.designSystemId

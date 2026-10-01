@@ -8,6 +8,8 @@ import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { createMCPServerForRequest } from "./build-server.js";
+import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
 const builtinToolMocks = vi.hoisted(() => ({
   askAppRun: vi.fn(async () => ({ response: "agent answer" })),
@@ -471,6 +473,7 @@ async function callWeb(
   opts: {
     headers?: Record<string, string>;
     config?: Record<string, unknown>;
+    routePath?: string;
   } = {},
 ): Promise<any> {
   const event = makeWebEvent({
@@ -478,7 +481,11 @@ async function callWeb(
     body: rpc,
     ...(opts.headers ? { headers: opts.headers } : {}),
   });
-  const res = await handleMcpRequest(event, (opts.config ?? config) as any);
+  const res = await handleMcpRequest(
+    event,
+    (opts.config ?? config) as any,
+    opts.routePath,
+  );
   expect(res).toBeInstanceOf(Response);
   const response = res as Response;
   const ct = response.headers.get("content-type") || "";
@@ -580,6 +587,7 @@ async function mcpAppsAuthHeaders(
     clientId?: string;
     ownerEmail?: string;
     scope?: string;
+    resource?: string;
   } = {},
 ) {
   process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
@@ -588,7 +596,8 @@ async function mcpAppsAuthHeaders(
     ownerEmail: options.ownerEmail ?? "oauth@example.com",
     clientId: options.clientId ?? "client-123",
     scope: options.scope ?? "mcp:read mcp:write mcp:apps",
-    resource: "https://mail.agent-native.com/_agent-native/mcp",
+    resource:
+      options.resource ?? "https://mail.agent-native.com/_agent-native/mcp",
     issuer: "https://mail.agent-native.com",
   });
   return { authorization: `Bearer ${token}` };
@@ -639,6 +648,413 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       status: "completed",
       response: "agent answer",
     });
+  });
+
+  it("keeps the ChatGPT directory profile isolated from the general MCP route", async () => {
+    const directoryOnlyAction = defineAction({
+      description: "A tool reserved for the ChatGPT directory profile.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ ok: true }),
+    });
+    const profileConfig = {
+      ...config,
+      instructions: "General MCP instructions.",
+      keyToolNames: ["echo-thing"],
+      directoryProfile: {
+        connectorCatalog: ["directory-only"],
+        keyToolNames: ["directory-only"],
+        instructions: "Directory profile instructions only.",
+      },
+      actions: {
+        ...config.actions,
+        "directory-only": directoryOnlyAction,
+      },
+    };
+
+    const generalRoute = await callWeb(
+      { jsonrpc: "2.0", id: 136, method: "tools/list", params: {} },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: profileConfig,
+      },
+    );
+    expect(
+      generalRoute.result.tools.map((tool: { name: string }) => tool.name),
+    ).toContain("echo-thing");
+    expect(
+      generalRoute.result.tools.map((tool: { name: string }) => tool.name),
+    ).not.toContain("directory-only");
+
+    const directoryRoute = await callWeb(
+      { jsonrpc: "2.0", id: 137, method: "tools/list", params: {} },
+      {
+        headers: await mcpAppsAuthHeaders({
+          resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        }),
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(
+      directoryRoute.result.tools.map((tool: { name: string }) => tool.name),
+    ).toEqual(["directory-only"]);
+
+    const generalInitialize = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 138,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "directory-profile-test", version: "1.0.0" },
+        },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: profileConfig },
+    );
+    expect(generalInitialize.result.instructions).toContain(
+      "General MCP instructions.",
+    );
+
+    const directoryInitialize = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 139,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "directory-profile-test", version: "1.0.0" },
+        },
+      },
+      {
+        headers: await mcpAppsAuthHeaders({
+          resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        }),
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryInitialize.result.instructions).toBe(
+      "Directory profile instructions only.",
+    );
+    expect(directoryInitialize.result.instructions).not.toMatch(
+      /view-screen|ask_app|tool-search|WebMCP/i,
+    );
+  });
+
+  it("applies ask-app-only write policy to the directory catalog", async () => {
+    const writeRun = vi.fn(async () => ({ ok: true }));
+    const readAction = defineAction({
+      description: "Read a workspace value.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ ok: true }),
+    });
+    const writeAction = defineAction({
+      description: "Write a workspace value.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: writeRun,
+    });
+    const policyConfig = {
+      ...config,
+      externalAgents: { writes: "ask_app_only" as const },
+      directoryProfile: {
+        connectorCatalog: ["directory-read", "directory-write"],
+      },
+      actions: {
+        "directory-read": readAction,
+        "directory-write": writeAction,
+      },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 140, method: "tools/list", params: {} },
+      { headers, config: policyConfig, routePath: MCP_DIRECTORY_ROUTE_PREFIX },
+    );
+    expect(
+      listed.result.tools.map((tool: { name: string }) => tool.name),
+    ).toEqual(["directory-read"]);
+
+    const called = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 141,
+        method: "tools/call",
+        params: { name: "directory-write", arguments: {} },
+      },
+      { headers, config: policyConfig, routePath: MCP_DIRECTORY_ROUTE_PREFIX },
+    );
+    expect(called.result.isError).toBe(true);
+    expect(called.result.content[0].text).toContain("Unknown tool");
+    expect(writeRun).not.toHaveBeenCalled();
+  });
+
+  it("serves only the directory allowlist with explicit annotations and app UI metadata", async () => {
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "0";
+    const directoryAction = defineAction({
+      description: "Create one workspace artifact.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://slides/directory-action/shell-v65",
+          title: "Created artifact",
+          html: "<!doctype html><html><body>Created</body></html>",
+          _meta: {
+            ui: { domain: "https://stale.example.com" },
+            "openai/widgetDomain": "https://stale.example.com",
+          },
+        },
+      },
+      run: async () => ({ ok: true }),
+    });
+    const hiddenAction = defineAction({
+      description: "An action outside the public plugin surface.",
+      parameters: {},
+      run: async () => ({ ok: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["directory-action"],
+      widgetDomain: "https://slides.agent-native.com",
+      actions: {
+        "directory-action": directoryAction,
+        "hidden-action": hiddenAction,
+      },
+    };
+    const { client } = await createModernClient(directoryConfig);
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map((tool) => tool.name)).toEqual([
+        "directory-action",
+      ]);
+      expect(listed.tools[0]?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      });
+
+      const resource = await client.readResource({
+        uri: "ui://slides/directory-action/shell-v65",
+      });
+      expect((resource.contents[0] as any)._meta).toMatchObject({
+        ui: { domain: "https://slides.agent-native.com" },
+        "openai/widgetDomain": "https://slides.agent-native.com",
+      });
+
+      const hiddenCall = await client.callTool({
+        name: "hidden-action",
+        arguments: {},
+      });
+      expect(hiddenCall.isError).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("rejects directory actions without complete annotations", async () => {
+    const configWithoutAnnotations = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["unannotated"],
+      widgetDomain: "https://slides.agent-native.com",
+      actions: {
+        unannotated: {
+          tool: { description: "Unannotated tool", parameters: {} },
+          run: async () => ({ ok: true }),
+        },
+      },
+    };
+
+    await expect(
+      createMCPServerForRequest(configWithoutAnnotations as any, undefined),
+    ).rejects.toThrow(/must declare boolean readOnlyHint/);
+  });
+
+  it("mints a directory widget embed ticket from an action link without a hidden tool", async () => {
+    const createArtifact = defineAction({
+      description: "Create one editable document.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/create-document/shell-v65",
+          title: "Created document",
+          html: "<!doctype html><html><body>Created</body></html>",
+        },
+      },
+      run: async () => ({ id: "doc-1", title: "Launch plan" }),
+      link: () => ({
+        url: "/documents/doc-1",
+        label: "Open document",
+        view: "editor",
+      }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["create-document"],
+      directoryProfile: { connectorCatalog: ["create-document"] },
+      widgetDomain: "https://mail.agent-native.com",
+      actions: { "create-document": createArtifact },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 137, method: "tools/list", params: {} },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(
+      listed.result.tools.map((tool: { name: string }) => tool.name),
+    ).toEqual(["create-document"]);
+
+    const called = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 138,
+        method: "tools/call",
+        params: { name: "create-document", arguments: {} },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(called.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-picker-ticket&__an_mcp_chat_bridge=1",
+      expiresAt: 1735689600000,
+    });
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledWith({
+      ownerEmail: "oauth@example.com",
+      orgId: undefined,
+      targetPath: "/documents/doc-1?__an_mcp_chat_bridge=1",
+      scope: null,
+    });
+
+    const legacyToolCall = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 139,
+        method: "tools/call",
+        params: { name: "create_embed_session", arguments: { path: "/" } },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(legacyToolCall.result.isError).toBe(true);
+    expect(JSON.stringify(legacyToolCall)).not.toContain(
+      "create_embed_session completed",
+    );
+
+    const wrongAudience = await handleMcpRequest(
+      makeWebEvent({
+        method: "POST",
+        headers,
+        body: {
+          jsonrpc: "2.0",
+          id: 140,
+          method: "tools/list",
+          params: {},
+        },
+      }),
+      config as any,
+    );
+    expect(wrongAudience).toMatchObject({ error: "Unauthorized" });
+  });
+
+  it("does not mint an unrestricted embed ticket from a read-only directory link", async () => {
+    const readArtifact = defineAction({
+      description: "Read one workspace document.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/get-document/shell-v65",
+          title: "Document",
+          html: "<!doctype html><html><body>Document</body></html>",
+        },
+      },
+      run: async () => ({ id: "doc-1", title: "Launch plan" }),
+      link: () => ({
+        url: "/documents/doc-1",
+        label: "Open document",
+        view: "editor",
+      }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["get-document"],
+      directoryProfile: { connectorCatalog: ["get-document"] },
+      widgetDomain: "https://mail.agent-native.com",
+      actions: { "get-document": readArtifact },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      scope: "mcp:read mcp:apps",
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+
+    const called = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 142,
+        method: "tools/call",
+        params: { name: "get-document", arguments: {} },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(called.result.isError).not.toBe(true);
+    expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    expect(called.result._meta["agent-native/embedStart"]).toBeUndefined();
   });
 
   it("handles `initialize` without a 501", async () => {

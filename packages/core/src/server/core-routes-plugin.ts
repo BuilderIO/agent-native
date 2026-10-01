@@ -17,6 +17,7 @@ import {
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
 
+import { CHATGPT_SUBSCRIPTION_CALLBACK_PATH } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
@@ -78,8 +79,6 @@ import {
 import { uploadFile } from "../file-upload/index.js";
 import { listFileUploadProviderStatusesForRequest } from "../file-upload/registry.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
-import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
-import { registerLabs } from "../labs/registry.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -2428,6 +2427,37 @@ function oauthPopupCompletionHtml(completionId: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>try{localStorage.setItem("${storageKey}","1")}catch(error){console.error("Could not persist OAuth completion",error)}window.opener?.postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"},window.location.origin);window.close();</script></body></html>`;
 }
 
+export function createOpenAiAppsChallengeHandler(
+  getToken: () => string | undefined = () =>
+    getAppConfig().openAiApps.challengeToken,
+) {
+  return defineEventHandler((event: H3Event) => {
+    setResponseHeader(event, "Cache-Control", "no-store");
+    const mountedPathname = (event.context as Record<string, unknown>)
+      ._mountedPathname;
+    const pathname =
+      typeof mountedPathname === "string"
+        ? mountedPathname
+        : getRequestURL(event).pathname;
+    if (pathname !== "/.well-known/openai-apps-challenge") {
+      setResponseStatus(event, 404);
+      return "";
+    }
+    if (getMethod(event) !== "GET") {
+      setResponseHeader(event, "Allow", "GET");
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const token = getToken();
+    if (!token) {
+      setResponseStatus(event, 404);
+      return "";
+    }
+    setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
+    return token;
+  });
+}
+
 export function createOAuthPopupWaitingHandler() {
   return defineEventHandler((event: H3Event) => {
     if (getMethod(event) !== "GET") {
@@ -2544,7 +2574,6 @@ export function createCoreRoutesPlugin(
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
     registerFeatureFlags([BUILDER_CREDIT_USAGE_REPORTING_FLAG]);
-    registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
     let resolveInit: () => void = () => {};
@@ -2565,6 +2594,7 @@ export function createCoreRoutesPlugin(
         `${FRAMEWORK_ROUTE_PREFIX}/oauth/popup`,
         `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
         `${FRAMEWORK_ROUTE_PREFIX}/application-state`,
+        "/.well-known/openai-apps-challenge",
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
     });
@@ -2575,6 +2605,10 @@ export function createCoreRoutesPlugin(
         `${P}/automations/email-unsubscribe`,
         createAutomationFailureUnsubscribeHandler(),
       );
+      getH3App(nitroApp).use(
+        "/.well-known/openai-apps-challenge",
+        createOpenAiAppsChallengeHandler(),
+      );
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
@@ -2582,6 +2616,7 @@ export function createCoreRoutesPlugin(
         `${P}/oauth/popup`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
         ...(!options.disableAppState ? [`${P}/application-state`] : []),
+        "/.well-known/openai-apps-challenge",
       ]);
 
       // Keep the framework-owned S3-compatible provider available even when an
@@ -2600,7 +2635,7 @@ export function createCoreRoutesPlugin(
         createChatGPTSubscriptionOAuthStartHandler(),
       );
       getH3App(nitroApp).use(
-        `${P}/agent-engine/chatgpt-subscription/callback`,
+        CHATGPT_SUBSCRIPTION_CALLBACK_PATH,
         createChatGPTSubscriptionOAuthCallbackHandler(),
       );
 

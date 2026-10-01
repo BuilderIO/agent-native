@@ -1,4 +1,3 @@
-import { CHATGPT_SUBSCRIPTION_LAB } from "@agent-native/core/labs/core-labs";
 import type { LabDefinition } from "@agent-native/core/labs/registry";
 import { IconSettings } from "@tabler/icons-react";
 import { Children, isValidElement, type ReactNode } from "react";
@@ -56,7 +55,7 @@ export interface SettingsBridge {
   /** `null` outside the shell, which always names the app group. */
   appName: string | null;
   mcpAbout: string | null;
-  /** App labs plus the core labs every app shows. */
+  /** Labs contributed by the app. */
   labs: readonly LabDefinition[];
   labsLabel?: string;
   labsIntro?: string;
@@ -95,9 +94,7 @@ export function createSettingsBridge(
       input.whatsNewMarkdown ?? changelogMarkdownFrom(input.whatsNew) ?? null,
     appName: input.appName?.trim() || null,
     mcpAbout: input.mcpAbout?.trim() || null,
-    labs: labs.some((lab) => lab.key === CHATGPT_SUBSCRIPTION_LAB.key)
-      ? labs
-      : [CHATGPT_SUBSCRIPTION_LAB, ...labs],
+    labs,
     labsLabel: input.labsLabel,
     labsIntro: input.labsIntro,
     tabs,

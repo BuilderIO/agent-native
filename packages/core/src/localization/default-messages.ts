@@ -4,6 +4,40 @@ import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 
 const messages = {
   iconPicker: ICON_PICKER_MESSAGES["en-US"],
+  agentChat: {
+    settingsModel: {
+      chatgptAddAccount: "Add another account",
+      chatgptConnecting: "Connecting…",
+      chatgptContinue: "Continue with ChatGPT",
+      chatgptDescription:
+        "Use eligible OpenAI models through your ChatGPT plan.",
+      chatgptDisconnect: "Disconnect",
+      chatgptDisconnectDescription:
+        "{{account}} will be signed out of this app and the agent will stop using your ChatGPT plan. You can sign in again anytime.",
+      chatgptDisconnectTitle: "Disconnect ChatGPT?",
+      chatgptDisconnecting: "Disconnecting…",
+      chatgptLocalOnly:
+        "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+      chatgptManageAccess: "Manage in ChatGPT",
+      chatgptNoDirectUse:
+        "Reconnect and allow direct model access to use this ChatGPT account.",
+      chatgptReconnect: "Reconnect",
+      chatgptRemoteRevocationUnconfirmed:
+        "Disconnected here. Access may remain active in ChatGPT.",
+      chatgptSelectAccount: "ChatGPT account",
+      chatgptTitle: "ChatGPT plan access",
+      chatgptUsageLimit: "Your ChatGPT plan usage limit has been reached.",
+    },
+    composer: {
+      chatgptManageUsage: "Manage usage",
+      chatgptPlanUsing: "Using ChatGPT plan",
+    },
+    error: {
+      chatgptPlanUsageLimit: "Your ChatGPT plan usage limit has been reached.",
+      chatgptPlanUsageUnavailable:
+        "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
+    },
+  },
   environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",

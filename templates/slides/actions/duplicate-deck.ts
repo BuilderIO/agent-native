@@ -36,6 +36,11 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async ({ deckId, title, newId: clientNewId, slideIds }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);

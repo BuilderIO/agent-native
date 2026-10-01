@@ -4,6 +4,7 @@ import type { SnapRecord, Snapshot } from "./in-page.ts";
 import {
   ceilingFor,
   diffSnapshots,
+  followsCenteredFlexReflow,
   findBaselineProblems,
   hardFailures,
   isDraftRevert,
@@ -128,6 +129,81 @@ describe("diffSnapshots", () => {
     expect(d.deltas).toEqual([]);
     expect(d.missing).toEqual([]);
     expect(d.added).toEqual([]);
+  });
+});
+
+describe("followsCenteredFlexReflow", () => {
+  const centered = (
+    context: string,
+    containerPosition: number,
+    containerSize: number,
+    itemSize = 20,
+    editedItemSize = 20,
+    axis: "x" | "y" = "y",
+  ) => ({
+    ...rec("box:div#0", {}),
+    flexCrossAlignment: {
+      context,
+      axis,
+      containerPosition,
+      containerSize,
+      itemSize,
+      editedItemSize,
+    },
+  });
+
+  it("allows a centered sibling to follow a flex line's cross-axis growth", () => {
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 60),
+        "y",
+        20,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects unrelated shifts, moved parents or a different flex parent", () => {
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 60),
+        "y",
+        5,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 5, 60, 20, 60),
+        "y",
+        25,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.3", 0, 60, 20, 60),
+        "y",
+        20,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 60),
+        "x",
+        20,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 20),
+        "y",
+        20,
+      ),
+    ).toBe(false);
   });
 });
 

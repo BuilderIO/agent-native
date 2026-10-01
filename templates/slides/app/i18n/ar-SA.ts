@@ -448,6 +448,7 @@ const messages = {
     retry: "إعادة المحاولة",
     clickToAddComment: "انقر لإضافة تعليق",
     selectSlideToAdd: "حدد شريحة لإضافة تعليق",
+    filters: "عوامل تصفية التعليقات",
     scope: "نطاق التعليقات",
     thisSlide: "هذه الشريحة",
     allComments: "كل الشرائح",

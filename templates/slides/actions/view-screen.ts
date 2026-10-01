@@ -231,7 +231,7 @@ export default defineAction({
         );
         lines.push(`currentSlideLayout: ${currentSlide.layout ?? "(none)"}`);
         lines.push(
-          `currentSlideContentHash: ${hashSlideContent(String(currentSlide.content ?? ""))}   ← optional baseContentHash for update-slide`,
+          `currentSlideContentHash: ${hashSlideContent(String(currentSlide.content ?? ""))}   ← baseContentHash for update-slide`,
         );
       } else {
         lines.push(

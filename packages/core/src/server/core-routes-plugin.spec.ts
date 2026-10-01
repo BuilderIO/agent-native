@@ -39,6 +39,7 @@ import {
   matchesSavedHostedAgentProbe,
   stripRemoteAgentAuth,
   createPublicRemoteAgentsHandler,
+  createOpenAiAppsChallengeHandler,
   createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
 import { signEmbedSessionToken } from "./embed-session.js";
@@ -61,6 +62,59 @@ describe("mountApplicationStateRoutes", () => {
       "/_agent-native/application-state/compose",
       "/_agent-native/application-state",
     ]);
+  });
+});
+
+describe("OpenAI plugin domain challenge", () => {
+  const path = "/.well-known/openai-apps-challenge";
+
+  it("returns the configured token as uncached plain text", async () => {
+    const app = createApp();
+    app.use(
+      path,
+      createOpenAiAppsChallengeHandler(() => "challenge-token"),
+    );
+
+    const response = await app.fetch(
+      new Request(`https://example.test${path}`),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("challenge-token");
+  });
+
+  it("does not expose a challenge until a token is configured", async () => {
+    const app = createApp();
+    app.use(
+      path,
+      createOpenAiAppsChallengeHandler(() => undefined),
+    );
+
+    const response = await app.fetch(
+      new Request(`https://example.test${path}`),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).not.toContain("challenge");
+  });
+
+  it("rejects methods other than GET", async () => {
+    const app = createApp();
+    app.use(
+      path,
+      createOpenAiAppsChallengeHandler(() => "challenge-token"),
+    );
+
+    const response = await app.fetch(
+      new Request(`https://example.test${path}`, { method: "POST" }),
+    );
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 });
 

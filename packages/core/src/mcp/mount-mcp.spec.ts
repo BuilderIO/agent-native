@@ -23,6 +23,7 @@ vi.mock("../server/h3-helpers.js", () => ({
 vi.mock("./build-server.js", () => ({
   buildLinkArtifacts: vi.fn(),
   createMCPServerForRequest: vi.fn(),
+  validateMcpDirectoryProfile: vi.fn(),
   getAccessTokens: vi.fn(),
   resolveOrgIdFromDomain: vi.fn(),
   verifyAuth: vi.fn(),
@@ -54,5 +55,16 @@ describe("mountMCP", () => {
     mountMCP({ h3: { use } }, { actions: {} } as any, "/custom");
 
     expect(use.mock.calls.map(([path]) => path)).toEqual(["/custom/mcp"]);
+  });
+
+  it("mounts the curated directory before the broader public MCP prefix", () => {
+    const use = vi.fn();
+    mountMCP({ h3: { use } }, { actions: {}, directoryProfile: {} } as any);
+
+    expect(use.mock.calls.map(([path]) => path)).toEqual([
+      "/mcp/directory",
+      "/_agent-native/mcp",
+      "/mcp",
+    ]);
   });
 });
