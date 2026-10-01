@@ -42,12 +42,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   setCachedRecentPinnedState,
   useContentRecent,
   useRemoveContentRecent,
 } from "@/hooks/use-content-recent";
+import {
+  SIDEBAR_SECTION_ROW_LIMIT,
+  sectionRowsHint,
+  type SidebarLayoutHint,
+} from "@/lib/sidebar-layout-hint";
+import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import { contentSpaceActionArgs } from "./select-content-space";
@@ -58,6 +63,7 @@ import {
 } from "./sidebar-reorder";
 import {
   SidebarNavigationRow,
+  SidebarRowsSkeleton,
   sidebarShowMoreClassName,
 } from "./SidebarNavigationRow";
 import {
@@ -132,6 +138,9 @@ function RecentSidebarRow({
   );
 }
 
+// Sections draw from the first frame. Until the saved settings, Pinned, and
+// Recent arrive, each section holds the size this browser last drew for it, so
+// whichever read lands first fills its own section without moving the rest.
 export function PersonalSidebarSections({
   renderPinned,
   pinnedCount,
@@ -142,22 +151,32 @@ export function PersonalSidebarSections({
   onToggleFavorite,
   reorderLabels,
   seeAllHrefs,
+  layoutHint,
+  onLayoutShown,
 }: {
   renderPinned: (limit: number) => ReactNode;
-  pinnedCount: number;
+  /** Null until Pinned has loaded. */
+  pinnedCount: number | null;
   renderFiles: () => ReactNode;
-  spaceId: string;
+  /** Null until the spaces arrive. */
+  spaceId: string | null;
   activeDocumentId?: string | null;
   onNavigate?: () => void;
   onToggleFavorite?: (documentId: string, isFavorite: boolean) => void;
   reorderLabels: SidebarReorderLabels;
-  seeAllHrefs: Record<ContentSidebarSectionId, string>;
+  seeAllHrefs: Record<ContentSidebarSectionId, string> | null;
+  layoutHint: SidebarLayoutHint;
+  onLayoutShown: (shown: SidebarLayoutHint) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
   const stateArgs = contentSpaceActionArgs(spaceId);
-  const state = useActionQuery("get-content-sidebar-state", stateArgs);
-  const recent = useContentRecent(spaceId);
+  const state = useActionQuery("get-content-sidebar-state", stateArgs, {
+    enabled: Boolean(stateArgs),
+  });
+  const recent = useContentRecent(spaceId ?? undefined, {
+    enabled: Boolean(spaceId),
+  });
   const removeRecent = useRemoveContentRecent();
   const update = useActionMutation("update-content-sidebar-state", {
     skipActionQueryInvalidation: true,
@@ -167,13 +186,48 @@ export function PersonalSidebarSections({
   );
   const pendingBySpace = useRef(new Map<string, number>());
   const queueBySpace = useRef(new Map<string, Promise<unknown>>());
-  const [limits, setLimits] = useState({ pinned: 5, recent: 5 });
-  useEffect(() => setLimits({ pinned: 5, recent: 5 }), [spaceId]);
+  const [limits, setLimits] = useState({
+    pinned: SIDEBAR_SECTION_ROW_LIMIT,
+    recent: SIDEBAR_SECTION_ROW_LIMIT,
+  });
+  useEffect(
+    () =>
+      setLimits({
+        pinned: SIDEBAR_SECTION_ROW_LIMIT,
+        recent: SIDEBAR_SECTION_ROW_LIMIT,
+      }),
+    [spaceId],
+  );
+  const savedSections = state.data
+    ? (state.data.state?.sections ?? defaultContentSidebarSections())
+    : undefined;
   const sections =
-    optimisticBySpace.get(spaceId) ??
-    state.data?.state?.sections ??
+    (spaceId ? optimisticBySpace.get(spaceId) : undefined) ??
+    savedSections ??
+    layoutHint.sections ??
     defaultContentSidebarSections();
+  const recentCount = recent.data?.entries.length;
+  const savedSectionsKey = savedSections ? JSON.stringify(savedSections) : null;
+  useEffect(() => {
+    if (savedSections) onLayoutShown({ sections: savedSections });
+    // The key changes exactly when the saved sections do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedSectionsKey]);
+  useEffect(() => {
+    if (pinnedCount !== null) {
+      onLayoutShown({ pinned: sectionRowsHint(pinnedCount) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinnedCount]);
+  useEffect(() => {
+    if (recentCount !== undefined) {
+      onLayoutShown({ recent: sectionRowsHint(recentCount) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentCount]);
   function save(next: ContentSidebarSections) {
+    if (!spaceId) return;
+    onLayoutShown({ sections: next });
     const targetSpaceId = spaceId;
     const targetStateKey = [
       "action",
@@ -233,22 +287,23 @@ export function PersonalSidebarSections({
     files: t("sidebar.files"),
   };
   function canShowMore(id: "pinned" | "recent") {
-    const count =
-      id === "pinned" ? pinnedCount : (recent.data?.entries.length ?? 0);
+    const count = id === "pinned" ? (pinnedCount ?? 0) : (recentCount ?? 0);
     if (limits[id] >= 50) return false;
     return count > limits[id];
+  }
+  // Until a section's rows load it holds what it last drew: its rows, its
+  // "Show more" row, or Recent's one-line empty note.
+  function sectionPlaceholder(id: "pinned" | "recent") {
+    const hint = layoutHint[id];
+    if (id === "recent" && hint?.rows === 0) {
+      return <div aria-hidden="true" className="h-6" />;
+    }
+    return <SidebarRowsSkeleton rows={hint?.rows ?? 3} more={hint?.more} />;
   }
   if (state.isError)
     return (
       <>
         <QueryErrorState compact onRetry={() => void state.refetch()} />
-        {renderFiles()}
-      </>
-    );
-  if (state.isLoading)
-    return (
-      <>
-        <Skeleton className="mx-3 my-2 h-7" />
         {renderFiles()}
       </>
     );
@@ -276,7 +331,7 @@ export function PersonalSidebarSections({
                 change("files", { expanded: !sections.files.expanded })
               }
               reorderLabels={reorderLabels}
-              seeAllHref={seeAllHrefs[id]}
+              seeAllHref={seeAllHrefs?.[id]}
               sections={sections}
               labels={labels}
               onChangeVisible={(sectionId, visible) =>
@@ -298,7 +353,7 @@ export function PersonalSidebarSections({
                 change(id, { expanded: !sections[id].expanded });
               }}
               reorderLabels={reorderLabels}
-              seeAllHref={seeAllHrefs[id]}
+              seeAllHref={seeAllHrefs?.[id]}
               sections={sections}
               labels={labels}
               onChangeVisible={(sectionId, visible) =>
@@ -308,15 +363,19 @@ export function PersonalSidebarSections({
               {sections[id].expanded && (
                 <>
                   {id === "pinned" ? (
-                    renderPinned(limits.pinned)
+                    pinnedCount === null ? (
+                      sectionPlaceholder("pinned")
+                    ) : (
+                      renderPinned(limits.pinned)
+                    )
                   ) : recent.isError ? (
                     <QueryErrorState
                       compact
                       onRetry={() => void recent.refetch()}
                       retrying={recent.isFetching}
                     />
-                  ) : recent.isLoading ? (
-                    <Skeleton className="mx-2 h-20" />
+                  ) : recentCount === undefined ? (
+                    sectionPlaceholder("recent")
                   ) : recent.data?.entries.length ? (
                     <nav
                       aria-label={labels.recent}
@@ -425,7 +484,7 @@ function PersonalSection({
   expanded?: boolean;
   onToggle?: () => void;
   reorderLabels: SidebarReorderLabels;
-  seeAllHref: string;
+  seeAllHref: string | undefined;
   sections: ContentSidebarSections;
   labels: Record<ContentSidebarSectionId, string>;
   onChangeVisible: (id: "pinned" | "recent", visible: boolean) => void;
@@ -447,7 +506,10 @@ function PersonalSection({
       data-sidebar-reorder-item-id={reorder.itemId}
       className="mb-4 min-w-0 px-2"
     >
-      <div className="group/section-header grid h-7 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
+      <div
+        {...startupAnchor(`sidebar-section-${id}`)}
+        className="group/section-header grid h-7 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1"
+      >
         {onToggle && (
           <button
             type="button"
@@ -486,14 +548,17 @@ function PersonalSection({
                   size="icon"
                   className="size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground"
                   aria-label={t("sidebar.customizeSidebar")}
+                  disabled={!seeAllHref}
                 >
                   <IconDots className="size-3.5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>
-                </DropdownMenuItem>
+                {seeAllHref ? (
+                  <DropdownMenuItem asChild>
+                    <Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuItem

@@ -17748,41 +17748,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    var exitedContainer = el.parentElement;
-    var receivingContainer = exitedContainer && exitedContainer.parentElement;
-    var targetContainer = dropContainerForTarget(target);
-    if (
-      !ignoreTargetAutoLayout &&
-      target &&
-      exitedContainer &&
-      receivingContainer &&
-      isContainerDropTarget(exitedContainer) &&
-      !isAutoLayoutElement(receivingContainer) &&
-      !unnestPromotedBoardRootTarget &&
-      (targetContainer === receivingContainer ||
-        target?.anchor === receivingContainer) &&
-      (pointHit === receivingContainer ||
-        !pointHit ||
-        pointHit === document.body ||
-        pointHit === document.documentElement)
-    ) {
-      target = {
-        ...target,
-        anchor: exitedContainer,
-        placement: "after",
-        axis: parentFlowAxis(receivingContainer),
-        persistenceAnchor: exitedContainer,
-        persistencePlacement: "after",
-        gridCell: undefined,
-        gridPlacement: undefined,
-        gridDisplacement: undefined,
-        gridDisplacementPlacements: undefined,
-        gridDisplacementPrevStyles: undefined,
-        guideRect: undefined,
-        guideMode: undefined,
-        guidePlacement: undefined,
-      };
-    }
+    target = preferExitedFrameOrderForPlainReceiver(
+      el,
+      target,
+      clientX,
+      clientY,
+      excludeEls,
+      ignoreTargetAutoLayout,
+    );
 
     if (
       target &&
@@ -17797,6 +17770,69 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.conversionTarget = container;
     }
     return target;
+  }
+
+  function preferExitedFrameOrderForPlainReceiver(
+    el,
+    target,
+    clientX,
+    clientY,
+    excludeEls,
+    ignoreTargetAutoLayout,
+  ) {
+    if (!target || ignoreTargetAutoLayout || !el || !el.parentElement) {
+      return target;
+    }
+    var exitedContainer = el.parentElement;
+    var receivingContainer = exitedContainer.parentElement;
+    var dragged = [el].concat(excludeEls || []);
+    var pointHit = elementFromEditorPointIgnoring(clientX, clientY, dragged);
+    var targetContainer = dropContainerForTarget(target);
+    var unnestPromotedBoardRootTarget =
+      target.dropMode === "absolute-container" &&
+      target.placement !== "inside" &&
+      target.anchor?.parentElement === document.body;
+    if (
+      !receivingContainer ||
+      !isContainerDropTarget(exitedContainer) ||
+      isAutoLayoutElement(receivingContainer) ||
+      unnestPromotedBoardRootTarget ||
+      (targetContainer !== receivingContainer &&
+        target.anchor !== receivingContainer) ||
+      (pointHit !== receivingContainer &&
+        pointHit &&
+        pointHit !== document.body &&
+        pointHit !== document.documentElement)
+    ) {
+      return target;
+    }
+    if (
+      target.dropMode === "absolute-container" &&
+      target.placement === "inside" &&
+      target.anchor === receivingContainer
+    ) {
+      return {
+        ...target,
+        persistenceAnchor: exitedContainer,
+        persistencePlacement: "after",
+      };
+    }
+    return {
+      ...target,
+      anchor: exitedContainer,
+      placement: "after",
+      axis: parentFlowAxis(receivingContainer),
+      persistenceAnchor: exitedContainer,
+      persistencePlacement: "after",
+      gridCell: undefined,
+      gridPlacement: undefined,
+      gridDisplacement: undefined,
+      gridDisplacementPlacements: undefined,
+      gridDisplacementPrevStyles: undefined,
+      guideRect: undefined,
+      guideMode: undefined,
+      guidePlacement: undefined,
+    };
   }
 
   function ignoreAutoLayoutForDropTarget(target) {
@@ -19412,7 +19448,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 persistencePlacement: previous ? "after" : "inside",
               }
             : target.dropMode === "absolute-container"
-              ? target
+              ? previous
+                ? {
+                    ...target,
+                    persistenceAnchor: previous,
+                    persistencePlacement: "after",
+                  }
+                : target
               : {
                   anchor: previous,
                   placement: "after",
@@ -21838,6 +21880,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (target && isIgnoreAutoLayoutChordForDragPoint(point)) {
           target = ignoreAutoLayoutForDropTarget(target);
         }
+        target = preferExitedFrameOrderForPlainReceiver(
+          dragEl,
+          target,
+          point.clientX,
+          point.clientY,
+          groupOthers,
+          ignoreAutoLayoutHeld(point),
+        );
         currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
@@ -22254,6 +22304,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             finalAutoLayoutTarget,
           );
         }
+        finalAutoLayoutTarget = preferExitedFrameOrderForPlainReceiver(
+          dragEl,
+          finalAutoLayoutTarget,
+          ev.clientX,
+          ev.clientY,
+          groupOthers,
+          ignoreAutoLayoutHeld(ev),
+        );
         finalAutoLayoutTarget = applyFreeDropSizeGuard(
           finalAutoLayoutTarget,
           ev,

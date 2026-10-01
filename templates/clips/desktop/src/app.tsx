@@ -4600,7 +4600,7 @@ export function App({
       {pendingUploadBanner}
 
       <div className="bottom-row">
-        {wisprFlowLabEnabled ? (
+        {voiceDictationEnabled ? (
           <BottomHint
             label="Dictate"
             shortcut={compactVoiceShortcutLabel(

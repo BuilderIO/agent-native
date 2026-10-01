@@ -92,16 +92,28 @@ function fusionUrl(
   return url;
 }
 
-const builderCreditUsageSchema = z.object({
-  plan: z.enum(["free", "paid"]),
-  balance: z.number().finite().nonnegative(),
-  quota: z.object({
-    period: z.enum(["daily", "monthly"]),
-    limit: z.number().finite().positive(),
-    used: z.number().finite().nonnegative(),
-    remaining: z.number().finite().nonnegative(),
-  }),
-});
+const builderCreditUsageSchema = z
+  .object({
+    plan: z.enum(["free", "paid"]),
+    balance: z.number().finite().nonnegative(),
+    quota: z.object({
+      period: z.enum(["daily", "monthly"]),
+      limit: z.number().finite().positive(),
+      used: z.number().finite().nonnegative(),
+      remaining: z.number().finite().nonnegative(),
+    }),
+  })
+  .superRefine(({ quota }, ctx) => {
+    const total = quota.used + quota.remaining;
+    const tolerance = Math.max(quota.limit, total) * Number.EPSILON * 4;
+    if (!Number.isFinite(total) || Math.abs(total - quota.limit) > tolerance) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["quota"],
+        message: "Builder credit usage and remaining must match its limit.",
+      });
+    }
+  });
 
 export type BuilderCreditUsage = z.infer<typeof builderCreditUsageSchema>;
 

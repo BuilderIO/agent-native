@@ -251,6 +251,64 @@ describe("open-visual-edit", () => {
     expect(result.previewToken).toBe("stored-preview-token");
   });
 
+  it("puts the bridge start command in the message, which MCP callers see instead of the full result", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173/",
+      bridgeUrl: "http://127.0.0.1:7331",
+      rootPath: "/tmp/app",
+      navigate: false,
+    });
+
+    expect(result.message).toBe(
+      "Design design_1 uses connection localhost_canonical. Start its bridge with `AGENT_NATIVE_BRIDGE_TOKEN='stored-write-token' npx @agent-native/core@latest design connect --url 'http://localhost:5173' --root '/tmp/app' --port 7331 --daemon`, then open the design.",
+    );
+  });
+
+  it("single-quotes caller-controlled values so the bridge command cannot run embedded shell", async () => {
+    mocks.connectLocalhostRun.mockResolvedValueOnce({
+      id: "localhost_canonical",
+      bridgeUrl: "http://127.0.0.1:7331",
+      rootPath: `/tmp/it's $(touch /tmp/pwned)`,
+      bridgeToken: "tok'`id`",
+      previewToken: "stored-preview-token",
+      routes: [],
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173/",
+      navigate: false,
+    });
+
+    expect(result.message).toContain(
+      `AGENT_NATIVE_BRIDGE_TOKEN='tok'\\''\`id\`' npx`,
+    );
+    expect(result.message).toContain(
+      `--root '/tmp/it'\\''s $(touch /tmp/pwned)' --port`,
+    );
+  });
+
+  it("starts the bridge on the port saved on the connection", async () => {
+    mocks.connectLocalhostRun.mockResolvedValueOnce({
+      id: "localhost_canonical",
+      bridgeUrl: "http://127.0.0.1:7400",
+      rootPath: "/tmp/app",
+      bridgeToken: "stored-write-token",
+      previewToken: "stored-preview-token",
+      routes: [],
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173/",
+      bridgeUrl: "http://127.0.0.1:7400",
+      navigate: false,
+    });
+
+    expect(result.message).toContain("--port 7400 --daemon");
+  });
+
   it("passes an explicit connection id through for follow-up visual-edit calls", async () => {
     await action.run({
       designId: "design_1",

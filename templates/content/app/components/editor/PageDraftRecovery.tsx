@@ -20,6 +20,7 @@ import {
   useUpdatePreviewDocumentDraft,
 } from "@/hooks/use-documents";
 import { isDocumentCreationPending } from "@/lib/optimistic-document";
+import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
 
 import { documentBodyHydrationIsPending } from "./body-hydration";
 import { saveDocumentWithRebase } from "./document-save-rebase";
@@ -665,11 +666,22 @@ export function PageDraftRecovery({
     journalState === "checking" ||
     journalState === "promoting"
   )
-    return <DocumentEditorSkeleton title={document.title} />;
+    return (
+      <DocumentEditorSkeleton
+        title={document.title}
+        iconRow={readPageIconRowHint(document.id)}
+      />
+    );
   if (!draft) return withNotice(null);
   // Legacy drafts are preserved automatically; that path toasts once.
   if (!hasEditIdentity && !failure) return withNotice(null);
-  if (!failure) return <DocumentEditorSkeleton title={document.title} />;
+  if (!failure)
+    return (
+      <DocumentEditorSkeleton
+        title={document.title}
+        iconRow={readPageIconRowHint(document.id)}
+      />
+    );
   const savedVersion = conflictDocument ?? document;
   return (
     <RecoveryComparison

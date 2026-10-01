@@ -19,6 +19,9 @@ export type AgentChatRuntimeToolCallId = string;
 export type AgentChatRuntimeMetadata = Record<string, unknown>;
 export type AgentChatRuntimeAwaitable<T> = T | Promise<T>;
 
+export const AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY =
+  "agentNativeRunResumeState";
+
 export type AgentChatRuntimeKind =
   | "agent-native"
   | "external-agent"
@@ -2793,11 +2796,13 @@ export function createAgentNativeChatRuntime(
     ...nativeRuntime,
     resume: async (input) => {
       const threadId = input.sessionId ?? options.threadId;
-      if (!threadId || !input.turnId || !input.runId) {
+      if (!threadId || !input.runId) {
         return nativeRuntime.resume!(input);
       }
 
-      const query = new URLSearchParams({ threadId, turnId: input.turnId });
+      const query = new URLSearchParams({ threadId });
+      if (input.turnId) query.set("turnId", input.turnId);
+      else query.set("runId", input.runId);
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
       const response = await runtimeFetch(
@@ -2812,21 +2817,42 @@ export function createAgentNativeChatRuntime(
       if (!response.ok) throw await readHttpRuntimeError(response);
 
       const latestRun = asRecord(await response.json());
-      const runId = latestRun?.runId;
-      if (typeof runId !== "string" || !runId.trim()) {
+      if (!latestRun) {
         throw new TypeError(
           "Agent chat latest-run response must include a run ID.",
         );
       }
+      if (typeof latestRun.runId !== "string" || !latestRun.runId.trim()) {
+        if (!input.turnId && latestRun.status === "queued") {
+          return nativeRuntime.resume!(input);
+        }
+        throw new TypeError(
+          "Agent chat latest-run response must include a run ID.",
+        );
+      }
+      const runId = latestRun.runId;
+      const turnId =
+        input.turnId ??
+        (typeof latestRun.turnId === "string" && latestRun.turnId.trim()
+          ? latestRun.turnId
+          : input.runId);
       const events = await nativeRuntime.subscribe!({
         ...input,
         runId,
         after: runId === input.runId ? input.after : 0,
       });
       return {
-        id: input.turnId,
+        id: turnId,
         sessionId: threadId,
         runId,
+        metadata: {
+          ...input.metadata,
+          [AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY]: {
+            status: latestRun.status,
+            dispatchMode: latestRun.dispatchMode,
+            startedAt: latestRun.startedAt,
+          },
+        },
         events,
       };
     },

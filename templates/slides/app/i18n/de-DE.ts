@@ -47,7 +47,7 @@ const messages = {
     designSystems: "Designsysteme",
   },
   settings: {
-    agentObservability: "Agentenbeobachtbarkeit",
+    agentObservability: "Beobachtbarkeit",
     title: "Einstellungen",
     labs: "Labs",
     labsIntro: "Teste experimentelle Funktionen vor ihrer Veröffentlichung.",

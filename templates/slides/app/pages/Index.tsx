@@ -41,6 +41,7 @@ import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
   IconArrowRight,
+  IconMenu2,
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
@@ -85,6 +86,7 @@ import PromptPopover, {
 import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
 import { usePromptImport } from "@/components/editor/use-prompt-import";
 import { HomeHeaderActions } from "@/components/layout/Header";
+import { useOpenMobileSidebar } from "@/components/layout/Layout";
 import { DeckTemplateLibrary } from "@/components/templates/DeckTemplateLibrary";
 import {
   AlertDialog,
@@ -503,6 +505,7 @@ async function loadReferenceDeckGenerationContext(
 
 export default function Index({ active = true }: { active?: boolean }) {
   const t = useT();
+  const openMobileSidebar = useOpenMobileSidebar();
   const location = useLocation();
   const generationRetryState =
     location.state as DeckGenerationRetryState | null;
@@ -2346,6 +2349,16 @@ export default function Index({ active = true }: { active?: boolean }) {
       mobileToolbar={
         isHome ? (
           <div className="slides-home-mobile-toolbar flex min-w-0 flex-1 items-center gap-2">
+            {openMobileSidebar ? (
+              <button
+                type="button"
+                onClick={openMobileSidebar}
+                className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={t("sidebar.openNavigation")}
+              >
+                <IconMenu2 className="size-4" aria-hidden="true" />
+              </button>
+            ) : null}
             {hasDecks ? (
               <DeckSearchInput
                 value={deckSearch}

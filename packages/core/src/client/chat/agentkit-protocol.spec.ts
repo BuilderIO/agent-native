@@ -2242,6 +2242,238 @@ describe("createAgentKitProtocolAdapter", () => {
     }
   });
 
+  it("keeps resuming an active durable background run after stream EOFs", async () => {
+    vi.useFakeTimers();
+    try {
+      const sseResponse = (events: unknown[], runId: string) =>
+        new Response(
+          events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+          {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "X-Run-Id": runId,
+            },
+          },
+        );
+      const startedAt = Date.now();
+      let latestReads = 0;
+      const fetchMock = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input), "http://localhost");
+          const method = String(init?.method ?? "GET").toUpperCase();
+          if (method === "POST") {
+            return sseResponse(
+              [{ type: "text", text: "part one", seq: 0 }],
+              "run-1",
+            );
+          }
+          if (url.pathname.endsWith("/runs/latest")) {
+            latestReads += 1;
+            return Response.json({
+              runId: "run-1",
+              startedAt,
+              status: latestReads < 5 ? "running" : "completed",
+              dispatchMode: "background-processing",
+            });
+          }
+          const runId = url.pathname.split("/").at(-2);
+          return sseResponse(
+            latestReads < 5 ? [] : [{ type: "done", seq: 1 }],
+            runId!,
+          );
+        },
+      ) as typeof fetch;
+      const transport = createAgentKitProtocolAdapter(
+        createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetchMock,
+        }),
+      );
+      const { runId } = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Resume after an interrupted stream")],
+      });
+      const resultPromise = drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId }),
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(latestReads).toBe(5);
+      expect(
+        result.find((event) => event.type === "run.failed"),
+      ).toBeUndefined();
+      expect(result.at(-1)?.type).toBe("run.completed");
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps restored background runs attached after stream EOFs", async () => {
+    vi.useFakeTimers();
+    try {
+      const sseResponse = (events: unknown[], runId: string) =>
+        new Response(
+          events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+          {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "X-Run-Id": runId,
+            },
+          },
+        );
+      const startedAt = Date.now();
+      let latestReads = 0;
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost");
+        if (url.pathname.endsWith("/runs/latest")) {
+          latestReads += 1;
+          return Response.json({
+            runId: latestReads === 1 ? "run-2" : "run-3",
+            turnId: "turn-1",
+            startedAt,
+            status: latestReads < 5 ? "running" : "completed",
+            dispatchMode: "background-processing",
+          });
+        }
+        const runId = url.pathname.split("/").at(-2);
+        if (!runId) throw new Error(`Unexpected runtime request: ${url}`);
+        return sseResponse(
+          latestReads < 5 ? [] : [{ type: "done", seq: 1 }],
+          runId,
+        );
+      }) as typeof fetch;
+      const transport = createAgentKitProtocolAdapter(
+        createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetchMock,
+        }),
+      );
+      const resultPromise = drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId: "run-1" }),
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(latestReads).toBe(5);
+      expect(
+        fetchMock.mock.calls
+          .map(([input]) => new URL(String(input), "http://localhost"))
+          .filter((url) => url.pathname.endsWith("/runs/latest"))
+          .map((url) => [
+            url.searchParams.get("runId"),
+            url.searchParams.get("turnId"),
+          ]),
+      ).toEqual([
+        ["run-1", null],
+        [null, "turn-1"],
+        [null, "turn-1"],
+        [null, "turn-1"],
+        [null, "turn-1"],
+      ]);
+      expect(
+        fetchMock.mock.calls
+          .map(([input]) => new URL(String(input), "http://localhost"))
+          .filter((url) => url.pathname.endsWith("/events"))
+          .map((url) => url.pathname.split("/").at(-2)),
+      ).toEqual(["run-2", "run-3", "run-3", "run-3", "run-3"]);
+      expect(
+        result.find((event) => event.type === "run.failed"),
+      ).toBeUndefined();
+      expect(result.at(-1)?.type).toBe("run.completed");
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps restored background retries inside the original run deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const startedAt = Date.now() - 14 * 60_000;
+      let latestReads = 0;
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost");
+        if (url.pathname.endsWith("/runs/latest")) {
+          latestReads += 1;
+          return Response.json({
+            runId: "run-1",
+            turnId: "turn-1",
+            startedAt,
+            status: "running",
+            dispatchMode: "background-processing",
+          });
+        }
+        return new Response("", {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }) as typeof fetch;
+      const transport = createAgentKitProtocolAdapter(
+        createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetchMock,
+        }),
+      );
+
+      const result = await drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId: "run-1" }),
+      );
+
+      expect(latestReads).toBe(1);
+      expect(result.find((event) => event.type === "run.failed")).toMatchObject(
+        { error: { code: "stream_ended" } },
+      );
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps restored background retries when the start time is unavailable", async () => {
+    vi.useFakeTimers();
+    try {
+      let latestReads = 0;
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost");
+        if (url.pathname.endsWith("/runs/latest")) {
+          latestReads += 1;
+          return Response.json({
+            runId: "run-1",
+            turnId: "turn-1",
+            status: "running",
+            dispatchMode: "background-processing",
+          });
+        }
+        return new Response("", {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }) as typeof fetch;
+      const transport = createAgentKitProtocolAdapter(
+        createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetchMock,
+        }),
+      );
+
+      const resultPromise = drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId: "run-1" }),
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(latestReads).toBe(4);
+      expect(result.find((event) => event.type === "run.failed")).toMatchObject(
+        { error: { code: "stream_ended" } },
+      );
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("deduplicates compatibility activity mirrors and closes activity on completion", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       for (const label of ["Starting agent", "Contacting model"]) {
