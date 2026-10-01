@@ -227,8 +227,7 @@ export interface ChatGPTModelCatalog {
  * organization is connected), each with its organization-checked models. A
  * rejected key offers nothing until it's replaced. Without an organization
  * the default is the user's own, so their personal keys fill it instead. A
- * connected ChatGPT plan is the viewer's own whichever way the default is
- * scoped, so its models are offered last when the account has any.
+ * connected ChatGPT plan is offered only for that personal default.
  */
 export function defaultModelGroups(input: {
   listing: ModelProvidersListing;
@@ -263,7 +262,11 @@ export function defaultModelGroups(input: {
       models: checked,
     });
   }
-  if (input.chatgpt && input.chatgpt.models.length > 0) {
+  if (
+    !listing.hasOrganization &&
+    input.chatgpt &&
+    input.chatgpt.models.length > 0
+  ) {
     groups.push({
       engine: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
       provider: "chatgpt",

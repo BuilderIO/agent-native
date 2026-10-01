@@ -22,15 +22,23 @@ const putRoute = source.slice(
   ),
 );
 
-describe("agent app model-default ChatGPT lab gate", () => {
+describe("agent app model-default ChatGPT options", () => {
   it("hides the ChatGPT engine unless its user's lab is enabled", () => {
     expect(listRoute).toContain("getUserLabEnabled(");
     expect(listRoute).toContain("ctx.userEmail");
     expect(listRoute).toContain("CHATGPT_SUBSCRIPTION_LAB");
-    expect(listRoute).toContain(
-      "entry.name !== CHATGPT_SUBSCRIPTION_ENGINE_NAME || chatGPTEnabled",
-    );
+    expect(listRoute).toContain("chatGPTEnabled && ctx.userEmail");
     expect(listRoute).toContain("visibleEngines.map(async (entry) => ({");
+  });
+
+  it("offers the viewer's catalog models and hides ChatGPT without options", () => {
+    expect(listRoute).toContain("requestOrigin: getOrigin(event)");
+    expect(listRoute).toContain("isLoopbackRequest: isLoopbackRequest(event)");
+    expect(listRoute).toContain("listChatGPTSubscriptionModels(ctx.userEmail)");
+    expect(listRoute).toContain(
+      "if (!chatGPTCatalog?.models.length) return [];",
+    );
+    expect(listRoute).toContain("supportedModels: chatGPTCatalog.models");
   });
 
   it("refuses a disabled ChatGPT lab before writing a default", () => {

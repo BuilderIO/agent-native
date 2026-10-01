@@ -4982,10 +4982,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         };
       };
 
-      const listModelDefaultEngineOptions = async (ctx: {
-        userEmail?: string;
-        orgId?: string | null;
-      }) => {
+      const listModelDefaultEngineOptions = async (
+        ctx: { userEmail?: string; orgId?: string | null },
+        event: any,
+      ) => {
         registerBuiltinEngines();
         const availableEngines = listAgentEngines();
         const chatGPTEnabled =
@@ -4994,12 +4994,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
           ) &&
           (await getUserLabEnabled(ctx.userEmail, CHATGPT_SUBSCRIPTION_LAB));
-        const visibleEngines = availableEngines.filter(
-          (entry) =>
-            entry.name !== CHATGPT_SUBSCRIPTION_ENGINE_NAME || chatGPTEnabled,
-        );
-        // This select writes the organization's default, so it offers the
-        // organization's checked models, not the viewer's personal ones.
+        // Provider model selections follow the setting scope; ChatGPT choices
+        // use the viewer's active account catalog.
         const selectionScope = ctx.orgId ? "org" : "user";
         const selections = new Map<
           string,
@@ -5033,9 +5029,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           {
             userEmail: ctx.userEmail,
             orgId: ctx.orgId ?? undefined,
+            requestOrigin: getOrigin(event),
+            isLoopbackRequest: isLoopbackRequest(event),
           },
-          () =>
-            Promise.all(
+          async () => {
+            const chatGPTCatalog =
+              chatGPTEnabled && ctx.userEmail
+                ? // coercion-ok: hide this optional engine without a readable catalog.
+                  await listChatGPTSubscriptionModels(ctx.userEmail).catch(
+                    () => null,
+                  )
+                : null;
+            const visibleEngines = availableEngines.flatMap((entry) => {
+              if (entry.name !== CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+                return [entry];
+              }
+              if (!chatGPTCatalog?.models.length) return [];
+              return [{ ...entry, supportedModels: chatGPTCatalog.models }];
+            });
+            return Promise.all(
               visibleEngines.map(async (entry) => ({
                 name: entry.name,
                 label: entry.label,
@@ -5050,7 +5062,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   entry,
                 ).catch(() => false),
               })),
-            ),
+            );
+          },
         );
       };
 
@@ -5080,7 +5093,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       : null,
                 }
               : null,
-          engines: await listModelDefaultEngineOptions(ctx),
+          engines: await listModelDefaultEngineOptions(ctx, event),
         };
       };
 

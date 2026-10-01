@@ -791,12 +791,19 @@ describe("ModelSettingsPage", () => {
     });
   });
 
-  it("counts a connected ChatGPT plan as a provider and offers its models as the default", async () => {
-    state.listing = listing({
-      canManageOrg: true,
-      canUpdateDefault: true,
-      defaultModel: null,
-    });
+  it("keeps a connected ChatGPT plan personal when choosing the organization default", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: true,
+        canUpdateDefault: true,
+        defaultModel: null,
+      },
+      {
+        anthropic: {
+          org: { scope: "org", masked: "••••1234", updatedAt: 1 },
+        },
+      },
+    );
     state.builder = builderFlow({
       configured: false,
       grants: { org: null, personal: null },
@@ -821,6 +828,12 @@ describe("ModelSettingsPage", () => {
 
     expect(container.textContent).not.toContain("Add a model provider");
     expect(state.header?.action).toBeTruthy();
+    expect(
+      row("personal-providers").contains(row("chatgpt-subscription")),
+    ).toBe(true);
+    expect(row("chatgpt-subscription").textContent).toContain(
+      "ChatGPT plan access",
+    );
     const defaultRow = row("default-model");
     expect(defaultRow.textContent).not.toContain(
       "Add a provider to choose a default model.",
@@ -834,9 +847,12 @@ describe("ModelSettingsPage", () => {
     expect(select.disabled).toBe(false);
     await act(async () => pointerDown(select));
     expect(listed('[role="option"]')).toEqual([
-      "GPT-5.5 · ChatGPT",
-      "gpt-5.4 · ChatGPT",
+      "model-a · Anthropic",
+      "model-b · Anthropic",
     ]);
+    expect(
+      listed('[role="option"]').some((option) => option.includes("ChatGPT")),
+    ).toBe(false);
     expect(callActionMock).toHaveBeenCalledWith("manage-agent-engine", {
       action: "list",
     });
@@ -901,7 +917,7 @@ describe("ModelSettingsPage", () => {
 
   it("loads a fresh ChatGPT catalog after switching accounts", async () => {
     state.listing = listing({
-      canManageOrg: true,
+      hasOrganization: false,
       canUpdateDefault: true,
       defaultModel: null,
     });

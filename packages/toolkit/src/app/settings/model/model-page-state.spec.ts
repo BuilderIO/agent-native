@@ -218,35 +218,41 @@ describe("model page state", () => {
     ]);
   });
 
-  it("offers a connected ChatGPT plan's models last, whichever way the default is scoped", () => {
+  it("offers connected ChatGPT models only for a personal default", () => {
     const chatgpt = {
       label: "ChatGPT",
       models: ["gpt-5.5"],
       displayNames: { "gpt-5.5": "GPT-5.5" },
     };
-    const groups = defaultModelGroups({
+    const organizationGroups = defaultModelGroups({
       listing: listing(),
       models,
       builderConnected: false,
       builderLabel: "Builder.io",
       chatgpt,
     });
-    expect(groups.at(-1)).toEqual({
-      engine: "chatgpt-subscription",
-      provider: "chatgpt",
-      label: "ChatGPT",
-      models: ["gpt-5.5"],
-      modelDisplayNames: { "gpt-5.5": "GPT-5.5" },
-    });
     expect(
-      defaultModelGroups({
-        listing: listing({ hasOrganization: false }),
-        models: { providers: [] },
-        builderConnected: false,
-        builderLabel: "Builder.io",
-        chatgpt,
-      }).map((group) => group.engine),
-    ).toEqual(["chatgpt-subscription"]);
+      organizationGroups.some(
+        (group) => group.engine === "chatgpt-subscription",
+      ),
+    ).toBe(false);
+
+    const personalGroups = defaultModelGroups({
+      listing: listing({ hasOrganization: false }),
+      models: { providers: [] },
+      builderConnected: false,
+      builderLabel: "Builder.io",
+      chatgpt,
+    });
+    expect(personalGroups).toEqual([
+      {
+        engine: "chatgpt-subscription",
+        provider: "chatgpt",
+        label: "ChatGPT",
+        models: ["gpt-5.5"],
+        modelDisplayNames: { "gpt-5.5": "GPT-5.5" },
+      },
+    ]);
     expect(
       defaultModelGroups({
         listing: listing(),

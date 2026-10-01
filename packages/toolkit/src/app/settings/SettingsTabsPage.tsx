@@ -4,6 +4,8 @@ import {
 } from "@agent-native/core/client/api-path";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
+import type { LabStates } from "@agent-native/core/client/labs/use-lab";
+import { useActionQuery } from "@agent-native/core/client/use-action";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { CHATGPT_SUBSCRIPTION_LAB } from "@agent-native/core/labs/core-labs";
 import type { LabDefinition } from "@agent-native/core/labs/registry";
@@ -1056,17 +1058,30 @@ function RedesignedSettingsTabsPage(props: SettingsTabsPageProps) {
 }
 
 export function SettingsTabsPage(props: SettingsTabsPageProps) {
+  // No query client means no action surface to read the flag from, so the
+  // flag fails closed exactly as it does for a signed-out viewer. It also
+  // means the server's registered labs are unknown, so core labs stay hidden.
+  const queryClient = useContext(QueryClientContext);
+  return queryClient ? (
+    <SettingsTabsPageWithRegisteredLabs {...props} />
+  ) : (
+    <LegacySettingsTabsPage {...props} />
+  );
+}
+
+function SettingsTabsPageWithRegisteredLabs(props: SettingsTabsPageProps) {
+  const registeredLabs = useActionQuery<LabStates>("get-lab-states" as never);
+  const coreLabRegistered =
+    registeredLabs.data !== undefined &&
+    Object.hasOwn(registeredLabs.data, CHATGPT_SUBSCRIPTION_LAB.key);
   const labs = [
-    CHATGPT_SUBSCRIPTION_LAB,
+    ...(coreLabRegistered ? [CHATGPT_SUBSCRIPTION_LAB] : []),
     ...(props.labs ?? []).filter(
       (lab) => lab.key !== CHATGPT_SUBSCRIPTION_LAB.key,
     ),
   ];
   const settingsProps = { ...props, labs };
-  // No query client means no action surface to read the flag from, so the
-  // flag fails closed exactly as it does for a signed-out viewer.
-  const queryClient = useContext(QueryClientContext);
-  if (props.redesign === false || !queryClient) {
+  if (props.redesign === false) {
     return <LegacySettingsTabsPage {...settingsProps} />;
   }
   return <RedesignedSettingsTabsPage {...settingsProps} />;
