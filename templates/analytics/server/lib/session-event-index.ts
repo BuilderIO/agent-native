@@ -25,9 +25,10 @@ import { getDb, schema } from "../db/index.js";
 /**
  * Session event index.
  *
- * `recordAnalyticsEvents` writes every accepted event here in the transaction
- * that persists the event, whatever the storage sink. Session filters, event-name options,
- * and the event catalog read only these Postgres tables, so no view queries
+ * `recordAnalyticsEvents` indexes every accepted event's session in the
+ * transaction that persists the event, whatever the storage sink, and updates
+ * the event catalog after it commits. Session filters, event-name options, and
+ * the event catalog read only these Postgres tables, so no view queries
  * BigQuery. Event filters exclude sessions that started before a tenant's index
  * began, because their coverage is incomplete. "Didn't" conditions also
  * exclude sessions the index never saw or failed to write.
@@ -235,9 +236,30 @@ function sessionEventGapRows(
   return sortedByKey(gaps.entries());
 }
 
+function isIndexTableMissing(error: unknown): boolean {
+  for (let e = error as any; e; e = e.cause) {
+    if (
+      e.code === "42P01" ||
+      /relation "analytics_(session_event|event_catalog)\w*" does not exist/i.test(
+        String(e.message),
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function warnIndexFailure(message: string, error: unknown): void {
+  const now = Date.now();
+  if (now - lastWarnAt < WARN_INTERVAL_MS) return;
+  lastWarnAt = now;
+  console.warn(`[first-party-analytics] ${message}`, error);
+}
+
 /**
  * Runs inside the transaction that stores the events, so a batch's events
- * commit with either their index rows or a gap marker for their sessions.
+ * commit with either their session rows or a gap marker for their sessions.
  * An index failure rolls back to a savepoint and never fails ingest; only a
  * failed gap marker does, taking the events with it.
  */
@@ -246,97 +268,109 @@ export async function recordSessionEventIndex(
   rows: readonly SessionEventIndexInputRow[],
   receivedAt: string,
 ): Promise<void> {
-  if (!rows.length) return;
+  const { sessionEvents } = aggregateSessionEventIndexRows(rows);
+  if (!sessionEvents.length) return;
   try {
     await tx.transaction(async (savepoint: any) => {
-      const { sessionEvents, catalog, catalogLatest } =
-        aggregateSessionEventIndexRows(rows);
       const t = schema.analyticsSessionEvents;
-      const c = schema.analyticsEventCatalogDaily;
-      const l = schema.analyticsEventCatalogLatest;
+      await savepoint
+        .insert(t)
+        .values(sessionEvents)
+        .onConflictDoUpdate({
+          target: [t.tenantKey, t.sessionId, t.eventName],
+          set: {
+            eventCount: sql`${t.eventCount} + excluded.event_count`,
+            firstAt: sql`least(${t.firstAt}, excluded.first_at)`,
+            lastAt: sql`greatest(${t.lastAt}, excluded.last_at)`,
+            app: sql`case when excluded.app <> '' then excluded.app else ${t.app} end`,
+          },
+        });
 
-      if (sessionEvents.length) {
-        await savepoint
-          .insert(t)
-          .values(sessionEvents)
-          .onConflictDoUpdate({
-            target: [t.tenantKey, t.sessionId, t.eventName],
-            set: {
-              eventCount: sql`${t.eventCount} + excluded.event_count`,
-              firstAt: sql`least(${t.firstAt}, excluded.first_at)`,
-              lastAt: sql`greatest(${t.lastAt}, excluded.last_at)`,
-              app: sql`case when excluded.app <> '' then excluded.app else ${t.app} end`,
-            },
-          });
-
-        const tenants = new Map<
-          string,
-          { ownerEmail: string; orgId: string | null }
-        >();
-        for (const row of sessionEvents) {
-          tenants.set(row.tenantKey, {
-            ownerEmail: row.ownerEmail,
-            orgId: row.orgId ?? null,
-          });
-        }
-        await savepoint
-          .insert(schema.analyticsSessionEventCoverage)
-          .values(
-            [...tenants.entries()].map(([tenantKey, tenant]) => ({
-              tenantKey,
-              ownerEmail: tenant.ownerEmail,
-              orgId: tenant.orgId,
-              startedAt: receivedAt,
-            })),
-          )
-          .onConflictDoNothing();
+      const tenants = new Map<
+        string,
+        { ownerEmail: string; orgId: string | null }
+      >();
+      for (const row of sessionEvents) {
+        tenants.set(row.tenantKey, {
+          ownerEmail: row.ownerEmail,
+          orgId: row.orgId ?? null,
+        });
       }
-
-      if (catalog.length) {
-        await savepoint
-          .insert(c)
-          .values(catalog)
-          .onConflictDoUpdate({
-            target: [c.tenantKey, c.eventDate, c.eventName, c.app],
-            set: {
-              eventCount: sql`${c.eventCount} + excluded.event_count`,
-              lastSeenAt: sql`greatest(${c.lastSeenAt}, excluded.last_seen_at)`,
-              propertyKeys: sql`case when excluded.last_seen_at >= ${c.lastSeenAt} then excluded.property_keys else ${c.propertyKeys} end`,
-            },
-          });
-      }
-
-      if (catalogLatest.length) {
-        await savepoint
-          .insert(l)
-          .values(catalogLatest)
-          .onConflictDoUpdate({
-            target: [l.tenantKey, l.eventName, l.app],
-            set: {
-              lastSeenAt: sql`greatest(${l.lastSeenAt}, excluded.last_seen_at)`,
-              propertyKeys: sql`case when excluded.last_seen_at >= ${l.lastSeenAt} then excluded.property_keys else ${l.propertyKeys} end`,
-            },
-          });
-      }
+      await savepoint
+        .insert(schema.analyticsSessionEventCoverage)
+        .values(
+          [...tenants.entries()].map(([tenantKey, tenant]) => ({
+            tenantKey,
+            ownerEmail: tenant.ownerEmail,
+            orgId: tenant.orgId,
+            startedAt: receivedAt,
+          })),
+        )
+        .onConflictDoNothing();
     });
   } catch (error) {
-    // A later batch can still index these sessions, so the gap must be
-    // recorded or "didn't" would read their missing events as absence.
-    const gaps = sessionEventGapRows(rows, receivedAt);
-    if (gaps.length) {
-      await tx
-        .insert(schema.analyticsSessionEventGaps)
-        .values(gaps)
-        .onConflictDoNothing();
-    }
-    const now = Date.now();
-    if (now - lastWarnAt >= WARN_INTERVAL_MS) {
-      lastWarnAt = now;
-      console.warn(
-        "[first-party-analytics] Session event index write failed; its sessions are marked incomplete:",
+    // Deploys ship code before the scheduled migration creates these tables.
+    // Coverage cannot have started yet, so no session can be read as complete.
+    if (isIndexTableMissing(error)) {
+      warnIndexFailure(
+        "Session event index tables are not migrated yet; events were stored unindexed:",
         error,
       );
+      return;
     }
+    // A later batch can still index these sessions, so the gap must be
+    // recorded or "didn't" would read their missing events as absence.
+    await tx
+      .insert(schema.analyticsSessionEventGaps)
+      .values(sessionEventGapRows(rows, receivedAt))
+      .onConflictDoNothing();
+    warnIndexFailure(
+      "Session event index write failed; its sessions are marked incomplete:",
+      error,
+    );
+  }
+}
+
+/**
+ * Best-effort, after the events commit. The catalog never decides a filter,
+ * and committing each upsert on its own keeps hot rows like `pageview` from
+ * staying locked for the whole ingest transaction.
+ */
+export async function recordEventCatalog(
+  rows: readonly SessionEventIndexInputRow[],
+): Promise<void> {
+  try {
+    const { catalog, catalogLatest } = aggregateSessionEventIndexRows(rows);
+    const db = getDb() as any;
+    const c = schema.analyticsEventCatalogDaily;
+    const l = schema.analyticsEventCatalogLatest;
+    if (catalog.length) {
+      await db
+        .insert(c)
+        .values(catalog)
+        .onConflictDoUpdate({
+          target: [c.tenantKey, c.eventDate, c.eventName, c.app],
+          set: {
+            eventCount: sql`${c.eventCount} + excluded.event_count`,
+            lastSeenAt: sql`greatest(${c.lastSeenAt}, excluded.last_seen_at)`,
+            propertyKeys: sql`case when excluded.last_seen_at >= ${c.lastSeenAt} then excluded.property_keys else ${c.propertyKeys} end`,
+          },
+        });
+    }
+    if (catalogLatest.length) {
+      await db
+        .insert(l)
+        .values(catalogLatest)
+        .onConflictDoUpdate({
+          target: [l.tenantKey, l.eventName, l.app],
+          set: {
+            lastSeenAt: sql`greatest(${l.lastSeenAt}, excluded.last_seen_at)`,
+            propertyKeys: sql`case when excluded.last_seen_at >= ${l.lastSeenAt} then excluded.property_keys else ${l.propertyKeys} end`,
+          },
+        });
+    }
+  } catch (error) {
+    warnIndexFailure("Event catalog write failed; events were stored:", error);
   }
 }
 
@@ -438,7 +472,9 @@ export async function listSessionEventNames(
   if (filters.from) {
     conditions.push(gte(se.lastAt, isoTimestamp(filters.from)));
   }
-  if (filters.to) conditions.push(lte(se.firstAt, isoTimestamp(filters.to)));
+  if (filters.to) {
+    conditions.push(lte(se.firstAt, isoTimestamp(filters.to, true)));
+  }
   if (filters.app) conditions.push(eq(se.app, filters.app));
   const limit = Math.min(500, Math.max(1, filters.limit ?? 200));
   const [rows, coverageStartedAt] = await Promise.all([
@@ -467,9 +503,13 @@ export function isAutomaticAnalyticsEvent(eventName: string): boolean {
   return AUTOMATIC_ANALYTICS_EVENT_NAMES.has(eventName);
 }
 
-function isoTimestamp(value: string): string {
+function isoTimestamp(value: string, endOfDay = false): string {
   if (!sessionEventBoundSchema.safeParse(value).success) {
     throw new Error(`Invalid event range bound: ${value}`);
+  }
+  // A date-only upper bound covers that whole day, as it does in the catalog.
+  if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return `${value}T23:59:59.999Z`;
   }
   return new Date(value).toISOString();
 }

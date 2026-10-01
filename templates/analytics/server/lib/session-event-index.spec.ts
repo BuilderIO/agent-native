@@ -26,6 +26,7 @@ import {
   listEventCatalog,
   listSessionEventNames,
   pruneSessionEventIndex,
+  recordEventCatalog,
   recordSessionEventIndex,
   samplePropertyKeys,
   sessionEventFilterConditions,
@@ -211,10 +212,12 @@ describe("session event index on Postgres", () => {
     return rows.map((row: { id: string }) => row.id);
   }
 
-  function index(rows: SessionEventIndexInputRow[], receivedAt: string) {
-    return db.transaction((tx: any) =>
+  /** Mirrors ingest: session rows in the event transaction, catalog after it. */
+  async function index(rows: SessionEventIndexInputRow[], receivedAt: string) {
+    await db.transaction((tx: any) =>
       recordSessionEventIndex(tx, rows, receivedAt),
     );
+    await recordEventCatalog(rows);
   }
 
   /** A real write error, so the savepoint rollback runs as it does in production. */
@@ -879,8 +882,8 @@ describe("session event index on Postgres", () => {
 
   it("stores a batch whose index write fails, with its sessions marked incomplete", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // The last write fails, so the earlier ones must roll back with it.
-    await failInsertsInto("analytics_event_catalog_latest");
+    // The last write fails, so the session rows must roll back with it.
+    await failInsertsInto("analytics_session_event_coverage");
     await storeBatch(
       "r-stored",
       [
@@ -902,14 +905,87 @@ describe("session event index on Postgres", () => {
       "SELECT session_id FROM analytics_session_events",
     );
     expect(sessions.rows).toEqual([]);
-    const daily = await client.query(
-      "SELECT event_name FROM analytics_event_catalog_daily",
-    );
-    expect(daily.rows).toEqual([]);
     const gaps = await client.query(
       "SELECT session_id FROM analytics_session_event_gaps",
     );
     expect(gaps.rows).toEqual([{ session_id: "s1" }]);
+  });
+
+  it("stores the batch unindexed before the index tables are migrated", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const table of [
+      "analytics_session_events",
+      "analytics_session_event_coverage",
+      "analytics_session_event_gaps",
+    ]) {
+      await client.query(`DROP TABLE ${table}`);
+    }
+    await storeBatch(
+      "r-early",
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s1",
+          timestamp: "2026-09-20T10:00:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    expect(warn).toHaveBeenCalledOnce();
+    expect(String(warn.mock.calls[0][0])).toContain("not migrated yet");
+    warn.mockRestore();
+
+    const stored = await client.query("SELECT id FROM session_recordings");
+    expect(stored.rows).toEqual([{ id: "r-early" }]);
+  });
+
+  it("keeps a session indexed when only its catalog write fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await failInsertsInto("analytics_event_catalog_latest");
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s1",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    expect(String(warn.mock.calls[0]?.[0])).toContain(
+      "Event catalog write failed",
+    );
+    warn.mockRestore();
+    await addRecording("r1", "s1", "2026-09-20T10:00:30.000Z");
+
+    expect(await matchingRecordings({ didNotEvents: ["clip_viewed"] })).toEqual(
+      ["r1"],
+    );
+    const gaps = await client.query(
+      "SELECT session_id FROM analytics_session_event_gaps",
+    );
+    expect(gaps.rows).toEqual([]);
+  });
+
+  it("treats a date-only upper bound as that whole day", async () => {
+    await index(
+      [
+        event({
+          eventName: "clip_viewed",
+          sessionId: "s1",
+          timestamp: "2026-09-20T15:00:00.000Z",
+        }),
+      ],
+      "2026-09-20T15:00:00.000Z",
+    );
+
+    const names = await listSessionEventNames(
+      { userEmail: OWNER, orgId: ORG },
+      { from: "2026-09-20", to: "2026-09-20" },
+    );
+    expect(names.events).toEqual([
+      { eventName: "clip_viewed", sessionCount: 1 },
+    ]);
   });
 
   it("rolls back the batch when its sessions cannot be marked incomplete", async () => {

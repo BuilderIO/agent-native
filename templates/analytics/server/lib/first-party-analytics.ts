@@ -34,6 +34,7 @@ import {
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
 import {
+  recordEventCatalog,
   recordSessionEventIndex,
   type SessionEventIndexInputRow,
 } from "./session-event-index.js";
@@ -806,6 +807,9 @@ export async function recordAnalyticsEvents(
     } catch (error) {
       persistenceError = error;
     }
+  }
+  if (rows.length && !persistenceError) {
+    await recordEventCatalog(rows);
   }
   if (rows.length) {
     await touchPublicKeyLastUsedAt(key.id, receivedAt);

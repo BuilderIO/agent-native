@@ -23,6 +23,7 @@ const exceptionMocks = vi.hoisted(() => ({
 }));
 const sessionEventIndexMocks = vi.hoisted(() => ({
   record: vi.fn(),
+  catalog: vi.fn(),
 }));
 const deliveryMocks = vi.hoisted(() => ({
   queueMissing: vi.fn(),
@@ -90,6 +91,7 @@ vi.mock("./error-capture.js", () => ({
 }));
 vi.mock("./session-event-index.js", () => ({
   recordSessionEventIndex: sessionEventIndexMocks.record,
+  recordEventCatalog: sessionEventIndexMocks.catalog,
 }));
 vi.mock("./first-party-analytics-health.js", () => ({
   classifyFirstPartyAnalyticsQuery: healthMocks.classify,
@@ -164,6 +166,8 @@ beforeEach(() => {
   exceptionMocks.ingest.mockReset();
   sessionEventIndexMocks.record.mockReset();
   sessionEventIndexMocks.record.mockResolvedValue(undefined);
+  sessionEventIndexMocks.catalog.mockReset();
+  sessionEventIndexMocks.catalog.mockResolvedValue(undefined);
   deliveryMocks.queueMissing.mockReset();
   deliveryMocks.queueMissing.mockReturnValue(false);
   backendMocks.get.mockResolvedValue({
@@ -481,6 +485,7 @@ describe("recordAnalyticsEvents", () => {
         ],
         expect.any(String),
       );
+      expect(sessionEventIndexMocks.catalog).toHaveBeenCalledOnce();
     },
   );
 
@@ -492,6 +497,7 @@ describe("recordAnalyticsEvents", () => {
     ).rejects.toThrow();
 
     expect(sessionEventIndexMocks.record).not.toHaveBeenCalled();
+    expect(sessionEventIndexMocks.catalog).not.toHaveBeenCalled();
   });
 
   it("fails the batch when its sessions cannot be indexed or marked incomplete", async () => {

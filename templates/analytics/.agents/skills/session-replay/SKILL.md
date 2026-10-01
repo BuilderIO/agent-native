@@ -76,28 +76,31 @@ agent answers about browser recordings in the Analytics template.
   Sessions triage Lab is on. With the Lab off the viewer and the agent timeline
   keep their earlier shape.
 - `recordAnalyticsEvents` writes the per-session event index
-  (`analytics_session_events`), the daily catalog
-  (`analytics_event_catalog_daily`), each event's latest sighting
-  (`analytics_event_catalog_latest`), and a per-tenant coverage start at
-  ingest in every sink mode, inside the transaction that stores the events.
-  Lists, did/didn't filters, and the catalog read only these tables, never
-  BigQuery. An index failure rolls back to a savepoint and must never fail
-  ingest. The catalog keeps the 1,000 most recently seen events, sorted by
-  volume, and sets `truncated` when it cut the list; its app flags still count
-  every event in the range.
+  (`analytics_session_events`) and a per-tenant coverage start inside the
+  transaction that stores the events, in every sink mode. After that
+  transaction commits it writes the daily catalog
+  (`analytics_event_catalog_daily`) and each event's latest sighting
+  (`analytics_event_catalog_latest`) best-effort: a catalog failure only
+  warns, and the catalog never decides a filter. Lists, did/didn't filters,
+  and the catalog read only these tables, never BigQuery. The catalog keeps
+  the 1,000 most recently seen events, sorted by volume, and sets `truncated`
+  when it cut the list; its app flags still count every event in the range.
 - Event filters exclude a session if any of its recordings started before the
   tenant's coverage start, because one analytics session can span tabs.
   Coverage starts only after a session write succeeds, and the reported start
   is the latest among the viewer's tenants. "Didn't" also needs at least one
-  index row for the session and no gap marker: a failed index write records
-  the batch's sessions in `analytics_session_event_gaps` in the same
-  transaction, so a later successful batch cannot make them look complete. If
-  the marker cannot be written either, the batch fails and its events are not
-  stored, so no stored event is ever missing from the index unmarked. Keep
-  index writes inside that transaction. The retention sweep removes a session's
-  index rows together, once all of them are two days past replay retention,
-  and its gap marker after that. The BigQuery-cutover purge leaves these
-  tables alone.
+  index row for the session and no gap marker: a failed index write rolls back
+  to a savepoint and records the batch's sessions in
+  `analytics_session_event_gaps` in the same transaction, so a later
+  successful batch cannot make them look complete. If the marker cannot be
+  written either, the batch fails and its events are not stored, so no stored
+  event is ever missing from the index unmarked. Keep session index writes
+  inside that transaction. Deploys ship code before the scheduled migration
+  creates these tables; until then ingest stores events unindexed and warns,
+  which is safe only because coverage cannot have started. The retention
+  sweep removes a session's index rows together, once all of them are two
+  days past replay retention, and its gap marker after that. The
+  BigQuery-cutover purge leaves these tables alone.
 
 ## Agent Diagnostics Surface
 
