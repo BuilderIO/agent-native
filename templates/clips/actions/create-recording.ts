@@ -191,13 +191,13 @@ export default defineAction({
         status: "failed",
         progress: 0,
         failureReason: reason,
-        storageSetupRequired: reason === STORAGE_SETUP_REQUIRED_REASON,
+        storageSetupRequired: failure.failureCode === "storage_setup_required",
         updatedAt: failedAt,
       });
       throw createError({
         statusCode: 503,
         statusMessage: reason,
-        data: { retryable: true },
+        data: { retryable: failure.failureCode !== "storage_setup_required" },
       });
     };
 

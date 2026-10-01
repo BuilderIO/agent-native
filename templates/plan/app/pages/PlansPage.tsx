@@ -2575,6 +2575,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   }, [runtimeCommentThreads]);
   const updatePlan = useUpdatePlan();
+  const blockSaveRevisionRef = useRef<{
+    planId: string;
+    sourceRevision: string;
+    latestRevision: string;
+  } | null>(null);
   const updateLocalPlan = useUpdateLocalPlan();
   const promoteLocalPlan = usePromoteLocalPlan();
   const updatePlanMutateRef = useRef(updatePlan.mutate);
@@ -4042,6 +4047,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const patchStructuredContent = async (patch: PlanContentPatch) => {
     if (!bundle) return;
     const silentError = patch.op === "replace-blocks";
+    const previousBlockSave = blockSaveRevisionRef.current;
+    const followsBlockSave =
+      patch.op === "replace-blocks" &&
+      previousBlockSave?.planId === bundle.plan.id &&
+      (bundle.plan.updatedAt === previousBlockSave.sourceRevision ||
+        bundle.plan.updatedAt === previousBlockSave.latestRevision);
+    const expectedUpdatedAt = followsBlockSave
+      ? previousBlockSave.latestRevision
+      : bundle.plan.updatedAt;
     try {
       if (localPlanMode) {
         if (!localPlanSlug || localPlanBridgeUrl) return;
@@ -4059,12 +4073,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         );
         return;
       }
-      await updatePlan.mutateAsync(
+      const updated = await updatePlan.mutateAsync(
         {
           planId: bundle.plan.id,
-          ...(patch.op === "replace-blocks"
-            ? { expectedUpdatedAt: bundle.plan.updatedAt }
-            : {}),
+          ...(patch.op === "replace-blocks" ? { expectedUpdatedAt } : {}),
           contentPatches: [patch],
           note:
             patch.op === "update-rich-text"
@@ -4073,6 +4085,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         },
         silentError ? { onError: () => {} } : undefined,
       );
+      if (patch.op === "replace-blocks" && updated.plan?.updatedAt) {
+        blockSaveRevisionRef.current = {
+          planId: bundle.plan.id,
+          sourceRevision: followsBlockSave
+            ? previousBlockSave.sourceRevision
+            : bundle.plan.updatedAt,
+          latestRevision: updated.plan.updatedAt,
+        };
+      }
     } catch (error) {
       throw error;
     }

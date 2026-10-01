@@ -107,6 +107,17 @@ async function getPlanMarkdown(
   return block?.data?.markdown ?? null;
 }
 
+async function getPlanUpdatedAt(page: Page, planId: string) {
+  const res = await page.request.get(
+    `/_agent-native/actions/get-visual-plan?id=${encodeURIComponent(planId)}`,
+  );
+  expect(res.ok(), `get-visual-plan ok (status ${res.status()})`).toBeTruthy();
+  const body = await readJson(res);
+  const plan = (body.plan ?? body) as { updatedAt?: string };
+  expect(plan.updatedAt).toBeTruthy();
+  return plan.updatedAt as string;
+}
+
 function proseFor(page: Page) {
   return page
     .locator(".plan-document-editor-surface .an-rich-md-prose")
@@ -153,7 +164,7 @@ function assertNoSaveRace(watch: SaveWatch) {
   const fiveXX = watch.statuses.filter((s) => s >= 500);
   expect(
     fiveXX,
-    `autosave self-race: ${fiveXX.length}/${watch.statuses.length} replace-blocks POSTs returned 5xx while typing a single edit (un-debounced single-doc editor overlaps its own saves against the optimistic lock; this also LOSES the trailing edit). statuses=[${watch.statuses.join(",")}]. REAL APP BUG — see actions/update-visual-plan.ts L446 + /tmp/plandev6.log.`,
+    `replace-blocks autosave returned 5xx (${fiveXX.length}/${watch.statuses.length}); statuses=[${watch.statuses.join(",")}]`,
   ).toEqual([]);
 }
 
@@ -163,10 +174,12 @@ test.describe("single-document rich-text editing + autosave", () => {
   }) => {
     const title = uniqueTitle("api-save");
     const planId = await createPlanFixture(page, richTextContent({ title }));
+    const expectedUpdatedAt = await getPlanUpdatedAt(page, planId);
 
     const res = await page.request.post(UPDATE_ACTION, {
       data: {
         planId,
+        expectedUpdatedAt,
         contentPatches: [
           {
             op: "replace-blocks",
@@ -213,8 +226,7 @@ test.describe("single-document rich-text editing + autosave", () => {
 
     await page.waitForTimeout(2500);
 
-    // (2) Autosave must not 5xx while typing one short edit. (Currently fails —
-    // pins the autosave self-race; see assertNoSaveRace.)
+    // Autosave must not 5xx while typing one short edit.
     expect(
       saves.statuses.length,
       "at least one autosave fired",
@@ -284,6 +296,55 @@ test.describe("single-document rich-text editing + autosave", () => {
       .toContain("RAPIDoneTWOthreeFOURfiveSIX");
   });
 
+  test("queued autosave uses the acknowledged revision and keeps trailing edits", async ({
+    page,
+  }) => {
+    const title = uniqueTitle("queued");
+    const planId = await createPlanFixture(page, richTextContent({ title }));
+    const prose = await openPlanForEditing(page, planId);
+    const saves = watchSaves(page);
+    let releaseFirstRequest = () => {};
+    let markFirstRequestStarted = () => {};
+    const firstRequestStarted = new Promise<void>((resolve) => {
+      markFirstRequestStarted = resolve;
+    });
+    const firstRequestGate = new Promise<void>((resolve) => {
+      releaseFirstRequest = resolve;
+    });
+    let firstRequest = true;
+    await page.route(`**${UPDATE_ACTION}`, async (route) => {
+      if (firstRequest) {
+        firstRequest = false;
+        markFirstRequestStarted();
+        await firstRequestGate;
+      }
+      await route.continue();
+    });
+
+    try {
+      await typeAtEnd(page, prose, " FIRST-SAVED");
+      await firstRequestStarted;
+      await typeAtEnd(page, prose, " TRAILING-SAVED");
+    } finally {
+      releaseFirstRequest();
+    }
+
+    await expect
+      .poll(() => saves.statuses.length, { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(2);
+    assertNoSaveRace(saves);
+    await expect
+      .poll(async () => await getPlanMarkdown(page, planId), {
+        timeout: 15_000,
+      })
+      .toContain("FIRST-SAVED");
+    await expect
+      .poll(async () => await getPlanMarkdown(page, planId), {
+        timeout: 15_000,
+      })
+      .toContain("TRAILING-SAVED");
+  });
+
   test("markdown shortcuts: **bold**, # heading, and - list serialize back to markdown", async ({
     page,
   }) => {
@@ -312,10 +373,7 @@ test.describe("single-document rich-text editing + autosave", () => {
     ).toBeVisible({ timeout: 10_000 });
 
     await page.waitForTimeout(3000);
-    // The autosave that should persist these shortcuts must not 5xx. Currently
-    // FAILS (autosave self-race) — and because every keystroke's save races, the
-    // shortcuts frequently never reach SQL (the persistence assertions below then
-    // fail too). Lead with the race check so the failure names the root cause.
+    // The autosave that persists these shortcuts must not 5xx.
     assertNoSaveRace(saves);
 
     await expect

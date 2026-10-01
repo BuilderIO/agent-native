@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
   writeAppStateForCurrentTab: vi.fn(),
   uploadFile: vi.fn(),
+  ssrfSafeFetch: vi.fn(),
   getDb: vi.fn(),
   getCurrentOwnerEmail: vi.fn(),
   getDefaultRecordingVisibility: vi.fn(),
@@ -43,7 +44,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
-  ssrfSafeFetch: vi.fn(),
+  ssrfSafeFetch: (...args: unknown[]) => mocks.ssrfSafeFetch(...args),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
@@ -455,5 +456,60 @@ describe("first imported recording transactional email", () => {
         error: "email store unavailable",
       },
     );
+  });
+});
+
+describe("Loom imports", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.dispatchPostFinalizeJob.mockResolvedValue(undefined);
+  });
+
+  it("leases background imports so the reaper can close a lost job", async () => {
+    const insertValues = vi.fn(async () => undefined);
+    mocks.getDb.mockReturnValue({
+      insert: vi.fn(() => ({ values: insertValues })),
+    });
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.nanoid.mockReturnValue("recording-loom");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: "video",
+          html: "<iframe></iframe>",
+          title: "Demo",
+          duration: 5,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await importLoomRecording.run({
+      url: "https://www.loom.com/share/abcDEF_123456",
+    });
+
+    const recording = insertValues.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(result).toMatchObject({
+      recordingId: "recording-loom",
+      status: "processing",
+    });
+    expect(recording).toMatchObject({ status: "processing" });
+    expect(Date.parse(String(recording?.uploadLeaseExpiresAt))).toBeGreaterThan(
+      Date.now(),
+    );
+    expect(mocks.dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "recording-loom",
+      kind: "loom-import",
+      requireAccepted: true,
+    });
   });
 });

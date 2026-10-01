@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   completeText: vi.fn(),
   getUserProfile: vi.fn(),
+  track: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -10,6 +11,9 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("@agent-native/core/user-profile/server", () => ({
   getUserProfile: mocks.getUserProfile,
+}));
+vi.mock("@agent-native/core/tracking", () => ({
+  track: mocks.track,
 }));
 
 import action from "./generate-home-suggestions.js";
@@ -77,7 +81,11 @@ describe("generate-home-suggestions", () => {
 
     await expect(
       action.run({}, { userEmail: "user@example.test" } as never),
-    ).rejects.toThrow("invalid shape");
+    ).rejects.toMatchObject({
+      message: "Home suggestions returned an invalid shape.",
+      errorCode: "invalid_model_response",
+      statusCode: 502,
+    });
   });
 
   it("uses generic design context when the role was skipped", async () => {
@@ -125,22 +133,59 @@ describe("generate-home-suggestions", () => {
     );
   });
 
-  it("fails loudly when the model does not return three structured suggestions", async () => {
+  it("returns no optional suggestions and tracks the missing provider", async () => {
+    mocks.completeText.mockRejectedValue(
+      Object.assign(new Error("No LLM provider is connected."), {
+        errorCode: "missing_credentials",
+      }),
+    );
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({ suggestions: [] });
+    expect(mocks.track).toHaveBeenCalledWith(
+      "home_suggestions_unavailable",
+      expect.objectContaining({
+        app_name: "design",
+        failure_code: "missing_credentials",
+      }),
+      expect.objectContaining({ userEmail: "user@example.test" }),
+    );
+  });
+
+  it("maps malformed model output to an upstream failure", async () => {
     mocks.completeText.mockResolvedValue({ text: "not json" });
 
     await expect(
       action.run({}, { userEmail: "user@example.test" } as never),
-    ).rejects.toThrow("invalid JSON");
+    ).rejects.toMatchObject({
+      message: "Home suggestions returned invalid JSON.",
+      errorCode: "invalid_model_response",
+      statusCode: 502,
+    });
   });
 
-  it("lets a missing LLM provider through unwrapped so the action boundary can type it as llm_provider_missing", async () => {
-    const missing = Object.assign(new Error("No LLM provider is connected."), {
-      errorCode: "missing_credentials",
+  it("rejects output marked truncated even when it parses", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: JSON.stringify(suggestions),
+      stopReason: "max_tokens",
     });
-    mocks.completeText.mockRejectedValue(missing);
 
     await expect(
       action.run({}, { userEmail: "user@example.test" } as never),
-    ).rejects.toBe(missing);
+    ).rejects.toMatchObject({
+      message: "Home suggestions were truncated before completion.",
+      errorCode: "model_output_truncated",
+      statusCode: 502,
+    });
+  });
+
+  it("preserves unrelated provider failures", async () => {
+    const providerError = new Error("Gateway unavailable.");
+    mocks.completeText.mockRejectedValue(providerError);
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).rejects.toBe(providerError);
   });
 });

@@ -6,6 +6,7 @@ import {
   normalizeRecordingPlatform,
   trackRecordingFailure,
 } from "./recording-failures.js";
+import { ownerEmailMatches } from "./recordings.js";
 import type { StoredResumableSession } from "./resumable-session.js";
 import { abortResumableUploadSession } from "./resumable-upload-cleanup.js";
 
@@ -45,14 +46,20 @@ export async function renewUploadLease(
     uploadProgress?: number;
     attemptId?: string | null;
     generationId?: string | null;
+    ownerEmail?: string;
+    loomImportClaimId?: string;
   } = {},
 ): Promise<UploadLeaseResult> {
   const now = options.now ?? Date.now();
+  const claimScoped = options.loomImportClaimId !== undefined;
   const held = await getDb()
     .update(schema.recordings)
     .set({
       uploadLeaseExpiresAt: uploadLeaseExpiry(now),
       updatedAt: new Date(now).toISOString(),
+      ...(claimScoped
+        ? { loomImportClaimedAt: new Date(now).toISOString() }
+        : {}),
       ...(options.uploadProgress === undefined
         ? {}
         : {
@@ -62,7 +69,25 @@ export async function renewUploadLease(
     .where(
       and(
         eq(schema.recordings.id, recordingId),
-        inArray(schema.recordings.status, [...IN_PROGRESS_STATUSES]),
+        claimScoped
+          ? eq(schema.recordings.status, "processing")
+          : inArray(schema.recordings.status, [...IN_PROGRESS_STATUSES]),
+        ...(options.ownerEmail === undefined
+          ? []
+          : [
+              ownerEmailMatches(
+                schema.recordings.ownerEmail,
+                options.ownerEmail,
+              ),
+            ]),
+        ...(options.loomImportClaimId === undefined
+          ? []
+          : [
+              eq(
+                schema.recordings.loomImportClaimId,
+                options.loomImportClaimId,
+              ),
+            ]),
         ...(options.attemptId === undefined
           ? []
           : [
@@ -99,7 +124,19 @@ export async function renewUploadLease(
       uploadGenerationId: schema.recordings.uploadGenerationId,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId));
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        ...(options.ownerEmail === undefined
+          ? []
+          : [
+              ownerEmailMatches(
+                schema.recordings.ownerEmail,
+                options.ownerEmail,
+              ),
+            ]),
+      ),
+    );
 
   return {
     held: false,
