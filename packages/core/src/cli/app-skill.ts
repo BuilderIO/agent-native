@@ -18,6 +18,7 @@ import {
   buildHttpMcpEntry,
   removeSameUrlDuplicatesForClient,
 } from "./mcp-config-writers.js";
+import { openUrlInBrowser } from "./open-url.js";
 
 export type SkillVisibility = "internal" | "exported" | "both";
 export type AppSkillHostAdapter =
@@ -1424,22 +1425,6 @@ function runShell(command: string, cwd: string): Promise<number> {
   });
 }
 
-function openUrl(url: string): void {
-  const command =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "cmd"
-        : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  const child = spawn(command, args, {
-    detached: true,
-    stdio: "ignore",
-    shell: process.platform === "win32",
-  });
-  child.unref();
-}
-
 export async function ensureAppSkill(
   loaded: LoadedAppSkillManifest,
   options: EnsureAppSkillOptions = {},
@@ -1568,7 +1553,7 @@ export async function launchAppSkill(
 
   if (plan.mode === "hosted") {
     log(`Opening ${loaded.manifest.displayName}: ${plan.url}`);
-    openUrl(plan.url);
+    openUrlInBrowser(plan.url);
     return plan;
   }
 

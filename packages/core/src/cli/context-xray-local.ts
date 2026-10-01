@@ -1948,8 +1948,10 @@ function openUrl(url) {
   const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   try {
-    childProcess.spawn(cmd, args, { detached: true, stdio: "ignore" }).unref();
-  } catch {}
+    const child = childProcess.spawn(cmd, args, { detached: true, stdio: "ignore" });
+    child.on("error", function () { console.warn("Could not auto-open browser. Open the printed URL manually."); });
+    child.unref();
+  } catch { console.warn("Could not auto-open browser. Open the printed URL manually."); }
 }
 
 function printSummary(sessions, args, file, url) {
