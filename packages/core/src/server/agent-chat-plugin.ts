@@ -6309,6 +6309,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runId: run.id,
               threadId: run.threadId,
               turnId: run.turnId ?? null,
+              startedAt: run.startedAt,
               status: run.status,
               heartbeatAt: run.heartbeatAt,
               completedAt: run.completedAt,

@@ -22,6 +22,9 @@ export type AgentChatRuntimeToolCallId = string;
 export type AgentChatRuntimeMetadata = Record<string, unknown>;
 export type AgentChatRuntimeAwaitable<T> = T | Promise<T>;
 
+export const AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY =
+  "agentNativeRunResumeState";
+
 export type AgentChatRuntimeKind =
   | "agent-native"
   | "external-agent"
@@ -2859,6 +2862,13 @@ export function createAgentNativeChatRuntime(
       ...(typeof value?.turnId === "string" && value.turnId
         ? { turnId: value.turnId }
         : {}),
+      ...(typeof value?.startedAt === "number" &&
+      Number.isFinite(value.startedAt)
+        ? { startedAt: value.startedAt }
+        : {}),
+      ...(typeof value?.dispatchMode === "string"
+        ? { dispatchMode: value.dispatchMode }
+        : {}),
       terminalReason:
         typeof value?.terminalReason === "string" ? value.terminalReason : null,
     };
@@ -2870,6 +2880,7 @@ export function createAgentNativeChatRuntime(
     resume: async (input) => {
       const threadId = input.sessionId ?? options.threadId;
       if (!threadId || !input.runId) return nativeRuntime.resume!(input);
+      // A run id alone is enough: the server derives its turn.
       const state = await readRunState(input);
       if (state.status === "missing") {
         throw Object.assign(new Error(`Agent run ${input.runId} not found`), {
@@ -2884,9 +2895,17 @@ export function createAgentNativeChatRuntime(
         after: state.runId === input.runId ? input.after : 0,
       });
       return {
-        id: state.turnId ?? input.turnId,
+        id: input.turnId ?? state.turnId ?? input.runId,
         sessionId: threadId,
         runId: state.runId,
+        metadata: {
+          ...input.metadata,
+          [AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY]: {
+            status: state.status,
+            dispatchMode: state.dispatchMode,
+            startedAt: state.startedAt,
+          },
+        },
         events,
       };
     },

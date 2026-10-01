@@ -11,10 +11,18 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+  BACKGROUND_FUNCTION_WALL_MS,
+} from "../../app-config/run-lifecycle-invariants.js";
+import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
 } from "../chat-first-state.js";
 import { createAgentKitProtocolAdapter } from "./agentkit-protocol.js";
+import {
+  MAX_SUBSCRIBE_FAILURES,
+  RUN_UNVERIFIED_MESSAGE,
+} from "./run-outcome.js";
 import { createAgentNativeChatRuntime } from "./runtime.js";
 import type {
   AgentChatRuntime,
@@ -2250,6 +2258,275 @@ describe("createAgentKitProtocolAdapter", () => {
         },
       });
       await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps resuming an active durable background run after stream EOFs", async () => {
+    vi.useFakeTimers();
+    try {
+      const sseResponse = (events: unknown[], runId: string) =>
+        new Response(
+          events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+          {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "X-Run-Id": runId,
+            },
+          },
+        );
+      const startedAt = Date.now();
+      let latestReads = 0;
+      const fetchMock = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input), "http://localhost");
+          const method = String(init?.method ?? "GET").toUpperCase();
+          if (method === "POST") {
+            return sseResponse(
+              [{ type: "text", text: "part one", seq: 0 }],
+              "run-1",
+            );
+          }
+          if (url.pathname.endsWith("/runs/latest")) {
+            latestReads += 1;
+            return Response.json({
+              runId: "run-1",
+              startedAt,
+              status: latestReads < 5 ? "running" : "completed",
+              dispatchMode: "background-processing",
+            });
+          }
+          const runId = url.pathname.split("/").at(-2);
+          return sseResponse(
+            latestReads < 5 ? [] : [{ type: "done", seq: 1 }],
+            runId!,
+          );
+        },
+      ) as typeof fetch;
+      const transport = createAgentKitProtocolAdapter(
+        createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetchMock,
+        }),
+      );
+      const { runId } = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Resume after an interrupted stream")],
+      });
+      const resultPromise = drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId }),
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(latestReads).toBe(5);
+      expect(
+        result.find((event) => event.type === "run.failed"),
+      ).toBeUndefined();
+      expect(result.at(-1)?.type).toBe("run.completed");
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps restored background runs attached after stream EOFs", async () => {
+    vi.useFakeTimers();
+    try {
+      const sseResponse = (events: unknown[], runId: string) =>
+        new Response(
+          events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+          {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "X-Run-Id": runId,
+            },
+          },
+        );
+      const startedAt = Date.now();
+      let latestReads = 0;
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost");
+        if (url.pathname.endsWith("/runs/latest")) {
+          latestReads += 1;
+          return Response.json({
+            runId: latestReads === 1 ? "run-2" : "run-3",
+            turnId: "turn-1",
+            startedAt,
+            status: latestReads < 5 ? "running" : "completed",
+            dispatchMode: "background-processing",
+          });
+        }
+        const runId = url.pathname.split("/").at(-2);
+        if (!runId) throw new Error(`Unexpected runtime request: ${url}`);
+        return sseResponse(
+          latestReads < 5 ? [] : [{ type: "done", seq: 1 }],
+          runId,
+        );
+      }) as typeof fetch;
+      const transport = createAgentKitProtocolAdapter(
+        createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetchMock,
+        }),
+      );
+      const resultPromise = drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId: "run-1" }),
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(latestReads).toBe(5);
+      expect(
+        fetchMock.mock.calls
+          .map(([input]) => new URL(String(input), "http://localhost"))
+          .filter((url) => url.pathname.endsWith("/runs/latest"))
+          .map((url) => [
+            url.searchParams.get("runId"),
+            url.searchParams.get("turnId"),
+          ]),
+      ).toEqual([
+        // The run id names the turn on the server, which matters when the
+        // client's turn id is not the server's (an approval continuation).
+        ["run-1", null],
+        ["run-2", "turn-1"],
+        ["run-3", "turn-1"],
+        ["run-3", "turn-1"],
+        ["run-3", "turn-1"],
+      ]);
+      expect(
+        fetchMock.mock.calls
+          .map(([input]) => new URL(String(input), "http://localhost"))
+          .filter((url) => url.pathname.endsWith("/events"))
+          .map((url) => url.pathname.split("/").at(-2)),
+      ).toEqual(["run-2", "run-3", "run-3", "run-3", "run-3"]);
+      expect(
+        result.find((event) => event.type === "run.failed"),
+      ).toBeUndefined();
+      expect(result.at(-1)?.type).toBe("run.completed");
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * A restored background run the server keeps calling running while its
+   * events endpoint refuses every reconnect. Resolves with the events seen,
+   * the `/runs/latest` reads made, and when (fake clock) the run ended.
+   */
+  function followRefusingBackgroundRun(startedAt: number | undefined) {
+    let latestReads = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname.endsWith("/runs/latest")) {
+        latestReads += 1;
+        return Response.json({
+          runId: "run-1",
+          turnId: "turn-1",
+          ...(startedAt === undefined ? {} : { startedAt }),
+          status: "running",
+          dispatchMode: "background-processing",
+        });
+      }
+      return Response.json({ error: "Service unavailable" }, { status: 503 });
+    }) as typeof fetch;
+    const transport = createAgentKitProtocolAdapter(
+      createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetchMock,
+      }),
+    );
+    let endedAtMs: number | undefined;
+    const result = drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId: "run-1" }),
+    ).finally(() => {
+      endedAtMs = Date.now();
+    });
+    return {
+      result,
+      latestReads: () => latestReads,
+      endedAtMs: () => endedAtMs,
+      advanceUntilEnded: async (limitMs: number) => {
+        for (let elapsed = 0; endedAtMs === undefined && elapsed < limitMs; ) {
+          await vi.advanceTimersByTimeAsync(1_000);
+          elapsed += 1_000;
+        }
+      },
+      dispose: () => transport.dispose(),
+    };
+  }
+
+  const unverifiedEventsFailure = {
+    type: "run.failed",
+    error: {
+      code: "run_events_unreachable",
+      message: RUN_UNVERIFIED_MESSAGE,
+      retryable: true,
+    },
+  };
+
+  it("keeps restored background retries inside the original run deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      // Past startedAt + wall − headroom: no extension, the usual budget ends it.
+      const followed = followRefusingBackgroundRun(Date.now() - 14 * 60_000);
+      await followed.advanceUntilEnded(5 * 60_000);
+      const result = await followed.result;
+
+      expect(followed.latestReads()).toBe(MAX_SUBSCRIBE_FAILURES + 1);
+      expect(
+        result.filter((event) => event.type === "run.failed"),
+      ).toMatchObject([unverifiedEventsFailure]);
+      await followed.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps restored background retries when the start time is unavailable", async () => {
+    vi.useFakeTimers();
+    try {
+      const followed = followRefusingBackgroundRun(undefined);
+      await followed.advanceUntilEnded(5 * 60_000);
+      const result = await followed.result;
+
+      expect(followed.latestReads()).toBe(MAX_SUBSCRIBE_FAILURES + 1);
+      expect(
+        result.filter((event) => event.type === "run.failed"),
+      ).toMatchObject([unverifiedEventsFailure]);
+      await followed.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a running background run attached past the reconnect budget until its wall deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const startedAt = Date.now();
+      const followed = followRefusingBackgroundRun(startedAt);
+
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(followed.endedAtMs()).toBeUndefined();
+      expect(followed.latestReads()).toBeGreaterThan(
+        MAX_SUBSCRIBE_FAILURES + 1,
+      );
+
+      await followed.advanceUntilEnded(10 * 60_000);
+      const result = await followed.result;
+      expect(followed.endedAtMs()).toBeGreaterThanOrEqual(
+        startedAt +
+          BACKGROUND_FUNCTION_WALL_MS -
+          BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+      );
+      expect(
+        result.filter((event) => event.type === "run.failed"),
+      ).toMatchObject([unverifiedEventsFailure]);
+      await followed.dispose();
     } finally {
       vi.useRealTimers();
     }

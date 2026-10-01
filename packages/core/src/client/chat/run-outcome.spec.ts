@@ -1,7 +1,10 @@
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { describe, expect, it } from "vitest";
 
-import { BACKGROUND_FUNCTION_WALL_HEADROOM_MS } from "../../app-config/run-lifecycle-invariants.js";
+import {
+  BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+  BACKGROUND_FUNCTION_WALL_MS,
+} from "../../app-config/run-lifecycle-invariants.js";
 import {
   LEGACY_RUN_CODES,
   MAX_SUBSCRIBE_FAILURES,
@@ -305,6 +308,50 @@ describe("decideAfterStreamClosed", () => {
       },
     });
     expect(runOutcomeForCode("run_events_unreachable")).toBe("unverified");
+  });
+
+  it("keeps following a running background run whose stream will not open until its wall deadline", () => {
+    const startedAt = 1_000_000;
+    const deadline =
+      startedAt +
+      BACKGROUND_FUNCTION_WALL_MS -
+      BACKGROUND_FUNCTION_WALL_HEADROOM_MS;
+    const background = read({
+      status: "running",
+      runId: "run-1",
+      startedAt,
+      dispatchMode: "background-processing",
+    });
+    const exhausted = { subscribeFailures: MAX_SUBSCRIBE_FAILURES };
+
+    expect(
+      decideAfterStreamClosed(
+        background,
+        context({ ...exhausted, nowMs: deadline - 1 }),
+      ),
+    ).toMatchObject({ type: "resubscribe", runId: "run-1", delayMs: 15_000 });
+    expect(
+      decideAfterStreamClosed(
+        background,
+        context({ ...exhausted, nowMs: deadline }),
+      ),
+    ).toMatchObject({
+      type: "terminal",
+      outcome: "unverified",
+      error: { code: "run_events_unreachable" },
+    });
+    // Without a start time, or for a foreground run, the usual budget applies.
+    for (const state of [
+      { dispatchMode: "background-processing" },
+      { startedAt, dispatchMode: "foreground" },
+    ]) {
+      expect(
+        decideAfterStreamClosed(
+          read({ status: "running", runId: "run-1", ...state }),
+          context({ ...exhausted, nowMs: deadline - 1 }),
+        ),
+      ).toMatchObject({ type: "terminal", outcome: "unverified" });
+    }
   });
 
   it("ends as unverified when the server refuses to say how the run is doing", () => {

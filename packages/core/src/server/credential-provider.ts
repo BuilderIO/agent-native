@@ -107,6 +107,8 @@ export function resolveCredentialWriteScope(
 }
 
 export class FeatureNotConfiguredError extends Error {
+  readonly statusCode = 400;
+  readonly errorCode = "feature_not_configured";
   readonly requiredCredential: string;
   readonly builderConnectUrl?: string;
   readonly byokDocsUrl?: string;

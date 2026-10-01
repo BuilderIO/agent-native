@@ -2,7 +2,10 @@ import type { AgentError, AgentEvent } from "@agent-native/agentkit/protocol";
 
 import { isRequestedStopAbortReason } from "../../agent/abort-reasons.js";
 import { isContinuationTerminalReason } from "../../agent/types.js";
-import { BACKGROUND_FUNCTION_WALL_HEADROOM_MS } from "../../app-config/run-lifecycle-invariants.js";
+import {
+  BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+  BACKGROUND_FUNCTION_WALL_MS,
+} from "../../app-config/run-lifecycle-invariants.js";
 
 /**
  * Everything a user can be told about an agent run. The server owns which one
@@ -199,6 +202,9 @@ export type ServerRunState =
         | "aborted";
       readonly runId: string;
       readonly turnId?: string;
+      /** Server clock, epoch ms. */
+      readonly startedAt?: number;
+      readonly dispatchMode?: string;
       readonly terminalReason?: string | null;
     }
   | { readonly status: "missing" };
@@ -356,7 +362,19 @@ export function decideAfterStreamClosed(
     drain,
   });
   if (state.status === "running") {
-    return context.subscribeFailures >= MAX_SUBSCRIBE_FAILURES
+    // A background run's host keeps it alive until its wall budget, so an
+    // events stream that will not open is no reason to stop following it
+    // before then; past it, the usual subscribe budget applies.
+    const wallDeadlineMs =
+      state.dispatchMode?.startsWith("background") &&
+      state.startedAt !== undefined
+        ? state.startedAt +
+          BACKGROUND_FUNCTION_WALL_MS -
+          BACKGROUND_FUNCTION_WALL_HEADROOM_MS
+        : undefined;
+    const withinWall =
+      wallDeadlineMs !== undefined && context.nowMs < wallDeadlineMs;
+    return context.subscribeFailures >= MAX_SUBSCRIBE_FAILURES && !withinWall
       ? unverified("run_events_unreachable", state.runId)
       : resubscribe(false, context.quietReads);
   }
