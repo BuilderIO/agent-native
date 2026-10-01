@@ -46,7 +46,7 @@ const messages = {
     designSystems: "Systèmes de design",
   },
   settings: {
-    agentObservability: "Observabilité de l’agent",
+    agentObservability: "Observabilité",
     title: "Paramètres",
     labs: "Labs",
     labsIntro:

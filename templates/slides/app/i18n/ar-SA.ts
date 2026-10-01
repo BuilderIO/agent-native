@@ -46,7 +46,7 @@ const messages = {
     designSystems: "أنظمة التصميم",
   },
   settings: {
-    agentObservability: "مراقبة الوكيل",
+    agentObservability: "قابلية المراقبة",
     title: "الإعدادات",
     labs: "المختبرات",
     labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",

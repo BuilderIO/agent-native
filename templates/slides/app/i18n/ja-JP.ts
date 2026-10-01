@@ -47,7 +47,7 @@ const messages = {
     designSystems: "デザインシステム",
   },
   settings: {
-    agentObservability: "エージェントの可観測性",
+    agentObservability: "可観測性",
     title: "設定",
     labs: "Labs",
     labsIntro: "リリース前に実験的な機能をプレビューできます。",
