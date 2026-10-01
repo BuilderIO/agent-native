@@ -592,7 +592,6 @@ export class AgentKitClient implements AgentKitController {
     ThreadId,
     ReturnType<typeof setTimeout>
   >();
-  private readonly queuePromotionRetryAttempts = new Map<ThreadId, number>();
   private readonly requestAbortController = new AbortController();
   private capabilitiesLoad?: Promise<AgentCapabilities>;
   private shutdownPromise?: Promise<void>;
@@ -1996,7 +1995,6 @@ export class AgentKitClient implements AgentKitController {
       clearTimeout(timer);
     }
     this.queuePromotionTimers.clear();
-    this.queuePromotionRetryAttempts.clear();
     this.queuePromotionTerminalExpedites.clear();
     this.queuePromotionAfterReconciliation.clear();
     for (const controller of this.consumerAbortControllers.values()) {
@@ -3326,7 +3324,6 @@ export class AgentKitClient implements AgentKitController {
       const timer = this.queuePromotionTimers.get(threadId);
       if (timer) clearTimeout(timer);
       this.queuePromotionTimers.delete(threadId);
-      this.queuePromotionRetryAttempts.delete(threadId);
       this.queuePromotionTerminalExpedites.delete(threadId);
       return;
     }
@@ -3351,20 +3348,13 @@ export class AgentKitClient implements AgentKitController {
     this.queuePromotions.add(threadId);
     let retryAfterBusy = false;
     void this.steerQueuedMessage(threadId, queued.id)
-      .then(() => this.queuePromotionRetryAttempts.delete(threadId))
       .catch((error) => {
         if (isAgentKitRunSlotBusyError(error) && !this.disposed) {
           if (!this.getThread(threadId).queuedMessages.length) {
-            this.queuePromotionRetryAttempts.delete(threadId);
             return;
           }
           retryAfterBusy = true;
-          const attempts = this.queuePromotionRetryAttempts.get(threadId) ?? 0;
           const delay = 500;
-          this.queuePromotionRetryAttempts.set(
-            threadId,
-            Math.min(attempts + 1, 2),
-          );
           const activeRunId = errorProperty(error, "activeRunId");
           if (typeof activeRunId === "string") {
             this.markRunStarted(threadId, activeRunId);
@@ -3379,7 +3369,6 @@ export class AgentKitClient implements AgentKitController {
           this.queuePromotionTimers.set(threadId, timer);
           return;
         }
-        this.queuePromotionRetryAttempts.delete(threadId);
         // `steerQueuedMessage` already restores state and reports the failure.
       })
       .finally(() => {

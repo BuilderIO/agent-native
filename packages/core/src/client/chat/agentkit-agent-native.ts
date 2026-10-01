@@ -1035,9 +1035,7 @@ export function createAgentNativeAgentKitTransport(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
     const stored = await fetchThread(threadId);
-    if (!stored) return null;
-    const thread = projectThread(threadId, stored);
-    return thread;
+    return stored ? projectThread(threadId, stored) : null;
   }
 
   async function activeRunSnapshot(
