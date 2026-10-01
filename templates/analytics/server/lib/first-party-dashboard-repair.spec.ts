@@ -65,6 +65,8 @@ import {
   FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
+  PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+  PREVIOUS_PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL,
   PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
   repairCanonicalFirstPartyDashboardQueries,
@@ -826,6 +828,21 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     );
     const baseEnd = FIRST_PARTY_BIGQUERY_RETENTION_SQL.indexOf("first_seen AS");
     const base = FIRST_PARTY_BIGQUERY_RETENTION_SQL.slice(baseStart, baseEnd);
+    const identityEmails = FIRST_PARTY_BIGQUERY_RETENTION_SQL.slice(
+      identityEmailsStart,
+      baseStart,
+    );
+    const coverageDatesStart = FIRST_PARTY_BIGQUERY_RETENTION_SQL.indexOf(
+      "coverage_dates AS (",
+    );
+    const coverageDatesEnd = FIRST_PARTY_BIGQUERY_RETENTION_SQL.indexOf(
+      "),\nperiods AS",
+      coverageDatesStart,
+    );
+    const coverageDates = FIRST_PARTY_BIGQUERY_RETENTION_SQL.slice(
+      coverageDatesStart,
+      coverageDatesEnd,
+    );
 
     expect(base).toContain("'recording_ready', 'run_started')");
     expect(base).toContain("generation_completed");
@@ -836,8 +853,50 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(base).toContain(
       "NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL",
     );
+    expect(base).toContain(
+      "NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), '')",
+    );
+    expect(base).toContain(
+      "NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), '')",
+    );
+    expect(identityEmails).toContain(
+      "NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), '')",
+    );
+    expect(identityEmails).toContain(
+      "NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), '')",
+    );
+    expect(coverageDates).toContain("'generation_completed'");
+    expect(coverageDates).toContain("'run_started'");
+    expect(coverageDates).toContain("'$.auth_user_id'");
+    expect(coverageDates).not.toContain("session status");
     expect(base).not.toContain("session status");
     expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).not.toContain("session status");
+  });
+
+  it("repairs both previously persisted BigQuery retention query variants", () => {
+    expect(
+      createHash("sha256")
+        .update(
+          PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+            /\s+/g,
+            " ",
+          ).trim(),
+        )
+        .digest("hex"),
+    ).toBe("842d4904b31b1763da551aae2b24bba8508137ca35198ab6ac0df3c83810144e");
+
+    for (const sql of [
+      PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+      PREVIOUS_PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    ]) {
+      const repaired = repairFirstPartyBigQueryDashboardQueries({
+        panels: [{ id: "retention-over-time", source: "bigquery", sql }],
+      });
+      const panel = (repaired.config.panels as Array<{ sql: string }>)[0]!;
+
+      expect(repaired.changed).toBe(true);
+      expect(panel.sql).toBe(FIRST_PARTY_BIGQUERY_RETENTION_SQL);
+    }
   });
 
   it("repairs the persisted last-valid BigQuery retention query for custom ranges", () => {

@@ -175,6 +175,10 @@ const PRE_CUSTOM_RETENTION_ANCHOR_RANGE =
   "UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(CURRENT_DATE(), INTERVAL n - 1 DAY), CURRENT_DATE())) AS date";
 const CUSTOM_RETENTION_ANCHOR_RANGE =
   "UNNEST(GENERATE_DATE_ARRAY(\n   CASE WHEN '{{timeRange}}' = 'custom' THEN DATE('{{timeRangeStart}}') ELSE DATE_SUB(CURRENT_DATE(), INTERVAL n - 1 DAY) END,\n   CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()) ELSE CURRENT_DATE() END\n )) AS date";
+const LEGACY_BIGQUERY_RETENTION_TEMPLATE_FILTER =
+  "LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), 'unknown'))";
+const BIGQUERY_RETENTION_TEMPLATE_FILTER =
+  "LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown'))";
 const BIGQUERY_RETENTION_IDENTITY_EMAILS_CTE = `identity_emails AS (
  SELECT
    NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') AS user_key,
@@ -182,7 +186,7 @@ const BIGQUERY_RETENTION_IDENTITY_EMAILS_CTE = `identity_emails AS (
  FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`
  WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
    AND NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL
-   AND LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')
+   AND ${BIGQUERY_RETENTION_TEMPLATE_FILTER} IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')
    AND event_date >= IF('{{timeRange}}' = 'custom', DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 371 DAY), DATE_SUB(CURRENT_DATE(), INTERVAL 371 DAY))
    AND event_date <= CURRENT_DATE()
  GROUP BY 1
@@ -195,6 +199,10 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
     "WITH base AS (",
     `WITH ${BIGQUERY_RETENTION_IDENTITY_EMAILS_CTE},\nbase AS (`,
   )
+    .replace(
+      LEGACY_BIGQUERY_RETENTION_TEMPLATE_FILTER,
+      BIGQUERY_RETENTION_TEMPLATE_FILTER,
+    )
     .replace(
       "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw`\nWHERE event_name = 'session status'",
       "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw` AS events\nLEFT JOIN identity_emails ON identity_emails.user_key = NULLIF(JSON_VALUE(events.properties, '$.auth_user_id'), '')\nWHERE event_name = 'session status'",
@@ -220,7 +228,7 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
     .replace(PRE_CUSTOM_RETENTION_BASE_RANGE, CUSTOM_RETENTION_BASE_RANGE)
     .replace(
       "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\nperiods AS",
-      `all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\ncoverage_dates AS (\n SELECT DISTINCT event_date\n FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`\n WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'\n   AND ${BIGQUERY_SESSION_STATUS_EVENT_FILTER}\n   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()\n),\nperiods AS`,
+      `all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\ncoverage_dates AS (\n SELECT DISTINCT event_date\n FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`\n WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'\n   AND ${BIGQUERY_CONTENT_OR_CHAT_ACTIVITY_FILTER}\n   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()\n),\nperiods AS`,
     )
     .replace(
       PRE_CUSTOM_RETENTION_COVERAGE_RANGE,
@@ -242,11 +250,33 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
       "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nORDER BY",
       "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nLEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\nORDER BY",
     )
-    .replace(PRE_CUSTOM_RETENTION_ANCHOR_RANGE, CUSTOM_RETENTION_ANCHOR_RANGE)
+    .replace(PRE_CUSTOM_RETENTION_ANCHOR_RANGE, CUSTOM_RETENTION_ANCHOR_RANGE);
+
+export const PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
+  FIRST_PARTY_BIGQUERY_RETENTION_SQL.replaceAll(
+    "NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), ",
+    "",
+  )
+    .replaceAll(
+      "NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), ",
+      "",
+    )
+    .replaceAll("NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), ", "")
     .replace(
-      `   AND ${BIGQUERY_SESSION_STATUS_EVENT_FILTER}\n${CUSTOM_RETENTION_COVERAGE_RANGE}`,
+      `   AND ${BIGQUERY_CONTENT_OR_CHAT_ACTIVITY_FILTER}\n${CUSTOM_RETENTION_COVERAGE_RANGE}`,
       CUSTOM_RETENTION_COVERAGE_RANGE,
     );
+
+export const PREVIOUS_PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
+  PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+    CUSTOM_RETENTION_BASE_RANGE,
+    PRE_CUSTOM_RETENTION_BASE_RANGE,
+  )
+    .replace(
+      CUSTOM_RETENTION_COVERAGE_RANGE,
+      PRE_CUSTOM_RETENTION_COVERAGE_RANGE,
+    )
+    .replace(CUSTOM_RETENTION_ANCHOR_RANGE, PRE_CUSTOM_RETENTION_ANCHOR_RANGE);
 
 const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
   FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
@@ -342,6 +372,8 @@ function repairFirstPartyBigQueryDauSql(sql: string): string {
 function isLegacyFirstPartyBigQueryRetentionSql(sql: string): boolean {
   return [
     LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    PREVIOUS_PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
     PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
     PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL,
   ].some(
