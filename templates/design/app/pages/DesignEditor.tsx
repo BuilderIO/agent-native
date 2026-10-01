@@ -4604,6 +4604,18 @@ function DesignEditor() {
           latestFileSaveForUnloadRef,
           rollbackPendingLocalFileContent,
           markPendingLocalFileContent,
+          getPendingBaseContent: (fileId) =>
+            pendingLocalFileContentsRef.current.get(fileId)?.baseContent,
+          readLiveFileContent: id
+            ? async (fileId) =>
+                (
+                  await callAction<{ content: string }>(
+                    "read-source-file",
+                    { designId: id, fileId },
+                    { method: "GET" },
+                  )
+                ).content
+            : undefined,
           queryClient,
           setPatchProof,
           t,
@@ -4616,6 +4628,7 @@ function DesignEditor() {
     [
       acknowledgeOutboxEntry,
       createFileSaveOutboxEntry,
+      id,
       journalOutboxEntry,
       rollbackPendingLocalFileContent,
       markPendingLocalFileContent,

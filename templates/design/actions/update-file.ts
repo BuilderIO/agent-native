@@ -628,7 +628,9 @@ export default defineAction({
       await (content !== undefined
         ? withPreparedSourceFileMutation(
             id,
-            syncCollab ? "agent" : undefined,
+            syncCollab
+              ? context?.requestHeaders?.get("x-request-source") || "agent"
+              : undefined,
             runMutation,
           )
         : withSourceFileWriteLock(id, runMutation));
