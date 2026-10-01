@@ -1168,7 +1168,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("restores the durable reply when the server and AgentKit use different message ids", async () => {
+  it("restores the durable reply by run ID when message IDs differ and events are absent", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
         String(input).includes("/runs/active")
@@ -1196,21 +1196,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                       role: "assistant",
                       status: "complete",
                       parts: [{ type: "text", text: "Full answer" }],
-                    },
-                  ],
-                  events: [
-                    {
-                      id: "event-1",
-                      type: "message.created",
-                      threadId: "thread-different-ids",
-                      runId: "run-1",
-                      sequence: 1,
-                      occurredAt: "2026-09-28T00:00:00.000Z",
-                      message: {
-                        id: "message-1",
-                        role: "assistant",
-                        parts: [],
-                      },
+                      metadata: { runId: "run-1" },
                     },
                   ],
                 },
@@ -2638,6 +2624,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                 message: {
                   id: "server-user-attachment-prompt",
                   role: "user",
+                  createdAt: "2026-09-01T00:00:00.000Z",
                   content: [{ type: "text", text: "Read this report" }],
                   attachments: [
                     {
@@ -2666,6 +2653,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                 {
                   id: "snapshot-user-attachment-prompt",
                   role: "user",
+                  createdAt: "2026-09-01T00:00:00.000Z",
                   parts: [
                     { type: "text", text: "Read this report" },
                     {
@@ -2825,7 +2813,14 @@ describe("createAgentNativeAgentKitTransport", () => {
       const transport = createAgentNativeAgentKitTransport({
         fetch: vi.fn(async (input: string | URL | Request) => {
           if (String(input).includes("/runs/active")) {
-            return json({ active, status: active ? status : "idle", runId });
+            return json({
+              active,
+              status: active ? status : "idle",
+              runId,
+              ...(active && status === "failed"
+                ? { terminalReason: "provider_unavailable" }
+                : {}),
+            });
           }
           return json({
             id: threadId,
@@ -2870,6 +2865,18 @@ describe("createAgentNativeAgentKitTransport", () => {
         expect(snapshot?.activeRunIds).toContain(runId);
       } else {
         expect(snapshot?.activeRunIds).not.toContain(runId);
+      }
+      if (status === "failed" && active) {
+        expect(snapshot?.runs).toContainEqual(
+          expect.objectContaining({
+            id: runId,
+            status: "failed",
+            error: expect.objectContaining({
+              code: "provider_unavailable",
+              metadata: { terminalReason: "provider_unavailable" },
+            }),
+          }),
+        );
       }
       await transport.dispose();
     },
@@ -2937,7 +2944,12 @@ describe("createAgentNativeAgentKitTransport", () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) => {
         if (String(input).includes("/runs/active")) {
-          return json({ active: false, status: "idle" });
+          return json({
+            active: true,
+            status: "failed",
+            runId,
+            terminalReason: "provider_unavailable",
+          });
         }
         return json({
           id: threadId,
@@ -3011,6 +3023,7 @@ describe("createAgentNativeAgentKitTransport", () => {
           message: "Provider unavailable",
           details: "The provider rejected the request.",
           retryable: true,
+          metadata: { terminalReason: "provider_unavailable" },
         },
       }),
     );
@@ -3051,7 +3064,15 @@ describe("createAgentNativeAgentKitTransport", () => {
               },
             })),
             agentKit: {
-              messages: [],
+              messages: [
+                {
+                  id: "assistant-tool-request",
+                  role: "assistant",
+                  status: "streaming",
+                  parts: [{ type: "text", text: "Calling the tool" }],
+                  metadata: { runId },
+                },
+              ],
               events: durableMessages.map((message, index) => ({
                 id: `event-${message.id}`,
                 threadId,
@@ -3077,6 +3098,11 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(snapshot?.messages.map((message) => message.id)).toEqual(
       durableMessages.map((message) => message.id),
     );
+    expect(snapshot?.messages[0]).toMatchObject({
+      id: "assistant-tool-request",
+      status: "complete",
+      parts: [{ type: "text", text: "Calling the tool." }],
+    });
     await transport.dispose();
   });
 
@@ -3219,7 +3245,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("reconciles repeated prompts when snapshot and durable turns have matching counts", async () => {
+  it("reconciles repeated prompts when snapshot and durable timestamps match", async () => {
     const threadId = "thread-repeated-prompt-reconcile";
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) => {
@@ -3234,6 +3260,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                 id: `durable-prompt-${index + 1}`,
                 role: "user",
                 content: [{ type: "text", text: "Retry this prompt" }],
+                createdAt: `2026-09-03T00:00:0${index}.000Z`,
                 metadata: { custom: { submittedRunId: runId } },
               },
             })),
@@ -3243,11 +3270,13 @@ describe("createAgentNativeAgentKitTransport", () => {
                   id: "snapshot-prompt-one",
                   role: "user",
                   parts: [{ type: "text", text: "Retry this prompt" }],
+                  createdAt: "2026-09-03T00:00:00.000Z",
                 },
                 {
                   id: "snapshot-prompt-two",
                   role: "user",
                   parts: [{ type: "text", text: "Retry this prompt" }],
+                  createdAt: "2026-09-03T00:00:01.000Z",
                 },
               ],
             },
@@ -3261,6 +3290,51 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(snapshot?.messages.map((message) => message.id)).toEqual([
       "snapshot-prompt-one",
       "snapshot-prompt-two",
+    ]);
+    await transport.dispose();
+  });
+
+  it("preserves a newer durable prompt that repeats stale snapshot text", async () => {
+    const threadId = "thread-identical-prompt-new-turn";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "durable-new-repeat",
+                  role: "user",
+                  content: [{ type: "text", text: "Repeat this prompt" }],
+                  createdAt: "2026-09-04T00:00:00.000Z",
+                  metadata: { custom: { submittedRunId: "run-new-repeat" } },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "snapshot-old-repeat",
+                  role: "user",
+                  parts: [{ type: "text", text: "Repeat this prompt" }],
+                  createdAt: "2026-09-01T00:00:00.000Z",
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "snapshot-old-repeat",
+      "durable-new-repeat",
     ]);
     await transport.dispose();
   });
@@ -3365,6 +3439,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                   id: "server-user-run-durable",
                   role: "user",
                   content: [{ type: "text", text: "Repeat this prompt" }],
+                  createdAt: "2026-09-04T00:00:00.000Z",
                   metadata: { custom: { submittedRunId: "run-durable" } },
                 },
               },
@@ -3375,6 +3450,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                   id: "client-user-message",
                   role: "user",
                   parts: [{ type: "text", text: "Repeat this prompt" }],
+                  createdAt: "2026-09-04T00:00:00.000Z",
                 },
               ],
             },
@@ -3682,8 +3758,12 @@ describe("createAgentNativeAgentKitTransport", () => {
   it("hides a locally parked send from active-run snapshots while its waiter owns delivery", async () => {
     const threadId = "thread-parked-snapshot";
     let resolveAppend!: () => void;
+    let resolveAppendResponse!: () => void;
     const appendSaved = new Promise<void>((resolve) => {
       resolveAppend = resolve;
+    });
+    const appendResponse = new Promise<void>((resolve) => {
+      resolveAppendResponse = resolve;
     });
     let queuedMessages: Array<Record<string, unknown>> = [];
     let activeRunChecks = 0;
@@ -3708,6 +3788,7 @@ describe("createAgentNativeAgentKitTransport", () => {
           if (mutation.type === "append") {
             queuedMessages = [mutation.message];
             resolveAppend();
+            await appendResponse;
           }
           return json({ queuedMessages, message: mutation.message });
         }
@@ -3748,8 +3829,9 @@ describe("createAgentNativeAgentKitTransport", () => {
     );
 
     await appendSaved;
-    await vi.waitFor(() => expect(activeRunChecks).toBeGreaterThan(0));
     const snapshot = await transport.getThreadSnapshot?.({ threadId });
+    resolveAppendResponse();
+    await vi.waitFor(() => expect(activeRunChecks).toBeGreaterThan(0));
 
     expect(snapshot?.queuedMessages).not.toContainEqual(
       expect.objectContaining({ id: "parked-send" }),

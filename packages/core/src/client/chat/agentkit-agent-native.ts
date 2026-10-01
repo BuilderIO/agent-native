@@ -265,6 +265,9 @@ function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
   if (
     left.role !== "user" ||
     right.role !== "user" ||
+    !left.createdAt ||
+    !right.createdAt ||
+    Date.parse(left.createdAt) !== Date.parse(right.createdAt) ||
     left.parts.length !== right.parts.length
   ) {
     return false;
@@ -293,7 +296,6 @@ function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
 
 function storedMessages(
   value: unknown,
-  now: () => string,
   fallbackTextFormat?: TextPart["format"],
 ): AgentMessage[] {
   if (value === undefined) return [];
@@ -336,6 +338,7 @@ function storedMessages(
           .map(storedAttachmentPart)
           .filter((part) => part !== null)
       : [];
+    const createdAt = timestamp(message.createdAt, "");
     return [
       {
         id:
@@ -344,7 +347,7 @@ function storedMessages(
             : `repository-message-${index}`,
         role,
         parts: [...parts, ...attachmentParts],
-        createdAt: timestamp(message.createdAt, now()),
+        ...(createdAt ? { createdAt } : {}),
         ...(asRecord(message.metadata)
           ? { metadata: asRecord(message.metadata)! }
           : {}),
@@ -608,7 +611,10 @@ function reconcileDurableMessages(
 
   return projectedMessages.map((message) => {
     if (message.role !== "assistant") return message;
-    const runId = runByAssistantId.get(message.id);
+    const metadataRunId = asRecord(message.metadata)?.runId;
+    const runId =
+      runByAssistantId.get(message.id) ??
+      (typeof metadataRunId === "string" ? metadataRunId : undefined);
     const stored =
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
@@ -1246,7 +1252,6 @@ export function createAgentNativeAgentKitTransport(
     const repository = storedRepository(stored);
     const storedMessageProjection = storedMessages(
       repository.messages,
-      now,
       options.adapter?.textFormat,
     );
     const queuedMessages = storedQueue(
@@ -1277,7 +1282,6 @@ export function createAgentNativeAgentKitTransport(
       : undefined;
     const durableMessages = storedMessages(
       repository.messages,
-      now,
       options.adapter?.textFormat,
     );
     const messages = protocolSnapshot?.messages
@@ -1467,6 +1471,16 @@ export function createAgentNativeAgentKitTransport(
       runStatus = "completed";
     } else if (status === "failed" || status === "errored") {
       runStatus = "failed";
+      error = {
+        code: terminalReason?.startsWith("error:")
+          ? terminalReason.slice("error:".length)
+          : (terminalReason ?? "run_failed"),
+        message:
+          terminalReason === "run_timeout"
+            ? "The run reached its time limit before completion was confirmed."
+            : "The server reported that this run failed.",
+        ...(terminalReason ? { metadata: { terminalReason } } : {}),
+      };
     } else if (status === "cancelled" || status === "aborted") {
       runStatus = "cancelled";
     } else if (status === "truncated") {
@@ -1510,14 +1524,22 @@ export function createAgentNativeAgentKitTransport(
     }
     const durableMessages = storedMessages(
       storedRepository(stored).messages,
-      now,
       options.adapter?.textFormat,
     );
     const completedRunIds = completedDurableRunIds(durableMessages);
     const durableFailures = durableRunFailures(durableMessages);
     const activeRun = await activeRunSnapshot(threadId);
     if (activeRun === undefined) return withoutParkedMessages(thread);
-    const discoveredRun = activeRun;
+    let discoveredRun = activeRun;
+    if (discoveredRun?.status === "failed") {
+      const durableFailure = durableFailures.get(discoveredRun.id);
+      if (durableFailure) {
+        discoveredRun = {
+          ...discoveredRun,
+          error: { ...discoveredRun.error, ...durableFailure },
+        };
+      }
+    }
     const knownActiveRunId =
       discoveredRun &&
       !["completed", "failed", "cancelled"].includes(discoveredRun.status)
@@ -1657,11 +1679,7 @@ export function createAgentNativeAgentKitTransport(
       ? mergeStoredAndIncomingMessages(
           mergeStoredAndIncomingMessages(
             storedSnapshot.messages,
-            storedMessages(
-              repository.messages,
-              now,
-              options.adapter?.textFormat,
-            ),
+            storedMessages(repository.messages, options.adapter?.textFormat),
           ),
           input.snapshot.messages,
         )
@@ -1912,11 +1930,16 @@ export function createAgentNativeAgentKitTransport(
       attachments: message.parts.filter((part) => part.type === "file"),
       ...(message.metadata ? { metadata: message.metadata } : {}),
     };
-    await persistQueueMutation(input.threadId, {
-      type: "append",
-      message: parked,
-    });
     parkedMessageIds.add(parked.id);
+    try {
+      await persistQueueMutation(input.threadId, {
+        type: "append",
+        message: parked,
+      });
+    } catch (error) {
+      parkedMessageIds.delete(parked.id);
+      throw error;
+    }
     const deadline = Date.now() + BACKGROUND_FUNCTION_WALL_MS;
     try {
       for (;;) {
