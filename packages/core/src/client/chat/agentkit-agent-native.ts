@@ -1598,7 +1598,9 @@ export function createAgentNativeAgentKitTransport(
           if (message.role !== "assistant") return true;
           const runId = asRecord(message.metadata)?.runId;
           return !(
-            runId === discoveredRun?.id || replayedMessageIds.has(message.id)
+            runId === discoveredRun?.id ||
+            replayedMessageIds.has(message.id) ||
+            (message.status === "streaming" && typeof runId !== "string")
           );
         })
       : messages;

@@ -2156,9 +2156,25 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it.each(["streaming", "complete"] as const)(
-    "rebuilds a %s assistant once when an active run replays from sequence zero",
-    async (messageStatus) => {
+  it.each([
+    {
+      case: "attributed",
+      messageStatus: "streaming",
+      messageRunId: "run-replay",
+    },
+    {
+      case: "attributed",
+      messageStatus: "complete",
+      messageRunId: "run-replay",
+    },
+    {
+      case: "unattributed",
+      messageStatus: "streaming",
+      messageRunId: undefined,
+    },
+  ] as const)(
+    "rebuilds a $messageStatus assistant once during $case active replay",
+    async ({ messageStatus, messageRunId }) => {
       const threadId = "thread-partial-assistant-replay";
       const requestUrls: string[] = [];
       const fetcher = vi.fn(async (input: string | URL | Request) => {
@@ -2179,7 +2195,9 @@ describe("createAgentNativeAgentKitTransport", () => {
                     role: "assistant",
                     status: messageStatus,
                     parts: [{ type: "text", text: "Slow stream" }],
-                    metadata: { runId: "run-replay" },
+                    ...(messageRunId
+                      ? { metadata: { runId: messageRunId } }
+                      : {}),
                   },
                 ],
               },
