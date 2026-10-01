@@ -218,6 +218,7 @@ import {
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
+import { stripSqlParams } from "../shared/error-noise.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
   AGENT_CHAT_STREAM_PATH,
@@ -295,25 +296,37 @@ function withTransientDatabaseFallback(
         code?: unknown;
         cause?: { code?: unknown };
       };
-      captureError(new Error("Transient database failure in agent chat"), {
-        route,
-        method,
-        tags: {
-          source: "agent-chat",
-          failureClass: "transient-database",
+      // `captureError()` aggregates this per (class, route): the first outage
+      // request reports, the rest of the window folds into one counted summary
+      // instead of one event per polled request. The original error rides along
+      // as `cause` so the real failure stays classifiable.
+      captureError(
+        new Error("Transient database failure in agent chat", { cause: error }),
+        {
+          route,
+          method,
+          tags: {
+            source: "agent-chat",
+            failureClass: "transient-database",
+          },
+          extra: {
+            databaseErrorName:
+              error instanceof Error ? error.name : typeof error,
+            databaseErrorMessage:
+              error instanceof Error
+                ? stripSqlParams(error.message).slice(0, 300)
+                : undefined,
+            databaseErrorCode:
+              typeof databaseError.code === "string"
+                ? databaseError.code
+                : undefined,
+            databaseCauseCode:
+              typeof databaseError.cause?.code === "string"
+                ? databaseError.cause.code
+                : undefined,
+          },
         },
-        extra: {
-          databaseErrorName: error instanceof Error ? error.name : typeof error,
-          databaseErrorCode:
-            typeof databaseError.code === "string"
-              ? databaseError.code
-              : undefined,
-          databaseCauseCode:
-            typeof databaseError.cause?.code === "string"
-              ? databaseError.cause.code
-              : undefined,
-        },
-      });
+      );
       setResponseStatus(event, 503);
       if (retrySafe) setResponseHeader(event, "Retry-After", "2");
       return {
@@ -6253,11 +6266,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return stream;
           }
 
-          // Route: GET /runs/latest?threadId=X
+          // Route: GET /runs/latest?threadId=X[&runId=R | &turnId=T]
+          // The newest run carrying a turn — the browser's only source for
+          // whether a run whose stream closed is still going. `runId` names
+          // the turn by one of its runs (a reloaded page knows the run, not
+          // its turn) and wins over `turnId`.
           if (method === "GET" && url.includes("/runs/latest")) {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
-            const turnId = query.turnId ? String(query.turnId) : undefined;
+            const runIdQuery = query.runId ? String(query.runId) : undefined;
+            let turnId = query.turnId ? String(query.turnId) : undefined;
             if (!threadId) {
               setResponseStatus(event, 400);
               return { error: "threadId query parameter is required" };
@@ -6266,7 +6284,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            const { getRunByThread } = await import("../agent/run-store.js");
+            const { getRunByThread, getRunTurnRef } =
+              await import("../agent/run-store.js");
+            if (runIdQuery) {
+              const ref = await getRunTurnRef(runIdQuery);
+              if (!ref || ref.threadId !== threadId) {
+                setResponseStatus(event, 404);
+                return { error: "Run not found" };
+              }
+              turnId = ref.turnId;
+            }
             const run = await getRunByThread(threadId, {
               includeTerminal: true,
               ...(turnId ? { turnId } : {}),
@@ -6282,6 +6309,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runId: run.id,
               threadId: run.threadId,
               turnId: run.turnId ?? null,
+              startedAt: run.startedAt,
               status: run.status,
               heartbeatAt: run.heartbeatAt,
               completedAt: run.completedAt,

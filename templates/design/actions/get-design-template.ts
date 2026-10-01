@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -50,7 +50,8 @@ export default defineAction({
 
     if (designId) {
       const designAccess = await resolveAccess("design", designId);
-      if (!designAccess) throw new Error("Design not found");
+      if (!designAccess)
+        fail("Design not found", { errorCode: "not_found", statusCode: 404 });
       const design =
         designAccess.resource as typeof schema.designs.$inferSelect;
       const source = readDesignTemplateSource(

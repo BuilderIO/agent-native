@@ -48,6 +48,49 @@ function errorCode(error: unknown): string | null {
   return "error";
 }
 
+/**
+ * Reserved argument a health or capability probe sends as its only argument
+ * (`{ "__probe__": true }`) to check that an action route is deployed and the
+ * token is accepted. The call is expected to be rejected, so it is not a
+ * failure worth a row; the PR recap workflow alone sends ~700 a day.
+ */
+export const AUDIT_PROBE_ARG = "__probe__";
+
+// Exact shape, rejected before the action ran: a probe that executed (even one
+// that then threw), or one carrying real arguments, is recorded like any call
+// so the marker cannot hide a change. A default `z.object` strips the marker,
+// so an action whose arguments are all optional really runs on a probe.
+function isRejectedProbe(
+  args: unknown,
+  status: AuditStatus,
+  error: unknown,
+): boolean {
+  if (status !== "error" || !isBadRequest(error)) return false;
+  if (!args || typeof args !== "object") return false;
+  const keys = Object.keys(args);
+  return (
+    !Array.isArray(args) &&
+    keys.length === 1 &&
+    (args as Record<string, unknown>)[AUDIT_PROBE_ARG] === true
+  );
+}
+
+function isBadRequest(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as {
+    name?: unknown;
+    message?: unknown;
+    statusCode?: unknown;
+    status?: unknown;
+  };
+  return (
+    e.name === "ZodError" ||
+    (e.statusCode ?? e.status) === 400 ||
+    (typeof e.message === "string" &&
+      e.message.startsWith("Invalid action parameters"))
+  );
+}
+
 function isRefusal(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const e = error as { statusCode?: unknown; status?: unknown };
@@ -108,6 +151,7 @@ export async function recordActionAudit(
       input.status === "error" && isRefusal(input.error)
         ? "denied"
         : input.status;
+    if (isRejectedProbe(input.args, status, input.error)) return;
     const meta: AuditCallMeta = {
       status,
       caller,

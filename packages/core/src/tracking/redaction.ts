@@ -6,7 +6,7 @@ export const MAX_EXTRA_VALUE_LENGTH = 1000;
 
 const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
 const SQL_PARAMS_RE =
-  /\b(?:failed query|query failed):\s*(?:select|insert|update|delete|with)\b[\s\S]*?(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
+  /\b((?:failed query|query failed):\s*(?:select|insert|update|delete|with)\b[\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
 const SQL_QUERY_FAILURE_RE =
   /\b(?:failed query|query failed):\s*(?:select|insert|update|delete|with)\b/i;
 
@@ -24,7 +24,7 @@ export function redact(value: string): string {
       /([A-Za-z0-9_$.-]*(?:authorization|cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)[A-Za-z0-9_$.-]*\s*[:=]\s*)([^\s,;}]+)/gi,
       "$1<redacted>",
     )
-    .replace(SQL_PARAMS_RE, "$1<redacted>");
+    .replace(SQL_PARAMS_RE, "$1$2<redacted>");
 }
 
 export function boundedText(value: unknown, max: number): string {

@@ -570,6 +570,7 @@ export const parityMatrix: ParityRow[] = [
       "duplicate-database-items",
       "duplicate-database-item",
       "update-database-items",
+      "patch-database-items",
       "migrate-content-database-rows",
       "manage-content-database-migration",
       "move-database-item",
@@ -583,11 +584,15 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/database-row-batch-actions.db.test.ts",
       "actions/upsert-database-item-by-key.db.test.ts",
+      "actions/patch-database-items.db.test.ts",
       "actions/migrate-content-database-rows.db.test.ts",
       "actions/content-database-block-actions.db.test.ts",
       "parity/__tests__/database-row-batch-reliability.test.ts",
     ],
-    evalScenarioIds: ["database-bulk-row-reliability"],
+    evalScenarioIds: [
+      "database-bulk-row-reliability",
+      "database-distinct-row-patches",
+    ],
   },
   {
     id: "database.private-preview-drafts",

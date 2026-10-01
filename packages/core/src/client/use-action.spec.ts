@@ -11,6 +11,10 @@ const sessionMocks = vi.hoisted(() => ({
 vi.mock("./use-session.js", () => sessionMocks);
 
 import {
+  recordActionFailure,
+  resetActionFailureCircuits,
+} from "./action-failure-circuit.js";
+import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
@@ -145,6 +149,41 @@ describe("callAction", () => {
       details: { phase: "verification-timeout" },
     });
     expect(error.message).toContain("Verification timed out");
+  });
+
+  it("puts the server's request id and typed code on the error and on the tracked event", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            error: "Gmail is briefly busy.",
+            errorCode: "gmail_quota_cooldown",
+          },
+          {
+            status: 429,
+            headers: {
+              "Content-Type": "application/json",
+              "X-Agent-Native-Request-Id": "req_abc",
+            },
+          },
+        ),
+      ),
+    );
+
+    const error = await callAction("list-emails", {}).catch((caught) => caught);
+
+    expect(error).toMatchObject({
+      requestId: "req_abc",
+      errorCode: "gmail_quota_cooldown",
+    });
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        request_id: "req_abc",
+        error_code: "gmail_quota_cooldown",
+      }),
+    );
   });
 
   it("sends build compatibility and hard-refreshes once on a mismatch", async () => {
@@ -1149,10 +1188,49 @@ describe("action query retry defaults", () => {
   });
 
   it("caps retry backoff at 2s so real failures surface fast", () => {
-    expect(defaultActionQueryRetryDelay(0)).toBe(500);
-    expect(defaultActionQueryRetryDelay(1)).toBe(1_000);
-    expect(defaultActionQueryRetryDelay(2)).toBe(2_000);
-    expect(defaultActionQueryRetryDelay(5)).toBe(2_000);
+    const random = vi.spyOn(Math, "random").mockReturnValue(1);
+    try {
+      expect(defaultActionQueryRetryDelay(0)).toBe(500);
+      expect(defaultActionQueryRetryDelay(1)).toBe(1_000);
+      expect(defaultActionQueryRetryDelay(2)).toBe(2_000);
+      expect(defaultActionQueryRetryDelay(5)).toBe(2_000);
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  it("jitters each retry delay into the upper half of its step", () => {
+    const random = vi.spyOn(Math, "random");
+    try {
+      random.mockReturnValue(0);
+      expect(defaultActionQueryRetryDelay(0)).toBe(250);
+      expect(defaultActionQueryRetryDelay(5)).toBe(1_000);
+      random.mockReturnValue(0.999);
+      expect(defaultActionQueryRetryDelay(0)).toBeLessThanOrEqual(500);
+      expect(defaultActionQueryRetryDelay(0)).toBeGreaterThanOrEqual(499);
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  it("does not retry typed non-retryable codes or a named Retry-After", () => {
+    for (const errorCode of [
+      "not_found",
+      "forbidden",
+      "unauthorized",
+      "gmail_quota_cooldown",
+      "llm_provider_missing",
+      "conflict",
+    ]) {
+      const typed = Object.assign(new Error("nope"), { errorCode });
+      expect(defaultActionQueryRetry(0, typed)).toBe(false);
+    }
+
+    const cooldown = Object.assign(new Error("busy"), {
+      status: 429,
+      retryAfterMs: 45_000,
+    });
+    expect(defaultActionQueryRetry(0, cooldown)).toBe(false);
   });
 });
 
@@ -1231,6 +1309,64 @@ describe("guardActionQueryRefetchInterval", () => {
 
     expect(guarded(queryWithError({ status: 401 }))).toBe(false);
     expect(intervalFn).not.toHaveBeenCalled();
+  });
+
+  it("stops polling on lost access, a gone resource, or a non-retryable typed code", () => {
+    const guarded = guardActionQueryRefetchInterval<unknown>(5_000);
+
+    for (const error of [
+      { status: 401 },
+      { status: 403 },
+      { status: 410 },
+      { status: 424, errorCode: "llm_provider_missing" },
+      { status: 404, errorCode: "not_found" },
+      { errorCode: "not_found" },
+    ]) {
+      expect(guarded(queryWithError(error))).toBe(false);
+    }
+  });
+
+  it("keeps polling through an untyped 404 or other client error", () => {
+    const guarded = guardActionQueryRefetchInterval<unknown>(5_000);
+
+    for (const error of [
+      { status: 404 },
+      { status: 404, errorCode: "action_failed" },
+      { status: 409 },
+      { status: 422 },
+    ]) {
+      expect(guarded(queryWithError(error))).toBe(5_000);
+    }
+  });
+
+  it("keeps polling through timeouts, rate limits without a named cooldown, and server errors", () => {
+    const guarded = guardActionQueryRefetchInterval<unknown>(5_000);
+
+    for (const status of [408, 429, 500, 503]) {
+      expect(guarded(queryWithError({ status }))).toBe(5_000);
+    }
+  });
+
+  it("waits out a named Retry-After instead of stopping, then resumes", () => {
+    const guarded = guardActionQueryRefetchInterval<unknown>(5_000);
+    const cooldown = {
+      status: 429,
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 45_000,
+    };
+    recordActionFailure("hash-1", cooldown);
+
+    const query = {
+      queryHash: "hash-1",
+      state: { error: cooldown },
+    } as any;
+    const wait = guarded(query);
+    expect(typeof wait).toBe("number");
+    expect(wait as number).toBeGreaterThan(44_000);
+    expect(wait as number).toBeLessThanOrEqual(45_001);
+
+    resetActionFailureCircuits();
+    expect(guarded(query)).toBe(5_000);
   });
 });
 

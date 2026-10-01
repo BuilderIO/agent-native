@@ -1735,6 +1735,19 @@ describe("createAgentNativeAgentKitTransport", () => {
             threadData: JSON.stringify({ messages: [] }),
           });
         }
+        if (
+          url.includes("/runs/latest?threadId=thread-resume&runId=run-durable")
+        ) {
+          return json({
+            runId: "run-durable",
+            threadId: "thread-resume",
+            turnId: "turn-resume",
+            startedAt: Date.now(),
+            status: "running",
+            dispatchMode: "background-processing",
+            terminalReason: null,
+          });
+        }
         if (url.includes("/runs/active?threadId=thread-resume")) {
           return json({
             active: true,

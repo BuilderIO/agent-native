@@ -654,6 +654,74 @@ describe("browser analytics pageviews", () => {
     expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
   });
 
+  it("links the open chat thread on a first-party exception, and leaves one outside a thread alone", async () => {
+    installBrowser("https://mail.agent-native.com/inbox?thread=thr_9&token=s");
+    const { analyticsCalls } = installFetch();
+    const { captureException, configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      errorCapture: {
+        captureGlobalErrors: false,
+        captureUnhandledRejections: false,
+      },
+    });
+    await tick();
+    analyticsCalls.length = 0;
+
+    captureException(new Error("Chat render failed"), {
+      extra: { phase: "render" },
+    });
+    captureException(new Error("Own packet"), {
+      extra: { failureContext: { runId: "run_own" } },
+    });
+    await tick();
+
+    const exceptions = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .filter((body) => body.event === "$exception");
+    const byMessage = (message: string) =>
+      exceptions.find((body) => body.properties.exceptionMessage === message)
+        ?.properties.exceptionExtra;
+    expect(byMessage("Chat render failed")).toMatchObject({
+      phase: "render",
+      failureContext: {
+        threadId: "thr_9",
+        threadUrl: "https://mail.agent-native.com/?thread=thr_9",
+      },
+    });
+    expect(JSON.stringify(exceptions)).not.toContain("token=s");
+    expect(byMessage("Own packet").failureContext).toEqual({
+      runId: "run_own",
+    });
+  });
+
+  it("stamps first-party exception events with a real release", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { captureException, configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      errorCapture: {
+        captureGlobalErrors: false,
+        captureUnhandledRejections: false,
+      },
+    });
+    await tick();
+    analyticsCalls.length = 0;
+
+    captureException(new Error("Renderer failed"));
+    await tick();
+
+    const exception = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "$exception");
+    expect(exception?.properties.release).toMatch(/^agent-native-client@/);
+  });
+
   it("accepts the first-party public key and endpoint at configure time", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch();
@@ -1481,6 +1549,135 @@ describe("browser analytics pageviews", () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  it("drops third-party vendor failures from browser Sentry through the shared rules", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+    const options = sentryMock.init.mock.calls[0][0];
+    // Sentry orders frames oldest first: the vendor frame precedes our wrapper.
+    const vendorFetchFailure = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Failed to fetch (api.vector.co)",
+            stacktrace: {
+              frames: [
+                { filename: "https://cdn.vector.co/pixel.js", lineno: 2 },
+                {
+                  filename:
+                    "https://www.agent-native.com/assets/api-path-Bx1.js",
+                  function: "window.fetch",
+                  lineno: 1,
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: { url: "https://www.agent-native.com/templates/slides" },
+    };
+    expect(options.beforeSend(vendorFetchFailure)).toBeNull();
+
+    const staleChunk = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value:
+              "Failed to fetch dynamically imported module: https://www.agent-native.com/assets/Panel-3f.js",
+          },
+        ],
+      },
+      request: { url: "https://www.agent-native.com/templates/slides" },
+    };
+    expect(options.beforeSend(staleChunk)).toBeNull();
+
+    const appFetchFailure = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Failed to fetch",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "https://www.agent-native.com/assets/app.js",
+                  function: "loadDashboard",
+                  lineno: 10,
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: { url: "https://www.agent-native.com/templates/slides" },
+    };
+    expect(options.beforeSend(appFetchFailure)).toBe(appFetchFailure);
+  });
+
+  it("classifies a linked-error chain by the exception that was thrown, not by its causes", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+    const options = sentryMock.init.mock.calls[0][0];
+    // Sentry's linkedErrors puts the cause first and the thrown error last.
+    const safariLoadFailedCause = {
+      type: "TypeError",
+      value: "Load failed",
+    };
+    const firstPartyOuter = {
+      type: "Error",
+      value:
+        "Agent chat request failed with 200, and its error body could not be read.",
+      stacktrace: {
+        frames: [
+          {
+            filename: "https://mail.agent-native.com/assets/chat.js",
+            function: "readChatResponse",
+            lineno: 733,
+          },
+        ],
+      },
+    };
+    const wrapped = {
+      exception: { values: [safariLoadFailedCause, firstPartyOuter] },
+      request: { url: "https://mail.agent-native.com/inbox" },
+    };
+    expect(options.beforeSend(wrapped)).toBe(wrapped);
+
+    // The same cause thrown on its own is still noise...
+    const bare = {
+      exception: { values: [safariLoadFailedCause] },
+      request: { url: "https://mail.agent-native.com/inbox" },
+    };
+    expect(options.beforeSend(bare)).toBeNull();
+
+    // ...and so is a noisy outer exception, whatever its cause.
+    const noisyOuter = {
+      exception: {
+        values: [
+          { type: "Error", value: "first-party cause" },
+          safariLoadFailedCause,
+        ],
+      },
+      request: { url: "https://mail.agent-native.com/inbox" },
+    };
+    expect(options.beforeSend(noisyOuter)).toBeNull();
   });
 
   it("drops rrweb autoplay-policy rejections only on session replay pages", async () => {

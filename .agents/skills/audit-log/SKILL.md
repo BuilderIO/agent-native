@@ -69,6 +69,10 @@ minimum useful addition is `target: () => ({ type, id })`.
   `audit: { recordInputs: false }`. Inputs are credential-redacted regardless.
 - **Refusals** — a thrown error with `statusCode` 401 or 403 records as
   `status: "denied"`, so a refused attempt shows up as an attempt.
+- **Probes** — a health or capability probe sends `{ "__probe__": true }` as
+  its only argument. If it is rejected it records nothing; if it executes, or
+  carries any other argument, it records like any call. Do not invent another
+  probe shape in a client; the recorder only knows this one.
 - **App** — every event records the app that wrote it (`app.id`, else
   `app.name`, the same key usage uses).
 

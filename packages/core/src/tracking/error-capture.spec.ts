@@ -58,7 +58,9 @@ describe("tracking captureException", () => {
     );
 
     const [event] = track.mock.calls[0];
-    expect(event.properties.exceptionMessage).toContain("\tparams: <redacted>");
+    expect(event.properties.exceptionMessage).toBe(
+      "Failed query: insert into dictations (text) values ($1)",
+    );
     expect(event.properties.exceptionMessage).not.toContain(privateValue);
     expect(event.properties.exceptionStack).not.toContain(privateValue);
     expect(event.properties.exceptionStack).toMatch(/\n\s+at /);
@@ -76,9 +78,24 @@ describe("tracking captureException", () => {
     });
 
     const [event] = track.mock.calls[0];
-    expect(event.properties.exceptionStack).toContain("params: <redacted>");
     expect(event.properties.exceptionStack).not.toContain(privateValue);
     expect(event.properties.exceptionStack).toContain("at loadTranscript");
+  });
+
+  it("never forwards a database error's bound parameters", () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    const error = new Error(
+      'Failed query: insert into "users" ("email") values ($1)\nparams: ada.lovelace@example.com',
+    );
+    captureException(error);
+
+    const [event] = track.mock.calls[0];
+    expect(event.properties.exceptionMessage).toBe(
+      'Failed query: insert into "users" ("email") values ($1)',
+    );
+    expect(event.properties.exceptionStack).not.toContain("ada.lovelace");
   });
 
   it("keeps tags after an undefined one instead of dropping the rest", () => {
@@ -97,6 +114,34 @@ describe("tracking captureException", () => {
       second: "also-kept",
       route: "/api/things",
       method: "POST",
+    });
+  });
+
+  it("keeps the failure packet intact and nested, so the issue page can link the thread", () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    captureException(new Error("boom"), {
+      extra: {
+        failureContext: {
+          appId: "calendar",
+          threadId: "thr_1",
+          runId: "run_1",
+          threadUrl: "https://calendar.agent-native.com/?thread=thr_1",
+          userScope: "org",
+          errorCode: "credential_rejected",
+        },
+      },
+    });
+
+    const [event] = track.mock.calls[0];
+    expect(event.properties.exceptionExtra.failureContext).toEqual({
+      appId: "calendar",
+      threadId: "thr_1",
+      runId: "run_1",
+      threadUrl: "https://calendar.agent-native.com/?thread=thr_1",
+      userScope: "org",
+      errorCode: "credential_rejected",
     });
   });
 

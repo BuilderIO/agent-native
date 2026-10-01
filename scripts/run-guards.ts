@@ -81,6 +81,7 @@ const guards = [
   "guard:no-heavy-dashboard-list-reads",
   "guard:no-blob-column-predicate",
   "guard:no-unbounded-table-reads",
+  "guard:no-bare-error-in-actions",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
   "guard:doc-budgets",

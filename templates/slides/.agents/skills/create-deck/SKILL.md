@@ -244,7 +244,10 @@ Build an intentional composition beyond a text dump: use a title block,
 two-column split, metric treatment, rule, callout, visual placeholder, or
 simple diagram where it fits the message. Keep the canvas stable across the
 deck, use accents only for hierarchy or meaning, and do not add decorative
-cards, gradients, fake logos, or shapes without a semantic role.
+cards, gradients, fake logos, or shapes without a semantic role. A slide
+with nothing real to show is complete with type, spacing, and a rule. A
+built-in template's signature art belongs to that template; do not carry it
+into other decks.
 
 ## Bounded visual QA
 

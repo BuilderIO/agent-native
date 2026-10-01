@@ -758,16 +758,25 @@ async function runIncrementalSyncStep(
   };
 }
 
+function isGmailAuthRejection(err: unknown): boolean {
+  return (err as { status?: unknown } | null)?.status === 401;
+}
+
 async function failAccount(
   row: SyncAccountRow,
   claimId: string,
   err: unknown,
+  afterTokenRefresh = false,
 ): Promise<InboxSyncAccountStatus> {
   const message = boundedErrorMessage(err);
   const raw = err instanceof Error ? err.message : String(err);
-  const status: SyncAccountRow["status"] = isPermanentRefreshError(raw)
-    ? "needs_reauth"
-    : "error";
+  // Only Google refusing the refresh itself, or rejecting a token it has just
+  // minted, proves the credential is dead; a 401 on an older token does not.
+  const status: SyncAccountRow["status"] =
+    isPermanentRefreshError(raw) ||
+    (afterTokenRefresh && isGmailAuthRejection(err))
+      ? "needs_reauth"
+      : "error";
   invalidateHistoryCacheForAccount(row.accountEmail);
   invalidateListCacheForOwner(row.ownerEmail);
   await patchSyncAccount(
@@ -810,15 +819,26 @@ export async function syncInboxAccount(
     force?: boolean;
     connectedAccountEmails?: readonly string[];
     pushGeneration?: number;
+    /** Internal: this attempt runs on a token refreshed after a 401. */
+    afterTokenRefresh?: boolean;
   },
 ): Promise<SyncInboxAccountProgress> {
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
   const deadline = Date.now() + budgetMs;
 
-  await ensureSyncAccountRow(ownerEmail, accountEmail);
+  const existing = await ensureSyncAccountRow(ownerEmail, accountEmail);
   const targetPushGeneration =
     opts?.pushGeneration ??
     (await readInboxPushGeneration(ownerEmail, accountEmail));
+  // Google rejected this credential: syncing it again only repeats the 401.
+  // Reconnecting (or an explicit resync) clears the state.
+  if (existing.status === "needs_reauth") {
+    return progressFromStatus(
+      statusFromRow(existing),
+      targetPushGeneration,
+      existing.lastPushGeneration,
+    );
+  }
   const claim = await claimSyncAccount(ownerEmail, accountEmail, CLAIM_TTL_MS);
   if (!claim) {
     const current = (await readSyncAccounts(ownerEmail)).find(
@@ -1041,7 +1061,40 @@ export async function syncInboxAccount(
         changed,
       );
     }
-    const status = await failAccount(row, claim.claimId, err);
+    let failure = err;
+    if (isGmailAuthRejection(err) && !opts?.afterTokenRefresh) {
+      // Google can retire an access token before its stated expiry: refresh
+      // it once and retry on the fresh token before judging the credential.
+      let refreshed = false;
+      try {
+        await getClientForConnectedAccount(ownerEmail, accountEmail, {
+          forceRefresh: true,
+        });
+        refreshed = true;
+      } catch (refreshError) {
+        failure = refreshError;
+      }
+      if (refreshed) {
+        await releaseSyncAccount(
+          ownerEmail,
+          accountEmail,
+          claim.claimId,
+          "idle",
+        );
+        const retried = await syncInboxAccount(ownerEmail, accountEmail, {
+          ...opts,
+          budgetMs: Math.max(0, deadline - Date.now()),
+          afterTokenRefresh: true,
+        });
+        return changed ? { ...retried, changed: true } : retried;
+      }
+    }
+    const status = await failAccount(
+      row,
+      claim.claimId,
+      failure,
+      opts?.afterTokenRefresh,
+    );
     return progressFromStatus(
       status,
       await readInboxPushGeneration(ownerEmail, accountEmail),
