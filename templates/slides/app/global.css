@@ -83,6 +83,14 @@
   align-items: center;
 }
 
+.agent-prompt-home
+  > .agent-prompt-home-composer:has(> .slides-home-mobile-toolbar) {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: var(--color-background);
+}
+
 .slides-home-mobile-toolbar > .slides-home-mobile-search {
   grid-column: 2;
   width: 100%;
