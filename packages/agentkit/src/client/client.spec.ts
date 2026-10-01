@@ -256,7 +256,7 @@ describe("AgentKitClient", () => {
   });
 
   it.each(["accepted", "rejected"])(
-    "acknowledges a %s queue write only after the queued message is inserted",
+    "parks the queue item before its %s durable append settles",
     async (outcome) => {
       const queued = Promise.withResolvers<{ message: AgentQueuedMessage }>();
       const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
@@ -272,7 +272,9 @@ describe("AgentKitClient", () => {
         createdAt: "2026-09-29T00:00:00.000Z",
       };
       const onLocalSubmit = vi.fn(() => {
-        expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
+        expect(client.getThread("thread-1").queuedMessages).toEqual([
+          expect.objectContaining({ text: message.text }),
+        ]);
       });
       const submission = client
         .queueMessage({
@@ -285,9 +287,11 @@ describe("AgentKitClient", () => {
           (error: unknown) => ({ error }),
         );
       await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
-      expect(onLocalSubmit).not.toHaveBeenCalled();
-      expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+      expect(onLocalSubmit).toHaveBeenCalledOnce();
+      const parked = client.getThread("thread-1").queuedMessages[0]!;
+      expect(parked.text).toBe(message.text);
       const request = queueMessage.mock.calls[0]![0];
+      expect(request.id).toBe(parked.id);
       expect(request).not.toHaveProperty("onLocalSubmit");
       expect(structuredClone(request)).toEqual(request);
 
@@ -298,9 +302,10 @@ describe("AgentKitClient", () => {
       if (outcome === "accepted") {
         expect(result).toEqual({ value: message });
         expect(onLocalSubmit).toHaveBeenCalledOnce();
+        expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
       } else {
         expect(result).toEqual({ error: failure });
-        expect(onLocalSubmit).not.toHaveBeenCalled();
+        expect(onLocalSubmit).toHaveBeenCalledOnce();
         expect(client.getThread("thread-1").queuedMessages).toEqual([]);
       }
       await client.shutdown();
@@ -2646,6 +2651,62 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("keeps a queued send parked through a stale snapshot while append is pending", async () => {
+    const append = Promise.withResolvers<{ message: AgentQueuedMessage }>();
+    const queuedAt = "2026-10-01T00:00:00.000Z";
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      () => append.promise,
+    );
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      capabilities: { messageQueue: true },
+      async getThreadSnapshot({ threadId }) {
+        return {
+          id: threadId,
+          createdAt: queuedAt,
+          updatedAt: queuedAt,
+          messages: [],
+          activeRunIds: ["run-active"],
+          runs: [
+            {
+              id: "run-active",
+              threadId,
+              status: "running",
+              lastSequence: 0,
+            },
+          ],
+          queuedMessages: [],
+        };
+      },
+      queueMessage,
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    const onLocalSubmit = vi.fn();
+    const submission = client.queueMessage({
+      threadId: "thread-1",
+      text: "Keep this as the queued prompt",
+      onLocalSubmit,
+    });
+    await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
+
+    const parked = client.getThread("thread-1").queuedMessages[0];
+    expect(parked).toMatchObject({
+      id: queueMessage.mock.calls[0]?.[0].id,
+      text: "Keep this as the queued prompt",
+    });
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
+
+    await client.loadThread("thread-1");
+    expect(client.getThread("thread-1").queuedMessages).toEqual([parked]);
+
+    append.resolve({ message: parked! });
+    await expect(submission).resolves.toEqual(parked);
+    expect(client.getThread("thread-1").queuedMessages).toEqual([parked]);
+    await client.shutdown();
+  });
+
   it("cancels a queued send without cancelling the active run", async () => {
     const queued: AgentQueuedMessage = {
       id: "queued-cancel-send",
@@ -2804,14 +2865,12 @@ describe("AgentKitClient", () => {
     });
 
     expect(handle.runId).toBe("run-steered");
-    expect(cancelRun).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: "thread-1", runId: "run-active" }),
-      expect.anything(),
-    );
+    expect(cancelRun).not.toHaveBeenCalled();
     expect(steerQueuedMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "thread-1",
         messageId: queued.id,
+        interruptActiveRun: true,
       }),
       expect.anything(),
     );

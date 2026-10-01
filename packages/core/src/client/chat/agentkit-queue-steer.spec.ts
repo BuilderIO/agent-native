@@ -86,6 +86,38 @@ describe("AgentKit queued steering", () => {
     },
   );
 
+  it("reconciles a queue item already promoted before the first snapshot", async () => {
+    const threadId = "thread-first-snapshot-race";
+    const messageId = "queued-first-snapshot-race";
+    const apiUrl = "/_agent-native/agent-chat";
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:00.000Z",
+          threadData: JSON.stringify({
+            messages: [{ id: messageId, role: "user", content: "Run once" }],
+            queuedMessages: [],
+          }),
+        });
+      }
+      return json({ error: `Unexpected request: ${url}` }, 404);
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.steerQueuedMessage?.({ threadId, messageId }),
+    ).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await transport.dispose();
+  });
+
   it("cancels a server run discovered after reload", async () => {
     const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
     const runtime: AgentChatRuntime = {
@@ -128,11 +160,16 @@ describe("AgentKit queued steering", () => {
   it("cancels an active run and promotes a steered item through the real transport", async () => {
     const threadId = "thread-queue-steer";
     const apiUrl = "/_agent-native/agent-chat";
-    const queue: Array<Record<string, unknown>> = [];
+    const queue: Array<
+      Record<string, unknown> & {
+        promotionClaim?: { id: string; expiresAt: number };
+      }
+    > = [];
     const activeReads: boolean[] = [];
     const prompts: string[] = [];
     const turns: unknown[] = [];
     const cancellations: string[] = [];
+    const mutations: string[] = [];
     let active = false;
     let runNumber = 0;
     let releaseFirstRun: (() => void) | undefined;
@@ -149,6 +186,7 @@ describe("AgentKit queued steering", () => {
         }
         if (url.endsWith(`/threads/${threadId}/queued`) && method === "POST") {
           const { mutation } = JSON.parse(String(init?.body));
+          mutations.push(mutation.type);
           if (mutation.type === "append") {
             queue.push(mutation.message);
             return json({ queuedMessages: queue, message: mutation.message });
@@ -157,12 +195,31 @@ describe("AgentKit queued steering", () => {
             const index = queue.findIndex(
               (item) => item.id === mutation.messageId,
             );
-            const [removedMessage] = queue.splice(index, 1);
-            return json({ queuedMessages: queue, removedMessage, index });
+            if (index < 0) {
+              return json(
+                { error: `Unknown queued message: ${mutation.messageId}` },
+                409,
+              );
+            }
+            const claimedMessage = {
+              ...queue[index],
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: Date.now() + 60_000,
+              },
+            };
+            queue[index] = claimedMessage;
+            return json({ queuedMessages: queue, claimedMessage });
           }
-          if (mutation.type === "restore") {
-            queue.splice(mutation.index, 0, mutation.message);
-            return json({ queuedMessages: queue });
+          if (mutation.type === "release") {
+            const index = queue.findIndex(
+              (item) => item.id === mutation.messageId,
+            );
+            if (queue[index]?.promotionClaim?.id === mutation.claimId) {
+              const { promotionClaim: _claim, ...released } = queue[index]!;
+              queue[index] = released;
+            }
+            return json({ queuedMessages: queue, released: true });
           }
           return json({ queuedMessages: queue });
         }
@@ -197,7 +254,24 @@ describe("AgentKit queued steering", () => {
           threadId,
           runtimeId: "test:queue-steer",
           async startTurn(input) {
+            if (active) {
+              throw Object.assign(new Error("Run already in progress"), {
+                code: "run_slot_busy",
+                activeRunId: "run-1",
+                retryable: true,
+              });
+            }
             const currentRun = ++runNumber;
+            if (input.queuePromotion) {
+              const queuedIndex = queue.findIndex(
+                (item) => item.id === input.queuePromotion?.messageId,
+              );
+              expect(queuedIndex).toBeGreaterThanOrEqual(0);
+              expect(queue[queuedIndex]?.promotionClaim?.id).toBe(
+                input.queuePromotion.claimId,
+              );
+              queue.splice(queuedIndex, 1);
+            }
             turns.push(input);
             prompts.push(input.prompt ?? "");
             if (currentRun === 1) active = true;
@@ -271,16 +345,18 @@ describe("AgentKit queued steering", () => {
       await expect(
         transport.steerQueuedMessage?.({ threadId, messageId: queued.id }),
       ).rejects.toMatchObject({ code: "run_slot_busy" });
-      expect(activeReads.length).toBeGreaterThanOrEqual(4);
-      expect(activeReads.every(Boolean)).toBe(true);
+      expect(activeReads).toEqual([]);
       expect(queue).toHaveLength(1);
+      expect(queue[0]).not.toHaveProperty("promotionClaim");
+      expect(mutations).toEqual(["append", "claim", "release"]);
       expect(client.getThread(threadId).activeRunIds).toEqual(["run-1"]);
 
-      const steeredRun = await transport.steerQueuedMessage?.({
+      const steeredRun = await client.steerQueuedMessage(
         threadId,
-        messageId: queued.id,
-        interruptActiveRun: true,
-      });
+        queued.id,
+        undefined,
+        { interruptActiveRun: true },
+      );
 
       expect(cancellations).toEqual(["run-1"]);
       expect(active).toBe(false);
@@ -305,7 +381,15 @@ describe("AgentKit queued steering", () => {
         },
       });
       expect(queue).toHaveLength(0);
+      expect(runNumber).toBe(2);
       expect(activeReads.slice(-2)).toEqual([false, false]);
+      expect(turns[1]).toMatchObject({
+        queuePromotion: {
+          messageId: queued.id,
+          claimId: expect.any(String),
+          turnId: `queue-${queued.id}`,
+        },
+      });
       releaseFirstRun?.();
       await activeRun.completed.catch(() => undefined);
     } finally {
@@ -314,7 +398,7 @@ describe("AgentKit queued steering", () => {
     }
   });
 
-  it("restores a claimed item when startRun loses a run-slot race", async () => {
+  it("releases its lease when startRun loses a run-slot race", async () => {
     const threadId = "thread-claim-race";
     const apiUrl = "/_agent-native/agent-chat";
     const queued = {
@@ -323,7 +407,11 @@ describe("AgentKit queued steering", () => {
       text: "Do not lose me",
       createdAt: "2026-10-01T00:00:00.000Z",
     };
-    const queue = [queued];
+    const queue: Array<
+      typeof queued & {
+        promotionClaim?: { id: string; expiresAt: number };
+      }
+    > = [queued];
     const mutations: string[] = [];
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -339,12 +427,25 @@ describe("AgentKit queued steering", () => {
             const index = queue.findIndex(
               (item) => item.id === mutation.messageId,
             );
-            const [removedMessage] = queue.splice(index, 1);
-            return json({ queuedMessages: queue, removedMessage, index });
+            const claimedMessage = {
+              ...queue[index],
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: Date.now() + 60_000,
+              },
+            };
+            queue[index] = claimedMessage;
+            return json({ queuedMessages: queue, claimedMessage });
           }
-          if (mutation.type === "restore") {
-            queue.splice(mutation.index, 0, mutation.message);
-            return json({ queuedMessages: queue });
+          if (mutation.type === "release") {
+            const index = queue.findIndex(
+              (item) => item.id === mutation.messageId,
+            );
+            if (queue[index]?.promotionClaim?.id === mutation.claimId) {
+              const { promotionClaim: _claim, ...released } = queue[index]!;
+              queue[index] = released;
+            }
+            return json({ queuedMessages: queue, released: true });
           }
           return json({ queuedMessages: queue });
         }
@@ -400,9 +501,139 @@ describe("AgentKit queued steering", () => {
         activeRunId: "run-won-elsewhere",
       });
       expect(starts).toBe(1);
-      expect(mutations).toEqual(["claim", "restore"]);
+      expect(mutations).toEqual(["claim", "release"]);
       expect(queue).toEqual([queued]);
     } finally {
+      await transport.dispose();
+    }
+  });
+
+  it("parks an early send after a real AgentKit transport returns a typed 409", async () => {
+    const threadId = "thread-submit-before-hydration";
+    const apiUrl = "/_agent-native/agent-chat";
+    const queue: Array<
+      Record<string, unknown> & {
+        promotionClaim?: { id: string; expiresAt: number };
+      }
+    > = [];
+    let starts = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (url === apiUrl && method === "POST") {
+          starts += 1;
+          return json(
+            {
+              data: {
+                code: "run_slot_busy",
+                activeRunId: "run-active-after-reload",
+                retryable: true,
+              },
+            },
+            409,
+          );
+        }
+        if (url.endsWith(`/threads/${threadId}/queued`) && method === "POST") {
+          const { mutation } = JSON.parse(String(init?.body));
+          if (mutation.type === "append") {
+            queue.push(mutation.message);
+            return json({ queuedMessages: queue, message: mutation.message });
+          }
+          if (mutation.type === "claim") {
+            const index = queue.findIndex(
+              (message) => message.id === mutation.messageId,
+            );
+            if (index < 0) {
+              return json(
+                { error: `Unknown queued message: ${mutation.messageId}` },
+                409,
+              );
+            }
+            const claimedMessage = {
+              ...queue[index],
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: Date.now() + 60_000,
+              },
+            };
+            queue[index] = claimedMessage;
+            return json({ queuedMessages: queue, claimedMessage });
+          }
+          if (mutation.type === "release") {
+            const index = queue.findIndex(
+              (message) => message.id === mutation.messageId,
+            );
+            if (queue[index]?.promotionClaim?.id === mutation.claimId) {
+              const { promotionClaim: _claim, ...released } = queue[index]!;
+              queue[index] = released;
+            }
+            return json({ queuedMessages: queue, released: true });
+          }
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            createdAt: "2026-10-01T00:00:00.000Z",
+            updatedAt: "2026-10-01T00:00:00.000Z",
+            threadData: JSON.stringify({ messages: [], queuedMessages: queue }),
+          });
+        }
+        if (url.startsWith(`${apiUrl}/runs/active?`)) {
+          return json({
+            active: true,
+            status: "running",
+            runId: "run-active-after-reload",
+          });
+        }
+        return json({ error: `Unexpected request: ${method} ${url}` }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+    });
+    transport.subscribeToRun = async function* ({ signal }) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+    const onError = vi.fn();
+    const client = new AgentKitClient({ transport, onError });
+
+    try {
+      const handle = await client.sendMessage({
+        threadId,
+        text: "Submit before active-run hydration completes",
+      });
+
+      expect(handle.runId).toBe("run-active-after-reload");
+      expect(starts).toBeGreaterThanOrEqual(1);
+      expect(queue).toHaveLength(1);
+      expect(queue[0]).toMatchObject({
+        text: "Submit before active-run hydration completes",
+        id: expect.any(String),
+      });
+      expect(client.getThread(threadId)).toMatchObject({
+        queuedMessages: [
+          expect.objectContaining({
+            text: "Submit before active-run hydration completes",
+          }),
+        ],
+        messages: [],
+      });
+      expect(
+        client
+          .getThread(threadId)
+          .messages.some((message) => message.status === "error"),
+      ).toBe(false);
+      expect(onError).not.toHaveBeenCalled();
+
+      await vi.waitFor(() => expect(starts).toBeGreaterThanOrEqual(2));
+      expect(queue[0]).not.toHaveProperty("promotionClaim");
+    } finally {
+      await client.shutdown();
       await transport.dispose();
     }
   });
@@ -416,21 +647,22 @@ describe("AgentKit queued steering", () => {
       text: "Already claimed",
       createdAt: "2026-10-01T00:00:00.000Z",
     };
-    let removeBeforeClaim = false;
     const queue = [queued];
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
         const method = String(init?.method ?? "GET").toUpperCase();
-        if (url.startsWith(`${apiUrl}/runs/active?`)) {
-          removeBeforeClaim = true;
-          queue.splice(0, 1);
-          return json({ active: false });
-        }
         if (url.endsWith(`/threads/${threadId}/queued`) && method === "POST") {
           const { mutation } = JSON.parse(String(init?.body));
-          if (mutation.type === "claim" && removeBeforeClaim) {
-            return json({ error: `Unknown queued message: ${queued.id}` }, 409);
+          if (mutation.type === "claim") {
+            return json(
+              {
+                error: "Run already in progress for this thread",
+                code: "run_slot_busy",
+                retryable: true,
+              },
+              409,
+            );
           }
           return json({ queuedMessages: queue });
         }
@@ -476,10 +708,10 @@ describe("AgentKit queued steering", () => {
       await client.loadThread(threadId);
       await expect(
         client.steerQueuedMessage(threadId, queued.id),
-      ).rejects.toThrow(`Unknown queued message: ${queued.id}`);
+      ).rejects.toMatchObject({ code: "run_slot_busy" });
       expect(client.getThread(threadId).queuedMessages).toEqual([queued]);
       expect(client.getThread(threadId).messages).toEqual([]);
-      expect(onError).toHaveBeenCalledOnce();
+      expect(onError).not.toHaveBeenCalled();
     } finally {
       await client.shutdown();
       await transport.dispose();

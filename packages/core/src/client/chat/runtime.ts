@@ -282,6 +282,11 @@ export interface AgentChatRuntimeSessionSnapshot extends AgentChatRuntimeSession
 export interface AgentChatRuntimeTurnInput {
   readonly prompt?: string;
   readonly messages?: readonly AgentChatRuntimeMessage[];
+  readonly queuePromotion?: {
+    readonly messageId: string;
+    readonly claimId: string;
+    readonly turnId: string;
+  };
   readonly attachments?: readonly AgentChatRuntimeAttachment[];
   readonly tools?: readonly AgentChatRuntimeToolDefinition[];
   readonly model?: string;
@@ -1363,7 +1368,7 @@ export function createHttpAgentChatRuntime<
       turn: AgentChatRuntimeTurnInput,
     ): Promise<AgentChatRuntimeTurn<TEvent>> => {
       previousTurn = turn;
-      const turnId = createRuntimeId("turn");
+      const turnId = turn.queuePromotion?.turnId ?? createRuntimeId("turn");
       const { controller, cleanup } = createAbortController(turn.abortSignal);
       const endpoint =
         typeof options.endpoint === "function"
@@ -2682,8 +2687,14 @@ export function createAgentNativeChatRuntime(
               ],
             }
           : {}),
-        turnId: continuationTurnId ?? turnId,
+        turnId: continuationTurnId ?? turn.queuePromotion?.turnId ?? turnId,
         threadId: session.threadId ?? options.threadId,
+        ...(turn.queuePromotion
+          ? {
+              queuedMessageId: turn.queuePromotion.messageId,
+              queuedMessageClaimId: turn.queuePromotion.claimId,
+            }
+          : {}),
         ...(turn.metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] ===
         true
           ? { internalContinuation: true }

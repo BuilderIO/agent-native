@@ -674,7 +674,14 @@ export function parseQueuedMessageForThread(
       throw error;
     }
   }
-  return { ...queued, threadId } as QueuedMessage;
+  const { promotionClaim: _claim, ...message } = queued;
+  return { ...message, threadId } as QueuedMessage;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 export function createSerializedA2ATaskStatusWriter(
@@ -3714,6 +3721,7 @@ export function createAgentChatPlugin(
         message: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
+        queuedMessageClaimId?: string;
       }) => {
         const threadId = details.threadId;
         if (!threadId) return;
@@ -3781,13 +3789,53 @@ export function createAgentChatPlugin(
           let repo = JSON.parse(thread.threadData || "{}");
 
           if (details.queuedMessageId) {
-            if (hasClaimedQueuedMessage(repo, details.queuedMessageId)) {
+            const alreadySubmittedForRun = Array.isArray(repo.messages)
+              ? repo.messages.some((entry: unknown) => {
+                  const outer = recordValue(entry);
+                  const message = recordValue(outer?.message ?? outer);
+                  const custom = recordValue(
+                    recordValue(message?.metadata)?.custom,
+                  );
+                  return (
+                    custom?.agentNativeQueuedMessageId ===
+                      details.queuedMessageId &&
+                    custom?.submittedRunId === details.runId
+                  );
+                })
+              : false;
+            if (
+              hasClaimedQueuedMessage(repo, details.queuedMessageId) &&
+              !alreadySubmittedForRun
+            ) {
               throw createError({
                 statusCode: 409,
                 statusMessage: "Queued message was already submitted",
+                data: { code: "queued_message_already_submitted" },
               });
             }
-            repo = claimQueuedMessage(repo, details.queuedMessageId);
+            if (!alreadySubmittedForRun) {
+              const queued = Array.isArray(repo.queuedMessages)
+                ? repo.queuedMessages.find(
+                    (message: unknown) =>
+                      recordValue(message)?.id === details.queuedMessageId,
+                  )
+                : undefined;
+              const claim = recordValue(recordValue(queued)?.promotionClaim);
+              if (
+                !queued ||
+                typeof details.queuedMessageClaimId !== "string" ||
+                claim?.id !== details.queuedMessageClaimId ||
+                typeof claim.expiresAt !== "number" ||
+                claim.expiresAt <= Date.now()
+              ) {
+                throw createError({
+                  statusCode: 409,
+                  statusMessage: "Queued message promotion claim expired",
+                  data: { code: "run_slot_busy", retryable: true },
+                });
+              }
+              repo = claimQueuedMessage(repo, details.queuedMessageId);
+            }
           }
 
           repo = upsertUserMessage(
@@ -6914,35 +6962,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ? (rawMutation as Record<string, unknown>)
                   : null;
               let mutation: ThreadQueuedMessageMutation | null = null;
-              if (record?.type === "append" || record?.type === "restore") {
+              if (record?.type === "append") {
                 const queued = parseQueuedMessageForThread(
                   record.message,
                   threadId,
                 );
                 if (queued) {
-                  mutation =
-                    record.type === "append"
-                      ? { type: "append", message: queued }
-                      : typeof record.index === "number" &&
-                          Number.isInteger(record.index) &&
-                          (record.index as number) >= 0
-                        ? {
-                            type: "restore",
-                            message: queued,
-                            index: record.index as number,
-                          }
-                        : null;
+                  mutation = { type: "append", message: queued };
                 }
               } else if (
-                (record?.type === "remove" ||
-                  record?.type === "moveToTop" ||
-                  record?.type === "claim") &&
+                (record?.type === "remove" || record?.type === "moveToTop") &&
                 typeof record.messageId === "string" &&
                 record.messageId
               ) {
                 mutation = {
                   type: record.type,
                   messageId: record.messageId,
+                };
+              } else if (
+                (record?.type === "claim" || record?.type === "release") &&
+                typeof record.messageId === "string" &&
+                record.messageId &&
+                typeof record.claimId === "string" &&
+                record.claimId
+              ) {
+                mutation = {
+                  type: record.type,
+                  messageId: record.messageId,
+                  claimId: record.claimId,
                 };
               }
               if (!mutation) {
@@ -6962,7 +7009,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              return result;
+              if (result.claimBusy) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Run already in progress for this thread",
+                  code: "run_slot_busy",
+                  retryable: true,
+                };
+              }
+              if (result.promotionBusy) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Queue item is being promoted",
+                  code: "queue_item_busy",
+                  retryable: true,
+                };
+              }
+              const withoutClaim = (message: QueuedMessage) => {
+                const { promotionClaim: _claim, ...safeMessage } = message;
+                return safeMessage;
+              };
+              return {
+                ...result,
+                queuedMessages: result.queuedMessages.map(withoutClaim),
+                ...(result.message
+                  ? { message: withoutClaim(result.message) }
+                  : {}),
+                ...(result.claimedMessage
+                  ? { claimedMessage: withoutClaim(result.claimedMessage) }
+                  : {}),
+              };
             }
 
             if (method === "POST" && isThreadSubroute("rename")) {

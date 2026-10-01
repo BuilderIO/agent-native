@@ -1015,6 +1015,7 @@ export interface ForkThreadInput extends ThreadIdInput {
 
 export interface QueueMessageInput {
   threadId: ThreadId;
+  id?: string;
   text: string;
   attachments?: FilePart[];
   metadata?: AgentProtocolMetadata;
@@ -1148,6 +1149,11 @@ export interface StartRunInput {
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
+  queuePromotion?: {
+    messageId: string;
+    claimId: string;
+    turnId: string;
+  };
 }
 
 export interface AgentResumeEntry {

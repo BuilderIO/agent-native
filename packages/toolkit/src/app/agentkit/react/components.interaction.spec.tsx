@@ -1217,7 +1217,7 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
-  it("keeps queue steering available during a run and moves queued items durably", async () => {
+  it("steers queue items with the button or empty Enter and moves items durably", async () => {
     const queuedMessages = [
       {
         id: "queued-first",
@@ -1410,26 +1410,30 @@ describe("AgentKitChat interactions", () => {
         expect.objectContaining({
           threadId: "thread-queue",
           messageId: "queued-second",
+          interruptActiveRun: true,
         }),
         expect.anything(),
       );
 
       await act(async () => {
-        container
-          .querySelector<HTMLElement>(".agent-composer-prosemirror")
-          ?.dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: "Enter",
-              bubbles: true,
-              cancelable: true,
-            }),
-          );
+        const composer = container.querySelector<HTMLElement>(
+          ".agent-composer-prosemirror",
+        );
+        expect(composer?.textContent?.trim()).toBe("");
+        composer?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
       expect(steerQueuedMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           threadId: "thread-queue",
           messageId: "queued-first",
+          interruptActiveRun: true,
         }),
         expect.anything(),
       );

@@ -282,6 +282,7 @@ export interface AgentChatRequest {
   message: string;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
+  queuedMessageClaimId?: string;
   displayMessage?: string;
   history?: AgentMessage[];
   structuredHistory?: AgentChatStructuredMessage[];

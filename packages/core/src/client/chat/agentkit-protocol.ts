@@ -2969,6 +2969,9 @@ export function createAgentKitProtocolAdapter(
       const turn = await session.startTurn({
         prompt: latestUserPrompt(input.messages),
         messages,
+        ...(input.queuePromotion
+          ? { queuePromotion: input.queuePromotion }
+          : {}),
         ...(attachments.length ? { attachments } : {}),
         model: input.options?.model,
         reasoningEffort: input.options?.reasoningEffort,
@@ -3088,12 +3091,9 @@ export function createAgentKitProtocolAdapter(
             runId: input.runId,
             reason: "protocol-cancel",
           });
-          if (result.status === "unsupported") {
-            throw new Error(
-              "The Core runtime does not support run cancellation.",
-            );
+          if (result.status !== "unsupported") {
+            return;
           }
-          return;
         }
         run = await restoreRunFromRuntime(input);
         runs.set(input.runId, run);

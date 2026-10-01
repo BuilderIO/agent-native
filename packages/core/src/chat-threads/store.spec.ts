@@ -482,6 +482,76 @@ describe("chat thread store", () => {
     ]);
   });
 
+  it("leases queue promotion without deleting the item and releases only its owner", async () => {
+    const queued = {
+      id: "queued-lease",
+      text: "Keep this until the run starts",
+      options: { model: "test-model" },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+
+    const first = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-one",
+    });
+    expect(first?.claimedMessage).toMatchObject({
+      ...queued,
+      promotionClaim: { id: "tab-one", expiresAt: expect.any(Number) },
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+
+    const competingClaim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-two",
+    });
+    expect(competingClaim?.claimBusy).toBe(true);
+
+    const blockedRemove = await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: queued.id,
+    });
+    expect(blockedRemove?.promotionBusy).toBe(true);
+
+    const wrongOwnerRelease = await mutateThreadQueuedMessages("thread-1", {
+      type: "release",
+      messageId: queued.id,
+      claimId: "tab-two",
+    });
+    expect(wrongOwnerRelease?.released).toBe(false);
+
+    const released = await mutateThreadQueuedMessages("thread-1", {
+      type: "release",
+      messageId: queued.id,
+      claimId: "tab-one",
+    });
+    expect(released?.released).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([queued]);
+  });
+
+  it("lets a new tab take over an expired queue promotion lease", async () => {
+    const queued = {
+      id: "queued-expired-lease",
+      text: "Promote after the old tab stopped",
+      promotionClaim: { id: "tab-gone", expiresAt: Date.now() - 1 },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-new",
+    });
+
+    expect(claimed?.claimBusy).toBeUndefined();
+    expect(claimed?.claimedMessage?.promotionClaim).toMatchObject({
+      id: "tab-new",
+      expiresAt: expect.any(Number),
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+  });
+
   it("pins and archives threads as lightweight metadata", async () => {
     await setThreadPinned("thread-1", true);
     expect(row!.pinned_at).toEqual(expect.any(Number));

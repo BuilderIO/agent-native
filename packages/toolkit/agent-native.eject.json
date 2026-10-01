@@ -170,6 +170,7 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/agentkit",
+        "@agent-native/core",
         "@assistant-ui/react",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
@@ -200,7 +201,8 @@
         "sonner",
         "tailwind-merge"
       ],
-      "verification": ["pnpm typecheck"]
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/agent-chat"]
     },
     {
       "id": "toolkit/app-chat",

@@ -3201,7 +3201,7 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("cancels a restored run through its session when runtime cancellation is unavailable", async () => {
+  it("falls back to session cancellation when runtime cancellation is unsupported", async () => {
     const stopped = Promise.withResolvers<void>();
     const cancelTurn = vi.fn(async () => {
       stopped.resolve();
@@ -3221,6 +3221,9 @@ describe("createAgentKitProtocolAdapter", () => {
       }),
     };
     const getSession = vi.fn(async () => session);
+    const runtimeCancel = vi.fn(async () => ({
+      status: "unsupported" as const,
+    }));
     const resume = vi.fn(
       async (
         input: Parameters<NonNullable<AgentChatRuntime["resume"]>>[0],
@@ -3241,6 +3244,7 @@ describe("createAgentKitProtocolAdapter", () => {
           resumableRuns: true,
         },
         getSession,
+        cancel: runtimeCancel,
         resume,
       },
     );
@@ -3251,6 +3255,11 @@ describe("createAgentKitProtocolAdapter", () => {
       runId: "run-restored-with-session-cancel",
     });
 
+    expect(runtimeCancel).toHaveBeenCalledWith({
+      sessionId: "runtime-session-2",
+      runId: "run-restored-with-session-cancel",
+      reason: "protocol-cancel",
+    });
     expect(resume).toHaveBeenCalledWith({
       sessionId: "runtime-session-2",
       runId: "run-restored-with-session-cancel",

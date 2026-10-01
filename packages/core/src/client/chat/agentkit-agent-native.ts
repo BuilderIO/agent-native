@@ -71,7 +71,6 @@ interface ActiveRunStatus {
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
-const RUN_SLOT_MAX_POLLS = 20;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -897,7 +896,26 @@ export function createAgentNativeAgentKitTransport(
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
+  const promotionClaimIds = new Map<string, string>();
   let transport: AgentKitProtocolAdapter;
+
+  function promotionClaimId(threadId: string, messageId: string): string {
+    const key = JSON.stringify([threadId, messageId]);
+    let claimId = promotionClaimIds.get(key);
+    if (!claimId) {
+      const suffix =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      claimId = `queue-claim-${suffix}`;
+      promotionClaimIds.set(key, claimId);
+    }
+    return claimId;
+  }
+
+  function clearPromotionClaimId(threadId: string, messageId: string): void {
+    promotionClaimIds.delete(JSON.stringify([threadId, messageId]));
+  }
 
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
     const configured =
@@ -1298,8 +1316,8 @@ export function createAgentNativeAgentKitTransport(
     | { type: "append"; message: AgentQueuedMessage }
     | { type: "remove"; messageId: string }
     | { type: "moveToTop"; messageId: string }
-    | { type: "claim"; messageId: string }
-    | { type: "restore"; message: AgentQueuedMessage; index: number };
+    | { type: "claim"; messageId: string; claimId: string }
+    | { type: "release"; messageId: string; claimId: string };
 
   async function persistQueueMutation(
     threadId: string,
@@ -1307,8 +1325,7 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<{
     queuedMessages: AgentQueuedMessage[];
     message?: AgentQueuedMessage;
-    removedMessage?: AgentQueuedMessage;
-    index?: number;
+    claimedMessage?: AgentQueuedMessage;
   }> {
     const requestHeaders = await headers({ sessionId: threadId });
     requestHeaders.set("content-type", "application/json");
@@ -1331,14 +1348,13 @@ export function createAgentNativeAgentKitTransport(
     const message = value.message
       ? storedQueue([value.message], threadId, now())[0]
       : undefined;
-    const removedMessage = value.removedMessage
-      ? storedQueue([value.removedMessage], threadId, now())[0]
+    const claimedMessage = value.claimedMessage
+      ? storedQueue([value.claimedMessage], threadId, now())[0]
       : undefined;
     return {
       queuedMessages: storedQueue(value.queuedMessages, threadId, now()),
       ...(message ? { message } : {}),
-      ...(removedMessage ? { removedMessage } : {}),
-      ...(typeof value.index === "number" ? { index: value.index } : {}),
+      ...(claimedMessage ? { claimedMessage } : {}),
     };
   }
 
@@ -1429,6 +1445,19 @@ export function createAgentNativeAgentKitTransport(
     return thread.queuedMessages ? [...thread.queuedMessages] : [];
   }
 
+  function provesQueueMessageWasSubmitted(
+    thread: AgentThreadSnapshot,
+    messageId: string,
+  ): boolean {
+    return (
+      thread.messages.some((message) => message.id === messageId) ||
+      thread.events?.some(
+        (event) =>
+          event.type === "message.created" && event.message.id === messageId,
+      ) === true
+    );
+  }
+
   const runtime = options.runtime ?? createAgentNativeChatRuntime(options);
   const feedbackUrl =
     options.feedbackUrl ??
@@ -1465,6 +1494,7 @@ export function createAgentNativeAgentKitTransport(
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
       queueMessage: async ({
         threadId,
+        id,
         text,
         attachments,
         metadata,
@@ -1472,6 +1502,7 @@ export function createAgentNativeAgentKitTransport(
       }) => {
         const message: AgentQueuedMessage = {
           id:
+            id ??
             options.adapter?.createId?.("queued-message") ??
             `queued-message-${
               typeof crypto !== "undefined" && crypto.randomUUID
@@ -1505,56 +1536,57 @@ export function createAgentNativeAgentKitTransport(
         messageId,
         interruptActiveRun,
       }) => {
-        const current = await readQueue(threadId);
-        if (!current.some((message) => message.id === messageId)) {
+        const initial = await snapshot(threadId);
+        if (!initial) throw new Error(`Unknown agent chat thread: ${threadId}`);
+        const queued = (initial.queuedMessages ?? []).find(
+          (message) => message.id === messageId,
+        );
+        if (!queued) {
+          if (provesQueueMessageWasSubmitted(initial, messageId)) {
+            clearPromotionClaimId(threadId, messageId);
+            return;
+          }
           throw new Error(`Unknown queued message: ${messageId}`);
         }
-        if (interruptActiveRun) {
-          const activeRun = await activeRunSnapshot(threadId);
-          if (activeRun) {
-            await transport.cancelRun({
-              threadId,
-              runId: activeRun.id,
-            });
-          }
-        }
-        await waitForRunSlot(
-          threadId,
-          interruptActiveRun ? RUN_SLOT_MAX_POLLS : RUN_SLOT_STABLE_POLLS * 2,
-        );
-        const thread = await snapshot(threadId);
-        if (!thread) throw new Error(`Unknown agent chat thread: ${threadId}`);
+        const claimId = promotionClaimId(threadId, messageId);
         let claim: Awaited<ReturnType<typeof persistQueueMutation>>;
         try {
           claim = await persistQueueMutation(threadId, {
             type: "claim",
             messageId,
+            claimId,
           });
         } catch (error) {
           if (
             error instanceof Error &&
-            error.message === `Unknown queued message: ${messageId}`
+            error.message.includes(`Unknown queued message: ${messageId}`)
           ) {
             const latest = await snapshot(threadId);
-            if (
-              latest?.messages.some((message) => message.id === messageId) ||
-              latest?.events?.some(
-                (event) =>
-                  event.type === "message.created" &&
-                  event.message.id === messageId,
-              )
-            ) {
+            if (latest && provesQueueMessageWasSubmitted(latest, messageId)) {
+              clearPromotionClaimId(threadId, messageId);
               return;
             }
           }
           throw error;
         }
-        const queued = claim.removedMessage;
-        if (!queued || typeof claim.index !== "number") {
-          throw new TypeError("Agent chat queue claim response is invalid.");
-        }
         try {
-          return await startRunTrackingRunningState(
+          if (!claim.claimedMessage) {
+            throw new TypeError("Agent chat queue claim response is invalid.");
+          }
+          if (interruptActiveRun) {
+            const activeRun = await activeRunSnapshot(threadId);
+            if (activeRun) {
+              await transport.cancelRun({
+                threadId,
+                runId: activeRun.id,
+              });
+              await waitForRunSlot(threadId, RUN_SLOT_STABLE_POLLS * 4);
+            }
+          }
+          const thread = await snapshot(threadId);
+          if (!thread)
+            throw new Error(`Unknown agent chat thread: ${threadId}`);
+          const run = await startRunTrackingRunningState(
             {
               threadId,
               messages: [
@@ -1574,20 +1606,27 @@ export function createAgentNativeAgentKitTransport(
               ],
               options: queued.options,
               metadata: queued.metadata,
+              queuePromotion: {
+                messageId,
+                claimId,
+                turnId: `queue-${messageId}`,
+              },
             },
             undefined,
           );
+          clearPromotionClaimId(threadId, messageId);
+          return run;
         } catch (error) {
           try {
             await persistQueueMutation(threadId, {
-              type: "restore",
-              message: queued,
-              index: claim.index,
+              type: "release",
+              messageId,
+              claimId,
             });
-          } catch (restoreError) {
+          } catch (releaseError) {
             throw new AggregateError(
-              [error, restoreError],
-              "Queue promotion failed and its durable rollback also failed.",
+              [error, releaseError],
+              "Queue promotion failed and its lease could not be released.",
             );
           }
           throw error;

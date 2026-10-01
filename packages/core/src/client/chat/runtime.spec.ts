@@ -489,6 +489,36 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
+  it("forwards queued promotion identity with a stable turn ID", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-queued",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Run the queued prompt",
+      queuePromotion: {
+        messageId: "queued-1",
+        claimId: "claim-1",
+        turnId: "queue-queued-1",
+      },
+    });
+
+    await drain(turn.events);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      message: "Run the queued prompt",
+      turnId: "queue-queued-1",
+      queuedMessageId: "queued-1",
+      queuedMessageClaimId: "claim-1",
+    });
+  });
+
   it("forwards pending-selection suppression to the agent request", async () => {
     const fetchMock = vi
       .fn()

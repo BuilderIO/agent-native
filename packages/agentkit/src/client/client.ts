@@ -588,6 +588,7 @@ export class AgentKitClient implements AgentKitController {
   private readonly queuePromotions = new Set<ThreadId>();
   private readonly queuePromotionTerminalExpedites = new Set<ThreadId>();
   private readonly queuePromotionAfterReconciliation = new Set<ThreadId>();
+  private readonly pendingQueueMessageIds = new Set<string>();
   private readonly queuePromotionTimers = new Map<
     ThreadId,
     ReturnType<typeof setTimeout>
@@ -1133,6 +1134,13 @@ export class AgentKitClient implements AgentKitController {
               activeRunId = this.getThread(input.threadId).activeRunIds.at(-1);
             }
           }
+          const thread = this.getThread(input.threadId);
+          this.setThread(input.threadId, {
+            ...thread,
+            messages: thread.messages.filter(
+              (candidate) => candidate.id !== message.id,
+            ),
+          });
           const queued = await this.queueMessage(
             {
               ...input,
@@ -1141,13 +1149,6 @@ export class AgentKitClient implements AgentKitController {
             },
             requestContext,
           );
-          const thread = this.getThread(input.threadId);
-          this.setThread(input.threadId, {
-            ...thread,
-            messages: thread.messages.filter(
-              (candidate) => candidate.id !== message.id,
-            ),
-          });
           if (activeRunId) this.markRunStarted(input.threadId, activeRunId);
           else this.setConnection("connected");
           if (input.interruptActiveRun) {
@@ -1162,9 +1163,10 @@ export class AgentKitClient implements AgentKitController {
             } catch {
               this.scheduleQueuePromotion(input.threadId);
             }
+          } else {
+            this.scheduleQueuePromotion(input.threadId);
           }
           if (!activeRunId) {
-            this.scheduleQueuePromotion(input.threadId);
             return {
               runId: queued.id,
               completed: Promise.resolve(),
@@ -1187,6 +1189,15 @@ export class AgentKitClient implements AgentKitController {
               ),
           };
         } catch (queueError) {
+          const current = this.getThread(input.threadId);
+          if (
+            !current.messages.some((candidate) => candidate.id === message.id)
+          ) {
+            this.setThread(input.threadId, {
+              ...current,
+              messages: [...current.messages, message],
+            });
+          }
           error = queueError;
         }
       }
@@ -1503,54 +1514,99 @@ export class AgentKitClient implements AgentKitController {
       input.queuedWhileRunActive || hasActiveAgentRuns(threadAtSubmit);
     const runIdsBeforeWrite = new Set(Object.keys(threadAtSubmit.runs));
     const requestContext = this.createRequestContext(context);
-    await this.requireCapability("messageQueue", requestContext);
-    if (input.attachments?.length) {
-      await this.requireCapability("attachments", requestContext);
-    }
     const queueMessage = this.transport.queueMessage;
     if (!queueMessage) {
       throw new AgentKitCapabilityError("messageQueue");
     }
-    return this.enqueueQueueMutation(input.threadId, async () => {
-      this.assertActive();
-      const result = await this.invokeRequest(requestContext, (context) =>
-        queueMessage(
-          {
-            threadId: input.threadId,
-            text: input.text,
-            attachments: input.attachments,
-            metadata: input.metadata,
-            options: input.options,
-          },
-          context,
-        ),
-      );
-      this.assertActive();
-      const thread = this.getThread(input.threadId);
-      this.setThread(input.threadId, {
-        ...thread,
-        queuedMessages: [...thread.queuedMessages, result.message],
-      });
-      const queueOverride = this.queuedMessageOverrides.get(input.threadId);
-      const removedIds = new Set(queueOverride?.removedIds);
-      removedIds.delete(result.message.id);
-      this.queuedMessageOverrides.set(input.threadId, {
-        messages: [...thread.queuedMessages, result.message],
-        removedIds,
-      });
-      input.onLocalSubmit?.();
-      const updatedThread = this.getThread(input.threadId);
-      const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
-        (runId) => !runIdsBeforeWrite.has(runId),
-      );
-      if (
-        !hasActiveAgentRuns(updatedThread) &&
-        (runWasActive || runStartedDuringWrite)
-      ) {
-        this.scheduleQueuePromotion(input.threadId);
-      }
-      return result.message;
+    const optimisticMessage: AgentQueuedMessage = {
+      id: this.createId("queued-message"),
+      threadId: input.threadId,
+      text: input.text,
+      createdAt: this.now(),
+      attachments: input.attachments,
+      metadata: input.metadata,
+      options: input.options,
+    };
+    this.pendingQueueMessageIds.add(optimisticMessage.id);
+    const localThread = this.getThread(input.threadId);
+    const optimisticQueue = [...localThread.queuedMessages, optimisticMessage];
+    this.setThread(input.threadId, {
+      ...localThread,
+      queuedMessages: optimisticQueue,
     });
+    const previousOverride = this.queuedMessageOverrides.get(input.threadId);
+    const removedIds = new Set(previousOverride?.removedIds);
+    removedIds.delete(optimisticMessage.id);
+    this.queuedMessageOverrides.set(input.threadId, {
+      messages: optimisticQueue,
+      removedIds,
+    });
+    try {
+      input.onLocalSubmit?.();
+      await this.requireCapability("messageQueue", requestContext);
+      if (input.attachments?.length) {
+        await this.requireCapability("attachments", requestContext);
+      }
+      return await this.enqueueQueueMutation(input.threadId, async () => {
+        this.assertActive();
+        const result = await this.invokeRequest(requestContext, (context) =>
+          queueMessage(
+            {
+              threadId: input.threadId,
+              id: optimisticMessage.id,
+              text: input.text,
+              attachments: input.attachments,
+              metadata: input.metadata,
+              options: input.options,
+            },
+            context,
+          ),
+        );
+        this.assertActive();
+        this.pendingQueueMessageIds.delete(optimisticMessage.id);
+        const thread = this.getThread(input.threadId);
+        const queuedMessages = thread.queuedMessages.map((message) =>
+          message.id === optimisticMessage.id ? result.message : message,
+        );
+        this.setThread(input.threadId, { ...thread, queuedMessages });
+        const queueOverride = this.queuedMessageOverrides.get(input.threadId);
+        const nextRemovedIds = new Set(queueOverride?.removedIds);
+        nextRemovedIds.delete(optimisticMessage.id);
+        nextRemovedIds.delete(result.message.id);
+        this.queuedMessageOverrides.set(input.threadId, {
+          messages: queuedMessages,
+          removedIds: nextRemovedIds,
+        });
+        const updatedThread = this.getThread(input.threadId);
+        const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
+          (runId) => !runIdsBeforeWrite.has(runId),
+        );
+        if (
+          !hasActiveAgentRuns(updatedThread) &&
+          (runWasActive || runStartedDuringWrite)
+        ) {
+          this.scheduleQueuePromotion(input.threadId);
+        }
+        return result.message;
+      });
+    } catch (error) {
+      this.pendingQueueMessageIds.delete(optimisticMessage.id);
+      const thread = this.getThread(input.threadId);
+      const queuedMessages = thread.queuedMessages.filter(
+        (message) => message.id !== optimisticMessage.id,
+      );
+      this.setThread(input.threadId, { ...thread, queuedMessages });
+      const override = this.queuedMessageOverrides.get(input.threadId);
+      if (override) {
+        this.queuedMessageOverrides.set(input.threadId, {
+          messages: override.messages.filter(
+            (message) => message.id !== optimisticMessage.id,
+          ),
+          removedIds: override.removedIds,
+        });
+      }
+      throw error;
+    }
   }
 
   public async removeQueuedMessage(
@@ -1710,13 +1766,28 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
     options?: { interruptActiveRun?: boolean },
   ): Promise<AgentRunHandle | void> {
-    const steeringKey = JSON.stringify([
-      threadId,
-      messageId,
-      options?.interruptActiveRun === true,
-    ]);
+    const steeringKey = JSON.stringify([threadId, messageId]);
     const existing = this.queueSteerings.get(steeringKey);
-    if (existing) return existing;
+    if (existing) {
+      if (!options?.interruptActiveRun) return existing;
+      const steering = existing.catch((error) => {
+        if (!isAgentKitRunSlotBusyError(error)) throw error;
+        return this.steerQueuedMessageNow(
+          threadId,
+          messageId,
+          context,
+          options,
+        );
+      });
+      this.queueSteerings.set(steeringKey, steering);
+      const clearSteering = () => {
+        if (this.queueSteerings.get(steeringKey) === steering) {
+          this.queueSteerings.delete(steeringKey);
+        }
+      };
+      void steering.then(clearSteering, clearSteering);
+      return steering;
+    }
     const steering = this.steerQueuedMessageNow(
       threadId,
       messageId,
@@ -1768,53 +1839,22 @@ export class AgentKitClient implements AgentKitController {
         ],
         metadata: queued.metadata,
       };
-      const interruptedRunIds = new Set<RunId>();
       const previousConnection = this.snapshot.connection;
       const previousError = this.snapshot.error;
       this.setConnection("connecting");
       try {
-        if (options?.interruptActiveRun) {
-          for (const runId of previous.activeRunIds) {
-            await this.cancelRun(threadId, runId, requestContext);
-            interruptedRunIds.add(runId);
-          }
-        }
-        let result: Awaited<ReturnType<typeof steerQueuedMessage>>;
-        for (let attempt = 0; ; attempt += 1) {
-          try {
-            result = await this.invokeRequest(requestContext, (context) =>
-              steerQueuedMessage(
-                {
-                  threadId,
-                  messageId,
-                  ...(options?.interruptActiveRun
-                    ? { interruptActiveRun: true }
-                    : {}),
-                },
-                context,
-              ),
-            );
-            break;
-          } catch (error) {
-            const activeRunId = errorProperty(error, "activeRunId");
-            if (
-              !options?.interruptActiveRun ||
-              !isAgentKitRunSlotBusyError(error) ||
-              attempt >= 3
-            ) {
-              throw error;
-            }
-            if (
-              typeof activeRunId !== "string" ||
-              interruptedRunIds.has(activeRunId)
-            ) {
-              await new Promise((resolve) => setTimeout(resolve, 250));
-            } else {
-              await this.cancelRun(threadId, activeRunId, requestContext);
-              interruptedRunIds.add(activeRunId);
-            }
-          }
-        }
+        const result = await this.invokeRequest(requestContext, (context) =>
+          steerQueuedMessage(
+            {
+              threadId,
+              messageId,
+              ...(options?.interruptActiveRun
+                ? { interruptActiveRun: true }
+                : {}),
+            },
+            context,
+          ),
+        );
         this.assertActive();
         const current = this.getThread(threadId);
         const queuedMessages = current.queuedMessages.filter(
@@ -1864,10 +1904,11 @@ export class AgentKitClient implements AgentKitController {
       } catch (error) {
         if (this.disposed) throw error;
         this.patch({ connection: previousConnection, error: previousError });
-        if (
-          !isAgentKitRunSlotBusyError(error) ||
-          !this.queuePromotions.has(threadId)
-        ) {
+        if (isAgentKitRunSlotBusyError(error)) {
+          if (!this.queuePromotions.has(threadId)) {
+            this.scheduleQueuePromotion(threadId);
+          }
+        } else {
           this.report(error, "queue_steer_failed");
         }
         throw error;
@@ -2010,6 +2051,7 @@ export class AgentKitClient implements AgentKitController {
     }
     this.queuePromotionTimers.clear();
     this.queuePromotionTerminalExpedites.clear();
+    this.pendingQueueMessageIds.clear();
     this.queuePromotionAfterReconciliation.clear();
     for (const controller of this.consumerAbortControllers.values()) {
       controller.abort(new AgentKitConsumerStoppedError("disposed"));
@@ -3341,6 +3383,7 @@ export class AgentKitClient implements AgentKitController {
       this.queuePromotionTerminalExpedites.delete(threadId);
       return;
     }
+    if (this.pendingQueueMessageIds.has(queued.id)) return;
     const retryTimer = this.queuePromotionTimers.get(threadId);
     if (retryTimer) {
       if (!expedite) return;
@@ -3382,7 +3425,7 @@ export class AgentKitClient implements AgentKitController {
           this.queuePromotionTimers.set(threadId, timer);
           return;
         }
-        // `steerQueuedMessage` already restores state and reports the failure.
+        // The transport retains the queue item and reports the failure.
       })
       .finally(() => {
         this.queuePromotions.delete(threadId);
