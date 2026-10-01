@@ -433,6 +433,25 @@ it("does not query or apply a default system when workflows are disabled", async
   );
 });
 
+it("does not auto-attach the default design system to a fresh prompt", async () => {
+  expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+  expect(mocks.promptProps?.contextItems).not.toContainEqual(
+    expect.objectContaining({ title: "Default system" }),
+  );
+
+  await act(async () => {
+    await mocks.promptProps?.onSubmit?.("New design", [], {});
+  });
+
+  expect(mocks.createDesign).toHaveBeenCalledWith(
+    expect.objectContaining({ designSystemId: null }),
+  );
+  expect(mocks.writePendingGeneration).toHaveBeenCalledWith(
+    "design-1",
+    expect.objectContaining({ designSystemId: null }),
+  );
+});
+
 describe("Index skip to editor", () => {
   it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
     mocks.submitWithText.mockResolvedValueOnce(false);
@@ -476,6 +495,7 @@ describe("Index skip to editor", () => {
     );
 
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
     let skipPromise: Promise<void> | undefined;
     await act(async () => {
       skipPromise = mocks.promptProps?.onSkip();
@@ -487,7 +507,7 @@ describe("Index skip to editor", () => {
       id: "design-1",
       title: "Untitled Design",
       projectType: "prototype",
-      designSystemId: "default-system",
+      designSystemId: null,
     });
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
