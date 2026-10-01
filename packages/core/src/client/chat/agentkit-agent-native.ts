@@ -371,6 +371,42 @@ function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
   );
 }
 
+function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
+  return new Map(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const error = asRecord(
+        asRecord(asRecord(message.metadata)?.custom)?.runError,
+      );
+      if (
+        message.role !== "assistant" ||
+        message.status !== "error" ||
+        typeof runId !== "string" ||
+        !error ||
+        typeof error.message !== "string"
+      ) {
+        return [];
+      }
+      return [
+        [
+          runId,
+          {
+            code:
+              typeof error.errorCode === "string"
+                ? error.errorCode
+                : "run_failed",
+            message: error.message,
+            ...(error.details !== undefined ? { details: error.details } : {}),
+            ...(typeof error.recoverable === "boolean"
+              ? { retryable: error.recoverable }
+              : {}),
+          },
+        ] as const,
+      ];
+    }),
+  );
+}
+
 function reconcileDurableMessages(
   messages: AgentMessage[],
   durable: AgentMessage[],
@@ -540,16 +576,8 @@ function reconcileDurableMessages(
       continue;
     }
     if (representedAssistantRunIds.has(runId)) continue;
-    const eventIds = assistantIdsByRun.get(runId);
-    if (
-      eventIds &&
-      [...eventIds].some((id) => representedAssistantIds.has(id))
-    ) {
-      continue;
-    }
     missingMessages.push(message);
     representedAssistantIds.add(message.id);
-    representedAssistantRunIds.add(runId);
   }
 
   const projectedMessages = [
@@ -585,9 +613,29 @@ function reconcileDurableMessages(
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
     if (stored?.role !== "assistant") return message;
-    const lastPart = message.parts.at(-1);
-    if (lastPart && lastPart.type !== "text") return message;
-    const currentText = message.parts
+    const messageMetadata = asRecord(message.metadata);
+    const storedMetadata = asRecord(stored.metadata);
+    const messageCustom = asRecord(messageMetadata?.custom);
+    const storedCustom = asRecord(storedMetadata?.custom);
+    const metadata = storedMetadata
+      ? {
+          ...messageMetadata,
+          ...storedMetadata,
+          ...(messageCustom || storedCustom
+            ? { custom: { ...messageCustom, ...storedCustom } }
+            : {}),
+        }
+      : message.metadata;
+    const reconciled = {
+      ...message,
+      ...(stored.status === "complete" || stored.status === "error"
+        ? { status: stored.status }
+        : {}),
+      ...(metadata ? { metadata } : {}),
+    };
+    const lastPart = reconciled.parts.at(-1);
+    if (lastPart && lastPart.type !== "text") return reconciled;
+    const currentText = reconciled.parts
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("");
@@ -599,16 +647,16 @@ function reconcileDurableMessages(
       !storedText.startsWith(currentText) ||
       storedText.length <= currentText.length
     ) {
-      return message;
+      return reconciled;
     }
     const suffix = storedText.slice(currentText.length);
-    const parts = [...message.parts];
+    const parts = [...reconciled.parts];
     if (!lastPart) {
       parts.push({ type: "text", text: suffix });
     } else {
       parts[parts.length - 1] = { ...lastPart, text: lastPart.text + suffix };
     }
-    return { ...message, parts };
+    return { ...reconciled, parts };
   });
 }
 
@@ -1388,18 +1436,32 @@ export function createAgentNativeAgentKitTransport(
     }
     let runStatus: AgentRunSnapshot["status"];
     let error: AgentRunSnapshot["error"];
-    const legacyTimeout =
-      value.terminalReason === "run_timeout" &&
-      ["complete", "completed", "truncated"].includes(String(status));
-    if (legacyTimeout && value.awaitingRedispatch === true) {
+    const terminalReason =
+      typeof value.terminalReason === "string"
+        ? value.terminalReason
+        : undefined;
+    const legacyTruncated =
+      status === "truncated" ||
+      (["complete", "completed"].includes(String(status)) &&
+        terminalReason !== undefined &&
+        terminalReason !== "done");
+    if (legacyTruncated && value.awaitingRedispatch === true) {
       runStatus = "running";
-    } else if (legacyTimeout) {
+    } else if (legacyTruncated) {
       runStatus = "failed";
       error = {
-        code: "run_timeout",
+        code:
+          terminalReason && terminalReason !== "done"
+            ? terminalReason.startsWith("error:")
+              ? terminalReason.slice("error:".length)
+              : terminalReason
+            : "run_truncated",
         message:
-          "The run reached its time limit before completion was confirmed.",
+          terminalReason === "run_timeout"
+            ? "The run reached its time limit before completion was confirmed."
+            : "The server stopped the run before it confirmed completion.",
         retryable: true,
+        ...(terminalReason ? { metadata: { terminalReason } } : {}),
       };
     } else if (status === "complete" || status === "completed") {
       runStatus = "completed";
@@ -1452,6 +1514,7 @@ export function createAgentNativeAgentKitTransport(
       options.adapter?.textFormat,
     );
     const completedRunIds = completedDurableRunIds(durableMessages);
+    const durableFailures = durableRunFailures(durableMessages);
     const activeRun = await activeRunSnapshot(threadId);
     if (activeRun === undefined) return withoutParkedMessages(thread);
     const discoveredRun = activeRun;
@@ -1485,10 +1548,12 @@ export function createAgentNativeAgentKitTransport(
             ...run,
             status: "failed" as const,
             error: {
-              code: "run_state_unavailable",
-              message:
-                "The server no longer reports this run as active, so its final result could not be confirmed.",
-              retryable: true,
+              ...(durableFailures.get(run.id) ?? {
+                code: "run_state_unavailable",
+                message:
+                  "The server no longer reports this run as active, so its final result could not be confirmed.",
+                retryable: true,
+              }),
             },
           };
         }

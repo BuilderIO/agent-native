@@ -2395,6 +2395,44 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
   });
 
+  it.each(["loop_limit", "max_tokens", "stream_ended"] as const)(
+    "restores legacy truncated run status for %s",
+    async (terminalReason) => {
+      const threadId = `thread-truncated-${terminalReason}`;
+      const runId = `run-truncated-${terminalReason}`;
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) => {
+          if (String(input).includes("/runs/active")) {
+            return json({
+              active: true,
+              status: "completed",
+              runId,
+              terminalReason,
+            });
+          }
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [],
+              agentKit: { messages: [] },
+            }),
+          });
+        }) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+      expect(snapshot?.runs).toContainEqual(
+        expect.objectContaining({
+          id: runId,
+          status: "failed",
+          error: expect.objectContaining({ code: terminalReason }),
+        }),
+      );
+      await transport.dispose();
+    },
+  );
+
   it("discovers active runs with the default Agent-Native runtime", async () => {
     const requestUrls: string[] = [];
     const fetcher = vi.fn(async (input: string | URL | Request) => {
@@ -2871,6 +2909,155 @@ describe("createAgentNativeAgentKitTransport", () => {
           },
         },
       }),
+    );
+    await transport.dispose();
+  });
+
+  it("merges durable assistant failure status and details into stale projections", async () => {
+    const threadId = "thread-stale-assistant-failure";
+    const runId = "run-stale-assistant-failure";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "assistant-stale-failure",
+                  role: "assistant",
+                  content: [{ type: "text", text: "The request failed." }],
+                  status: { type: "incomplete", reason: "error" },
+                  metadata: {
+                    runId,
+                    custom: {
+                      runError: {
+                        message: "Provider unavailable",
+                        errorCode: "provider_unavailable",
+                        details: "The provider rejected the request.",
+                        recoverable: true,
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-stale-failure",
+                  role: "assistant",
+                  parts: [{ type: "text", text: "The request failed." }],
+                  status: "streaming",
+                  metadata: { runId, custom: { snapshotField: true } },
+                },
+              ],
+              runs: [
+                { id: runId, threadId, status: "running", lastSequence: 1 },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages).toContainEqual(
+      expect.objectContaining({
+        id: "assistant-stale-failure",
+        status: "error",
+        metadata: {
+          runId,
+          custom: {
+            snapshotField: true,
+            runError: {
+              message: "Provider unavailable",
+              errorCode: "provider_unavailable",
+              details: "The provider rejected the request.",
+              recoverable: true,
+            },
+          },
+        },
+      }),
+    );
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: runId,
+        status: "failed",
+        error: {
+          code: "provider_unavailable",
+          message: "Provider unavailable",
+          details: "The provider rejected the request.",
+          retryable: true,
+        },
+      }),
+    );
+    await transport.dispose();
+  });
+
+  it("restores each durable assistant message from a multi-message run", async () => {
+    const threadId = "thread-multiple-durable-assistant-messages";
+    const runId = "run-multiple-durable-assistant-messages";
+    const durableMessages = [
+      {
+        id: "assistant-tool-request",
+        text: "Calling the tool.",
+        at: "2026-09-01T00:00:01.000Z",
+      },
+      {
+        id: "assistant-final-answer",
+        text: "The task is complete.",
+        at: "2026-09-01T00:00:02.000Z",
+      },
+    ];
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: durableMessages.map((message) => ({
+              message: {
+                id: message.id,
+                role: "assistant",
+                content: [{ type: "text", text: message.text }],
+                createdAt: message.at,
+                status: { type: "complete" },
+                metadata: { runId },
+              },
+            })),
+            agentKit: {
+              messages: [],
+              events: durableMessages.map((message, index) => ({
+                id: `event-${message.id}`,
+                threadId,
+                runId,
+                sequence: index + 1,
+                occurredAt: message.at,
+                type: "message.completed",
+                message: {
+                  id: message.id,
+                  role: "assistant",
+                  parts: [{ type: "text", text: message.text }],
+                  status: "complete",
+                },
+              })),
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual(
+      durableMessages.map((message) => message.id),
     );
     await transport.dispose();
   });
