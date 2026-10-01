@@ -3389,7 +3389,7 @@ export function AgentKitComposer({
   const executionMode = mode ?? uncontrolledMode;
   const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
-    ? messageText(editingMessage)
+    ? splitAgentKitMessageContext(messageText(editingMessage)).message
     : initialText;
   const composerInitialTextKey = editingMessage
     ? `edit:${editingMessage.id}`
@@ -3633,19 +3633,10 @@ export function AgentKitComposer({
       ...(options.steer ? { interruptActiveRun: true } : {}),
       onLocalSubmit,
     };
-    if (payload.intent === "queued") {
-      const queued = await control.queueMessage({
-        ...message,
-        queuedWhileRunActive: activeAtSubmit,
-      });
-      if (options.steer) {
-        void control
-          .steerQueued(queued.id, { interruptActiveRun: true })
-          .catch(() => undefined);
-      }
-    } else {
-      await control.sendMessage(message);
-    }
+    await control.sendMessage({
+      ...message,
+      queuedWhileRunActive: activeAtSubmit,
+    });
   };
   const prepareHostSubmit = async () => {
     if (disabled) {

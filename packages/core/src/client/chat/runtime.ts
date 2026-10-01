@@ -1,3 +1,4 @@
+import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
@@ -1241,7 +1242,6 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
     // coercion-ok: callers preserve response.status, so unreadable detail stays an HTTP failure.
     text = "";
   }
-  const error = new Error(runtimeErrorMessage(text, response.status));
   let payload: Record<string, unknown> | undefined;
   try {
     payload = JSON.parse(text) as Record<string, unknown>;
@@ -1269,13 +1269,19 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
     (typeof data?.activeRunId === "string" && data.activeRunId) ||
     (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
     (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
+  const runSlotBusy =
+    status === 409 && (code === "run_slot_busy" || Boolean(activeRunId));
+  const error = runSlotBusy
+    ? new AgentKitRunSlotBusyError(
+        typeof activeRunId === "string" ? activeRunId : undefined,
+      )
+    : new Error(runtimeErrorMessage(text, response.status));
   Object.assign(error, {
-    code:
-      typeof code === "string"
+    code: runSlotBusy
+      ? "run_slot_busy"
+      : typeof code === "string"
         ? code
-        : status === 409 && activeRunId
-          ? "run_slot_busy"
-          : fallbackCode,
+        : fallbackCode,
     ...(activeRunId ? { activeRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
@@ -1284,8 +1290,9 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
       : {
           details: data?.details ?? payload?.details ?? nestedError?.details,
         }),
-    retryable:
-      typeof explicitRetryable === "boolean"
+    retryable: runSlotBusy
+      ? true
+      : typeof explicitRetryable === "boolean"
         ? explicitRetryable
         : status === 408 || status === 429 || status >= 500,
     status,

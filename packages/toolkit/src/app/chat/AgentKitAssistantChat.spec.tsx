@@ -1064,6 +1064,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         expect.objectContaining({
           threadId: chatMocks.threadId,
           messageId: "queued-steer",
+          interruptActiveRun: true,
         }),
         expect.anything(),
       );
@@ -1932,13 +1933,13 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     await flush();
 
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledExactlyOnceWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         text: "Follow up after Analytics Add Panel",
         queuedWhileRunActive: true,
       }),
     );
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
     expect(chatMocks.appState.has(stateKey!)).toBe(false);
   });
 
@@ -2564,10 +2565,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         text: "Keep this selection",
         capturedAt: Date.now(),
       });
-      const send =
-        intent === "queued"
-          ? chatMocks.control.queueMessage
-          : chatMocks.control.sendMessage;
+      const send = chatMocks.control.sendMessage;
       send.mockRejectedValueOnce(new Error("Send refused"));
       await mount(baseProps());
       await flush();
@@ -3363,16 +3361,22 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
     });
 
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledTimes(2);
-    expect(chatMocks.control.queueMessage).toHaveBeenNthCalledWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chatMocks.control.sendMessage).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ text: "Next imperative turn" }),
+      expect.objectContaining({
+        text: "Next imperative turn",
+        queuedWhileRunActive: true,
+      }),
     );
-    expect(chatMocks.control.queueMessage).toHaveBeenNthCalledWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ text: "Next guided turn" }),
+      expect.objectContaining({
+        text: "Next guided turn",
+        queuedWhileRunActive: true,
+      }),
     );
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
   it("sends directly when a stale composer render outlives the queued run", async () => {
@@ -3395,7 +3399,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () => {
       await ref.current?.sendMessage("Queue while the follow-up is active");
     });
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: "Queue while the follow-up is active",
+      queuedWhileRunActive: true,
+    });
 
     chatMocks.thread.runs["run-queued-follow-up"].status = "completed";
     await act(async () => {
@@ -3405,7 +3413,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Send directly after completion" }),
     );
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chatMocks.control.sendMessage.mock.calls[1]?.[0]).toMatchObject({
+      text: "Send directly after completion",
+      queuedWhileRunActive: false,
+    });
   });
 
   it("queues an unresolved approval and sends directly after its resolution event", async () => {
@@ -3440,8 +3452,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () => {
       await ref.current?.sendMessage("Queue during approval");
     });
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Queue during approval" }),
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Queue during approval",
+        queuedWhileRunActive: true,
+      }),
     );
 
     chatMocks.thread.events.push({
@@ -3474,7 +3489,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Guided send after approval" }),
     );
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
   it("forwards slash commands, skills, and localized labels to AgentKit", async () => {
@@ -3643,9 +3658,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     expect(resume).toBeInstanceOf(Promise);
     await act(async () => resume);
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "Continue after connecting the integration.",
+        queuedWhileRunActive: true,
       }),
     );
 
@@ -3675,17 +3691,20 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
     });
 
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Continue after OAuth." }),
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Continue after OAuth.",
+        queuedWhileRunActive: true,
+      }),
     );
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
   it("keeps failed integration prompt submissions resumable", async () => {
     chatMocks.thread.activeRunIds = ["run-1"];
     const submissionError = new Error("Temporary send failure");
-    chatMocks.control.queueMessage.mockRejectedValueOnce(submissionError);
+    chatMocks.control.sendMessage.mockRejectedValueOnce(submissionError);
     await mount(baseProps());
 
     await expect(

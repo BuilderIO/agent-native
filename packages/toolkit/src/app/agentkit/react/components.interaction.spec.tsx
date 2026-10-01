@@ -407,7 +407,12 @@ describe("AgentKitChat interactions", () => {
             {
               id: "user-edit",
               role: "user",
-              parts: [{ type: "text", text: "Original prompt" }],
+              parts: [
+                {
+                  type: "text",
+                  text: "Original prompt\n\n<context>private context</context>",
+                },
+              ],
             },
           ],
         };
@@ -475,9 +480,7 @@ describe("AgentKitChat interactions", () => {
           messages: expect.arrayContaining([
             expect.objectContaining({
               role: "user",
-              parts: expect.arrayContaining([
-                expect.objectContaining({ text: "Original prompt" }),
-              ]),
+              parts: [{ type: "text", text: "Original prompt" }],
             }),
           ]),
         }),

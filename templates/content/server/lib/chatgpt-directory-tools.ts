@@ -22,6 +22,10 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   ],
   instructions:
     "Draft and organize documents and collection records in the Agent-Native Content workspace. Search before creating duplicates, and use revision-guarded edits for existing content. This plugin does not publish to external CMSs, edit Notion, or delete workspace content.",
+  toolDescriptions: {
+    "update-database-item":
+      "Update one Content collection row using itemId, documentId, and rowRevision from a fresh get-content-database read. Omitted properties stay unchanged.",
+  },
   toolParameterDescriptions: {
     "create-content-database": {
       spaceId: "Existing Content space ID for the new collection.",

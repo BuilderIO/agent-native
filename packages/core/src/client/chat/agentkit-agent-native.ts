@@ -16,6 +16,7 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   isAgentKitProtocolVersion,
+  parseAgentRunOptions,
   parseAgentThreadSnapshot,
 } from "@agent-native/agentkit/protocol";
 
@@ -371,6 +372,14 @@ function storedQueue(
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
         : {}),
+      ...(queued.options === undefined
+        ? {}
+        : {
+            options: parseAgentRunOptions(
+              queued.options,
+              `queuedMessages[${index}].options`,
+            ),
+          }),
     };
   });
 }
@@ -772,11 +781,19 @@ async function responseError(response: Response): Promise<Error> {
     (typeof nestedError?.code === "string" && nestedError.code) ||
     (response.status === 409 && activeRunId ? "run_slot_busy" : undefined) ||
     httpErrorCode(response.status);
-  const error = new Error(
-    nestedMessage ??
-      (body.trim() || `Agent chat request failed with ${response.status}.`),
-  );
+  const runSlotBusy =
+    response.status === 409 &&
+    (code === "run_slot_busy" || Boolean(activeRunId));
+  const error = runSlotBusy
+    ? new AgentKitRunSlotBusyError(
+        typeof activeRunId === "string" ? activeRunId : undefined,
+      )
+    : new Error(
+        nestedMessage ??
+          (body.trim() || `Agent chat request failed with ${response.status}.`),
+      );
   Object.assign(error, {
+    ...(nestedMessage ? { message: nestedMessage } : {}),
     code,
     status: response.status,
     retryable:
@@ -1023,15 +1040,7 @@ export function createAgentNativeAgentKitTransport(
   async function activeRunSnapshot(
     threadId: string,
   ): Promise<AgentRunSnapshot | undefined> {
-    const response = await fetcher(
-      `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-      { headers: await headers({ sessionId: threadId }) },
-    );
-    if (!response.ok) throw await responseError(response);
-    const value = asRecord(await response.json());
-    if (!value) {
-      throw new TypeError("Agent chat active-run response must be an object.");
-    }
+    const value = await activeRunStatus(threadId);
     const status = value.status;
     if (
       value.active !== true ||
@@ -1059,6 +1068,19 @@ export function createAgentNativeAgentKitTransport(
       // has no saved AgentKit cursor; the protocol adapter rebuilds the log.
       lastSequence: 0,
     };
+  }
+
+  async function activeRunStatus(threadId: string): Promise<ActiveRunStatus> {
+    const response = await fetcher(
+      `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+      { headers: await headers({ sessionId: threadId }) },
+    );
+    if (!response.ok) throw await responseError(response);
+    const value = asRecord(await response.json());
+    if (!value) {
+      throw new TypeError("Agent chat active-run response must be an object.");
+    }
+    return value;
   }
 
   async function threadSnapshotWithActiveRun(
@@ -1218,29 +1240,24 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
+  function runSlotIsClear(status: ActiveRunStatus): boolean {
+    return (
+      status.awaitingRedispatch !== true &&
+      (status.active !== true ||
+        status.status === "completed" ||
+        status.status === "complete" ||
+        status.status === "failed" ||
+        status.status === "cancelled" ||
+        status.status === "errored" ||
+        status.status === "aborted")
+    );
+  }
+
   async function waitForRunSlot(threadId: string): Promise<void> {
     let consecutiveClearPolls = 0;
     for (let poll = 0; poll < RUN_SLOT_MAX_POLLS; poll += 1) {
-      const response = await fetcher(
-        `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-        { headers: await headers({ sessionId: threadId }) },
-      );
-      if (!response.ok) throw await responseError(response);
-      const status = asRecord(await response.json()) as ActiveRunStatus | null;
-      if (!status) {
-        throw new TypeError(
-          "Agent chat active-run response must be an object.",
-        );
-      }
-      const clear =
-        status.awaitingRedispatch !== true &&
-        (status.active !== true ||
-          status.status === "completed" ||
-          status.status === "complete" ||
-          status.status === "failed" ||
-          status.status === "cancelled" ||
-          status.status === "errored" ||
-          status.status === "aborted");
+      const status = await activeRunStatus(threadId);
+      const clear = runSlotIsClear(status);
       consecutiveClearPolls = clear ? consecutiveClearPolls + 1 : 0;
       if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
       if (poll + 1 < RUN_SLOT_MAX_POLLS) {
@@ -1249,7 +1266,10 @@ export function createAgentNativeAgentKitTransport(
         );
       }
     }
-    throw new AgentKitRunSlotBusyError();
+    const status = await activeRunStatus(threadId);
+    throw new AgentKitRunSlotBusyError(
+      typeof status.runId === "string" ? status.runId : undefined,
+    );
   }
 
   async function readQueue(threadId: string): Promise<AgentQueuedMessage[]> {
@@ -1295,7 +1315,13 @@ export function createAgentNativeAgentKitTransport(
       getThreadSnapshot: ({ threadId }) =>
         threadSnapshotWithActiveRun(threadId),
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
-      queueMessage: async ({ threadId, text, attachments, metadata }) => {
+      queueMessage: async ({
+        threadId,
+        text,
+        attachments,
+        metadata,
+        options: runOptions,
+      }) => {
         const message: AgentQueuedMessage = {
           id:
             options.adapter?.createId?.("queued-message") ??
@@ -1309,6 +1335,7 @@ export function createAgentNativeAgentKitTransport(
           createdAt: now(),
           attachments,
           metadata,
+          options: runOptions,
         };
         const result = await persistQueueMutation(threadId, {
           type: "append",
@@ -1325,18 +1352,42 @@ export function createAgentNativeAgentKitTransport(
       moveQueuedMessageToTop: async ({ threadId, messageId }) => {
         await persistQueueMutation(threadId, { type: "moveToTop", messageId });
       },
-      steerQueuedMessage: async ({ threadId, messageId }) => {
+      steerQueuedMessage: async ({
+        threadId,
+        messageId,
+        interruptActiveRun,
+      }) => {
         const current = await readQueue(threadId);
         if (!current.some((message) => message.id === messageId)) {
           throw new Error(`Unknown queued message: ${messageId}`);
         }
+        if (interruptActiveRun) {
+          const activeRun = await activeRunSnapshot(threadId);
+          if (activeRun) {
+            await transport.cancelRun({
+              threadId,
+              runId: activeRun.id,
+            });
+          }
+        }
         await waitForRunSlot(threadId);
         const thread = await snapshot(threadId);
         if (!thread) throw new Error(`Unknown agent chat thread: ${threadId}`);
-        const claim = await persistQueueMutation(threadId, {
-          type: "claim",
-          messageId,
-        });
+        let claim: Awaited<ReturnType<typeof persistQueueMutation>>;
+        try {
+          claim = await persistQueueMutation(threadId, {
+            type: "claim",
+            messageId,
+          });
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === `Unknown queued message: ${messageId}`
+          ) {
+            return;
+          }
+          throw error;
+        }
         const queued = claim.removedMessage;
         if (!queued || typeof claim.index !== "number") {
           throw new TypeError("Agent chat queue claim response is invalid.");
@@ -1357,6 +1408,7 @@ export function createAgentNativeAgentKitTransport(
                 metadata: queued.metadata,
               },
             ],
+            options: queued.options,
             metadata: queued.metadata,
           });
         } catch (error) {

@@ -1995,42 +1995,26 @@ const AgentKitAssistantChatBody = forwardRef<
       };
       localSubmissionRef.current = true;
       try {
-        const steerWhileRunning =
-          composerOptions.steer &&
-          hasActiveAgentRuns(controller.getThread(threadId));
-        if (composerOptions.intent === "queued" || steerWhileRunning) {
-          const queued = await control.queueMessage({
-            text: message,
-            attachments: fileParts,
+        await control.sendMessage({
+          text: message,
+          attachments: fileParts,
+          queuedWhileRunActive:
+            composerOptions.queuedWhileRunActive ||
+            composerOptions.intent === "queued",
+          interruptActiveRun: composerOptions.steer,
+          options: {
+            model,
+            mode: requestMode,
+            agentId: selectedAgent,
+            reasoningEffort:
+              effort && effort !== "auto" && effort !== "max"
+                ? (effort as "low" | "medium" | "high" | "xhigh")
+                : undefined,
             metadata,
-            queuedWhileRunActive:
-              composerOptions.queuedWhileRunActive || steerWhileRunning,
-            onLocalSubmit: composerOptions.onLocalSubmit,
-          });
-          if (steerWhileRunning) {
-            void control
-              .steerQueued(queued.id, { interruptActiveRun: true })
-              .catch(() => undefined);
-          }
-        } else {
-          await control.sendMessage({
-            text: message,
-            attachments: fileParts,
-            interruptActiveRun: composerOptions.steer,
-            options: {
-              model,
-              mode: requestMode,
-              agentId: selectedAgent,
-              reasoningEffort:
-                effort && effort !== "auto" && effort !== "max"
-                  ? (effort as "low" | "medium" | "high" | "xhigh")
-                  : undefined,
-              metadata,
-            },
-            metadata,
-            onLocalSubmit: composerOptions.onLocalSubmit,
-          });
-        }
+          },
+          metadata,
+          onLocalSubmit: composerOptions.onLocalSubmit,
+        });
         reportAgentChatSubmitResult(options.submitMessageId, true);
         if (
           !options.recoveryAction &&

@@ -587,6 +587,7 @@ export class AgentKitClient implements AgentKitController {
   >();
   private readonly queuePromotions = new Set<ThreadId>();
   private readonly queuePromotionTerminalExpedites = new Set<ThreadId>();
+  private readonly queuePromotionAfterReconciliation = new Set<ThreadId>();
   private readonly queuePromotionTimers = new Map<
     ThreadId,
     ReturnType<typeof setTimeout>
@@ -1037,6 +1038,36 @@ export class AgentKitClient implements AgentKitController {
       await this.requireCapability("toolSelection", requestContext);
     }
     this.assertActive();
+    const current = this.getThread(input.threadId);
+    const activeRunId = current.activeRunIds.at(-1);
+    if (
+      activeRunId &&
+      hasActiveAgentRuns(current) &&
+      this.transport.queueMessage
+    ) {
+      const queued = await this.queueMessage(
+        { ...input, queuedWhileRunActive: true },
+        requestContext,
+      );
+      if (input.interruptActiveRun) {
+        try {
+          const steered = await this.steerQueuedMessage(
+            input.threadId,
+            queued.id,
+            requestContext,
+            { interruptActiveRun: true },
+          );
+          if (steered) return steered;
+        } catch {
+          this.scheduleQueuePromotion(input.threadId);
+        }
+      }
+      return {
+        runId: activeRunId,
+        completed: this.resubscribeRun(input.threadId, activeRunId),
+        cancel: () => this.cancelRun(input.threadId, activeRunId),
+      };
+    }
     const message: AgentMessage = {
       id: this.createId("message"),
       role: "user",
@@ -1045,7 +1076,6 @@ export class AgentKitClient implements AgentKitController {
       parts: [{ type: "text", text: input.text }, ...(input.attachments ?? [])],
       metadata: input.metadata,
     };
-    const current = this.getThread(input.threadId);
     this.setThread(input.threadId, {
       ...current,
       messages: [...current.messages, message],
@@ -1459,6 +1489,7 @@ export class AgentKitClient implements AgentKitController {
             text: input.text,
             attachments: input.attachments,
             metadata: input.metadata,
+            options: input.options,
           },
           context,
         ),
@@ -1650,16 +1681,7 @@ export class AgentKitClient implements AgentKitController {
   ): Promise<AgentRunHandle | void> {
     const steeringKey = JSON.stringify([threadId, messageId]);
     const existing = this.queueSteerings.get(steeringKey);
-    if (existing) {
-      if (options?.interruptActiveRun) {
-        return Promise.all(
-          this.getThread(threadId).activeRunIds.map((runId) =>
-            this.cancelRun(threadId, runId, context),
-          ),
-        ).then(() => existing);
-      }
-      return existing;
-    }
+    if (existing) return existing;
     const steering = this.steerQueuedMessageNow(
       threadId,
       messageId,
@@ -1726,7 +1748,16 @@ export class AgentKitClient implements AgentKitController {
         for (let attempt = 0; ; attempt += 1) {
           try {
             result = await this.invokeRequest(requestContext, (context) =>
-              steerQueuedMessage({ threadId, messageId }, context),
+              steerQueuedMessage(
+                {
+                  threadId,
+                  messageId,
+                  ...(options?.interruptActiveRun
+                    ? { interruptActiveRun: true }
+                    : {}),
+                },
+                context,
+              ),
             );
             break;
           } catch (error) {
@@ -1813,6 +1844,11 @@ export class AgentKitClient implements AgentKitController {
             messages: queuedMessages,
             removedIds,
           });
+          if (this.queuePromotions.has(threadId)) {
+            this.queuePromotionAfterReconciliation.add(threadId);
+          } else {
+            this.scheduleQueuePromotionIfIdle(threadId);
+          }
           return;
         }
         if (
@@ -1962,6 +1998,7 @@ export class AgentKitClient implements AgentKitController {
     this.queuePromotionTimers.clear();
     this.queuePromotionRetryAttempts.clear();
     this.queuePromotionTerminalExpedites.clear();
+    this.queuePromotionAfterReconciliation.clear();
     for (const controller of this.consumerAbortControllers.values()) {
       controller.abort(new AgentKitConsumerStoppedError("disposed"));
     }
@@ -3323,7 +3360,7 @@ export class AgentKitClient implements AgentKitController {
           }
           retryAfterBusy = true;
           const attempts = this.queuePromotionRetryAttempts.get(threadId) ?? 0;
-          const delay = Math.min(500 * 2 ** attempts, 2_000);
+          const delay = 500;
           this.queuePromotionRetryAttempts.set(
             threadId,
             Math.min(attempts + 1, 2),
@@ -3349,6 +3386,12 @@ export class AgentKitClient implements AgentKitController {
         this.queuePromotions.delete(threadId);
         const terminalExpedite =
           this.queuePromotionTerminalExpedites.delete(threadId);
+        if (
+          this.queuePromotionAfterReconciliation.delete(threadId) &&
+          !this.disposed
+        ) {
+          this.scheduleQueuePromotionIfIdle(threadId);
+        }
         if (terminalExpedite && retryAfterBusy && !this.disposed) {
           this.scheduleQueuePromotion(threadId, true);
         }

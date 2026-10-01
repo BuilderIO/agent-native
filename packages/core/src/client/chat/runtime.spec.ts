@@ -1,3 +1,4 @@
+import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
@@ -251,6 +252,45 @@ describe("createHttpAgentChatRuntime", () => {
     ).rejects.toMatchObject({
       code: "AGENT_CHAT_AI_SETUP_REQUIRED",
       status: 403,
+    });
+  });
+
+  it("maps a run-slot 409 to a retryable AgentKit busy error", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              statusCode: 409,
+              statusMessage: "Run already in progress",
+              data: {
+                code: "run_slot_busy",
+                activeRunId: "run-active",
+                retryable: true,
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+    let error: unknown;
+    try {
+      await (
+        await runtime.createSession({ id: "thread-1" })
+      ).startTurn({
+        prompt: "Follow up while another tab is running",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(AgentKitRunSlotBusyError);
+    expect(error).toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-active",
+      status: 409,
+      retryable: true,
     });
   });
 

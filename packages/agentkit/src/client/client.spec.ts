@@ -2572,12 +2572,17 @@ describe("AgentKitClient", () => {
   });
 
   it("queues server-rejected sends without marking their optimistic message failed", async () => {
+    const options = {
+      model: "queued-model",
+      reasoningEffort: "high" as const,
+    };
     const queued: AgentQueuedMessage = {
       id: "queued-after-conflict",
       threadId: "thread-1",
       text: "Do this after the current run",
       createdAt: "2026-10-01T00:00:00.000Z",
       metadata: { contextItems: [{ key: "selection", text: "full context" }] },
+      options,
     };
     const startRun = vi.fn(async () => {
       throw Object.assign(new Error("Run already in progress"), {
@@ -2607,6 +2612,7 @@ describe("AgentKitClient", () => {
       threadId: "thread-1",
       text: queued.text,
       metadata: queued.metadata,
+      options,
       onLocalSubmit,
     });
 
@@ -2617,6 +2623,7 @@ describe("AgentKitClient", () => {
       threadId: "thread-1",
       text: queued.text,
       metadata: queued.metadata,
+      options,
     });
     expect(onLocalSubmit).toHaveBeenCalledOnce();
     expect(client.getThread("thread-1")).toMatchObject({
@@ -3093,10 +3100,24 @@ describe("AgentKitClient", () => {
     const queued = {
       id: "queued-1",
       threadId: "thread-1",
-      text: "Run after the reload",
+      text: "Already promoted in another tab",
       createdAt: "2026-08-29T00:00:00.000Z",
     };
-    const promoted = vi.fn(async () => undefined);
+    const laterQueued = {
+      ...queued,
+      id: "queued-2",
+      text: "Run after reconciling the first item",
+    };
+    const promoted = vi.fn(
+      async (
+        input: Parameters<NonNullable<AgentTransport["steerQueuedMessage"]>>[0],
+      ) => {
+        if (input.messageId === queued.id) {
+          throw new Error(`Unknown queued message: ${queued.id}`);
+        }
+        return undefined;
+      },
+    );
     const transport = createTransport([]);
     transport.capabilities = { messageQueue: true };
     transport.getThreadSnapshot = async () => ({
@@ -3104,7 +3125,7 @@ describe("AgentKitClient", () => {
       createdAt: "2026-08-29T00:00:00.000Z",
       updatedAt: "2026-08-29T00:00:01.000Z",
       messages: [],
-      queuedMessages: [queued],
+      queuedMessages: [queued, laterQueued],
       runs: [],
       activeRunIds: [],
     });
@@ -3112,16 +3133,14 @@ describe("AgentKitClient", () => {
     const client = new AgentKitClient({ transport });
 
     await client.loadThread("thread-1");
-    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledTimes(2));
 
-    expect(promoted).toHaveBeenCalledWith(
-      { threadId: "thread-1", messageId: queued.id },
-      expect.objectContaining({
-        correlationId: expect.any(String),
-        signal: expect.any(AbortSignal),
-      }),
-    );
+    expect(promoted.mock.calls.map(([input]) => input.messageId)).toEqual([
+      queued.id,
+      laterQueued.id,
+    ]);
     expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    await client.shutdown();
   });
 
   it("discovers capabilities before the first run starts", async () => {
@@ -4194,13 +4213,16 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").activeRunIds).toEqual([]);
   });
 
-  it("does not promote queued work while a parallel run is still active", async () => {
+  it("queues follow-up messages by default while a run is active", async () => {
     let runCount = 0;
     const terminals = new Map<
       string,
       ReturnType<typeof Promise.withResolvers<void>>
     >();
-    const steerQueuedMessage = vi.fn(async () => undefined);
+    const steerQueuedMessage = vi.fn(async () => {
+      runCount += 1;
+      return { runId: `run-${runCount}` };
+    });
     const transport: AgentTransport = {
       capabilities: { messageQueue: true },
       async startRun() {
@@ -4228,23 +4250,29 @@ describe("AgentKitClient", () => {
       steerQueuedMessage,
     };
     const client = new AgentKitClient({ transport });
-    await client.queueMessage({ threadId: "thread-1", text: "Run later" });
     const first = await client.sendMessage({ threadId: "thread-1", text: "A" });
     const second = await client.sendMessage({
       threadId: "thread-1",
       text: "B",
     });
-    await vi.waitFor(() =>
-      expect(client.getThread("thread-1").activeRunIds).toHaveLength(2),
-    );
+    expect(second.runId).toBe("run-1");
+    expect(runCount).toBe(1);
+    expect(client.getThread("thread-1").activeRunIds).toEqual(["run-1"]);
+    expect(client.getThread("thread-1").queuedMessages).toMatchObject([
+      { text: "B" },
+    ]);
 
     terminals.get("run-1")?.resolve();
     await first.completed;
-    expect(steerQueuedMessage).not.toHaveBeenCalled();
-
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toEqual(["run-2"]),
+    );
+    expect(steerQueuedMessage).toHaveBeenCalledOnce();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
     terminals.get("run-2")?.resolve();
-    await second.completed;
-    await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toEqual([]),
+    );
   });
 
   it("promotes queued work after the run it followed finishes during preparation", async () => {
@@ -4366,7 +4394,7 @@ describe("AgentKitClient", () => {
       });
       await run.completed;
 
-      const retryDelays = [500, 1_000, 2_000, 2_000, 2_000, 2_000, 2_000];
+      const retryDelays = [500, 500, 500, 500, 500, 500, 500];
       for (const [index, delay] of retryDelays.entries()) {
         await vi.advanceTimersByTimeAsync(delay);
         expect(attempts).toBe(index + 2);

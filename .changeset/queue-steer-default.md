@@ -4,4 +4,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Make follow-up queueing reliable and hide agent context from queued message previews.
+Make follow-up queueing reliable, preserve each prompt's run options, and keep internal context out of user-visible text.

@@ -969,6 +969,7 @@ export interface AgentQueuedMessage {
   createdAt: string;
   attachments?: FilePart[];
   metadata?: AgentProtocolMetadata;
+  options?: AgentRunOptions;
 }
 
 export interface ListThreadsInput {
@@ -988,6 +989,10 @@ export interface ThreadIdInput {
 
 export interface ThreadMessageInput extends ThreadIdInput {
   messageId: string;
+}
+
+export interface SteerQueuedMessageInput extends ThreadMessageInput {
+  interruptActiveRun?: boolean;
 }
 
 export interface CreateThreadInput {
@@ -1013,6 +1018,7 @@ export interface QueueMessageInput {
   text: string;
   attachments?: FilePart[];
   metadata?: AgentProtocolMetadata;
+  options?: AgentRunOptions;
 }
 
 export interface QueueMessageResult {
@@ -1064,7 +1070,7 @@ export interface AgentTransportThreadOperations {
   ): Promise<QueueMessageResult>;
   /** Wait for the server's thread run slot before promoting this message. */
   steerQueuedMessage?(
-    input: ThreadMessageInput,
+    input: SteerQueuedMessageInput,
     context?: AgentRequestContext,
   ): Promise<SteerQueuedMessageResult>;
   removeQueuedMessage?(

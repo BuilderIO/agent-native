@@ -12,6 +12,7 @@ import {
   parseAgentEvent,
   parseAgentEventSequence,
   parseAgentProtocolEnvelope,
+  parseAgentQueuedMessage,
   parseInvokeActionInput,
   parseQueueMessageInput,
   parseSubmitFeedbackInput,
@@ -356,8 +357,21 @@ describe("AgentKit protocol validation", () => {
         threadId: "thread-1",
         text: "Run checks",
         attachments: [{ type: "file", name: "brief.md", fileId: "file-1" }],
-      }).text,
-    ).toBe("Run checks");
+        options: { model: "model-1", reasoningEffort: "high" },
+      }),
+    ).toMatchObject({
+      text: "Run checks",
+      options: { model: "model-1", reasoningEffort: "high" },
+    });
+    expect(
+      parseAgentQueuedMessage({
+        id: "queued-1",
+        threadId: "thread-1",
+        text: "Run checks",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        options: { model: "model-1", reasoningEffort: "high" },
+      }).options,
+    ).toEqual({ model: "model-1", reasoningEffort: "high" });
     expect(
       parseInvokeActionInput({
         invocation: {

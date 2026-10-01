@@ -548,6 +548,9 @@ export function parseAgentQueuedMessage(
     );
   }
   optionalMetadata(message.metadata, `${path}.metadata`);
+  if (message.options !== undefined) {
+    parseAgentRunOptions(message.options, `${path}.options`);
+  }
   return value as AgentQueuedMessage;
 }
 
@@ -2681,6 +2684,9 @@ export function parseQueueMessageInput(
     );
   }
   optionalMetadata(input.metadata, `${path}.metadata`);
+  if (input.options !== undefined) {
+    parseAgentRunOptions(input.options, `${path}.options`);
+  }
   return value as QueueMessageInput;
 }
 

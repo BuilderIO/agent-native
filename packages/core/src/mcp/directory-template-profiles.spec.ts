@@ -132,6 +132,12 @@ describe("ChatGPT directory template profiles", () => {
         visibleText.some((text) => mentionsTool(text, name)),
       );
       expect(leaks).toEqual([]);
+      if (appId === "content") {
+        expect(
+          profile.toolDescriptions?.["update-database-item"] ??
+            actions["update-database-item"]?.tool.description,
+        ).not.toContain("patch-database-items");
+      }
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );
