@@ -13862,18 +13862,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       if (keepCurrentParent && pointerOutsideCurrentParent) {
-        var freeParent = currentParent;
-        while (freeParent && freeParent.parentElement && freeParent.parentElement !== document.body && isAutoLayoutElement(freeParent)) {
-          freeParent = freeParent.parentElement;
-        }
-        if (freeParent !== currentParent) {
-          return {
-            anchor: freeParent,
-            placement: "after",
-            axis: "y",
-            dropMode: "flow-insert"
-          };
-        }
         var retainedSlot = nearestChildInsertionTarget(
           currentParent,
           clientX,
@@ -16117,7 +16105,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
         }, resolveReorderOrFreeTarget2 = function(cx, cy, ignoreTargetAutoLayout, forceNestedAutoLayout) {
-          if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
+          keepCurrentFlowParent = bridgeSpaceKeyPressed;
           return flowMoveTargetForPoint(
             reorderEl,
             cx,
@@ -16546,6 +16534,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             return;
           }
           if (ev.code !== "Space" && ev.key !== " ") return;
+          keepCurrentFlowParent = bridgeSpaceKeyPressed;
           ev.preventDefault();
         }, onReorderUp2 = function(ev) {
           if (!ev || !Number.isFinite(ev.clientX) || !Number.isFinite(ev.clientY)) {
