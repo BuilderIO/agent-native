@@ -526,10 +526,12 @@ describe("formatVisualEditClipboardPrompt", () => {
 });
 
 describe("isVisualEditHandoffAcknowledged", () => {
-  it("clears an acknowledged empty handoff at or after the published revision", () => {
+  it("clears only an empty handoff for the exact published client revision", () => {
     const base = {
       expectedPublisherId: "publisher-a",
+      expectedClientRevision: 12,
       publisherId: "publisher-a",
+      clientRevision: 12,
       serverRevision: 81,
       pendingEditCount: 3,
       status: "empty",
@@ -541,9 +543,16 @@ describe("isVisualEditHandoffAcknowledged", () => {
       true,
     );
     expect(
+      isVisualEditHandoffAcknowledged({ ...base, clientRevision: 13 }),
+    ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, expectedClientRevision: 13 }),
+    ).toBe(false);
+    expect(
       isVisualEditHandoffAcknowledged({
         ...base,
         publisherId: "publisher-b",
+        clientRevision: 13,
         revision: 82,
       }),
     ).toBe(false);
@@ -576,6 +585,7 @@ describe("isVisualEditHandoffAcknowledged", () => {
       status: "empty",
       revision: 81,
       publisherId: "publisher-a",
+      clientRevision: 4,
     } as const;
     const queued = updateVisualEditHandoffPublication(null, {
       status: "queued",
@@ -592,6 +602,7 @@ describe("isVisualEditHandoffAcknowledged", () => {
     expect(
       isVisualEditHandoffAcknowledged({
         expectedPublisherId: "publisher-a",
+        expectedClientRevision: publication?.publicationRevision ?? null,
         serverRevision: null,
         pendingEditCount: 3,
         ...handoff,
@@ -601,6 +612,7 @@ describe("isVisualEditHandoffAcknowledged", () => {
     expect(
       isVisualEditHandoffAcknowledged({
         expectedPublisherId: "publisher-a",
+        expectedClientRevision: publication?.publicationRevision ?? null,
         serverRevision: publication?.serverRevision ?? null,
         pendingEditCount: 3,
         ...handoff,

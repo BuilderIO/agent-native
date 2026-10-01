@@ -19022,6 +19022,7 @@ function DesignEditor() {
     status: "empty" | "ready";
     revision: number | null;
     publisherId: string | null;
+    clientRevision: number | null;
   }>(
     "get-visual-edit-pending",
     { designId: id! },
@@ -19310,9 +19311,14 @@ function DesignEditor() {
       !handoff ||
       !isVisualEditHandoffAcknowledged({
         serverRevision,
+        expectedClientRevision:
+          handoffPublication?.designId === id
+            ? handoffPublication.publicationRevision
+            : null,
         pendingEditCount: localPendingCount,
         revision: handoff.revision,
         publisherId: handoff.publisherId,
+        clientRevision: handoff.clientRevision,
         expectedPublisherId: pendingVisualEditPublisherIdRef.current,
         status: handoff.status,
       })

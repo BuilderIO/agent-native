@@ -39,6 +39,7 @@ export default defineAction({
         prompt: schema.designVisualEditPending.prompt,
         revision: schema.designVisualEditPending.revision,
         publisherId: schema.designVisualEditPending.publisherId,
+        clientRevision: schema.designVisualEditPending.clientRevision,
         updatedAt: schema.designVisualEditPending.updatedAt,
       })
       .from(schema.designVisualEditPending)
@@ -52,6 +53,7 @@ export default defineAction({
       prompt: pending?.prompt ?? "",
       revision: pending?.revision ?? null,
       publisherId: pending?.publisherId ?? null,
+      clientRevision: pending?.clientRevision ?? null,
       updatedAt: pending?.updatedAt ?? null,
       next:
         pending?.status === "ready"

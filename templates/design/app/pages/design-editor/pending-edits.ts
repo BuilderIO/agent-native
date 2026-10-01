@@ -1826,7 +1826,9 @@ export function formatVisualEditClipboardPrompt(
 
 export function isVisualEditHandoffAcknowledged(args: {
   expectedPublisherId: string;
+  expectedClientRevision: number | null;
   publisherId: string | null;
+  clientRevision: number | null;
   serverRevision: number | null;
   pendingEditCount: number;
   revision: number | null;
@@ -1836,6 +1838,8 @@ export function isVisualEditHandoffAcknowledged(args: {
     args.pendingEditCount > 0 &&
     args.status === "empty" &&
     args.publisherId === args.expectedPublisherId &&
+    args.expectedClientRevision !== null &&
+    args.clientRevision === args.expectedClientRevision &&
     args.serverRevision !== null &&
     args.revision !== null &&
     args.revision >= args.serverRevision
