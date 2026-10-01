@@ -129,6 +129,7 @@ interface NewDeckReferenceStepProps {
   open: boolean;
   designSystems: DesignSystemOption[];
   decks: Deck[];
+  referenceOptionsLoaded: boolean;
   defaultDesignSystemId: string | null;
   defaultReferenceDeckId: string | null;
   onSelect: (selection: NewDeckReferenceSelection) => void | Promise<void>;
@@ -154,6 +155,7 @@ export function NewDeckReferenceStep({
   open,
   designSystems,
   decks,
+  referenceOptionsLoaded,
   defaultDesignSystemId,
   defaultReferenceDeckId,
   onSelect,
@@ -215,7 +217,10 @@ export function NewDeckReferenceStep({
     selectedDesignSystemId ||
     selectedReferenceDeckId ||
     selectedSourceValid ||
-    (!selectedSource && designSystems.length === 0 && decks.length === 0),
+    (referenceOptionsLoaded &&
+      !selectedSource &&
+      designSystems.length === 0 &&
+      decks.length === 0),
   );
 
   useEffect(() => {

@@ -2668,6 +2668,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         }}
         designSystems={designSystems}
         decks={decks}
+        referenceOptionsLoaded={
+          !loading && !loadError && !designSystemsLoading && !designSystemsError
+        }
         defaultDesignSystemId={
           pendingDeck?.composerContext
             ? pendingDeck.composerContext.designSystemId

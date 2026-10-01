@@ -143,6 +143,7 @@ async function renderStep(
     open: true,
     designSystems: [{ id: "ds-1", title: "Builder" }],
     decks: [] as Deck[],
+    referenceOptionsLoaded: true,
     defaultDesignSystemId: "ds-1",
     defaultReferenceDeckId: null,
     onSelect,
@@ -476,6 +477,32 @@ describe("<NewDeckReferenceStep>", () => {
         designSystemId: null,
         referenceDeckId: null,
       }),
+    );
+  });
+
+  it("waits for reference options to load before continuing without a selection", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: false,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    rerender({
+      designSystems: [{ id: "ds-1", title: "Builder" }],
+      decks: [],
+      referenceOptionsLoaded: true,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
     );
   });
 
