@@ -534,7 +534,12 @@ for (let run = 0; run < runs; run += 1) {
     await waitForBody(page, 0);
     await page.waitForTimeout(settleMs);
     const targetId = clickPath.split("/").pop();
-    const since = await page.evaluate(() => performance.now());
+    // The target page's anchors share names with the source page's, so the
+    // baseline starts over at the click.
+    const since = await page.evaluate(() => {
+      window.__startupTrace.anchors = {};
+      return performance.now();
+    });
     await page
       .locator(`a[href="${clickPath}"]`)
       .filter({ visible: true })
