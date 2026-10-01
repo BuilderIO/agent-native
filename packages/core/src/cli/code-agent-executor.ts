@@ -689,8 +689,11 @@ async function executeClaudeCliRun(options: {
     // Deliver the same host-scoped servers the Codex path receives (see
     // executeCodexCliRun), through a private file rather than argv because
     // the headers can carry session cookies or bearer tokens.
+    const mcpPrincipal = resolveCodeAgentMcpPrincipal(options.run);
     const mcpConfig = claudeMcpConfig(
-      process.env.MCP_SERVERS === undefined ? await buildMergedConfig() : null,
+      process.env.MCP_SERVERS === undefined && mcpPrincipal
+        ? await buildMergedConfig(mcpPrincipal)
+        : null,
     );
     let mcpConfigPath: string | undefined;
     let result: Awaited<ReturnType<typeof runClaudeCodeParticipant>>;
