@@ -23,3 +23,10 @@ export {
   type AgentSqlPolicyErrorCode,
   type AgentSqlQueryRunner,
 } from "./postgres.js";
+export {
+  readAgentSqlQuery,
+  rewriteAgentSqlQuerySources,
+  type AgentSqlQuery,
+  type AgentSqlQueryCte,
+  type AgentSqlQuerySource,
+} from "./query.js";

@@ -244,7 +244,7 @@ CREATE TEMPORARY VIEW "notes" AS
 
 當該列尚不存在時，INSERT 語句會自動注入 `owner_email`。
 
-`db-query` / `db-exec` 工具拒絕模式限定的表引用（`public.<table>`）——限定名稱解析為基表，並會繞過上面的臨時檢視。代理使用裸表名稱；範圍會自動應用。
+`db-query`、`db-exec` 和 `db-patch` 工具依照 Postgres 的方式讀取每條陳述式，並在交易內檢查每個名稱都解析為上述臨時檢視之一。它們會拒絕帶有結構描述或資料庫限定的名稱（`public.<table>`）、檢視未涵蓋的關聯、應用程式定義的 SQL 或 PL/pgSQL 函式與運算子，以及執行 SQL 文字或變更工作階段設定的內建函式。`db-query` 以唯讀方式執行。代理使用裸表名稱；範圍會自動套用。當你的應用程式自行執行代理撰寫的 SQL 時，請使用 `@agent-native/core/agent-sql` 套用相同的檢查。
 
 ### 每個組織範圍界定 (`org_id`)
 

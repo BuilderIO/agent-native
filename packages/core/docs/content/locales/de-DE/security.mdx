@@ -244,7 +244,7 @@ CREATE TEMPORARY VIEW "notes" AS
 
 Bei INSERT-Anweisungen wird `owner_email` automatisch eingefügt, wenn die Spalte noch nicht vorhanden ist.
 
-Die Tools `db-query`/`db-exec` lehnen schemaqualifizierte Tabellenverweise (`public.<table>`) ab – ein qualifizierter Name wird in die Basistabelle aufgelöst und würde die obige temporäre Ansicht umgehen. Agenten verwenden bloße Tabellennamen; Der Geltungsbereich wird automatisch angewendet.
+Die Tools `db-query`, `db-exec` und `db-patch` lesen jede Anweisung so, wie Postgres sie liest, und prüfen innerhalb der Transaktion, dass jeder Name auf eine der obigen temporären Ansichten aufgelöst wird. Sie lehnen schema- oder datenbankqualifizierte Namen (`public.<table>`) ab, ebenso Relationen, die die Ansichten nicht abdecken, app-definierte SQL- oder PL/pgSQL-Funktionen und -Operatoren sowie integrierte Funktionen, die SQL-Text ausführen oder Sitzungseinstellungen ändern. `db-query` läuft schreibgeschützt. Agenten verwenden bloße Tabellennamen; der Geltungsbereich wird automatisch angewendet. Verwenden Sie `@agent-native/core/agent-sql`, um dieselben Prüfungen anzuwenden, wenn Ihre App von Agenten geschriebenes SQL selbst ausführt.
 
 ### Pro-Organisation-Scoping (`org_id`)
 

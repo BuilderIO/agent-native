@@ -246,7 +246,7 @@ CREATE TEMPORARY VIEW "notes" AS
 
 As instruções INSERT são injetadas automaticamente em `owner_email` quando a coluna ainda não está presente.
 
-As ferramentas `db-query`/`db-exec` rejeitam referências de tabela qualificadas pelo esquema (`public.<table>`) — um nome qualificado é resolvido para a tabela base e ignoraria a visualização temporária acima. Os agentes usam nomes de tabelas simples; o escopo é aplicado automaticamente.
+As ferramentas `db-query`, `db-exec` e `db-patch` leem cada instrução da mesma forma que o Postgres e verificam, dentro da transação, se cada nome é resolvido para uma das visualizações temporárias acima. Elas recusam nomes qualificados por esquema ou banco de dados (`public.<table>`), relações que as visualizações não cobrem, funções e operadores SQL ou PL/pgSQL definidos pelo app e funções integradas que executam texto SQL ou alteram configurações da sessão. `db-query` é executado em modo somente leitura. Os agentes usam nomes de tabelas simples; o escopo é aplicado automaticamente. Use `@agent-native/core/agent-sql` para aplicar as mesmas verificações quando seu app executar por conta própria SQL escrito por agentes.
 
 ### Escopo por organização (`org_id`)
 
